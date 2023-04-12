@@ -1,6 +1,6 @@
 name:                eliotc
 version:             0.1.0.0
-github:              "robertbraeutigam/eliotc"
+github:              "robertbraeutigam/eliot"
 license:             BSD3
 author:              "Robert Brautigam"
 maintainer:          "brautigam.robert.gyula@gmail.com"
@@ -11,13 +11,13 @@ extra-source-files:
 - CHANGELOG.md
 
 # Metadata used when publishing your package
-# synopsis:            Short description of your package
-# category:            Compiler
+synopsis:            Compiler for the ELIOT Programming Language
+category:            Compiler
 
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/robertbraeutigam/eliotc#readme>
+description:         Please see the README on GitHub at <https://github.com/robertbraeutigam/eliot#readme>
 
 dependencies:
 - base >= 4.7 && < 5
