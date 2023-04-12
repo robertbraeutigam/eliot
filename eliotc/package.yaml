@@ -1,0 +1,59 @@
+name:                eliotc
+version:             0.1.0.0
+github:              "githubuser/robertbraeutigam"
+license:             BSD3
+author:              "Robert Brautigam"
+maintainer:          "brautigam.robert.gyula@gmail.com"
+copyright:           "2023 Robert Brautigam"
+
+extra-source-files:
+- README.md
+- TODO.md
+
+# Metadata used when publishing your package
+synopsis:            Compiler for the ELIOT language
+category:            Compiler
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/robertbraeutigam/eliot#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+library:
+  source-dirs: src
+
+executables:
+  eliotc-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - eliotc
+
+tests:
+  eliotc-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - eliotc
