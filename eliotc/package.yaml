@@ -4,7 +4,7 @@ github:              "robertbraeutigam/eliotc"
 license:             BSD3
 author:              "Robert Brautigam"
 maintainer:          "brautigam.robert.gyula@gmail.com"
-copyright:           "BSD3"
+copyright:           "Robert Brautigam"
 
 extra-source-files:
 - README.md

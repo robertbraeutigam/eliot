@@ -11,7 +11,7 @@ homepage:       https://github.com/robertbraeutigam/eliotc#readme
 bug-reports:    https://github.com/robertbraeutigam/eliotc/issues
 author:         Robert Brautigam
 maintainer:     brautigam.robert.gyula@gmail.com
-copyright:      BSD3
+copyright:      Robert Brautigam
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
