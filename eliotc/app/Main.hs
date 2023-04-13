@@ -19,5 +19,7 @@ main = do
 arguments :: Mode CommandLineParameters
 arguments = mode "eliotc" (CommandLineParameters False []) "The ELIOT Programming Language compiler."
    (flagArg addPath "[SOURCEDIR]...")
-   [flagHelpSimple (\c -> c {help = True})]
-   where addPath pathCandidate commandLineParameters = Right $ commandLineParameters { sourceDirs = pathCandidate: sourceDirs commandLineParameters }
+   [flagHelpSimple setHelp]
+   where
+      addPath pathCandidate commandLineParameters = Right $ commandLineParameters { sourceDirs = pathCandidate: sourceDirs commandLineParameters }
+      setHelp commandLineParameters = commandLineParameters { help = True }
