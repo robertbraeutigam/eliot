@@ -14,7 +14,7 @@
  - tasks are waiting for facts to become available.
  -}
 
-module FactEngine(FactEngine, FactProcessor, newEngine, registerFact) where
+module FactEngine(FactEngine, FactProcessor, newEngine, registerFact, getFact) where
 
 import qualified Control.Concurrent.STM.Map as STMMap
 import Control.Monad.STM
@@ -24,7 +24,8 @@ import Control.Concurrent.STM.TVar
 import Control.Concurrent.Async
 import Data.Hashable
 
-type FactProcessor k v = v -> FactEngine k v -> IO ()
+-- | Use this type to define processors for facts that you can register in an engine.
+type FactProcessor k v = FactEngine k v -> v -> IO ()
 
 data FactEngine k v = FactEngine {
    processors :: [FactProcessor k v],
@@ -52,13 +53,18 @@ registerFact engine k v = do
       fail ("Fact for " ++ (show k) ++ " was generated twice, internal compiler error.")
 
 -- | Get a fact from the engine, or wait until the fact becomes
--- available. Note: a fact can not change and will stay there forever.
+-- available. Note: a fact can not change and will stay the same forever.
 getFact :: Hashable k => FactEngine k v -> k -> IO v
-getFact engine k = atomically $ do
-   maybeV <- STMMap.lookup k (facts engine) 
-   case maybeV of
-      Just v    -> return v
-      Nothing   -> retry
+getFact engine k =
+   bracket_ incWaitingCount decWaitingCount lookupFact
+   where
+      incWaitingCount = atomically $ modifyTVar (waitingCount engine) (1+)
+      decWaitingCount = atomically $ modifyTVar (waitingCount engine) (1-)
+      lookupFact = atomically $ do
+         maybeV <- STMMap.lookup k (facts engine) 
+         case maybeV of
+            Just v    -> return v
+            Nothing   -> retry
 
 -- Non-exported functions:
 
@@ -67,7 +73,7 @@ startProcessorsFor :: FactEngine k v -> v -> IO ()
 startProcessorsFor engine v = do
    void $ mapConcurrently startProcessor (processors engine)
    where
-      startProcessor p = bracket_ incRunningCount decRunningCount (p v engine)
+      startProcessor p = bracket_ incRunningCount decRunningCount (p engine v)
       incRunningCount = atomically $ modifyTVar (runningCount engine) (1+)
       decRunningCount = atomically $ modifyTVar (runningCount engine) (1-)
 
