@@ -43,18 +43,18 @@ newEngine ps = do
 
 -- | Register a fact into the engine. This will spawn all processors
 -- for this fact. Processors may choose to do nothing.
-registerFact :: (Hashable k, Show k) => k -> v -> FactEngine k v -> IO () 
-registerFact k v engine = do
-   changed <- insertFact k v engine
+registerFact :: (Hashable k, Show k) => FactEngine k v -> k -> v -> IO () 
+registerFact engine k v = do
+   changed <- insertFact engine k v
    if changed then
-      startProcessorsFor v engine
+      startProcessorsFor engine v
    else
       fail ("Fact for " ++ (show k) ++ " was generated twice, internal compiler error.")
 
 -- | Get a fact from the engine, or wait until the fact becomes
 -- available. Note: a fact can not change and will stay there forever.
-getFact :: Hashable k => k -> FactEngine k v -> IO v
-getFact k engine = atomically $ do
+getFact :: Hashable k => FactEngine k v -> k -> IO v
+getFact engine k = atomically $ do
    maybeV <- STMMap.lookup k (facts engine) 
    case maybeV of
       Just v    -> return v
@@ -63,8 +63,8 @@ getFact k engine = atomically $ do
 -- Non-exported functions:
 
 -- | Start all processors given a fact.
-startProcessorsFor :: v -> FactEngine k v -> IO ()
-startProcessorsFor v engine = do
+startProcessorsFor :: FactEngine k v -> v -> IO ()
+startProcessorsFor engine v = do
    void $ mapConcurrently startProcessor (processors engine)
    where
       startProcessor p = bracket_ incRunningCount decRunningCount (p v engine)
@@ -72,8 +72,8 @@ startProcessorsFor v engine = do
       decRunningCount = atomically $ modifyTVar (runningCount engine) (1-)
 
 -- | Insert the fact into the engine and return whether it was inserted.
-insertFact :: Hashable k => k -> v -> FactEngine k v -> IO Bool
-insertFact k v engine = atomically $ do
+insertFact :: Hashable k => FactEngine k v -> k -> v -> IO Bool
+insertFact engine k v = atomically $ do
    present <- STMMap.member k (facts engine)
    if present then pure False else (STMMap.insert k v (facts engine) >> return True)
 
