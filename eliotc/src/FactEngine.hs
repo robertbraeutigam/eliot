@@ -14,35 +14,32 @@
  - tasks are waiting for facts to become available.
  -}
 
-module FactEngine(FactEngine, FactProcessor, ProcessorEngine, newEngine, registerFact) where
+module FactEngine(FactEngine, FactProcessor, newEngine, registerFact) where
 
 import qualified Control.Concurrent.STM.Map as STMMap
 import Control.Monad.STM
+import Control.Monad
+import Control.Exception
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.Async
 import Data.Hashable
 
-type FactProcessor k v = v -> ProcessorEngine k v -> IO ()
+type FactProcessor k v = v -> FactEngine k v -> IO ()
 
 data FactEngine k v = FactEngine {
    processors :: [FactProcessor k v],
    facts :: STMMap.Map k v,
-   nextId :: TVar Int, -- The next id to be used for a running task
-   running :: STMMap.Map Int Int -- Id and the number of Waits that processor has
-}
-
-data ProcessorEngine k v = ProcessorEngine {
-   engine :: FactEngine k v,
-   id :: Int -- The id of this running processor
+   runningCount :: TVar Int,
+   waitingCount :: TVar Int
 }
 
 -- | Create the engine with a given set of tasks.
 newEngine :: [FactProcessor k v] -> IO (FactEngine k v)
 newEngine ps = do
    emptyFacts <- atomically STMMap.empty
-   firstId <- atomically $ newTVar 1
-   emptyRunning <- atomically STMMap.empty
-   return $ FactEngine ps emptyFacts firstId emptyRunning
+   zeroRunningCount <- atomically $ newTVar 0
+   zeroWaitingCount <- atomically $ newTVar 0
+   return $ FactEngine ps emptyFacts zeroRunningCount zeroWaitingCount
 
 -- | Register a fact into the engine. This will spawn all processors
 -- for this fact. Processors may choose to do nothing.
@@ -54,21 +51,6 @@ registerFact k v engine = do
    else
       fail ("Fact for " ++ (show k) ++ " was generated twice, internal compiler error.")
 
--- | Start all processors given a fact.
-startProcessorsFor :: v -> FactEngine k v -> IO ()
-startProcessorsFor v engine = do
-   firstId <- atomically $ readTVar (nextId engine) >>= (\id -> writeTVar (nextId engine) (id+(length (processors engine))) >> return id) 
-   let ps = zip [firstId..(firstId+(length (processors engine)))] (processors engine)
-   mapConcurrently (\(id, processor) -> processor v (ProcessorEngine engine id)) ps
-   return ()
--- TODO: register running processors
-
--- | Insert the fact into the engine and return whether it was inserted.
-insertFact :: Hashable k => k -> v -> FactEngine k v -> IO Bool
-insertFact k v engine = atomically $ do
-   present <- STMMap.member k (facts engine)
-   if present then pure False else (STMMap.insert k v (facts engine) >> return True)
-
 -- | Get a fact from the engine, or wait until the fact becomes
 -- available. Note: a fact can not change and will stay there forever.
 getFact :: Hashable k => k -> FactEngine k v -> IO v
@@ -77,4 +59,21 @@ getFact k engine = atomically $ do
    case maybeV of
       Just v    -> return v
       Nothing   -> retry
+
+-- Non-exported functions:
+
+-- | Start all processors given a fact.
+startProcessorsFor :: v -> FactEngine k v -> IO ()
+startProcessorsFor v engine = do
+   void $ mapConcurrently startProcessor (processors engine)
+   where
+      startProcessor p = bracket_ incRunningCount decRunningCount (p v engine)
+      incRunningCount = atomically $ modifyTVar (runningCount engine) (1+)
+      decRunningCount = atomically $ modifyTVar (runningCount engine) (1-)
+
+-- | Insert the fact into the engine and return whether it was inserted.
+insertFact :: Hashable k => k -> v -> FactEngine k v -> IO Bool
+insertFact k v engine = atomically $ do
+   present <- STMMap.member k (facts engine)
+   if present then pure False else (STMMap.insert k v (facts engine) >> return True)
 
