@@ -14,7 +14,7 @@
  - tasks are waiting for facts to become available.
  -}
 
-module FactEngine(FactEngine, FactProcessor, newEngine, registerFact, getFact) where
+module FactEngine(FactProcessor, resolveFacts, registerFact, getFact) where
 
 import qualified Control.Concurrent.STM.Map as STMMap
 import Control.Monad.STM
@@ -34,13 +34,17 @@ data FactEngine k v = FactEngine {
    waitingCount :: TVar Int
 }
 
--- | Create the engine with a given set of tasks.
-newEngine :: [FactProcessor k v] -> IO (FactEngine k v)
-newEngine ps = do
-   emptyFacts <- atomically STMMap.empty
-   zeroRunningCount <- atomically $ newTVar 0
-   zeroWaitingCount <- atomically $ newTVar 0
-   return $ FactEngine ps emptyFacts zeroRunningCount zeroWaitingCount
+-- | Run the engine with the given processors and initial facts and wait
+-- until all the possible facts are available, or there was some error.
+resolveFacts :: Hashable k => [FactProcessor k v] -> [(k, v)] -> IO (Maybe [(k, v)])
+resolveFacts ps vs = do
+   engine <- newEngine ps vs
+   awaitTermination engine
+   endRunningCount <- atomically $ readTVar (runningCount engine)
+   if endRunningCount == 0 then
+      fmap Just $ STMMap.unsafeToList (facts engine)
+   else
+      return Nothing 
 
 -- | Register a fact into the engine. This will spawn all processors
 -- for this fact. Processors may choose to do nothing.
@@ -82,4 +86,23 @@ insertFact :: Hashable k => FactEngine k v -> k -> v -> IO Bool
 insertFact engine k v = atomically $ do
    present <- STMMap.member k (facts engine)
    if present then pure False else (STMMap.insert k v (facts engine) >> return True)
+
+-- | Create the engine with a given set of tasks.
+newEngine :: Hashable k => [FactProcessor k v] -> [(k, v)] -> IO (FactEngine k v)
+newEngine ps vs = do
+   emptyFacts       <- STMMap.fromList vs
+   zeroRunningCount <- atomically $ newTVar 0
+   zeroWaitingCount <- atomically $ newTVar 0
+   return $ FactEngine ps emptyFacts zeroRunningCount zeroWaitingCount
+
+-- | Wait for the termination of the engine. This is either that that there
+-- are no more running processors, or that all processors are blocked.
+awaitTermination :: FactEngine k v -> IO ()
+awaitTermination engine = atomically $ do
+   currentRunningCount <- readTVar $ runningCount engine
+   currentWaitingCount <- readTVar $ waitingCount engine
+   if currentRunningCount == currentWaitingCount then
+      return ()
+   else
+      retry
 
