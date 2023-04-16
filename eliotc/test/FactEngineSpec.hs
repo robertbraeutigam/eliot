@@ -21,7 +21,12 @@ spec = do
             Just xs -> xs `shouldMatchList` [("x", "a"), ("y", "b")]
             Nothing -> expectationFailure "engine returned nothing unexpectedly"
 
+      it "should fail if a processor fails" $ do
+         resolveFacts [broken] [("x", "a")] `shouldThrow` anyException
+
 aToB :: FactProcessor String String
 aToB engine "a" = registerFact engine "y" "b"
 aToB _ _ = return ()
 
+broken :: FactProcessor String String
+broken _ _ = error "broken processor failure"
