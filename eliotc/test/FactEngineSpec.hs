@@ -2,6 +2,7 @@ module FactEngineSpec (spec) where
 
 import Test.Hspec
 import FactEngine
+import Control.Monad
 
 spec :: Spec
 spec = do
@@ -27,9 +28,17 @@ spec = do
       it "should fail if multiple processors fails" $ do
          resolveFacts [broken, broken, broken] [("x", "a")] `shouldThrow` anyException
 
+      it "should return nothing if processor depends on non-existing fact" $ do
+         resolveFacts [dependsOnX] [("x", "a")] `shouldReturn` Nothing
+
 aToB :: FactProcessor String String
 aToB engine "a" = registerFact engine "y" "b"
 aToB _ _ = return ()
 
 broken :: FactProcessor String String
 broken _ _ = error "broken processor failure"
+
+dependsOnX :: FactProcessor String String
+dependsOnX engine _ = void $ getFact engine "X"
+
+

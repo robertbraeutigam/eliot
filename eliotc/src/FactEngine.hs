@@ -28,8 +28,8 @@ import Data.Hashable
 type FactProcessor k v = FactEngine k v -> v -> IO ()
 
 data FactEngine k v = FactEngine {
-   processors :: [FactProcessor k v],
-   facts :: STMMap.Map k v,
+   processors   :: [FactProcessor k v],
+   facts        :: STMMap.Map k v,
    runningCount :: TVar Int,
    waitingCount :: TVar Int
 }
@@ -40,12 +40,12 @@ resolveFacts :: (Hashable k, Show k) => [FactProcessor k v] -> [(k, v)] -> IO (M
 resolveFacts ps vs = do
    engine <- emptyEngine ps
    sequence_ $ map (uncurry (registerFact engine)) vs
-   awaitTermination engine
-   endRunningCount <- atomically $ readTVar (runningCount engine)
-   if endRunningCount == 0 then
+   endWaitingCount <- atomically $ readTVar (waitingCount engine)
+   if endWaitingCount == 0 then
       fmap Just $ STMMap.unsafeToList (facts engine)
    else
       return Nothing 
+   where
 
 -- | Register a fact into the engine. This will spawn all processors
 -- for this fact. Processors may choose to do nothing.
@@ -61,17 +61,42 @@ registerFact engine k v = do
 -- available. Note: a fact can not change and will stay the same forever.
 getFact :: Hashable k => FactEngine k v -> k -> IO v
 getFact engine k =
-   bracket_ incWaitingCount decWaitingCount lookupFact
+   bracket_ incWaitingCount decWaitingCount $ lookupFact engine k
    where
       incWaitingCount = atomically $ modifyTVar (waitingCount engine) (+1)
-      decWaitingCount = atomically $ modifyTVar (waitingCount engine) (subtract 1)
-      lookupFact = atomically $ do
-         maybeV <- STMMap.lookup k (facts engine) 
-         case maybeV of
-            Just v    -> return v
-            Nothing   -> retry
+      decWaitingCount = atomically $ do
+         terminated <- isTerminated engine
+         if terminated then
+            pure () -- If terminated, we don't want to destroy the equilibrium state, so do nothing
+         else
+            modifyTVar (waitingCount engine) (subtract 1)
 
 -- Non-exported functions:
+
+data TerminateProcessor = TerminateProcessor
+   deriving (Show, Eq)
+
+instance Exception TerminateProcessor
+
+-- | Lookup a fact in the engine. If the engine is terminated however, throw
+-- an exception.
+lookupFact :: Hashable k => FactEngine k v -> k -> IO v
+lookupFact engine k = atomically $ do
+   terminated <- isTerminated engine
+   if terminated then
+      throwSTM TerminateProcessor
+   else do
+      maybeV <- STMMap.lookup k (facts engine) 
+      case maybeV of
+         Just v    -> return v
+         Nothing   -> retry
+
+-- | Determine if the engine is terminated.
+isTerminated :: FactEngine k v -> STM Bool
+isTerminated engine = do
+   currentRunningCount <- readTVar (runningCount engine)
+   currentWaitingCount <- readTVar (waitingCount engine)
+   return $ currentRunningCount == currentWaitingCount
 
 -- | Start all processors given a fact. Note that we increment the running
 -- count synchronously with the returned IO, but decrease one by one as
@@ -81,9 +106,10 @@ startProcessorsFor engine v = void $ do
    addRunningCount
    mapConcurrently startProcessor (processors engine)
    where
-      startProcessor p = bracket_ (pure ()) decRunningCount (p engine v)
+      startProcessor p = bracket_ (pure ()) decRunningCount ((p engine v) `ignoreException` TerminateProcessor)
       decRunningCount = atomically $ modifyTVar (runningCount engine) (subtract 1)
       addRunningCount = atomically $ modifyTVar (runningCount engine) (+ (length (processors engine)))
+      ignoreException a e = catchJust (\r -> if r == e then Just () else Nothing) a (\_ -> return ())
 
 -- | Insert the fact into the engine and return whether it was inserted.
 insertFact :: Hashable k => FactEngine k v -> k -> v -> IO Bool
@@ -98,15 +124,4 @@ emptyEngine ps = do
    zeroRunningCount <- atomically $ newTVar 0
    zeroWaitingCount <- atomically $ newTVar 0
    return $ FactEngine ps emptyFacts zeroRunningCount zeroWaitingCount
-
--- | Wait for the termination of the engine. This is either that that there
--- are no more running processors, or that all processors are blocked.
-awaitTermination :: FactEngine k v -> IO ()
-awaitTermination engine = atomically $ do
-   currentRunningCount <- readTVar $ runningCount engine
-   currentWaitingCount <- readTVar $ waitingCount engine
-   if currentRunningCount == currentWaitingCount then
-      return ()
-   else
-      retry
 
