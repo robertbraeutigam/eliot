@@ -73,14 +73,17 @@ getFact engine k =
 
 -- Non-exported functions:
 
--- | Start all processors given a fact.
+-- | Start all processors given a fact. Note that we increment the running
+-- count synchronously with the returned IO, but decrease one by one as
+-- those IOs terminate.
 startProcessorsFor :: FactEngine k v -> v -> IO ()
-startProcessorsFor engine v = do
-   void $ mapConcurrently startProcessor (processors engine)
+startProcessorsFor engine v = void $ do
+   addRunningCount
+   mapConcurrently startProcessor (processors engine)
    where
-      startProcessor p = bracket_ incRunningCount decRunningCount (p engine v)
-      incRunningCount = atomically $ modifyTVar (runningCount engine) (+ 1)
+      startProcessor p = bracket_ (pure ()) decRunningCount (p engine v)
       decRunningCount = atomically $ modifyTVar (runningCount engine) (subtract 1)
+      addRunningCount = atomically $ modifyTVar (runningCount engine) (+ (length (processors engine)))
 
 -- | Insert the fact into the engine and return whether it was inserted.
 insertFact :: Hashable k => FactEngine k v -> k -> v -> IO Bool
