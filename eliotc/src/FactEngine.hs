@@ -14,18 +14,17 @@
  - tasks are waiting for facts to become available.
  -}
 
-module FactEngine(FactEngine, FactProcessor, resolveFacts, registerFact, getFact) where
+module FactEngine(FactsIO, FactProcessor, resolveFacts, registerFact, getFact) where
 
 import qualified Control.Concurrent.STM.Map as STMMap
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.Reader
 import Control.Monad.STM
 import Control.Monad
 import Control.Exception
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.Async
 import Data.Hashable
-
--- | Use this type to define processors for facts that you can register in an engine.
-type FactProcessor k v = FactEngine k v -> v -> IO ()
 
 data FactEngine k v = FactEngine {
    processors   :: [FactProcessor k v],
@@ -34,12 +33,18 @@ data FactEngine k v = FactEngine {
    waitingCount :: TVar Int
 }
 
+-- | A program built with operations on the FactEngine
+type FactsIO k v = ReaderT (FactEngine k v) IO
+
+-- | Use this type to define processors for facts that you can register in an engine.
+type FactProcessor k v = v -> FactsIO k v ()
+
 -- | Run the engine with the given processors and initial facts and wait
 -- until all the possible facts are available, or there was some error.
 resolveFacts :: (Hashable k, Show k) => [FactProcessor k v] -> [(k, v)] -> IO (Maybe [(k, v)])
 resolveFacts ps vs = do
    engine <- emptyEngine ps
-   sequence_ $ map (uncurry (registerFact engine)) vs
+   runReaderT (sequence_ $ map (uncurry registerFact) vs) engine
    endWaitingCount <- atomically $ readTVar (waitingCount engine)
    if endWaitingCount == 0 then
       fmap Just $ STMMap.unsafeToList (facts engine)
@@ -49,22 +54,24 @@ resolveFacts ps vs = do
 
 -- | Register a fact into the engine. This will spawn all processors
 -- for this fact. Processors may choose to do nothing.
-registerFact :: (Hashable k, Show k) => FactEngine k v -> k -> v -> IO () 
-registerFact engine k v = do
-   changed <- insertFact engine k v
+registerFact :: (Hashable k, Show k) => k -> v -> FactsIO k v () 
+registerFact k v = do
+   engine <- ask
+   changed <- lift $ insertFact engine k v
    if changed then
-      startProcessorsFor engine v
+      lift $ startProcessorsFor engine v
    else
-      fail ("Fact for " ++ (show k) ++ " was generated twice, internal compiler error.")
+      lift $ fail ("Fact for " ++ (show k) ++ " was generated twice, internal compiler error.")
 
 -- | Get a fact from the engine, or wait until the fact becomes
 -- available. Note: a fact can not change and will stay the same forever.
-getFact :: Hashable k => FactEngine k v -> k -> IO v
-getFact engine k =
-   bracket_ incWaitingCount decWaitingCount $ lookupFact engine k
+getFact :: Hashable k => k -> FactsIO k v v
+getFact k = do
+   engine <- ask
+   lift $ bracket_ (incWaitingCount engine) (decWaitingCount engine) $ lookupFact engine k
    where
-      incWaitingCount = atomically $ modifyTVar (waitingCount engine) (+1)
-      decWaitingCount = atomically $ do
+      incWaitingCount engine = atomically $ modifyTVar (waitingCount engine) (+1)
+      decWaitingCount engine = atomically $ do
          terminated <- isTerminated engine
          if terminated then
             pure () -- If terminated, we don't want to destroy the equilibrium state, so do nothing
@@ -106,9 +113,9 @@ startProcessorsFor engine v = void $ do
    addRunningCount
    mapConcurrently startProcessor (processors engine)
    where
-      startProcessor p = bracket_ (pure ()) decRunningCount ((p engine v) `ignoreException` TerminateProcessor)
-      decRunningCount = atomically $ modifyTVar (runningCount engine) (subtract 1)
-      addRunningCount = atomically $ modifyTVar (runningCount engine) (+ (length (processors engine)))
+      startProcessor p    = bracket_ (pure ()) decRunningCount ((runReaderT (p v) engine) `ignoreException` TerminateProcessor)
+      decRunningCount     = atomically $ modifyTVar (runningCount engine) (subtract 1)
+      addRunningCount     = atomically $ modifyTVar (runningCount engine) (+ (length (processors engine)))
       ignoreException a e = catchJust (\r -> if r == e then Just () else Nothing) a (\_ -> return ())
 
 -- | Insert the fact into the engine and return whether it was inserted.

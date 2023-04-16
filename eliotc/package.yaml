@@ -25,6 +25,7 @@ dependencies:
 - cmdargs
 - stm
 - hashable
+- transformers
 - ttrie
 - async
 

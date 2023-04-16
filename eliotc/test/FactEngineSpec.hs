@@ -32,13 +32,12 @@ spec = do
          resolveFacts [dependsOnX] [("x", "a")] `shouldReturn` Nothing
 
 aToB :: FactProcessor String String
-aToB engine "a" = registerFact engine "y" "b"
-aToB _ _ = return ()
+aToB "a" = registerFact "y" "b"
+aToB _ = return ()
 
 broken :: FactProcessor String String
-broken _ _ = error "broken processor failure"
+broken _ = error "broken processor failure"
 
 dependsOnX :: FactProcessor String String
-dependsOnX engine _ = void $ getFact engine "X"
-
+dependsOnX _ = void $ getFact "X"
 
