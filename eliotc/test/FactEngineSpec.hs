@@ -24,6 +24,9 @@ spec = do
       it "should fail if a processor fails" $ do
          resolveFacts [broken] [("x", "a")] `shouldThrow` anyException
 
+      it "should fail if multiple processors fails" $ do
+         resolveFacts [broken, broken, broken] [("x", "a")] `shouldThrow` anyException
+
 aToB :: FactProcessor String String
 aToB engine "a" = registerFact engine "y" "b"
 aToB _ _ = return ()
