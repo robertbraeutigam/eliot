@@ -31,9 +31,19 @@ spec = do
       it "should return nothing if processor depends on non-existing fact" $ do
          resolveFacts [dependsOnX] [("x", "a")] `shouldReturn` Nothing
 
+      it "should execute chains of fact processors" $ do
+         result <- resolveFacts [aToB, bToC] [("a", "a")]
+         case result of
+            Just xs -> xs `shouldMatchList` [("a", "a"), ("y", "b"), ("x", "c")]
+            Nothing -> expectationFailure "engine returned nothing unexpectedly"
+
 aToB :: FactProcessor String String
 aToB "a" = registerFact "y" "b"
 aToB _ = return ()
+
+bToC :: FactProcessor String String
+bToC "b" = registerFact "x" "c"
+bToC _ = return ()
 
 broken :: FactProcessor String String
 broken _ = error "broken processor failure"
