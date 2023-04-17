@@ -98,7 +98,9 @@ lookupFact engine k = atomically $ do
          Just v    -> return v
          Nothing   -> retry
 
--- | Determine if the engine is terminated.
+-- | Determine if the engine is terminated. It is terminated if the running count
+-- is equal to the waiting count. I.e. all processors are waiting on something and
+-- no progress can be made. This is true if there are no processors too.
 isTerminated :: FactsSTM k v Bool
 isTerminated = liftA2 (==) (readEngine runningCount) (readEngine waitingCount)
 
