@@ -61,7 +61,7 @@ resolveFacts ps vs = do
 registerFact :: (Hashable k, Show k) => k -> v -> FactsIO k v () 
 registerFact k v = do
    engine <- ask
-   changed <- lift $ insertFact engine k v
+   changed <- insertFact k v
    if changed then
       lift $ startProcessorsFor engine v
    else
@@ -125,10 +125,10 @@ startProcessorsFor engine v = void $ do
       ignoreException a e = catchJust (\r -> if r == e then Just () else Nothing) a (\_ -> return ())
 
 -- | Insert the fact into the engine and return whether it was inserted.
-insertFact :: Hashable k => FactEngine k v -> k -> v -> IO Bool
-insertFact engine k v = atomically $ do
-   present <- STMMap.member k (facts engine)
-   if present then pure False else (STMMap.insert k v (facts engine) >> return True)
+insertFact :: Hashable k => k -> v -> FactsIO k v Bool
+insertFact k v = tx $ do
+   present <- ask >>= lift . STMMap.member k . facts
+   if present then pure False else ((ask >>= lift . STMMap.insert k v . facts) >> return True)
 
 -- | Create the engine with a given set of tasks.
 emptyEngine :: [FactProcessor k v] -> IO (FactEngine k v)
