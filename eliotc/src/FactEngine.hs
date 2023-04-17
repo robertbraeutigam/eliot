@@ -70,9 +70,7 @@ registerFact k v = do
 -- | Get a fact from the engine, or wait until the fact becomes
 -- available. Note: a fact can not change and will stay the same forever.
 getFact :: Hashable k => k -> FactsIO k v v
-getFact k = do
-   engine <- ask
-   bracket_ incWaitingCount decWaitingCount $ (lift $ lookupFact engine k)
+getFact k = bracket_ incWaitingCount decWaitingCount $ lookupFact k
    where
       incWaitingCount  = tx $ modifyEngine waitingCount (+1)
       decWaitingCount = tx $ whenM (notM isTerminated) $ modifyEngine waitingCount (subtract 1)
@@ -84,16 +82,16 @@ instance Exception TerminateProcessor
 
 -- | Lookup a fact in the engine. If the engine is terminated however, throw
 -- an exception.
-lookupFact :: Hashable k => FactEngine k v -> k -> IO v
-lookupFact engine k = atomically $ do
-   terminated <- (runReaderT isTerminated engine)
+lookupFact :: Hashable k => k -> FactsIO k v v
+lookupFact k = tx $ do
+   terminated <- isTerminated
    if terminated then
-      throwSTM TerminateProcessor
+      lift $ throwSTM TerminateProcessor
    else do
-      maybeV <- STMMap.lookup k (facts engine) 
+      maybeV <- ask >>= (lift . STMMap.lookup k . facts)
       case maybeV of
          Just v    -> return v
-         Nothing   -> retry
+         Nothing   -> lift retry
 
 -- | Determine if the engine is terminated. It is terminated if the running count
 -- is equal to the waiting count. I.e. all processors are waiting on something and
