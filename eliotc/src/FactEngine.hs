@@ -23,6 +23,7 @@ import Control.Monad.Trans.Reader
 import Control.Monad.STM
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Extra
 import Control.Exception.Lifted
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.Async
@@ -74,12 +75,7 @@ getFact k = do
    bracket_ incWaitingCount decWaitingCount $ (lift $ lookupFact engine k)
    where
       incWaitingCount  = tx $ modifyEngine waitingCount (+1)
-      decWaitingCount = tx $ do
-         terminated <- isTerminated
-         if terminated then
-            pure () -- If terminated, we don't want to destroy the equilibrium state, so do nothing
-         else
-            modifyEngine waitingCount (subtract 1)
+      decWaitingCount = tx $ whenM (notM isTerminated) $ modifyEngine waitingCount (subtract 1)
 
 data TerminateProcessor = TerminateProcessor
    deriving (Show, Eq)

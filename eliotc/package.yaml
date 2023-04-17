@@ -25,6 +25,7 @@ dependencies:
 - cmdargs
 - stm
 - hashable
+- extra
 - transformers
 - lifted-base
 - ttrie

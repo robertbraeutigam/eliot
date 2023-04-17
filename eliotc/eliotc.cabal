@@ -38,6 +38,7 @@ library
       async
     , base >=4.7 && <5
     , cmdargs
+    , extra
     , hashable
     , hspec
     , lifted-base
@@ -59,6 +60,7 @@ executable eliotc-exe
     , base >=4.7 && <5
     , cmdargs
     , eliotc
+    , extra
     , hashable
     , hspec
     , lifted-base
@@ -82,6 +84,7 @@ test-suite eliotc-test
     , base >=4.7 && <5
     , cmdargs
     , eliotc
+    , extra
     , hashable
     , hspec
     , lifted-base
