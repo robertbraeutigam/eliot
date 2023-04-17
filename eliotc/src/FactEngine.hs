@@ -22,7 +22,6 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.STM
 import Control.Applicative
-import Control.Monad
 import Control.Monad.Extra
 import Control.Exception.Lifted
 import Control.Concurrent.STM.TVar
@@ -60,12 +59,11 @@ resolveFacts ps vs = do
 -- for this fact. Processors may choose to do nothing.
 registerFact :: (Hashable k, Show k) => k -> v -> FactsIO k v () 
 registerFact k v = do
-   engine <- ask
    changed <- insertFact k v
    if changed then
-      lift $ startProcessorsFor engine v
+      startProcessorsFor v
    else
-      lift $ fail ("Fact for " ++ (show k) ++ " was generated twice, internal compiler error.")
+      fail ("Fact for " ++ (show k) ++ " was generated twice, internal compiler error.")
 
 -- | Get a fact from the engine, or wait until the fact becomes
 -- available. Note: a fact can not change and will stay the same forever.
@@ -96,14 +94,14 @@ lookupFact k = tx $ do
 -- | Start all processors given a fact. Note that we increment the running
 -- count synchronously with the returned IO, but decrease one by one as
 -- those IOs terminate.
-startProcessorsFor :: FactEngine k v -> v -> IO ()
-startProcessorsFor engine v = do
-   addRunningCount
-   mapConcurrently_ startProcessor (processors engine)
+startProcessorsFor :: v -> FactsIO k v ()
+startProcessorsFor v = do
+   ask >>= lift . addRunningCount
+   ask >>= (\e -> lift $ mapConcurrently_ (startProcessor e) (processors e))
    where
-      startProcessor p    = bracket_ (pure ()) decRunningCount ((runReaderT (p v) engine) `ignoreException` TerminateProcessor)
-      decRunningCount     = atomically $ modifyTVar (runningCount engine) (subtract 1)
-      addRunningCount     = atomically $ modifyTVar (runningCount engine) (+ (length (processors engine)))
+      startProcessor e p  = bracket_ (pure ()) (decRunningCount e) ((runReaderT (p v) e) `ignoreException` TerminateProcessor)
+      decRunningCount e   = atomically $ modifyTVar (runningCount e) (subtract 1)
+      addRunningCount e   = atomically $ modifyTVar (runningCount e) (+ (length (processors e)))
       ignoreException a e = catchJust (\r -> if r == e then Just () else Nothing) a (\_ -> return ())
 
 -- | Insert the fact into the engine and return whether it was inserted.
