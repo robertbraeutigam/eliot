@@ -35,12 +35,12 @@ library
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
-      async
-    , base >=4.7 && <5
+      base >=4.7 && <5
     , cmdargs
     , extra
     , hashable
     , hspec
+    , lifted-async
     , lifted-base
     , stm
     , transformers
@@ -56,13 +56,13 @@ executable eliotc-exe
       app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      async
-    , base >=4.7 && <5
+      base >=4.7 && <5
     , cmdargs
     , eliotc
     , extra
     , hashable
     , hspec
+    , lifted-async
     , lifted-base
     , stm
     , transformers
@@ -80,13 +80,13 @@ test-suite eliotc-test
       test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      async
-    , base >=4.7 && <5
+      base >=4.7 && <5
     , cmdargs
     , eliotc
     , extra
     , hashable
     , hspec
+    , lifted-async
     , lifted-base
     , stm
     , transformers

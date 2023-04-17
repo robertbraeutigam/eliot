@@ -29,7 +29,7 @@ dependencies:
 - transformers
 - lifted-base
 - ttrie
-- async
+- lifted-async
 - utility-ht
 
 ghc-options:

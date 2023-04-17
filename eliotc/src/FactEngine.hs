@@ -25,7 +25,7 @@ import Control.Applicative
 import Control.Monad.Extra
 import Control.Exception.Lifted
 import Control.Concurrent.STM.TVar
-import Control.Concurrent.Async
+import Control.Concurrent.Async.Lifted
 import Data.Hashable
 import Data.Maybe.HT
 
@@ -97,11 +97,11 @@ lookupFact k = tx $ do
 startProcessorsFor :: v -> FactsIO k v ()
 startProcessorsFor v = do
    ask >>= lift . addRunningCount
-   ask >>= (\e -> lift $ mapConcurrently_ (startProcessor e) (processors e))
+   ask >>= (\e -> mapConcurrently_ startProcessor (processors e))
    where
-      startProcessor e p  = bracket_ (pure ()) (decRunningCount e) ((runReaderT (p v) e) `ignoreException` TerminateProcessor)
-      decRunningCount e   = atomically $ modifyTVar (runningCount e) (subtract 1)
       addRunningCount e   = atomically $ modifyTVar (runningCount e) (+ (length (processors e)))
+      startProcessor p    = bracket_ (pure ()) decRunningCount ((p v) `ignoreException` TerminateProcessor)
+      decRunningCount     = tx $ modifyEngine runningCount (subtract 1)
       ignoreException a e = catchJust (\r -> if r == e then Just () else Nothing) a (\_ -> return ())
 
 -- | Insert the fact into the engine and return whether it was inserted.
