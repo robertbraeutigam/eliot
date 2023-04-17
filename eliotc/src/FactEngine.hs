@@ -20,6 +20,7 @@ import qualified Control.Concurrent.STM.Map as STMMap
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.STM
+import qualified Control.Monad.STM.Class as STMClass
 import Control.Monad
 import Control.Exception
 import Control.Concurrent.STM.TVar
@@ -36,6 +37,9 @@ data FactEngine k v = FactEngine {
 
 -- | A program built with operations on the FactEngine
 type FactsIO k v = ReaderT (FactEngine k v) IO
+
+-- | An STM program that uses the FactEngine
+type FactsSTM k v = ReaderT (FactEngine k v) STM
 
 -- | Use this type to define processors for facts that you can register in an engine.
 type FactProcessor k v = v -> FactsIO k v ()
@@ -70,13 +74,11 @@ getFact k = do
    where
       incWaitingCount engine = atomically $ modifyTVar (waitingCount engine) (+1)
       decWaitingCount engine = atomically $ do
-         terminated <- isTerminated engine
+         terminated <- (runReaderT isTerminated engine)
          if terminated then
             pure () -- If terminated, we don't want to destroy the equilibrium state, so do nothing
          else
             modifyTVar (waitingCount engine) (subtract 1)
-
--- Non-exported functions:
 
 data TerminateProcessor = TerminateProcessor
    deriving (Show, Eq)
@@ -87,7 +89,7 @@ instance Exception TerminateProcessor
 -- an exception.
 lookupFact :: Hashable k => FactEngine k v -> k -> IO v
 lookupFact engine k = atomically $ do
-   terminated <- isTerminated engine
+   terminated <- (runReaderT isTerminated engine)
    if terminated then
       throwSTM TerminateProcessor
    else do
@@ -97,10 +99,11 @@ lookupFact engine k = atomically $ do
          Nothing   -> retry
 
 -- | Determine if the engine is terminated.
-isTerminated :: FactEngine k v -> STM Bool
-isTerminated engine = do
-   currentRunningCount <- readTVar (runningCount engine)
-   currentWaitingCount <- readTVar (waitingCount engine)
+isTerminated :: FactsSTM k v Bool
+isTerminated = do
+   engine <- ask
+   currentRunningCount <- STMClass.readTVar (runningCount engine)
+   currentWaitingCount <- STMClass.readTVar (waitingCount engine)
    return $ currentRunningCount == currentWaitingCount
 
 -- | Start all processors given a fact. Note that we increment the running

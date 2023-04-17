@@ -38,6 +38,7 @@ library
       async
     , base >=4.7 && <5
     , cmdargs
+    , concurrency
     , hashable
     , hspec
     , stm
@@ -57,6 +58,7 @@ executable eliotc-exe
       async
     , base >=4.7 && <5
     , cmdargs
+    , concurrency
     , eliotc
     , hashable
     , hspec
@@ -79,6 +81,7 @@ test-suite eliotc-test
       async
     , base >=4.7 && <5
     , cmdargs
+    , concurrency
     , eliotc
     , hashable
     , hspec
