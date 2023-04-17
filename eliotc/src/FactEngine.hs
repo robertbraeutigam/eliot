@@ -71,15 +71,15 @@ registerFact k v = do
 getFact :: Hashable k => k -> FactsIO k v v
 getFact k = do
    engine <- ask
-   bracket_ incWaitingCount (lift $ decWaitingCount engine) $ (lift $ lookupFact engine k)
+   bracket_ incWaitingCount decWaitingCount $ (lift $ lookupFact engine k)
    where
       incWaitingCount  = tx $ modifyEngine waitingCount (+1)
-      decWaitingCount engine = atomically $ do
-         terminated <- (runReaderT isTerminated engine)
+      decWaitingCount = tx $ do
+         terminated <- isTerminated
          if terminated then
             pure () -- If terminated, we don't want to destroy the equilibrium state, so do nothing
          else
-            modifyTVar (waitingCount engine) (subtract 1)
+            modifyEngine waitingCount (subtract 1)
 
 data TerminateProcessor = TerminateProcessor
    deriving (Show, Eq)
