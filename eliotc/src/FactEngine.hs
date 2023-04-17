@@ -99,10 +99,7 @@ lookupFact engine k = atomically $ do
 
 -- | Determine if the engine is terminated.
 isTerminated :: FactsSTM k v Bool
-isTerminated = do
-   currentRunningCount <- readEngine runningCount
-   currentWaitingCount <- readEngine waitingCount
-   return $ currentRunningCount == currentWaitingCount
+isTerminated = liftA2 (==) (readEngine runningCount) (readEngine waitingCount)
 
 readEngine :: (FactEngine k v -> TVar a) -> FactsSTM k v a
 readEngine f = ask >>= (lift . readTVar . f)
