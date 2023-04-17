@@ -100,10 +100,12 @@ lookupFact engine k = atomically $ do
 -- | Determine if the engine is terminated.
 isTerminated :: FactsSTM k v Bool
 isTerminated = do
-   engine <- ask
-   currentRunningCount <- lift $ readTVar (runningCount engine)
-   currentWaitingCount <- lift $ readTVar (waitingCount engine)
+   currentRunningCount <- readEngine runningCount
+   currentWaitingCount <- readEngine waitingCount
    return $ currentRunningCount == currentWaitingCount
+
+readEngine :: (FactEngine k v -> TVar a) -> FactsSTM k v a
+readEngine f = ask >>= (lift . readTVar . f)
 
 -- | Start all processors given a fact. Note that we increment the running
 -- count synchronously with the returned IO, but decrease one by one as
