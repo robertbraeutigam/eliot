@@ -93,24 +93,6 @@ lookupFact k = tx $ do
          Just v    -> return v
          Nothing   -> lift retry
 
--- | Determine if the engine is terminated. It is terminated if the running count
--- is equal to the waiting count. I.e. all processors are waiting on something and
--- no progress can be made. This is true if there are no processors too.
-isTerminated :: FactsSTM k v Bool
-isTerminated = liftA2 (==) (readEngine runningCount) (readEngine waitingCount)
-
--- | Read from one of the TVar properties of the engine
-readEngine :: (FactEngine k v -> TVar a) -> FactsSTM k v a
-readEngine f = ask >>= (lift . readTVar . f)
-
--- | Modify one of the TVar properties of the engine
-modifyEngine :: (FactEngine k v -> TVar a) -> (a -> a) -> FactsSTM k v ()
-modifyEngine f g = ask >>= (lift . flip modifyTVar g . f)
-
--- | Run the FactsSTM into FactsIO
-tx :: FactsSTM k v a -> FactsIO k v a
-tx s = ask >>= (lift . atomically . (runReaderT s))
-
 -- | Start all processors given a fact. Note that we increment the running
 -- count synchronously with the returned IO, but decrease one by one as
 -- those IOs terminate.
@@ -137,4 +119,22 @@ emptyEngine ps = do
    zeroRunningCount <- atomically $ newTVar 0
    zeroWaitingCount <- atomically $ newTVar 0
    return $ FactEngine ps emptyFacts zeroRunningCount zeroWaitingCount
+
+-- | Determine if the engine is terminated. It is terminated if the running count
+-- is equal to the waiting count. I.e. all processors are waiting on something and
+-- no progress can be made. This is true if there are no processors too.
+isTerminated :: FactsSTM k v Bool
+isTerminated = liftA2 (==) (readEngine runningCount) (readEngine waitingCount)
+
+-- | Read from one of the TVar properties of the engine
+readEngine :: (FactEngine k v -> TVar a) -> FactsSTM k v a
+readEngine f = ask >>= (lift . readTVar . f)
+
+-- | Modify one of the TVar properties of the engine
+modifyEngine :: (FactEngine k v -> TVar a) -> (a -> a) -> FactsSTM k v ()
+modifyEngine f g = ask >>= (lift . flip modifyTVar g . f)
+
+-- | Run the FactsSTM into FactsIO
+tx :: FactsSTM k v a -> FactsIO k v a
+tx s = ask >>= (lift . atomically . (runReaderT s))
 
