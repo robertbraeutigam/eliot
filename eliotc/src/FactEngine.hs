@@ -96,10 +96,10 @@ lookupFact k = tx $ do
 -- those IOs terminate.
 startProcessorsFor :: v -> FactsIO k v ()
 startProcessorsFor v = do
-   ask >>= lift . addRunningCount
+   ask >>= addRunningCount . length . processors
    ask >>= mapConcurrently_ startProcessor . processors
    where
-      addRunningCount e   = atomically $ modifyTVar (runningCount e) (+ (length (processors e)))
+      addRunningCount c   = tx $ modifyEngine runningCount (+ c)
       startProcessor p    = bracket_ (pure ()) decRunningCount ((p v) `ignoreException` TerminateProcessor)
       decRunningCount     = tx $ modifyEngine runningCount (subtract 1)
       ignoreException a e = catchJust (\r -> if r == e then Just () else Nothing) a (\_ -> return ())
