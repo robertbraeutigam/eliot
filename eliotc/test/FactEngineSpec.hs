@@ -37,6 +37,12 @@ spec = do
             Just xs -> xs `shouldMatchList` [("a", "a"), ("y", "b"), ("x", "c")]
             Nothing -> expectationFailure "engine returned nothing unexpectedly"
 
+      it "should execute test that is waiting for an additional fact" $ do
+         result <- resolveFacts [aToB, bToC, abcToD] [("a", "a")]
+         case result of
+            Just xs -> xs `shouldMatchList` [("a", "a"), ("y", "b"), ("x", "c"), ("z", "c")]
+            Nothing -> expectationFailure "engine returned nothing unexpectedly"
+
 aToB :: FactProcessor String String
 aToB "a" = registerFact "y" "b"
 aToB _ = return ()
@@ -44,6 +50,10 @@ aToB _ = return ()
 bToC :: FactProcessor String String
 bToC "b" = registerFact "x" "c"
 bToC _ = return ()
+
+abcToD :: FactProcessor String String
+abcToD "a" = getFact "x" >> getFact "y" >> (registerFact "z" "c")
+abcToD _ = return ()
 
 broken :: FactProcessor String String
 broken _ = error "broken processor failure"
