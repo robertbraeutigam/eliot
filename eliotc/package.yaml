@@ -26,7 +26,6 @@ dependencies:
 - stm
 - hashable
 - transformers
-- concurrency
 - ttrie
 - async
 - utility-ht

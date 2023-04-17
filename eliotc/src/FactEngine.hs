@@ -20,7 +20,6 @@ import qualified Control.Concurrent.STM.Map as STMMap
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.STM
-import qualified Control.Monad.STM.Class as STMClass
 import Control.Monad
 import Control.Exception
 import Control.Concurrent.STM.TVar
@@ -102,8 +101,8 @@ lookupFact engine k = atomically $ do
 isTerminated :: FactsSTM k v Bool
 isTerminated = do
    engine <- ask
-   currentRunningCount <- STMClass.readTVar (runningCount engine)
-   currentWaitingCount <- STMClass.readTVar (waitingCount engine)
+   currentRunningCount <- lift $ readTVar (runningCount engine)
+   currentWaitingCount <- lift $ readTVar (waitingCount engine)
    return $ currentRunningCount == currentWaitingCount
 
 -- | Start all processors given a fact. Note that we increment the running
