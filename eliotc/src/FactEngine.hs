@@ -20,6 +20,7 @@ import qualified Control.Concurrent.STM.Map as STMMap
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.STM
+import Control.Applicative
 import Control.Monad
 import Control.Exception
 import Control.Concurrent.STM.TVar
