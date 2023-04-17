@@ -25,6 +25,7 @@ import Control.Exception
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.Async
 import Data.Hashable
+import Data.Maybe.HT
 
 data FactEngine k v = FactEngine {
    processors   :: [FactProcessor k v],
@@ -45,12 +46,9 @@ resolveFacts :: (Hashable k, Show k) => [FactProcessor k v] -> [(k, v)] -> IO (M
 resolveFacts ps vs = do
    engine <- emptyEngine ps
    runReaderT (sequence_ $ map (uncurry registerFact) vs) engine
-   endWaitingCount <- atomically $ readTVar (waitingCount engine)
-   if endWaitingCount == 0 then
-      fmap Just $ STMMap.unsafeToList (facts engine)
-   else
-      return Nothing 
+   toMaybe <$> (wasSuccessful engine) <*> STMMap.unsafeToList (facts engine)
    where
+      wasSuccessful engine = (== 0) <$> (atomically $ readTVar (waitingCount engine))
 
 -- | Register a fact into the engine. This will spawn all processors
 -- for this fact. Processors may choose to do nothing.

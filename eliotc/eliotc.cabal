@@ -43,6 +43,7 @@ library
     , stm
     , transformers
     , ttrie
+    , utility-ht
   default-language: Haskell2010
 
 executable eliotc-exe
@@ -62,6 +63,7 @@ executable eliotc-exe
     , stm
     , transformers
     , ttrie
+    , utility-ht
   default-language: Haskell2010
 
 test-suite eliotc-test
@@ -83,4 +85,5 @@ test-suite eliotc-test
     , stm
     , transformers
     , ttrie
+    , utility-ht
   default-language: Haskell2010
