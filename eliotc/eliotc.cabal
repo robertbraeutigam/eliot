@@ -40,6 +40,7 @@ library
     , cmdargs
     , hashable
     , hspec
+    , lifted-base
     , stm
     , transformers
     , ttrie
@@ -60,6 +61,7 @@ executable eliotc-exe
     , eliotc
     , hashable
     , hspec
+    , lifted-base
     , stm
     , transformers
     , ttrie
@@ -82,6 +84,7 @@ test-suite eliotc-test
     , eliotc
     , hashable
     , hspec
+    , lifted-base
     , stm
     , transformers
     , ttrie

@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-|
  - A generic dependency resolver engine that is configured with a set
  - of processors that work on facts. When a fact is registered,
@@ -22,7 +23,7 @@ import Control.Monad.Trans.Reader
 import Control.Monad.STM
 import Control.Applicative
 import Control.Monad
-import Control.Exception
+import Control.Exception.Lifted
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.Async
 import Data.Hashable
@@ -70,9 +71,9 @@ registerFact k v = do
 getFact :: Hashable k => k -> FactsIO k v v
 getFact k = do
    engine <- ask
-   lift $ bracket_ (incWaitingCount engine) (decWaitingCount engine) $ lookupFact engine k
+   bracket_ incWaitingCount (lift $ decWaitingCount engine) $ (lift $ lookupFact engine k)
    where
-      incWaitingCount engine = atomically $ modifyTVar (waitingCount engine) (+1)
+      incWaitingCount  = tx $ modifyEngine waitingCount (+1)
       decWaitingCount engine = atomically $ do
          terminated <- (runReaderT isTerminated engine)
          if terminated then
@@ -104,8 +105,17 @@ lookupFact engine k = atomically $ do
 isTerminated :: FactsSTM k v Bool
 isTerminated = liftA2 (==) (readEngine runningCount) (readEngine waitingCount)
 
+-- | Read from one of the TVar properties of the engine
 readEngine :: (FactEngine k v -> TVar a) -> FactsSTM k v a
 readEngine f = ask >>= (lift . readTVar . f)
+
+-- | Modify one of the TVar properties of the engine
+modifyEngine :: (FactEngine k v -> TVar a) -> (a -> a) -> FactsSTM k v ()
+modifyEngine f g = ask >>= (lift . flip modifyTVar g . f)
+
+-- | Run the FactsSTM into FactsIO
+tx :: FactsSTM k v a -> FactsIO k v a
+tx s = ask >>= (lift . atomically . (runReaderT s))
 
 -- | Start all processors given a fact. Note that we increment the running
 -- count synchronously with the returned IO, but decrease one by one as

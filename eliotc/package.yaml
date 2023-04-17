@@ -26,6 +26,7 @@ dependencies:
 - stm
 - hashable
 - transformers
+- lifted-base
 - ttrie
 - async
 - utility-ht
