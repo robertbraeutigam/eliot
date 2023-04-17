@@ -97,9 +97,9 @@ lookupFact k = tx $ do
 -- count synchronously with the returned IO, but decrease one by one as
 -- those IOs terminate.
 startProcessorsFor :: FactEngine k v -> v -> IO ()
-startProcessorsFor engine v = void $ do
+startProcessorsFor engine v = do
    addRunningCount
-   mapConcurrently startProcessor (processors engine)
+   mapConcurrently_ startProcessor (processors engine)
    where
       startProcessor p    = bracket_ (pure ()) decRunningCount ((runReaderT (p v) engine) `ignoreException` TerminateProcessor)
       decRunningCount     = atomically $ modifyTVar (runningCount engine) (subtract 1)
