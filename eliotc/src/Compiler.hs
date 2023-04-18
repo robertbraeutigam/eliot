@@ -7,13 +7,15 @@ module Compiler(compile) where
 import FactEngine
 import CompilerFacts
 import Logging
+import Files
 
 -- | Run the compiler on the given source paths.
 compile :: [String] -> IO ()
 compile [] = errorMsg "There were no source paths given. Please supply at least one directory with ELIOT sources."
 compile paths = do
-   facts <- resolveFacts [] sourcePathFacts
+   facts <- resolveFacts processors sourcePathFacts
    case facts of
-      Just(allFacts) -> debugMsg $ "Calculated facts " ++ (show allFacts)
+      Just(allFacts) -> debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
       Nothing        -> errorMsg "Compiler terminated with errors. See previous errors for details."
-   where sourcePathFacts = map (\s -> (SourcePathArgument s, SourcePath s)) paths
+   where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
+         processors = [directoryWalker]

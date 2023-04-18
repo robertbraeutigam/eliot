@@ -24,6 +24,8 @@ dependencies:
 - hspec
 - cmdargs
 - ansi-terminal
+- directory
+- filepath
 - stm
 - hashable
 - extra

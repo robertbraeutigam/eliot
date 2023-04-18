@@ -9,10 +9,14 @@ import GHC.Generics
 import Data.Hashable
 import FactEngine
 
-data Signal = SourcePathArgument String
+data Signal =
+     SourcePathDetected FilePath
+   | SourceFileDetected FilePath
    deriving (Eq, Show, Generic, Hashable)
 
-data Fact = SourcePath String
+data Fact = 
+     SourcePath FilePath                -- A path to some file or directory containing source code
+   | SourceFile FilePath                -- A source file that has been detected
    deriving (Eq, Show)
 
 type CompilerProcessor = FactProcessor Signal Fact

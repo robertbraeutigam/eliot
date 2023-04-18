@@ -30,6 +30,7 @@ library
       Compiler
       CompilerFacts
       FactEngine
+      Files
       Logging
   other-modules:
       Paths_eliotc
@@ -40,7 +41,9 @@ library
       ansi-terminal
     , base >=4.7 && <5
     , cmdargs
+    , directory
     , extra
+    , filepath
     , hashable
     , hspec
     , lifted-async
@@ -62,8 +65,10 @@ executable eliotc-exe
       ansi-terminal
     , base >=4.7 && <5
     , cmdargs
+    , directory
     , eliotc
     , extra
+    , filepath
     , hashable
     , hspec
     , lifted-async
@@ -87,8 +92,10 @@ test-suite eliotc-test
       ansi-terminal
     , base >=4.7 && <5
     , cmdargs
+    , directory
     , eliotc
     , extra
+    , filepath
     , hashable
     , hspec
     , lifted-async
