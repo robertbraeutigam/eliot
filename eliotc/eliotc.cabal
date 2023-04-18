@@ -28,6 +28,7 @@ source-repository head
 library
   exposed-modules:
       Compiler
+      CompilerFacts
       FactEngine
   other-modules:
       Paths_eliotc
