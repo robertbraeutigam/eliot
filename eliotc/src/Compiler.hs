@@ -6,8 +6,6 @@ module Compiler(compile) where
 
 import Control.Monad.Extra
 import Data.Maybe
-import System.Environment
-import System.IO
 import FactEngine
 import CompilerFacts
 import Logging
@@ -15,8 +13,6 @@ import Logging
 -- | Run the compiler on the given source paths.
 compile :: [String] -> IO ()
 compile [] = errorMsg "There were no source paths given. Please supply at least one directory with ELIOT sources."
-compile paths = whenM (isNothing <$> resolveFacts [] sourcePathFacts) $ do
-   progName <- getProgName
-   hPutStrLn stderr (progName ++ ":compiler terminated with error")
+compile paths = whenM (isNothing <$> resolveFacts [] sourcePathFacts) $ errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathArgument s, SourcePath s)) paths
 
