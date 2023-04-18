@@ -5,9 +5,6 @@
 module Main (main) where
 
 import System.Console.CmdArgs.Explicit
-import System.Environment
-import System.IO.Error
-import System.IO
 import Compiler
 
 data CommandLineParameters = CommandLineParameters { help :: Bool, sourceDirs :: [String] }
@@ -21,13 +18,7 @@ main = do
    if help args then
       print $ helpText [] HelpFormatDefault arguments
    else
-      catchIOError
-         (compile $ sourceDirs args)
-         (prettyPrintError)
-   where
-      prettyPrintError e = do
-         progName <- getProgName
-         hPutStrLn stderr (progName ++ ":" ++ (ioeGetErrorString e))
+      compile $ sourceDirs args
 
 -- | Define the command line arguments the compile can accept.
 arguments :: Mode CommandLineParameters
