@@ -12,11 +12,13 @@ import FactEngine
 data Signal =
      SourcePathDetected FilePath
    | SourceFileDetected FilePath
+   | SourceFileRead     FilePath
    deriving (Eq, Show, Generic, Hashable)
 
 data Fact = 
      SourcePath FilePath                -- A path to some file or directory containing source code
    | SourceFile FilePath                -- A source file that has been detected
+   | SourceFileContent String           -- Contents of a source file
    deriving (Eq, Show)
 
 type CompilerProcessor = FactProcessor Signal Fact

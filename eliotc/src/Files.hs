@@ -1,13 +1,13 @@
 {-| Processor for reading directories and files.
  -}
 
-module Files (directoryWalker) where
+module Files (directoryWalker, fileReader) where
 
 import Control.Monad.Trans.Class
 import System.FilePath
 import System.Directory
 import Control.Monad
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, isSuffixOf)
 import FactEngine
 import CompilerFacts
 import Logging
@@ -21,3 +21,8 @@ directoryWalker (SourcePath path) = do
    when ((not isFile) && (not isDirectory)) $ errorMsg $ "Path " ++ path ++ " is neither a file nor directory"
 directoryWalker _ = return ()
 
+fileReader :: CompilerProcessor
+fileReader (SourceFile path)
+   | ".els" `isSuffixOf` path = (lift $ readFile path) >>= (registerFact (SourceFileRead path) . SourceFileContent)
+   | otherwise                = debugMsg $ "Ignoring source file because not ending in '.els': " ++ path
+fileReader _ = return ()

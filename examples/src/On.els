@@ -1,0 +1,4 @@
+import eliot.device.Output
+
+def main = high PA1
+
