@@ -27,13 +27,13 @@ source-repository head
 
 library
   exposed-modules:
-      AST
       Compiler
       CompilerFacts
       FactEngine
       Files
       Logging
-      Parser
+      TokenParser
+      Tokens
   other-modules:
       Paths_eliotc
   hs-source-dirs:

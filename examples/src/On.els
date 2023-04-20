@@ -1,4 +1,8 @@
-import eliot.device.Output
+/**
+ * Example program to switch PA1 pin on.
+ */
 
-def main = high PA1
+import eliot.device.Output    // Import output related functions
+
+main = high PA1
 
