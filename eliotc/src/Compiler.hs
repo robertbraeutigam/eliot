@@ -8,6 +8,7 @@ import FactEngine
 import CompilerFacts
 import Logging
 import Files
+import Parser
 
 -- | Run the compiler on the given source paths.
 compile :: [String] -> IO ()
@@ -18,4 +19,4 @@ compile paths = do
       Just(allFacts) -> debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
       Nothing        -> errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
-         processors = [directoryWalker, fileReader]
+         processors = [directoryWalker, fileReader, parserProcessor]

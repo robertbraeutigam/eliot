@@ -27,11 +27,13 @@ source-repository head
 
 library
   exposed-modules:
+      AST
       Compiler
       CompilerFacts
       FactEngine
       Files
       Logging
+      Parser
   other-modules:
       Paths_eliotc
   hs-source-dirs:
@@ -48,6 +50,7 @@ library
     , hspec
     , lifted-async
     , lifted-base
+    , parsec
     , stm
     , transformers
     , ttrie
@@ -73,6 +76,7 @@ executable eliotc-exe
     , hspec
     , lifted-async
     , lifted-base
+    , parsec
     , stm
     , transformers
     , ttrie
@@ -100,6 +104,7 @@ test-suite eliotc-test
     , hspec
     , lifted-async
     , lifted-base
+    , parsec
     , stm
     , transformers
     , ttrie
