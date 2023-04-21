@@ -28,11 +28,8 @@ source-repository head
 library
   exposed-modules:
       Compiler
-      CompilerFacts
       FactEngine
-      Files
       Logging
-      TokenParser
       Tokens
   other-modules:
       Paths_eliotc
