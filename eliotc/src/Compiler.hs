@@ -8,6 +8,8 @@ module Compiler(compile) where
 import Control.Monad
 import Control.Monad.Trans.Class
 import Data.List (isPrefixOf, isSuffixOf)
+import Text.Parsec.Error
+import Text.Parsec.Pos
 import System.FilePath
 import System.Directory
 import GHC.Generics
@@ -22,12 +24,14 @@ data Signal =
      SourcePathDetected FilePath
    | SourceFileDetected FilePath
    | SourceFileRead     FilePath
+   | SourceTokenized    FilePath
    deriving (Eq, Show, Generic, Hashable)
 
 data Fact = 
      SourcePath FilePath                -- A path to some file or directory containing source code
    | SourceFile FilePath                -- A source file that has been detected
-   | SourceFileContent String           -- Contents of a source file
+   | SourceFileContent FilePath String  -- Contents of a source file
+   | SourceTokens FilePath [Token]      -- Tokens read from a source file
    deriving (Eq, Show)
 
 type CompilerProcessor = FactProcessor Signal Fact
@@ -56,11 +60,14 @@ directoryWalker _ = return ()
 
 fileReader :: CompilerProcessor
 fileReader (SourceFile path)
-   | ".els" `isSuffixOf` path = (lift $ readFile path) >>= (registerFact (SourceFileRead path) . SourceFileContent)
+   | ".els" `isSuffixOf` path = (lift $ readFile path) >>= (registerFact (SourceFileRead path) . (SourceFileContent path))
    | otherwise                = debugMsg $ "Ignoring source file because not ending in '.els': " ++ path
 fileReader _ = return ()
 
 parseTokensProcessor :: CompilerProcessor
-parseTokensProcessor (SourceFileContent code) = debugMsg $ show $ parseTokens code
+parseTokensProcessor (SourceFileContent path code) = case (parseTokens code) of
+   Left parserError -> compilerErrorMsg path (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError)
+      "Block comment was not closed, end of file reached. Please close block comment with '*/'."
+   Right tokens     -> registerFact (SourceTokenized path) (SourceTokens path tokens)
 parseTokensProcessor _ = return ()
 
