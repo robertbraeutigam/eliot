@@ -11,7 +11,7 @@ import Control.Monad
 
 data Token = Identifier String   -- Satisfies the rules for a generic identifier ~alphanumeric
            | Symbol String       -- Sort-of identifier comprised of non-alphanumberic characters
-   deriving (Show)
+   deriving (Show, Eq)
 
 parseTokens :: String -> Either ParseError [Token]
 parseTokens code = parse (whiteSpace >> (many ((identifier <|> operator) <* whiteSpace)) <* eof) "" code
