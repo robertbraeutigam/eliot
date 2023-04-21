@@ -9,10 +9,10 @@ spec = do
       it "should not return tokens in line comments" $ do
          parseTokens "// not tokens" `shouldBe` Right []
 
-      it "should not return tokens before line comments" $ do
+      it "should return tokens before line comments" $ do
          parseTokens "token // not tokens" `shouldBe` Right [Identifier "token"]
 
-      it "should not return tokens after line comments in the next line" $ do
+      it "should return tokens after line comments in the next line" $ do
          parseTokens "// not tokens\nagain" `shouldBe` Right [Identifier "again"]
 
       it "should not return tokens in block comments" $ do
@@ -21,10 +21,13 @@ spec = do
       it "should not return tokens in block comments with multiple lines" $ do
          parseTokens "/* not tokens\nagain no\ntokens here */" `shouldBe` Right []
 
-      it "should not return tokens before block comments" $ do
+      it "should return tokens before block comments" $ do
          parseTokens "token /* not tokens */" `shouldBe` Right [Identifier "token"]
 
-      it "should not return tokens after block comments" $ do
+      it "should return tokens after block comments" $ do
          parseTokens "/* not tokens */again" `shouldBe` Right [Identifier "again"]
+
+      it "should fail on broken block comment" $ do
+         parseTokens "/* block comment not balanced" `shouldBe` Right []
 
 
