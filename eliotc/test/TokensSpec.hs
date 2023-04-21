@@ -1,5 +1,6 @@
 module TokensSpec (spec) where
 
+import Data.Either
 import Test.Hspec
 import Tokens
 
@@ -28,6 +29,6 @@ spec = do
          parseTokens "/* not tokens */again" `shouldBe` Right [Identifier "again"]
 
       it "should fail on broken block comment" $ do
-         parseTokens "/* block comment not balanced" `shouldBe` Right []
+         isLeft (parseTokens "/* block comment not balanced") `shouldBe` True
 
 
