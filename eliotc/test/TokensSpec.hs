@@ -7,6 +7,24 @@ spec :: Spec
 spec = do
    describe "parsing tokens" $ do
       it "should not return tokens in line comments" $ do
+         parseTokens "// not tokens" `shouldBe` Right []
+
+      it "should not return tokens before line comments" $ do
          parseTokens "token // not tokens" `shouldBe` Right [Identifier "token"]
+
+      it "should not return tokens after line comments in the next line" $ do
+         parseTokens "// not tokens\nagain" `shouldBe` Right [Identifier "again"]
+
+      it "should not return tokens in block comments" $ do
+         parseTokens "/* not tokens */" `shouldBe` Right []
+
+      it "should not return tokens in block comments with multiple lines" $ do
+         parseTokens "/* not tokens\nagain no\ntokens here */" `shouldBe` Right []
+
+      it "should not return tokens before block comments" $ do
+         parseTokens "token /* not tokens */" `shouldBe` Right [Identifier "token"]
+
+      it "should not return tokens after block comments" $ do
+         parseTokens "/* not tokens */again" `shouldBe` Right [Identifier "again"]
 
 
