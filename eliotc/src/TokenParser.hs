@@ -36,5 +36,5 @@ multiLineComment = try (string "/*") >> multiLineCommentBody
 
 multiLineCommentBody = (void $ try (string "*/"))                             -- Comment ended
                    <|> (skipMany1 (satisfy (/= '*')) >> multiLineCommentBody) -- Skip to next *
-                   <|> (void $ char '*')                                      -- Skip * if string "*/" didn't match
+                   <|> ((void $ char '*') >> multiLineCommentBody)            -- Skip * if string "*/" didn't match
 
