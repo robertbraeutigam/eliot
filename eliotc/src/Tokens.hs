@@ -14,17 +14,19 @@ data Token = Identifier String   -- Satisfies the rules for a generic identifier
    deriving (Show, Eq)
 
 parseTokens :: String -> Either ParseError [Token]
-parseTokens code = parse (whiteSpace >> (many ((identifier <|> operator) <* whiteSpace)) <* eof) "" code
+parseTokens code = parse (whiteSpace >> (many anyTokenLexeme) <* eof) "" code
+
+anyTokenLexeme = ((identifier <|> operator) <* whiteSpace) <?> "legal character"
 
 identifier = do
    firstCharacter <- letter
    restCharacters <- many (alphaNum <|> oneOf "_'")
    return $ Identifier (firstCharacter:restCharacters)
 
-operator = (many1 $ oneOf ":!#$%&*+./<=>?@\\^|-~") >>= (return . Symbol)
+operator = ((many1 $ oneOf ":!#$%&*+./<=>?@\\^|-~") >>= (return . Symbol)) <?> "operator"
 
 -- | Whitespace includes everything from spaces, newlines to comments.
-whiteSpace = skipMany $ simpleSpace <|> oneLineComment <|> multiLineComment
+whiteSpace = skipMany $ simpleSpace <|> ((oneLineComment <|> multiLineComment) <?> "comment")
 
 simpleSpace = skipMany1 (satisfy isSpace)
 

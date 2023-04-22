@@ -7,7 +7,7 @@ module Compiler(compile) where
 
 import Control.Monad
 import Control.Monad.Trans.Class
-import Data.List (isPrefixOf, isSuffixOf)
+import Data.List (isPrefixOf, isSuffixOf, isInfixOf)
 import Text.Parsec.Error
 import Text.Parsec.Pos
 import System.FilePath
@@ -66,8 +66,12 @@ fileReader _ = return ()
 
 parseTokensProcessor :: CompilerProcessor
 parseTokensProcessor (SourceFileContent path code) = case (parseTokens code) of
-   Left parserError -> compilerErrorMsg path (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError)
-      "Block comment was not closed, end of file reached. Please close block comment with '*/'."
+   Left parserError -> compilerErrorMsg path (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateErrorMessage (show parserError))
    Right tokens     -> registerFact (SourceTokenized path) (SourceTokens path tokens)
+   where translateErrorMessage msg -- This is a little bit of a hack, but don't know a better way at this time
+           | "block comment" `isInfixOf` msg   = "Block comment was not closed, end of file reached. Please close block comment with '*/'."
+           | "legal character" `isInfixOf` msg = "Illegal character in source code."
+           | otherwise                         = "Unknown token parsing failure: " ++ (singleLine msg)
+         singleLine msg = map (\c -> if c == '\n' then ',' else c) msg
 parseTokensProcessor _ = return ()
 

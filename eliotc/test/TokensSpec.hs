@@ -31,4 +31,6 @@ spec = do
       it "should fail on broken block comment" $ do
          isLeft (parseTokens "/* block comment not balanced") `shouldBe` True
 
+      it "should not parse illegal tokens" $ do
+         isLeft (parseTokens "→") `shouldBe` True
 
