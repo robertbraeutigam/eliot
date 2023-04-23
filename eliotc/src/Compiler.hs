@@ -17,6 +17,7 @@ import Data.Hashable
 import FactEngine
 import Logging
 import Tokens
+import AST
 
 -- These data types define all the various stages of the compilation process
 
@@ -25,6 +26,7 @@ data Signal =
    | SourceFileDetected FilePath
    | SourceFileRead     FilePath
    | SourceTokenized    FilePath
+   | SourceASTCreated   FilePath
    deriving (Eq, Show, Generic, Hashable)
 
 data Fact = 
@@ -32,6 +34,7 @@ data Fact =
    | SourceFile FilePath                -- A source file that has been detected
    | SourceFileContent FilePath String  -- Contents of a source file
    | SourceTokens FilePath [Token]      -- Tokens read from a source file
+   | SourceAST FilePath AST             -- AST of source file
    deriving (Eq, Show)
 
 type CompilerProcessor = FactProcessor Signal Fact
@@ -45,7 +48,7 @@ compile paths = do
       Just(allFacts) -> debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
       Nothing        -> errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
-         processors = [directoryWalker, fileReader, parseTokensProcessor]
+         processors = [directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
 
 -- From here on are the processors for the compilation process
 
@@ -74,4 +77,13 @@ parseTokensProcessor (SourceFileContent path code) = case (parseTokens code) of
            | otherwise                         = "Unknown token parsing failure: " ++ (singleLine msg)
          singleLine msg = map (\c -> if c == '\n' then ',' else c) msg
 parseTokensProcessor _ = return ()
+
+parseASTProcessor :: CompilerProcessor
+parseASTProcessor (SourceTokens path tokens) = case (parseAST tokens) of
+   Left parserError -> compilerErrorMsg path (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateErrorMessage (show parserError))
+   Right ast        -> debugMsg $ show ast --registerFact (SourceASTCreated path) (SourceAST path ast)
+   where translateErrorMessage msg -- This is a little bit of a hack, but don't know a better way at this time
+           | otherwise                         = "Unknown token parsing failure: " ++ (singleLine msg)
+         singleLine msg = map (\c -> if c == '\n' then ',' else c) msg
+parseASTProcessor _ = return ()
 
