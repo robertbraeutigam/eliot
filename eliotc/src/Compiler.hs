@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Wno-missing-signatures #-}
 {-# LANGUAGE DeriveAnyClass, DeriveGeneric #-}
 {-| Defines the compiler for the ELIOT language. The compiler
  - takes a set of source paths, and produces a single output program.
@@ -7,7 +8,7 @@ module Compiler(compile) where
 
 import Control.Monad
 import Control.Monad.Trans.Class
-import Data.List (isPrefixOf, isSuffixOf, isInfixOf)
+import Data.List (isPrefixOf, isSuffixOf, isInfixOf, tails, findIndex)
 import Text.Parsec.Error
 import Text.Parsec.Pos
 import System.FilePath
@@ -69,21 +70,23 @@ fileReader _ = return ()
 
 parseTokensProcessor :: CompilerProcessor
 parseTokensProcessor (SourceFileContent path code) = case (parseTokens code) of
-   Left parserError -> compilerErrorMsg path (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateErrorMessage (show parserError))
+   Left parserError -> compilerErrorMsg path (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateParsecErrorMessage (show parserError))
    Right tokens     -> registerFact (SourceTokenized path) (SourceTokens path tokens)
-   where translateErrorMessage msg -- This is a little bit of a hack, but don't know a better way at this time
-           | "block comment" `isInfixOf` msg   = "Block comment was not closed, end of file reached. Please close block comment with '*/'."
-           | "legal character" `isInfixOf` msg = "Illegal character in source code."
-           | otherwise                         = "Unknown token parsing failure: " ++ (singleLine msg)
-         singleLine msg = map (\c -> if c == '\n' then ',' else c) msg
 parseTokensProcessor _ = return ()
 
 parseASTProcessor :: CompilerProcessor
 parseASTProcessor (SourceTokens path tokens) = case (parseAST tokens) of
-   Left parserError -> compilerErrorMsg path (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateErrorMessage (show parserError))
+   Left parserError -> compilerErrorMsg path (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateParsecErrorMessage (show parserError))
    Right ast        -> debugMsg $ show ast --registerFact (SourceASTCreated path) (SourceAST path ast)
-   where translateErrorMessage msg -- This is a little bit of a hack, but don't know a better way at this time
-           | otherwise                         = "Unknown token parsing failure: " ++ (singleLine msg)
-         singleLine msg = map (\c -> if c == '\n' then ',' else c) msg
 parseASTProcessor _ = return ()
+
+translateParsecErrorMessage msg = "Unexpected " ++ (substringAfterPrefix ",unexpected" msg) ++ ", expected " ++ (substringAfterPrefix ",expected" msg)
+
+substringAfterPrefix prefix str = case dropWhile (not . isInfixOf prefix) (lines str) of
+   []     -> "no match in "++(show $ lines str)
+   (l:_) -> case afterIndexOf prefix l of
+      Nothing  -> "no after index"
+      Just ndx -> drop ndx l
+
+afterIndexOf needle haystack = (+(length needle)) <$> (findIndex (isPrefixOf needle) (tails haystack))
 
