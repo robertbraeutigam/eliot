@@ -20,11 +20,19 @@ debugMsg :: MonadIO m => String -> m ()
 debugMsg msg = liftIO $ colored stdout Dull White ("[ DEBUG ] " ++ msg) >> hPutStrLn stdout ""
 
 -- | Show a compiler error in a given file with "standard" compiler output format
-compilerErrorMsg :: MonadIO m => FilePath -> Int -> Int -> String -> m ()
-compilerErrorMsg filePath row col msg = liftIO $ do
+compilerErrorMsg :: MonadIO m => FilePath -> String -> Int -> Int -> String -> m ()
+compilerErrorMsg filePath content row col msg = liftIO $ do
    colored stderr Vivid White (filePath ++ ":")
    colored stderr Vivid Red "error"
    hPutStrLn stderr (":"++(show row)++":"++(show col)++":"++msg)
+   colored stderr Vivid Magenta (markerSpace ++ " | \n")
+   colored stderr Vivid Magenta (lineMarker ++ " | ")
+   hPutStrLn stderr ((lines content) !! (row-1))
+   colored stderr Vivid Magenta (markerSpace ++ " | ")
+   colored stderr Vivid Red $ (replicate (col-1) ' ') ++ "^\n"
+   where
+      lineMarker = show row
+      markerSpace = replicate (length lineMarker) ' '
 
 colored :: Handle -> ColorIntensity -> Color -> String -> IO ()
 colored handle intensity color text = do

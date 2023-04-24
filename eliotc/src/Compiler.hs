@@ -70,13 +70,21 @@ fileReader _ = return ()
 
 parseTokensProcessor :: CompilerProcessor
 parseTokensProcessor (SourceFileContent path code) = case (parseTokens code) of
-   Left parserError -> compilerErrorMsg path (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateParsecErrorMessage (show parserError))
+   Left parserError -> do
+      source <- getFact $ SourceFileRead path
+      case source of
+         SourceFileContent _ content -> compilerErrorMsg path content (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateParsecErrorMessage (show parserError))
+         _                              -> return ()
    Right tokens     -> registerFact (SourceTokenized path) (SourceTokens path tokens)
 parseTokensProcessor _ = return ()
 
 parseASTProcessor :: CompilerProcessor
 parseASTProcessor (SourceTokens path tokens) = case (parseAST tokens) of
-   Left parserError -> compilerErrorMsg path (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateParsecErrorMessage (show parserError))
+   Left parserError -> do
+      source <- getFact $ SourceFileRead path
+      case source of
+         SourceFileContent _ content -> compilerErrorMsg path content (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateParsecErrorMessage (show parserError))
+         _                              -> return ()
    Right ast        -> debugMsg $ show ast --registerFact (SourceASTCreated path) (SourceAST path ast)
 parseASTProcessor _ = return ()
 
