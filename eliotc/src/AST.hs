@@ -7,6 +7,7 @@ module AST (AST, parseAST) where
 
 import Tokens
 import Text.Parsec
+import Text.Parsec.Pos
 import Data.Char (isLower, isUpper)
 
 data Import = Import [String] String  -- Import statement with pacakges and module name
@@ -17,8 +18,9 @@ data AST = AST {
 }
    deriving (Show, Eq)
 
-parseAST :: [Token] -> Either ParseError AST
-parseAST = parse (parseSource <* eof) ""
+parseAST :: [PositionedToken] -> Either ParseError AST
+parseAST [] = Right $ AST []
+parseAST (t:ts) = parse ((setPosition $ newPos "" (positionedTokenLine t) (positionedTokenColumn t)) >> (parseSource <* eof)) "" (t:ts)
 
 parseSource = do
    imps <- many importStatement
@@ -45,12 +47,14 @@ keyword name = satisfyT (\t -> case t of
    _             -> Nothing) <?> ("keyword "++(show name))
 
 symbol name = satisfyT (\t -> case t of
-   Symbol id -> Just id
-   _         -> Nothing) <?> "symbol"
+   Symbol id -> if id == name then Just id else Nothing
+   _         -> Nothing) <?> ("symbol '" ++ name ++ "'")
 
 -- | Using the primitive token function to maybe parse a token and produce
 -- an output. We use the output to unpack Tokens.
-satisfyT :: (Token -> Maybe a) -> Parsec [Token] () a
-satisfyT f = tokenPrim show nextPos f
-   where nextPos currentPos t stream = currentPos -- TODO
+satisfyT :: (Token -> Maybe a) -> Parsec [PositionedToken] () a
+satisfyT f = tokenPrim (show . positionedToken) nextPos (f . positionedToken)
+   where
+      nextPos currentPos pt [] = newPos "" (positionedTokenLine pt) (positionedTokenColumn pt)
+      nextPos currentPos pt (t:ts) = newPos "" (positionedTokenLine t) (positionedTokenColumn t)
 

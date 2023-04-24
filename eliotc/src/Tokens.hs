@@ -3,27 +3,41 @@
  - is made out of.
  -}
 
-module Tokens (Token(..), parseTokens) where
+module Tokens (PositionedToken(..), Token(..), parseTokens) where
 
 import Text.Parsec
 import Data.Char (isSpace)
 import Control.Monad
 
+data PositionedToken = PositionedToken {
+      positionedTokenLine::Line,
+      positionedTokenColumn::Column,
+      positionedToken::Token
+   }
+   deriving (Eq)
+
+instance Show PositionedToken where
+   show (PositionedToken _ _ t) = show t
+
 data Token = Identifier String   -- Satisfies the rules for a generic identifier ~alphanumeric
            | Symbol String       -- Sort-of identifier comprised of non-alphanumberic characters
    deriving (Show, Eq)
 
-parseTokens :: String -> Either ParseError [Token]
+parseTokens :: String -> Either ParseError [PositionedToken]
 parseTokens code = parse (whiteSpace >> (many anyTokenLexeme) <* eof) "" code
 
-anyTokenLexeme = ((identifier <|> operator) <* whiteSpace) <?> "legal character"
+anyTokenLexeme = ((identifier <|> symbol) <* whiteSpace) <?> "legal character"
 
 identifier = do
    firstCharacter <- letter
    restCharacters <- many (alphaNum <|> oneOf "_'")
-   return $ Identifier (firstCharacter:restCharacters)
+   pos            <- getPosition
+   return $ PositionedToken (sourceLine pos) (sourceColumn pos) (Identifier (firstCharacter:restCharacters))
 
-operator = ((many1 $ oneOf ":!#$%&*+./<=>?@\\^|-~") >>= (return . Symbol)) <?> "operator"
+symbol = (do
+   sym <- (many1 $ oneOf ":!#$%&*+./<=>?@\\^|-~;")
+   pos <- getPosition
+   return $ PositionedToken (sourceLine pos) (sourceColumn pos) (Symbol sym)) <?> "operator"
 
 -- | Whitespace includes everything from spaces, newlines to comments.
 whiteSpace = skipMany $ simpleSpace <|> ((oneLineComment <|> multiLineComment) <?> "comment")

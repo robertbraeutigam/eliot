@@ -31,10 +31,10 @@ data Signal =
    deriving (Eq, Show, Generic, Hashable)
 
 data Fact = 
-     SourcePath FilePath                -- A path to some file or directory containing source code
-   | SourceFile FilePath                -- A source file that has been detected
-   | SourceFileContent FilePath String  -- Contents of a source file
-   | SourceTokens FilePath [Token]      -- Tokens read from a source file
+     SourcePath FilePath                          -- A path to some file or directory containing source code
+   | SourceFile FilePath                          -- A source file that has been detected
+   | SourceFileContent FilePath String            -- Contents of a source file
+   | SourceTokens FilePath [PositionedToken]      -- Tokens read from a source file
    | SourceAST FilePath AST             -- AST of source file
    deriving (Eq, Show)
 
