@@ -8,7 +8,8 @@ module Compiler(compile) where
 
 import Control.Monad
 import Control.Monad.Trans.Class
-import Data.List (isPrefixOf, isSuffixOf, isInfixOf, tails, findIndex)
+import Data.List (isPrefixOf, isSuffixOf, intercalate)
+import Data.Char (toUpper)
 import Text.Parsec.Error
 import Text.Parsec.Pos
 import System.FilePath
@@ -80,13 +81,10 @@ parseASTProcessor (SourceTokens path tokens) = case (parseAST tokens) of
    Right ast        -> debugMsg $ show ast --registerFact (SourceASTCreated path) (SourceAST path ast)
 parseASTProcessor _ = return ()
 
-translateParsecErrorMessage msg = "Unexpected " ++ (substringAfterPrefix ",unexpected" msg) ++ ", expected " ++ (substringAfterPrefix ",expected" msg)
+translateParsecErrorMessage msg = (capitalize $ intercalate ", " $ filter (\l -> (isPrefixOf "unexpected" l) || (isPrefixOf "expecting" l))  (lines msg)) ++ "."
 
-substringAfterPrefix prefix str = case dropWhile (not . isInfixOf prefix) (lines str) of
-   []     -> "no match in "++(show $ lines str)
-   (l:_) -> case afterIndexOf prefix l of
-      Nothing  -> "no after index"
-      Just ndx -> drop ndx l
+capitalize :: String -> String
+capitalize [] = []
+capitalize (x:xs) = toUpper x : xs
 
-afterIndexOf needle haystack = (+(length needle)) <$> (findIndex (isPrefixOf needle) (tails haystack))
 
