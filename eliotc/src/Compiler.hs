@@ -9,7 +9,6 @@ module Compiler(compile) where
 import Control.Monad
 import Control.Monad.Trans.Class
 import Data.List (isPrefixOf, isSuffixOf, intercalate)
-import Data.Char (toUpper)
 import Text.Parsec.Error
 import Text.Parsec.Pos
 import System.FilePath
@@ -81,10 +80,5 @@ parseASTProcessor (SourceTokens path tokens) = case (parseAST tokens) of
    Right ast        -> debugMsg $ show ast --registerFact (SourceASTCreated path) (SourceAST path ast)
 parseASTProcessor _ = return ()
 
-translateParsecErrorMessage msg = (capitalize $ intercalate ", " $ filter (\l -> (isPrefixOf "unexpected" l) || (isPrefixOf "expecting" l))  (lines msg)) ++ "."
-
-capitalize :: String -> String
-capitalize [] = []
-capitalize (x:xs) = toUpper x : xs
-
+translateParsecErrorMessage msg = "Parser error, " ++ (intercalate ", " $ filter (\l -> (isPrefixOf "unexpected" l) || (isPrefixOf "expecting" l))  (lines msg)) ++ "."
 
