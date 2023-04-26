@@ -14,10 +14,10 @@ data PositionedToken = PositionedToken {
       positionedTokenColumn::Column,
       positionedToken::Token
    }
-   deriving (Show, Eq)
+   deriving (Eq)
 
---instance Show PositionedToken where
---   show (PositionedToken _ _ t) = show t
+instance Show PositionedToken where
+   show (PositionedToken _ _ t) = show t
 
 data Token = Identifier String   -- Satisfies the rules for a generic identifier ~alphanumeric
            | Symbol String       -- Sort-of identifier comprised of non-alphanumberic characters
