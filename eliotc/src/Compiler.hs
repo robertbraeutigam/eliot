@@ -70,23 +70,22 @@ fileReader _ = return ()
 
 parseTokensProcessor :: CompilerProcessor
 parseTokensProcessor (SourceFileContent path code) = case (parseTokens code) of
-   Left parserError -> do
-      source <- getFact $ SourceFileRead path
-      case source of
-         SourceFileContent _ content -> compilerErrorMsg path content (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateParsecErrorMessage (show parserError))
-         _                              -> return ()
+   Left parserError -> printCompilerErrorMsg path parserError
    Right tokens     -> registerFact (SourceTokenized path) (SourceTokens path tokens)
 parseTokensProcessor _ = return ()
 
 parseASTProcessor :: CompilerProcessor
-parseASTProcessor (SourceTokens path tokens) = case (parseAST tokens) of
-   Left parserError -> do
-      source <- getFact $ SourceFileRead path
-      case source of
-         SourceFileContent _ content -> compilerErrorMsg path content (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateParsecErrorMessage (show parserError))
-         _                              -> return ()
-   Right ast        -> debugMsg $ show ast --registerFact (SourceASTCreated path) (SourceAST path ast)
+parseASTProcessor (SourceTokens path tokens) = case parseAST tokens of
+   (errors, ast) -> (sequence_ $ map (printCompilerErrorMsg path) errors) >> 
+      (debugMsg $ show ast) --registerFact (SourceASTCreated path) (SourceAST path ast)
 parseASTProcessor _ = return ()
+
+printCompilerErrorMsg :: FilePath -> ParseError -> FactsIO Signal Fact ()
+printCompilerErrorMsg path parserError = do
+   source <- getFact $ SourceFileRead path
+   case source of
+      SourceFileContent _ content -> compilerErrorMsg path content (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateParsecErrorMessage (show parserError))
+      _                           -> return ()
 
 translateParsecErrorMessage msg = "Parser error, " ++ (intercalate ", " $ filter (\l -> (isPrefixOf "unexpected" l) || (isPrefixOf "expecting" l))  (lines msg)) ++ "."
 

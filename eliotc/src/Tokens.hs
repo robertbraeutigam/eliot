@@ -14,10 +14,10 @@ data PositionedToken = PositionedToken {
       positionedTokenColumn::Column,
       positionedToken::Token
    }
-   deriving (Eq)
+   deriving (Show, Eq)
 
-instance Show PositionedToken where
-   show (PositionedToken _ _ t) = show t
+--instance Show PositionedToken where
+--   show (PositionedToken _ _ t) = show t
 
 data Token = Identifier String   -- Satisfies the rules for a generic identifier ~alphanumeric
            | Symbol String       -- Sort-of identifier comprised of non-alphanumberic characters
@@ -32,12 +32,12 @@ identifier = do
    firstCharacter <- letter
    restCharacters <- many (alphaNum <|> oneOf "_'")
    pos            <- getPosition
-   return $ PositionedToken (sourceLine pos) (sourceColumn pos) (Identifier (firstCharacter:restCharacters))
+   return $ PositionedToken (sourceLine pos) ((sourceColumn pos)-1-(length restCharacters)) (Identifier (firstCharacter:restCharacters))
 
 symbol = (do
    sym <- (many1 $ oneOf ":!#$%&*+./<=>?@\\^|-~;")
    pos <- getPosition
-   return $ PositionedToken (sourceLine pos) (sourceColumn pos) (Symbol sym)) <?> "operator"
+   return $ PositionedToken (sourceLine pos) ((sourceColumn pos)-(length sym)) (Symbol sym)) <?> "operator"
 
 -- | Whitespace includes everything from spaces, newlines to comments.
 whiteSpace = skipMany $ simpleSpace <|> ((oneLineComment <|> multiLineComment) <?> "comment")
