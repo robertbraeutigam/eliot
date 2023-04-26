@@ -36,35 +36,36 @@ recoveringParseSource = do
    return (reverse errors, ast)
 
 parseSource = do
-   imps <- many $ importStatement `recoverWith` skipLine
-   _    <- eof
+   imps <- many $ importStatement `recoverWith` skipToNewLineOrEof
    return $ AST (catMaybes imps)
 
 importStatement = do
    _    <- keyword "import"
    pkgs <- many (packageName <* (symbol "."))
-   mod  <- moduleName
-   return $ Import pkgs mod
+   modn <- moduleName
+   return $ Import pkgs modn
 
 -- Low level stuff
-skipLine = skipOne >> (skipMany $ satisfyPT (\pt -> if (positionedTokenColumn pt) /= 1 then Just () else Nothing))
 
-skipOne = satisfyT (const Just ())
+skipToNewLineOrEof = anyToken >> core
+   where core = (eof >> return False) <|> ((notNewLine >> core) <|> return True)
+
+notNewLine = satisfyPT (\pt -> if (positionedTokenColumn pt) /= 1 then Just () else Nothing)
 
 moduleName = satisfyT (\t -> case t of
-   Identifier id@(c:cs) -> if isUpper c then Just id else Nothing
+   Identifier identifier@(c:_) -> if isUpper c then Just identifier else Nothing
    _                   -> Nothing) <?> "module name"
 
 packageName = satisfyT (\t -> case t of
-   Identifier id@(c:cs) -> if isLower c then Just id else Nothing
+   Identifier identifier@(c:_) -> if isLower c then Just identifier else Nothing
    _                   -> Nothing) <?> "package name"
 
 keyword name = satisfyT (\t -> case t of
-   Identifier id -> if id == name then Just id else Nothing
+   Identifier identifier -> if identifier == name then Just identifier else Nothing
    _             -> Nothing) <?> ("keyword "++(show name))
 
 symbol name = satisfyT (\t -> case t of
-   Symbol id -> if id == name then Just id else Nothing
+   Symbol identifier -> if identifier == name then Just identifier else Nothing
    _         -> Nothing) <?> ("symbol '" ++ name ++ "'")
 
 
@@ -75,21 +76,18 @@ type ASTParser = Parsec [PositionedToken] [ParseError]
 satisfyPT :: (PositionedToken -> Maybe a) -> ASTParser a
 satisfyPT f = tokenPrim (show . positionedToken) nextPos f
    where
-      nextPos currentPos pt [] = newPos "" (positionedTokenLine pt) (positionedTokenColumn pt)
-      nextPos currentPos pt (t:ts) = newPos "" (positionedTokenLine t) (positionedTokenColumn t)
+      nextPos _ pt [] = newPos "" (positionedTokenLine pt) (positionedTokenColumn pt)
+      nextPos _ _ (t:_) = newPos "" (positionedTokenLine t) (positionedTokenColumn t)
 
 satisfyT :: (Token -> Maybe a) -> ASTParser a
 satisfyT f = satisfyPT (f . positionedToken)
 
--- | Run the given parser in a try block, and if it fails just jump
--- to recovery.
-recoverWith :: (ASTParser a) -> (ASTParser ()) -> (ASTParser (Maybe a))
-recoverWith p recovery = Just <$> (try p) <|> do
+-- | Recover the given parser if it fails, whether it consumed any input or not.
+-- Retry the parser if the recovery returns True, otherwise fail to recovery.
+recoverWith :: (ASTParser a) -> (ASTParser Bool) -> (ASTParser (Maybe a))
+recoverWith p recovery  = do
    state <- getParserState
-   case testParser (p >> return ()) (stateInput state) of
-      Left error -> (modifyState (error:)) >> recovery >> (return Nothing) -- Parser failed hard, remember this fault and do recovery
-      Right _    -> Just <$> p -- Parser didn't consume anything, so don't recover, just do p and let parsec continue
-
-testParser :: (ASTParser ()) -> [PositionedToken] -> Either ParseError ()
-testParser p s = runParser (p <|> return ()) [] "" s
+   case runParser p [] "" (stateInput state) of
+      Left parserError -> (modifyState (parserError:)) >> recovery >>= (\b -> if b then recoverWith p recovery else return Nothing)
+      Right _          -> Just <$> p -- p was successful in test run, so run it for real
 
