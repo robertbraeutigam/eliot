@@ -87,7 +87,8 @@ satisfyT f = satisfyPT (f . positionedToken)
 recoverWith :: (ASTParser a) -> (ASTParser Bool) -> (ASTParser (Maybe a))
 recoverWith p recovery  = do
    state <- getParserState
-   case runParser p [] "" (stateInput state) of
+   case runParser (positionedP state) [] "" (stateInput state) of
       Left parserError -> (modifyState (parserError:)) >> recovery >>= (\b -> if b then recoverWith p recovery else return Nothing)
       Right _          -> Just <$> p -- p was successful in test run, so run it for real
+   where positionedP state = (setPosition $ statePos state) >> p
 
