@@ -2,11 +2,5 @@
  * Example program to switch PA1 pin on.
  */
 
-import eliot.device;Output // Import output related functions
-import eliot.device.Something
-import eliot.device.other
-import eliot;device.Input
-importa eliot
-
-// main = high PA1
+main = high PA1
 

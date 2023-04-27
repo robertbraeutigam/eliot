@@ -4,13 +4,13 @@ Implement compiler to compile following minimal program into bytecode:
 
 Source code:
 ```
-def main = high PA1
+main = high PA1
 
 // The actual hardware specific library will provide PA1 and an instance of this:
 trait DigitalOutput[P]
-   def toggle pin:P IO[Unit]
-   def high pin:P IO[Unit]
-   def low pin:P IO[Unit]
+   toggle pin:P IO[Unit]
+   high pin:P IO[Unit]
+   low pin:P IO[Unit]
 ```
 
 This is supposed to set the PA1 pin high.
@@ -21,7 +21,16 @@ the code "runs out".
 Inside hardware:
 
 ```
-data Port = PORTA | PORTB | PORTC | PORTD
+type Address = Word
+
+data Port = Port Address
+
+portA Port = Port 0x1011
+portB Port = Port 0x1012
+portC Port = Port 0x1013
+portD Port = Port 0x1014
+
+type Bit = 
 
 data Bit = 0 | 1 | 2 | 3 | 4 | 5 | 7
 
