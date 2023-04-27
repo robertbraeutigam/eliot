@@ -21,6 +21,12 @@ spec = do
       it "should not return tokens in block comments" $ do
          parseJustTokens "/* not tokens */" `shouldBe` Right []
 
+      it "should return the correct position of a token" $ do
+         parseTokens " some\ntokens" `shouldBe` Right [(PositionedToken 1 2 (Identifier "some")), (PositionedToken 2 1 (Identifier "tokens"))]
+
+      it "should include comments in the position of a token" $ do
+         parseTokens " /* Some Comment */ Token" `shouldBe` Right [(PositionedToken 1 21 (Identifier "Token"))]
+
       it "should not return tokens in block comments with multiple lines" $ do
          parseJustTokens "/* not tokens\nagain no\ntokens here */" `shouldBe` Right []
 
