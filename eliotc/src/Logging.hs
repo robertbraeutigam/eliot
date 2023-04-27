@@ -20,6 +20,7 @@ debugMsg :: MonadIO m => String -> m ()
 debugMsg msg = liftIO $ colored stdout Dull White ("[ DEBUG ] " ++ msg) >> hPutStrLn stdout ""
 
 -- | Show a compiler error in a given file with "standard" compiler output format
+-- TODO: This doesn't handle multi-line failures yet.
 compilerErrorMsg :: MonadIO m => FilePath -> String -> Int -> Int -> Int -> Int -> String -> m ()
 compilerErrorMsg filePath content fRow fCol tRow tCol msg = liftIO $ do
    colored stderr Vivid White (filePath ++ ":")
@@ -27,9 +28,11 @@ compilerErrorMsg filePath content fRow fCol tRow tCol msg = liftIO $ do
    hPutStrLn stderr (":"++(show fRow)++":"++(show fCol)++":"++msg)
    colored stderr Vivid Magenta (markerSpace ++ " | \n")
    colored stderr Vivid Magenta (lineMarker ++ " | ")
-   hPutStrLn stderr ((lines content) !! (fRow-1))
+   hPutStr stderr (take (fCol-1) ((lines content) !! (fRow-1)))
+   colored stderr Vivid Red (take (tCol-fCol) (drop (fCol-1) ((lines content) !! (fRow-1))))
+   hPutStrLn stderr (drop (tCol-1) ((lines content) !! (fRow-1)))
    colored stderr Vivid Magenta (markerSpace ++ " | ")
-   colored stderr Vivid Red $ (replicate (fCol-1) ' ') ++ "^\n"
+   colored stderr Vivid Red $ (replicate (fCol-1) ' ') ++ (replicate (tCol-fCol) '^') ++ "\n"
    where
       lineMarker = show fRow
       markerSpace = replicate (length lineMarker) ' '
