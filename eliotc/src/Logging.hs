@@ -20,18 +20,18 @@ debugMsg :: MonadIO m => String -> m ()
 debugMsg msg = liftIO $ colored stdout Dull White ("[ DEBUG ] " ++ msg) >> hPutStrLn stdout ""
 
 -- | Show a compiler error in a given file with "standard" compiler output format
-compilerErrorMsg :: MonadIO m => FilePath -> String -> Int -> Int -> String -> m ()
-compilerErrorMsg filePath content row col msg = liftIO $ do
+compilerErrorMsg :: MonadIO m => FilePath -> String -> Int -> Int -> Int -> Int -> String -> m ()
+compilerErrorMsg filePath content fRow fCol tRow tCol msg = liftIO $ do
    colored stderr Vivid White (filePath ++ ":")
    colored stderr Vivid Red "error"
-   hPutStrLn stderr (":"++(show row)++":"++(show col)++":"++msg)
+   hPutStrLn stderr (":"++(show fRow)++":"++(show fCol)++":"++msg)
    colored stderr Vivid Magenta (markerSpace ++ " | \n")
    colored stderr Vivid Magenta (lineMarker ++ " | ")
-   hPutStrLn stderr ((lines content) !! (row-1))
+   hPutStrLn stderr ((lines content) !! (fRow-1))
    colored stderr Vivid Magenta (markerSpace ++ " | ")
-   colored stderr Vivid Red $ (replicate (col-1) ' ') ++ "^\n"
+   colored stderr Vivid Red $ (replicate (fCol-1) ' ') ++ "^\n"
    where
-      lineMarker = show row
+      lineMarker = show fRow
       markerSpace = replicate (length lineMarker) ' '
 
 colored :: Handle -> ColorIntensity -> Color -> String -> IO ()

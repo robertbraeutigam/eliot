@@ -8,9 +8,7 @@ module Compiler(compile) where
 
 import Control.Monad
 import Control.Monad.Trans.Class
-import Data.List (isPrefixOf, isSuffixOf, intercalate)
-import Text.Parsec.Error
-import Text.Parsec.Pos
+import Data.List (isPrefixOf, isSuffixOf)
 import System.FilePath
 import System.Directory
 import GHC.Generics
@@ -19,6 +17,7 @@ import FactEngine
 import Logging
 import Tokens
 import AST
+import CompilerError
 
 -- These data types define all the various stages of the compilation process
 
@@ -70,22 +69,21 @@ fileReader _ = return ()
 
 parseTokensProcessor :: CompilerProcessor
 parseTokensProcessor (SourceFileContent path code) = case (parseTokens code) of
-   Left parserError -> printCompilerErrorMsg path parserError
+   Left parserError -> printCompilerError path parserError
    Right tokens     -> registerFact (SourceTokenized path) (SourceTokens path tokens)
 parseTokensProcessor _ = return ()
 
 parseASTProcessor :: CompilerProcessor
 parseASTProcessor (SourceTokens path tokens) = case parseAST tokens of
-   (errors, ast) -> (sequence_ $ map (printCompilerErrorMsg path) errors) >> 
+   (errors, ast) -> (sequence_ $ map (printCompilerError path) errors) >> 
       (debugMsg $ show ast) --registerFact (SourceASTCreated path) (SourceAST path ast)
 parseASTProcessor _ = return ()
 
-printCompilerErrorMsg :: FilePath -> ParseError -> FactsIO Signal Fact ()
-printCompilerErrorMsg path parserError = do
+printCompilerError :: FilePath -> CompilerError -> FactsIO Signal Fact ()
+printCompilerError path compilerError = do
    source <- getFact $ SourceFileRead path
    case source of
-      SourceFileContent _ content -> compilerErrorMsg path content (sourceLine $ errorPos parserError) (sourceColumn $ errorPos parserError) (translateParsecErrorMessage (show parserError))
+      SourceFileContent _ content -> compilerErrorMsg path content
+                                        (row $ errorFrom compilerError) (col $ errorFrom compilerError) (row $ errorTo compilerError) (col $ errorTo compilerError) (errorMessage compilerError)
       _                           -> return ()
-
-translateParsecErrorMessage msg = "Parser error, " ++ (intercalate ", " $ filter (\l -> (isPrefixOf "unexpected" l) || (isPrefixOf "expecting" l))  (lines msg)) ++ "."
 

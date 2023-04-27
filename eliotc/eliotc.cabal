@@ -29,6 +29,7 @@ library
   exposed-modules:
       AST
       Compiler
+      CompilerError
       FactEngine
       Logging
       Tokens

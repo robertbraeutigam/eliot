@@ -5,11 +5,13 @@
 
 module AST (AST, parseAST) where
 
-import Tokens
+import Data.List (isPrefixOf, intercalate, find)
 import Text.Parsec
 import Text.Parsec.Pos
 import Data.Maybe
 import Data.Char (isLower, isUpper)
+import Tokens
+import CompilerError
 
 data Import = Import [String] String  -- Import statement with pacakges and module name
    deriving (Show, Eq)
@@ -20,10 +22,11 @@ data AST = AST {
    deriving (Show, Eq)
 
 -- | Run the parser with all features
-parseAST :: [PositionedToken] -> ([ParseError], AST)
+parseAST :: [PositionedToken] -> ([CompilerError], AST)
 parseAST [] = ([], AST [])
-parseAST (t:ts) = either (\e -> ([e], AST [])) id $
-   runParser (positionedRecoveringParseSource t) [] "" (t:ts)
+parseAST (t:ts) = case run of
+      (es, ast) -> ((map (translateASTError (t:ts)) es), ast)
+   where run = either (\e -> ([e], AST [])) id $ runParser (positionedRecoveringParseSource t) [] "" (t:ts)
 
 -- | Set the source position of the first token explicitly before the parsing starts.
 positionedRecoveringParseSource t =
@@ -91,4 +94,13 @@ recoverWith p recovery  = do
       Left parserError -> (modifyState (parserError:)) >> recovery >>= (\b -> if b then recoverWith p recovery else return Nothing)
       Right _          -> Just <$> p -- p was successful in test run, so run it for real
    where positionedP state = (setPosition $ statePos state) >> p
+
+-- Error conversion
+
+translateASTError ts e = case findToken of
+      Just t  -> CompilerError (SourcePosition (positionedTokenLine t) (positionedTokenColumn t)) (SourcePosition (positionedTokenLine t) ((positionedTokenColumn t) + (tokenLength $ positionedToken t))) (translateParsecErrorMessage $ show e)
+      Nothing -> CompilerError (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (translateParsecErrorMessage $ show e)
+   where findToken = find (\t -> (positionedTokenLine t) == (sourceLine $ errorPos e) && (positionedTokenColumn t) == (sourceColumn $ errorPos e)) ts
+
+translateParsecErrorMessage msg = "Parser error, " ++ (intercalate ", " $ filter (\l -> (isPrefixOf "unexpected" l) || (isPrefixOf "expecting" l))  (lines msg)) ++ "."
 
