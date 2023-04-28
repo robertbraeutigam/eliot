@@ -3,7 +3,7 @@
  - nor does it completely assign roles to various tokens.
  -}
 
-module AST (AST, parseAST) where
+module AST (AST(..), Import(..), parseAST) where
 
 import Data.List (isPrefixOf, intercalate, find)
 import Text.Parsec
