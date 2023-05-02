@@ -45,7 +45,7 @@ parseSource = do
    return $ AST (catMaybes imps)
 
 importStatement = do
-   _    <- keyword "import"
+   _    <- topLevelKeyword "import"
    pkgs <- many (packageName <* (symbol "."))
    modn <- moduleName
    return $ Import pkgs modn
@@ -63,13 +63,15 @@ packageName = satisfyAll [isIdentifer, contentPredicate startsLowerCase] <?> "pa
 
 keyword name = satisfyAll [isIdentifer, isContent name] <?> ("keyword "++(show name))
 
+topLevelKeyword name = satisfyAll [isIdentifer, isContent name, isTopLevel] <?> ("top level keyword "++(show name))
+
 symbol name = satisfyAll [isSymbol, isContent name] <?> ("symbol '" ++ name ++ "'")
 
 startsUpperCase ""     = False
-startsUpperCase (c:cs) = isUpper c 
+startsUpperCase (c:_) = isUpper c 
 
 startsLowerCase ""     = False
-startsLowerCase (c:cs) = isLower c 
+startsLowerCase (c:_) = isLower c 
 
 isContent content = contentPredicate (== content)
 
@@ -78,6 +80,8 @@ isIdentifer _                                    = False
 
 isSymbol (PositionedToken _ _ (Symbol _)) = True
 isSymbol _                                = False
+
+isTopLevel (PositionedToken _ column _) = column == 1
 
 contentPredicate f = f . tokenContent
 
