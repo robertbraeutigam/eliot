@@ -23,7 +23,11 @@ instance Show PositionedToken where
 
 data Token = Identifier String   -- Satisfies the rules for a generic identifier ~alphanumeric
            | Symbol String       -- Sort-of identifier comprised of non-alphanumberic characters
-   deriving (Show, Eq)
+   deriving (Eq)
+
+instance Show Token where
+   show (Identifier i) = "identifier \""++i++"\""
+   show (Symbol i) = "symbol \""++i++"\""
 
 tokenLength :: Token -> Int
 tokenLength (Identifier str) = length str
