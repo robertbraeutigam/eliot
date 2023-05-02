@@ -21,6 +21,8 @@ data AST = AST {
 }
    deriving (Show, Eq)
 
+type ASTParser = Parsec [PositionedToken] [ParseError]
+
 -- | Run the parser with all features
 parseAST :: [PositionedToken] -> ([CompilerError], AST)
 parseAST [] = ([], AST [])
@@ -55,24 +57,29 @@ skipToNewLineOrEof = anyToken >> core
 
 notNewLine = satisfyPT (\pt -> if (positionedTokenColumn pt) /= 1 then Just () else Nothing)
 
-moduleName = satisfyT (\t -> case t of
-   Identifier identifier@(c:_) -> if isUpper c then Just identifier else Nothing
-   _                   -> Nothing) <?> "module name"
+moduleName = satisfyAll [isIdentifer, contentPredicate startsUpperCase] <?> "module name"
 
-packageName = satisfyT (\t -> case t of
-   Identifier identifier@(c:_) -> if isLower c then Just identifier else Nothing
-   _                   -> Nothing) <?> "package name"
+packageName = satisfyAll [isIdentifer, contentPredicate startsLowerCase] <?> "package name"
 
-keyword name = satisfyT (\t -> case t of
-   Identifier identifier -> if identifier == name then Just identifier else Nothing
-   _             -> Nothing) <?> ("keyword "++(show name))
+keyword name = satisfyAll [isIdentifer, isContent name] <?> ("keyword "++(show name))
 
-symbol name = satisfyT (\t -> case t of
-   Symbol identifier -> if identifier == name then Just identifier else Nothing
-   _         -> Nothing) <?> ("symbol '" ++ name ++ "'")
+symbol name = satisfyAll [isSymbol, isContent name] <?> ("symbol '" ++ name ++ "'")
 
+startsUpperCase ""     = False
+startsUpperCase (c:cs) = isUpper c 
 
-type ASTParser = Parsec [PositionedToken] [ParseError]
+startsLowerCase ""     = False
+startsLowerCase (c:cs) = isLower c 
+
+isContent content = contentPredicate (== content)
+
+isIdentifer (PositionedToken _ _ (Identifier _)) = True
+isIdentifer _                                    = False
+
+isSymbol (PositionedToken _ _ (Symbol _)) = True
+isSymbol _                                = False
+
+contentPredicate f = f . tokenContent
 
 -- | Using the primitive token function to maybe parse a token and produce
 -- an output. We use the output to unpack Tokens.
@@ -82,8 +89,12 @@ satisfyPT f = tokenPrim (show . positionedToken) nextPos f
       nextPos _ pt [] = newPos "" (positionedTokenLine pt) (positionedTokenColumn pt)
       nextPos _ _ (t:_) = newPos "" (positionedTokenLine t) (positionedTokenColumn t)
 
-satisfyT :: (Token -> Maybe a) -> ASTParser a
-satisfyT f = satisfyPT (f . positionedToken)
+satisfyAll :: [PositionedToken -> Bool] -> ASTParser String
+satisfyAll ps = satisfyPT (\pt -> if (applyPredicates pt) then Just (tokenContent pt) else Nothing)
+   where applyPredicates pt = all (\p -> p pt) ps
+
+tokenContent (PositionedToken _ _ (Identifier content)) = content
+tokenContent (PositionedToken _ _ (Symbol content)) = content
 
 -- | Recover the given parser if it fails, whether it consumed any input or not.
 -- Retry the parser if the recovery returns True, otherwise fail to recovery.
@@ -95,8 +106,7 @@ recoverWith p recovery  = do
       Right _          -> Just <$> p -- p was successful in test run, so run it for real
    where positionedP state = (setPosition $ statePos state) >> p
 
--- Error conversion
-
+-- | Translate error messages from parsec to readable compiler messages.
 translateASTError ts e = case findToken of
       Just t  -> CompilerError (SourcePosition (positionedTokenLine t) (positionedTokenColumn t)) (SourcePosition (positionedTokenLine t) ((positionedTokenColumn t) + (tokenLength $ positionedToken t))) (translateParsecErrorMessage $ show e)
       Nothing -> CompilerError (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (translateParsecErrorMessage $ show e)

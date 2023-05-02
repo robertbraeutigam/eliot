@@ -21,6 +21,9 @@ spec = do
       it "should report multiple errors" $ do
          countASTErrors (parseCode "import a.b.c\nimport d;e\n") `shouldSatisfy` (>=2)
 
+      it "should force import statement to begin on first column" $ do
+         countASTErrors (parseCode " import a.b.C") `shouldBe` 1
+
 countASTErrors result = case result of
    Left _            -> 0
    Right (errs, _)   -> length errs
