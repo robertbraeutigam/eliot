@@ -81,5 +81,5 @@ TODOs / NOTEs:
 - Separate different kinds of I/O, like pin output, pin input, timers, etc. Make the type system infer multiple typeclasses here
 - Parse expressions with backtracking, trying to avoid currying from bottom up: print "Had " ++ show count ++ " number of tokens" 
   - It has only one valid way to parse (show count) first, then the ++, then print.
-
+- type IO[T] = State[RealWorld, T]
 

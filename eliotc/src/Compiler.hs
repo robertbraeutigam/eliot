@@ -75,8 +75,7 @@ parseTokensProcessor _ = return ()
 
 parseASTProcessor :: CompilerProcessor
 parseASTProcessor (SourceTokens path tokens) = case parseAST tokens of
-   (errors, ast) -> (sequence_ $ map (printCompilerError path) errors) >> 
-      (debugMsg $ show ast) --registerFact (SourceASTCreated path) (SourceAST path ast)
+   (errors, ast) -> (sequence_ $ map (printCompilerError path) errors) >> registerFact (SourceASTCreated path) (SourceAST path ast)
 parseASTProcessor _ = return ()
 
 printCompilerError :: FilePath -> CompilerError -> FactsIO Signal Fact ()
