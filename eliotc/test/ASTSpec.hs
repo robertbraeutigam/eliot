@@ -9,11 +9,14 @@ import AST
 spec :: Spec
 spec = do
    describe "parsing ast" $ do
+      it "should successfully parse an empty source file" $ do
+         extractImports (parseCode "") `shouldBe` []
+
       it "should parse a correct import statement" $ do
-         parseCode "import a.b.C" `shouldBe` importAST [Import ["a", "b"] "C"]
+         extractImports (parseCode "import a.b.C") `shouldBe` [ImportTest ["a", "b"] "C"]
 
       it "should parse multiple correct import statements" $ do
-         parseCode "import a.b.C\nimport b.c.D\n\nimport e.f.h.G" `shouldBe` importAST [Import ["a", "b"] "C", Import ["b", "c"] "D", Import ["e", "f", "h"] "G"]
+         extractImports (parseCode "import a.b.C\nimport b.c.D\n\nimport e.f.h.G") `shouldBe` [ImportTest ["a", "b"] "C", ImportTest ["b", "c"] "D", ImportTest ["e", "f", "h"] "G"]
 
       it "should not parse import with non-capitalized module name" $ do
          countASTErrors (parseCode "import a.b.c") `shouldBe` 1
@@ -24,11 +27,20 @@ spec = do
       it "should force import statement to begin on first column" $ do
          countASTErrors (parseCode " import a.b.C") `shouldBe` 1
 
-countASTErrors result = case result of
-   Left _            -> 0
-   Right (errs, _)   -> length errs
-
-importAST imps = Right ([], AST imps)
+countASTErrors (Left _)          = 0
+countASTErrors (Right (errs, _)) = length errs
 
 parseCode code = mapRight parseAST (parseTokens code)
+
+extractImports (Left _)             = []
+extractImports (Right (_, AST imps _)) = map toImportTest imps
+
+toImportTest (Import _ ps (PositionedToken _ _ (Identifier m))) = ImportTest (map toImportTestPackage ps) m
+toImportTest _                                                  = ImportTest [] ""
+
+toImportTestPackage (PositionedToken _ _ (Identifier p)) = p
+toImportTestPackage _                                    = ""
+
+data ImportTest = ImportTest [String] String
+   deriving (Eq, Show)
 

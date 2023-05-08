@@ -13,11 +13,22 @@ import Data.Char (isLower, isUpper)
 import Tokens
 import CompilerError
 
-data Import = Import [String] String  -- Import statement with pacakges and module name
+data Import = Import {
+   importKeyword::PositionedToken,
+   importPackageNames::[PositionedToken],
+   importModule::PositionedToken
+}  
+   deriving (Show, Eq)
+
+data FunctionDefinition = FunctionDefinition {
+   functionSignature::[PositionedToken],
+   functionBody::[PositionedToken]
+}
    deriving (Show, Eq)
 
 data AST = AST { 
-   importStatements :: [Import]
+   importStatements    :: [Import],
+   functionDefinitions :: [FunctionDefinition]
 }
    deriving (Show, Eq)
 
@@ -25,10 +36,10 @@ type ASTParser = Parsec [PositionedToken] [ParseError]
 
 -- | Run the parser with all features
 parseAST :: [PositionedToken] -> ([CompilerError], AST)
-parseAST [] = ([], AST [])
+parseAST [] = ([], AST [] [])
 parseAST (t:ts) = case run of
       (es, ast) -> ((map (translateASTError (t:ts)) es), ast)
-   where run = either (\e -> ([e], AST [])) id $ runParser (positionedRecoveringParseSource t) [] "" (t:ts)
+   where run = either (\e -> ([e], AST [] [])) id $ runParser (positionedRecoveringParseSource t) [] "" (t:ts)
 
 -- | Set the source position of the first token explicitly before the parsing starts.
 positionedRecoveringParseSource t =
@@ -41,21 +52,34 @@ recoveringParseSource = do
    return (reverse errors, ast)
 
 parseSource = do
-   imps <- many $ importStatement `recoverWith` skipToNewLineOrEof
-   return $ AST (catMaybes imps)
+   imps <- many $ importStatement `recoverWith` skipToNextTopLevel
+   funs <- many $ functionStatement `recoverWith` alwaysSkipToNextTopLevel
+   return $ AST (catMaybes imps) (catMaybes funs)
 
 importStatement = do
-   _    <- topLevelKeyword "import"
+   kyw  <- topLevelKeyword "import"
    pkgs <- many (packageName <* (symbol "."))
    modn <- moduleName
-   return $ Import pkgs modn
+   return $ Import kyw pkgs modn
+
+functionStatement = do
+   firstDef <- satisfyAll [isTopLevel] <?> "top level function definition"
+   restDefs <- many $ satisfyAll [contentPredicate (/="=")]
+   _        <- symbol "=" <?> "function definition equals sign"
+   body     <- many $ notNewLine
+   return $ FunctionDefinition (firstDef:restDefs) body
 
 -- Low level stuff
 
-skipToNewLineOrEof = anyToken >> core
-   where core = (eof >> return False) <|> ((notNewLine >> core) <|> return True)
+skipToNextTopLevel SomethingConsumed = skipToNewLineOr eof
+skipToNextTopLevel NothingConsumed = return Fallthough
 
-notNewLine = satisfyPT (\pt -> if (positionedTokenColumn pt) /= 1 then Just () else Nothing)
+alwaysSkipToNextTopLevel _ = skipToNewLineOr eof
+
+skipToNewLineOr end = anyToken >> core
+   where core = (end >> return End) <|> ((notNewLine >> core) <|> return ContinueTrying)
+
+notNewLine = satisfyAll [(not . isTopLevel)]
 
 moduleName = satisfyAll [isIdentifer, contentPredicate startsUpperCase] <?> "module name"
 
@@ -85,30 +109,38 @@ isTopLevel (PositionedToken _ column _) = column == 1
 
 contentPredicate f = f . tokenContent
 
--- | Using the primitive token function to maybe parse a token and produce
--- an output. We use the output to unpack Tokens.
-satisfyPT :: (PositionedToken -> Maybe a) -> ASTParser a
-satisfyPT f = tokenPrim (show . positionedToken) nextPos f
+-- | Using the primitive token function to maybe parse a token and produce the token.
+satisfyPT :: (PositionedToken -> Bool) -> ASTParser PositionedToken
+satisfyPT f = tokenPrim (show . positionedToken) nextPos nextToken
    where
       nextPos _ pt [] = newPos "" (positionedTokenLine pt) (positionedTokenColumn pt)
       nextPos _ _ (t:_) = newPos "" (positionedTokenLine t) (positionedTokenColumn t)
+      nextToken pt = if f pt then Just pt else Nothing
 
-satisfyAll :: [PositionedToken -> Bool] -> ASTParser String
-satisfyAll ps = satisfyPT (\pt -> if (applyPredicates pt) then Just (tokenContent pt) else Nothing)
-   where applyPredicates pt = all (\p -> p pt) ps
+satisfyAll :: [PositionedToken -> Bool] -> ASTParser PositionedToken
+satisfyAll ps = satisfyPT $ (\pt -> all ($ pt) ps)
 
 tokenContent (PositionedToken _ _ (Identifier content)) = content
 tokenContent (PositionedToken _ _ (Symbol content)) = content
 
 -- | Recover the given parser if it fails, whether it consumed any input or not.
 -- Retry the parser if the recovery returns True, otherwise fail to recovery.
-recoverWith :: (ASTParser a) -> (ASTParser Bool) -> (ASTParser (Maybe a))
+recoverWith :: (ASTParser a) -> (RecoveryMode -> ASTParser RecoveryResult) -> (ASTParser (Maybe a))
 recoverWith p recovery  = do
    state <- getParserState
    case runParser (positionedP state) [] "" (stateInput state) of
-      Left parserError -> (modifyState (parserError:)) >> recovery >>= (\b -> if b then recoverWith p recovery else return Nothing)
+      Left parserError -> recovery (mode parserError state) >>= (\result -> case result of
+          ContinueTrying    -> (modifyState (parserError:)) >> recoverWith p recovery
+          End               -> (modifyState (parserError:)) >> return Nothing
+          Fallthough        -> Just <$> p)
       Right _          -> Just <$> p -- p was successful in test run, so run it for real
    where positionedP state = (setPosition $ statePos state) >> p
+         mode e s = if errorPos e == statePos s then NothingConsumed else SomethingConsumed
+         
+data RecoveryMode = NothingConsumed | SomethingConsumed
+
+data RecoveryResult = ContinueTrying | End | Fallthough
+   deriving (Eq, Show)
 
 -- | Translate error messages from parsec to readable compiler messages.
 translateASTError ts e = case findToken of
