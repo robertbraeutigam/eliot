@@ -1,7 +1,7 @@
-module FactEngineSpec (spec) where
+module Engine.FactEngineSpec (spec) where
 
 import Test.Hspec
-import FactEngine
+import Engine.FactEngine
 import Control.Monad
 
 spec :: Spec

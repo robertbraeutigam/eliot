@@ -13,7 +13,7 @@ import System.FilePath
 import System.Directory
 import GHC.Generics
 import Data.Hashable
-import FactEngine
+import Engine.FactEngine
 import Logging
 import Tokens
 import AST

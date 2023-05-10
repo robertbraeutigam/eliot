@@ -30,7 +30,7 @@ library
       AST
       Compiler
       CompilerError
-      FactEngine
+      Engine.FactEngine
       Logging
       Tokens
   other-modules:
@@ -87,7 +87,7 @@ test-suite eliotc-test
   main-is: Spec.hs
   other-modules:
       ASTSpec
-      FactEngineSpec
+      Engine.FactEngineSpec
       TokensSpec
       Paths_eliotc
   hs-source-dirs:
