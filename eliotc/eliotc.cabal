@@ -28,7 +28,7 @@ source-repository head
 library
   exposed-modules:
       AST
-      Compiler
+      Compiler.Compiler
       CompilerError
       Engine.FactEngine
       Logging

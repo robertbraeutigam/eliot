@@ -5,7 +5,7 @@
 module Main (main) where
 
 import System.Console.CmdArgs.Explicit
-import Compiler
+import Compiler.Compiler
 
 data CommandLineParameters = CommandLineParameters { help :: Bool, sourceDirs :: [String] }
    deriving Show

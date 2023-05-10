@@ -4,7 +4,7 @@
  - takes a set of source paths, and produces a single output program.
  -}
 
-module Compiler(compile) where
+module Compiler.Compiler(compile) where
 
 import Control.Monad
 import Control.Monad.Trans.Class
