@@ -18,26 +18,7 @@ import Logging
 import Tokens
 import AST
 import CompilerError
-
--- These data types define all the various stages of the compilation process
-
-data Signal =
-     SourcePathDetected FilePath
-   | SourceFileDetected FilePath
-   | SourceFileRead     FilePath
-   | SourceTokenized    FilePath
-   | SourceASTCreated   FilePath
-   deriving (Eq, Show, Generic, Hashable)
-
-data Fact = 
-     SourcePath FilePath                          -- A path to some file or directory containing source code
-   | SourceFile FilePath                          -- A source file that has been detected
-   | SourceFileContent FilePath String            -- Contents of a source file
-   | SourceTokens FilePath [PositionedToken]      -- Tokens read from a source file
-   | SourceAST FilePath AST             -- AST of source file
-   deriving (Eq, Show)
-
-type CompilerProcessor = FactProcessor Signal Fact
+import CompilerProcessor
 
 -- | Run the compiler on the given source paths.
 compile :: [String] -> IO ()
@@ -48,7 +29,12 @@ compile paths = do
       Just(allFacts) -> debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
       Nothing        -> errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
-         processors = [directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
+         processors = map printErrors [directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
+         printErrors processor fact = do
+            result <- processor fact
+            case result of
+               Right _   -> return ()
+               Left errs -> return () -- TODO: print errors here
 
 -- From here on are the processors for the compilation process
 
@@ -59,24 +45,25 @@ directoryWalker (SourcePath path) = do
    when isFile       $ registerFact (SourceFileDetected path) (SourceFile path) 
    when isDirectory  $ (lift $ filter (not . isPrefixOf ".") <$> listDirectory path) >>= mapM_ ((registerFact . SourcePathDetected <*> SourcePath) . (path </>))
    when ((not isFile) && (not isDirectory)) $ errorMsg $ "Path " ++ path ++ " is neither a file nor directory"
-directoryWalker _ = return ()
+   compileOk
+directoryWalker _ = compileOk
 
 fileReader :: CompilerProcessor
 fileReader (SourceFile path)
-   | ".els" `isSuffixOf` path = (lift $ readFile path) >>= (registerFact (SourceFileRead path) . (SourceFileContent path))
-   | otherwise                = debugMsg $ "Ignoring source file because not ending in '.els': " ++ path
-fileReader _ = return ()
+   | ".els" `isSuffixOf` path = (lift $ readFile path) >>= (registerFact (SourceFileRead path) . (SourceFileContent path)) >> compileOk
+   | otherwise                = (debugMsg $ "Ignoring source file because not ending in '.els': " ++ path) >> compileOk
+fileReader _ = compileOk
 
 parseTokensProcessor :: CompilerProcessor
 parseTokensProcessor (SourceFileContent path code) = case (parseTokens code) of
-   Left parserError -> printCompilerError path parserError
-   Right tokens     -> registerFact (SourceTokenized path) (SourceTokens path tokens)
-parseTokensProcessor _ = return ()
+   Left parserError -> printCompilerError path parserError >> compileOk
+   Right tokens     -> registerFact (SourceTokenized path) (SourceTokens path tokens) >> compileOk
+parseTokensProcessor _ = compileOk
 
 parseASTProcessor :: CompilerProcessor
 parseASTProcessor (SourceTokens path tokens) = case parseAST tokens of
-   (errors, ast) -> (sequence_ $ map (printCompilerError path) errors) >> registerFact (SourceASTCreated path) (SourceAST path ast)
-parseASTProcessor _ = return ()
+   (errors, ast) -> (sequence_ $ map (printCompilerError path) errors) >> registerFact (SourceASTCreated path) (SourceAST path ast) >> compileOk
+parseASTProcessor _ = compileOk
 
 printCompilerError :: FilePath -> CompilerError -> FactsIO Signal Fact ()
 printCompilerError path compilerError = do

@@ -82,4 +82,9 @@ TODOs / NOTEs:
 - Parse expressions with backtracking, trying to avoid currying from bottom up: print "Had " ++ show count ++ " number of tokens" 
   - It has only one valid way to parse (show count) first, then the ++, then print.
 - type IO[T] = State[RealWorld, T]
+- a . f = f a (object-oriented style)
+- tuples === value, so f a b c === f(a, b, c)
+- does that mean that data type are just names tuples?
+  so: data Something = Something a b c ; f a b c === f something --- without recursion
+
 

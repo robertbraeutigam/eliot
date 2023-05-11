@@ -30,6 +30,7 @@ library
       AST
       Compiler.Compiler
       CompilerError
+      CompilerProcessor
       Engine.FactEngine
       Logging
       Tokens
