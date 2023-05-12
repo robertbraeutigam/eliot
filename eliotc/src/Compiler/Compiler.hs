@@ -48,21 +48,21 @@ fileReader (SourceFile path)
 fileReader _ = compileOk
 
 parseTokensProcessor :: CompilerProcessor
-parseTokensProcessor (SourceFileContent path code) = case (parseTokens code) of
+parseTokensProcessor (SourceFileContent path code) = case (parseTokens path code) of
    Left parserError -> printCompilerError path parserError >> compileOk
    Right tokens     -> registerCompilerFact (SourceTokenized path) (SourceTokens path tokens) >> compileOk
 parseTokensProcessor _ = compileOk
 
 parseASTProcessor :: CompilerProcessor
-parseASTProcessor (SourceTokens path tokens) = case parseAST tokens of
+parseASTProcessor (SourceTokens path tokens) = case parseAST path tokens of
    (errors, ast) -> (sequence_ $ map (printCompilerError path) errors) >> registerCompilerFact (SourceASTCreated path) (SourceAST path ast) >> compileOk
 parseASTProcessor _ = compileOk
 
 printCompilerError :: FilePath -> CompilerError -> CompilerIO ()
-printCompilerError path compilerError = do
+printCompilerError path err = do
    source <- getCompilerFact $ SourceFileRead path
    case source of
       SourceFileContent _ content -> compilerErrorMsg path content
-                                        (row $ errorFrom compilerError) (col $ errorFrom compilerError) (row $ errorTo compilerError) (col $ errorTo compilerError) (errorMessage compilerError)
+                                        (row $ errorFrom err) (col $ errorFrom err) (row $ errorTo err) (col $ errorTo err) (errorMessage err)
       _                           -> return ()
 

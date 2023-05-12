@@ -32,7 +32,7 @@ spec = do
 countASTErrors (Left _)          = 0
 countASTErrors (Right (errs, _)) = length errs
 
-parseCode code = mapRight parseAST (parseTokens code)
+parseCode code = mapRight (parseAST "") (parseTokens "" code)
 
 extractImports (Left _)             = []
 extractImports (Right (_, AST imps _)) = map toImportTest imps

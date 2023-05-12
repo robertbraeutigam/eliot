@@ -17,10 +17,10 @@ import AST
 type ASTParser = Parsec [PositionedToken] [ParseError]
 
 -- | Run the parser with all features
-parseAST :: [PositionedToken] -> ([CompilerError], AST)
-parseAST [] = ([], AST [] [])
-parseAST (t:ts) = case run of
-      (es, ast) -> ((map (translateASTError (t:ts)) es), ast)
+parseAST :: FilePath -> [PositionedToken] -> ([CompilerError], AST)
+parseAST fp [] = ([], AST [] [])
+parseAST fp (t:ts) = case run of
+      (es, ast) -> ((map (translateASTError fp (t:ts)) es), ast)
    where run = either (\e -> ([e], AST [] [])) id $ runParser (positionedRecoveringParseSource t) [] "" (t:ts)
 
 -- | Set the source position of the first token explicitly before the parsing starts.
@@ -125,9 +125,9 @@ data RecoveryResult = ContinueTrying | End | Fallthough
    deriving (Eq, Show)
 
 -- | Translate error messages from parsec to readable compiler messages.
-translateASTError ts e = case findToken of
-      Just t  -> CompilerError (SourcePosition (positionedTokenLine t) (positionedTokenColumn t)) (SourcePosition (positionedTokenLine t) ((positionedTokenColumn t) + (tokenLength $ positionedToken t))) (translateParsecErrorMessage $ show e)
-      Nothing -> CompilerError (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (translateParsecErrorMessage $ show e)
+translateASTError fp ts e = case findToken of
+      Just t  -> CompilerError fp (SourcePosition (positionedTokenLine t) (positionedTokenColumn t)) (SourcePosition (positionedTokenLine t) ((positionedTokenColumn t) + (tokenLength $ positionedToken t))) (translateParsecErrorMessage $ show e)
+      Nothing -> CompilerError fp (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (translateParsecErrorMessage $ show e)
    where findToken = find (\t -> (positionedTokenLine t) == (sourceLine $ errorPos e) && (positionedTokenColumn t) == (sourceColumn $ errorPos e)) ts
 
 translateParsecErrorMessage msg = "Parser error, " ++ (intercalate ", " $ filter (\l -> (isPrefixOf "unexpected" l) || (isPrefixOf "expecting" l))  (lines msg)) ++ "."

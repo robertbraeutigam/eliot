@@ -12,9 +12,9 @@ import Control.Monad
 import CompilerProcessor
 import Tokens
 
-parseTokens :: String -> Either CompilerError [PositionedToken]
-parseTokens code = case parse (whiteSpace >> (many anyTokenLexeme) <* eof) "" code of
-   Left e -> Left $ translateTokenizerError e
+parseTokens :: FilePath -> String -> Either CompilerError [PositionedToken]
+parseTokens fp code = case parse (whiteSpace >> (many anyTokenLexeme) <* eof) fp code of
+   Left e -> Left $ translateTokenizerError fp e
    Right ts -> Right ts
 
 anyTokenLexeme = ((identifier <|> symbol) <* whiteSpace) <?> "legal character"
@@ -46,7 +46,7 @@ multiLineCommentBody = ((void $ try (string "*/"))                             -
 
 -- Translate errors
 
-translateTokenizerError e = CompilerError pos pos (translateParsecErrorMessage $ show e)
+translateTokenizerError fp e = CompilerError fp pos pos (translateParsecErrorMessage $ show e)
    where pos = SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)
 
 translateParsecErrorMessage msg = "Parser error, " ++ (intercalate ", " $ filter (\l -> (isPrefixOf "unexpected" l) || (isPrefixOf "expecting" l))  (lines msg)) ++ "."
