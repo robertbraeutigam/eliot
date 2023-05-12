@@ -28,12 +28,13 @@ source-repository head
 library
   exposed-modules:
       AST
+      ASTProcessor
       Compiler.Compiler
-      CompilerError
       CompilerProcessor
       Engine.FactEngine
       Logging
       Tokens
+      TokensProcessor
   other-modules:
       Paths_eliotc
   hs-source-dirs:
@@ -87,9 +88,9 @@ test-suite eliotc-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      ASTSpec
+      ASTProcessorSpec
       Engine.FactEngineSpec
-      TokensSpec
+      TokensProcessorSpec
       Paths_eliotc
   hs-source-dirs:
       test

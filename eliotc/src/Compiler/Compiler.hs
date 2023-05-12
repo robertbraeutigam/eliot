@@ -17,8 +17,9 @@ import Engine.FactEngine
 import Logging
 import Tokens
 import AST
-import CompilerError
 import CompilerProcessor
+import ASTProcessor
+import TokensProcessor
 
 -- | Run the compiler on the given source paths.
 compile :: [String] -> IO ()

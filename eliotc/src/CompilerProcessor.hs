@@ -3,14 +3,20 @@
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
-module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk) where
+module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..)) where
 
+import Text.Parsec
 import GHC.Generics
 import Data.Hashable
 import Engine.FactEngine
 import Tokens
 import AST
-import CompilerError
+
+data SourcePosition = SourcePosition { row::Line, col::Column }
+   deriving (Show, Eq)
+
+data CompilerError = CompilerError { errorFrom::SourcePosition, errorTo::SourcePosition, errorMessage::String }
+   deriving (Show, Eq)
 
 -- | Signals registered into the fact engine.
 data Signal =
