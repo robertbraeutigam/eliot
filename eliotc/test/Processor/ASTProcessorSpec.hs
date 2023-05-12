@@ -1,12 +1,12 @@
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
-module ASTProcessorSpec (spec) where
+module Processor.ASTProcessorSpec (spec) where
 
 import Test.Hspec
 import Data.Either.Extra
 import Tokens
-import TokensProcessor
+import Processor.TokensProcessor
 import AST
-import ASTProcessor
+import Processor.ASTProcessor
 
 spec :: Spec
 spec = do

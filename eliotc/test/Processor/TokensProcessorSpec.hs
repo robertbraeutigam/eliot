@@ -1,10 +1,10 @@
-module TokensProcessorSpec (spec) where
+module Processor.TokensProcessorSpec (spec) where
 
 import Data.Either
 import Test.Hspec
 import Data.Either.Extra
 import Tokens
-import TokensProcessor
+import Processor.TokensProcessor
 import CompilerProcessor
 
 spec :: Spec

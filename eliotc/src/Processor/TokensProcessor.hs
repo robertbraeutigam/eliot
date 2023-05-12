@@ -3,7 +3,7 @@
  - is made out of.
  -}
 
-module TokensProcessor (parseTokens) where
+module Processor.TokensProcessor (parseTokens) where
 
 import Text.Parsec
 import Data.Char (isSpace)

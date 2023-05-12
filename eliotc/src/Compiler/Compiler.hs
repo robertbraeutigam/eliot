@@ -14,8 +14,8 @@ import System.Directory
 import Engine.FactEngine
 import Logging
 import CompilerProcessor
-import ASTProcessor
-import TokensProcessor
+import Processor.ASTProcessor
+import Processor.TokensProcessor
 
 -- | Run the compiler on the given source paths.
 compile :: [String] -> IO ()
