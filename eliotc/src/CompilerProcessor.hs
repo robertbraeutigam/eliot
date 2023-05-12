@@ -36,14 +36,15 @@ data Fact =
    | SourceAST FilePath AST             -- AST of source file
    deriving (Eq, Show)
 
--- | A computation running in the compiler. It either produces some value
--- or returns a list of errors to be displayed.
-type CompilerIO a = FactsIO Signal Fact ([CompilerError], a)
+-- | A computation running in the compiler. This computation interacts
+-- with facts, may get and register them, and potentially produces errors,
+-- which are returned.
+type CompilerIO = FactsIO Signal Fact [CompilerError]
 
 -- | A compiler process reacts to a fact and runs a CompilerIO computation.
-type CompilerProcessor = Fact -> CompilerIO ()
+type CompilerProcessor = Fact -> CompilerIO
 
 -- | Return no errors an void from a compiler processor.
-compileOk :: CompilerIO ()
-compileOk = return $ ([], ())
+compileOk :: CompilerIO
+compileOk = return $ []
 
