@@ -27,7 +27,10 @@ compile paths = do
       Nothing        -> errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
          processors = map printErrors [directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
-         printErrors processor fact = runStateT (processor fact) [] >> return () -- Print errors here when filepath is implemented
+         printErrors :: CompilerProcessor -> FactProcessor Signal Fact
+         printErrors processor fact = do
+            errors <- execStateT (processor fact) []
+            mapM_ printCompilerError errors
 
 -- From here on are the processors for the compilation process
 
@@ -49,18 +52,18 @@ fileReader _ = compileOk
 
 parseTokensProcessor :: CompilerProcessor
 parseTokensProcessor (SourceFileContent path code) = case (parseTokens path code) of
-   Left parserError -> printCompilerError parserError >> compileOk
+   Left parserError -> compilerError parserError >> compileOk
    Right tokens     -> registerCompilerFact (SourceTokenized path) (SourceTokens path tokens) >> compileOk
 parseTokensProcessor _ = compileOk
 
 parseASTProcessor :: CompilerProcessor
 parseASTProcessor (SourceTokens path tokens) = case parseAST path tokens of
-   (errors, ast) -> (sequence_ $ map printCompilerError errors) >> registerCompilerFact (SourceASTCreated path) (SourceAST path ast) >> compileOk
+   (errors, ast) -> (mapM_ compilerError errors) >> registerCompilerFact (SourceASTCreated path) (SourceAST path ast) >> compileOk
 parseASTProcessor _ = compileOk
 
-printCompilerError :: CompilerError -> CompilerIO ()
+printCompilerError :: CompilerError -> FactsIO Signal Fact ()
 printCompilerError (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg) = do
-   source <- getCompilerFact $ SourceFileRead fp
+   source <- getFact $ SourceFileRead fp
    case source of
       SourceFileContent _ content -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
       _                           -> return ()
