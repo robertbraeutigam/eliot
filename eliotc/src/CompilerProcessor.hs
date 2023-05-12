@@ -3,12 +3,13 @@
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
-module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..)) where
+module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact) where
 
 import Text.Parsec
 import GHC.Generics
 import Data.Hashable
 import Engine.FactEngine
+import Control.Monad.State
 import Tokens
 import AST
 
@@ -39,12 +40,17 @@ data Fact =
 -- | A computation running in the compiler. This computation interacts
 -- with facts, may get and register them, and potentially produces errors,
 -- which are returned.
-type CompilerIO = FactsIO Signal Fact [CompilerError]
+type CompilerIO = StateT [CompilerError] (FactsIO Signal Fact)
 
 -- | A compiler process reacts to a fact and runs a CompilerIO computation.
-type CompilerProcessor = Fact -> CompilerIO
+type CompilerProcessor = Fact -> CompilerIO ()
 
 -- | Return no errors an void from a compiler processor.
-compileOk :: CompilerIO
-compileOk = return $ []
+compileOk :: CompilerIO ()
+compileOk = return ()
 
+registerCompilerFact :: Signal -> Fact -> CompilerIO ()
+registerCompilerFact s f = lift (registerFact s f)
+
+getCompilerFact :: Signal -> CompilerIO Fact
+getCompilerFact s = lift (getFact s)
