@@ -11,12 +11,8 @@ import Control.Monad.Trans.Class
 import Data.List (isPrefixOf, isSuffixOf)
 import System.FilePath
 import System.Directory
-import GHC.Generics
-import Data.Hashable
 import Engine.FactEngine
 import Logging
-import Tokens
-import AST
 import CompilerProcessor
 import ASTProcessor
 import TokensProcessor
