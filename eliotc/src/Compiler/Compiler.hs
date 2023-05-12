@@ -27,11 +27,7 @@ compile paths = do
       Nothing        -> errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
          processors = map printErrors [directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
-         printErrors processor fact = do
-            result <- processor fact
-            case result of
-               Right _   -> return ()
-               Left errs -> return () -- TODO: print errors here
+         printErrors processor fact = processor fact >> return () -- Print errors here when filepath is implemented
 
 -- From here on are the processors for the compilation process
 

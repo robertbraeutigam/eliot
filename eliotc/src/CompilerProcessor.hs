@@ -38,12 +38,12 @@ data Fact =
 
 -- | A computation running in the compiler. It either produces some value
 -- or returns a list of errors to be displayed.
-type CompilerIO a = FactsIO Signal Fact (Either [CompilerError] a)
+type CompilerIO a = FactsIO Signal Fact ([CompilerError], a)
 
 -- | A compiler process reacts to a fact and runs a CompilerIO computation.
 type CompilerProcessor = Fact -> CompilerIO ()
 
 -- | Return no errors an void from a compiler processor.
 compileOk :: CompilerIO ()
-compileOk = return $ Right ()
+compileOk = return $ ([], ())
 
