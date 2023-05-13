@@ -9,23 +9,29 @@ import Text.Parsec
 import GHC.Generics
 import Data.Hashable
 import Engine.FactEngine
-import Control.Monad.State
 import Tokens
 import AST
 
 data SourcePosition = SourcePosition { row::Line, col::Column }
    deriving (Show, Eq)
 
+instance Hashable SourcePosition where
+  hashWithSalt salt (SourcePosition line col) = hashWithSalt salt (line, col)
+
 data CompilerError = CompilerError { errorFile::FilePath, errorFrom::SourcePosition, errorTo::SourcePosition, errorMessage::String }
    deriving (Show, Eq)
 
+instance Hashable CompilerError where
+  hashWithSalt salt (CompilerError file ef et em) = hashWithSalt salt (file, ef, et, em)
+
 -- | Signals registered into the fact engine.
 data Signal =
-     SourcePathDetected FilePath
-   | SourceFileDetected FilePath
-   | SourceFileRead     FilePath
-   | SourceTokenized    FilePath
-   | SourceASTCreated   FilePath
+     SourcePathDetected  FilePath
+   | SourceFileDetected  FilePath
+   | SourceFileRead      FilePath
+   | SourceTokenized     FilePath
+   | SourceASTCreated    FilePath
+   | CompilerErrorSignal CompilerError
    deriving (Eq, Show, Generic, Hashable)
 
 -- | Facts registered into the fact engine.
@@ -34,14 +40,15 @@ data Fact =
    | SourceFile FilePath                          -- A source file that has been detected
    | SourceFileContent FilePath String            -- Contents of a source file
    | SourceTokens FilePath [PositionedToken]      -- Tokens read from a source file
-   | SourceAST FilePath AST             -- AST of source file
+   | SourceAST FilePath AST                       -- AST of source file
+   | CompilerErrorFact CompilerError
    deriving (Eq, Show)
 
 -- | A computation running in the compiler. This computation interacts
 -- with facts, may get and register them, and potentially produces errors during
 -- processing. The errors are not short-circuited, the processor may produce
 -- multiple errors and still produce some output.
-type CompilerIO = StateT [CompilerError] (FactsIO Signal Fact)
+type CompilerIO = FactsIO Signal Fact
 
 -- | A compiler process reacts to a fact and runs a CompilerIO computation.
 type CompilerProcessor = Fact -> CompilerIO ()
@@ -52,13 +59,14 @@ compileOk = return ()
 
 -- | Register a fact into the compiler engine.
 registerCompilerFact :: Signal -> Fact -> CompilerIO ()
-registerCompilerFact s f = lift (registerFact s f)
+registerCompilerFact s f = registerFact s f
 
 -- | Get a fact from the compiler engine. This will potentially block
 -- until the fact becomes available.
 getCompilerFact :: Signal -> CompilerIO Fact
-getCompilerFact s = lift (getFact s)
+getCompilerFact s = getFact s
 
+-- | Generate a compiler error.
 compilerError :: CompilerError -> CompilerIO ()
-compilerError e = modify (e:)
+compilerError e = registerCompilerFact (CompilerErrorSignal e) (CompilerErrorFact e)
 

@@ -7,7 +7,7 @@
 module Compiler.Compiler(compile) where
 
 import Control.Monad
-import Control.Monad.State
+import Control.Monad.Trans
 import Data.List (isPrefixOf, isSuffixOf)
 import System.FilePath
 import System.Directory
@@ -26,27 +26,23 @@ compile paths = do
       Just(allFacts) -> debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
       Nothing        -> errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
-         processors = map printErrors [directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
-         printErrors :: CompilerProcessor -> FactProcessor Signal Fact
-         printErrors processor fact = do
-            errors <- execStateT (processor fact) []
-            mapM_ printCompilerError errors
+         processors = [directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
 
 -- From here on are the processors for the compilation process
 
 directoryWalker :: CompilerProcessor
 directoryWalker (SourcePath path) = do
-   isFile      <- lift $ lift $ doesFileExist path
-   isDirectory <- lift $ lift $ doesDirectoryExist path
+   isFile      <- lift $ doesFileExist path
+   isDirectory <- lift $ doesDirectoryExist path
    when isFile       $ registerCompilerFact (SourceFileDetected path) (SourceFile path) 
-   when isDirectory  $ (lift $ lift $ filter (not . isPrefixOf ".") <$> listDirectory path) >>= mapM_ ((registerCompilerFact . SourcePathDetected <*> SourcePath) . (path </>))
+   when isDirectory  $ (lift $ filter (not . isPrefixOf ".") <$> listDirectory path) >>= mapM_ ((registerCompilerFact . SourcePathDetected <*> SourcePath) . (path </>))
    when ((not isFile) && (not isDirectory)) $ errorMsg $ "Path " ++ path ++ " is neither a file nor directory"
    compileOk
 directoryWalker _ = compileOk
 
 fileReader :: CompilerProcessor
 fileReader (SourceFile path)
-   | ".els" `isSuffixOf` path = (lift $ lift $ readFile path) >>= (registerCompilerFact (SourceFileRead path) . (SourceFileContent path)) >> compileOk
+   | ".els" `isSuffixOf` path = (lift $ readFile path) >>= (registerCompilerFact (SourceFileRead path) . (SourceFileContent path)) >> compileOk
    | otherwise                = (debugMsg $ "Ignoring source file because not ending in '.els': " ++ path) >> compileOk
 fileReader _ = compileOk
 

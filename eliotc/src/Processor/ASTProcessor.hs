@@ -18,7 +18,7 @@ type ASTParser = Parsec [PositionedToken] [ParseError]
 
 -- | Run the parser with all features
 parseAST :: FilePath -> [PositionedToken] -> ([CompilerError], AST)
-parseAST fp [] = ([], AST [] [])
+parseAST _ [] = ([], AST [] [])
 parseAST fp (t:ts) = case run of
       (es, ast) -> ((map (translateASTError fp (t:ts)) es), ast)
    where run = either (\e -> ([e], AST [] [])) id $ runParser (positionedRecoveringParseSource t) [] "" (t:ts)
