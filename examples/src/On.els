@@ -2,7 +2,7 @@
  * Example program to switch PA1 pin on.
  */
 
-impora ni.Nu
+impora ni.kNku→
 
 main = high PA1
 

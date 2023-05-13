@@ -8,6 +8,7 @@ module Compiler.Compiler(compile) where
 
 import Control.Monad
 import Control.Monad.Trans
+import Control.Concurrent.MVar
 import Data.List (isPrefixOf, isSuffixOf)
 import System.FilePath
 import System.Directory
@@ -21,12 +22,13 @@ import Processor.TokensProcessor
 compile :: [String] -> IO ()
 compile [] = errorMsg "There were no source paths given. Please supply at least one directory with ELIOT sources."
 compile paths = do
-   facts <- resolveFacts processors sourcePathFacts
+   printLock <- newMVar ()
+   facts     <- resolveFacts (processors printLock) sourcePathFacts
    case facts of
       Just(allFacts) -> debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
       Nothing        -> errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
-         processors = [directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
+         processors printLock = [errorProcessor printLock, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
 
 -- From here on are the processors for the compilation process
 
@@ -57,10 +59,14 @@ parseASTProcessor (SourceTokens path tokens) = case parseAST path tokens of
    (errors, ast) -> (mapM_ compilerError errors) >> registerCompilerFact (SourceASTCreated path) (SourceAST path ast) >> compileOk
 parseASTProcessor _ = compileOk
 
-printCompilerError :: CompilerError -> FactsIO Signal Fact ()
-printCompilerError (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg) = do
+-- | Error processor reads all error facts and prints them using a lock to serialize
+-- all writes.
+errorProcessor :: MVar () -> CompilerProcessor
+errorProcessor lock (CompilerErrorFact (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg)) = do
    source <- getFact $ SourceFileRead fp
    case source of
-      SourceFileContent _ content -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
+      SourceFileContent _ content -> lift $ withMVar lock $ const $ compilerErrorMsg fp content fromLine fromCol toLine toCol msg
       _                           -> return ()
+
+errorProcessor _ _ = compileOk
 
