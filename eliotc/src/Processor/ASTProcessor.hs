@@ -15,11 +15,13 @@ import CompilerProcessor
 import AST
 
 parseASTProcessor :: CompilerProcessor
-parseASTProcessor (SourceTokens path [])     = registerCompilerFact (SourceASTCreated path) (SourceAST path (AST [] []))
+parseASTProcessor (SourceTokens path [])     = registerAST path (AST [] [])
 parseASTProcessor (SourceTokens path (t:ts)) = case runParser (positionedRecoveringParseSource t) [] path (t:ts) of
-   Left err            -> (compilerError (translateASTError path (t:ts) err)) >> registerCompilerFact (SourceASTCreated path) (SourceAST path (AST [] []))
-   Right (errors, ast) -> (mapM_ compilerError (translateASTError path (t:ts) <$> errors)) >> registerCompilerFact (SourceASTCreated path) (SourceAST path ast)
+   Left err            -> (compilerError (translateASTError path (t:ts) err)) >> registerAST path (AST [] [])
+   Right (errors, ast) -> (mapM_ compilerError (translateASTError path (t:ts) <$> errors)) >> registerAST path ast
 parseASTProcessor _ = compileOk
+
+registerAST path ast = registerCompilerFact (SourceASTCreated path) (SourceAST path ast)
 
 type ASTParser = Parsec [PositionedToken] [ParseError]
 
