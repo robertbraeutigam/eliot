@@ -6,17 +6,14 @@
 
 module Compiler.Compiler(compile) where
 
-import Control.Monad
-import Control.Monad.Trans
 import Control.Concurrent.MVar
-import Data.List (isPrefixOf, isSuffixOf)
-import System.FilePath
-import System.Directory
+import Control.Monad.Trans
 import Engine.FactEngine
 import Logging
 import CompilerProcessor
 import Processor.ASTProcessor
 import Processor.TokensProcessor
+import Processor.FileProcessors
 
 -- | Run the compiler on the given source paths.
 compile :: [String] -> IO ()
@@ -29,24 +26,6 @@ compile paths = do
       Nothing        -> errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
          processors printLock = [errorProcessor printLock, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
-
--- From here on are the processors for the compilation process
-
-directoryWalker :: CompilerProcessor
-directoryWalker (SourcePath path) = do
-   isFile      <- lift $ doesFileExist path
-   isDirectory <- lift $ doesDirectoryExist path
-   when isFile       $ registerCompilerFact (SourceFileDetected path) (SourceFile path) 
-   when isDirectory  $ (lift $ filter (not . isPrefixOf ".") <$> listDirectory path) >>= mapM_ ((registerCompilerFact . SourcePathDetected <*> SourcePath) . (path </>))
-   when ((not isFile) && (not isDirectory)) $ errorMsg $ "Path " ++ path ++ " is neither a file nor directory"
-   compileOk
-directoryWalker _ = compileOk
-
-fileReader :: CompilerProcessor
-fileReader (SourceFile path)
-   | ".els" `isSuffixOf` path = (lift $ readFile path) >>= (registerCompilerFact (SourceFileRead path) . (SourceFileContent path)) >> compileOk
-   | otherwise                = (debugMsg $ "Ignoring source file because not ending in '.els': " ++ path) >> compileOk
-fileReader _ = compileOk
 
 -- | Error processor reads all error facts and prints them using a lock to serialize
 -- all writes.

@@ -33,6 +33,7 @@ library
       Engine.FactEngine
       Logging
       Processor.ASTProcessor
+      Processor.FileProcessors
       Processor.TokensProcessor
       Tokens
   other-modules:
