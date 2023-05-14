@@ -3,7 +3,7 @@
  - nor does it completely assign roles to various tokens.
  -}
 
-module Processor.ASTProcessor (parseAST) where
+module Processor.ASTProcessor (parseASTProcessor) where
 
 import Data.List (isPrefixOf, intercalate, find)
 import Text.Parsec
@@ -14,14 +14,14 @@ import Tokens
 import CompilerProcessor
 import AST
 
-type ASTParser = Parsec [PositionedToken] [ParseError]
+parseASTProcessor :: CompilerProcessor
+parseASTProcessor (SourceTokens path [])     = registerCompilerFact (SourceASTCreated path) (SourceAST path (AST [] []))
+parseASTProcessor (SourceTokens path (t:ts)) = case runParser (positionedRecoveringParseSource t) [] path (t:ts) of
+   Left err            -> (compilerError (translateASTError path (t:ts) err)) >> registerCompilerFact (SourceASTCreated path) (SourceAST path (AST [] []))
+   Right (errors, ast) -> (mapM_ compilerError (translateASTError path (t:ts) <$> errors)) >> registerCompilerFact (SourceASTCreated path) (SourceAST path ast)
+parseASTProcessor _ = compileOk
 
--- | Run the parser with all features
-parseAST :: FilePath -> [PositionedToken] -> ([CompilerError], AST)
-parseAST _ [] = ([], AST [] [])
-parseAST fp (t:ts) = case run of
-      (es, ast) -> ((map (translateASTError fp (t:ts)) es), ast)
-   where run = either (\e -> ([e], AST [] [])) id $ runParser (positionedRecoveringParseSource t) [] "" (t:ts)
+type ASTParser = Parsec [PositionedToken] [ParseError]
 
 -- | Set the source position of the first token explicitly before the parsing starts.
 positionedRecoveringParseSource t =

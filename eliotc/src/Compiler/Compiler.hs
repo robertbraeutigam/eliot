@@ -48,17 +48,6 @@ fileReader (SourceFile path)
    | otherwise                = (debugMsg $ "Ignoring source file because not ending in '.els': " ++ path) >> compileOk
 fileReader _ = compileOk
 
-parseTokensProcessor :: CompilerProcessor
-parseTokensProcessor (SourceFileContent path code) = case (parseTokens path code) of
-   Left parserError -> compilerError parserError >> compileOk
-   Right tokens     -> registerCompilerFact (SourceTokenized path) (SourceTokens path tokens) >> compileOk
-parseTokensProcessor _ = compileOk
-
-parseASTProcessor :: CompilerProcessor
-parseASTProcessor (SourceTokens path tokens) = case parseAST path tokens of
-   (errors, ast) -> (mapM_ compilerError errors) >> registerCompilerFact (SourceASTCreated path) (SourceAST path ast) >> compileOk
-parseASTProcessor _ = compileOk
-
 -- | Error processor reads all error facts and prints them using a lock to serialize
 -- all writes.
 errorProcessor :: MVar () -> CompilerProcessor

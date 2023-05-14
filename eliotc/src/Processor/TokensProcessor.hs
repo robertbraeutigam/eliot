@@ -3,7 +3,7 @@
  - is made out of.
  -}
 
-module Processor.TokensProcessor (parseTokens) where
+module Processor.TokensProcessor (parseTokensProcessor) where
 
 import Text.Parsec
 import Data.Char (isSpace)
@@ -12,10 +12,12 @@ import Control.Monad
 import CompilerProcessor
 import Tokens
 
-parseTokens :: FilePath -> String -> Either CompilerError [PositionedToken]
-parseTokens fp code = case parse (whiteSpace >> (many anyTokenLexeme) <* eof) fp code of
-   Left e -> Left $ translateTokenizerError fp e
-   Right ts -> Right ts
+-- | Parse tokens if a source file is read.
+parseTokensProcessor :: CompilerProcessor
+parseTokensProcessor (SourceFileContent path code) = case parse (whiteSpace >> (many anyTokenLexeme) <* eof) path code of
+   Left parserError -> compilerError $ translateTokenizerError path parserError
+   Right ts         -> registerCompilerFact (SourceTokenized path) (SourceTokens path ts)
+parseTokensProcessor _ = compileOk
 
 anyTokenLexeme = ((identifier <|> symbol) <* whiteSpace) <?> "legal character"
 
