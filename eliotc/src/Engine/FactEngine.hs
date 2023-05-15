@@ -15,7 +15,7 @@
  - tasks are waiting for facts to become available.
  -}
 
-module Engine.FactEngine(FactsIO, FactProcessor, resolveFacts, registerFact, getFact) where
+module Engine.FactEngine(FactEngine, FactsIO, FactProcessor, resolveFacts, registerFact, getFact) where
 
 import qualified Control.Concurrent.STM.Map as STMMap
 import Control.Monad.Trans.Class

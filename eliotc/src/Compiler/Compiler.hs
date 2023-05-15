@@ -6,35 +6,39 @@
 
 module Compiler.Compiler(compile) where
 
-import Control.Concurrent.MVar
-import Control.Monad.Trans
 import Engine.FactEngine
-import Logging
+import Control.Monad.Trans.Reader
 import CompilerProcessor
+import qualified Logging
 import Processor.ASTProcessor
 import Processor.TokensProcessor
 import Processor.FileProcessors
 
 -- | Run the compiler on the given source paths.
 compile :: [String] -> IO ()
-compile [] = errorMsg "There were no source paths given. Please supply at least one directory with ELIOT sources."
+compile [] = Logging.runLogger $ Logging.errorMsg "There were no source paths given. Please supply at least one directory with ELIOT sources."
 compile paths = do
-   printLock <- newMVar ()
-   facts     <- resolveFacts (processors printLock) sourcePathFacts
+   logger    <- Logging.newLogger
+   facts     <- resolveFacts (liftedProcessors logger) sourcePathFacts
    case facts of
-      Just(allFacts) -> debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
-      Nothing        -> errorMsg "Compiler terminated with errors. See previous errors for details."
+      Just(allFacts) -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
+      Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
-         processors printLock = [errorProcessor printLock, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
+         liftedProcessors logger = map (liftToCompiler logger) processors
+         processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
+ 
+-- | Translate a fact engine IO into a compile one.
+liftToCompiler :: Logging.Logger -> CompilerProcessor -> FactProcessor Signal Fact
+liftToCompiler logger compilerProcessor = (withReaderT (\engine -> (logger, engine))) . compilerProcessor
 
 -- | Error processor reads all error facts and prints them using a lock to serialize
 -- all writes.
-errorProcessor :: MVar () -> CompilerProcessor
-errorProcessor lock (CompilerErrorFact (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg)) = do
-   source <- getFact $ SourceFileRead fp
+errorProcessor :: CompilerProcessor
+errorProcessor (CompilerErrorFact (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg)) = do
+   source <- getCompilerFact $ SourceFileRead fp
    case source of
-      SourceFileContent _ content -> lift $ withMVar lock $ const $ compilerErrorMsg fp content fromLine fromCol toLine toCol msg
-      _                           -> return ()
+      SourceFileContent _ content -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
+      _                           -> compileOk
 
-errorProcessor _ _ = compileOk
+errorProcessor _ = compileOk
 

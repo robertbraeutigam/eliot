@@ -2,26 +2,45 @@
  - compiler errors.
  -}
 
-module Logging (errorMsg, debugMsg, compilerErrorMsg) where
+module Logging (errorMsg, debugMsg, compilerErrorMsg, newLogger, Logger, LoggerIO, withLogger, runLogger) where
 
+import Control.Concurrent.MVar
 import System.Console.ANSI
+import Control.Monad.Trans.Reader
 import Control.Monad.IO.Class
 import System.IO
 import Control.Monad.Extra
 
+data Logger = Logger (MVar ())
+
+newLogger :: IO Logger
+newLogger = Logger <$> newMVar ()
+
+type LoggerIO = ReaderT Logger IO
+
+-- | Run any of the logging directly in the IO monad.
+withLogger :: Logger -> LoggerIO () -> IO ()
+withLogger logger io = runReaderT io logger
+
+-- | Run a non-protected version of the logger that is not thread-safe.
+runLogger :: LoggerIO () -> IO ()
+runLogger loggerIO = do
+   logger <- newLogger
+   withLogger logger loggerIO
+
 -- | A generic error not in source files, but in the compiler itself
-errorMsg :: MonadIO m => String -> m ()
+errorMsg :: String -> LoggerIO ()
 errorMsg msg = liftIO $ do
    colored stdout Vivid Red "[ ERROR ] "
    hPutStrLn stdout msg
 
 -- | Debug message
-debugMsg :: MonadIO m => String -> m ()
+debugMsg :: String -> LoggerIO ()
 debugMsg msg = liftIO $ colored stdout Dull White ("[ DEBUG ] " ++ msg) >> hPutStrLn stdout ""
 
 -- | Show a compiler error in a given file with "standard" compiler output format
 -- TODO: This doesn't handle multi-line failures yet.
-compilerErrorMsg :: MonadIO m => FilePath -> String -> Int -> Int -> Int -> Int -> String -> m ()
+compilerErrorMsg :: FilePath -> String -> Int -> Int -> Int -> Int -> String -> LoggerIO ()
 compilerErrorMsg filePath content fRow fCol tRow tCol msg = liftIO $ do
    colored stderr Vivid White (filePath ++ ":")
    colored stderr Vivid Red "error"

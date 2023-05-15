@@ -1,7 +1,6 @@
 module Processor.FileProcessors (directoryWalker, fileReader) where
 
 import CompilerProcessor
-import Logging
 import Data.List (isPrefixOf, isSuffixOf)
 import System.FilePath
 import System.Directory
