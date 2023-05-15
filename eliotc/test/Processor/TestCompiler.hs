@@ -12,7 +12,7 @@ compileSelectFact processors code selector = do
    selectedAs <- compileCollectFacts processors code selector
    case selectedAs of
       []   -> error "Selection failed."
-      a:as -> return a
+      a:_ -> return a
 
 compileCollectFacts :: [CompilerProcessor] -> String -> ((Signal, Fact) -> Maybe a) -> IO [a]
 compileCollectFacts processors code selector = do

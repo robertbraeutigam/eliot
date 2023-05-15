@@ -5,18 +5,21 @@
 
 module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError) where
 
-import Text.Parsec
 import GHC.Generics
 import Data.Hashable
 import Engine.FactEngine
 import Tokens
 import AST
 
-data SourcePosition = SourcePosition { row::Line, col::Column }
+type SourceLine = Int
+
+type SourceColumn = Int
+
+data SourcePosition = SourcePosition { row::SourceLine, col::SourceColumn }
    deriving (Show, Eq)
 
 instance Hashable SourcePosition where
-  hashWithSalt salt (SourcePosition line col) = hashWithSalt salt (line, col)
+  hashWithSalt salt (SourcePosition l c) = hashWithSalt salt (l, c)
 
 data CompilerError = CompilerError { errorFile::FilePath, errorFrom::SourcePosition, errorTo::SourcePosition, errorMessage::String }
    deriving (Show, Eq)

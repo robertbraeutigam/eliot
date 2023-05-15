@@ -69,8 +69,6 @@ moduleName = satisfyAll [isIdentifer, contentPredicate startsUpperCase] <?> "mod
 
 packageName = satisfyAll [isIdentifer, contentPredicate startsLowerCase] <?> "package name"
 
-keyword name = satisfyAll [isIdentifer, isContent name] <?> ("keyword "++(show name))
-
 topLevelKeyword name = satisfyAll [isIdentifer, isContent name, isTopLevel] <?> ("top level keyword "++(show name))
 
 symbol name = satisfyAll [isSymbol, isContent name] <?> ("symbol '" ++ name ++ "'")
