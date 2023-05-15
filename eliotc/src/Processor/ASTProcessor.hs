@@ -48,7 +48,7 @@ importStatement = do
 
 functionStatement = do
    firstDef <- satisfyAll [isTopLevel] <?> "top level function definition"
-   restDefs <- many $ satisfyAll [contentPredicate (/="=")]
+   restDefs <- many $ satisfyAll [contentPredicate (/="="), sameLineAs firstDef]
    _        <- symbol "=" <?> "function definition equals sign"
    body     <- many $ notNewLine
    return $ FunctionDefinition (firstDef:restDefs) body
