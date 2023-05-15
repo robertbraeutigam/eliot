@@ -42,8 +42,8 @@ parseSource = do
 
 importStatement = do
    kyw  <- topLevelKeyword "import"
-   pkgs <- many (packageName <* (symbol "."))
-   modn <- moduleName
+   pkgs <- many (packageNameOnSameLineAs kyw <* (symbol "."))
+   modn <- moduleNameOnSameLineAs kyw
    return $ Import kyw pkgs modn
 
 functionStatement = do
@@ -65,9 +65,9 @@ skipToNewLineOr end = anyToken >> core
 
 notNewLine = satisfyAll [(not . isTopLevel)]
 
-moduleName = satisfyAll [isIdentifer, contentPredicate startsUpperCase] <?> "module name"
+moduleNameOnSameLineAs pt = satisfyAll [isIdentifer, sameLineAs pt, contentPredicate startsUpperCase] <?> "module name on same line as import"
 
-packageName = satisfyAll [isIdentifer, contentPredicate startsLowerCase] <?> "package name"
+packageNameOnSameLineAs pt = satisfyAll [isIdentifer, sameLineAs pt, contentPredicate startsLowerCase] <?> "package name on same line as import"
 
 topLevelKeyword name = satisfyAll [isIdentifer, isContent name, isTopLevel] <?> ("top level keyword "++(show name))
 
@@ -88,6 +88,8 @@ isSymbol (PositionedToken _ _ (Symbol _)) = True
 isSymbol _                                = False
 
 isTopLevel (PositionedToken _ column _) = column == 1
+
+sameLineAs (PositionedToken line1 _ _) (PositionedToken line2 _ _) = line1 == line2
 
 contentPredicate f = f . tokenContent
 

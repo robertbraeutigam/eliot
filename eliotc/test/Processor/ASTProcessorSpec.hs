@@ -24,6 +24,9 @@ spec = do
       it "should not parse import with non-capitalized module name" $ do
          length <$> (parseForErrors "import a.b.c") `shouldReturn` 1
 
+      it "should not parse import on multiple lines even if correct" $ do
+         length <$> (parseForErrors "import a.\nb.c") `shouldReturn` 1
+
       it "should report multiple errors" $ do
          length <$> (parseForErrors "import a.b.c\nimport d;e\n") `shouldReturn` 2
 
