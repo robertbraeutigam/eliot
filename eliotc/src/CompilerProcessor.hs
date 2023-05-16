@@ -3,7 +3,7 @@
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
-module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError, errorMsg, debugMsg, compilerErrorMsg) where
+module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError, errorMsg, debugMsg, compilerErrorMsg, compilerErrorForFile, compilerErrorForTokens) where
 
 import GHC.Generics
 import Data.Hashable
@@ -12,6 +12,7 @@ import qualified Logging
 import Engine.FactEngine
 import Tokens
 import AST
+import FAST
 
 type SourceLine = Int
 
@@ -37,6 +38,7 @@ data Signal =
    | SourceTokenized     FilePath
    | SourceASTCreated    FilePath
    | CompilerErrorSignal CompilerError
+   | ModuleFASTCreated   ModuleName
    deriving (Eq, Show, Generic, Hashable)
 
 -- | Facts registered into the fact engine.
@@ -47,6 +49,7 @@ data Fact =
    | SourceTokens FilePath [PositionedToken]      -- Tokens read from a source file
    | SourceAST FilePath AST                       -- AST of source file
    | CompilerErrorFact CompilerError
+   | ModuleFAST Module                            -- The Module FAST description
    deriving (Eq, Show)
 
 -- | A computation running in the compiler. This computation interacts
@@ -74,6 +77,16 @@ getCompilerFact s = withReaderT snd $ getFact s
 -- | Generate a compiler error.
 compilerError :: CompilerError -> CompilerIO ()
 compilerError e = registerCompilerFact (CompilerErrorSignal e) (CompilerErrorFact e)
+
+compilerErrorForFile :: FilePath -> String -> CompilerIO ()
+compilerErrorForFile file msg = compilerError $ CompilerError file (SourcePosition 1 1) (SourcePosition 1 1) msg
+
+compilerErrorForTokens :: [PositionedToken] -> String -> CompilerIO ()
+compilerErrorForTokens [] _ = error "Compiler error was invoked on no tokens."
+compilerErrorForTokens pts@((PositionedToken file _ _ _):_) msg = compilerError $ CompilerError file fromFirstToken toLastToken msg
+   where fromFirstToken = pos $ head pts
+         toLastToken    = pos $ last pts
+         pos (PositionedToken _ line column _) = SourcePosition line column
 
 -- | Logging
 errorMsg :: String -> CompilerIO ()

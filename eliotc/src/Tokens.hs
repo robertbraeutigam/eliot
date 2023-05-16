@@ -3,7 +3,7 @@
  - is made out of.
  -}
 
-module Tokens (PositionedToken(..), Token(..), tokenLength) where
+module Tokens (PositionedToken(..), Token(..), tokenContent, tokenLength, positionedTokenContent) where
 
 import Text.Parsec
 
@@ -21,7 +21,11 @@ instance Show Token where
    show (Identifier i) = "identifier \""++i++"\""
    show (Symbol i) = "symbol \""++i++"\""
 
-tokenLength :: Token -> Int
-tokenLength (Identifier str) = length str
-tokenLength (Symbol str)     = length str
+tokenContent :: Token -> String
+tokenContent (Identifier str) = str
+tokenContent (Symbol str)     = str
 
+tokenLength :: Token -> Int
+tokenLength = length . tokenContent
+
+positionedTokenContent (PositionedToken _ _ _ t) = tokenContent t

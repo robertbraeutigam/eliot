@@ -13,6 +13,7 @@ import qualified Logging
 import Processor.ASTProcessor
 import Processor.TokensProcessor
 import Processor.FileProcessors
+import Processor.FASTProcessor
 
 -- | Run the compiler on the given source paths.
 compile :: [String] -> IO ()
@@ -25,7 +26,7 @@ compile paths = do
       Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
          liftedProcessors logger = map (liftToCompiler logger) processors
-         processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor]
+         processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseFASTProcessor]
  
 -- | Translate a fact engine IO into a compile one.
 liftToCompiler :: Logging.Logger -> CompilerProcessor -> FactProcessor Signal Fact

@@ -91,7 +91,7 @@ isTopLevel (PositionedToken _ _ column _) = column == 1
 
 sameLineAs (PositionedToken _ line1 _ _) (PositionedToken _ line2 _ _) = line1 == line2
 
-contentPredicate f = f . tokenContent
+contentPredicate f = f . positionedTokenContent
 
 -- | Using the primitive token function to maybe parse a token and produce the token.
 satisfyPT :: (PositionedToken -> Bool) -> ASTParser PositionedToken
@@ -103,9 +103,6 @@ satisfyPT f = tokenPrim show nextPos nextToken
 
 satisfyAll :: [PositionedToken -> Bool] -> ASTParser PositionedToken
 satisfyAll ps = satisfyPT $ (\pt -> all ($ pt) ps)
-
-tokenContent (PositionedToken _ _ _ (Identifier content)) = content
-tokenContent (PositionedToken _ _ _ (Symbol content)) = content
 
 -- | Recover the given parser if it fails, whether it consumed any input or not.
 -- Retry the parser if the recovery returns True, otherwise fail to recovery.

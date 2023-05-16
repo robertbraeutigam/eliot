@@ -31,8 +31,10 @@ library
       Compiler.Compiler
       CompilerProcessor
       Engine.FactEngine
+      FAST
       Logging
       Processor.ASTProcessor
+      Processor.FASTProcessor
       Processor.FileProcessors
       Processor.TokensProcessor
       Tokens
@@ -45,6 +47,7 @@ library
       ansi-terminal
     , base >=4.7 && <5
     , cmdargs
+    , containers
     , directory
     , extra
     , filepath
@@ -71,6 +74,7 @@ executable eliotc-exe
       ansi-terminal
     , base >=4.7 && <5
     , cmdargs
+    , containers
     , directory
     , eliotc
     , extra
@@ -103,6 +107,7 @@ test-suite eliotc-test
       ansi-terminal
     , base >=4.7 && <5
     , cmdargs
+    , containers
     , directory
     , eliotc
     , extra
