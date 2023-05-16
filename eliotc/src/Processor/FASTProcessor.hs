@@ -18,20 +18,25 @@ parseFASTProcessor :: CompilerProcessor
 parseFASTProcessor (SourceAST path ast) = do
    moduleName <- calculateModuleName path ast
    functions  <- sequence $ map compileFunction (functionDefinitions ast)
-   registerCompilerFact (ModuleFASTCreated moduleName) (ModuleFAST $ Module moduleName (Map.fromList functions))
+   case moduleName of
+      Just mn -> registerCompilerFact (ModuleFASTCreated mn) (ModuleFAST $ Module mn (Map.fromList functions))
+      Nothing -> compileOk
 parseFASTProcessor _ = compileOk
 
-calculateModuleName :: FilePath -> AST -> CompilerIO ModuleName
-calculateModuleName path _ = do
-   unless (capitalized fileBaseName) $ compilerErrorForFile path "Module name must be capitalized."
-   return $ ModuleName [] fileBaseName
+calculateModuleName :: FilePath -> AST -> CompilerIO (Maybe ModuleName)
+calculateModuleName path _ = 
+   if capitalized fileBaseName then
+      return $ Just $ ModuleName [] fileBaseName
+   else
+      compilerErrorForFile path "Module name must be capitalized." >> return Nothing
    where fileBaseName = takeBaseName path
 
 compileFunction :: FunctionDefinition -> CompilerIO (String, FunctionApplication)
 compileFunction (FunctionDefinition signature body) = do
    unless (length signature == 1) $ compilerErrorForTokens signature "Function signature must be only one function name."
-   unless (length body == 1) $ compilerErrorForTokens body "Body of function must be a single functio name."
+   unless (length body == 1) $ compilerErrorForTokens body "Body of function must be a single function name."
    return (positionedTokenContent (head signature), FunctionApplication $ FunctionName (ModuleName [] "") (positionedTokenContent (head body)))
+   -- TODO: Short-circuit instead unless
    -- TODO: Get function from Module
 
 capitalized []   = False
