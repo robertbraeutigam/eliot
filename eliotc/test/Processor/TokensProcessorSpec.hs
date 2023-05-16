@@ -22,10 +22,10 @@ spec = do
          parseForTokens "/* not tokens */" `shouldReturn` []
 
       it "should return the correct position of a token" $ do
-         parseForPositionedTokens " some\ntokens" `shouldReturn` [(PositionedToken 1 2 (Identifier "some")), (PositionedToken 2 1 (Identifier "tokens"))]
+         parseForPositionedTokens " some\ntokens" `shouldReturn` [(PositionedToken "" 1 2 (Identifier "some")), (PositionedToken "" 2 1 (Identifier "tokens"))]
 
       it "should include comments in the position of a token" $ do
-         parseForPositionedTokens " /* Some Comment */ Token" `shouldReturn` [(PositionedToken 1 21 (Identifier "Token"))]
+         parseForPositionedTokens " /* Some Comment */ Token" `shouldReturn` [(PositionedToken "" 1 21 (Identifier "Token"))]
 
       it "should not return tokens in block comments with multiple lines" $ do
          parseForTokens "/* not tokens\nagain no\ntokens here */" `shouldReturn` []
@@ -48,7 +48,7 @@ parseForPositionedTokens code = compileSelectFact [parseTokensProcessor] code se
          selectTokens _                       = Nothing
 
 parseForTokens :: String -> IO [Token]
-parseForTokens source = (map positionedToken) <$> parseForPositionedTokens source
+parseForTokens source = (map (\(PositionedToken _ _ _ t) -> t)) <$> parseForPositionedTokens source
 
 parseForErrors :: String -> IO [CompilerError]
 parseForErrors code = compileCollectFacts [parseTokensProcessor] code selectErrors

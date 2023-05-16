@@ -7,11 +7,7 @@ module Tokens (PositionedToken(..), Token(..), tokenLength) where
 
 import Text.Parsec
 
-data PositionedToken = PositionedToken {
-      positionedTokenLine::Line,
-      positionedTokenColumn::Column,
-      positionedToken::Token
-   }
+data PositionedToken = PositionedToken FilePath Line Column Token
    deriving (Eq)
 
 data Token = Identifier String   -- Satisfies the rules for a generic identifier ~alphanumeric
@@ -19,7 +15,7 @@ data Token = Identifier String   -- Satisfies the rules for a generic identifier
    deriving (Eq)
 
 instance Show PositionedToken where
-   show (PositionedToken _ _ t) = show t
+   show (PositionedToken _ _ _ t) = show t
 
 instance Show Token where
    show (Identifier i) = "identifier \""++i++"\""

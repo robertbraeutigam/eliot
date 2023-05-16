@@ -25,12 +25,12 @@ identifier = do
    firstCharacter <- letter
    restCharacters <- many (alphaNum <|> oneOf "_'")
    pos            <- getPosition
-   return $ PositionedToken (sourceLine pos) ((sourceColumn pos)-1-(length restCharacters)) (Identifier (firstCharacter:restCharacters))
+   return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-1-(length restCharacters)) (Identifier (firstCharacter:restCharacters))
 
 symbol = (do
    sym <- (many1 $ oneOf ":!#$%&*+./<=>?@\\^|-~;")
    pos <- getPosition
-   return $ PositionedToken (sourceLine pos) ((sourceColumn pos)-(length sym)) (Symbol sym)) <?> "operator"
+   return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-(length sym)) (Symbol sym)) <?> "operator"
 
 -- | Whitespace includes everything from spaces, newlines to comments.
 whiteSpace = skipMany $ simpleSpace <|> ((oneLineComment <|> multiLineComment) <?> "comment")

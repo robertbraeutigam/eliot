@@ -26,8 +26,8 @@ registerAST path ast = registerCompilerFact (SourceASTCreated path) (SourceAST p
 type ASTParser = Parsec [PositionedToken] [ParseError]
 
 -- | Set the source position of the first token explicitly before the parsing starts.
-positionedRecoveringParseSource t =
-   (setPosition $ newPos "" (positionedTokenLine t) (positionedTokenColumn t)) >> recoveringParseSource
+positionedRecoveringParseSource (PositionedToken name line column _) =
+   (setPosition $ newPos name line column) >> recoveringParseSource
 
 -- | Recover from all errors of the parser and store the error in the user state instead.
 recoveringParseSource = do
@@ -81,31 +81,31 @@ startsLowerCase (c:_) = isLower c
 
 isContent content = contentPredicate (== content)
 
-isIdentifer (PositionedToken _ _ (Identifier _)) = True
+isIdentifer (PositionedToken _ _ _ (Identifier _)) = True
 isIdentifer _                                    = False
 
-isSymbol (PositionedToken _ _ (Symbol _)) = True
+isSymbol (PositionedToken _ _ _ (Symbol _)) = True
 isSymbol _                                = False
 
-isTopLevel (PositionedToken _ column _) = column == 1
+isTopLevel (PositionedToken _ _ column _) = column == 1
 
-sameLineAs (PositionedToken line1 _ _) (PositionedToken line2 _ _) = line1 == line2
+sameLineAs (PositionedToken _ line1 _ _) (PositionedToken _ line2 _ _) = line1 == line2
 
 contentPredicate f = f . tokenContent
 
 -- | Using the primitive token function to maybe parse a token and produce the token.
 satisfyPT :: (PositionedToken -> Bool) -> ASTParser PositionedToken
-satisfyPT f = tokenPrim (show . positionedToken) nextPos nextToken
+satisfyPT f = tokenPrim show nextPos nextToken
    where
-      nextPos _ pt [] = newPos "" (positionedTokenLine pt) (positionedTokenColumn pt)
-      nextPos _ _ (t:_) = newPos "" (positionedTokenLine t) (positionedTokenColumn t)
+      nextPos _ (PositionedToken name line column _) [] = newPos name line column
+      nextPos _ _ ((PositionedToken name line column _):_) = newPos name line column
       nextToken pt = if f pt then Just pt else Nothing
 
 satisfyAll :: [PositionedToken -> Bool] -> ASTParser PositionedToken
 satisfyAll ps = satisfyPT $ (\pt -> all ($ pt) ps)
 
-tokenContent (PositionedToken _ _ (Identifier content)) = content
-tokenContent (PositionedToken _ _ (Symbol content)) = content
+tokenContent (PositionedToken _ _ _ (Identifier content)) = content
+tokenContent (PositionedToken _ _ _ (Symbol content)) = content
 
 -- | Recover the given parser if it fails, whether it consumed any input or not.
 -- Retry the parser if the recovery returns True, otherwise fail to recovery.
@@ -128,9 +128,9 @@ data RecoveryResult = ContinueTrying | End | Fallthough
 
 -- | Translate error messages from parsec to readable compiler messages.
 translateASTError fp ts e = case findToken of
-      Just t  -> CompilerError fp (SourcePosition (positionedTokenLine t) (positionedTokenColumn t)) (SourcePosition (positionedTokenLine t) ((positionedTokenColumn t) + (tokenLength $ positionedToken t))) (translateParsecErrorMessage $ show e)
+      Just (PositionedToken name line column t) -> CompilerError name (SourcePosition line column) (SourcePosition line (column + (tokenLength t))) (translateParsecErrorMessage $ show e)
       Nothing -> CompilerError fp (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (translateParsecErrorMessage $ show e)
-   where findToken = find (\t -> (positionedTokenLine t) == (sourceLine $ errorPos e) && (positionedTokenColumn t) == (sourceColumn $ errorPos e)) ts
+   where findToken = find (\(PositionedToken _ line column _) -> line == (sourceLine $ errorPos e) && column == (sourceColumn $ errorPos e)) ts
 
 translateParsecErrorMessage msg = "Parser error, " ++ (intercalate ", " $ filter (\l -> (isPrefixOf "unexpected" l) || (isPrefixOf "expecting" l))  (lines msg)) ++ "."
 

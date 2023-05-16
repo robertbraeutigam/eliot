@@ -45,10 +45,10 @@ parseForAST code = compileSelectFact [parseTokensProcessor, parseASTProcessor] c
 
 extractImports (AST imps _) = map toImportTest imps
 
-toImportTest (Import _ ps (PositionedToken _ _ (Identifier m))) = ImportTest (map toImportTestPackage ps) m
+toImportTest (Import _ ps (PositionedToken _ _ _ (Identifier m))) = ImportTest (map toImportTestPackage ps) m
 toImportTest _                                                  = ImportTest [] ""
 
-toImportTestPackage (PositionedToken _ _ (Identifier p)) = p
+toImportTestPackage (PositionedToken _ _ _ (Identifier p)) = p
 toImportTestPackage _                                    = ""
 
 data ImportTest = ImportTest [String] String
