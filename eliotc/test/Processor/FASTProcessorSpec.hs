@@ -17,7 +17,6 @@ spec = do
 
       it "should not create the module if the module name is lower case" $ do
          parseForFAST "testFile" "" `shouldThrow` anyErrorCall
-         
 
 parseForErrors :: String -> IO [CompilerError]
 parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseFASTProcessor] "TestFile" code selectErrors

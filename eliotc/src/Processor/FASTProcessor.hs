@@ -36,8 +36,6 @@ compileFunction (FunctionDefinition signature body) = do
    unless (length signature == 1) $ compilerErrorForTokens signature "Function signature must be only one function name."
    unless (length body == 1) $ compilerErrorForTokens body "Body of function must be a single function name."
    return (positionedTokenContent (head signature), FunctionApplication $ FunctionName (ModuleName [] "") (positionedTokenContent (head body)))
-   -- TODO: Short-circuit instead unless
-   -- TODO: Get function from Module
 
 capitalized []   = False
 capitalized (c:_) = isUpper c
