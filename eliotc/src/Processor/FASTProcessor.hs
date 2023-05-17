@@ -5,8 +5,8 @@
 
 module Processor.FASTProcessor (parseFASTProcessor) where
 
-import Control.Monad
 import Data.Char
+import Data.Maybe
 import qualified Data.Map as Map
 import System.FilePath
 import CompilerProcessor
@@ -19,7 +19,7 @@ parseFASTProcessor (SourceAST path ast) = do
    moduleName <- calculateModuleName path ast
    functions  <- sequence $ map compileFunction (functionDefinitions ast)
    case moduleName of
-      Just mn -> registerCompilerFact (ModuleFASTCreated mn) (ModuleFAST $ Module mn (Map.fromList functions))
+      Just mn -> registerCompilerFact (ModuleFASTCreated mn) (ModuleFAST $ Module mn (Map.fromList (catMaybes functions)))
       Nothing -> compileOk
 parseFASTProcessor _ = compileOk
 
@@ -31,11 +31,15 @@ calculateModuleName path _ =
       compilerErrorForFile path "Module name must be capitalized." >> return Nothing
    where fileBaseName = takeBaseName path
 
-compileFunction :: FunctionDefinition -> CompilerIO (String, FunctionApplication)
-compileFunction (FunctionDefinition signature body) = do
-   unless (length signature == 1) $ compilerErrorForTokens signature "Function signature must be only one function name."
-   unless (length body == 1) $ compilerErrorForTokens body "Body of function must be a single function name."
-   return (positionedTokenContent (head signature), FunctionApplication $ FunctionName (ModuleName [] "") (positionedTokenContent (head body)))
+compileFunction :: FunctionDefinition -> CompilerIO (Maybe (String, FunctionApplication))
+compileFunction (FunctionDefinition signature body) = 
+   if length signature > 1 then
+      compilerErrorForTokens signature "Function signature must be only one function name." >> return Nothing
+   else if length body > 1 then
+      compilerErrorForTokens body "Body of function must be a single function name." >> return Nothing
+   else
+      return $ Just (positionedTokenContent (head signature), FunctionApplication $ FunctionName (ModuleName [] "") (positionedTokenContent (head body)))
+   -- TODO: Continue here add lookup for function, 
 
 capitalized []   = False
 capitalized (c:_) = isUpper c
