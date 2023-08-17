@@ -2,5 +2,5 @@
  * Example program to switch PA1 pin on.
  */
 
-main = high PA1
+main = highPA1
 

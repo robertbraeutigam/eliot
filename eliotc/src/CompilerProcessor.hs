@@ -39,6 +39,7 @@ data Signal =
    | SourceASTCreated    FilePath
    | CompilerErrorSignal CompilerError
    | ModuleFASTCreated   ModuleName
+   | FunctionRegistered  FunctionName
    deriving (Eq, Show, Generic, Hashable)
 
 -- | Facts registered into the fact engine.
@@ -50,6 +51,7 @@ data Fact =
    | SourceAST FilePath AST                       -- AST of source file
    | CompilerErrorFact CompilerError
    | ModuleFAST Module                            -- The Module FAST description
+   | FunctionSignaturePresent FunctionSignature   -- The Function's signature
    deriving (Eq, Show)
 
 -- | A computation running in the compiler. This computation interacts

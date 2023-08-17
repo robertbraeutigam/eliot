@@ -4,7 +4,7 @@
  - everything for type-safety.
  -}
 
-module FAST (Module(..), FunctionApplication(..), ModuleName(..), FunctionName(..)) where
+module FAST (Module(..), FunctionApplication(..), ModuleName(..), FunctionName(..), FunctionSignature(..)) where
 
 import Data.Hashable
 import Data.Map
@@ -26,5 +26,12 @@ instance Hashable ModuleName where
 
 -- | A fully qualified function name.
 data FunctionName = FunctionName ModuleName String
+ deriving (Eq, Show)
+
+instance Hashable FunctionName where
+  hashWithSalt salt (FunctionName m n) = hashWithSalt salt (m, n)
+
+-- | A function's full signature
+data FunctionSignature = FunctionSignature ModuleName String
  deriving (Eq, Show)
 

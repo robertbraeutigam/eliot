@@ -17,9 +17,11 @@ import FAST
 parseFASTProcessor :: CompilerProcessor
 parseFASTProcessor (SourceAST path ast) = do
    moduleName <- calculateModuleName path ast
-   functions  <- sequence $ map compileFunction (functionDefinitions ast)
    case moduleName of
-      Just mn -> registerCompilerFact (ModuleFASTCreated mn) (ModuleFAST $ Module mn (Map.fromList (catMaybes functions)))
+      Just mn -> do
+         functions  <- sequence $ map (compileFunction mn) (functionDefinitions ast)
+         debugMsg ((show mn) ++ " has functions: " ++ (show (catMaybes functions)))
+         registerCompilerFact (ModuleFASTCreated mn) (ModuleFAST $ Module mn (Map.fromList (catMaybes functions)))
       Nothing -> compileOk
 parseFASTProcessor _ = compileOk
 
@@ -31,14 +33,16 @@ calculateModuleName path _ =
       compilerErrorForFile path "Module name must be capitalized." >> return Nothing
    where fileBaseName = takeBaseName path
 
-compileFunction :: FunctionDefinition -> CompilerIO (Maybe (String, FunctionApplication))
-compileFunction (FunctionDefinition signature body) = 
+compileFunction :: ModuleName -> FunctionDefinition -> CompilerIO (Maybe (String, FunctionApplication))
+compileFunction moduleName (FunctionDefinition signature body) = 
    if length signature > 1 then
       compilerErrorForTokens signature "Function signature must be only one function name." >> return Nothing
    else if length body > 1 then
       compilerErrorForTokens body "Body of function must be a single function name." >> return Nothing
-   else
-      return $ Just (positionedTokenContent (head signature), FunctionApplication $ FunctionName (ModuleName [] "") (positionedTokenContent (head body)))
+   else do
+      let functionName = positionedTokenContent $ head signature
+      registerCompilerFact (FunctionRegistered $ FunctionName moduleName functionName) (FunctionSignaturePresent $ FunctionSignature moduleName functionName)
+      return $ Just (functionName, FunctionApplication $ FunctionName (ModuleName [] "") (positionedTokenContent (head body)))
    -- TODO: Continue here add lookup for function, 
 
 capitalized []   = False
