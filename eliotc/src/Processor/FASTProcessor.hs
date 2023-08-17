@@ -10,6 +10,7 @@ import Data.Maybe
 import qualified Data.Map as Map
 import System.FilePath
 import CompilerProcessor
+import Control.Exception.Lifted
 import Tokens
 import AST
 import FAST
@@ -41,8 +42,11 @@ compileFunction moduleName (FunctionDefinition signature body) =
       compilerErrorForTokens body "Body of function must be a single function name." >> return Nothing
    else do
       let functionName = positionedTokenContent $ head signature
-      registerCompilerFact (FunctionRegistered $ FunctionName moduleName functionName) (FunctionSignaturePresent $ FunctionSignature moduleName functionName)
-      return $ Just (functionName, FunctionApplication $ FunctionName (ModuleName [] "") (positionedTokenContent (head body)))
+      catch (do
+         registerCompilerFact (FunctionRegistered $ FunctionName moduleName functionName) (FunctionSignaturePresent $ FunctionSignature moduleName functionName)
+         return $ Just (functionName, FunctionApplication $ FunctionName (ModuleName [] "") (positionedTokenContent (head body))))
+         (\e -> let _ = (e :: IOError) in ((compilerErrorForTokens signature "Duplicate function declaration.") >> (return Nothing)))
+         
    -- TODO: Continue here add lookup for function, 
 
 capitalized []   = False
