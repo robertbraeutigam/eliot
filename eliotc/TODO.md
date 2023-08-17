@@ -86,5 +86,6 @@ TODOs / NOTEs:
 - tuples === value, so f a b c === f(a, b, c)
 - does that mean that data type are just names tuples?
   so: data Something = Something a b c ; f a b c === f something --- without recursion
+- Separate public / private stuff with a "where" clause
 
 
