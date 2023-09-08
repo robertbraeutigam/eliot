@@ -49,7 +49,7 @@ external toggle pin:Byte pin:Byte
 ```
 def main = forever (toggle PA1; sleep 1 sec)
 
-def forever f = f; forever f // ; only available for Monad or Applicative?, so <=> def forever f:F[A] F[B] where F: Applicative
+def forever f = f; recurse f // ; only available for Monad or Applicative?, so <=> def forever f:F[A] F[B] where F: Applicative
 
 data Duration = millis: Int // Some Int that desugars to Byte or Word depending on usage?
 
@@ -87,5 +87,5 @@ TODOs / NOTEs:
 - does that mean that data type are just names tuples?
   so: data Something = Something a b c ; f a b c === f something --- without recursion
 - Separate public / private stuff with a "where" clause
-
+- Operator precedence -> Only inside one Typeclass, explicitly define which methods before which others (per group? per name? per reference?)
 

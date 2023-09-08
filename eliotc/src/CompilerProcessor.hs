@@ -12,7 +12,7 @@ import qualified Logging
 import Engine.FactEngine
 import Tokens
 import AST
-import FAST
+import Module
 
 type SourceLine = Int
 
@@ -32,14 +32,13 @@ instance Hashable CompilerError where
 
 -- | Signals registered into the fact engine.
 data Signal =
-     SourcePathDetected  FilePath
-   | SourceFileDetected  FilePath
-   | SourceFileRead      FilePath
-   | SourceTokenized     FilePath
-   | SourceASTCreated    FilePath
-   | CompilerErrorSignal CompilerError
-   | ModuleFASTCreated   ModuleName
-   | FunctionRegistered  FunctionName
+     SourcePathDetected      FilePath
+   | SourceFileDetected      FilePath
+   | SourceFileRead          FilePath
+   | SourceTokenized         FilePath
+   | SourceASTCreated        FilePath
+   | CompilerErrorSignal     CompilerError
+   | ModuleFunctionNamesRead ModuleName
    deriving (Eq, Show, Generic, Hashable)
 
 -- | Facts registered into the fact engine.
@@ -50,8 +49,7 @@ data Fact =
    | SourceTokens FilePath [PositionedToken]      -- Tokens read from a source file
    | SourceAST FilePath AST                       -- AST of source file
    | CompilerErrorFact CompilerError
-   | ModuleFAST Module                            -- The Module FAST description
-   | FunctionSignaturePresent FunctionSignature   -- The Function's signature
+   | ModuleFunctionNames ModuleName [String]      -- A list of functions in the module
    deriving (Eq, Show)
 
 -- | A computation running in the compiler. This computation interacts

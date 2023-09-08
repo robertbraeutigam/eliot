@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.35.1.
+-- This file has been generated from package.yaml by hpack version 0.35.2.
 --
 -- see: https://github.com/sol/hpack
 
@@ -31,11 +31,11 @@ library
       Compiler.Compiler
       CompilerProcessor
       Engine.FactEngine
-      FAST
       Logging
+      Module
       Processor.ASTProcessor
-      Processor.FASTProcessor
       Processor.FileProcessors
+      Processor.ModuleProcessor
       Processor.TokensProcessor
       Tokens
   other-modules:
@@ -97,7 +97,6 @@ test-suite eliotc-test
   other-modules:
       Engine.FactEngineSpec
       Processor.ASTProcessorSpec
-      Processor.FASTProcessorSpec
       Processor.TestCompiler
       Processor.TokensProcessorSpec
       Paths_eliotc
