@@ -97,6 +97,7 @@ test-suite eliotc-test
   other-modules:
       Engine.FactEngineSpec
       Processor.ASTProcessorSpec
+      Processor.ModuleProcessorSpec
       Processor.TestCompiler
       Processor.TokensProcessorSpec
       Paths_eliotc
