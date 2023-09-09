@@ -21,6 +21,14 @@ spec = do
       it "should detect and return all the function names" $ do
          snd <$> (parseForFact "TestFile" "one = a\ntwo = b") `shouldReturn` ["one", "two"]
 
+      it "should decline lower case module names" $ do
+         parseForErrors "testFile" "" `shouldReturn` ["Module name must be capitalized."]
+         
+parseForErrors :: String -> String -> IO [String]
+parseForErrors filename code = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] filename code selectErrors
+   where selectErrors (_, CompilerErrorFact (CompilerError _ _ _ msg)) = Just msg
+         selectErrors _                          = Nothing
+
 parseForFact :: String -> String -> IO (ModuleName, [String])
 parseForFact filename code = compileSelectFact [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] filename code selectFact
    where selectFact (_, ModuleFunctionNames mn names) = Just (mn, names)
