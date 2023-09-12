@@ -3,7 +3,7 @@
 {-| Module information.
  -}
 
-module Module (ModuleName(..)) where
+module Module (ModuleName(..), FunctionFQN(..)) where
 
 import Data.Hashable
 
@@ -14,3 +14,6 @@ data ModuleName = ModuleName [String] String
 instance Hashable ModuleName where
   hashWithSalt salt (ModuleName ps m) = hashWithSalt salt (ps, m)
 
+-- | Fully qualified function name.
+data FunctionFQN = FunctionFQN ModuleName String
+ deriving (Eq, Show)

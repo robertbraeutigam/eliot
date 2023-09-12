@@ -2,5 +2,7 @@
  * Example program to switch PA1 pin on.
  */
 
+import A
+
 main = highPA1
 

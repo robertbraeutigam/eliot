@@ -3,7 +3,7 @@
  - nor does it completely assign roles to various tokens.
  -}
 
-module AST (AST(..), Import(..), FunctionDefinition(..)) where
+module AST (AST(..), Import(..), FunctionDefinition(..), allImportTokens) where
 
 import Tokens
 
@@ -13,6 +13,9 @@ data Import = Import {
    importModule::PositionedToken
 }  
    deriving (Show, Eq)
+
+allImportTokens :: Import -> [PositionedToken]
+allImportTokens (Import k pns m) = [k] ++ pns ++ [m]
 
 data FunctionDefinition = FunctionDefinition {
    functionSignature::[PositionedToken],
