@@ -10,6 +10,7 @@ import Engine.FactEngine
 import Control.Monad.Trans.Reader
 import CompilerProcessor
 import qualified Logging
+import Control.Exception
 import Processor.ASTProcessor
 import Processor.TokensProcessor
 import Processor.FileProcessors
@@ -20,12 +21,16 @@ compile :: [String] -> IO ()
 compile [] = Logging.runLogger $ Logging.errorMsg "There were no source paths given. Please supply at least one directory with ELIOT sources."
 compile paths = do
    logger    <- Logging.newLogger
-   facts     <- resolveFacts (liftedProcessors logger) sourcePathFacts
+   (compileWithLogger paths logger) `catch` (\e -> Logging.withLogger logger $ Logging.errorMsg ("Internal compiler exception: " ++ (show (e::SomeException))))
+
+compileWithLogger :: [String] -> Logging.Logger -> IO ()
+compileWithLogger paths logger = do
+   facts     <- resolveFacts liftedProcessors sourcePathFacts
    case facts of
-      Just(allFacts) -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
+      Just allFacts  -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
       Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
-         liftedProcessors logger = map (liftToCompiler logger) processors
+         liftedProcessors = map (liftToCompiler logger) processors
          processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor]
  
 -- | Translate a fact engine IO into a compile one.
