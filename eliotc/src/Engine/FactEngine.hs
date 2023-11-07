@@ -51,6 +51,7 @@ resolveFacts :: (Hashable k, Show k) => [FactProcessor k v] -> [(k, v)] -> IO (M
 resolveFacts ps vs = do
    engine <- emptyEngine ps
    runReaderT (sequence_ $ map (uncurry registerFact) vs) engine
+   runReaderT waitForTermination engine
    toMaybe <$> (wasSuccessful engine) <*> STMMap.unsafeToList (facts engine)
    where
       wasSuccessful engine = (== 0) <$> (atomically $ readTVar (waitingCount engine))
@@ -91,13 +92,22 @@ lookupFact k = tx $ do
          Just v    -> return v
          Nothing   -> lift retry
 
+-- | Wait for the engine to terminate.
+waitForTermination :: FactsIO k v ()
+waitForTermination = tx $ do
+   terminated <- isTerminated
+   if terminated then
+      return ()
+   else
+      lift retry
+
 -- | Start all processors given a fact. Note that we increment the running
 -- count synchronously with the returned IO, but decrease one by one as
--- those IOs terminate.
+-- those IOs terminate. TODO: this swallows potential exceptions!
 startProcessorsFor :: v -> FactsIO k v ()
 startProcessorsFor v = do
    ask >>= addRunningCount . length . processors
-   ask >>= mapConcurrently_ startProcessor . processors
+   void $ async $ ask >>= mapConcurrently_ startProcessor . processors
    where
       addRunningCount c   = tx $ modifyEngine runningCount (+ c)
       startProcessor p    = bracket_ (pure ()) decRunningCount ((p v) `ignoreException` TerminateProcessor)
