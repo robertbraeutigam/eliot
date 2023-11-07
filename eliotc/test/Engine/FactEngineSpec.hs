@@ -22,11 +22,11 @@ spec = do
             Just xs -> xs `shouldMatchList` [("x", "a"), ("y", "b")]
             Nothing -> expectationFailure "engine returned nothing unexpectedly"
 
-      it "should fail if a processor fails" $ do
-         resolveFacts [broken] [("x", "a")] `shouldThrow` anyException
+      it "should return nothing if a processor fails" $ do
+         resolveFacts [broken] [("x", "a")] `shouldReturn` Nothing
 
-      it "should fail if multiple processors fails" $ do
-         resolveFacts [broken, broken, broken] [("x", "a")] `shouldThrow` anyException
+      it "should return nothing if multiple processors fails" $ do
+         resolveFacts [broken, broken, broken] [("x", "a")] `shouldReturn` Nothing
 
       it "should return nothing if processor depends on non-existing fact" $ do
          resolveFacts [dependsOnX] [("x", "a")] `shouldReturn` Nothing
