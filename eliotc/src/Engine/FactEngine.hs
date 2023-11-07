@@ -111,7 +111,7 @@ startProcessorsFor v = do
    where
       addRunningCount c   = tx $ modifyEngine runningCount (+ c)
       startProcessor p    = bracket_ (pure ()) decRunningCount ((p v) `ignoreException` TerminateProcessor)
-      decRunningCount     = tx $ modifyEngine runningCount (subtract 1)
+      decRunningCount     = tx $ whenM (notM isTerminated) $ modifyEngine runningCount (subtract 1)
       ignoreException a e = catchJust (\r -> if r == e then Just () else Nothing) a (\_ -> return ())
 
 -- | Insert the fact into the engine and return whether it was inserted.
