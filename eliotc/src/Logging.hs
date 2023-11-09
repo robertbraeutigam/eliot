@@ -10,11 +10,14 @@ import Control.Monad.Trans.Reader
 import Control.Monad.IO.Class
 import System.IO
 import Control.Monad.Extra
+import Control.Exception.Lifted
 
-data Logger = Logger (MVar ())
+data Logger = Logger {
+   mutex :: MVar ()
+}
 
 newLogger :: IO Logger
-newLogger = Logger <$> newMVar ()
+newLogger = Logger <$> newEmptyMVar
 
 type LoggerIO = ReaderT Logger IO
 
@@ -30,18 +33,18 @@ runLogger loggerIO = do
 
 -- | A generic error not in source files, but in the compiler itself
 errorMsg :: String -> LoggerIO ()
-errorMsg msg = liftIO $ do
+errorMsg msg = syncIO $ do
    colored stdout Vivid Red "[ ERROR ] "
    hPutStrLn stdout msg
 
 -- | Debug message
 debugMsg :: String -> LoggerIO ()
-debugMsg msg = liftIO $ colored stdout Dull White ("[ DEBUG ] " ++ msg) >> hPutStrLn stdout ""
+debugMsg msg = syncIO $ colored stdout Dull White ("[ DEBUG ] " ++ msg) >> hPutStrLn stdout ""
 
 -- | Show a compiler error in a given file with "standard" compiler output format
 -- TODO: This doesn't handle multi-line failures yet.
 compilerErrorMsg :: FilePath -> String -> Int -> Int -> Int -> Int -> String -> LoggerIO ()
-compilerErrorMsg filePath content fRow fCol tRow tCol msg = liftIO $ do
+compilerErrorMsg filePath content fRow fCol tRow tCol msg = syncIO $ do
    colored stderr Vivid White (filePath ++ ":")
    colored stderr Vivid Red "error"
    hPutStrLn stderr (":"++(show fRow)++":"++(show fCol)++":"++msg)
@@ -57,8 +60,13 @@ compilerErrorMsg filePath content fRow fCol tRow tCol msg = liftIO $ do
       markerSpace = replicate (length lineMarker) ' '
 
 colored :: Handle -> ColorIntensity -> Color -> String -> IO ()
-colored handle intensity color text = do
-   whenM (hSupportsANSI handle) $ hSetSGR handle [SetColor Foreground intensity color]
-   hPutStr handle text
-   whenM (hSupportsANSI handle) $ hSetSGR handle [Reset]
+colored h intensity color text = do
+   whenM (hSupportsANSI h) $ hSetSGR h [SetColor Foreground intensity color]
+   hPutStr h text
+   whenM (hSupportsANSI h) $ hSetSGR h [Reset]
+   
+syncIO :: IO () -> LoggerIO ()
+syncIO l = do
+   m <- mutex <$> ask
+   liftIO $ bracket_ (putMVar m ()) (takeMVar m) l
    
