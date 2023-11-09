@@ -23,7 +23,7 @@ parseModuleProcessor (SourceAST path ast) = do
          functionNames     <- sequence $ map extractFunctionName (functionDefinitions ast)
          _                 <- registerCompilerFact (ModuleFunctionNamesRead mn) (ModuleFunctionNames mn (catMaybes functionNames))
          importedFunctions <- collectImportedFunctions (importStatements ast) Map.empty
-         debugMsg $ "Imported functions: " ++ (show importedFunctions)
+         debugMsg $ (show mn) ++ " imported functions: " ++ (show importedFunctions)
       Nothing -> compileOk
 parseModuleProcessor _ = compileOk
 
