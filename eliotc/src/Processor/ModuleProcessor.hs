@@ -46,7 +46,7 @@ toModuleName i = ModuleName (map positionedTokenContent (importPackageNames i)) 
 extractFunctionName :: FunctionDefinition -> CompilerIO (Maybe String)
 extractFunctionName (FunctionDefinition [token] _) =
    if capitalized name then
-      compilerErrorForTokens [token] "Functions must begin with a lowercase letter." >> return Nothing
+      compilerErrorForTokens [token] "Functions must begin with a lowercase letter or be an operator." >> return Nothing
    else
       return $ Just $ name
    where
