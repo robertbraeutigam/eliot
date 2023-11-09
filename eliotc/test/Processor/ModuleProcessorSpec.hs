@@ -23,6 +23,9 @@ spec = do
 
       it "should decline lower case module names" $ do
          parseForErrors "testFile" "" `shouldReturn` ["Module name must be capitalized."]
+
+      it "should indicate error when imported module is not found" $ do
+         parseForErrors "TestFile" "import A" `shouldReturn` ["Could not find imported module."]
          
 parseForErrors :: String -> String -> IO [String]
 parseForErrors filename code = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] filename code selectErrors
