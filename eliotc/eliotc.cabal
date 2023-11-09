@@ -31,6 +31,7 @@ library
       Compiler.Compiler
       CompilerProcessor
       Engine.FactEngine
+      Engine.FactEngineStatus
       Logging
       Module
       Processor.ASTProcessor

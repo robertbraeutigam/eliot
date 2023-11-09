@@ -21,26 +21,21 @@ import qualified Control.Concurrent.STM.Map as STMMap
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.STM
-import Control.Applicative
 import Control.Monad.Extra
 import Control.Exception.Lifted
-import Control.Concurrent.STM.TVar
 import Control.Concurrent.Async.Lifted
 import Data.Hashable
 import Data.Maybe.HT
+import Engine.FactEngineStatus
 
 data FactEngine k v = FactEngine {
    processors   :: [FactProcessor k v],
    facts        :: STMMap.Map k v,
-   runningCount :: TVar Int,
-   waitingCount :: TVar Int
+   status       :: FactEngineStatus
 }
 
 -- | A program built with operations on the FactEngine
 type FactsIO k v = ReaderT (FactEngine k v) IO
-
--- | An STM program that uses the FactEngine
-type FactsSTM k v = ReaderT (FactEngine k v) STM
 
 -- | Use this type to define processors for facts that you can register in an engine.
 type FactProcessor k v = v -> FactsIO k v ()
@@ -49,12 +44,10 @@ type FactProcessor k v = v -> FactsIO k v ()
 -- until all the possible facts are available, or there was some error.
 resolveFacts :: (Hashable k, Show k) => [FactProcessor k v] -> [(k, v)] -> IO (Maybe [(k, v)])
 resolveFacts ps vs = do
-   engine <- emptyEngine ps
+   engine      <- emptyEngine ps
    runReaderT (sequence_ $ map (uncurry registerFact) vs) engine
-   runReaderT waitForTermination engine
-   toMaybe <$> (wasSuccessful engine) <*> STMMap.unsafeToList (facts engine)
-   where
-      wasSuccessful engine = (== 0) <$> (atomically $ readTVar (waitingCount engine))
+   termination <- runReaderT (txStatus waitForTermination) engine
+   (toMaybe (termination == Success)) <$> (STMMap.unsafeToList (facts engine))
 
 -- | Register a fact into the engine. This will spawn all processors
 -- for this fact. Processors may choose to do nothing.
@@ -68,81 +61,63 @@ registerFact k v = do
 
 -- | Get a fact from the engine, or wait until the fact becomes
 -- available. Note: a fact can not change and will stay the same forever.
-getFact :: Hashable k => k -> FactsIO k v v
-getFact k = bracket_ incWaitingCount decWaitingCount $ lookupFact k
-   where
-      incWaitingCount  = tx $ modifyEngine waitingCount (+1)
-      decWaitingCount = tx $ whenM (notM isTerminated) $ modifyEngine waitingCount (subtract 1)
+getFact :: (Hashable k) => k -> FactsIO k v v
+getFact k = bracket_ (txStatus incWaitingCount) (txStatus decWaitingCount) $ lookupFact k
 
 data TerminateProcessor = TerminateProcessor
    deriving (Show, Eq)
 
 instance Exception TerminateProcessor
 
--- | Lookup a fact in the engine. If the engine is terminated however, throw
+-- | Lookup a fact in the engine. If the engine is stalled however, throw
 -- an exception.
 lookupFact :: Hashable k => k -> FactsIO k v v
 lookupFact k = tx $ do
-   terminated <- isTerminated
-   if terminated then
-      lift $ throwSTM TerminateProcessor
-   else do
-      maybeV <- ask >>= (lift . STMMap.lookup k . facts)
-      case maybeV of
-         Just v    -> return v
-         Nothing   -> lift retry
-
--- | Wait for the engine to terminate.
-waitForTermination :: FactsIO k v ()
-waitForTermination = tx $ do
-   terminated <- isTerminated
-   if terminated then
-      return ()
-   else
-      lift retry
+   maybeV  <- (facts <$> ask) >>= (lift . STMMap.lookup k)
+   stalled <- liftStatus isStalled
+   case maybeV of
+      Just v            -> return v
+      Nothing | stalled -> lift $ throwSTM TerminateProcessor
+      _                 -> lift retry
 
 -- | Start all processors given a fact. Note that we increment the running
 -- count synchronously with the returned IO, but decrease one by one as
 -- those IOs terminate. TODO: this swallows potential exceptions!
 startProcessorsFor :: v -> FactsIO k v ()
 startProcessorsFor v = do
-   ask >>= addRunningCount . length . processors
-   void $ async $ ask >>= mapConcurrently_ startProcessor . processors
+   engine <- ask
+   txStatus $ addRunningCount (length (processors engine))
+   void $ async $ mapConcurrently_ startProcessor (processors engine)
    where
-      addRunningCount c   = tx $ modifyEngine runningCount (+ c)
-      startProcessor p    = bracket_ (pure ()) decRunningCount ((p v) `ignoreException` TerminateProcessor)
-      decRunningCount     = tx $ whenM (notM isTerminated) $ modifyEngine runningCount (subtract 1)
-      ignoreException a e = catchJust (\r -> if r == e then Just () else Nothing) a (\_ -> return ())
+      startProcessor p    = bracket_ (pure ()) (txStatus decRunningCount) ((p v) `catch` crash)
+      crash :: SomeException -> FactsIO k v ()
+      crash _ = txStatus incCrashedCount
 
 -- | Insert the fact into the engine and return whether it was inserted.
 insertFact :: Hashable k => k -> v -> FactsIO k v Bool
-insertFact k v = tx $ do
-   present <- ask >>= lift . STMMap.member k . facts
-   if present then pure False else ((ask >>= lift . STMMap.insert k v . facts) >> return True)
+insertFact k v = txFacts $ do
+   present <- ask >>= lift . STMMap.member k
+   if present then pure False else ((ask >>= lift . STMMap.insert k v) >> return True)
 
 -- | Create the engine with a given set of tasks.
 emptyEngine :: [FactProcessor k v] -> IO (FactEngine k v)
 emptyEngine ps = do
    emptyFacts       <- atomically $ STMMap.empty
-   zeroRunningCount <- atomically $ newTVar 0
-   zeroWaitingCount <- atomically $ newTVar 0
-   return $ FactEngine ps emptyFacts zeroRunningCount zeroWaitingCount
+   emptyStatus      <- atomically $ initialStatus
+   return $ FactEngine ps emptyFacts emptyStatus
 
--- | Determine if the engine is terminated. It is terminated if the running count
--- is equal to the waiting count. I.e. all processors are waiting on something and
--- no progress can be made. This is true if there are no processors too.
-isTerminated :: FactsSTM k v Bool
-isTerminated = liftA2 (==) (readEngine runningCount) (readEngine waitingCount)
+liftStatus :: StatusSTM a -> ReaderT (FactEngine k v) STM a
+liftStatus = withReaderT status
 
--- | Read from one of the TVar properties of the engine
-readEngine :: (FactEngine k v -> TVar a) -> FactsSTM k v a
-readEngine f = ask >>= (lift . readTVar . f)
+liftFacts :: ReaderT (STMMap.Map k v) STM a -> ReaderT (FactEngine k v) STM a
+liftFacts = withReaderT facts
 
--- | Modify one of the TVar properties of the engine
-modifyEngine :: (FactEngine k v -> TVar a) -> (a -> a) -> FactsSTM k v ()
-modifyEngine f g = ask >>= (lift . flip modifyTVar g . f)
+txStatus :: StatusSTM a -> FactsIO k v a
+txStatus = tx . liftStatus
 
--- | Run the FactsSTM into FactsIO
-tx :: FactsSTM k v a -> FactsIO k v a
-tx s = ask >>= (lift . atomically . (runReaderT s))
+txFacts :: ReaderT (STMMap.Map k v) STM a -> FactsIO k v a
+txFacts = tx . liftFacts
+
+tx :: ReaderT (FactEngine k v) STM a -> FactsIO k v a
+tx ea = ask >>= lift . atomically . (runReaderT ea)
 
