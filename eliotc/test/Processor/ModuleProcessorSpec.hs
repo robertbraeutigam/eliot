@@ -27,6 +27,9 @@ spec = do
       it "should indicate error when imported module is not found" $ do
          parseForErrors "TestFile" "import A" `shouldReturn` ["Could not find imported module."]
 
+      it "should indicate error when function name is capitalized" $ do
+         parseForErrors "TestFile" "One = a" `shouldReturn` ["Functions must begin with a lowercase letter."]
+
       it "should detect the same function name declared twice" $ do
          parseForErrors "TestFile" "one = a\none = b" `shouldReturn` ["Function already declared."]
          
