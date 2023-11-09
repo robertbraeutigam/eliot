@@ -95,7 +95,7 @@ startProcessorsFor v = do
 
 -- | Insert the fact into the engine and return whether it was inserted.
 insertFact :: Hashable k => k -> v -> FactsIO k v Bool
-insertFact k v = txFacts $ do
+insertFact k v = tx $ withReaderT facts $ do
    present <- ask >>= lift . STMMap.member k
    if present then pure False else ((ask >>= lift . STMMap.insert k v) >> return True)
 
@@ -109,14 +109,8 @@ emptyEngine ps = do
 liftStatus :: StatusSTM a -> ReaderT (FactEngine k v) STM a
 liftStatus = withReaderT status
 
-liftFacts :: ReaderT (STMMap.Map k v) STM a -> ReaderT (FactEngine k v) STM a
-liftFacts = withReaderT facts
-
 txStatus :: StatusSTM a -> FactsIO k v a
 txStatus = tx . liftStatus
-
-txFacts :: ReaderT (STMMap.Map k v) STM a -> FactsIO k v a
-txFacts = tx . liftFacts
 
 tx :: ReaderT (FactEngine k v) STM a -> FactsIO k v a
 tx ea = ask >>= lift . atomically . (runReaderT ea)
