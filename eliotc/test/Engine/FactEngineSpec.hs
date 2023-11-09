@@ -28,8 +28,11 @@ spec = do
       it "should return nothing if multiple processors fails" $ do
          resolveFacts [broken, broken, broken] [("x", "a")] `shouldReturn` Nothing
 
-      it "should return nothing if processor depends on non-existing fact" $ do
-         resolveFacts [dependsOnX] [("x", "a")] `shouldReturn` Nothing
+      it "should return the starting facts if processor depends on non-existing fact" $ do
+         result <- resolveFacts [dependsOnX] [("x", "a")]
+         case result of
+            Just xs -> xs `shouldMatchList` [("x", "a")]
+            Nothing -> expectationFailure "engine returned nothing unexpectedly"
 
       it "should execute chains of fact processors" $ do
          result <- resolveFacts [aToB, bToC] [("a", "a")]

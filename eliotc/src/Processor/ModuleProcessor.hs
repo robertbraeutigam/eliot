@@ -32,11 +32,11 @@ collectImportedFunctions [] fs = return $ Just fs
 collectImportedFunctions (i:is) fs = do
    importedFunctionNames <- getCompilerFact (ModuleFunctionNamesRead $ toModuleName i)
    case importedFunctionNames of
-      ModuleFunctionNames mn names -> if null (collisions names) then
-                                         collectImportedFunctions is (Map.union fs (Map.fromList $ map (\name -> (name, FunctionFQN mn name)) names))
-                                      else
-                                         compilerErrorForTokens (allImportTokens i) ("Imported module imports functions that are already in scope: " ++ (show (collisions names)) ++ ".") >> return Nothing
-      _                            -> return Nothing
+      Just (ModuleFunctionNames mn names) -> if null (collisions names) then
+                                                collectImportedFunctions is (Map.union fs (Map.fromList $ map (\name -> (name, FunctionFQN mn name)) names))
+                                             else
+                                                compilerErrorForTokens (allImportTokens i) ("Imported module imports functions that are already in scope: " ++ (show (collisions names)) ++ ".") >> return Nothing
+      _                                   -> compilerErrorForTokens (allImportTokens i) ("Could not find imported module.") >> collectImportedFunctions is fs
    where
       collisions :: [String] -> [String]
       collisions names = filter (flip Map.member fs) names

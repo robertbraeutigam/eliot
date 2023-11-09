@@ -71,7 +71,7 @@ registerCompilerFact s f = withReaderT snd $ registerFact s f
 
 -- | Get a fact from the compiler engine. This will potentially block
 -- until the fact becomes available.
-getCompilerFact :: Signal -> CompilerIO Fact
+getCompilerFact :: Signal -> CompilerIO (Maybe Fact)
 getCompilerFact s = withReaderT snd $ getFact s
 
 -- | Generate a compiler error.

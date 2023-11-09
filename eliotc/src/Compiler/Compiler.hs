@@ -43,8 +43,8 @@ errorProcessor :: CompilerProcessor
 errorProcessor (CompilerErrorFact (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg)) = do
    source <- getCompilerFact $ SourceFileRead fp
    case source of
-      SourceFileContent _ content -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
-      _                           -> compileOk
+      Just (SourceFileContent _ content) -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
+      _                                  -> compileOk
 
 errorProcessor _ = compileOk
 

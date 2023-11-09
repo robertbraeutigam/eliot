@@ -61,28 +61,24 @@ registerFact k v = do
 
 -- | Get a fact from the engine, or wait until the fact becomes
 -- available. Note: a fact can not change and will stay the same forever.
-getFact :: (Hashable k) => k -> FactsIO k v v
+getFact :: (Hashable k) => k -> FactsIO k v (Maybe v)
 getFact k = bracket_ (txStatus incWaitingCount) (txStatus decWaitingCount) $ lookupFact k
 
-data TerminateProcessor = TerminateProcessor
-   deriving (Show, Eq)
-
-instance Exception TerminateProcessor
-
--- | Lookup a fact in the engine. If the engine is stalled however, throw
--- an exception.
-lookupFact :: Hashable k => k -> FactsIO k v v
+-- | Lookup a fact in the engine. This will block until either the fact
+-- becomes available, or will return Nothing if the engine is stalled and
+-- no more facts are likely become available. Note that facts still may become
+-- available if the stall is resolved by some processor by registering other facts.
+lookupFact :: Hashable k => k -> FactsIO k v (Maybe v)
 lookupFact k = tx $ do
    maybeV  <- (facts <$> ask) >>= (lift . STMMap.lookup k)
    stalled <- liftStatus isStalled
    case maybeV of
-      Just v            -> return v
-      Nothing | stalled -> lift $ throwSTM TerminateProcessor
-      _                 -> lift retry
+      Nothing | not stalled -> lift retry
+      _                     -> return maybeV
 
 -- | Start all processors given a fact. Note that we increment the running
 -- count synchronously with the returned IO, but decrease one by one as
--- those IOs terminate. TODO: this swallows potential exceptions!
+-- those IOs terminate. TODO: this swallows potential exceptions! Handle them one level up in the compiler!
 startProcessorsFor :: v -> FactsIO k v ()
 startProcessorsFor v = do
    engine <- ask
