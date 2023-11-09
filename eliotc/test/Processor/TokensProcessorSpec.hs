@@ -43,7 +43,7 @@ spec = do
          length <$> (parseForErrors "→") `shouldReturn` 1
 
 parseForPositionedTokens :: String -> IO [PositionedToken]
-parseForPositionedTokens code = compileSelectFact [parseTokensProcessor] "" code selectTokens
+parseForPositionedTokens code = compileSelectFact [parseTokensProcessor] [("", code)] selectTokens
    where selectTokens (_, SourceTokens _ pts) = Just pts
          selectTokens _                       = Nothing
 
@@ -51,7 +51,7 @@ parseForTokens :: String -> IO [Token]
 parseForTokens source = (map (\(PositionedToken _ _ _ t) -> t)) <$> parseForPositionedTokens source
 
 parseForErrors :: String -> IO [CompilerError]
-parseForErrors code = compileCollectFacts [parseTokensProcessor] "" code selectErrors
+parseForErrors code = compileCollectFacts [parseTokensProcessor] [("", code)] selectErrors
    where selectErrors (_, CompilerErrorFact err) = Just err
          selectErrors _                          = Nothing
 

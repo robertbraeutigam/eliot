@@ -34,12 +34,12 @@ spec = do
          length <$> (parseForErrors " import a.b.C") `shouldReturn` 1
 
 parseForErrors :: String -> IO [CompilerError]
-parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor] "" code selectErrors
+parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor] [("", code)] selectErrors
    where selectErrors (_, CompilerErrorFact err) = Just err
          selectErrors _                          = Nothing
 
 parseForAST :: String -> IO AST
-parseForAST code = compileSelectFact [parseTokensProcessor, parseASTProcessor] "" code selectAST
+parseForAST code = compileSelectFact [parseTokensProcessor, parseASTProcessor] [("", code)] selectAST
    where selectAST (_, SourceAST _ ast) = Just ast
          selectAST _                    = Nothing
 
