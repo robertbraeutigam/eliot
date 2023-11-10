@@ -19,7 +19,7 @@ spec = do
          parseForFact "testFile" "" `shouldThrow` anyErrorCall
 
       it "should detect and return all the function names" $ do
-         snd <$> (parseForFact "TestFile" "one = a\ntwo = b") `shouldReturn` ["one", "two"]
+         snd <$> (parseForFact "TestFile" "one = a\ntwo = b") `shouldReturn` ["two", "one"]
 
       it "should decline lower case module names" $ do
          parseForErrors "testFile" "" `shouldReturn` ["Module name must be capitalized."]
