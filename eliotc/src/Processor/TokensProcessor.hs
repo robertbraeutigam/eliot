@@ -16,7 +16,7 @@ import Tokens
 parseTokensProcessor :: CompilerProcessor
 parseTokensProcessor (SourceFileContent path code) = case parse (whiteSpace >> (many anyTokenLexeme) <* eof) path code of
    Left parserError -> compilerError $ translateTokenizerError path parserError
-   Right ts         -> registerCompilerFact (SourceTokenized path) (SourceTokens path ts)
+   Right ts         -> registerCompilerFact (SourceTokensSignal path) (SourceTokens path ts)
 parseTokensProcessor _ = compileOk
 
 anyTokenLexeme = ((identifier <|> symbol) <* whiteSpace) <?> "legal character"

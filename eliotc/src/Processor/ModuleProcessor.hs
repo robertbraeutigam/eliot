@@ -22,7 +22,7 @@ parseModuleProcessor (SourceAST path ast) = do
    case moduleName of
       Just mn -> do
          functionNames     <- foldM extractFunctionName [] (functionDefinitions ast)
-         _                 <- registerCompilerFact (ModuleFunctionNamesRead mn) (ModuleFunctionNames mn functionNames)
+         _                 <- registerCompilerFact (ModuleFunctionNamesSignal mn) (ModuleFunctionNames mn functionNames)
          importedFunctions <- foldM (collectImportedFunctions functionNames) Map.empty (importStatements ast)
          debugMsg $ (show mn) ++ " provides functions: " ++ (show functionNames) ++ ", imports: " ++ (show importedFunctions)
       Nothing -> compileOk
@@ -30,7 +30,7 @@ parseModuleProcessor _ = compileOk
 
 collectImportedFunctions :: [String] -> Map.Map String FunctionFQN -> Import -> CompilerIO (Map.Map String FunctionFQN)
 collectImportedFunctions existingNames existingFunctions i = do
-   importedFunctionNames <- getCompilerFact (ModuleFunctionNamesRead $ toModuleName i)
+   importedFunctionNames <- getCompilerFact (ModuleFunctionNamesSignal $ toModuleName i)
    case importedFunctionNames of
       Just (ModuleFunctionNames mn names) -> if null (collisions names) then
                                                 return $ Map.union existingFunctions (Map.fromList $ map (\name -> (name, FunctionFQN mn name)) names)

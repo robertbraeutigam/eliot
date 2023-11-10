@@ -29,7 +29,7 @@ compileWithLogger paths logger = do
    case facts of
       Just allFacts  -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
       Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
-   where sourcePathFacts = map (\s -> (SourcePathDetected s, SourcePath s)) paths
+   where sourcePathFacts = map (\s -> (SourcePathSignal s, SourcePath s)) paths
          liftedProcessors = map (liftToCompiler logger) processors
          processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor]
  
@@ -41,7 +41,7 @@ liftToCompiler logger compilerProcessor = (withReaderT (\engine -> (logger, engi
 -- all writes.
 errorProcessor :: CompilerProcessor
 errorProcessor (CompilerErrorFact (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg)) = do
-   source <- getCompilerFact $ SourceFileRead fp
+   source <- getCompilerFact $ SourceFileContentSignal fp
    case source of
       Just (SourceFileContent _ content) -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
       _                                  -> compileOk

@@ -9,7 +9,7 @@ import Logging
 compileSourceCode :: [CompilerProcessor] -> [(String, String)] -> IO [(Signal, Fact)]
 compileSourceCode processors files = do
    logger <- Logging.newLogger
-   (fromMaybe []) <$> (resolveFacts (liftedProcessors logger) $ map (\(filename, code) -> (SourceFileRead filename, SourceFileContent filename code)) files)
+   (fromMaybe []) <$> (resolveFacts (liftedProcessors logger) $ map (\(filename, code) -> (SourceFileContentSignal filename, SourceFileContent filename code)) files)
    where liftedProcessors logger = map (liftToCompiler logger) processors
             
 liftToCompiler :: Logging.Logger -> CompilerProcessor -> FactProcessor Signal Fact

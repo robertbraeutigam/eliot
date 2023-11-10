@@ -21,7 +21,7 @@ parseASTProcessor (SourceTokens path (t:ts)) = case runParser (positionedRecover
    Right (errors, ast) -> (mapM_ compilerError (translateASTError path (t:ts) <$> errors)) >> registerAST path ast
 parseASTProcessor _ = compileOk
 
-registerAST path ast = registerCompilerFact (SourceASTCreated path) (SourceAST path ast)
+registerAST path ast = registerCompilerFact (SourceASTSignal path) (SourceAST path ast)
 
 type ASTParser = Parsec [PositionedToken] [ParseError]
 

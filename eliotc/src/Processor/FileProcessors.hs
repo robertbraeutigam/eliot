@@ -11,15 +11,15 @@ directoryWalker :: CompilerProcessor
 directoryWalker (SourcePath path) = do
    isFile      <- lift $ doesFileExist path
    isDirectory <- lift $ doesDirectoryExist path
-   when isFile       $ registerCompilerFact (SourceFileDetected path) (SourceFile path) 
-   when isDirectory  $ (lift $ filter (not . isPrefixOf ".") <$> listDirectory path) >>= mapM_ ((registerCompilerFact . SourcePathDetected <*> SourcePath) . (path </>))
+   when isFile       $ registerCompilerFact (SourceFileSignal path) (SourceFile path) 
+   when isDirectory  $ (lift $ filter (not . isPrefixOf ".") <$> listDirectory path) >>= mapM_ ((registerCompilerFact . SourcePathSignal <*> SourcePath) . (path </>))
    when ((not isFile) && (not isDirectory)) $ errorMsg $ "Path " ++ path ++ " is neither a file nor directory"
    compileOk
 directoryWalker _ = compileOk
 
 fileReader :: CompilerProcessor
 fileReader (SourceFile path)
-   | ".els" `isSuffixOf` path = (lift $ readFile path) >>= (registerCompilerFact (SourceFileRead path) . (SourceFileContent path)) >> compileOk
+   | ".els" `isSuffixOf` path = (lift $ readFile path) >>= (registerCompilerFact (SourceFileContentSignal path) . (SourceFileContent path)) >> compileOk
    | otherwise                = (debugMsg $ "Ignoring source file because not ending in '.els': " ++ path) >> compileOk
 fileReader _ = compileOk
 
