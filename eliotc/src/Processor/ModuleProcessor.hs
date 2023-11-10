@@ -6,7 +6,6 @@
 module Processor.ModuleProcessor (parseModuleProcessor) where
 
 import Data.Char
-import Data.Maybe
 import qualified Data.Map as Map
 import System.FilePath
 import CompilerProcessor
@@ -20,12 +19,20 @@ parseModuleProcessor (SourceAST path ast) = do
    moduleName <- calculateModuleName path ast
    case moduleName of
       Just mn -> do
-         functionNames     <- sequence $ map extractFunctionName (functionDefinitions ast)
-         _                 <- registerCompilerFact (ModuleFunctionNamesRead mn) (ModuleFunctionNames mn (catMaybes functionNames))
+         functionNames     <- foldCheck extractFunctionName (reverse $ functionDefinitions ast)
+         _                 <- registerCompilerFact (ModuleFunctionNamesRead mn) (ModuleFunctionNames mn functionNames)
          importedFunctions <- collectImportedFunctions (importStatements ast) Map.empty
-         debugMsg $ (show mn) ++ " provides functions: " ++ (show $ catMaybes functionNames) ++ ", imports: " ++ (show importedFunctions)
+         debugMsg $ (show mn) ++ " provides functions: " ++ (show functionNames) ++ ", imports: " ++ (show importedFunctions)
       Nothing -> compileOk
 parseModuleProcessor _ = compileOk
+
+foldCheck :: Monad m => ([a] -> b -> m [a]) -> [b] -> m [a]
+foldCheck f bs = foldr (transformedF) (pure []) bs
+   where 
+         transformedF b acc = do
+             accValue <- acc
+             newValue <- f accValue b
+             return $ accValue ++ newValue
 
 collectImportedFunctions :: [Import] -> Map.Map String FunctionFQN -> CompilerIO (Maybe (Map.Map String FunctionFQN))
 collectImportedFunctions [] fs = return $ Just fs
@@ -43,17 +50,18 @@ collectImportedFunctions (i:is) fs = do
 
 toModuleName i = ModuleName (map positionedTokenContent (importPackageNames i)) (positionedTokenContent $ importModule i)
 
-extractFunctionName :: FunctionDefinition -> CompilerIO (Maybe String)
-extractFunctionName (FunctionDefinition [token] _) =
+extractFunctionName :: [String] -> FunctionDefinition -> CompilerIO [String]
+extractFunctionName existingNames (FunctionDefinition [token] _) =
    if capitalized name then
-      compilerErrorForTokens [token] "Functions must begin with a lowercase letter or be an operator." >> return Nothing
+      compilerErrorForTokens [token] "Functions must begin with a lowercase letter or be an operator." >> return []
+   else if name `elem` existingNames then
+      compilerErrorForTokens [token] "Function already declared." >> return []
    else
-      return $ Just $ name
+      return [name]
    where
       name = positionedTokenContent token
-
-extractFunctionName (FunctionDefinition signature _) = 
-   compilerErrorForTokens signature "Function signature must be only one function name (Under development)." >> return Nothing
+extractFunctionName _ (FunctionDefinition signature _) = 
+   compilerErrorForTokens signature "Function signature must be only one function name (Under development)." >> return []
 
 calculateModuleName :: FilePath -> AST -> CompilerIO (Maybe ModuleName)
 calculateModuleName path _ = 
