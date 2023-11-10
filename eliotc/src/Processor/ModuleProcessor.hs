@@ -6,6 +6,7 @@
 module Processor.ModuleProcessor (parseModuleProcessor) where
 
 import Data.Char
+import qualified Data.List as List
 import qualified Data.Map as Map
 import System.FilePath
 import CompilerProcessor
@@ -22,13 +23,13 @@ parseModuleProcessor (SourceAST path ast) = do
       Just mn -> do
          functionNames     <- foldM extractFunctionName [] (functionDefinitions ast)
          _                 <- registerCompilerFact (ModuleFunctionNamesRead mn) (ModuleFunctionNames mn functionNames)
-         importedFunctions <- foldM collectImportedFunctions Map.empty (importStatements ast)
+         importedFunctions <- foldM (collectImportedFunctions functionNames) Map.empty (importStatements ast)
          debugMsg $ (show mn) ++ " provides functions: " ++ (show functionNames) ++ ", imports: " ++ (show importedFunctions)
       Nothing -> compileOk
 parseModuleProcessor _ = compileOk
 
-collectImportedFunctions :: Map.Map String FunctionFQN -> Import -> CompilerIO (Map.Map String FunctionFQN)
-collectImportedFunctions existingFunctions i = do
+collectImportedFunctions :: [String] -> Map.Map String FunctionFQN -> Import -> CompilerIO (Map.Map String FunctionFQN)
+collectImportedFunctions existingNames existingFunctions i = do
    importedFunctionNames <- getCompilerFact (ModuleFunctionNamesRead $ toModuleName i)
    case importedFunctionNames of
       Just (ModuleFunctionNames mn names) -> if null (collisions names) then
@@ -38,7 +39,7 @@ collectImportedFunctions existingFunctions i = do
       _                                   -> compilerErrorForTokens (allImportTokens i) ("Could not find imported module.") >> return existingFunctions
    where
       collisions :: [String] -> [String]
-      collisions names = filter (flip Map.member existingFunctions) names
+      collisions names = (filter (flip Map.member existingFunctions) names) ++ (List.intersect names existingNames)
 
 toModuleName i = ModuleName (map positionedTokenContent (importPackageNames i)) (positionedTokenContent $ importModule i)
 
