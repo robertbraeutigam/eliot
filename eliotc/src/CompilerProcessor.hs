@@ -9,6 +9,7 @@ import GHC.Generics
 import Data.Hashable
 import Control.Monad.Trans.Reader
 import qualified Logging
+import qualified Data.Map as Map
 import Engine.FactEngine
 import Tokens
 import AST
@@ -32,24 +33,26 @@ instance Hashable CompilerError where
 
 -- | Signals registered into the fact engine.
 data Signal =
-     SourcePathSignal          FilePath
-   | SourceFileSignal          FilePath
-   | SourceFileContentSignal   FilePath
-   | SourceTokensSignal        FilePath
-   | SourceASTSignal           FilePath
-   | CompilerErrorSignal       CompilerError
-   | ModuleFunctionNamesSignal ModuleName
+     SourcePathSignal                FilePath
+   | SourceFileSignal                FilePath
+   | SourceFileContentSignal         FilePath
+   | SourceTokensSignal              FilePath
+   | SourceASTSignal                 FilePath
+   | CompilerErrorSignal             CompilerError
+   | ModuleFunctionNamesSignal       ModuleName
+   | FunctionCompilationUnitSignal   FunctionFQN
    deriving (Eq, Show, Generic, Hashable)
 
 -- | Facts registered into the fact engine.
 data Fact = 
-     SourcePath                FilePath                               -- A path to some file or directory containing source code
-   | SourceFile                FilePath                               -- A source file that has been detected
-   | SourceFileContent         FilePath String                        -- Contents of a source file
-   | SourceTokens              FilePath [PositionedToken]             -- Tokens read from a source file
-   | SourceAST                 FilePath AST                           -- AST of source file
+     SourcePath                FilePath                                                    -- A path to some file or directory containing source code
+   | SourceFile                FilePath                                                    -- A source file that has been detected
+   | SourceFileContent         FilePath String                                             -- Contents of a source file
+   | SourceTokens              FilePath [PositionedToken]                                  -- Tokens read from a source file
+   | SourceAST                 FilePath AST                                                -- AST of source file
    | CompilerErrorFact         CompilerError
-   | ModuleFunctionNames       ModuleName [String]                    -- A list of functions in the module
+   | ModuleFunctionNames       ModuleName [String]                                         -- A list of functions in the module
+   | FunctionCompilationUnit   FunctionFQN (Map.Map String FunctionFQN) FunctionDefinition -- A function ready to be compiled and type-checked
    deriving (Eq, Show)
 
 -- | A computation running in the compiler. This computation interacts

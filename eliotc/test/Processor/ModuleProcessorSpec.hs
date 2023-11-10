@@ -7,6 +7,7 @@ import Processor.ASTProcessor
 import Processor.ModuleProcessor
 import Processor.TestCompiler
 import CompilerProcessor
+import qualified Data.Map as Map
 import Module
 
 spec :: Spec
@@ -39,6 +40,9 @@ spec = do
       it "should detect the defined and imported function name collision" $ do
          parseMultiForErrors [("TestFile","import A\none = a"), ("A", "one = a")] `shouldReturn` ["Imported module imports functions that are already in scope: [\"one\"]."]
 
+      it "should registers single local function as a compilation unit" $ do
+         parseMultiForCompilationFunction [("A", "ni = a")] `shouldReturn` [(FunctionFQN (ModuleName [] "A") "ni", Map.fromList [("ni", FunctionFQN (ModuleName [] "A") "ni")])]
+
 parseForErrors :: String -> String -> IO [String]
 parseForErrors filename code = parseMultiForErrors [(filename, code)]
 
@@ -53,5 +57,10 @@ parseForFact filename code = parseMultiForFact [(filename, code)]
 parseMultiForFact :: [(String, String)] -> IO (ModuleName, [String])
 parseMultiForFact files = compileSelectFact [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectFact
    where selectFact (_, ModuleFunctionNames mn names) = Just (mn, names)
+         selectFact _                                 = Nothing
+
+parseMultiForCompilationFunction :: [(String, String)] -> IO [(FunctionFQN, Map.Map String FunctionFQN)]
+parseMultiForCompilationFunction files = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectFact
+   where selectFact (_, FunctionCompilationUnit ffqn dictionary _) = Just (ffqn, dictionary)
          selectFact _                                 = Nothing
 

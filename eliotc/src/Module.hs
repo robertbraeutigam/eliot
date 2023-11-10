@@ -17,3 +17,7 @@ instance Hashable ModuleName where
 -- | Fully qualified function name.
 data FunctionFQN = FunctionFQN ModuleName String
  deriving (Eq, Show)
+
+instance Hashable FunctionFQN where
+  hashWithSalt salt (FunctionFQN mn n) = hashWithSalt salt (mn, n)
+
