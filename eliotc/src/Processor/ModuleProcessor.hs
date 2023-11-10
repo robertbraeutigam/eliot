@@ -22,24 +22,23 @@ parseModuleProcessor (SourceAST path ast) = do
       Just mn -> do
          functionNames     <- foldM extractFunctionName [] (functionDefinitions ast)
          _                 <- registerCompilerFact (ModuleFunctionNamesRead mn) (ModuleFunctionNames mn functionNames)
-         importedFunctions <- collectImportedFunctions (importStatements ast) Map.empty
+         importedFunctions <- foldM collectImportedFunctions Map.empty (importStatements ast)
          debugMsg $ (show mn) ++ " provides functions: " ++ (show functionNames) ++ ", imports: " ++ (show importedFunctions)
       Nothing -> compileOk
 parseModuleProcessor _ = compileOk
 
-collectImportedFunctions :: [Import] -> Map.Map String FunctionFQN -> CompilerIO (Maybe (Map.Map String FunctionFQN))
-collectImportedFunctions [] fs = return $ Just fs
-collectImportedFunctions (i:is) fs = do
+collectImportedFunctions :: Map.Map String FunctionFQN -> Import -> CompilerIO (Map.Map String FunctionFQN)
+collectImportedFunctions existingFunctions i = do
    importedFunctionNames <- getCompilerFact (ModuleFunctionNamesRead $ toModuleName i)
    case importedFunctionNames of
       Just (ModuleFunctionNames mn names) -> if null (collisions names) then
-                                                collectImportedFunctions is (Map.union fs (Map.fromList $ map (\name -> (name, FunctionFQN mn name)) names))
+                                                return $ Map.union existingFunctions (Map.fromList $ map (\name -> (name, FunctionFQN mn name)) names)
                                              else
-                                                compilerErrorForTokens (allImportTokens i) ("Imported module imports functions that are already in scope: " ++ (show (collisions names)) ++ ".") >> return Nothing
-      _                                   -> compilerErrorForTokens (allImportTokens i) ("Could not find imported module.") >> collectImportedFunctions is fs
+                                                compilerErrorForTokens (allImportTokens i) ("Imported module imports functions that are already in scope: " ++ (show (collisions names)) ++ ".") >> return existingFunctions
+      _                                   -> compilerErrorForTokens (allImportTokens i) ("Could not find imported module.") >> return existingFunctions
    where
       collisions :: [String] -> [String]
-      collisions names = filter (flip Map.member fs) names
+      collisions names = filter (flip Map.member existingFunctions) names
 
 toModuleName i = ModuleName (map positionedTokenContent (importPackageNames i)) (positionedTokenContent $ importModule i)
 
