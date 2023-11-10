@@ -13,6 +13,7 @@ import qualified Data.Map as Map
 import Engine.FactEngine
 import Tokens
 import AST
+import FAST
 import Module
 
 type SourceLine = Int
@@ -41,6 +42,7 @@ data Signal =
    | CompilerErrorSignal             CompilerError
    | ModuleFunctionNamesSignal       ModuleName
    | FunctionCompilationUnitSignal   FunctionFQN
+   | CompiledFunctionSignal          FunctionFQN
    deriving (Eq, Show, Generic, Hashable)
 
 -- | Facts registered into the fact engine.
@@ -53,6 +55,7 @@ data Fact =
    | CompilerErrorFact         CompilerError
    | ModuleFunctionNames       ModuleName [String]                                         -- A list of functions in the module
    | FunctionCompilationUnit   FunctionFQN (Map.Map String FunctionFQN) FunctionDefinition -- A function ready to be compiled and type-checked
+   | CompiledFunction          FunctionFQN FunctionBody                                    -- A compiled (type-checked) correct function body
    deriving (Eq, Show)
 
 -- | A computation running in the compiler. This computation interacts

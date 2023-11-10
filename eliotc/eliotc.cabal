@@ -32,9 +32,11 @@ library
       CompilerProcessor
       Engine.FactEngine
       Engine.FactEngineStatus
+      FAST
       Logging
       Module
       Processor.ASTProcessor
+      Processor.FASTProcessor
       Processor.FileProcessors
       Processor.ModuleProcessor
       Processor.TokensProcessor
