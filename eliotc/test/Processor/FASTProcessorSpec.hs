@@ -20,6 +20,9 @@ spec = do
       it "should indicate error when referred function is not defined" $ do
          parseForErrors "ni = nu" `shouldReturn` ["Called function not defined."]
          
+      it "should indicate error native function is not found" $ do
+         parseForErrors "ni = native" `shouldReturn` ["Native function not defined in the given architecture."]
+         
 parseForErrors :: String -> IO [String]
 parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor] [("A", code)] selectErrors
    where selectErrors (_, CompilerErrorFact (CompilerError _ _ _ msg)) = Just msg

@@ -12,6 +12,8 @@ import AST
 import FAST
 
 parseFASTProcessor :: CompilerProcessor
+parseFASTProcessor (FunctionCompilationUnit _ _ (FunctionDefinition _ ts@([PositionedToken _ _ _ (Keyword "native")]))) =
+   compilerErrorForTokens ts "Native function not defined in the given architecture."
 parseFASTProcessor (FunctionCompilationUnit fname dictionary (FunctionDefinition _ [calledToken])) =
    case Map.lookup (positionedTokenContent calledToken) dictionary of
       Just calledFFQN -> registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname $ FunctionApplication calledFFQN)
