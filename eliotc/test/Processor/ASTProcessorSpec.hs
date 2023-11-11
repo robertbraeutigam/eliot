@@ -22,20 +22,23 @@ spec = do
          extractImports <$> (parseForAST "import a.b.C\nimport b.c.D\n\nimport e.f.h.G") `shouldReturn` [ImportTest ["a", "b"] "C", ImportTest ["b", "c"] "D", ImportTest ["e", "f", "h"] "G"]
 
       it "should not parse import with non-capitalized module name" $ do
-         length <$> (parseForErrors "import a.b.c") `shouldReturn` 1
+         parseForErrors "import a.b.c" `shouldReturn` ["Parser error, unexpected end of input, expecting symbol '.'."]
 
       it "should not parse import on multiple lines even if correct" $ do
-         length <$> (parseForErrors "import a.\nb.c") `shouldReturn` 1
+         parseForErrors "import a.\nb.c" `shouldReturn` ["Parser error, unexpected identifier \"b\", expecting end of input or top level keyword \"import\"."]
 
       it "should report multiple errors" $ do
-         length <$> (parseForErrors "import a.b.c\nimport d;e\n") `shouldReturn` 2
+         parseForErrors "import a.b.c\nimport d;e\n" `shouldReturn` ["Parser error, unexpected symbol \";\", expecting symbol '.'.","Parser error, unexpected identifier \"import\", expecting symbol '.'."]
 
       it "should force import statement to begin on first column" $ do
-         length <$> (parseForErrors " import a.b.C") `shouldReturn` 1
+         parseForErrors " import a.b.C" `shouldReturn` ["Parser error, unexpected identifier \"import\", expecting top level function definition."]
 
-parseForErrors :: String -> IO [CompilerError]
+      it "should reject keyword 'import' as function name" $ do
+         parseForErrors "a = b\nimport = a\n" `shouldReturn` ["Unexpected keyword \"import\"."]
+
+parseForErrors :: String -> IO [String]
 parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor] [("", code)] selectErrors
-   where selectErrors (_, CompilerErrorFact err) = Just err
+   where selectErrors (_, CompilerErrorFact (CompilerError _ _ _ msg)) = Just msg
          selectErrors _                          = Nothing
 
 parseForAST :: String -> IO AST
