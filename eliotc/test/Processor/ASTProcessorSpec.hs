@@ -28,13 +28,16 @@ spec = do
          parseForErrors "import a.\nb.c" `shouldReturn` ["Parser error, unexpected identifier \"b\", expecting end of input or top level keyword \"import\"."]
 
       it "should report multiple errors" $ do
-         parseForErrors "import a.b.c\nimport d;e\n" `shouldReturn` ["Parser error, unexpected symbol \";\", expecting symbol '.'.","Parser error, unexpected identifier \"import\", expecting symbol '.'."]
+         parseForErrors "import a.b.c\nimport d;e\n" `shouldReturn` ["Parser error, unexpected keyword \"import\", expecting symbol '.'.", "Parser error, unexpected symbol \";\", expecting symbol '.'."]
 
       it "should force import statement to begin on first column" $ do
-         parseForErrors " import a.b.C" `shouldReturn` ["Parser error, unexpected identifier \"import\", expecting top level function definition."]
+         parseForErrors " import a.b.C" `shouldReturn` ["Parser error, unexpected keyword \"import\", expecting top level function definition."]
 
       it "should reject keyword 'import' as function name" $ do
-         parseForErrors "a = b\nimport = a\n" `shouldReturn` ["Unexpected keyword \"import\"."]
+         parseForErrors "a = b\nimport = a\n" `shouldReturn` ["Parser error, unexpected keyword \"import\", expecting top level function definition."]
+
+      it "should reject keyword 'import' as function body" $ do
+         parseForErrors "a = b\nb = import\n" `shouldReturn` ["Unexpected keyword \"import\"."]
 
 parseForErrors :: String -> IO [String]
 parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor] [("", code)] selectErrors

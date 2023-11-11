@@ -47,7 +47,7 @@ importStatement = do
    return $ Import kyw pkgs modn
 
 functionStatement = do
-   firstDef <- satisfyAll [isTopLevel] <?> "top level function definition"
+   firstDef <- satisfyAll [isTopLevel, not . isKeyword] <?> "top level function definition"
    restDefs <- many $ satisfyAll [contentPredicate (/="="), sameLineAs firstDef]
    _        <- symbol "=" <?> "function definition equals sign"
    body     <- many $ notNewLine
@@ -69,7 +69,7 @@ moduleNameOnSameLineAs pt = satisfyAll [isIdentifer, sameLineAs pt, contentPredi
 
 packageNameOnSameLineAs pt = satisfyAll [isIdentifer, sameLineAs pt, contentPredicate startsLowerCase] <?> "package name on same line as import"
 
-topLevelKeyword name = satisfyAll [isIdentifer, isContent name, isTopLevel] <?> ("top level keyword "++(show name))
+topLevelKeyword name = satisfyAll [isKeyword, isContent name, isTopLevel] <?> ("top level keyword "++(show name))
 
 symbol name = satisfyAll [isSymbol, isContent name] <?> ("symbol '" ++ name ++ "'")
 
@@ -86,6 +86,9 @@ isIdentifer _                                    = False
 
 isSymbol (PositionedToken _ _ _ (Symbol _)) = True
 isSymbol _                                = False
+
+isKeyword (PositionedToken _ _ _ (Keyword _)) = True
+isKeyword _                                    = False
 
 isTopLevel (PositionedToken _ _ column _) = column == 1
 

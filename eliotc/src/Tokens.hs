@@ -12,6 +12,7 @@ data PositionedToken = PositionedToken FilePath Line Column Token
 
 data Token = Identifier String   -- Satisfies the rules for a generic identifier ~alphanumeric
            | Symbol String       -- Sort-of identifier comprised of non-alphanumberic characters
+           | Keyword String      -- Keywords that are reserved to be used in certain places but no others
    deriving (Eq)
 
 instance Show PositionedToken where
@@ -20,10 +21,12 @@ instance Show PositionedToken where
 instance Show Token where
    show (Identifier i) = "identifier \""++i++"\""
    show (Symbol i) = "symbol \""++i++"\""
+   show (Keyword i) = "keyword \""++i++"\""
 
 tokenContent :: Token -> String
 tokenContent (Identifier str) = str
 tokenContent (Symbol str)     = str
+tokenContent (Keyword str)    = str
 
 tokenLength :: Token -> Int
 tokenLength = length . tokenContent

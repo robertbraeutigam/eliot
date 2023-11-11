@@ -18,6 +18,9 @@ spec = do
       it "should return tokens after line comments in the next line" $ do
          parseForTokens "// not tokens\nagain" `shouldReturn` [Identifier "again"]
 
+      it "keywords are parsed into keyword" $ do
+         parseForTokens "import notkeyword" `shouldReturn` [Keyword "import", Identifier "notkeyword"]
+
       it "should not return tokens in block comments" $ do
          parseForTokens "/* not tokens */" `shouldReturn` []
 

@@ -19,13 +19,14 @@ parseTokensProcessor (SourceFileContent path code) = case parse (whiteSpace >> (
    Right ts         -> registerCompilerFact (SourceTokensSignal path) (SourceTokens path ts)
 parseTokensProcessor _ = compileOk
 
-anyTokenLexeme = ((identifier <|> symbol) <* whiteSpace) <?> "legal character"
+anyTokenLexeme = ((identifierOrKeyword <|> symbol) <* whiteSpace) <?> "legal character"
 
-identifier = do
+identifierOrKeyword = do
    firstCharacter <- letter
    restCharacters <- many (alphaNum <|> oneOf "_'")
    pos            <- getPosition
-   return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-1-(length restCharacters)) (Identifier (firstCharacter:restCharacters))
+   return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-1-(length restCharacters)) (toToken (firstCharacter:restCharacters))
+   where toToken content = if content `elem` keywords then Keyword content else Identifier content
 
 symbol = (do
    sym <- (many1 $ oneOf ":!#$%&*+./<=>?@\\^|-~;")
@@ -45,6 +46,8 @@ multiLineCommentBody = ((void $ try (string "*/"))                             -
                    <|> (skipMany1 (satisfy (/= '*')) >> multiLineCommentBody) -- Skip to next *
                    <|> ((void $ char '*') >> multiLineCommentBody))            -- Skip * if string "*/" didn't match
                    <?> "closing '*/' of block comment"
+
+keywords = ["import", "native"]
 
 -- Translate errors
 
