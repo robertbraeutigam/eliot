@@ -41,12 +41,12 @@ spec = do
          parseMultiForErrors [("TestFile","import A\none = a"), ("A", "one = a")] `shouldReturn` ["Imported module imports functions that are already in scope: [\"one\"]."]
 
       it "should registers single local function as a compilation unit" $ do
-         parseMultiForCompilationFunction [("A", "ni = a")] `shouldReturn` [(FunctionFQN (ModuleName [] "A") "ni", Map.fromList [("ni", FunctionFQN (ModuleName [] "A") "ni")])]
+         parseMultiForCompilationFunction [("A", "ni = a")] >>= (`shouldMatchList` [(FunctionFQN (ModuleName [] "A") "ni", Map.fromList [("ni", FunctionFQN (ModuleName [] "A") "ni")])])
 
       it "should include both local and imported functions in the dictionary" $ do
-         parseMultiForCompilationFunction [("A", "ni = a"), ("B", "import A\nnu = b")] `shouldReturn` [
+         parseMultiForCompilationFunction [("A", "ni = a"), ("B", "import A\nnu = b")] >>= (`shouldMatchList` [
             (FunctionFQN (ModuleName [] "B") "nu", Map.fromList [("ni", FunctionFQN (ModuleName [] "A") "ni"), ("nu", FunctionFQN (ModuleName [] "B") "nu")]),
-            (FunctionFQN (ModuleName [] "A") "ni", Map.fromList [("ni", FunctionFQN (ModuleName [] "A") "ni")])]
+            (FunctionFQN (ModuleName [] "A") "ni", Map.fromList [("ni", FunctionFQN (ModuleName [] "A") "ni")])])
 
 parseForErrors :: String -> String -> IO [String]
 parseForErrors filename code = parseMultiForErrors [(filename, code)]

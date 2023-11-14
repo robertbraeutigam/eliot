@@ -16,6 +16,7 @@ import Processor.TokensProcessor
 import Processor.FileProcessors
 import Processor.ModuleProcessor
 import Processor.FASTProcessor
+import Processor.GenerateMainProcessor
 
 -- | Run the compiler on the given source paths.
 compile :: [String] -> IO ()
@@ -26,13 +27,13 @@ compile paths = do
 
 compileWithLogger :: [String] -> Logging.Logger -> IO ()
 compileWithLogger paths logger = do
-   facts     <- resolveFacts liftedProcessors sourcePathFacts
+   facts     <- resolveFacts liftedProcessors ((InitSignal, Init):sourcePathFacts)
    case facts of
       Just allFacts  -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
       Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathSignal s, SourcePath s)) paths
          liftedProcessors = map (liftToCompiler logger) processors
-         processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor]
+         processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor, parseGenerateMain]
  
 -- | Translate a fact engine IO into a compile one.
 liftToCompiler :: Logging.Logger -> CompilerProcessor -> FactProcessor Signal Fact

@@ -33,11 +33,13 @@ library
       Engine.FactEngine
       Engine.FactEngineStatus
       FAST
+      Generator
       Logging
       Module
       Processor.ASTProcessor
       Processor.FASTProcessor
       Processor.FileProcessors
+      Processor.GenerateMainProcessor
       Processor.ModuleProcessor
       Processor.TokensProcessor
       Tokens

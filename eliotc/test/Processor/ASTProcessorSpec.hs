@@ -28,7 +28,7 @@ spec = do
          parseForErrors "import a.\nb.c" `shouldReturn` ["Parser error, unexpected identifier \"b\", expecting end of input or top level keyword \"import\"."]
 
       it "should report multiple errors" $ do
-         parseForErrors "import a.b.c\nimport d;e\n" `shouldReturn` ["Parser error, unexpected keyword \"import\", expecting symbol '.'.", "Parser error, unexpected symbol \";\", expecting symbol '.'."]
+         parseForErrors "import a.b.c\nimport d;e\n" >>= (`shouldMatchList` ["Parser error, unexpected keyword \"import\", expecting symbol '.'.", "Parser error, unexpected symbol \";\", expecting symbol '.'."])
 
       it "should force import statement to begin on first column" $ do
          parseForErrors " import a.b.C" `shouldReturn` ["Parser error, unexpected keyword \"import\", expecting top level function definition."]
