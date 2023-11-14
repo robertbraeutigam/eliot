@@ -4,7 +4,5 @@
 
 main = highPA1
 
-highPA1 = a
-
-a = native
+highPA1 = native
 
