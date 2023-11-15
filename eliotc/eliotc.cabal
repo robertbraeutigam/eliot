@@ -62,6 +62,7 @@ library
     , lifted-base
     , mtl
     , parsec
+    , split
     , stm
     , transformers
     , ttrie
@@ -90,6 +91,7 @@ executable eliotc-exe
     , lifted-base
     , mtl
     , parsec
+    , split
     , stm
     , transformers
     , ttrie
@@ -125,6 +127,7 @@ test-suite eliotc-test
     , lifted-base
     , mtl
     , parsec
+    , split
     , stm
     , transformers
     , ttrie

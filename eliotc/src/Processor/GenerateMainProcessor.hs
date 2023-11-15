@@ -8,11 +8,11 @@ import CompilerProcessor
 import Module
 import Generator
 
-parseGenerateMain :: CompilerProcessor
-parseGenerateMain Init = do
-   mainFunction <- getCompilerFact $ CompiledFunctionSignal $ FunctionFQN (ModuleName [] "Ni") "main" -- TODO: Get this from config
+parseGenerateMain :: ModuleName -> TargetPlatform -> CompilerProcessor
+parseGenerateMain mainModule targetPlatform Init = do
+   mainFunction <- getCompilerFact $ CompiledFunctionSignal $ FunctionFQN mainModule "main"
    case mainFunction of
-      Just (CompiledFunction ffqn _) -> registerCompilerFact GenerateMainSignal (GenerateMain Attiny424 ffqn) -- TODO: Get target from config also
+      Just (CompiledFunction ffqn _) -> registerCompilerFact GenerateMainSignal (GenerateMain targetPlatform ffqn)
       _                              -> errorMsg "Main function not found to compile."
-parseGenerateMain _ = compileOk
+parseGenerateMain _ _ _ = compileOk
 

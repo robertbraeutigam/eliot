@@ -4,6 +4,6 @@
 
 module Generator (TargetPlatform(..)) where
 
-data TargetPlatform = Attiny424
+data TargetPlatform = TargetPlatform String
    deriving (Show, Eq)
 

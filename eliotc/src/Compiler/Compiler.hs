@@ -17,23 +17,25 @@ import Processor.FileProcessors
 import Processor.ModuleProcessor
 import Processor.FASTProcessor
 import Processor.GenerateMainProcessor
+import Module
+import Generator
 
 -- | Run the compiler on the given source paths.
-compile :: [String] -> IO ()
-compile [] = Logging.runLogger $ Logging.errorMsg "There were no source paths given. Please supply at least one directory with ELIOT sources."
-compile paths = do
+compile :: ModuleName -> TargetPlatform -> [String] -> IO ()
+compile _ _ [] = Logging.runLogger $ Logging.errorMsg "There were no source paths given. Please supply at least one directory with ELIOT sources."
+compile architecture mainModule paths = do
    logger    <- Logging.newLogger
-   (compileWithLogger paths logger) `catch` (\e -> Logging.withLogger logger $ Logging.errorMsg ("Internal compiler exception: " ++ (show (e::SomeException))))
+   (compileWithLogger architecture mainModule paths logger) `catch` (\e -> Logging.withLogger logger $ Logging.errorMsg ("Internal compiler exception: " ++ (show (e::SomeException))))
 
-compileWithLogger :: [String] -> Logging.Logger -> IO ()
-compileWithLogger paths logger = do
-   facts     <- resolveFacts liftedProcessors ((InitSignal, Init):sourcePathFacts)
+compileWithLogger :: ModuleName -> TargetPlatform -> [String] -> Logging.Logger -> IO ()
+compileWithLogger mainModule architecture paths logger = do
+   facts          <- resolveFacts liftedProcessors ((InitSignal, Init):sourcePathFacts)
    case facts of
       Just allFacts  -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
       Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathSignal s, SourcePath s)) paths
          liftedProcessors = map (liftToCompiler logger) processors
-         processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor, parseGenerateMain]
+         processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor, parseGenerateMain mainModule architecture]
  
 -- | Translate a fact engine IO into a compile one.
 liftToCompiler :: Logging.Logger -> CompilerProcessor -> FactProcessor Signal Fact
