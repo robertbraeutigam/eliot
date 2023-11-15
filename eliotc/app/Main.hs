@@ -7,6 +7,7 @@ module Main (main) where
 import System.Console.CmdArgs.Explicit
 import Compiler.Compiler
 import Data.List.Split
+import System.IO
 import Module
 import Generator
 
@@ -22,10 +23,13 @@ data CommandLineParameters = CommandLineParameters {
 main :: IO ()
 main = do
    args <- processArgs arguments
-   if help args then
-      print $ helpText [] HelpFormatDefault arguments
-   else
-      compile (mainModule args) (architecture args) (sourceDirs args)
+   case args of
+      CommandLineParameters True _ _ _                -> printHelp
+      CommandLineParameters _ _ (TargetPlatform "") _ -> hPutStrLn stderr "Target platform not specified." >> printHelp
+      CommandLineParameters _ _ _ (ModuleName [] "")  -> hPutStrLn stderr "Main module name not specified." >> printHelp
+      CommandLineParameters _ ss arch mn              -> compile mn arch ss
+   where
+      printHelp = print $ helpText [] HelpFormatDefault arguments
 
 -- | Define the command line arguments the compile can accept.
 arguments :: Mode CommandLineParameters
@@ -38,7 +42,7 @@ arguments = mode "eliotc" (CommandLineParameters False [] (TargetPlatform "") (M
       addPath pathCandidate commandLineParameters = Right $ commandLineParameters { sourceDirs = pathCandidate: sourceDirs commandLineParameters }
       setHelp commandLineParameters = commandLineParameters { help = True }
       setArch arch commandLineParameters = Right $ commandLineParameters { architecture = TargetPlatform arch }
-      setMain main commandLineParameters = case moduleName (splitOn "." main) of
+      setMain m commandLineParameters = case moduleName (splitOn "." m) of
          Just mn   -> Right $ commandLineParameters { mainModule = mn }
          Nothing   -> Left "Specified main module name is not a valid module name."
       moduleName [] = Nothing
