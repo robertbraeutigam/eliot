@@ -18,6 +18,7 @@ import Processor.ModuleProcessor
 import Processor.FASTProcessor
 import Processor.GenerateMainProcessor
 import Processor.AVRGeneratorProcessor
+import Processor.BinaryOutputProcessor
 import Module
 import Generator
 
@@ -36,7 +37,7 @@ compileWithLogger mainModule architecture paths logger = do
       Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (SourcePathSignal s, SourcePath s)) paths
          liftedProcessors = map (liftToCompiler logger) processors
-         processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor, parseGenerateMain mainModule architecture, parseAVRGenerate]
+         processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor, parseGenerateMain mainModule architecture, parseAVRGenerate, writeOutputBinary]
  
 -- | Translate a fact engine IO into a compile one.
 liftToCompiler :: Logging.Logger -> CompilerProcessor -> FactProcessor Signal Fact

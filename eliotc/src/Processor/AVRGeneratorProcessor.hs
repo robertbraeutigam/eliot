@@ -11,7 +11,7 @@ import qualified Data.ByteString as ByteString
 
 parseAVRGenerate :: CompilerProcessor
 parseAVRGenerate (GenerateMain tp@(TargetPlatform "attiny424") (FunctionFQN moduleName _) _) =
-   registerCompilerFact TargetBinaryGeneratedSignal (TargetBinaryGenerated tp moduleName (ByteString.pack [255, 255]))
+   registerCompilerFact TargetBinaryGeneratedSignal (TargetBinaryGenerated tp moduleName (ByteString.pack [255, 207]))
 parseAVRGenerate _ = compileOk
 
 

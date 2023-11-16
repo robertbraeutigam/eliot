@@ -2,7 +2,7 @@
  - compiler errors.
  -}
 
-module Logging (errorMsg, debugMsg, compilerErrorMsg, newLogger, Logger, LoggerIO, withLogger, runLogger) where
+module Logging (errorMsg, debugMsg, compilerErrorMsg, newLogger, Logger, LoggerIO, withLogger, runLogger, infoMsg) where
 
 import Control.Concurrent.MVar
 import System.Console.ANSI
@@ -40,6 +40,10 @@ errorMsg msg = syncIO $ do
 -- | Debug message
 debugMsg :: String -> LoggerIO ()
 debugMsg msg = syncIO $ colored stdout Dull White ("[ DEBUG ] " ++ msg) >> hPutStrLn stdout ""
+
+-- | Info message
+infoMsg :: String -> LoggerIO ()
+infoMsg msg = syncIO $ colored stdout Vivid White ("[ INFO  ] " ++ msg) >> hPutStrLn stdout ""
 
 -- | Show a compiler error in a given file with "standard" compiler output format
 -- TODO: This doesn't handle multi-line failures yet.

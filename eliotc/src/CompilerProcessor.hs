@@ -3,7 +3,7 @@
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
-module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError, errorMsg, debugMsg, compilerErrorMsg, compilerErrorForFile, compilerErrorForTokens) where
+module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError, infoMsg, errorMsg, debugMsg, compilerErrorMsg, compilerErrorForFile, compilerErrorForTokens) where
 
 import GHC.Generics
 import Data.Hashable
@@ -109,6 +109,9 @@ errorMsg msg = withReaderT fst $ Logging.errorMsg msg
 
 debugMsg :: String -> CompilerIO ()
 debugMsg msg = withReaderT fst $ Logging.debugMsg msg
+
+infoMsg :: String -> CompilerIO ()
+infoMsg msg = withReaderT fst $ Logging.infoMsg msg
 
 compilerErrorMsg :: FilePath -> String -> Int -> Int -> Int -> Int -> String -> CompilerIO ()
 compilerErrorMsg filePath content fRow fCol tRow tCol msg = withReaderT fst $ Logging.compilerErrorMsg filePath content fRow fCol tRow tCol msg

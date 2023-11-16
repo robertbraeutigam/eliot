@@ -38,6 +38,7 @@ library
       Module
       Processor.ASTProcessor
       Processor.AVRGeneratorProcessor
+      Processor.BinaryOutputProcessor
       Processor.FASTProcessor
       Processor.FileProcessors
       Processor.GenerateMainProcessor
