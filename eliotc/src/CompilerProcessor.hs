@@ -60,7 +60,7 @@ data Fact =
    | ModuleFunctionNames       ModuleName [String]                                         -- A list of functions in the module
    | FunctionCompilationUnit   FunctionFQN (Map.Map String FunctionFQN) FunctionDefinition -- A function ready to be compiled and type-checked
    | CompiledFunction          FunctionFQN FunctionBody                                    -- A compiled (type-checked) correct function body
-   | GenerateMain              TargetPlatform FunctionFQN                                  -- Ask processors to generate for this main function and target platform
+   | GenerateMain              TargetPlatform FunctionFQN FunctionBody                     -- Ask processors to generate for this main function and target platform
    deriving (Eq, Show)
 
 -- | A computation running in the compiler. This computation interacts
