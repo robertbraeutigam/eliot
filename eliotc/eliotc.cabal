@@ -37,6 +37,7 @@ library
       Logging
       Module
       Processor.ASTProcessor
+      Processor.AVRGeneratorProcessor
       Processor.FASTProcessor
       Processor.FileProcessors
       Processor.GenerateMainProcessor
@@ -51,6 +52,7 @@ library
   build-depends:
       ansi-terminal
     , base >=4.7 && <5
+    , bytestring
     , cmdargs
     , containers
     , directory
@@ -79,6 +81,7 @@ executable eliotc-exe
   build-depends:
       ansi-terminal
     , base >=4.7 && <5
+    , bytestring
     , cmdargs
     , containers
     , directory
@@ -115,6 +118,7 @@ test-suite eliotc-test
   build-depends:
       ansi-terminal
     , base >=4.7 && <5
+    , bytestring
     , cmdargs
     , containers
     , directory

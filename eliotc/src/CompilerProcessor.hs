@@ -7,6 +7,7 @@ module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, co
 
 import GHC.Generics
 import Data.Hashable
+import qualified Data.ByteString as ByteString
 import Control.Monad.Trans.Reader
 import qualified Logging
 import qualified Data.Map as Map
@@ -46,6 +47,7 @@ data Signal =
    | FunctionCompilationUnitSignal   FunctionFQN
    | CompiledFunctionSignal          FunctionFQN
    | GenerateMainSignal
+   | TargetBinaryGeneratedSignal
    deriving (Eq, Show, Generic, Hashable)
 
 -- | Facts registered into the fact engine.
@@ -61,6 +63,7 @@ data Fact =
    | FunctionCompilationUnit   FunctionFQN (Map.Map String FunctionFQN) FunctionDefinition -- A function ready to be compiled and type-checked
    | CompiledFunction          FunctionFQN FunctionBody                                    -- A compiled (type-checked) correct function body
    | GenerateMain              TargetPlatform FunctionFQN FunctionBody                     -- Ask processors to generate for this main function and target platform
+   | TargetBinaryGenerated     TargetPlatform ModuleName ByteString.ByteString             -- The target platform produced the compiled version of the source code
    deriving (Eq, Show)
 
 -- | A computation running in the compiler. This computation interacts
