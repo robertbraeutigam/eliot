@@ -14,7 +14,7 @@ writeOutputBinary :: CompilerProcessor
 writeOutputBinary Init = do
    generatedBinary <- getCompilerFact TargetBinaryGeneratedSignal
    case generatedBinary of
-      Just (TargetBinaryGenerated (TargetPlatform tp) (ModuleName _ mn) bs) -> (lift $ ByteString.writeFile (mn ++ "." ++ tp ++ ".bin") bs) >> (infoMsg "Generated output file.") >> compileOk
+      Just (TargetBinaryGenerated (TargetPlatform tp) (ModuleName _ mn) bs) -> (lift $ ByteString.writeFile (mn ++ "." ++ tp ++ ".bin") bs) >> (infoMsg $ "Generated output file "++(mn ++ "." ++ tp ++ ".bin")++", for architecture: "++tp) >> compileOk
       _                                  -> errorMsg "No output generated because of previous errors, not valid target platform."
 writeOutputBinary _ = compileOk
 
