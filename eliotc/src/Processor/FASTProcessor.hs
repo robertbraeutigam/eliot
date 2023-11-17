@@ -15,7 +15,7 @@ parseFASTProcessor :: CompilerProcessor
 parseFASTProcessor (FunctionCompilationUnit _ _ (FunctionDefinition _ ([PositionedToken _ _ _ (Keyword "native")]))) = compileOk -- No need to check/compile body of native function
 parseFASTProcessor (FunctionCompilationUnit fname dictionary (FunctionDefinition _ [calledToken])) =
    case Map.lookup (positionedTokenContent calledToken) dictionary of
-      Just calledFFQN -> registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname $ FunctionApplication calledFFQN)
+      Just calledFfqn -> registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname $ FunctionApplication calledFfqn)
       _               -> compilerErrorForTokens [calledToken] "Called function not defined."
 parseFASTProcessor (FunctionCompilationUnit _ _ (FunctionDefinition _ ts)) = compilerErrorForTokens ts "Function body must be only one function name (Under development)."
 parseFASTProcessor _ = compileOk

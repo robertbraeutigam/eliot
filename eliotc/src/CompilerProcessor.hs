@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
-{-# LANGUAGE DeriveAnyClass, DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass, DeriveGeneric, ExistentialQuantification #-}
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
@@ -7,6 +7,7 @@ module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, co
 
 import GHC.Generics
 import Data.Hashable
+import Data.Dynamic
 import qualified Data.ByteString as ByteString
 import Control.Monad.Trans.Reader
 import qualified Logging
@@ -37,17 +38,19 @@ instance Hashable CompilerError where
 -- | Signals registered into the fact engine.
 data Signal =
      InitSignal
-   | SourcePathSignal                FilePath
-   | SourceFileSignal                FilePath
-   | SourceFileContentSignal         FilePath
-   | SourceTokensSignal              FilePath
-   | SourceASTSignal                 FilePath
-   | CompilerErrorSignal             CompilerError
-   | ModuleFunctionNamesSignal       ModuleName
-   | FunctionCompilationUnitSignal   FunctionFQN
-   | CompiledFunctionSignal          FunctionFQN
+   | SourcePathSignal                 FilePath
+   | SourceFileSignal                 FilePath
+   | SourceFileContentSignal          FilePath
+   | SourceTokensSignal               FilePath
+   | SourceASTSignal                  FilePath
+   | CompilerErrorSignal              CompilerError
+   | ModuleFunctionNamesSignal        ModuleName
+   | FunctionCompilationUnitSignal    FunctionFQN
+   | CompiledFunctionSignal           FunctionFQN
    | GenerateMainSignal
-   | TargetBinaryGeneratedSignal
+   | TargetBinaryGeneratedSignal      TargetPlatform
+   | PlatformGeneratedFunctionSignal  TargetPlatform FunctionFQN
+   | PlatformNativeFunctionSignal     TargetPlatform FunctionFQN
    deriving (Eq, Show, Generic, Hashable)
 
 -- | Facts registered into the fact engine.
@@ -62,9 +65,10 @@ data Fact =
    | ModuleFunctionNames       ModuleName [String]                                         -- A list of functions in the module
    | FunctionCompilationUnit   FunctionFQN (Map.Map String FunctionFQN) FunctionDefinition -- A function ready to be compiled and type-checked
    | CompiledFunction          FunctionFQN FunctionBody                                    -- A compiled (type-checked) correct function body
-   | GenerateMain              TargetPlatform FunctionFQN FunctionBody                     -- Ask processors to generate for this main function and target platform
+   | GenerateMain              TargetPlatform FunctionFQN                                  -- Ask processors to generate for this main function and target platform
    | TargetBinaryGenerated     TargetPlatform ModuleName ByteString.ByteString             -- The target platform produced the compiled version of the source code
-   deriving (Eq, Show)
+   | PlatformGeneratedFunction TargetPlatform FunctionFQN Dynamic                          -- Generated some platform specific output for the given function
+   | PlatformNativeFunction    TargetPlatform FunctionFQN Dynamic                          -- A native function defined by the defined platform.
 
 -- | A computation running in the compiler. This computation interacts
 -- with facts, may get and register them, and potentially produces errors during

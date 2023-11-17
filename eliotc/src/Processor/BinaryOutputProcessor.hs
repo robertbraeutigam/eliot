@@ -11,11 +11,8 @@ import qualified Data.ByteString as ByteString
 import Control.Monad.Trans
 
 writeOutputBinary :: CompilerProcessor
-writeOutputBinary Init = do
-   generatedBinary <- getCompilerFact TargetBinaryGeneratedSignal
-   case generatedBinary of
-      Just (TargetBinaryGenerated (TargetPlatform tp) (ModuleName _ mn) bs) -> (lift $ ByteString.writeFile (mn ++ "." ++ tp ++ ".bin") bs) >> (infoMsg $ "Generated output file "++(mn ++ "." ++ tp ++ ".bin")++", for architecture: "++tp) >> compileOk
-      _                                  -> errorMsg "No output generated because of previous errors, not valid target platform."
+writeOutputBinary (TargetBinaryGenerated (TargetPlatform tp) (ModuleName _ mn) bs) =
+      (lift $ ByteString.writeFile (mn ++ "." ++ tp ++ ".bin") bs) >> (infoMsg $ "Generated output file "++(mn ++ "." ++ tp ++ ".bin")++", for architecture: "++tp) >> compileOk
 writeOutputBinary _ = compileOk
 
 
