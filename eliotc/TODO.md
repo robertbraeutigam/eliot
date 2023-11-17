@@ -73,6 +73,15 @@ def PA1 = Pin PORTA BIT0 // Should be internal to Pins
 def PORTA = 
 ```
 
+TYPESYSTEM:
+- Type signature is a function
+  prepend a = (List(a), List(a))
+  as prepend a = ...
+
+  map a = (List a, List a)   // List a -> List a
+  map f as = ...
+
+ -> type aliases become just normal functions!
 
 TODOs / NOTEs:
 - If method name not in the beginning, infer where it is by seeing which of the identifiers is used inside the function!
