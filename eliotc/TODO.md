@@ -81,7 +81,23 @@ TYPESYSTEM:
   map a = (List a, List a)   // List a -> List a
   map f as = ...
 
+  type levels ::, so
+  
+  map = _ -> _ -> Applicative ::
+  map a b f = (a -> b) -> f a -> f b ::
+  map f as = ...
+
+ -> How to express (_ :a -> a), so a function as argument that can take anything
+
  -> type aliases become just normal functions!
+
+ So if List Num a, where Num is how long the list is
+
+ append a n = * -> Numeric               <- can be automatically deduced based on the + sign
+ append a (List n a) = List (n+1) a
+ append a l = ...
+
+ length ?
 
 TODOs / NOTEs:
 - If method name not in the beginning, infer where it is by seeing which of the identifiers is used inside the function!
