@@ -25,11 +25,11 @@ parseAVRGenerate _ = compileOk
 
 -- | Handle native functions. The byte code for native functions is already there, so this only checks
 -- whether it exists.
-transformToBytes tp ffqn Nothing = do
+transformToBytes tp@(TargetPlatform tps) ffqn Nothing = do
    nativeFunctionMaybe <- getCompilerFact (PlatformGeneratedFunctionSignal tp ffqn)
    case nativeFunctionMaybe of
       Just _   -> compileOk
-      _        -> errorMsg $ "Native function '"++(show ffqn)++"' not found in the given target platform."
+      _        -> compilerErrorForFunction ffqn $ "Native function not found in the given target platform ("++tps++")."
 -- | Handle function applicate by generating JMP code to the target function.
 transformToBytes tp ffqn (Just (FunctionApplication _)) = do
    registerCompilerFact (PlatformGeneratedFunctionSignal tp ffqn) (PlatformGeneratedFunction tp ffqn $ toDyn (ByteString.pack [0]))        -- TODO: dummy implementation

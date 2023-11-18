@@ -3,7 +3,7 @@
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
-module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError, infoMsg, errorMsg, debugMsg, compilerErrorMsg, compilerErrorForFile, compilerErrorForTokens) where
+module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError, infoMsg, errorMsg, debugMsg, compilerErrorMsg, compilerErrorForFile, compilerErrorForTokens, compilerErrorForFunction) where
 
 import GHC.Generics
 import Data.Hashable
@@ -104,6 +104,13 @@ compilerErrorForTokens pts@((PositionedToken file _ _ _):_) msg = compilerError 
          toLastToken    = case pos $ last pts of
             (SourcePosition line column) -> SourcePosition line (column + (length $ positionedTokenContent (last pts)))
          pos (PositionedToken _ line column _) = SourcePosition line column
+
+compilerErrorForFunction :: FunctionFQN -> String -> CompilerIO ()
+compilerErrorForFunction ffqn msg = do
+   functionMaybe <- getCompilerFact (FunctionCompilationUnitSignal ffqn)
+   case functionMaybe of
+      Just (FunctionCompilationUnit _ _ (FunctionDefinition sig _)) -> compilerErrorForTokens sig msg
+      _                                                             -> errorMsg $ msg ++ " (Could not determine function " ++ (show ffqn) ++ " location.)"
 
 -- | Logging
 errorMsg :: String -> CompilerIO ()
