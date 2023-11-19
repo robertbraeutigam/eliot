@@ -18,7 +18,8 @@ allImportTokens :: Import -> [PositionedToken]
 allImportTokens (Import k pns m) = [k] ++ pns ++ [m]
 
 data FunctionDefinition = FunctionDefinition {
-   functionSignature::[PositionedToken],
+   functionName::PositionedToken,
+   functionParameters::[PositionedToken],
    functionBody::[PositionedToken]
 }
    deriving (Show, Eq)

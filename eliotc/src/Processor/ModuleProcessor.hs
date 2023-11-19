@@ -30,8 +30,8 @@ parseModuleProcessor (SourceAST path ast) = do
 parseModuleProcessor _ = compileOk
 
 extractCompilationFunction :: ModuleName -> Map.Map String FunctionFQN -> (String, FunctionDefinition) -> CompilerIO ()
-extractCompilationFunction mn dictionary (functionName, functionDefinition) =
-   registerCompilerFact (FunctionCompilationUnitSignal $ FunctionFQN mn functionName) (FunctionCompilationUnit (FunctionFQN mn functionName) dictionary functionDefinition)
+extractCompilationFunction mn dictionary (fname, functionDefinition) =
+   registerCompilerFact (FunctionCompilationUnitSignal $ FunctionFQN mn fname) (FunctionCompilationUnit (FunctionFQN mn fname) dictionary functionDefinition)
 
 collectImportedFunctions :: [String] -> Map.Map String FunctionFQN -> Import -> CompilerIO (Map.Map String FunctionFQN)
 collectImportedFunctions existingNames existingFunctions i = do
@@ -49,17 +49,15 @@ collectImportedFunctions existingNames existingFunctions i = do
 toModuleName i = ModuleName (map positionedTokenContent (importPackageNames i)) (positionedTokenContent $ importModule i)
 
 extractFunction :: [(String, FunctionDefinition)] -> FunctionDefinition -> CompilerIO [(String, FunctionDefinition)]
-extractFunction existingFunctions fd@(FunctionDefinition [token] _) =
+extractFunction existingFunctions fd@(FunctionDefinition nameToken _ _) =
    if capitalized name then
-      compilerErrorForTokens [token] "Functions must begin with a lowercase letter or be an operator." >> return existingFunctions
+      compilerErrorForTokens [nameToken] "Functions must begin with a lowercase letter or be an operator." >> return existingFunctions
    else if name `elem` (fst <$> existingFunctions) then
-      compilerErrorForTokens [token] "Function already declared." >> return existingFunctions
+      compilerErrorForTokens [nameToken] "Function already declared." >> return existingFunctions
    else
       return $ (name, fd):existingFunctions
    where
-      name = positionedTokenContent token
-extractFunction _ (FunctionDefinition signature _) = 
-   compilerErrorForTokens signature "Function signature must be only one function name (Under development)." >> return []
+      name = positionedTokenContent nameToken
 
 calculateModuleName :: FilePath -> AST -> CompilerIO (Maybe ModuleName)
 calculateModuleName path _ = 

@@ -12,12 +12,12 @@ import AST
 import FAST
 
 parseFASTProcessor :: CompilerProcessor
-parseFASTProcessor (FunctionCompilationUnit fname _ (FunctionDefinition _ ([PositionedToken _ _ _ (Keyword "native")]))) =
+parseFASTProcessor (FunctionCompilationUnit fname _ (FunctionDefinition _ _ ([PositionedToken _ _ _ (Keyword "native")]))) =
    registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname Nothing)
-parseFASTProcessor (FunctionCompilationUnit fname dictionary (FunctionDefinition _ [calledToken])) =
+parseFASTProcessor (FunctionCompilationUnit fname dictionary (FunctionDefinition _ _ [calledToken])) =
    case Map.lookup (positionedTokenContent calledToken) dictionary of
       Just calledFfqn -> registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname $ Just (FunctionApplication calledFfqn))
       _               -> compilerErrorForTokens [calledToken] "Called function not defined."
-parseFASTProcessor (FunctionCompilationUnit _ _ (FunctionDefinition _ ts)) = compilerErrorForTokens ts "Function body must be only one function name (Under development)."
+parseFASTProcessor (FunctionCompilationUnit _ _ (FunctionDefinition _ _ ts)) = compilerErrorForTokens ts "Function body must be only one function name (Under development)."
 parseFASTProcessor _ = compileOk
 
