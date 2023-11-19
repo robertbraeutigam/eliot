@@ -93,9 +93,13 @@ TYPESYSTEM:
 
  So if List Num a, where Num is how long the list is
 
- append a n = * -> Numeric               <- can be automatically deduced based on the + sign
- append a (List n a) = List (n+1) a
+ append = Numeric               <- can be automatically deduced based on the + sign
+ append n = a -> List n a -> List (n+1) a     -- note "a" is "forall" free floating
  append a l = ...
+
+ OR
+
+ append N:Numeric => a:A l:List[N, A] List[N+1, a] = 
 
  length ?
 
