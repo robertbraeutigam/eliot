@@ -21,6 +21,9 @@ parseAVRGenerate (GenerateMain tp@(TargetPlatform "attiny424") ffqn@(FunctionFQN
       Nothing    -> compileOk
 -- TODO: The platform should come from the signal to compile, later from the optimizer, or whatever, it is hardcoded here
 parseAVRGenerate (CompiledFunction ffqn fbody) = transformToBytes (TargetPlatform "attiny424") ffqn fbody -- TODO: hardcoded platform
+parseAVRGenerate Init =
+   -- TODO: Everything is hardcoded, this should be done better
+   registerCompilerFact (PlatformGeneratedFunctionSignal (TargetPlatform "attiny424") (FunctionFQN (ModuleName [] "On") "highPA1")) (PlatformGeneratedFunction (TargetPlatform "attiny424") (FunctionFQN (ModuleName [] "On") "highPA1") (toDyn (ByteString.pack [255, 207])))
 parseAVRGenerate _ = compileOk
 
 -- | Handle native functions. The byte code for native functions is already there, so this only checks
