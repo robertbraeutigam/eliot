@@ -9,10 +9,6 @@ import Module
 import Generator
 
 parseGenerateMain :: ModuleName -> TargetPlatform -> CompilerProcessor
-parseGenerateMain mainModule targetPlatform Init = do
-   mainFunction <- getCompilerFact $ CompiledFunctionSignal $ FunctionFQN mainModule "main"
-   case mainFunction of
-      Just (CompiledFunction ffqn _) -> registerCompilerFact GenerateMainSignal (GenerateMain targetPlatform ffqn)
-      _                              -> errorMsg "Main function not found to compile."
+parseGenerateMain mainModule targetPlatform (CompiledFunction ffqn@(FunctionFQN fmn "main") _) | mainModule == fmn = registerCompilerFact GenerateMainSignal (GenerateMain targetPlatform ffqn)
 parseGenerateMain _ _ _ = compileOk
 
