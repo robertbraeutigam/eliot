@@ -8,7 +8,6 @@ import CompilerProcessor
 import Module
 import Generator
 import Data.Dynamic
-import Data.Foldable.Extra
 import Control.Applicative
 import qualified Data.ByteString as ByteString
 import FAST
@@ -35,7 +34,7 @@ transformToBytes tp@(TargetPlatform tps) ffqn Nothing = do
       _        -> compilerErrorForFunction ffqn $ "Native function not found in the given target platform ("++tps++")."
 -- | Handle function applicate by generating JMP code to the target function.
 transformToBytes tp ffqn (Just (FunctionApplication _)) = do
-   registerCompilerFact (PlatformGeneratedFunctionSignal tp ffqn) (PlatformGeneratedFunction tp ffqn $ toDyn (ByteString.pack [0]))        -- TODO: dummy implementation
+   registerCompilerFact (PlatformGeneratedFunctionSignal tp ffqn) (PlatformGeneratedFunction tp ffqn $ toDyn (ByteString.pack [0, 0]))        -- TODO: dummy implementation
 
 -- | Collect all the bytes recursively from all functions called from the supplied function
 collectBytesFrom :: TargetPlatform -> FunctionFQN -> CompilerIO (Maybe ByteString.ByteString)
@@ -43,10 +42,12 @@ collectBytesFrom tp ffqn = do
    bytesMaybe   <- getCompilerFact (PlatformGeneratedFunctionSignal tp ffqn)
    fbodyMaybe   <- getCompilerFact (CompiledFunctionSignal ffqn)
    case (bytesMaybe, fbodyMaybe) of
-      (Just (PlatformGeneratedFunction _ _ d), Just (CompiledFunction _ fbody)) -> do
-            fbodyBytesMaybe <- firstJustM (recurseFunctions tp) fbody
+      (Just (PlatformGeneratedFunction _ _ d), Just (CompiledFunction _ Nothing))      ->      -- For native functions, don't recurse
+            return $ (\x -> x::ByteString.ByteString) <$> fromDynamic d
+      (Just (PlatformGeneratedFunction _ _ d), Just (CompiledFunction _ (Just fbody))) -> do   -- For non-native functions, concat this plus recursive bytes
+            fbodyBytesMaybe <- recurseFunctions tp fbody
             return $ liftA2 concatByteStrings ((\x -> x::ByteString.ByteString) <$> fromDynamic d) fbodyBytesMaybe
-      _                                                                         -> return Nothing
+      _                                                                                -> return Nothing
    where
       concatByteStrings b1 b2 = ByteString.concat [b1, b2]
 
