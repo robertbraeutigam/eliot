@@ -20,7 +20,7 @@ spec = do
          parseForFact "testFile" "" `shouldThrow` anyErrorCall
 
       it "should detect and return all the function names" $ do
-         snd <$> (parseForFact "TestFile" "one = a\ntwo = b") `shouldReturn` ["two", "one"]
+         snd <$> (parseForFact "TestFile" "one() = a\ntwo() = b") `shouldReturn` ["two", "one"]
 
       it "should decline lower case module names" $ do
          parseForErrors "testFile" "" `shouldReturn` ["Module name must be capitalized."]
@@ -29,22 +29,22 @@ spec = do
          parseForErrors "TestFile" "import A" `shouldReturn` ["Could not find imported module."]
 
       it "should indicate error when function name is capitalized" $ do
-         parseForErrors "TestFile" "One = a" `shouldReturn` ["Functions must begin with a lowercase letter or be an operator."]
+         parseForErrors "TestFile" "One() = a" `shouldReturn` ["Functions must begin with a lowercase letter or be an operator."]
 
       it "should detect the same function name declared twice" $ do
-         parseForErrors "TestFile" "one = a\none = b" `shouldReturn` ["Function already declared."]
+         parseForErrors "TestFile" "one() = a\none() = b" `shouldReturn` ["Function already declared."]
          
       it "should detect the same function imported twice" $ do
-         parseMultiForErrors [("TestFile","import A\nimport B"), ("A", "one = a"), ("B", "one = b")] `shouldReturn` ["Imported module imports functions that are already in scope: [\"one\"]."]
+         parseMultiForErrors [("TestFile","import A\nimport B"), ("A", "one() = a"), ("B", "one() = b")] `shouldReturn` ["Imported module imports functions that are already in scope: [\"one\"]."]
          
       it "should detect the defined and imported function name collision" $ do
-         parseMultiForErrors [("TestFile","import A\none = a"), ("A", "one = a")] `shouldReturn` ["Imported module imports functions that are already in scope: [\"one\"]."]
+         parseMultiForErrors [("TestFile","import A\none() = a"), ("A", "one() = a")] `shouldReturn` ["Imported module imports functions that are already in scope: [\"one\"]."]
 
       it "should registers single local function as a compilation unit" $ do
-         parseMultiForCompilationFunction [("A", "ni = a")] >>= (`shouldMatchList` [(FunctionFQN (ModuleName [] "A") "ni", Map.fromList [("ni", FunctionFQN (ModuleName [] "A") "ni")])])
+         parseMultiForCompilationFunction [("A", "ni() = a")] >>= (`shouldMatchList` [(FunctionFQN (ModuleName [] "A") "ni", Map.fromList [("ni", FunctionFQN (ModuleName [] "A") "ni")])])
 
       it "should include both local and imported functions in the dictionary" $ do
-         parseMultiForCompilationFunction [("A", "ni = a"), ("B", "import A\nnu = b")] >>= (`shouldMatchList` [
+         parseMultiForCompilationFunction [("A", "ni() = a"), ("B", "import A\nnu() = b")] >>= (`shouldMatchList` [
             (FunctionFQN (ModuleName [] "B") "nu", Map.fromList [("ni", FunctionFQN (ModuleName [] "A") "ni"), ("nu", FunctionFQN (ModuleName [] "B") "nu")]),
             (FunctionFQN (ModuleName [] "A") "ni", Map.fromList [("ni", FunctionFQN (ModuleName [] "A") "ni")])])
 
