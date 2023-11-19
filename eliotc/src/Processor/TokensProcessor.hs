@@ -19,7 +19,7 @@ parseTokensProcessor (SourceFileContent path code) = case parse (whiteSpace >> (
    Right ts         -> registerCompilerFact (SourceTokensSignal path) (SourceTokens path ts)
 parseTokensProcessor _ = compileOk
 
-anyTokenLexeme = ((identifierOrKeyword <|> symbol) <* whiteSpace) <?> "legal character"
+anyTokenLexeme = ((identifierOrKeyword <|> symbol <|> singleSymbol) <* whiteSpace) <?> "legal character"
 
 identifierOrKeyword = do
    firstCharacter <- letter
@@ -32,6 +32,11 @@ symbol = (do
    sym <- (many1 $ oneOf ":!#$%&*+./<=>?@\\^|-~;")
    pos <- getPosition
    return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-(length sym)) (Symbol sym)) <?> "operator"
+
+singleSymbol = (do 
+   sym <- oneOf "()"
+   pos <- getPosition
+   return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-1) (Symbol [sym])) <?> "single operator character"
 
 -- | Whitespace includes everything from spaces, newlines to comments.
 whiteSpace = skipMany $ simpleSpace <|> ((oneLineComment <|> multiLineComment) <?> "comment")

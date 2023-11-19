@@ -47,11 +47,13 @@ importStatement = do
    return $ Import kyw pkgs modn
 
 functionStatement = do
-   firstDef <- satisfyAll [isTopLevel, not . isKeyword] <?> "top level function definition"
-   restDefs <- many $ satisfyAll [contentPredicate (/="="), sameLineAs firstDef]
-   _        <- symbol "=" <?> "function definition equals sign"
-   body     <- many $ notNewLine
-   return $ FunctionDefinition (firstDef:restDefs) body
+   functionName <- satisfyAll [isTopLevel, not . isKeyword] <?> "function name"
+   sigDef       <- (inParens (many (satisfyAll [not . (isContent ")")]))) <?> "function parameters"
+   _            <- symbol "=" <?> "function definition equals sign"
+   body         <- many $ notNewLine
+   return $ FunctionDefinition (functionName:sigDef) body
+
+inParens = between (symbol "(") (symbol ")")
 
 -- Low level stuff
 
