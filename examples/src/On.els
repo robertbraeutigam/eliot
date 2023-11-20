@@ -2,7 +2,7 @@
  * Example program to switch PA1 pin on.
  */
 
-main() = highPA1()
+main() = highPA1
 
 highPA1() = native
 
