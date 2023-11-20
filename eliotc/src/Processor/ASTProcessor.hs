@@ -50,10 +50,17 @@ functionStatement = do
    fname   <- satisfyAll [isTopLevel, not . isKeyword] <?> "function name"
    _       <- ((symbol "(") >> (symbol ")")) <?> "function parameters"
    _       <- symbol "=" <?> "function definition equals sign"
-   body    <- many $ notNewLine
+   body    <- nativeKeyword <|> functionApplication
    return $ FunctionDefinition fname [] body
 
-inParens = between (symbol "(") (symbol ")")
+functionApplication = do
+   fname   <- satisfyAll [isIdentifer] <?> "function name"
+   _       <- ((symbol "(") >> (symbol ")")) <?> "function parameters"
+   return $ FunctionApplicationTokens fname
+
+nativeKeyword = do
+   _       <- satisfyAll [isKeyword, isContent "native"] <?> "native keyword"
+   return NativeFunctionToken 
 
 -- Low level stuff
 
