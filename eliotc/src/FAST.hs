@@ -9,6 +9,6 @@ module FAST (FunctionBody(..)) where
 import Module
 
 -- | A body of a function.
-data FunctionBody = FunctionApplication FunctionFQN
+data FunctionBody = NativeFunction | FunctionApplication FunctionFQN
  deriving (Eq, Show)
 

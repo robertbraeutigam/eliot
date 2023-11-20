@@ -13,10 +13,10 @@ import FAST
 
 parseFASTProcessor :: CompilerProcessor
 parseFASTProcessor (FunctionCompilationUnit fname _ (FunctionDefinition _ _ NativeFunctionToken)) =
-   registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname Nothing)
+   registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname NativeFunction)
 parseFASTProcessor (FunctionCompilationUnit fname dictionary (FunctionDefinition _ _ (FunctionApplicationTokens calledToken))) =
    case Map.lookup (positionedTokenContent calledToken) dictionary of
-      Just calledFfqn -> registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname $ Just (FunctionApplication calledFfqn))
+      Just calledFfqn -> registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname $ FunctionApplication calledFfqn)
       _               -> compilerErrorForTokens [calledToken] "Called function not defined."
 parseFASTProcessor _ = compileOk
 

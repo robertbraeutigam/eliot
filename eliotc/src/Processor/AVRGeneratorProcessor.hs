@@ -27,13 +27,13 @@ parseAVRGenerate _ = compileOk
 
 -- | Handle native functions. The byte code for native functions is already there, so this only checks
 -- whether it exists.
-transformToBytes tp@(TargetPlatform tps) ffqn Nothing = do
+transformToBytes tp@(TargetPlatform tps) ffqn NativeFunction = do
    nativeFunctionMaybe <- getCompilerFact (PlatformGeneratedFunctionSignal tp ffqn)
    case nativeFunctionMaybe of
       Just _   -> compileOk
       _        -> compilerErrorForFunction ffqn $ "Native function not found in the given target platform ("++tps++")."
 -- | Handle function applicate by generating JMP code to the target function.
-transformToBytes tp ffqn (Just (FunctionApplication _)) = do
+transformToBytes tp ffqn (FunctionApplication _) = do
    registerCompilerFact (PlatformGeneratedFunctionSignal tp ffqn) (PlatformGeneratedFunction tp ffqn $ toDyn (ByteString.pack [0, 0]))        -- TODO: dummy implementation
 
 -- | Collect all the bytes recursively from all functions called from the supplied function
@@ -42,15 +42,16 @@ collectBytesFrom tp ffqn = do
    bytesMaybe   <- getCompilerFact (PlatformGeneratedFunctionSignal tp ffqn)
    fbodyMaybe   <- getCompilerFact (CompiledFunctionSignal ffqn)
    case (bytesMaybe, fbodyMaybe) of
-      (Just (PlatformGeneratedFunction _ _ d), Just (CompiledFunction _ Nothing))      ->      -- For native functions, don't recurse
+      (Just (PlatformGeneratedFunction _ _ d), Just (CompiledFunction _ NativeFunction)) ->      -- For native functions, don't recurse
             return $ (\x -> x::ByteString.ByteString) <$> fromDynamic d
-      (Just (PlatformGeneratedFunction _ _ d), Just (CompiledFunction _ (Just fbody))) -> do   -- For non-native functions, concat this plus recursive bytes
+      (Just (PlatformGeneratedFunction _ _ d), Just (CompiledFunction _ fbody))          -> do   -- For non-native functions, concat this plus recursive bytes
             fbodyBytesMaybe <- recurseFunctions tp fbody
             return $ liftA2 concatByteStrings ((\x -> x::ByteString.ByteString) <$> fromDynamic d) fbodyBytesMaybe
-      _                                                                                -> return Nothing
+      _                                                                                  -> return Nothing
    where
       concatByteStrings b1 b2 = ByteString.concat [b1, b2]
 
 recurseFunctions :: TargetPlatform -> FunctionBody -> CompilerIO (Maybe ByteString.ByteString)
 recurseFunctions tp (FunctionApplication calledFfqn) = collectBytesFrom tp calledFfqn
+recurseFunctions _ NativeFunction = return Nothing -- This should not be called
 
