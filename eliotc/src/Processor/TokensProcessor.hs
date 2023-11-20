@@ -34,7 +34,7 @@ symbol = (do
    return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-(length sym)) (Symbol sym)) <?> "operator"
 
 singleSymbol = (do 
-   sym <- oneOf "()"
+   sym <- oneOf "(),"
    pos <- getPosition
    return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-1) (Symbol [sym])) <?> "single operator character"
 

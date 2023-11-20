@@ -48,10 +48,10 @@ importStatement = do
 
 functionStatement = do
    fname   <- satisfyAll [isTopLevel, not . isKeyword] <?> "function name"
-   sigDef  <- (inParens (many (satisfyAll [not . (isContent ")")]))) <?> "function parameters"
+   _       <- ((symbol "(") >> (symbol ")")) <?> "function parameters"
    _       <- symbol "=" <?> "function definition equals sign"
    body    <- many $ notNewLine
-   return $ FunctionDefinition fname sigDef body
+   return $ FunctionDefinition fname [] body
 
 inParens = between (symbol "(") (symbol ")")
 
