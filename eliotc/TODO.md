@@ -122,6 +122,11 @@ TYPESYSTEM:
      (n, a) = (List(n, a), a, List(n+1, a))
      (l, a) = ...
 
+EXAMPLES:
+- Complicated functions to generate a pattern of led lights
+  -> C compiler would compile everything
+  -> Eliot should compile to 4 instructions (uniting switching multiple leds to 1 instruction!)
+
 TODOs / NOTEs:
 - If method name not in the beginning, infer where it is by seeing which of the identifiers is used inside the function!
 - Can't have "high" without actually configuring the pin as output.
