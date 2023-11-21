@@ -103,6 +103,25 @@ TYPESYSTEM:
 
  length ?
 
+ map[A, B](as: [A], f: A->B): [B]         <- Seems readable, also this will be the base case
+
+ append[A](l: Seq[A], a: A): Seq[A] = ...
+ append[A, N: Numeric](l: Seq[N, A], a: A): Seq[N+1, A] = ...
+
+ regexp[S: String, M: Map[String, Optionality]](s: S): Regexp[calculateRegexpType(M, S)]       <- Can we unify this nicely?
+ dynamicRegexp(s: String): Regexp[Anything]
+
+ calculateRegexpType(m: Map[String, Optionality], s: String): Map[String, Optionality] = ???
+ 
+ map                                      <- This style is too unreadable I think
+     (a, b)  = ([a], a->b, [b]) ::
+     (as, f) = ...
+
+ append                                   <- Lots of junk, need to visually match types, what is the type of the type tuple?
+     ()     = (Numeric, * , *)
+     (n, a) = (List(n, a), a, List(n+1, a))
+     (l, a) = ...
+
 TODOs / NOTEs:
 - If method name not in the beginning, infer where it is by seeing which of the identifiers is used inside the function!
 - Can't have "high" without actually configuring the pin as output.
