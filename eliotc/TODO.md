@@ -30,9 +30,9 @@ portB Port = Port 0x1012
 portC Port = Port 0x1013
 portD Port = Port 0x1014
 
-type Bit = 
+type ByteBit = Number[0, 7] // See below
 
-data Bit = 0 | 1 | 2 | 3 | 4 | 5 | 7
+data ByteBit = 0 | 1 | 2 | 3 | 4 | 5 | 7 // ???
 
 data AvrPin = AvrPin port:Port bit:Bit
 
@@ -131,6 +131,10 @@ NUMERIC:
 - No, have it: Int[MIN, MAX], so
     f = 1, the type is Int[1, 1]
     f = 1+1, the type is Int[2, 2]
+
+LISTS:
+- Lists consiting of constants should not take memory!
+
 
 EXAMPLES:
 - Complicated functions to generate a pattern of led lights
