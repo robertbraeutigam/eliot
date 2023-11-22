@@ -31,6 +31,6 @@ parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcess
 
 parseForFunction :: String -> String -> IO FunctionBody
 parseForFunction code func = compileSelectFact [parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor] [("A", code)] selectFact
-   where selectFact (_, CompiledFunction (FunctionFQN _ f) (Just body)) | f == func = Just body
-         selectFact _                                                               = Nothing
+   where selectFact (_, CompiledFunction (FunctionFQN _ f) body) | f == func = Just body
+         selectFact _                                                        = Nothing
 
