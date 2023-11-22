@@ -122,6 +122,16 @@ TYPESYSTEM:
      (n, a) = (List(n, a), a, List(n+1, a))
      (l, a) = ...
 
+
+NUMERIC:
+- So f = 1, the type could be Number[1], for 1 bit, so
+     f = 1+1, theoretically could be type Number[2], for 2 bits
+  then type Byte = Any number that is at most 8 bits long, so
+  Byte = Int[B <= 8]
+- No, have it: Int[MIN, MAX], so
+    f = 1, the type is Int[1, 1]
+    f = 1+1, the type is Int[2, 2]
+
 EXAMPLES:
 - Complicated functions to generate a pattern of led lights
   -> C compiler would compile everything
