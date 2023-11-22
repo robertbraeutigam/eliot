@@ -36,6 +36,15 @@ spec = do
       it "should reject keyword 'import' as function name" $ do
          parseForErrors "a() = b\nimport = a\n" `shouldReturn` ["Parser error, unexpected keyword \"import\", expecting function name."]
 
+      it "should parse function declaration with parens" $ do
+         parseForErrors "a() = b" `shouldReturn` []
+
+      it "should parse function declaration without parens" $ do
+         parseForErrors "a = b" `shouldReturn` []
+
+      it "should parse function call with parens" $ do
+         parseForErrors "a = b()" `shouldReturn` []
+
 parseForErrors :: String -> IO [String]
 parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor] [("", code)] selectErrors
    where selectErrors (_, CompilerErrorFact (CompilerError _ _ _ msg)) = Just msg
