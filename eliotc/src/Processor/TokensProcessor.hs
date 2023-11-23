@@ -6,7 +6,7 @@
 module Processor.TokensProcessor (parseTokensProcessor) where
 
 import Text.Parsec
-import Data.Char (isSpace)
+import Data.Char (isSpace, digitToInt)
 import Data.List (isPrefixOf, intercalate)
 import Control.Monad
 import CompilerProcessor
@@ -19,24 +19,30 @@ parseTokensProcessor (SourceFileContent path code) = case parse (whiteSpace >> (
    Right ts         -> registerCompilerFact (SourceTokensSignal path) (SourceTokens path ts)
 parseTokensProcessor _ = compileOk
 
-anyTokenLexeme = ((identifierOrKeyword <|> symbol <|> singleSymbol) <* whiteSpace) <?> "legal character"
+anyTokenLexeme = ((identifierOrKeyword <|> symbol <|> singleSymbol <|> number) <* whiteSpace) <?> "legal character"
 
 identifierOrKeyword = do
    firstCharacter <- letter
    restCharacters <- many (alphaNum <|> oneOf "_'")
-   pos            <- getPosition
-   return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-1-(length restCharacters)) (toToken (firstCharacter:restCharacters))
+   returnPositionedToken (toToken (firstCharacter:restCharacters))
    where toToken content = if content `elem` keywords then Keyword content else Identifier content
 
 symbol = (do
    sym <- (many1 $ oneOf ":!#$%&*+./<=>?@\\^|-~;")
-   pos <- getPosition
-   return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-(length sym)) (Symbol sym)) <?> "operator"
+   returnPositionedToken (Symbol sym)) <?> "operator"
 
 singleSymbol = (do 
    sym <- oneOf "(),"
+   returnPositionedToken $ Symbol [sym]) <?> "single operator character"
+
+number = (do
+   digits <- (many1 $ oneOf "0123456789")
+   let n = foldl (\x d -> 10*x + toInteger (digitToInt d)) 0 digits
+   returnPositionedToken (NumberLiteral n)) <?> "number"
+
+returnPositionedToken t = do
    pos <- getPosition
-   return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-1) (Symbol [sym])) <?> "single operator character"
+   return $ PositionedToken (sourceName pos) (sourceLine pos) ((sourceColumn pos)-(length $ tokenContent t)) t
 
 -- | Whitespace includes everything from spaces, newlines to comments.
 whiteSpace = skipMany $ simpleSpace <|> ((oneLineComment <|> multiLineComment) <?> "comment")
