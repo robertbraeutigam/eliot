@@ -6,7 +6,7 @@
 module Processor.TokensProcessor (parseTokensProcessor) where
 
 import Text.Parsec
-import Data.Char (isSpace, digitToInt)
+import Data.Char (isSpace)
 import Data.List (isPrefixOf, intercalate)
 import Control.Monad
 import CompilerProcessor
@@ -37,8 +37,7 @@ singleSymbol = (do
 
 number = (do
    digits <- (many1 $ oneOf "0123456789")
-   let n = foldl (\x d -> 10*x + toInteger (digitToInt d)) 0 digits
-   returnPositionedToken (NumberLiteral n)) <?> "number"
+   returnPositionedToken (NumberLiteral digits)) <?> "number"
 
 returnPositionedToken t = do
    pos <- getPosition

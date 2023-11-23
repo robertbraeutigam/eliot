@@ -50,13 +50,21 @@ functionStatement = do
    fname   <- satisfyAll [isTopLevel, not . isKeyword] <?> "function name"
    nparams <- option [] (inParens $ option [] namedParameters) <?> "function parameters"
    _       <- symbol "=" <?> "function definition equals sign"
-   body    <- nativeKeyword <|> functionApplication
+   body    <- nativeKeyword <|> expression
    return $ FunctionDefinition fname nparams body
+
+expression = literal <|> functionApplication
+
+literal = numberLiteral
+
+numberLiteral = do
+   nt <- satisfyAll [isNumber] <?> "number literal"
+   return $ Expression $ NumberLiteralToken nt
 
 functionApplication = do
    fname   <- satisfyAll [isIdentifer] <?> "function name"
    _       <- optionMaybe ((symbol "(") >> (symbol ")")) <?> "function parameters"
-   return $ FunctionApplicationTokens fname
+   return $ Expression $ FunctionApplicationTokens fname
 
 nativeKeyword = do
    _       <- satisfyAll [isKeyword, isContent "native"] <?> "native keyword"
@@ -105,6 +113,9 @@ isSymbol _                                = False
 
 isKeyword (PositionedToken _ _ _ (Keyword _)) = True
 isKeyword _                                    = False
+
+isNumber (PositionedToken _ _ _ (NumberLiteral _)) = True
+isNumber _                                         = False
 
 isTopLevel (PositionedToken _ _ column _) = column == 1
 

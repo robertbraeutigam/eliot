@@ -3,7 +3,7 @@
  - nor does it completely assign roles to various tokens.
  -}
 
-module AST (AST(..), Import(..), FunctionDefinition(..), FunctionBodyTokens(..), allImportTokens) where
+module AST (AST(..), Import(..), FunctionDefinition(..), FunctionBodyTokens(..), allImportTokens, ExpressionTokens(..)) where
 
 import Tokens
 
@@ -24,7 +24,11 @@ data FunctionDefinition = FunctionDefinition {
 }
    deriving (Show, Eq)
 
-data FunctionBodyTokens = NativeFunctionToken | FunctionApplicationTokens PositionedToken
+data FunctionBodyTokens = NativeFunctionToken | Expression ExpressionTokens
+ deriving (Eq, Show)
+
+data ExpressionTokens = FunctionApplicationTokens PositionedToken
+                      | NumberLiteralToken PositionedToken
  deriving (Eq, Show)
 
 data AST = AST { 

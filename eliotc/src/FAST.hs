@@ -4,11 +4,15 @@
  - is a function's body.
  -}
 
-module FAST (FunctionBody(..)) where
+module FAST (FunctionBody(..), Expression(..)) where
 
 import Module
 
 -- | A body of a function.
-data FunctionBody = NativeFunction | FunctionApplication FunctionFQN
+data FunctionBody = NativeFunction | FunctionExpression Expression
  deriving (Eq, Show)
 
+-- | An expression
+data Expression = NumberConstant Integer
+                | FunctionApplication FunctionFQN
+ deriving (Eq, Show)
