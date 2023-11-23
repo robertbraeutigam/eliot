@@ -156,3 +156,4 @@ TODOs / NOTEs:
 - Separate public / private stuff with a "where" clause
 - Operator precedence -> Only inside one Typeclass, explicitly define which methods before which others (per group? per name? per reference?)
 
+- *Important*: After compile the program should be guaranteed to fit all resources, including memory, stack, etc.!
