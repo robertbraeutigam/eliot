@@ -48,10 +48,10 @@ importStatement = do
 
 functionStatement = do
    fname   <- satisfyAll [isTopLevel, not . isKeyword] <?> "function name"
-   _       <- optionMaybe ((symbol "(") >> (symbol ")")) <?> "function parameters"
+   nparams <- option [] (inParens $ option [] namedParameters) <?> "function parameters"
    _       <- symbol "=" <?> "function definition equals sign"
    body    <- nativeKeyword <|> functionApplication
-   return $ FunctionDefinition fname [] body
+   return $ FunctionDefinition fname nparams body
 
 functionApplication = do
    fname   <- satisfyAll [isIdentifer] <?> "function name"
@@ -61,6 +61,13 @@ functionApplication = do
 nativeKeyword = do
    _       <- satisfyAll [isKeyword, isContent "native"] <?> "native keyword"
    return NativeFunctionToken 
+
+namedParameters = do
+   firstParameter      <- satisfyAll [isIdentifer] <?> "first parameter"
+   remainingParameters <- many (symbol "," *> (satisfyAll [isIdentifer]))
+   return $ firstParameter:remainingParameters
+
+inParens = between (symbol "(") (symbol ")")
 
 -- Low level stuff
 

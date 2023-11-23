@@ -36,8 +36,17 @@ spec = do
       it "should reject keyword 'import' as function name" $ do
          parseForErrors "a() = b\nimport = a\n" `shouldReturn` ["Parser error, unexpected keyword \"import\", expecting function name."]
 
-      it "should parse function declaration with parens" $ do
+      it "should parse function declaration with parens without parameters" $ do
          parseForErrors "a() = b" `shouldReturn` []
+
+      it "should parse function declaration with parens and a single parameter" $ do
+         parseForErrors "a(n) = b" `shouldReturn` []
+
+      it "should parse function declaration with parens and a two parameters" $ do
+         parseForErrors "a(n, m) = b" `shouldReturn` []
+
+      it "should not parse function declaration with parens and missing comma" $ do
+         parseForErrors "a(n m) = b" `shouldReturn` ["Parser error, unexpected identifier \"m\", expecting symbol ',' or symbol ')'."]
 
       it "should parse function declaration without parens" $ do
          parseForErrors "a = b" `shouldReturn` []
