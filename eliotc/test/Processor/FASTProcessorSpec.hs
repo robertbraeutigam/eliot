@@ -15,7 +15,7 @@ spec :: Spec
 spec = do
    describe "parsing fast" $ do
       it "should result in a function application when parsing a function call" $ do
-         parseForFunction "ni() = nu\nnu() = a" "ni" `shouldReturn` (FunctionExpression $ FunctionApplication (FunctionFQN (ModuleName [] "A") "nu") [])
+         parseForFunction "ni() = nu\nnu() = a" "ni" `shouldReturn` (NonNativeFunction $ FunctionApplication (FunctionFQN (ModuleName [] "A") "nu") [])
 
       it "should indicate error when referred function is not defined" $ do
          parseForErrors "ni() = nu" `shouldReturn` ["Called function not defined."]

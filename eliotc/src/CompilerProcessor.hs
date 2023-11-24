@@ -14,8 +14,8 @@ import qualified Logging
 import qualified Data.Map as Map
 import Engine.FactEngine
 import Tokens
-import AST
-import FAST
+import qualified AST as AST
+import qualified FAST as FAST
 import Module
 import Generator
 
@@ -54,19 +54,19 @@ data Signal =
 
 -- | Facts registered into the fact engine.
 data Fact = 
-     Init                                                                                  -- Called to do startup logic of processors
-   | SourcePath                FilePath                                                    -- A path to some file or directory containing source code
-   | SourceFile                FilePath                                                    -- A source file that has been detected
-   | SourceFileContent         FilePath String                                             -- Contents of a source file
-   | SourceTokens              FilePath [PositionedToken]                                  -- Tokens read from a source file
-   | SourceAST                 FilePath AST                                                -- AST of source file
-   | CompilerErrorFact         CompilerError
-   | ModuleFunctionNames       ModuleName [String]                                         -- A list of functions in the module
-   | FunctionCompilationUnit   FunctionFQN (Map.Map String FunctionFQN) FunctionDefinition -- A function ready to be compiled and type-checked
-   | CompiledFunction          FunctionFQN FunctionBody                                    -- A compiled (type-checked) correct function body, of there is no body, that's a native function
-   | GenerateMain              TargetPlatform FunctionFQN                                  -- Ask processors to generate for this main function and target platform
-   | TargetBinaryGenerated     TargetPlatform ModuleName ByteString.ByteString             -- The target platform produced the compiled version of the source code
-   | PlatformGeneratedFunction TargetPlatform FunctionFQN Dynamic                          -- Generated some platform specific output for the given function
+     Init                                                                                      -- Called to do startup logic of processors
+   | SourcePath                FilePath                                                        -- A path to some file or directory containing source code
+   | SourceFile                FilePath                                                        -- A source file that has been detected
+   | SourceFileContent         FilePath String                                                 -- Contents of a source file
+   | SourceTokens              FilePath [PositionedToken]                                      -- Tokens read from a source file
+   | SourceAST                 FilePath AST.AST                                                -- AST of source file
+   | CompilerErrorFact         CompilerError                                              
+   | ModuleFunctionNames       ModuleName [String]                                             -- A list of functions in the module
+   | FunctionCompilationUnit   FunctionFQN (Map.Map String FunctionFQN) AST.FunctionDefinition -- A function ready to be compiled and type-checked
+   | CompiledFunction          FunctionFQN FAST.FunctionBody                                    -- A compiled (type-checked) correct function body, of there is no body, that's a native function
+   | GenerateMain              TargetPlatform FunctionFQN                                      -- Ask processors to generate for this main function and target platform
+   | TargetBinaryGenerated     TargetPlatform ModuleName ByteString.ByteString                 -- The target platform produced the compiled version of the source code
+   | PlatformGeneratedFunction TargetPlatform FunctionFQN Dynamic                              -- Generated some platform specific output for the given function
 
 -- | A computation running in the compiler. This computation interacts
 -- with facts, may get and register them, and potentially produces errors during
@@ -109,8 +109,8 @@ compilerErrorForFunction :: FunctionFQN -> String -> CompilerIO ()
 compilerErrorForFunction ffqn msg = do
    functionMaybe <- getCompilerFact (FunctionCompilationUnitSignal ffqn)
    case functionMaybe of
-      Just (FunctionCompilationUnit _ _ (FunctionDefinition fname _ _)) -> compilerErrorForTokens [fname] msg
-      _                                                             -> errorMsg $ msg ++ " (Could not determine function " ++ (show ffqn) ++ " location.)"
+      Just (FunctionCompilationUnit _ _ (AST.FunctionDefinition fname _ _)) -> compilerErrorForTokens [fname] msg
+      _                                                                     -> errorMsg $ msg ++ " (Could not determine function " ++ (show ffqn) ++ " location.)"
 
 -- | Logging
 errorMsg :: String -> CompilerIO ()

@@ -9,7 +9,7 @@ module FAST (FunctionBody(..), Expression(..)) where
 import Module
 
 -- | A body of a function.
-data FunctionBody = NativeFunction | FunctionExpression Expression
+data FunctionBody = NativeFunction | NonNativeFunction Expression
  deriving (Eq, Show)
 
 -- | An expression

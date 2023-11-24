@@ -35,7 +35,7 @@ transformToBytes tp@(TargetPlatform tps) ffqn NativeFunction = do
       Just _   -> compileOk
       _        -> compilerErrorForFunction ffqn $ "Native function not found in the given target platform ("++tps++")."
 -- | Handle function applicate by generating JMP code to the target function.
-transformToBytes tp ffqn (FunctionExpression _) = do
+transformToBytes tp ffqn (NonNativeFunction _) = do
    registerCompilerFact (PlatformGeneratedFunctionSignal tp ffqn) (PlatformGeneratedFunction tp ffqn $ toDyn (ByteString.pack [0, 0]))        -- TODO: dummy implementation
 
 -- | Collect all the bytes recursively from all functions called from the supplied function
@@ -54,7 +54,7 @@ collectBytesFrom tp ffqn = do
       concatByteStrings b1 b2 = ByteString.concat [b1, b2]
 
 recurseFunctions :: TargetPlatform -> FunctionBody -> CompilerIO (Maybe ByteString.ByteString)
-recurseFunctions tp (FunctionExpression (FunctionApplication calledFfqn expressions)) = collectBytesFrom tp calledFfqn -- TODO: walk the whole tree
-recurseFunctions _  (FunctionExpression (NumberConstant _)) = return $ Just $ ByteString.pack [0, 0]
+recurseFunctions tp (NonNativeFunction (FunctionApplication calledFfqn expressions)) = collectBytesFrom tp calledFfqn -- TODO: walk the whole tree
+recurseFunctions _  (NonNativeFunction (NumberConstant _)) = return $ Just $ ByteString.pack [0, 0]
 recurseFunctions _ NativeFunction = return Nothing -- This should not be called
 

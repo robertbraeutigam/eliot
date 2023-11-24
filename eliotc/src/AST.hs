@@ -3,7 +3,7 @@
  - nor does it completely assign roles to various tokens.
  -}
 
-module AST (AST(..), Import(..), FunctionDefinition(..), FunctionBodyTokens(..), allImportTokens, ExpressionTokens(..)) where
+module AST (AST(..), Import(..), FunctionDefinition(..), FunctionBody(..), allImportTokens, Expression(..)) where
 
 import Tokens
 
@@ -20,15 +20,15 @@ allImportTokens (Import k pns m) = [k] ++ pns ++ [m]
 data FunctionDefinition = FunctionDefinition {
    functionName::PositionedToken,
    functionParameters::[PositionedToken],
-   functionBody::FunctionBodyTokens
+   functionBody::FunctionBody
 }
    deriving (Show, Eq)
 
-data FunctionBodyTokens = NativeFunctionToken | Expression ExpressionTokens
+data FunctionBody = NativeFunction | NonNativeFunction Expression
  deriving (Eq, Show)
 
-data ExpressionTokens = FunctionApplicationTokens PositionedToken [ExpressionTokens]
-                      | NumberLiteralToken PositionedToken
+data Expression = FunctionApplication PositionedToken [Expression]
+                | NumberLiteral PositionedToken
  deriving (Eq, Show)
 
 data AST = AST { 
