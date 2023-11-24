@@ -25,6 +25,8 @@ parseAVRGenerate Init =
    registerCompilerFact (PlatformGeneratedFunctionSignal (TargetPlatform "attiny424") (FunctionFQN (ModuleName [] "On") "highPA1")) (PlatformGeneratedFunction (TargetPlatform "attiny424") (FunctionFQN (ModuleName [] "On") "highPA1") (toDyn (ByteString.pack [1, 224, 0, 147, 5, 4])))
 parseAVRGenerate _ = compileOk
 
+-- TODO: can't compile a function without the exact types, so each function needs to be compiled differently for different types / parameters
+
 -- | Handle native functions. The byte code for native functions is already there, so this only checks
 -- whether it exists.
 transformToBytes tp@(TargetPlatform tps) ffqn NativeFunction = do
