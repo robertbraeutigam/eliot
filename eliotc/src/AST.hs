@@ -5,6 +5,7 @@
 
 module AST (AST(..), Import(..), FunctionDefinition(..), FunctionBody(..), allImportTokens, Expression(..)) where
 
+import Data.Tree
 import Tokens
 
 data Import = Import {
@@ -24,10 +25,10 @@ data FunctionDefinition = FunctionDefinition {
 }
    deriving (Show, Eq)
 
-data FunctionBody = NativeFunction | NonNativeFunction Expression
+data FunctionBody = NativeFunction | NonNativeFunction (Tree Expression)
  deriving (Eq, Show)
 
-data Expression = FunctionApplication PositionedToken [Expression]
+data Expression = FunctionApplication PositionedToken
                 | NumberLiteral PositionedToken
  deriving (Eq, Show)
 

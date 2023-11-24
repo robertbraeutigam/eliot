@@ -8,10 +8,10 @@ module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, co
 import GHC.Generics
 import Data.Hashable
 import Data.Dynamic
+import Data.Tree
 import qualified Data.ByteString as ByteString
 import Control.Monad.Trans.Reader
 import qualified Logging
-import qualified Data.Map as Map
 import Engine.FactEngine
 import Tokens
 import qualified AST as AST
@@ -47,7 +47,7 @@ data Signal =
    | ModuleFunctionNamesSignal        ModuleName
    | FunctionCompilationUnitSignal    FunctionFQN
    | CompiledFunctionSignal           FunctionFQN
-   | GenerateMainSignal
+   | GenerateMainSignal               TargetPlatform
    | TargetBinaryGeneratedSignal      TargetPlatform
    | PlatformGeneratedFunctionSignal  TargetPlatform FunctionFQN
    deriving (Eq, Show, Generic, Hashable)
@@ -62,9 +62,9 @@ data Fact =
    | SourceAST                 FilePath AST.AST                                                -- AST of source file
    | CompilerErrorFact         CompilerError                                              
    | ModuleFunctionNames       ModuleName [String]                                             -- A list of functions in the module
-   | FunctionCompilationUnit   FunctionFQN (Map.Map String FunctionFQN) AST.FunctionDefinition -- A function ready to be compiled and type-checked
-   | CompiledFunction          FunctionFQN FAST.FunctionBody                                    -- A compiled (type-checked) correct function body, of there is no body, that's a native function
-   | GenerateMain              TargetPlatform FunctionFQN                                      -- Ask processors to generate for this main function and target platform
+   | FunctionCompilationUnit   FunctionFQN FunctionDictionary AST.FunctionDefinition           -- A function ready to be compiled and type-checked
+   | CompiledFunction          FunctionFQN FAST.FunctionBody                                   -- A compiled (type-checked) correct function body, of there is no body, that's a native function
+   | GenerateMain              TargetPlatform FunctionFQN (Tree FAST.Expression)               -- Ask processors to generate for this main function and target platform
    | TargetBinaryGenerated     TargetPlatform ModuleName ByteString.ByteString                 -- The target platform produced the compiled version of the source code
    | PlatformGeneratedFunction TargetPlatform FunctionFQN Dynamic                              -- Generated some platform specific output for the given function
 

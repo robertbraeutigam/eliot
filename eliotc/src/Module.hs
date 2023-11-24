@@ -3,9 +3,10 @@
 {-| Module information.
  -}
 
-module Module (ModuleName(..), FunctionFQN(..)) where
+module Module (ModuleName(..), FunctionFQN(..), FunctionDictionary) where
 
 import Data.Hashable
+import Data.Map
 
 -- | A fully qualified module name.
 data ModuleName = ModuleName [String] String
@@ -21,3 +22,4 @@ data FunctionFQN = FunctionFQN ModuleName String
 instance Hashable FunctionFQN where
   hashWithSalt salt (FunctionFQN mn n) = hashWithSalt salt (mn, n)
 
+type FunctionDictionary = Map String FunctionFQN

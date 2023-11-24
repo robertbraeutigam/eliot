@@ -29,11 +29,11 @@ parseModuleProcessor (SourceAST path ast) = do
       Nothing -> compileOk
 parseModuleProcessor _ = compileOk
 
-extractCompilationFunction :: ModuleName -> Map.Map String FunctionFQN -> (String, FunctionDefinition) -> CompilerIO ()
+extractCompilationFunction :: ModuleName -> FunctionDictionary -> (String, FunctionDefinition) -> CompilerIO ()
 extractCompilationFunction mn dictionary (fname, functionDefinition) =
    registerCompilerFact (FunctionCompilationUnitSignal $ FunctionFQN mn fname) (FunctionCompilationUnit (FunctionFQN mn fname) dictionary functionDefinition)
 
-collectImportedFunctions :: [String] -> Map.Map String FunctionFQN -> Import -> CompilerIO (Map.Map String FunctionFQN)
+collectImportedFunctions :: [String] -> FunctionDictionary -> Import -> CompilerIO FunctionDictionary
 collectImportedFunctions existingNames existingFunctions i = do
    importedFunctionNames <- getCompilerFact (ModuleFunctionNamesSignal $ toModuleName i)
    case importedFunctionNames of

@@ -7,12 +7,13 @@
 module FAST (FunctionBody(..), Expression(..)) where
 
 import Module
+import Data.Tree
 
 -- | A body of a function.
-data FunctionBody = NativeFunction | NonNativeFunction Expression
- deriving (Eq, Show)
+data FunctionBody = NativeFunction | NonNativeFunction (Tree Expression)
+   deriving (Eq, Show)
 
 -- | An expression
 data Expression = NumberConstant Integer
-                | FunctionApplication FunctionFQN [Expression]
- deriving (Eq, Show)
+                | FunctionApplication FunctionFQN
+   deriving (Eq, Show)

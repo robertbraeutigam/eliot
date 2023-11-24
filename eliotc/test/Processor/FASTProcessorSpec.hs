@@ -8,6 +8,7 @@ import Processor.ModuleProcessor
 import Processor.FASTProcessor
 import Processor.TestCompiler
 import CompilerProcessor
+import Data.Tree
 import FAST
 import Module
 
@@ -15,7 +16,7 @@ spec :: Spec
 spec = do
    describe "parsing fast" $ do
       it "should result in a function application when parsing a function call" $ do
-         parseForFunction "ni() = nu\nnu() = a" "ni" `shouldReturn` (NonNativeFunction $ FunctionApplication (FunctionFQN (ModuleName [] "A") "nu") [])
+         parseForFunction "ni() = nu\nnu() = a" "ni" `shouldReturn` (NonNativeFunction $ Node (FunctionApplication (FunctionFQN (ModuleName [] "A") "nu")) [])
 
       it "should indicate error when referred function is not defined" $ do
          parseForErrors "ni() = nu" `shouldReturn` ["Called function not defined."]

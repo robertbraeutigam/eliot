@@ -9,6 +9,7 @@ import Data.List (isPrefixOf, intercalate, find)
 import Text.Parsec
 import Text.Parsec.Pos
 import Data.Maybe
+import Data.Tree
 import Data.Char (isLower, isUpper)
 import Tokens
 import CompilerProcessor
@@ -59,12 +60,12 @@ literal = numberLiteral
 
 numberLiteral = do
    nt <- satisfyAll [isNumber] <?> "number literal"
-   return $ AST.NumberLiteral nt
+   return $ Node (AST.NumberLiteral nt) []
 
 functionApplication = do
    fname   <- satisfyAll [isIdentifer] <?> "function name"
    pexps   <- option [] (inParens $ option [] expressionList) <?> "function parameters"
-   return $ FunctionApplication fname pexps
+   return $ Node (FunctionApplication fname) pexps
 
 nativeKeyword = do
    _       <- satisfyAll [isKeyword, isContent "native"] <?> "native keyword"
