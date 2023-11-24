@@ -22,7 +22,7 @@ parseAVRGenerate (GenerateMain tp@(TargetPlatform "attiny424") ffqn@(FunctionFQN
 parseAVRGenerate (CompiledFunction ffqn fbody) = transformToBytes (TargetPlatform "attiny424") ffqn fbody -- TODO: hardcoded platform
 parseAVRGenerate Init =
    -- TODO: Everything is hardcoded, this should be done better
-   registerCompilerFact (PlatformGeneratedFunctionSignal (TargetPlatform "attiny424") (FunctionFQN (ModuleName [] "On") "highPA1")) (PlatformGeneratedFunction (TargetPlatform "attiny424") (FunctionFQN (ModuleName [] "On") "highPA1") (toDyn (ByteString.pack [1, 224, 0, 147, 5, 4])))
+   registerCompilerFact (PlatformGeneratedFunctionSignal (TargetPlatform "attiny424") (FunctionFQN (ModuleName [] "On") "high")) (PlatformGeneratedFunction (TargetPlatform "attiny424") (FunctionFQN (ModuleName [] "On") "highPA1") (toDyn (ByteString.pack [1, 224, 0, 147, 5, 4])))
 parseAVRGenerate _ = compileOk
 
 -- TODO: can't compile a function without the exact types, so each function needs to be compiled differently for different types / parameters
