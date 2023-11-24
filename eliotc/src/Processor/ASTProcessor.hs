@@ -63,7 +63,7 @@ numberLiteral = do
 
 functionApplication = do
    fname   <- satisfyAll [isIdentifer] <?> "function name"
-   _       <- optionMaybe ((symbol "(") >> (symbol ")")) <?> "function parameters"
+   _       <- option [] (inParens $ option [] expressionList) <?> "function parameters"
    return $ Expression $ FunctionApplicationTokens fname
 
 nativeKeyword = do
@@ -74,6 +74,11 @@ namedParameters = do
    firstParameter      <- satisfyAll [isIdentifer] <?> "first parameter"
    remainingParameters <- many (symbol "," *> (satisfyAll [isIdentifer]))
    return $ firstParameter:remainingParameters
+
+expressionList = do
+   firstExpression      <- expression <?> "first expression"
+   remainingExpressions <- many (symbol "," *> expression)
+   return $ firstExpression:remainingExpressions
 
 inParens = between (symbol "(") (symbol ")")
 
