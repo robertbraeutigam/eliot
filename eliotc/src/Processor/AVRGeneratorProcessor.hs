@@ -12,7 +12,7 @@ import Data.Dynamic
 import qualified Data.ByteString as ByteString
 
 parseAVRGenerate :: CompilerProcessor
-parseAVRGenerate (GenerateMain (TargetPlatform "attiny424") _ expressionTree) = debugMsg (drawTree (show <$> expressionTree)) >> compileOk
+parseAVRGenerate (GenerateMain (TargetPlatform "attiny424") _ expressionTree) = debugMsg ("\n" ++ (drawTree (show <$> expressionTree))) >> compileOk
 -- TODO: The platform should come from the signal to compile, later from the optimizer, or whatever, it is hardcoded here
 parseAVRGenerate Init =
    -- TODO: Everything is hardcoded, this should be done better

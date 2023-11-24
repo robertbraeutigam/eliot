@@ -2,8 +2,12 @@
  * Example program to switch PA1 pin on.
  */
 
-main() = high(pa1)
+main() = high(pa1, b(c()))
 
 high(n) = native
 
 pa1 = 1
+
+b = native
+
+c = native
