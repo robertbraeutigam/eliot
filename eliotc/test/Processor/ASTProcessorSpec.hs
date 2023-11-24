@@ -39,6 +39,9 @@ spec = do
       it "should parse function declaration with parens without parameters" $ do
          parseForErrors "a() = b" `shouldReturn` []
 
+      it "should parse function declaration of a number literal" $ do
+         parseForErrors "a = 123" `shouldReturn` []
+
       it "should parse function declaration with parens and a single parameter" $ do
          parseForErrors "a(n) = b" `shouldReturn` []
 
@@ -53,6 +56,15 @@ spec = do
 
       it "should parse function call with parens" $ do
          parseForErrors "a = b()" `shouldReturn` []
+
+      it "should parse function call with number literal" $ do
+         parseForErrors "a = b(1)" `shouldReturn` []
+
+      it "should parse function call with another function call" $ do
+         parseForErrors "a = b(c())" `shouldReturn` []
+
+      it "should parse function call with two parameters" $ do
+         parseForErrors "a = b(123, c())" `shouldReturn` []
 
 parseForErrors :: String -> IO [String]
 parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor] [("", code)] selectErrors
