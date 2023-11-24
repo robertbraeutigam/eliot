@@ -14,5 +14,5 @@ data FunctionBody = NativeFunction | FunctionExpression Expression
 
 -- | An expression
 data Expression = NumberConstant Integer
-                | FunctionApplication FunctionFQN
+                | FunctionApplication FunctionFQN [Expression]
  deriving (Eq, Show)

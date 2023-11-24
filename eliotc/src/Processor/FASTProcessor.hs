@@ -18,13 +18,15 @@ parseFASTProcessor (FunctionCompilationUnit fname _          (FunctionDefinition
 parseFASTProcessor (FunctionCompilationUnit fname dictionary (FunctionDefinition _ _ (Expression expressionTokens))) = do
    expression <- parseExpressionTokens dictionary expressionTokens
    case expression of
-      Just expression -> registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname (FunctionExpression expression))
+      Just exp        -> registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname (FunctionExpression exp))
       Nothing         -> compileOk -- Errors are generated where the expression is parsed
 parseFASTProcessor _ = compileOk
 
-parseExpressionTokens dictionary (FunctionApplicationTokens calledToken) =
+parseExpressionTokens dictionary (FunctionApplicationTokens calledToken parameterExpressionTokens) =
    case Map.lookup (positionedTokenContent calledToken) dictionary of
-      Just calledFfqn -> return $ Just $ FunctionApplication calledFfqn
+      Just calledFfqn -> do
+                            parameterExpressions <- mapM (parseExpressionTokens dictionary) parameterExpressionTokens
+                            return $ (FunctionApplication calledFfqn) <$> (sequence parameterExpressions)
       _               -> compilerErrorForTokens [calledToken] "Called function not defined." >> return Nothing
 parseExpressionTokens dictionary (NumberLiteralToken numberToken) =
    case readMaybe (positionedTokenContent numberToken) of

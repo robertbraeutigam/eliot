@@ -50,7 +50,7 @@ functionStatement = do
    fname   <- satisfyAll [isTopLevel, not . isKeyword] <?> "function name"
    nparams <- option [] (inParens $ option [] namedParameters) <?> "function parameters"
    _       <- symbol "=" <?> "function definition equals sign"
-   body    <- nativeKeyword <|> expression
+   body    <- nativeKeyword <|> (Expression <$> expression)
    return $ FunctionDefinition fname nparams body
 
 expression = literal <|> functionApplication
@@ -59,12 +59,12 @@ literal = numberLiteral
 
 numberLiteral = do
    nt <- satisfyAll [isNumber] <?> "number literal"
-   return $ Expression $ NumberLiteralToken nt
+   return $ NumberLiteralToken nt
 
 functionApplication = do
    fname   <- satisfyAll [isIdentifer] <?> "function name"
-   _       <- option [] (inParens $ option [] expressionList) <?> "function parameters"
-   return $ Expression $ FunctionApplicationTokens fname
+   pexps   <- option [] (inParens $ option [] expressionList) <?> "function parameters"
+   return $ FunctionApplicationTokens fname pexps
 
 nativeKeyword = do
    _       <- satisfyAll [isKeyword, isContent "native"] <?> "native keyword"

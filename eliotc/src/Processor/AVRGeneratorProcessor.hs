@@ -54,7 +54,7 @@ collectBytesFrom tp ffqn = do
       concatByteStrings b1 b2 = ByteString.concat [b1, b2]
 
 recurseFunctions :: TargetPlatform -> FunctionBody -> CompilerIO (Maybe ByteString.ByteString)
-recurseFunctions tp (FunctionExpression (FunctionApplication calledFfqn)) = collectBytesFrom tp calledFfqn
+recurseFunctions tp (FunctionExpression (FunctionApplication calledFfqn expressions)) = collectBytesFrom tp calledFfqn -- TODO: walk the whole tree
 recurseFunctions _  (FunctionExpression (NumberConstant _)) = return $ Just $ ByteString.pack [0, 0]
 recurseFunctions _ NativeFunction = return Nothing -- This should not be called
 

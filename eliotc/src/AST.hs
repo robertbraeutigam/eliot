@@ -27,7 +27,7 @@ data FunctionDefinition = FunctionDefinition {
 data FunctionBodyTokens = NativeFunctionToken | Expression ExpressionTokens
  deriving (Eq, Show)
 
-data ExpressionTokens = FunctionApplicationTokens PositionedToken
+data ExpressionTokens = FunctionApplicationTokens PositionedToken [ExpressionTokens]
                       | NumberLiteralToken PositionedToken
  deriving (Eq, Show)
 
