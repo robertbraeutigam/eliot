@@ -16,4 +16,9 @@ data FunctionBody = NativeFunction | NonNativeFunction (Tree Expression)
 -- | An expression
 data Expression = NumberConstant Integer
                 | FunctionApplication FunctionFQN
-   deriving (Eq, Show)
+   deriving (Eq)
+
+instance Show Expression where
+   show (NumberConstant i) = show i
+   show (FunctionApplication ffqn) = (show ffqn) ++ "()"
+
