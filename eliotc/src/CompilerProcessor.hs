@@ -82,12 +82,12 @@ compileOk :: CompilerIO ()
 compileOk = return ()
 
 -- | Register a fact into the compiler engine.
-registerCompilerFact :: Signal -> Fact -> CompilerIO ()
+registerCompilerFact :: (Hashable s, Typeable s, Typeable f) => s -> f -> CompilerIO ()
 registerCompilerFact s f = withReaderT snd $ registerFact s f
 
 -- | Get a fact from the compiler engine. This will potentially block
 -- until the fact becomes available.
-getCompilerFact :: Signal -> CompilerIO (Maybe Fact)
+getCompilerFact :: (Hashable s, Typeable s, Typeable f) => s -> CompilerIO (Maybe f)
 getCompilerFact s = withReaderT snd $ getFact s
 
 -- | Generate a compiler error.
