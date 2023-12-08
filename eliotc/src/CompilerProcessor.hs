@@ -12,7 +12,7 @@ import Data.Tree
 import qualified Data.ByteString as ByteString
 import Control.Monad.Trans.Reader
 import qualified Logging
-import Engine.FactEngine
+import Engine.DynamicFactEngine
 import Tokens
 import qualified AST as AST
 import qualified FAST as FAST
@@ -72,7 +72,7 @@ data Fact =
 -- with facts, may get and register them, and potentially produces errors during
 -- processing. The errors are not short-circuited, the processor may produce
 -- multiple errors and still produce some output.
-type CompilerIO = ReaderT (Logging.Logger, (FactEngine Signal Fact)) IO
+type CompilerIO = ReaderT (Logging.Logger, DynamicFactEngine) IO
 
 -- | A compiler process reacts to a fact and runs a CompilerIO computation.
 type CompilerProcessor = Fact -> CompilerIO ()

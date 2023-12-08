@@ -1,19 +1,22 @@
-module Processor.TestCompiler (compileSourceCode, compileSelectFact, compileCollectFacts) where
+module Processor.TestCompiler (compileSelectFact, compileCollectFacts) where
 
 import Control.Monad.Trans.Reader
-import Engine.FactEngine
+import Engine.DynamicFactEngine
 import CompilerProcessor
 import Data.Maybe
+import Data.Dynamic
 import Logging
 
-compileSourceCode :: [CompilerProcessor] -> [(String, String)] -> IO [(Signal, Fact)]
+compileSourceCode :: [CompilerProcessor] -> [(String, String)] -> IO [(DynamicKey, DynamicValue)]
 compileSourceCode processors files = do
    logger <- Logging.newLogger
-   (fromMaybe []) <$> (resolveFacts (liftedProcessors logger) $ map (\(filename, code) -> (SourceFileContentSignal filename, SourceFileContent filename code)) files)
+   (fromMaybe []) <$> (resolveFacts (liftedProcessors logger) $ map (\(filename, code) -> (toDynKey $ SourceFileContentSignal filename, toDynValue $ SourceFileContent filename code)) files)
    where liftedProcessors logger = map (liftToCompiler logger) processors
             
-liftToCompiler :: Logging.Logger -> CompilerProcessor -> FactProcessor Signal Fact
-liftToCompiler logger compilerProcessor = (withReaderT (\engine -> (logger, engine))) . compilerProcessor
+liftToCompiler :: Logging.Logger -> CompilerProcessor -> DynamicValue -> DynamicFactsIO ()
+liftToCompiler logger compilerProcessor (DynamicValue dynamicValue) = withReaderT (\engine -> (logger, engine)) (case fromDynamic dynamicValue of
+   Just v -> compilerProcessor v
+   _      -> return ())
 
 compileSelectFact :: [CompilerProcessor] -> [(String, String)] -> ((Signal, Fact) -> Maybe a) -> IO a
 compileSelectFact processors files selector = do
@@ -25,5 +28,9 @@ compileSelectFact processors files selector = do
 compileCollectFacts :: [CompilerProcessor] -> [(String, String)] -> ((Signal, Fact) -> Maybe a) -> IO [a]
 compileCollectFacts processors files selector = do
    signalsAndFacts <- compileSourceCode processors files
-   return $ catMaybes $ map selector signalsAndFacts
+   return $ catMaybes $ map selector $ catMaybes $ map transformDynamics signalsAndFacts
+   where transformDynamics (DynamicKey k _ _, DynamicValue v) = do
+            tk <- fromDynamic k
+            tv <- fromDynamic v
+            return (tk, tv)
 

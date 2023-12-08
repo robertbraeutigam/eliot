@@ -2,7 +2,7 @@
  - A fact engine that accepts completely dynamic types both as keys and as values.
  -}
 
-module Engine.DynamicFactEngine(DynamicFactEngine, DynamicFactsIO, resolveFacts, getFact, registerFact) where
+module Engine.DynamicFactEngine(DynamicFactEngine, DynamicFactsIO, DynamicValue(..), DynamicKey(..), resolveFacts, getFact, registerFact, toDynKey, toDynValue) where
 
 import Data.Dynamic
 import Data.Hashable
@@ -13,7 +13,7 @@ data DynamicKey = DynamicKey Dynamic (Int -> Int) (Dynamic -> Bool)
 
 newtype DynamicValue = DynamicValue Dynamic
 
-newtype DynamicFactEngine = DynamicFactEngine (FactEngine.FactEngine DynamicKey DynamicValue)
+type DynamicFactEngine = FactEngine.FactEngine DynamicKey DynamicValue
 
 type DynamicFactsIO = FactEngine.FactsIO DynamicKey DynamicValue
 

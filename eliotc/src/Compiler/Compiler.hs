@@ -6,7 +6,8 @@
 
 module Compiler.Compiler(compile) where
 
-import Engine.FactEngine
+import Engine.DynamicFactEngine
+import Data.Dynamic
 import Control.Monad.Trans.Reader
 import CompilerProcessor
 import qualified Logging
@@ -31,17 +32,19 @@ compile architecture mainModule paths = do
 
 compileWithLogger :: ModuleName -> TargetPlatform -> [String] -> Logging.Logger -> IO ()
 compileWithLogger mainModule architecture paths logger = do
-   facts          <- resolveFacts liftedProcessors ((InitSignal, Init):sourcePathFacts)
+   facts          <- resolveFacts liftedProcessors ((toDynKey InitSignal, toDynValue Init):sourcePathFacts)
    case facts of
       Just allFacts  -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
       Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
-   where sourcePathFacts = map (\s -> (SourcePathSignal s, SourcePath s)) paths
+   where sourcePathFacts = map (\s -> (toDynKey $ SourcePathSignal s, toDynValue $ SourcePath s)) paths
          liftedProcessors = map (liftToCompiler logger) processors
          processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor, parseGenerateMain mainModule architecture, parseAVRGenerate, writeOutputBinary]
  
 -- | Translate a fact engine IO into a compile one.
-liftToCompiler :: Logging.Logger -> CompilerProcessor -> FactProcessor Signal Fact
-liftToCompiler logger compilerProcessor = (withReaderT (\engine -> (logger, engine))) . compilerProcessor
+liftToCompiler :: Logging.Logger -> CompilerProcessor -> DynamicValue -> DynamicFactsIO ()
+liftToCompiler logger compilerProcessor (DynamicValue dynamicValue) = withReaderT (\engine -> (logger, engine)) (case fromDynamic dynamicValue of
+   Just v -> compilerProcessor v
+   _      -> return ())
 
 -- | Error processor reads all error facts and prints them using a lock to serialize
 -- all writes.
@@ -51,6 +54,6 @@ errorProcessor (CompilerErrorFact (CompilerError fp (SourcePosition fromLine fro
    case source of
       Just (SourceFileContent _ content) -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
       _                                  -> compileOk
-
 errorProcessor _ = compileOk
+
 
