@@ -17,17 +17,18 @@ import AST
 import Module
 
 parseModuleProcessor :: CompilerProcessor
-parseModuleProcessor (SourceAST path ast) = do
-   moduleName <- calculateModuleName path ast
-   case moduleName of
-      Just mn -> do
-         functions         <- foldM extractFunction [] (functionDefinitions ast)
-         _                 <- registerCompilerFact (ModuleFunctionNamesSignal mn) (ModuleFunctionNames mn (fst <$> functions))
-         importedFunctions <- foldM (collectImportedFunctions (fst <$> functions)) Map.empty (importStatements ast)
-         _                 <- forM_ functions (extractCompilationFunction mn (Map.union importedFunctions (Map.fromList $ map (\name -> (name, FunctionFQN mn name)) (fst <$> functions))))
-         debugMsg $ (show mn) ++ " provides functions: " ++ (show (fst <$> functions)) ++ ", imports: " ++ (show importedFunctions)
-      Nothing -> compileOk
-parseModuleProcessor _ = compileOk
+parseModuleProcessor v = case getTypedValue v of
+   Just (SourceAST path ast) -> do
+      moduleName <- calculateModuleName path ast
+      case moduleName of
+         Just mn -> do
+            functions         <- foldM extractFunction [] (functionDefinitions ast)
+            _                 <- registerCompilerFact (ModuleFunctionNamesSignal mn) (ModuleFunctionNames mn (fst <$> functions))
+            importedFunctions <- foldM (collectImportedFunctions (fst <$> functions)) Map.empty (importStatements ast)
+            _                 <- forM_ functions (extractCompilationFunction mn (Map.union importedFunctions (Map.fromList $ map (\name -> (name, FunctionFQN mn name)) (fst <$> functions))))
+            debugMsg $ (show mn) ++ " provides functions: " ++ (show (fst <$> functions)) ++ ", imports: " ++ (show importedFunctions)
+         Nothing -> compileOk
+   _                         -> compileOk
 
 extractCompilationFunction :: ModuleName -> FunctionDictionary -> (String, FunctionDefinition) -> CompilerIO ()
 extractCompilationFunction mn dictionary (fname, functionDefinition) =

@@ -2,7 +2,7 @@
  - A fact engine that accepts completely dynamic types both as keys and as values.
  -}
 
-module Engine.DynamicFactEngine(DynamicFactEngine, DynamicFactsIO, DynamicValue(..), DynamicKey(..), resolveFacts, getFact, registerFact, toDynKey, toDynValue) where
+module Engine.DynamicFactEngine(DynamicFactEngine, DynamicFactsIO, DynamicKey(..), DynamicValue(..), resolveFacts, getFact, registerFact, toDynKey, toDynValue, fromDynValue) where
 
 import Data.Dynamic
 import Data.Hashable
@@ -22,6 +22,9 @@ toDynKey k = DynamicKey (toDyn k) ((flip hashWithSalt) k) (\d -> False `fromMayb
 
 toDynValue :: (Typeable v) => v -> DynamicValue
 toDynValue v = DynamicValue (toDyn v)
+
+fromDynValue :: (Typeable v) => DynamicValue -> Maybe v
+fromDynValue (DynamicValue dv) = fromDynamic dv
 
 resolveFacts :: [FactEngine.FactProcessor DynamicKey DynamicValue] -> [(DynamicKey, DynamicValue)] -> IO (Maybe [(DynamicKey, DynamicValue)])
 resolveFacts ps vs = FactEngine.resolveFacts ps vs

@@ -7,7 +7,6 @@
 module Compiler.Compiler(compile) where
 
 import Engine.DynamicFactEngine
-import Data.Dynamic
 import Control.Monad.Trans.Reader
 import CompilerProcessor
 import qualified Logging
@@ -41,19 +40,18 @@ compileWithLogger mainModule architecture paths logger = do
          processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor, parseGenerateMain mainModule architecture, parseAVRGenerate, writeOutputBinary]
  
 -- | Translate a fact engine IO into a compile one.
-liftToCompiler :: Logging.Logger -> CompilerProcessor -> DynamicValue -> DynamicFactsIO ()
-liftToCompiler logger compilerProcessor (DynamicValue dynamicValue) = withReaderT (\engine -> (logger, engine)) (case fromDynamic dynamicValue of
-   Just v -> compilerProcessor v
-   _      -> return ())
+liftToCompiler :: Logging.Logger -> CompilerProcessor -> (DynamicValue -> DynamicFactsIO ())
+liftToCompiler logger compilerProcessor = withReaderT (\engine -> (logger, engine)) . compilerProcessor
 
 -- | Error processor reads all error facts and prints them using a lock to serialize
 -- all writes.
 errorProcessor :: CompilerProcessor
-errorProcessor (CompilerErrorFact (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg)) = do
-   source <- getCompilerFact $ SourceFileContentSignal fp
-   case source of
-      Just (SourceFileContent _ content) -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
-      _                                  -> compileOk
-errorProcessor _ = compileOk
+errorProcessor v = case getTypedValue v of
+   Just ((CompilerErrorFact (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg))) -> do
+      source <- getCompilerFact $ SourceFileContentSignal fp
+      case source of
+         Just (SourceFileContent _ content) -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
+         _                                  -> compileOk
+   _                                                                                                                 -> compileOk
 
 

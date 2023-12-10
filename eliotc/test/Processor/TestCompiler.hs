@@ -13,10 +13,8 @@ compileSourceCode processors files = do
    (fromMaybe []) <$> (resolveFacts (liftedProcessors logger) $ map (\(filename, code) -> (toDynKey $ SourceFileContentSignal filename, toDynValue $ SourceFileContent filename code)) files)
    where liftedProcessors logger = map (liftToCompiler logger) processors
             
-liftToCompiler :: Logging.Logger -> CompilerProcessor -> DynamicValue -> DynamicFactsIO ()
-liftToCompiler logger compilerProcessor (DynamicValue dynamicValue) = withReaderT (\engine -> (logger, engine)) (case fromDynamic dynamicValue of
-   Just v -> compilerProcessor v
-   _      -> return ())
+liftToCompiler :: Logging.Logger -> CompilerProcessor -> (DynamicValue -> DynamicFactsIO ())
+liftToCompiler logger compilerProcessor = withReaderT (\engine -> (logger, engine)) . compilerProcessor
 
 compileSelectFact :: [CompilerProcessor] -> [(String, String)] -> ((Signal, Fact) -> Maybe a) -> IO a
 compileSelectFact processors files selector = do

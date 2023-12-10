@@ -14,10 +14,11 @@ import Tokens
 
 -- | Parse tokens if a source file is read.
 parseTokensProcessor :: CompilerProcessor
-parseTokensProcessor (SourceFileContent path code) = case parse (whiteSpace >> (many anyTokenLexeme) <* eof) path code of
-   Left parserError -> compilerError $ translateTokenizerError path parserError
-   Right ts         -> registerCompilerFact (SourceTokensSignal path) (SourceTokens path ts)
-parseTokensProcessor _ = compileOk
+parseTokensProcessor v = case getTypedValue v of
+   Just (SourceFileContent path code) -> case parse (whiteSpace >> (many anyTokenLexeme) <* eof) path code of
+      Left parserError -> compilerError $ translateTokenizerError path parserError
+      Right ts         -> registerCompilerFact (SourceTokensSignal path) (SourceTokens path ts)
+   _                                  -> compileOk
 
 anyTokenLexeme = ((identifierOrKeyword <|> symbol <|> singleSymbol <|> number) <* whiteSpace) <?> "legal character"
 

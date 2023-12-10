@@ -14,14 +14,14 @@ import FAST
 import Module
 
 parseFASTProcessor :: CompilerProcessor
-parseFASTProcessor (FunctionCompilationUnit fname _          (AST.FunctionDefinition _ _ AST.NativeFunction)) =
-   registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname NativeFunction)
-parseFASTProcessor (FunctionCompilationUnit fname dictionary (AST.FunctionDefinition _ _ (AST.NonNativeFunction expressionTree))) = do
-   resolvedExpressionTree <- mapM (resolveFunctionNames dictionary) expressionTree
-   case sequence resolvedExpressionTree of
-      Just ret        -> registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname (NonNativeFunction ret))
-      Nothing         -> compileOk -- Errors are generated where the expression is parsed
-parseFASTProcessor _ = compileOk
+parseFASTProcessor v = case getTypedValue v of
+   Just (FunctionCompilationUnit fname _          (AST.FunctionDefinition _ _ AST.NativeFunction))                     -> registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname NativeFunction)
+   Just (FunctionCompilationUnit fname dictionary (AST.FunctionDefinition _ _ (AST.NonNativeFunction expressionTree))) -> do
+      resolvedExpressionTree <- mapM (resolveFunctionNames dictionary) expressionTree
+      case sequence resolvedExpressionTree of
+         Just ret        -> registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname (NonNativeFunction ret))
+         Nothing         -> compileOk -- Errors are generated where the expression is parsed
+   _                                                                                                                   -> compileOk
 
 resolveFunctionNames :: FunctionDictionary -> AST.Expression -> CompilerIO (Maybe Expression)
 resolveFunctionNames dictionary (AST.FunctionApplication calledToken) =

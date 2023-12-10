@@ -3,7 +3,7 @@
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
-module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError, infoMsg, errorMsg, debugMsg, compilerErrorMsg, compilerErrorForFile, compilerErrorForTokens, compilerErrorForFunction) where
+module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError, infoMsg, errorMsg, debugMsg, compilerErrorMsg, compilerErrorForFile, compilerErrorForTokens, compilerErrorForFunction, getTypedValue) where
 
 import GHC.Generics
 import Data.Hashable
@@ -75,11 +75,15 @@ data Fact =
 type CompilerIO = ReaderT (Logging.Logger, DynamicFactEngine) IO
 
 -- | A compiler process reacts to a fact and runs a CompilerIO computation.
-type CompilerProcessor = Fact -> CompilerIO ()
+type CompilerProcessor = DynamicValue -> CompilerIO ()
 
 -- | Return no errors an void from a compiler processor.
 compileOk :: CompilerIO ()
 compileOk = return ()
+
+-- | Get the typed value from the dynamic value.
+getTypedValue :: (Typeable v) => DynamicValue -> Maybe v
+getTypedValue v = fromDynValue v
 
 -- | Register a fact into the compiler engine.
 registerCompilerFact :: (Hashable s, Typeable s, Typeable f) => s -> f -> CompilerIO ()
