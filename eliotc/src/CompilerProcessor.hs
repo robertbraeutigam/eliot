@@ -3,7 +3,7 @@
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
-module CompilerProcessor(Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError, infoMsg, errorMsg, debugMsg, compilerErrorMsg, compilerErrorForFile, compilerErrorForTokens, compilerErrorForFunction, getTypedValue) where
+module CompilerProcessor(InitSignal(..), Init(..), Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError, infoMsg, errorMsg, debugMsg, compilerErrorMsg, compilerErrorForFile, compilerErrorForTokens, compilerErrorForFunction, getTypedValue) where
 
 import GHC.Generics
 import Data.Hashable
@@ -35,10 +35,15 @@ data CompilerError = CompilerError { errorFile::FilePath, errorFrom::SourcePosit
 instance Hashable CompilerError where
   hashWithSalt salt (CompilerError file ef et em) = hashWithSalt salt (file, ef, et, em)
 
+data InitSignal = InitSignal
+   deriving (Eq, Generic)
+data Init = Init
+
+instance Hashable InitSignal
+
 -- | Signals registered into the fact engine.
 data Signal =
-     InitSignal
-   | SourcePathSignal                 FilePath
+     SourcePathSignal                 FilePath
    | SourceFileSignal                 FilePath
    | SourceFileContentSignal          FilePath
    | SourceTokensSignal               FilePath
@@ -54,8 +59,7 @@ data Signal =
 
 -- | Facts registered into the fact engine.
 data Fact = 
-     Init                                                                                      -- Called to do startup logic of processors
-   | SourcePath                FilePath                                                        -- A path to some file or directory containing source code
+     SourcePath                FilePath                                                        -- A path to some file or directory containing source code
    | SourceFile                FilePath                                                        -- A source file that has been detected
    | SourceFileContent         FilePath String                                                 -- Contents of a source file
    | SourceTokens              FilePath [PositionedToken]                                      -- Tokens read from a source file
