@@ -33,7 +33,7 @@ compileWithLogger :: ModuleName -> TargetPlatform -> [String] -> Logging.Logger 
 compileWithLogger mainModule architecture paths logger = do
    facts          <- resolveFacts liftedProcessors ((toDynKey InitSignal, toDynValue Init):sourcePathFacts)
    case facts of
-      Just allFacts  -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated facts " ++ (show (map fst allFacts))
+      Just allFacts  -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated " ++ (show (length allFacts)) ++ " facts."
       Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
    where sourcePathFacts = map (\s -> (toDynKey $ SourcePathSignal s, toDynValue $ SourcePath s)) paths
          liftedProcessors = map (liftToCompiler logger) processors
