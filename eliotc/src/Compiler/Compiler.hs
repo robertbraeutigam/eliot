@@ -31,13 +31,12 @@ compile architecture mainModule paths = do
 
 compileWithLogger :: ModuleName -> TargetPlatform -> [String] -> Logging.Logger -> IO ()
 compileWithLogger mainModule architecture paths logger = do
-   facts          <- resolveFacts liftedProcessors ((toDynKey InitSignal, toDynValue Init):sourcePathFacts)
+   facts          <- resolveFacts liftedProcessors [(toDynKey InitSignal, toDynValue Init)]
    case facts of
       Just allFacts  -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated " ++ (show (length allFacts)) ++ " facts."
       Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
-   where sourcePathFacts = map (\s -> (toDynKey $ SourcePathSignal s, toDynValue $ SourcePath s)) paths
-         liftedProcessors = map (liftToCompiler logger) processors
-         processors = [errorProcessor, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor, parseGenerateMain mainModule architecture, parseAVRGenerate, writeOutputBinary]
+   where liftedProcessors = map (liftToCompiler logger) processors
+         processors = [errorProcessor, initPaths paths, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor, parseGenerateMain mainModule architecture, parseAVRGenerate, writeOutputBinary]
  
 -- | Translate a fact engine IO into a compile one.
 liftToCompiler :: Logging.Logger -> CompilerProcessor -> (DynamicValue -> DynamicFactsIO ())
