@@ -42,10 +42,10 @@ library
       Processor.BinaryOutputProcessor
       Processor.Error
       Processor.FASTProcessor
-      Processor.FileProcessors
       Processor.GenerateMainProcessor
       Processor.Module
       Processor.ModuleProcessor
+      Processor.Source
       Processor.Token
       Processor.TokensProcessor
       Tokens

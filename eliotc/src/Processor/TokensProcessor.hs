@@ -10,7 +10,7 @@ import Data.Char (isSpace)
 import Data.List (isPrefixOf, intercalate)
 import Control.Monad
 import CompilerProcessor
-import Processor.FileProcessors
+import Processor.Source
 import Tokens
 import Processor.Error
 

@@ -6,7 +6,7 @@ import CompilerProcessor
 import Data.Maybe
 import Data.Dynamic
 import Logging
-import Processor.FileProcessors
+import Processor.Source
 
 compileSourceCode :: [CompilerProcessor] -> [(String, String)] -> IO [(DynamicKey, DynamicValue)]
 compileSourceCode processors files = do

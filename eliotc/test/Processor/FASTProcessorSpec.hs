@@ -29,8 +29,6 @@ parseForErrors :: String -> IO [String]
 parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor] [("A", code)] selectErrors
    where selectErrors :: (CompilerError, CompilerError) -> Maybe String
          selectErrors (_, CompilerError _ _ _ msg) = Just msg
-         selectErrors _                            = Nothing
-
 
 parseForFunction :: String -> String -> IO FunctionBody
 parseForFunction code func = compileSelectFact [parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor] [("A", code)] selectFact

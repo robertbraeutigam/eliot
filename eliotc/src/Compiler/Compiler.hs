@@ -14,7 +14,7 @@ import Control.Exception
 import Processor.Error
 import Processor.ASTProcessor
 import Processor.TokensProcessor
-import Processor.FileProcessors
+import Processor.Source
 import Processor.ModuleProcessor
 import Processor.FASTProcessor
 import Processor.GenerateMainProcessor

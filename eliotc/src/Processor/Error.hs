@@ -4,7 +4,7 @@
 module Processor.Error (errorProcessor, compilerError, compilerErrorForFile, CompilerError(..)) where
 
 import CompilerProcessor
-import Processor.FileProcessors
+import Processor.Source
 import GHC.Generics
 import Data.Hashable
 
