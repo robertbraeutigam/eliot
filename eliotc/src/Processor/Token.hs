@@ -2,6 +2,7 @@ module Processor.Token (compilerErrorForTokens) where
 
 import Tokens
 import Processor.Error
+import Processor.Source
 import CompilerProcessor
 
 compilerErrorForTokens :: [PositionedToken] -> String -> CompilerIO ()

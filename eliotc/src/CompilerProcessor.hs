@@ -3,7 +3,7 @@
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
-module CompilerProcessor(InitSignal(..), Init(..), Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, SourcePosition(..), registerCompilerFact, getCompilerFact, infoMsg, errorMsg, debugMsg, compilerErrorMsg, getTypedValue) where
+module CompilerProcessor(InitSignal(..), Init(..), Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, registerCompilerFact, getCompilerFact, infoMsg, errorMsg, debugMsg, compilerErrorMsg, getTypedValue) where
 
 import GHC.Generics
 import Data.Hashable
@@ -18,16 +18,6 @@ import qualified AST as AST
 import qualified FAST as FAST
 import Module
 import Generator
-
-type SourceLine = Int
-
-type SourceColumn = Int
-
-data SourcePosition = SourcePosition { row::SourceLine, col::SourceColumn }
-   deriving (Show, Eq)
-
-instance Hashable SourcePosition where
-  hashWithSalt salt (SourcePosition l c) = hashWithSalt salt (l, c)
 
 data InitSignal = InitSignal
    deriving (Eq, Generic)

@@ -15,6 +15,7 @@ import Tokens
 import CompilerProcessor
 import AST
 import Processor.Error
+import Processor.Source
 
 parseASTProcessor :: CompilerProcessor
 parseASTProcessor v = case getTypedValue v of
