@@ -6,6 +6,7 @@ import Processor.TokensProcessor
 import Processor.ASTProcessor
 import Processor.ModuleProcessor
 import Processor.TestCompiler
+import Processor.Error
 import CompilerProcessor
 import qualified Data.Map as Map
 import Module
@@ -53,19 +54,21 @@ parseForErrors filename code = parseMultiForErrors [(filename, code)]
 
 parseMultiForErrors :: [(String, String)] -> IO [String]
 parseMultiForErrors files = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectErrors
-   where selectErrors (_, CompilerErrorFact (CompilerError _ _ _ msg)) = Just msg
-         selectErrors _                          = Nothing
+   where selectErrors :: (CompilerError, CompilerError) -> Maybe String
+         selectErrors (_, CompilerError _ _ _ msg) = Just msg
 
 parseForFact :: String -> String -> IO (ModuleName, [String])
 parseForFact filename code = parseMultiForFact [(filename, code)]
 
 parseMultiForFact :: [(String, String)] -> IO (ModuleName, [String])
 parseMultiForFact files = compileSelectFact [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectFact
-   where selectFact (_, ModuleFunctionNames mn names) = Just (mn, names)
+   where selectFact :: (Signal, Fact) -> Maybe (ModuleName, [String])
+         selectFact (_, ModuleFunctionNames mn names) = Just (mn, names)
          selectFact _                                 = Nothing
 
 parseMultiForCompilationFunction :: [(String, String)] -> IO [(FunctionFQN, Map.Map String FunctionFQN)]
 parseMultiForCompilationFunction files = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectFact
-   where selectFact (_, FunctionCompilationUnit ffqn dictionary _) = Just (ffqn, dictionary)
-         selectFact _                                 = Nothing
+   where selectFact :: (Signal, Fact) -> Maybe (FunctionFQN, FunctionDictionary)
+         selectFact (_, FunctionCompilationUnit ffqn dictionary _) = Just (ffqn, dictionary)
+         selectFact _                                              = Nothing
 

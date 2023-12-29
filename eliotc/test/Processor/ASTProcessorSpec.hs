@@ -5,6 +5,7 @@ import Test.Hspec
 import Tokens
 import Processor.TokensProcessor
 import AST
+import Processor.Error
 import Processor.ASTProcessor
 import CompilerProcessor
 import Processor.TestCompiler
@@ -68,12 +69,13 @@ spec = do
 
 parseForErrors :: String -> IO [String]
 parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor] [("", code)] selectErrors
-   where selectErrors (_, CompilerErrorFact (CompilerError _ _ _ msg)) = Just msg
-         selectErrors _                          = Nothing
+   where selectErrors :: (CompilerError, CompilerError) -> Maybe String
+         selectErrors (_, CompilerError _ _ _ msg) = Just msg
 
 parseForAST :: String -> IO AST
 parseForAST code = compileSelectFact [parseTokensProcessor, parseASTProcessor] [("", code)] selectAST
-   where selectAST (_, SourceAST _ ast) = Just ast
+   where selectAST :: (Signal, Fact) -> Maybe AST.AST
+         selectAST (_, SourceAST _ ast) = Just ast
          selectAST _                    = Nothing
 
 extractImports (AST imps _) = map toImportTest imps

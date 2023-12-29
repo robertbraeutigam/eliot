@@ -5,11 +5,8 @@
 module Processor.AVRGeneratorProcessor (parseAVRGenerate) where
 
 import CompilerProcessor
-import Module
 import Data.Tree
 import Generator
-import Data.Dynamic
-import qualified Data.ByteString as ByteString
 
 parseAVRGenerate :: CompilerProcessor
 parseAVRGenerate v = case getTypedValue v of

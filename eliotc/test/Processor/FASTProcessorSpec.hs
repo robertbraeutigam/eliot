@@ -7,6 +7,7 @@ import Processor.ASTProcessor
 import Processor.ModuleProcessor
 import Processor.FASTProcessor
 import Processor.TestCompiler
+import Processor.Error
 import CompilerProcessor
 import Data.Tree
 import FAST
@@ -26,12 +27,14 @@ spec = do
          
 parseForErrors :: String -> IO [String]
 parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor] [("A", code)] selectErrors
-   where selectErrors (_, CompilerErrorFact (CompilerError _ _ _ msg)) = Just msg
-         selectErrors _                                                = Nothing
+   where selectErrors :: (CompilerError, CompilerError) -> Maybe String
+         selectErrors (_, CompilerError _ _ _ msg) = Just msg
+         selectErrors _                            = Nothing
 
 
 parseForFunction :: String -> String -> IO FunctionBody
 parseForFunction code func = compileSelectFact [parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor] [("A", code)] selectFact
-   where selectFact (_, CompiledFunction (FunctionFQN _ f) body) | f == func = Just body
+   where selectFact :: (Signal, Fact) -> Maybe FAST.FunctionBody
+         selectFact (_, CompiledFunction (FunctionFQN _ f) body) | f == func = Just body
          selectFact _                                                        = Nothing
 

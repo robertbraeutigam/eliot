@@ -4,6 +4,7 @@ import Test.Hspec
 import Tokens
 import Processor.TokensProcessor
 import Processor.TestCompiler
+import Processor.Error
 import CompilerProcessor
 
 spec :: Spec
@@ -47,14 +48,15 @@ spec = do
 
 parseForPositionedTokens :: String -> IO [PositionedToken]
 parseForPositionedTokens code = compileSelectFact [parseTokensProcessor] [("", code)] selectTokens
-   where selectTokens (_, SourceTokens _ pts) = Just pts
+   where selectTokens :: (Signal, Fact) -> Maybe [PositionedToken]
+         selectTokens (_, SourceTokens _ pts) = Just pts
          selectTokens _                       = Nothing
 
 parseForTokens :: String -> IO [Token]
 parseForTokens source = (map (\(PositionedToken _ _ _ t) -> t)) <$> parseForPositionedTokens source
 
-parseForErrors :: String -> IO [CompilerError]
+parseForErrors :: String -> IO [String]
 parseForErrors code = compileCollectFacts [parseTokensProcessor] [("", code)] selectErrors
-   where selectErrors (_, CompilerErrorFact err) = Just err
-         selectErrors _                          = Nothing
+   where selectErrors :: (CompilerError, CompilerError) -> Maybe String
+         selectErrors (_, CompilerError _ _ _ msg) = Just msg
 

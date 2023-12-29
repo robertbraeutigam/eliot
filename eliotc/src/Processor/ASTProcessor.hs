@@ -14,13 +14,14 @@ import Data.Char (isLower, isUpper)
 import Tokens
 import CompilerProcessor
 import AST
+import Processor.Error
 
 parseASTProcessor :: CompilerProcessor
 parseASTProcessor v = case getTypedValue v of
    Just (SourceTokens path [])     -> registerAST path (AST [] [])
    Just (SourceTokens path (t:ts)) -> case runParser (positionedRecoveringParseSource t) [] path (t:ts) of
-      Left err            -> (compilerError (translateASTError path (t:ts) err)) >> registerAST path (AST [] [])
-      Right (errors, ast) -> (mapM_ compilerError (translateASTError path (t:ts) <$> errors)) >> registerAST path ast
+      Left err            -> (compilerErrorAST path (t:ts) err) >> registerAST path (AST [] [])
+      Right (errors, ast) -> (mapM_ (compilerErrorAST path (t:ts)) errors) >> registerAST path ast
    _                               -> compileOk
 
 registerAST path ast = registerCompilerFact (SourceASTSignal path) (SourceAST path ast)
@@ -161,9 +162,9 @@ data RecoveryResult = ContinueTrying | End | Fallthough
    deriving (Eq, Show)
 
 -- | Translate error messages from parsec to readable compiler messages.
-translateASTError fp ts e = case findToken of
-      Just (PositionedToken name line column t) -> CompilerError name (SourcePosition line column) (SourcePosition line (column + (tokenLength t))) (translateParsecErrorMessage $ show e)
-      Nothing -> CompilerError fp (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (translateParsecErrorMessage $ show e)
+compilerErrorAST fp ts e = case findToken of
+      Just (PositionedToken name line column t) -> compilerError name (SourcePosition line column) (SourcePosition line (column + (tokenLength t))) (translateParsecErrorMessage $ show e)
+      Nothing -> compilerError fp (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)) (translateParsecErrorMessage $ show e)
    where findToken = find (\(PositionedToken _ line column _) -> line == (sourceLine $ errorPos e) && column == (sourceColumn $ errorPos e)) ts
 
 translateParsecErrorMessage msg = "Parser error, " ++ (intercalate ", " $ filter (\l -> (isPrefixOf "unexpected" l) || (isPrefixOf "expecting" l))  (lines msg)) ++ "."

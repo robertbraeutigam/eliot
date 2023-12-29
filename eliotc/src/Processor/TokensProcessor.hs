@@ -10,13 +10,15 @@ import Data.Char (isSpace)
 import Data.List (isPrefixOf, intercalate)
 import Control.Monad
 import CompilerProcessor
+import Processor.FileProcessors
 import Tokens
+import Processor.Error
 
 -- | Parse tokens if a source file is read.
 parseTokensProcessor :: CompilerProcessor
 parseTokensProcessor v = case getTypedValue v of
    Just (SourceFileContent path code) -> case parse (whiteSpace >> (many anyTokenLexeme) <* eof) path code of
-      Left parserError -> compilerError $ translateTokenizerError path parserError
+      Left parserError -> compilerErrorTranslated path parserError
       Right ts         -> registerCompilerFact (SourceTokensSignal path) (SourceTokens path ts)
    _                                  -> compileOk
 
@@ -62,7 +64,7 @@ keywords = ["import", "native"]
 
 -- Translate errors
 
-translateTokenizerError fp e = CompilerError fp pos pos (translateParsecErrorMessage $ show e)
+compilerErrorTranslated fp e = compilerError fp pos pos (translateParsecErrorMessage $ show e)
    where pos = SourcePosition (sourceLine $ errorPos e) (sourceColumn $ errorPos e)
 
 translateParsecErrorMessage msg = "Parser error, " ++ (intercalate ", " $ filter (\l -> (isPrefixOf "unexpected" l) || (isPrefixOf "expecting" l))  (lines msg)) ++ "."

@@ -3,7 +3,7 @@
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
-module CompilerProcessor(InitSignal(..), Init(..), Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, CompilerError(..), SourcePosition(..), registerCompilerFact, getCompilerFact, compilerError, infoMsg, errorMsg, debugMsg, compilerErrorMsg, compilerErrorForFile, compilerErrorForTokens, compilerErrorForFunction, getTypedValue) where
+module CompilerProcessor(InitSignal(..), Init(..), Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, SourcePosition(..), registerCompilerFact, getCompilerFact, infoMsg, errorMsg, debugMsg, compilerErrorMsg, getTypedValue) where
 
 import GHC.Generics
 import Data.Hashable
@@ -29,12 +29,6 @@ data SourcePosition = SourcePosition { row::SourceLine, col::SourceColumn }
 instance Hashable SourcePosition where
   hashWithSalt salt (SourcePosition l c) = hashWithSalt salt (l, c)
 
-data CompilerError = CompilerError { errorFile::FilePath, errorFrom::SourcePosition, errorTo::SourcePosition, errorMessage::String }
-   deriving (Show, Eq)
-
-instance Hashable CompilerError where
-  hashWithSalt salt (CompilerError file ef et em) = hashWithSalt salt (file, ef, et, em)
-
 data InitSignal = InitSignal
    deriving (Eq, Generic)
 data Init = Init
@@ -43,34 +37,27 @@ instance Hashable InitSignal
 
 -- | Signals registered into the fact engine.
 data Signal =
-     SourcePathSignal                 FilePath
-   | SourceFileSignal                 FilePath
-   | SourceFileContentSignal          FilePath
-   | SourceTokensSignal               FilePath
+     SourceTokensSignal               FilePath
    | SourceASTSignal                  FilePath
-   | CompilerErrorSignal              CompilerError
    | ModuleFunctionNamesSignal        ModuleName
    | FunctionCompilationUnitSignal    FunctionFQN
    | CompiledFunctionSignal           FunctionFQN
    | GenerateMainSignal               TargetPlatform
    | TargetBinaryGeneratedSignal      TargetPlatform
    | PlatformGeneratedFunctionSignal  TargetPlatform FunctionFQN
-   deriving (Eq, Show, Generic, Hashable)
+   deriving (Eq, Show, Generic, Hashable, Typeable)
 
 -- | Facts registered into the fact engine.
 data Fact = 
-     SourcePath                FilePath                                                        -- A path to some file or directory containing source code
-   | SourceFile                FilePath                                                        -- A source file that has been detected
-   | SourceFileContent         FilePath String                                                 -- Contents of a source file
-   | SourceTokens              FilePath [PositionedToken]                                      -- Tokens read from a source file
+     SourceTokens              FilePath [PositionedToken]                                      -- Tokens read from a source file
    | SourceAST                 FilePath AST.AST                                                -- AST of source file
-   | CompilerErrorFact         CompilerError                                              
    | ModuleFunctionNames       ModuleName [String]                                             -- A list of functions in the module
    | FunctionCompilationUnit   FunctionFQN FunctionDictionary AST.FunctionDefinition           -- A function ready to be compiled and type-checked
    | CompiledFunction          FunctionFQN FAST.FunctionBody                                   -- A compiled (type-checked) correct function body, of there is no body, that's a native function
    | GenerateMain              TargetPlatform FunctionFQN (Tree FAST.Expression)               -- Ask processors to generate for this main function and target platform
    | TargetBinaryGenerated     TargetPlatform ModuleName ByteString.ByteString                 -- The target platform produced the compiled version of the source code
    | PlatformGeneratedFunction TargetPlatform FunctionFQN Dynamic                              -- Generated some platform specific output for the given function
+   deriving (Generic, Typeable)
 
 -- | A computation running in the compiler. This computation interacts
 -- with facts, may get and register them, and potentially produces errors during
@@ -97,28 +84,6 @@ registerCompilerFact s f = withReaderT snd $ registerFact s f
 -- until the fact becomes available.
 getCompilerFact :: (Hashable s, Typeable s, Typeable f) => s -> CompilerIO (Maybe f)
 getCompilerFact s = withReaderT snd $ getFact s
-
--- | Generate a compiler error.
-compilerError :: CompilerError -> CompilerIO ()
-compilerError e = registerCompilerFact (CompilerErrorSignal e) (CompilerErrorFact e)
-
-compilerErrorForFile :: FilePath -> String -> CompilerIO ()
-compilerErrorForFile file msg = compilerError $ CompilerError file (SourcePosition 1 1) (SourcePosition 1 1) msg
-
-compilerErrorForTokens :: [PositionedToken] -> String -> CompilerIO ()
-compilerErrorForTokens [] _ = error "Compiler error was invoked on no tokens."
-compilerErrorForTokens pts@((PositionedToken file _ _ _):_) msg = compilerError $ CompilerError file fromFirstToken toLastToken msg
-   where fromFirstToken = pos $ head pts
-         toLastToken    = case pos $ last pts of
-            (SourcePosition line column) -> SourcePosition line (column + (length $ positionedTokenContent (last pts)))
-         pos (PositionedToken _ line column _) = SourcePosition line column
-
-compilerErrorForFunction :: FunctionFQN -> String -> CompilerIO ()
-compilerErrorForFunction ffqn msg = do
-   functionMaybe <- getCompilerFact (FunctionCompilationUnitSignal ffqn)
-   case functionMaybe of
-      Just (FunctionCompilationUnit _ _ (AST.FunctionDefinition fname _ _)) -> compilerErrorForTokens [fname] msg
-      _                                                                     -> errorMsg $ msg ++ " (Could not determine function " ++ (show ffqn) ++ " location.)"
 
 -- | Logging
 errorMsg :: String -> CompilerIO ()

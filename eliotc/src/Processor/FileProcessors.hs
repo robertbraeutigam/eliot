@@ -1,11 +1,36 @@
-module Processor.FileProcessors (directoryWalker, fileReader, initPaths) where
+{-# LANGUAGE DeriveAnyClass, DeriveGeneric, ExistentialQuantification #-}
 
+module Processor.FileProcessors (directoryWalker, fileReader, initPaths, SourceFileContent(..), SourceFileContentSignal(..)) where
+
+import GHC.Generics
 import CompilerProcessor
 import Data.List (isPrefixOf, isSuffixOf)
+import Data.Hashable
 import System.FilePath
 import System.Directory
 import Control.Monad
 import Control.Monad.Trans
+
+-- | A filesystem path. Path can point to directories, files or anything else.
+data SourcePathSignal = SourcePathSignal FilePath
+   deriving (Eq, Generic)
+data SourcePath = SourcePath FilePath
+
+instance Hashable SourcePathSignal
+
+-- | A path to a file specifically.
+data SourceFileSignal = SourceFileSignal FilePath
+   deriving (Eq, Generic)
+data SourceFile = SourceFile FilePath
+
+instance Hashable SourceFileSignal
+
+-- | Contents of the given path.
+data SourceFileContentSignal = SourceFileContentSignal FilePath
+   deriving (Eq, Generic)
+data SourceFileContent = SourceFileContent FilePath String
+
+instance Hashable SourceFileContentSignal
 
 -- | Receives a file path. If the path is a file, this will create a `SourceFile`. If the path refers to a directory,
 -- this will recurse and create new `SourcePath` signals for those.

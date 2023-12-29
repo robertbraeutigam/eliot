@@ -8,6 +8,7 @@ import CompilerProcessor
 import Module
 import Generator
 import FAST
+import Processor.Module
 
 -- TODO: Just generate the compile on Init?
 parseGenerateMain :: ModuleName -> TargetPlatform -> CompilerProcessor

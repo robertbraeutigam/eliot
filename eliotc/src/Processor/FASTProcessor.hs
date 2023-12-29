@@ -12,6 +12,7 @@ import Tokens
 import qualified AST as AST
 import FAST
 import Module
+import Processor.Token
 
 parseFASTProcessor :: CompilerProcessor
 parseFASTProcessor v = case getTypedValue v of

@@ -11,6 +11,7 @@ import Control.Monad.Trans.Reader
 import CompilerProcessor
 import qualified Logging
 import Control.Exception
+import Processor.Error
 import Processor.ASTProcessor
 import Processor.TokensProcessor
 import Processor.FileProcessors
@@ -41,16 +42,4 @@ compileWithLogger mainModule architecture paths logger = do
 -- | Translate a fact engine IO into a compile one.
 liftToCompiler :: Logging.Logger -> CompilerProcessor -> (DynamicValue -> DynamicFactsIO ())
 liftToCompiler logger compilerProcessor = withReaderT (\engine -> (logger, engine)) . compilerProcessor
-
--- | Error processor reads all error facts and prints them using a lock to serialize
--- all writes.
-errorProcessor :: CompilerProcessor
-errorProcessor v = case getTypedValue v of
-   Just ((CompilerErrorFact (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg))) -> do
-      source <- getCompilerFact $ SourceFileContentSignal fp
-      case source of
-         Just (SourceFileContent _ content) -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
-         _                                  -> compileOk
-   _                                                                                                                 -> compileOk
-
 

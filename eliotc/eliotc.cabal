@@ -40,10 +40,13 @@ library
       Processor.ASTProcessor
       Processor.AVRGeneratorProcessor
       Processor.BinaryOutputProcessor
+      Processor.Error
       Processor.FASTProcessor
       Processor.FileProcessors
       Processor.GenerateMainProcessor
+      Processor.Module
       Processor.ModuleProcessor
+      Processor.Token
       Processor.TokensProcessor
       Tokens
   other-modules:

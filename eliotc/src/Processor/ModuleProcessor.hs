@@ -15,6 +15,8 @@ import Control.Monad
 import Tokens
 import AST
 import Module
+import Processor.Error
+import Processor.Token
 
 parseModuleProcessor :: CompilerProcessor
 parseModuleProcessor v = case getTypedValue v of
