@@ -13,7 +13,7 @@ import qualified Logging
 import Control.Exception
 import Processor.Error
 import Processor.AST
-import Processor.TokensProcessor
+import Processor.Token
 import Processor.Source
 import Processor.Module
 import Processor.FAST

@@ -1,11 +1,9 @@
-module Processor.TokensProcessorSpec (spec) where
+module Processor.TokenSpec (spec) where
 
 import Test.Hspec
-import Tokens
-import Processor.TokensProcessor
+import Processor.Token
 import Processor.TestCompiler
 import Processor.Error
-import CompilerProcessor
 
 spec :: Spec
 spec = do
@@ -48,7 +46,7 @@ spec = do
 
 parseForPositionedTokens :: String -> IO [PositionedToken]
 parseForPositionedTokens code = compileSelectFact [parseTokensProcessor] [("", code)] selectTokens
-   where selectTokens :: (Signal, Fact) -> Maybe [PositionedToken]
+   where selectTokens :: (SourceTokensSignal, SourceTokens) -> Maybe [PositionedToken]
          selectTokens (_, SourceTokens _ pts) = Just pts
 
 parseForTokens :: String -> IO [Token]

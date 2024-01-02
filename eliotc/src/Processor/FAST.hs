@@ -12,7 +12,6 @@ import Data.Tree
 import Text.Read
 import CompilerProcessor
 import qualified Data.Map as Map
-import Tokens
 import qualified Processor.AST as AST
 import Processor.Token
 import Processor.Module

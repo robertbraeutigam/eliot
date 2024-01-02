@@ -8,7 +8,6 @@ module Processor.AST (AST(..), Import(..), FunctionDefinition(..), FunctionBody(
 
 import Data.Hashable
 import GHC.Generics
-import Tokens
 import Data.List (isPrefixOf, intercalate, find)
 import Text.Parsec
 import Text.Parsec.Pos
@@ -17,6 +16,7 @@ import Data.Tree
 import Data.Char (isLower, isUpper)
 import CompilerProcessor
 import Processor.Error
+import Processor.Token
 import Processor.Source
 
 data Import = Import {
@@ -163,7 +163,7 @@ isSymbol _                                = False
 isKeyword (PositionedToken _ _ _ (Keyword _)) = True
 isKeyword _                                    = False
 
-isNumber (PositionedToken _ _ _ (Tokens.NumberLiteral _)) = True
+isNumber (PositionedToken _ _ _ (Processor.Token.NumberLiteral _)) = True
 isNumber _                                         = False
 
 isTopLevel (PositionedToken _ _ column _) = column == 1

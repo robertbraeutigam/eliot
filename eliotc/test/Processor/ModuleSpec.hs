@@ -2,7 +2,7 @@
 module Processor.ModuleSpec (spec) where
 
 import Test.Hspec
-import Processor.TokensProcessor
+import Processor.Token (parseTokensProcessor)
 import Processor.AST
 import Processor.Module
 import Processor.TestCompiler

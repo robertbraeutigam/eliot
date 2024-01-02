@@ -15,7 +15,6 @@ import System.FilePath
 import CompilerProcessor
 import Control.Exception.Lifted()
 import Control.Monad
-import Tokens
 import Processor.AST
 import Processor.Error
 import Processor.Token

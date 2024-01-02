@@ -2,7 +2,7 @@
 module Processor.FASTSpec (spec) where
 
 import Test.Hspec
-import Processor.TokensProcessor
+import Processor.Token (parseTokensProcessor)
 import Processor.AST (parseASTProcessor)
 import Processor.Module
 import Processor.FAST

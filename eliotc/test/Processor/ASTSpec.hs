@@ -2,8 +2,7 @@
 module Processor.ASTSpec (spec) where
 
 import Test.Hspec
-import Tokens
-import Processor.TokensProcessor
+import Processor.Token
 import Processor.Error
 import Processor.AST
 import Processor.TestCompiler

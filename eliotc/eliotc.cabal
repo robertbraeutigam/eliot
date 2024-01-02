@@ -42,8 +42,6 @@ library
       Processor.Output
       Processor.Source
       Processor.Token
-      Processor.TokensProcessor
-      Tokens
   other-modules:
       Paths_eliotc
   hs-source-dirs:
@@ -110,7 +108,7 @@ test-suite eliotc-test
       Processor.FASTSpec
       Processor.ModuleSpec
       Processor.TestCompiler
-      Processor.TokensProcessorSpec
+      Processor.TokenSpec
       Paths_eliotc
   hs-source-dirs:
       test

@@ -3,7 +3,7 @@
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
-module CompilerProcessor(InitSignal(..), Init(..), Signal(..), Fact(..), CompilerIO, CompilerProcessor, compileOk, registerCompilerFact, getCompilerFact, infoMsg, errorMsg, debugMsg, compilerErrorMsg, getTypedValue) where
+module CompilerProcessor(InitSignal(..), Init(..), CompilerIO, CompilerProcessor, compileOk, registerCompilerFact, getCompilerFact, infoMsg, errorMsg, debugMsg, compilerErrorMsg, getTypedValue) where
 
 import GHC.Generics
 import Data.Hashable
@@ -11,23 +11,12 @@ import Data.Dynamic
 import Control.Monad.Trans.Reader
 import qualified Logging
 import Engine.DynamicFactEngine
-import Tokens
 
 data InitSignal = InitSignal
    deriving (Eq, Generic)
 data Init = Init
 
 instance Hashable InitSignal
-
--- | Signals registered into the fact engine.
-data Signal =
-     SourceTokensSignal               FilePath
-   deriving (Eq, Show, Generic, Hashable, Typeable)
-
--- | Facts registered into the fact engine.
-data Fact = 
-     SourceTokens              FilePath [PositionedToken]                                      -- Tokens read from a source file
-   deriving (Generic, Typeable)
 
 -- | A computation running in the compiler. This computation interacts
 -- with facts, may get and register them, and potentially produces errors during
