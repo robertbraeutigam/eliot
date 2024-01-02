@@ -63,19 +63,17 @@ compilerErrorForFunction ffqn msg = do
       Just (FunctionCompilationUnit _ _ (FunctionDefinition fname _ _)) -> compilerErrorForTokens [fname] msg
       _                                                                     -> errorMsg $ msg ++ " (Could not determine function " ++ (show ffqn) ++ " location.)"
 
-parseModuleProcessor :: CompilerProcessor
-parseModuleProcessor v = case getTypedValue v of
-   Just (SourceAST path ast) -> do
-      moduleNameMaybe <- calculateModuleName path ast
-      case moduleNameMaybe of
-         Just mn -> do
-            functions         <- foldM extractFunction [] (functionDefinitions ast)
-            _                 <- registerCompilerFact (ModuleFunctionNamesSignal mn) (ModuleFunctionNames mn (fst <$> functions))
-            importedFunctions <- foldM (collectImportedFunctions (fst <$> functions)) Map.empty (importStatements ast)
-            _                 <- forM_ functions (extractCompilationFunction mn (Map.union importedFunctions (Map.fromList $ map (\name -> (name, FunctionFQN mn name)) (fst <$> functions))))
-            debugMsg $ (show mn) ++ " provides functions: " ++ (show (fst <$> functions)) ++ ", imports: " ++ (show importedFunctions)
-         Nothing -> compileOk
-   _                         -> compileOk
+parseModuleProcessor :: SimpleCompilerProcessor SourceAST
+parseModuleProcessor (SourceAST path ast) = do
+   moduleNameMaybe <- calculateModuleName path ast
+   case moduleNameMaybe of
+      Just mn -> do
+         functions         <- foldM extractFunction [] (functionDefinitions ast)
+         _                 <- registerCompilerFact (ModuleFunctionNamesSignal mn) (ModuleFunctionNames mn (fst <$> functions))
+         importedFunctions <- foldM (collectImportedFunctions (fst <$> functions)) Map.empty (importStatements ast)
+         _                 <- forM_ functions (extractCompilationFunction mn (Map.union importedFunctions (Map.fromList $ map (\name -> (name, FunctionFQN mn name)) (fst <$> functions))))
+         debugMsg $ (show mn) ++ " provides functions: " ++ (show (fst <$> functions)) ++ ", imports: " ++ (show importedFunctions)
+      Nothing -> compileOk
 
 extractCompilationFunction :: ModuleName -> FunctionDictionary -> (String, FunctionDefinition) -> CompilerIO ()
 extractCompilationFunction mn dictionary (fname, functionDefinition) =
