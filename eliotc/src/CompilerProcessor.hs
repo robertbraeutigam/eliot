@@ -3,7 +3,7 @@
 {-| Defines all the types needed to develop a processor for the compiler.
  -}
 
-module CompilerProcessor(InitSignal(..), Init(..), CompilerIO, CompilerProcessor, compileOk, registerCompilerFact, getCompilerFact, infoMsg, errorMsg, debugMsg, compilerErrorMsg, getTypedValue) where
+module CompilerProcessor(InitSignal(..), Init(..), CompilerIO, CompilerProcessor, compileOk, registerCompilerFact, getCompilerFact, infoMsg, errorMsg, debugMsg, compilerErrorMsg, getTypedValue, SimpleCompilerProcessor, simpleProcessor) where
 
 import GHC.Generics
 import Data.Hashable
@@ -25,8 +25,16 @@ data Init = Init
 -- multiple errors and still produce some output.
 type CompilerIO = ReaderT (Logging.Logger, DynamicFactEngine) IO
 
--- | A compiler process reacts to a fact and runs a CompilerIO computation.
+-- | A compiler processor reacts to a fact and runs a CompilerIO computation.
 type CompilerProcessor = DynamicValue -> CompilerIO ()
+
+-- | A simple compiler processor that will react to a single typed fact and run a computation on that.
+type SimpleCompilerProcessor v = v -> CompilerIO ()
+
+simpleProcessor :: Typeable v => (SimpleCompilerProcessor v) -> CompilerProcessor
+simpleProcessor sp dv = case getTypedValue dv of
+   Just v  -> sp v
+   Nothing -> compileOk
 
 -- | Return no errors an void from a compiler processor.
 compileOk :: CompilerIO ()

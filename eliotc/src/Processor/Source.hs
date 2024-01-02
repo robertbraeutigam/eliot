@@ -65,8 +65,6 @@ fileReader v = case getTypedValue v of
    _                                                 -> compileOk
 
 -- | Initializes all the paths with the given initial path arguments from the compiler arguments.
-initPaths :: [String] -> CompilerProcessor
-initPaths paths v = case getTypedValue v of
-   Just Init -> mapM_ (\s -> registerCompilerFact (SourcePathSignal s) (SourcePath s)) paths
-   _         -> compileOk
+initPaths :: [String] -> SimpleCompilerProcessor Init
+initPaths paths _ = mapM_ (\s -> registerCompilerFact (SourcePathSignal s) (SourcePath s)) paths
 
