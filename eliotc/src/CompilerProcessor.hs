@@ -31,6 +31,7 @@ type CompilerProcessor = DynamicValue -> CompilerIO ()
 -- | A simple compiler processor that will react to a single typed fact and run a computation on that.
 type SimpleCompilerProcessor v = v -> CompilerIO ()
 
+-- | Convert a simple compiler processor to a generic compiler processor.
 simpleProcessor :: Typeable v => (SimpleCompilerProcessor v) -> CompilerProcessor
 simpleProcessor sp dv = case getTypedValue dv of
    Just v  -> sp v
@@ -53,16 +54,19 @@ registerCompilerFact s f = withReaderT snd $ registerFact s f
 getCompilerFact :: (Hashable s, Typeable s, Typeable f) => s -> CompilerIO (Maybe f)
 getCompilerFact s = withReaderT snd $ getFact s
 
--- | Logging
+-- | Log an error to the error output.
 errorMsg :: String -> CompilerIO ()
 errorMsg msg = withReaderT fst $ Logging.errorMsg msg
 
+-- | Log a debug message to output.
 debugMsg :: String -> CompilerIO ()
 debugMsg msg = withReaderT fst $ Logging.debugMsg msg
 
+-- | Log an info message to output.
 infoMsg :: String -> CompilerIO ()
 infoMsg msg = withReaderT fst $ Logging.infoMsg msg
 
+-- | Display a standardized compiler error with highlighted section of source code.
 compilerErrorMsg :: FilePath -> String -> Int -> Int -> Int -> Int -> String -> CompilerIO ()
 compilerErrorMsg filePath content fRow fCol tRow tCol msg = withReaderT fst $ Logging.compilerErrorMsg filePath content fRow fCol tRow tCol msg
 
