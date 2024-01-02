@@ -41,7 +41,7 @@ compileWithLogger mainModule architecture paths logger = do
             simpleProcessor directoryWalker,
             simpleProcessor fileReader,
             simpleProcessor parseTokensProcessor,
-            parseASTProcessor,
+            simpleProcessor parseASTProcessor,
             parseModuleProcessor,
             parseFASTProcessor,
             generateMain mainModule architecture,

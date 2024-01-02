@@ -57,13 +57,11 @@ instance Hashable SourceASTSignal
 -- | AST of source file
 data SourceAST = SourceAST FilePath AST
 
-parseASTProcessor :: CompilerProcessor
-parseASTProcessor v = case getTypedValue v of
-   Just (SourceTokens path [])     -> registerAST path (AST [] [])
-   Just (SourceTokens path (t:ts)) -> case runParser (positionedRecoveringParseSource t) [] path (t:ts) of
-      Left err            -> (compilerErrorAST path (t:ts) err) >> registerAST path (AST [] [])
-      Right (errors, ast) -> (mapM_ (compilerErrorAST path (t:ts)) errors) >> registerAST path ast
-   _                               -> compileOk
+parseASTProcessor :: SimpleCompilerProcessor SourceTokens
+parseASTProcessor (SourceTokens path [])     = registerAST path (AST [] [])
+parseASTProcessor (SourceTokens path (t:ts)) = case runParser (positionedRecoveringParseSource t) [] path (t:ts) of
+   Left err            -> (compilerErrorAST path (t:ts) err) >> registerAST path (AST [] [])
+   Right (errors, ast) -> (mapM_ (compilerErrorAST path (t:ts)) errors) >> registerAST path ast
 
 registerAST path ast = registerCompilerFact (SourceASTSignal path) (SourceAST path ast)
 
