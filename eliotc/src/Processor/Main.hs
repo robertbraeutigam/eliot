@@ -25,9 +25,10 @@ instance Hashable GenerateMainSignal
 -- | Ask processors to generate for this main function and target platform.
 data GenerateMain = GenerateMain TargetPlatform FunctionFQN (Tree Expression)               
 
-generateMain :: ModuleName -> TargetPlatform -> CompilerProcessor
-generateMain mainModule targetPlatform v = case getTypedValue v of
-   Just (CompiledFunction ffqn@(FunctionFQN fmn "main") (NonNativeFunction expressionTree)) | mainModule == fmn -> registerCompilerFact (GenerateMainSignal targetPlatform) (GenerateMain targetPlatform ffqn expressionTree)
-   Just (CompiledFunction ffqn@(FunctionFQN fmn "main") NativeFunction)                     | mainModule == fmn -> compilerErrorForFunction ffqn "Main can not be native."
-   _                                                                                                     -> compileOk
+generateMain :: ModuleName -> TargetPlatform -> SimpleCompilerProcessor CompiledFunction
+generateMain mainModule targetPlatform (CompiledFunction ffqn@(FunctionFQN fmn "main") (NonNativeFunction expressionTree))
+   | mainModule == fmn = registerCompilerFact (GenerateMainSignal targetPlatform) (GenerateMain targetPlatform ffqn expressionTree)
+generateMain mainModule _ (CompiledFunction ffqn@(FunctionFQN fmn "main") NativeFunction)
+   | mainModule == fmn = compilerErrorForFunction ffqn "Main can not be native."
+generateMain _ _ _     = compileOk
 
