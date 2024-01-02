@@ -45,7 +45,7 @@ compileWithLogger mainModule architecture paths logger = do
             simpleProcessor parseModuleProcessor,
             simpleProcessor parseFASTProcessor,
             simpleProcessor $ generateMain mainModule architecture,
-            parseAVRGenerate,
+            simpleProcessor generateAVRBinary,
             simpleProcessor writeOutputBinary]
  
 -- | Translate a fact engine IO into a compile one.
