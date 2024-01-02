@@ -1,13 +1,11 @@
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
-module Processor.ASTProcessorSpec (spec) where
+module Processor.ASTSpec (spec) where
 
 import Test.Hspec
 import Tokens
 import Processor.TokensProcessor
-import AST
 import Processor.Error
-import Processor.ASTProcessor
-import CompilerProcessor
+import Processor.AST
 import Processor.TestCompiler
 
 spec :: Spec
@@ -74,9 +72,8 @@ parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcess
 
 parseForAST :: String -> IO AST
 parseForAST code = compileSelectFact [parseTokensProcessor, parseASTProcessor] [("", code)] selectAST
-   where selectAST :: (Signal, Fact) -> Maybe AST.AST
+   where selectAST :: (SourceASTSignal, SourceAST) -> Maybe AST
          selectAST (_, SourceAST _ ast) = Just ast
-         selectAST _                    = Nothing
 
 extractImports (AST imps _) = map toImportTest imps
 

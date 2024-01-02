@@ -3,11 +3,10 @@ module Processor.ModuleSpec (spec) where
 
 import Test.Hspec
 import Processor.TokensProcessor
-import Processor.ASTProcessor
+import Processor.AST
 import Processor.Module
 import Processor.TestCompiler
 import Processor.Error
-import CompilerProcessor
 import qualified Data.Map as Map
 
 spec :: Spec

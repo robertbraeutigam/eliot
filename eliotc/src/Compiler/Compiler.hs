@@ -12,7 +12,7 @@ import CompilerProcessor
 import qualified Logging
 import Control.Exception
 import Processor.Error
-import Processor.ASTProcessor
+import Processor.AST
 import Processor.TokensProcessor
 import Processor.Source
 import Processor.Module

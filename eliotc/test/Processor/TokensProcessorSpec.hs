@@ -50,7 +50,6 @@ parseForPositionedTokens :: String -> IO [PositionedToken]
 parseForPositionedTokens code = compileSelectFact [parseTokensProcessor] [("", code)] selectTokens
    where selectTokens :: (Signal, Fact) -> Maybe [PositionedToken]
          selectTokens (_, SourceTokens _ pts) = Just pts
-         selectTokens _                       = Nothing
 
 parseForTokens :: String -> IO [Token]
 parseForTokens source = (map (\(PositionedToken _ _ _ t) -> t)) <$> parseForPositionedTokens source

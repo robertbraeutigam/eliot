@@ -27,14 +27,13 @@ source-repository head
 
 library
   exposed-modules:
-      AST
       Compiler.Compiler
       CompilerProcessor
       Engine.DynamicFactEngine
       Engine.FactEngine
       Engine.FactEngineStatus
       Logging
-      Processor.ASTProcessor
+      Processor.AST
       Processor.AVRGeneratorProcessor
       Processor.Error
       Processor.FAST
@@ -107,7 +106,7 @@ test-suite eliotc-test
   main-is: Spec.hs
   other-modules:
       Engine.FactEngineSpec
-      Processor.ASTProcessorSpec
+      Processor.ASTSpec
       Processor.FASTSpec
       Processor.ModuleSpec
       Processor.TestCompiler

@@ -1,21 +1,61 @@
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
+{-# LANGUAGE DeriveAnyClass, DeriveGeneric #-}
 {-| Build the AST of an ELIOT source. Note, this AST is not yet enriched wih type information
  - nor does it completely assign roles to various tokens.
  -}
 
-module Processor.ASTProcessor (parseASTProcessor) where
+module Processor.AST (AST(..), Import(..), FunctionDefinition(..), FunctionBody(..), allImportTokens, Expression(..), parseASTProcessor, SourceASTSignal(..), SourceAST(..)) where
 
+import Data.Hashable
+import GHC.Generics
+import Tokens
 import Data.List (isPrefixOf, intercalate, find)
 import Text.Parsec
 import Text.Parsec.Pos
 import Data.Maybe
 import Data.Tree
 import Data.Char (isLower, isUpper)
-import Tokens
 import CompilerProcessor
-import AST
 import Processor.Error
 import Processor.Source
+
+data Import = Import {
+   importKeyword::PositionedToken,
+   importPackageNames::[PositionedToken],
+   importModule::PositionedToken
+}  
+   deriving (Show, Eq)
+
+allImportTokens :: Import -> [PositionedToken]
+allImportTokens (Import k pns m) = [k] ++ pns ++ [m]
+
+data FunctionDefinition = FunctionDefinition {
+   functionName::PositionedToken,
+   functionParameters::[PositionedToken],
+   functionBody::FunctionBody
+}
+   deriving (Show, Eq)
+
+data FunctionBody = NativeFunction | NonNativeFunction (Tree Expression)
+ deriving (Eq, Show)
+
+data Expression = FunctionApplication PositionedToken
+                | NumberLiteral PositionedToken
+ deriving (Eq, Show)
+
+data AST = AST { 
+   importStatements    :: [Import],
+   functionDefinitions :: [FunctionDefinition]
+}
+   deriving (Show, Eq)
+
+data SourceASTSignal = SourceASTSignal FilePath
+   deriving (Eq, Generic)
+
+instance Hashable SourceASTSignal
+
+-- | AST of source file
+data SourceAST = SourceAST FilePath AST
 
 parseASTProcessor :: CompilerProcessor
 parseASTProcessor v = case getTypedValue v of
@@ -63,7 +103,7 @@ literal = numberLiteral
 
 numberLiteral = do
    nt <- satisfyAll [isNumber] <?> "number literal"
-   return $ Node (AST.NumberLiteral nt) []
+   return $ Node (Processor.AST.NumberLiteral nt) []
 
 functionApplication = do
    fname   <- satisfyAll [isIdentifer] <?> "function name"
