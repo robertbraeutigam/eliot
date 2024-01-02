@@ -34,14 +34,12 @@ library
       Engine.FactEngine
       Engine.FactEngineStatus
       Logging
-      Module
       Processor.ASTProcessor
       Processor.AVRGeneratorProcessor
       Processor.Error
       Processor.FAST
       Processor.Main
       Processor.Module
-      Processor.ModuleProcessor
       Processor.Output
       Processor.Source
       Processor.Token
@@ -111,7 +109,7 @@ test-suite eliotc-test
       Engine.FactEngineSpec
       Processor.ASTProcessorSpec
       Processor.FASTSpec
-      Processor.ModuleProcessorSpec
+      Processor.ModuleSpec
       Processor.TestCompiler
       Processor.TokensProcessorSpec
       Paths_eliotc

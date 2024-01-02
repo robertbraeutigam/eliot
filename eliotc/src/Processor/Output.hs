@@ -5,7 +5,7 @@
 module Processor.Output (TargetBinaryGeneratedSignal(..), TargetBinaryGenerated(..), writeOutputBinary) where
 
 import CompilerProcessor
-import Module
+import Processor.Module
 import Processor.Main
 import qualified Data.ByteString as ByteString
 import Control.Monad.Trans

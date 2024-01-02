@@ -8,7 +8,6 @@ module Processor.Main (generateMain, GenerateMainSignal(..), GenerateMain(..), T
 import GHC.Generics
 import CompilerProcessor
 import Data.Tree
-import Module
 import Processor.Module
 import Processor.FAST
 import Data.Hashable

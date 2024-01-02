@@ -6,7 +6,6 @@
 
 module Processor.FAST (FunctionBody(..), Expression(..), CompiledFunction(..), CompiledFunctionSignal(..), parseFASTProcessor) where
 
-import Module
 import GHC.Generics
 import Data.Hashable
 import Data.Tree
@@ -16,6 +15,7 @@ import qualified Data.Map as Map
 import Tokens
 import qualified AST as AST
 import Processor.Token
+import Processor.Module
 
 -- | A body of a function.
 data FunctionBody = NativeFunction | NonNativeFunction (Tree Expression)

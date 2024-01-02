@@ -1,15 +1,14 @@
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
-module Processor.ModuleProcessorSpec (spec) where
+module Processor.ModuleSpec (spec) where
 
 import Test.Hspec
 import Processor.TokensProcessor
 import Processor.ASTProcessor
-import Processor.ModuleProcessor
+import Processor.Module
 import Processor.TestCompiler
 import Processor.Error
 import CompilerProcessor
 import qualified Data.Map as Map
-import Module
 
 spec :: Spec
 spec = do
@@ -62,13 +61,11 @@ parseForFact filename code = parseMultiForFact [(filename, code)]
 
 parseMultiForFact :: [(String, String)] -> IO (ModuleName, [String])
 parseMultiForFact files = compileSelectFact [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectFact
-   where selectFact :: (Signal, Fact) -> Maybe (ModuleName, [String])
+   where selectFact :: (ModuleFunctionNamesSignal, ModuleFunctionNames) -> Maybe (ModuleName, [String])
          selectFact (_, ModuleFunctionNames mn names) = Just (mn, names)
-         selectFact _                                 = Nothing
 
 parseMultiForCompilationFunction :: [(String, String)] -> IO [(FunctionFQN, Map.Map String FunctionFQN)]
 parseMultiForCompilationFunction files = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectFact
-   where selectFact :: (Signal, Fact) -> Maybe (FunctionFQN, FunctionDictionary)
+   where selectFact :: (FunctionCompilationUnitSignal, FunctionCompilationUnit) -> Maybe (FunctionFQN, FunctionDictionary)
          selectFact (_, FunctionCompilationUnit ffqn dictionary _) = Just (ffqn, dictionary)
-         selectFact _                                              = Nothing
 

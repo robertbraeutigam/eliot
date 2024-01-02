@@ -15,12 +15,11 @@ import Processor.Error
 import Processor.ASTProcessor
 import Processor.TokensProcessor
 import Processor.Source
-import Processor.ModuleProcessor
+import Processor.Module
 import Processor.FAST
 import Processor.Main
 import Processor.AVRGeneratorProcessor
 import Processor.Output
-import Module
 
 -- | Run the compiler on the given source paths.
 compile :: ModuleName -> TargetPlatform -> [String] -> IO ()

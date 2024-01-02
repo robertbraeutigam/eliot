@@ -9,7 +9,7 @@ import Compiler.Compiler
 import Data.List.Split
 import System.IO
 import Processor.Main
-import Module
+import Processor.Module
 
 data CommandLineParameters = CommandLineParameters {
    help         :: Bool,

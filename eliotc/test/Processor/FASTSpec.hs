@@ -4,12 +4,11 @@ module Processor.FASTSpec (spec) where
 import Test.Hspec
 import Processor.TokensProcessor
 import Processor.ASTProcessor
-import Processor.ModuleProcessor
+import Processor.Module
 import Processor.FAST
 import Processor.TestCompiler
 import Processor.Error
 import Data.Tree
-import Module
 
 spec :: Spec
 spec = do
