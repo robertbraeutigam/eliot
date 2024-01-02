@@ -58,12 +58,10 @@ compilerErrorForTokens pts@((PositionedToken file _ _ _):_) msg = compilerError 
          pos (PositionedToken _ line column _) = SourcePosition line column
 
 -- | Parse tokens if a source file is read.
-parseTokensProcessor :: CompilerProcessor
-parseTokensProcessor v = case getTypedValue v of
-   Just (SourceFileContent path code) -> case parse (whiteSpace >> (many anyTokenLexeme) <* eof) path code of
-      Left parserError -> compilerErrorTranslated path parserError
-      Right ts         -> registerCompilerFact (SourceTokensSignal path) (SourceTokens path ts)
-   _                                  -> compileOk
+parseTokensProcessor :: SimpleCompilerProcessor SourceFileContent
+parseTokensProcessor (SourceFileContent path code) = case parse (whiteSpace >> (many anyTokenLexeme) <* eof) path code of
+   Left parserError -> compilerErrorTranslated path parserError
+   Right ts         -> registerCompilerFact (SourceTokensSignal path) (SourceTokens path ts)
 
 anyTokenLexeme = ((identifierOrKeyword <|> symbol <|> singleSymbol <|> number) <* whiteSpace) <?> "legal character"
 

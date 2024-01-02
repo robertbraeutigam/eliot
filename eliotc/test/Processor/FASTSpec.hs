@@ -8,6 +8,7 @@ import Processor.Module
 import Processor.FAST
 import Processor.TestCompiler
 import Processor.Error
+import CompilerProcessor
 import Data.Tree
 
 spec :: Spec
@@ -23,12 +24,12 @@ spec = do
          parseForErrors "ni() = native" `shouldReturn` []
          
 parseForErrors :: String -> IO [String]
-parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor] [("A", code)] selectErrors
+parseForErrors code = compileCollectFacts [simpleProcessor parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor] [("A", code)] selectErrors
    where selectErrors :: (CompilerError, CompilerError) -> Maybe String
          selectErrors (_, CompilerError _ _ _ msg) = Just msg
 
 parseForFunction :: String -> String -> IO FunctionBody
-parseForFunction code func = compileSelectFact [parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor] [("A", code)] selectFact
+parseForFunction code func = compileSelectFact [simpleProcessor parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor] [("A", code)] selectFact
    where selectFact :: (CompiledFunctionSignal, CompiledFunction) -> Maybe FunctionBody
          selectFact (_, CompiledFunction (FunctionFQN _ f) body) | f == func = Just body
          selectFact _                                                        = Nothing

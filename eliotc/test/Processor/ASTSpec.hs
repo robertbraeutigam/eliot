@@ -6,6 +6,7 @@ import Processor.Token
 import Processor.Error
 import Processor.AST
 import Processor.TestCompiler
+import CompilerProcessor
 
 spec :: Spec
 spec = do
@@ -65,12 +66,12 @@ spec = do
          parseForErrors "a = b(123, c())" `shouldReturn` []
 
 parseForErrors :: String -> IO [String]
-parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcessor] [("", code)] selectErrors
+parseForErrors code = compileCollectFacts [simpleProcessor parseTokensProcessor, parseASTProcessor] [("", code)] selectErrors
    where selectErrors :: (CompilerError, CompilerError) -> Maybe String
          selectErrors (_, CompilerError _ _ _ msg) = Just msg
 
 parseForAST :: String -> IO AST
-parseForAST code = compileSelectFact [parseTokensProcessor, parseASTProcessor] [("", code)] selectAST
+parseForAST code = compileSelectFact [simpleProcessor parseTokensProcessor, parseASTProcessor] [("", code)] selectAST
    where selectAST :: (SourceASTSignal, SourceAST) -> Maybe AST
          selectAST (_, SourceAST _ ast) = Just ast
 

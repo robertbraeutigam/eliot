@@ -40,7 +40,7 @@ compileWithLogger mainModule architecture paths logger = do
             simpleProcessor $ initPaths paths,
             simpleProcessor directoryWalker,
             simpleProcessor fileReader,
-            parseTokensProcessor,
+            simpleProcessor parseTokensProcessor,
             parseASTProcessor,
             parseModuleProcessor,
             parseFASTProcessor,

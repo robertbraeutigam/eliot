@@ -7,6 +7,7 @@ import Processor.AST
 import Processor.Module
 import Processor.TestCompiler
 import Processor.Error
+import CompilerProcessor
 import qualified Data.Map as Map
 
 spec :: Spec
@@ -51,7 +52,7 @@ parseForErrors :: String -> String -> IO [String]
 parseForErrors filename code = parseMultiForErrors [(filename, code)]
 
 parseMultiForErrors :: [(String, String)] -> IO [String]
-parseMultiForErrors files = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectErrors
+parseMultiForErrors files = compileCollectFacts [simpleProcessor parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectErrors
    where selectErrors :: (CompilerError, CompilerError) -> Maybe String
          selectErrors (_, CompilerError _ _ _ msg) = Just msg
 
@@ -59,12 +60,12 @@ parseForFact :: String -> String -> IO (ModuleName, [String])
 parseForFact filename code = parseMultiForFact [(filename, code)]
 
 parseMultiForFact :: [(String, String)] -> IO (ModuleName, [String])
-parseMultiForFact files = compileSelectFact [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectFact
+parseMultiForFact files = compileSelectFact [simpleProcessor parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectFact
    where selectFact :: (ModuleFunctionNamesSignal, ModuleFunctionNames) -> Maybe (ModuleName, [String])
          selectFact (_, ModuleFunctionNames mn names) = Just (mn, names)
 
 parseMultiForCompilationFunction :: [(String, String)] -> IO [(FunctionFQN, Map.Map String FunctionFQN)]
-parseMultiForCompilationFunction files = compileCollectFacts [parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectFact
+parseMultiForCompilationFunction files = compileCollectFacts [simpleProcessor parseTokensProcessor, parseASTProcessor, parseModuleProcessor] files selectFact
    where selectFact :: (FunctionCompilationUnitSignal, FunctionCompilationUnit) -> Maybe (FunctionFQN, FunctionDictionary)
          selectFact (_, FunctionCompilationUnit ffqn dictionary _) = Just (ffqn, dictionary)
 
