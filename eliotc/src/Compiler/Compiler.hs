@@ -43,7 +43,7 @@ compileWithLogger mainModule architecture paths logger = do
             simpleProcessor parseTokensProcessor,
             simpleProcessor parseASTProcessor,
             simpleProcessor parseModuleProcessor,
-            parseFASTProcessor,
+            simpleProcessor parseFASTProcessor,
             generateMain mainModule architecture,
             parseAVRGenerate,
             simpleProcessor writeOutputBinary]
