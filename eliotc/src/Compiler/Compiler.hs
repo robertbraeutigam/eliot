@@ -19,7 +19,7 @@ import Processor.ModuleProcessor
 import Processor.FASTProcessor
 import Processor.GenerateMainProcessor
 import Processor.AVRGeneratorProcessor
-import Processor.BinaryOutputProcessor
+import Processor.Output
 import Module
 import Generator
 

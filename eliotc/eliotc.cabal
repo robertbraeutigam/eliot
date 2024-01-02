@@ -39,12 +39,12 @@ library
       Module
       Processor.ASTProcessor
       Processor.AVRGeneratorProcessor
-      Processor.BinaryOutputProcessor
       Processor.Error
       Processor.FASTProcessor
       Processor.GenerateMainProcessor
       Processor.Module
       Processor.ModuleProcessor
+      Processor.Output
       Processor.Source
       Processor.Token
       Processor.TokensProcessor
