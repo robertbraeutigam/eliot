@@ -46,7 +46,7 @@ compileWithLogger mainModule architecture paths logger = do
             parseFASTProcessor,
             generateMain mainModule architecture,
             parseAVRGenerate,
-            writeOutputBinary]
+            simpleProcessor writeOutputBinary]
  
 -- | Translate a fact engine IO into a compile one.
 liftToCompiler :: Logging.Logger -> CompilerProcessor -> (DynamicValue -> DynamicFactsIO ())
