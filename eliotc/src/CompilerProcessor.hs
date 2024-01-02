@@ -14,9 +14,10 @@ import Engine.DynamicFactEngine
 
 data InitSignal = InitSignal
    deriving (Eq, Generic)
-data Init = Init
-
 instance Hashable InitSignal
+
+-- | A fact that will be inserted at the very beginning of the compile process. This signal should kick-off the compile process.
+data Init = Init
 
 -- | A computation running in the compiler. This computation interacts
 -- with facts, may get and register them, and potentially produces errors during
