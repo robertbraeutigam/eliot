@@ -18,7 +18,7 @@ import Processor.Source
 import Processor.Module
 import Processor.FAST
 import Processor.Main
-import Processor.AVRGeneratorProcessor
+import Processor.AVR
 import Processor.Output
 
 -- | Run the compiler on the given source paths.

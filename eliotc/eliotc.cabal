@@ -34,7 +34,7 @@ library
       Engine.FactEngineStatus
       Logging
       Processor.AST
-      Processor.AVRGeneratorProcessor
+      Processor.AVR
       Processor.Error
       Processor.FAST
       Processor.Main
