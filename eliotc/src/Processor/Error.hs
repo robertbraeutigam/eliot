@@ -23,12 +23,10 @@ compilerErrorForFile :: FilePath -> String -> CompilerIO ()
 compilerErrorForFile file msg = compilerError file (SourcePosition 1 1) (SourcePosition 1 1) msg
 
 -- | Error processor reads all error facts and prints them using the contents of the given file.
-errorProcessor :: CompilerProcessor
-errorProcessor v = case getTypedValue v of
-   Just (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg) -> do
-      source <- getCompilerFact $ SourceFileContentSignal fp
-      case source of
-         Just (SourceFileContent _ content) -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
-         _                                  -> compileOk
-   _                                                                                           -> compileOk
+errorProcessor :: SimpleCompilerProcessor CompilerError
+errorProcessor (CompilerError fp (SourcePosition fromLine fromCol) (SourcePosition toLine toCol) msg) = do
+   source <- getCompilerFact $ SourceFileContentSignal fp
+   case source of
+      Just (SourceFileContent _ content) -> compilerErrorMsg fp content fromLine fromCol toLine toCol msg
+      _                                  -> compileOk
 

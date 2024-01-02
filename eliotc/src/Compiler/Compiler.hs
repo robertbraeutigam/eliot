@@ -36,7 +36,7 @@ compileWithLogger mainModule architecture paths logger = do
       Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
    where liftedProcessors = map (liftToCompiler logger) processors
          processors = [
-            errorProcessor,
+            simpleProcessor errorProcessor,
             simpleProcessor $ initPaths paths,
             simpleProcessor directoryWalker,
             simpleProcessor fileReader,
