@@ -6,7 +6,7 @@ module Processor.AVRGeneratorProcessor (parseAVRGenerate) where
 
 import CompilerProcessor
 import Data.Tree
-import Generator
+import Processor.Main
 
 parseAVRGenerate :: CompilerProcessor
 parseAVRGenerate v = case getTypedValue v of

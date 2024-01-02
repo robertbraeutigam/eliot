@@ -8,8 +8,6 @@ module CompilerProcessor(InitSignal(..), Init(..), Signal(..), Fact(..), Compile
 import GHC.Generics
 import Data.Hashable
 import Data.Dynamic
-import Data.Tree
-import qualified Data.ByteString as ByteString
 import Control.Monad.Trans.Reader
 import qualified Logging
 import Engine.DynamicFactEngine
@@ -17,7 +15,6 @@ import Tokens
 import qualified AST as AST
 import qualified FAST as FAST
 import Module
-import Generator
 
 data InitSignal = InitSignal
    deriving (Eq, Generic)
@@ -32,7 +29,6 @@ data Signal =
    | ModuleFunctionNamesSignal        ModuleName
    | FunctionCompilationUnitSignal    FunctionFQN
    | CompiledFunctionSignal           FunctionFQN
-   | GenerateMainSignal               TargetPlatform
    deriving (Eq, Show, Generic, Hashable, Typeable)
 
 -- | Facts registered into the fact engine.
@@ -42,7 +38,6 @@ data Fact =
    | ModuleFunctionNames       ModuleName [String]                                             -- A list of functions in the module
    | FunctionCompilationUnit   FunctionFQN FunctionDictionary AST.FunctionDefinition           -- A function ready to be compiled and type-checked
    | CompiledFunction          FunctionFQN FAST.FunctionBody                                   -- A compiled (type-checked) correct function body, of there is no body, that's a native function
-   | GenerateMain              TargetPlatform FunctionFQN (Tree FAST.Expression)               -- Ask processors to generate for this main function and target platform
    deriving (Generic, Typeable)
 
 -- | A computation running in the compiler. This computation interacts

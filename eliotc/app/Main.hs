@@ -8,8 +8,8 @@ import System.Console.CmdArgs.Explicit
 import Compiler.Compiler
 import Data.List.Split
 import System.IO
+import Processor.Main
 import Module
-import Generator
 
 data CommandLineParameters = CommandLineParameters {
    help         :: Bool,

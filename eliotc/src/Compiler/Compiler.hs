@@ -17,11 +17,10 @@ import Processor.TokensProcessor
 import Processor.Source
 import Processor.ModuleProcessor
 import Processor.FASTProcessor
-import Processor.GenerateMainProcessor
+import Processor.Main
 import Processor.AVRGeneratorProcessor
 import Processor.Output
 import Module
-import Generator
 
 -- | Run the compiler on the given source paths.
 compile :: ModuleName -> TargetPlatform -> [String] -> IO ()
@@ -37,7 +36,7 @@ compileWithLogger mainModule architecture paths logger = do
       Just allFacts  -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated " ++ (show (length allFacts)) ++ " facts."
       Nothing        -> Logging.withLogger logger $ Logging.errorMsg "Compiler terminated with errors. See previous errors for details."
    where liftedProcessors = map (liftToCompiler logger) processors
-         processors = [errorProcessor, initPaths paths, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor, parseGenerateMain mainModule architecture, parseAVRGenerate, writeOutputBinary]
+         processors = [errorProcessor, initPaths paths, directoryWalker, fileReader, parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor, generateMain mainModule architecture, parseAVRGenerate, writeOutputBinary]
  
 -- | Translate a fact engine IO into a compile one.
 liftToCompiler :: Logging.Logger -> CompilerProcessor -> (DynamicValue -> DynamicFactsIO ())

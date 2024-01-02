@@ -34,14 +34,13 @@ library
       Engine.FactEngine
       Engine.FactEngineStatus
       FAST
-      Generator
       Logging
       Module
       Processor.ASTProcessor
       Processor.AVRGeneratorProcessor
       Processor.Error
       Processor.FASTProcessor
-      Processor.GenerateMainProcessor
+      Processor.Main
       Processor.Module
       Processor.ModuleProcessor
       Processor.Output

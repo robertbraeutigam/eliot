@@ -6,7 +6,7 @@ module Processor.Output (TargetBinaryGeneratedSignal(..), TargetBinaryGenerated(
 
 import CompilerProcessor
 import Module
-import Generator
+import Processor.Main
 import qualified Data.ByteString as ByteString
 import Control.Monad.Trans
 
