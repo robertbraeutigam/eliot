@@ -33,13 +33,12 @@ library
       Engine.DynamicFactEngine
       Engine.FactEngine
       Engine.FactEngineStatus
-      FAST
       Logging
       Module
       Processor.ASTProcessor
       Processor.AVRGeneratorProcessor
       Processor.Error
-      Processor.FASTProcessor
+      Processor.FAST
       Processor.Main
       Processor.Module
       Processor.ModuleProcessor
@@ -111,7 +110,7 @@ test-suite eliotc-test
   other-modules:
       Engine.FactEngineSpec
       Processor.ASTProcessorSpec
-      Processor.FASTProcessorSpec
+      Processor.FASTSpec
       Processor.ModuleProcessorSpec
       Processor.TestCompiler
       Processor.TokensProcessorSpec

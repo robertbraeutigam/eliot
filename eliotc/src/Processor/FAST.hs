@@ -1,18 +1,42 @@
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
-{-| Build the Functional AST from the AST. This identifies the called functions and their parameters and checks
- - everything for type-safety.
+{-# LANGUAGE DeriveAnyClass, DeriveGeneric #-}
+{-| Build the Functional AST from the AST. This represents the tree of function compositions that
+ - is a function's body.
  -}
 
-module Processor.FASTProcessor (parseFASTProcessor) where
+module Processor.FAST (FunctionBody(..), Expression(..), CompiledFunction(..), CompiledFunctionSignal(..), parseFASTProcessor) where
 
+import Module
+import GHC.Generics
+import Data.Hashable
+import Data.Tree
 import Text.Read
 import CompilerProcessor
 import qualified Data.Map as Map
 import Tokens
 import qualified AST as AST
-import FAST
-import Module
 import Processor.Token
+
+-- | A body of a function.
+data FunctionBody = NativeFunction | NonNativeFunction (Tree Expression)
+   deriving (Eq, Show)
+
+-- | An expression
+data Expression = NumberConstant Integer
+                | FunctionApplication FunctionFQN
+   deriving (Eq)
+
+instance Show Expression where
+   show (NumberConstant i) = show i
+   show (FunctionApplication ffqn) = (show ffqn) ++ "()"
+
+data CompiledFunctionSignal = CompiledFunctionSignal FunctionFQN
+   deriving (Eq, Generic)
+
+instance Hashable CompiledFunctionSignal
+
+-- | A compiled (type-checked) correct function body, of there is no body, that's a native function
+data CompiledFunction = CompiledFunction FunctionFQN FunctionBody
 
 parseFASTProcessor :: CompilerProcessor
 parseFASTProcessor v = case getTypedValue v of
@@ -33,3 +57,4 @@ resolveFunctionNames _ (AST.NumberLiteral numberToken) =
    case readMaybe (positionedTokenContent numberToken) of
       Just number     -> return $ Just $ NumberConstant number
       _               -> compilerErrorForTokens [numberToken] "Could not parse number." >> return Nothing
+

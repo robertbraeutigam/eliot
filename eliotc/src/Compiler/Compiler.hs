@@ -16,7 +16,7 @@ import Processor.ASTProcessor
 import Processor.TokensProcessor
 import Processor.Source
 import Processor.ModuleProcessor
-import Processor.FASTProcessor
+import Processor.FAST
 import Processor.Main
 import Processor.AVRGeneratorProcessor
 import Processor.Output

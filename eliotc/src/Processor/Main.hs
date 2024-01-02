@@ -9,8 +9,8 @@ import GHC.Generics
 import CompilerProcessor
 import Data.Tree
 import Module
-import FAST
 import Processor.Module
+import Processor.FAST
 import Data.Hashable
 
 data TargetPlatform = TargetPlatform String
@@ -24,7 +24,7 @@ data GenerateMainSignal = GenerateMainSignal TargetPlatform
 instance Hashable GenerateMainSignal
 
 -- | Ask processors to generate for this main function and target platform.
-data GenerateMain = GenerateMain TargetPlatform FunctionFQN (Tree FAST.Expression)               
+data GenerateMain = GenerateMain TargetPlatform FunctionFQN (Tree Expression)               
 
 generateMain :: ModuleName -> TargetPlatform -> CompilerProcessor
 generateMain mainModule targetPlatform v = case getTypedValue v of

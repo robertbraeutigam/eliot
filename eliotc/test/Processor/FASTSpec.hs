@@ -1,16 +1,14 @@
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
-module Processor.FASTProcessorSpec (spec) where
+module Processor.FASTSpec (spec) where
 
 import Test.Hspec
 import Processor.TokensProcessor
 import Processor.ASTProcessor
 import Processor.ModuleProcessor
-import Processor.FASTProcessor
+import Processor.FAST
 import Processor.TestCompiler
 import Processor.Error
-import CompilerProcessor
 import Data.Tree
-import FAST
 import Module
 
 spec :: Spec
@@ -32,7 +30,7 @@ parseForErrors code = compileCollectFacts [parseTokensProcessor, parseASTProcess
 
 parseForFunction :: String -> String -> IO FunctionBody
 parseForFunction code func = compileSelectFact [parseTokensProcessor, parseASTProcessor, parseModuleProcessor, parseFASTProcessor] [("A", code)] selectFact
-   where selectFact :: (Signal, Fact) -> Maybe FAST.FunctionBody
+   where selectFact :: (CompiledFunctionSignal, CompiledFunction) -> Maybe FunctionBody
          selectFact (_, CompiledFunction (FunctionFQN _ f) body) | f == func = Just body
          selectFact _                                                        = Nothing
 

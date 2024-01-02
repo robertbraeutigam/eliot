@@ -13,7 +13,6 @@ import qualified Logging
 import Engine.DynamicFactEngine
 import Tokens
 import qualified AST as AST
-import qualified FAST as FAST
 import Module
 
 data InitSignal = InitSignal
@@ -28,7 +27,6 @@ data Signal =
    | SourceASTSignal                  FilePath
    | ModuleFunctionNamesSignal        ModuleName
    | FunctionCompilationUnitSignal    FunctionFQN
-   | CompiledFunctionSignal           FunctionFQN
    deriving (Eq, Show, Generic, Hashable, Typeable)
 
 -- | Facts registered into the fact engine.
@@ -37,7 +35,6 @@ data Fact =
    | SourceAST                 FilePath AST.AST                                                -- AST of source file
    | ModuleFunctionNames       ModuleName [String]                                             -- A list of functions in the module
    | FunctionCompilationUnit   FunctionFQN FunctionDictionary AST.FunctionDefinition           -- A function ready to be compiled and type-checked
-   | CompiledFunction          FunctionFQN FAST.FunctionBody                                   -- A compiled (type-checked) correct function body, of there is no body, that's a native function
    deriving (Generic, Typeable)
 
 -- | A computation running in the compiler. This computation interacts
