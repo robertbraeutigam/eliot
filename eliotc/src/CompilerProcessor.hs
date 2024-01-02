@@ -34,7 +34,6 @@ data Signal =
    | CompiledFunctionSignal           FunctionFQN
    | GenerateMainSignal               TargetPlatform
    | TargetBinaryGeneratedSignal      TargetPlatform
-   | PlatformGeneratedFunctionSignal  TargetPlatform FunctionFQN
    deriving (Eq, Show, Generic, Hashable, Typeable)
 
 -- | Facts registered into the fact engine.
@@ -46,7 +45,6 @@ data Fact =
    | CompiledFunction          FunctionFQN FAST.FunctionBody                                   -- A compiled (type-checked) correct function body, of there is no body, that's a native function
    | GenerateMain              TargetPlatform FunctionFQN (Tree FAST.Expression)               -- Ask processors to generate for this main function and target platform
    | TargetBinaryGenerated     TargetPlatform ModuleName ByteString.ByteString                 -- The target platform produced the compiled version of the source code
-   | PlatformGeneratedFunction TargetPlatform FunctionFQN Dynamic                              -- Generated some platform specific output for the given function
    deriving (Generic, Typeable)
 
 -- | A computation running in the compiler. This computation interacts
