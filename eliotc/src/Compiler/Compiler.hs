@@ -38,8 +38,8 @@ compileWithLogger mainModule architecture paths logger = do
          processors = [
             errorProcessor,
             simpleProcessor $ initPaths paths,
-            directoryWalker,
-            fileReader,
+            simpleProcessor directoryWalker,
+            simpleProcessor fileReader,
             parseTokensProcessor,
             parseASTProcessor,
             parseModuleProcessor,
