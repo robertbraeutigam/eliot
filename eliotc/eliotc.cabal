@@ -37,10 +37,10 @@ library
       Processor.AVR
       Processor.Error
       Processor.FAST
-      Processor.Main
       Processor.Module
       Processor.Output
       Processor.Source
+      Processor.TargetPlatform
       Processor.Token
   other-modules:
       Paths_eliotc

@@ -8,7 +8,7 @@ import System.Console.CmdArgs.Explicit
 import Compiler.Compiler
 import Data.List.Split
 import System.IO
-import Processor.Main
+import Processor.TargetPlatform
 import Processor.Module
 
 data CommandLineParameters = CommandLineParameters {

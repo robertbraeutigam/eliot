@@ -6,9 +6,11 @@ module Processor.AVR (generateAVRBinary) where
 
 import CompilerProcessor
 import Data.Tree
-import Processor.Main
+import Processor.FAST
 
-generateAVRBinary :: SimpleCompilerProcessor GenerateMain
-generateAVRBinary (GenerateMain (TargetPlatform "attiny424") _ expressionTree) = debugMsg ("\n" ++ (drawTree (show <$> expressionTree))) >> compileOk
+-- TODO: currently this ignores target platform
+generateAVRBinary :: SimpleCompilerProcessor CompiledFunction
+generateAVRBinary (CompiledFunction ffqn (NonNativeFunction expressionTree)) = debugMsg ((show ffqn) ++ ":\n" ++ (drawTree (show <$> expressionTree))) >> compileOk
+generateAVRBinary (CompiledFunction ffqn NativeFunction)                     = debugMsg ((show ffqn) ++ ": is native") >> compileOk
 generateAVRBinary _                                                            = compileOk
 

@@ -17,7 +17,7 @@ import Processor.Token
 import Processor.Source
 import Processor.Module
 import Processor.FAST
-import Processor.Main
+import Processor.TargetPlatform
 import Processor.AVR
 import Processor.Output
 
@@ -29,7 +29,7 @@ compile architecture mainModule paths = do
    (compileWithLogger architecture mainModule paths logger) `catch` (\e -> Logging.withLogger logger $ Logging.errorMsg ("Internal compiler exception: " ++ (show (e::SomeException))))
 
 compileWithLogger :: ModuleName -> TargetPlatform -> [String] -> Logging.Logger -> IO ()
-compileWithLogger mainModule architecture paths logger = do
+compileWithLogger _ _ paths logger = do
    facts          <- resolveFacts liftedProcessors [(toDynKey InitSignal, toDynValue Init)]
    case facts of
       Just allFacts  -> Logging.withLogger logger $ Logging.debugMsg $ "Calculated " ++ (show (length allFacts)) ++ " facts."
@@ -44,7 +44,6 @@ compileWithLogger mainModule architecture paths logger = do
             simpleProcessor parseASTProcessor,
             simpleProcessor parseModuleProcessor,
             simpleProcessor parseFASTProcessor,
-            simpleProcessor $ generateMain mainModule architecture,
             simpleProcessor generateAVRBinary,
             simpleProcessor writeOutputBinary]
  
