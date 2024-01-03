@@ -35,6 +35,7 @@ library
       Logging
       Processor.AST
       Processor.AVR
+      Processor.AVRInstruction
       Processor.Error
       Processor.FAST
       Processor.Module
