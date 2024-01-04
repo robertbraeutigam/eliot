@@ -19,7 +19,7 @@ data Instruction = Push  Register
 instructionToBytes :: Instruction -> Either String ByteString
 instructionToBytes (Push r)  = Right $ pack [0b10010010 + ((fromIntegral (fromEnum r)) `shiftR` 5), ((fromIntegral (fromEnum r)) `shiftL` 4) + 0b00001111]
 instructionToBytes (Ldi r i)
-   | fromEnum r < 16 = Left $ "Can not load immediate into " ++ (show r) ++ ", only R16-R32 can be used."
+   | fromEnum r < 15 = Left $ "Can not load immediate into " ++ (show r) ++ ", only R16-R32 can be used."
    | otherwise       = Right $ pack [0b11100000 + (i .&. 0x0F), (fromIntegral (((fromEnum r)-16)) `shiftL` 4) + (i `shiftR` 4)]
 instructionToBytes (Rcall a)
    | a >= 4096       = Left $ "Relative call address (" ++ (show a) ++ ") out of bounds. Allowed 0 - 4095."
