@@ -4,7 +4,7 @@
  - is a function's body.
  -}
 
-module Processor.FAST (FunctionBody(..), Expression(..), CompiledFunction(..), CompiledFunctionSignal(..), parseFASTProcessor) where
+module Processor.FAST (FunctionBody(..), Expression(..), CompiledFunction(..), CompiledFunctionSignal(..), parseFASTProcessor, collectFunctionApplications) where
 
 import GHC.Generics
 import Data.Hashable
@@ -36,6 +36,11 @@ instance Hashable CompiledFunctionSignal
 
 -- | A compiled (type-checked) correct function body, of there is no body, that's a native function
 data CompiledFunction = CompiledFunction FunctionFQN FunctionBody
+
+collectFunctionApplications :: Tree Expression -> [FunctionFQN]
+collectFunctionApplications t = catMaybes (filter collectApplications (flatten t))
+   where collectFunctionApplications (FunctionApplication ffqn) = Just ffqn
+         collectFunctionApplications _                          = Nothing
 
 parseFASTProcessor :: SimpleCompilerProcessor FunctionCompilationUnit
 parseFASTProcessor (FunctionCompilationUnit fname _          (AST.FunctionDefinition _ _ AST.NativeFunction))                     = registerCompilerFact (CompiledFunctionSignal fname) (CompiledFunction fname NativeFunction)

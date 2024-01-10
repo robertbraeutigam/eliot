@@ -20,12 +20,25 @@ instance Hashable FunctionByteBlockSignal
 data FunctionByteBlock = FunctionByteBlock FunctionFQN ByteString
 
 -- TODO: currently this ignores target platform
-generateAVRBinary :: SimpleCompilerProcessor CompiledFunction
-generateAVRBinary (CompiledFunction ffqn (NonNativeFunction expressionTree)) =
-   case generateBytes expressionTree of
+-- | Generate the AVR bytecode for each compiled function.
+generateAVRBinary :: TargetPlatform -> SimpleCompilerProcessor CompiledFunction
+generateAVRBinary (TargetPlatform targetPlatform) (CompiledFunction ffqn (NonNativeFunction expressionTree)) =
+   | targetPlatform == "attiny424" = case generateBytes expressionTree of
       Right bb  -> registerCompilerFact (FunctionByteBlockSignal ffqn) (FunctionByteBlock ffqn bb)
       Left err  -> compilerErrorForFunction ffqn ("Error while generating byte code for function. " ++ err)
 generateAVRBinary _                                                          = compileOk
+
+generateAVRMain :: TargetPlatform -> FunctionFQN -> SimpleCompilerProcessor CompiledFunction
+generateAVRMain tp@(TargetPlatform targetPlatform) targetFFQN@(FunctionFQN mn _) (CompiledFunction ffqn (NonNativeFunction expressionTree))
+   | ffqn == targetFFQN && targetPlatform == "attiny424" = do
+      bbsMaybe <- collectByteBlocks ffqn expressionTree
+      case bbsMaybe of
+         Just bbs -> registerCompilerFact (TargetBinaryGeneratedSignal tp) (TargetBinaryGenerated tp mn bbs)
+         _        -> compileOk
+   | otherwise                                           = compileOk
+generateAVRMain (TargetPlatform targetPlatform) targetFFQN (CompiledFunction ffqn NativeFunction)
+   | ffqn == targetFFQN && targetPlatform == "attiny424" = compilerErrorForFunction ffqn "Main can not be native."
+   | otherwise                                           = compileOk
 
 -- | Generate the bytes for a single expression tree. This is done by depth-first calling functions and leaving their
 -- results on the stack. This way the stack will always contain the arguments for the next (parent) function call.
@@ -39,4 +52,10 @@ generateBlockBytes e ps = mconcat <$> (sequence (ps ++ [generateSingleBlockBytes
 generateSingleBlockBytes :: Expression -> Either String ByteString
 generateSingleBlockBytes (NumberConstant i)               = instructionsToBytes [Ldi R16 (fromIntegral i), Push R16]
 generateSingleBlockBytes (FunctionApplication _)          = instructionsToBytes [Rcall 0]
+
+-- | Collect all byte blocks recursively for a given function and its call tree.
+collectByteBlocks :: FunctionFQN -> Tree Expression -> CompilerIO Maybe ByteString
+collectByteBlocks ffqn te = do
+   functionBlock   <- getCompilerFact (FunctionByteBlockSignal ffqn)
+   recursiveBlocks <- 
 
