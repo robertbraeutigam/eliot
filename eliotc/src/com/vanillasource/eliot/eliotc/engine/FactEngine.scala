@@ -5,7 +5,7 @@ import cats.effect.IO
 final class FactEngine[K, V] private (processors: FactProcessor[K, V]) {
   def resolve(facts: Map[K, V]): IO[Map[K, V]] =
     for {
-      engine <- STMRunningFactEngine.create(processors)
+      engine <- RunningFactEngine.create(processors)
       _      <- engine.registerFacts(facts)
       result <- engine.waitForTermination()
     } yield result
