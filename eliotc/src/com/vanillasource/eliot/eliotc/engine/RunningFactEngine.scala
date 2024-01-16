@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.engine
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.stm.STM.*
-import com.vanillasource.stm.{STMMap, STMRuntime}
+import com.vanillasource.stm.{STM, STMMap, STMRuntime}
 
 case class RunningFactEngine[K, V] private (
     processors: Seq[FactProcessor[K, V]],
@@ -22,10 +22,18 @@ case class RunningFactEngine[K, V] private (
 
   def registerFacts(facts: Iterable[(K, V)]): IO[Unit] = facts.map(registerFact).toSeq.sequence_
 
-  def getFact(k: K): IO[Option[V]] = ???
+  def getFact(key: K): IO[Option[V]] = status.wrapLookup(lookupFact(key).commit)
 
   private def startProcessorsFor(value: V): IO[Unit] =
     processors.map(p => status.wrapProcessing(p.process(value)(using this))).sequence_
+
+  private def lookupFact(key: K): STM[Option[V]] = for {
+    valueOption <- facts.lookup(key)
+    stalled     <- status.stalled()
+    _           <- valueOption match
+                     case None if !stalled => retry()
+                     case _                => ().pure[STM]
+  } yield valueOption
 
   private[engine] def waitForTermination(): IO[Map[K, V]] = for {
     _       <- status.waitForTermination()

@@ -15,6 +15,8 @@ object STM {
 
   def retry[A](): STM[A] = Free.liftF(Retry())
 
+  def raiseError[A](t: Throwable): STM[A] = Free.liftF(Error(t))
+
   extension [A](stm: STM[A]) {
     def commit(using stmRuntime: STMRuntime): IO[A] =
       stmRuntime.catsSTM.commit(stm.foldMap(stmToTxn(stmRuntime.catsSTM)))
@@ -28,6 +30,7 @@ object STM {
       case GetSTMVar(stmVar)           => stmVar.asInstanceOf[CatsSTMVar[A]].tvar.get
       case SetSTMVar(stmVar, newValue) => stmVar.asInstanceOf[CatsSTMVar[Any]].tvar.set(newValue)
       case Retry()                     => catsSTM.retry
+      case Error(t)                    => catsSTM.raiseError(t)
 
     private case class CatsSTMVar[A](tvar: catsSTM.TVar[A]) extends STMVar[A] {
       def get(): STM[A]        = Free.liftF(GetSTMVar(this))

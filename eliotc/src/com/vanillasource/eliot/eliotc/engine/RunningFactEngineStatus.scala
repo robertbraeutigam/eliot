@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.engine
 
 import cats.effect.IO
+import cats.syntax.all._
 import com.vanillasource.stm.*
 import com.vanillasource.stm.STM.*
 
@@ -11,15 +12,36 @@ private[engine] case class RunningFactEngineStatus(
 ) {
   def wrapProcessing(logic: IO[Unit])(using stmRuntime: STMRuntime): IO[Unit] =
     runningCount
-      .update(_ + 1)
-      .commit
-      .bracket(_ => logic.handleErrorWith(t => crash.set(Some(t)).commit))(_ =>
-        runningCount
-          .update(_ - 1)
-          .commit
-      )
+      .incCommit()
+      .bracket(_ => logic.handleErrorWith(t => crash.set(Some(t)).commit))(_ => runningCount.decCommit())
 
-  def waitForTermination()(using stmRuntime: STMRuntime): IO[Unit] = ???
+  def wrapLookup[T](logic: IO[T])(using stmRuntime: STMRuntime): IO[T] =
+    waitingCount
+      .incCommit()
+      .bracket(_ => logic)(_ => waitingCount.decCommit())
+
+  def stalled(): STM[Boolean] = for {
+    rc <- runningCount.get()
+    wc <- waitingCount.get()
+  } yield rc === wc
+
+  def waitForTermination()(using stmRuntime: STMRuntime): IO[Unit] = (for {
+    terminated <- terminated()
+    _          <- if terminated
+                  then exitWithPotentialThrowable()
+                  else retry()
+  } yield ()).commit
+
+  private def exitWithPotentialThrowable(): STM[Unit] = for {
+    crashCause <- crash.get()
+    _          <- crashCause match
+                    case Some(t) => raiseError(t)
+                    case None    => ().pure[STM]
+  } yield ()
+
+  private def terminated(): STM[Boolean] = for {
+    rc <- runningCount.get()
+  } yield rc === 0
 }
 
 object RunningFactEngineStatus {
