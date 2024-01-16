@@ -10,14 +10,14 @@ import io.github.timwspence.cats.stm.STM as CatsSTM
 type STM[A] = Free[STMOps, A]
 
 object STM {
+  def createRuntime(): IO[CatsSTM[IO]] = CatsSTM.runtime[IO]
+
   def createSTMVar[T](initialValue: T): STM[STMVar[T]] = Free.liftF(CreateSTMVar(initialValue))
 
   def retry[A](): STM[A] = Free.liftF(Retry())
 
   extension [A](stm: STM[A]) {
-    def commit(): ReaderT[IO, CatsSTM[IO], A] = Kleisli { catsSTM =>
-      catsSTM.commit(stm.foldMap(stmToTxn(catsSTM)))
-    }
+    def commit(using catsSTM: CatsSTM[IO]): IO[A] = catsSTM.commit(stm.foldMap(stmToTxn(catsSTM)))
   }
 
   private def stmToTxn(catsSTM: CatsSTM[IO]): STMOps ~> catsSTM.Txn = new (STMOps ~> catsSTM.Txn) {
