@@ -20,6 +20,21 @@ class STMMapTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     execute(program).asserting(_ shouldBe 100)
   }
 
+  it should "handle dependencies among many echo" in {
+    val program = for {
+      map    <- STMMap.empty[Int, Int]().commit()
+      fibers <- (1 to 10000).map(i => echo(map, i, i + 1).commit().mapF(_.start)).toList.sequence
+      _      <- map.insert(1, 1).commit()
+    } yield fibers
+
+    val resultsProgram = for {
+      fibers  <- execute(program)
+      results <- fibers.map(_.joinWithNever).sequence
+    } yield results
+
+    resultsProgram.asserting(_ shouldBe (1 to 10000).toList)
+  }
+
   private def echo(map: STMMap[Int, Int], waitFor: Int, produce: Int): STM[Int] = for {
     value <- map.lookup(waitFor)
     result <- value match
