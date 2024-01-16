@@ -1,27 +1,27 @@
 package com.vanillasource.stm
 
-import cats.data.{Kleisli, ReaderT}
 import cats.effect.IO
 import cats.free.Free
 import cats.~>
-import com.vanillasource.stm.STMOps._
+import com.vanillasource.stm.STMOps.*
 import io.github.timwspence.cats.stm.STM as CatsSTM
 
 type STM[A] = Free[STMOps, A]
 
 object STM {
-  def createRuntime(): IO[CatsSTM[IO]] = CatsSTM.runtime[IO]
+  def createRuntime(): IO[STMRuntime] = CatsSTM.runtime[IO].map(STMRuntime.apply)
 
   def createSTMVar[T](initialValue: T): STM[STMVar[T]] = Free.liftF(CreateSTMVar(initialValue))
 
   def retry[A](): STM[A] = Free.liftF(Retry())
 
   extension [A](stm: STM[A]) {
-    def commit(using catsSTM: CatsSTM[IO]): IO[A] = catsSTM.commit(stm.foldMap(stmToTxn(catsSTM)))
+    def commit(using stmRuntime: STMRuntime): IO[A] =
+      stmRuntime.catsSTM.commit(stm.foldMap(stmToTxn(stmRuntime.catsSTM)))
   }
 
   private def stmToTxn(catsSTM: CatsSTM[IO]): STMOps ~> catsSTM.Txn = new (STMOps ~> catsSTM.Txn) {
-    import catsSTM._
+    import catsSTM.*
 
     override def apply[A](fa: STMOps[A]): catsSTM.Txn[A] = fa match
       case CreateSTMVar(initialValue)  => TVar.of(initialValue).map(CatsSTMVar.apply)

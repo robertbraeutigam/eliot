@@ -1,7 +1,7 @@
 package com.vanillasource.stm
 
 import cats.free.Free
-import cats.syntax.all._
+import cats.syntax.all.*
 import com.vanillasource.stm.STM.*
 
 import scala.collection.concurrent.TrieMap
