@@ -5,7 +5,8 @@ object eliotc extends RootModule with ScalaModule {
 
   def ivyDeps = Agg(
     ivy"org.typelevel::cats-effect:3.5.2",
-    ivy"io.github.timwspence::cats-stm:0.13.4",
+    ivy"org.typelevel::cats-free:2.10.0",
+    ivy"io.github.timwspence::cats-stm:0.13.4"
   )
 
   object test extends ScalaTests {
