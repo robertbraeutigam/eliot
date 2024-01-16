@@ -1,5 +1,6 @@
 package com.vanillasource.stm
 
+import cats.effect.IO
 import cats.free.Free
 import cats.syntax.all.*
 import com.vanillasource.stm.STM.*
@@ -17,6 +18,9 @@ class STMMap[K, V] private (values: TrieMap[K, STMVar[Option[V]]]) {
                   case Some(value) => ().pure[STM]
                   case None        => insert(key, value)
   } yield oldValue
+
+  def toMap(): STM[Map[K, V]] =
+    values.toSeq.map((key, stmVar) => stmVar.get().map(_.map(value => (key, value)))).sequence.map(_.flatten.toMap)
 
   private def getOrCreateTVar(key: K): STM[STMVar[Option[V]]] = for {
     newTVar <- createSTMVar(Option.empty[V])
