@@ -49,6 +49,13 @@ class FactEngineTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       .asserting(_ shouldBe Map((1, 1), (2, 2), (3, 3), (4, 4)))
   }
 
+  it should "return none when getting a fact that will never be produced" in {
+    FactEngine(Seq(Echo(1, 2), EchoOnMissing(2, 3, 4)))
+      .resolve(Map((1, 1)))
+      .asserting(_ shouldBe Map((1, 1), (2, 2), (3, 3)))
+
+  }
+
   private case class Echo(dependsOn: Int, produces: Int, additionalDependencies: Seq[Int] = Seq.empty)
       extends FactProcessor[Int, Int] {
     override def process(value: Int)(using runningFactEngine: RunningFactEngine[Int, Int]): IO[Unit] = value match {
@@ -66,6 +73,20 @@ class FactEngineTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private case class Fail(dependsOn: Int) extends FactProcessor[Int, Int] {
     override def process(value: Int)(using runningFactEngine: RunningFactEngine[Int, Int]): IO[Unit] = value match {
       case v if v === dependsOn => IO.raiseError(new Exception("failing processor"))
+      case _                    => IO.unit
+    }
+  }
+
+  private case class EchoOnMissing(dependsOn: Int, produces: Int, missingDependency: Int)
+      extends FactProcessor[Int, Int] {
+    override def process(value: Int)(using runningFactEngine: RunningFactEngine[Int, Int]): IO[Unit] = value match {
+      case v if v === dependsOn =>
+        for {
+          depResult <- runningFactEngine.getFact(missingDependency)
+          _         <- depResult match
+                         case Some(value) => IO.unit
+                         case None        => runningFactEngine.registerFact(produces, produces)
+        } yield ()
       case _                    => IO.unit
     }
   }
