@@ -10,5 +10,5 @@ trait CompilerProcessor {
   /** Process a fact. All processors will be be called with all the facts produced in the engine, the processor must
     * ignore facts it doesn't need.
     */
-  def process(fact: CompilerFact[_])(using CompilerEngine): IO[Unit]
+  def process(fact: CompilerFact[_])(using CompilationProcess): IO[Unit]
 }
