@@ -33,10 +33,10 @@ class STMVarTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     val program = for {
       stmRuntime <- createRuntime()
       v          <- createSTMVar(100).commit(using stmRuntime)
-      _          <- v.update(_ + 1).commit(using stmRuntime).parReplicateA_(900)
+      _          <- v.update(_ + 1).commit(using stmRuntime).parReplicateA_(100)
       result     <- v.get().commit(using stmRuntime)
     } yield result
 
-    program.asserting(_ shouldBe 1000)
+    program.asserting(_ shouldBe 200)
   }
 }

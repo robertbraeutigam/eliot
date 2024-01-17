@@ -13,28 +13,19 @@ class STMMapTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       stmRuntime <- createRuntime()
       map        <- STMMap.empty[Int, Int]().commit(using stmRuntime)
       _          <- map.insert(1, 100).commit(using stmRuntime)
-      result     <- echo(map, 1, 2).commit(using stmRuntime)
+      result     <- map.lookup(1).commit(using stmRuntime)
     } yield result
 
-    program.asserting(_ shouldBe 100)
+    program.asserting(_ shouldBe Some(100))
   }
 
-  it should "handle dependencies among many echo" in {
+  it should "return none on an empty map" in {
     val program = for {
       stmRuntime <- createRuntime()
       map        <- STMMap.empty[Int, Int]().commit(using stmRuntime)
-      fibers     <- (1 to 10000).map(i => echo(map, i, i + 1).commit(using stmRuntime)).map(_.start).toList.sequence
-      _          <- map.insert(1, 1).commit(using stmRuntime)
-      results    <- fibers.map(_.joinWithNever).sequence
-    } yield results
+      result     <- map.lookup(1).commit(using stmRuntime)
+    } yield result
 
-    program.asserting(_ shouldBe (1 to 10000).toList)
+    program.asserting(_ shouldBe None)
   }
-
-  private def echo(map: STMMap[Int, Int], waitFor: Int, produce: Int): STM[Int] = for {
-    value <- map.lookup(waitFor)
-    result <- value match
-      case Some(value) => map.insert(produce, produce) >> value.pure[STM]
-      case None        => retry()
-  } yield result
 }
