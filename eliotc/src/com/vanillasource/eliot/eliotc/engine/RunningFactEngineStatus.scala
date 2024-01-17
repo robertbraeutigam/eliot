@@ -10,10 +10,13 @@ private[engine] case class RunningFactEngineStatus(
     waitingCount: STMVar[Int],
     crash: STMVar[Option[Throwable]]
 ) {
-  def wrapProcessing(logic: IO[Unit])(using stmRuntime: STMRuntime): IO[Unit] =
-    runningCount
-      .incCommit()
-      .bracket(_ => logic.handleErrorWith(t => crash.set(Some(t)).commit))(_ => runningCount.decCommit())
+  def wrapProcessingStart(logic: IO[Unit])(using stmRuntime: STMRuntime): IO[Unit] =
+    runningCount.incCommit() >>
+      logic
+        .handleErrorWith(t => crash.set(Some(t)).commit)
+        .flatTap(_ => runningCount.decCommit())
+        .start
+        .void
 
   def wrapLookup[T](logic: IO[T])(using stmRuntime: STMRuntime): IO[T] =
     waitingCount

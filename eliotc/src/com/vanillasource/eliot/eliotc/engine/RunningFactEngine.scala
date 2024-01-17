@@ -25,7 +25,7 @@ case class RunningFactEngine[K, V] private (
   def getFact(key: K): IO[Option[V]] = status.wrapLookup(lookupFact(key).commit)
 
   private def startProcessorsFor(value: V): IO[Unit] =
-    processors.map(p => status.wrapProcessing(p.process(value)(using this))).sequence_
+    processors.map(p => status.wrapProcessingStart(p.process(value)(using this))).sequence_
 
   private def lookupFact(key: K): STM[Option[V]] = for {
     valueOption <- facts.lookup(key)
