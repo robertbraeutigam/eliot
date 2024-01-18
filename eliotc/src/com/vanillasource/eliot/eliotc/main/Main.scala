@@ -29,7 +29,7 @@ object Main extends IOApp {
                        )
                      )
     _             <- parserResults._1 match
-                       case Some(cmdLineArguments) => IO.unit
+                       case Some(cmdLineArguments) => Compiler(cmdLineArguments).run()
                        case None                   => IO.unit
   } yield ExitCode.Success
 }
