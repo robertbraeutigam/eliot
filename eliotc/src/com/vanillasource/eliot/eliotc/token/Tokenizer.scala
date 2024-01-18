@@ -1,12 +1,91 @@
 package com.vanillasource.eliot.eliotc.token
 
 import cats.effect.IO
+import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.source.SourceContent
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import parsley.Parsley
+import parsley.token.Lexer
+import parsley.token.descriptions.numeric.NumericDesc
+import parsley.token.descriptions.text.TextDesc
+import parsley.token.descriptions.{LexicalDesc, NameDesc, SpaceDesc, SymbolDesc, numeric, text}
+import parsley.token.predicate.Basic
+import parsley.position.pos
+import parsley.character
 
-class Tokenizer extends CompilerProcessor {
+import java.io.File
+
+/** Tokenizes source content into basic building blocks: identifier, operator, literals. It gets rid of whitespace and
+  * comments.
+  */
+class Tokenizer extends CompilerProcessor with Logging with User {
+  private val lexer = new Lexer(
+    LexicalDesc(
+      NameDesc(
+        identifierStart = Basic(_.isLetter),
+        identifierLetter = Basic(c => c.isLetterOrDigit || c === '_'),
+        operatorStart = Basic(":!#$%&*+./<=>?@\\^|-~;".contains(_)),
+        operatorLetter = Basic(":!#$%&*+./<=>?@\\^|-~;".contains(_))
+      ),
+      SymbolDesc(
+        hardKeywords = Set("import", "native"),
+        hardOperators = Set("(", ")"),
+        caseSensitive = true
+      ),
+      NumericDesc.plain,
+      TextDesc.plain,
+      SpaceDesc(
+        commentStart = "/*",
+        commentEnd = "*/",
+        commentLine = "//",
+        commentLineAllowsEOF = true,
+        nestedComments = false,
+        space = Basic(_.isWhitespace),
+        whitespaceIsContextDependent = false
+      )
+    )
+  )
+
+  private lazy val fullParser: Parsley[List[Sourced[Token]]] = lexer.fully(Parsley.many(lexer.lexeme(tokenParser)))
+
+  private lazy val tokenParser: Parsley[Sourced[Token]] =
+    standaloneSymbolParser <|> keywords <|> identifier <|> symbolParser
+
+  private lazy val symbolParser: Parsley[Sourced[Token.Symbol]] = sourced(
+    lexer.lexeme.names.userDefinedOperator.map(Token.Symbol.apply)
+  )
+
+  private lazy val standaloneSymbolParser: Parsley[Sourced[Token.Symbol]] = sourced(
+    lexer.lexeme(character.oneOf('(', ')', ',').map(_.toString).map(Token.Symbol.apply))
+  )
+
+  private lazy val keywords: Parsley[Sourced[Token.Keyword]] = sourced(
+    lexer.lexeme(character.strings("import", "native").map(Token.Keyword.apply))
+  )
+
+  private lazy val identifier: Parsley[Sourced[Token.Identifier]] = sourced(
+    lexer.lexeme.names.identifier.map(Token.Identifier.apply)
+  )
+
+  private lazy val position: Parsley[Position] = pos.map(Position.apply.tupled)
+
   override def process(fact: CompilerFact[_])(using CompilationProcess): IO[Unit] = fact match {
-    case SourceContent(file, content) => ???
+    case SourceContent(file, content) => tokenize(file, content)
     case _                            => IO.unit
   }
+
+  private def tokenize(file: File, content: String)(using process: CompilationProcess): IO[Unit] =
+    fullParser
+      .parse(content)
+      .fold(
+        errorMessage => compilerError(errorMessage),
+        tokens => debug(s"tokenized $file into $tokens") >> process.registerFact(SourceTokens(file, tokens))
+      )
+
+  private def sourced[T](parser: Parsley[T]): Parsley[Sourced[T]] = for {
+    from <- position
+    t    <- parser
+    to   <- position
+  } yield Sourced(PositionRange(from, to), t)
 }

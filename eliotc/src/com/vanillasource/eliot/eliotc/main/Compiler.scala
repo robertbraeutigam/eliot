@@ -6,12 +6,14 @@ import com.vanillasource.eliot.eliotc.engine.{FactEngine, FactProcessor, Running
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.main.Compiler.CompilerFactProcessor
 import com.vanillasource.eliot.eliotc.source.{InitSourcePaths, SourceContentReader, WalkSourcePaths}
+import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
   private val processors: Seq[CompilerProcessor]           = Seq(
     InitSourcePaths(cmdLineArguments.paths),
     WalkSourcePaths(),
-    SourceContentReader()
+    SourceContentReader(),
+    Tokenizer()
   )
   private val engineProcessors: Seq[CompilerFactProcessor] = processors.map(CompilerFactProcessor.apply)
 

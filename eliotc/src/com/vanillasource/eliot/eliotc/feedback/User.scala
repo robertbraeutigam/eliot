@@ -7,6 +7,6 @@ trait User {
   self: Logging =>
 
   def compilerError(msg: String): IO[Unit] =
-    error(s"(console) $msg") >>
+    error(s"$msg (repeated to console)") >>
       Console[IO].errorln(s"eliotc: $msg")
 }
