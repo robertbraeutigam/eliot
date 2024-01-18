@@ -2,12 +2,12 @@ package com.vanillasource.eliot.eliotc.source
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 
 import java.io.{File, FilenameFilter}
 
-class WalkSourcePaths extends CompilerProcessor with Logging {
+class WalkSourcePaths extends CompilerProcessor with Logging with User {
   override def process(fact: CompilerFact[_])(using process: CompilationProcess): IO[Unit] = fact match {
     case SourcePath(path) =>
       for {
@@ -20,7 +20,7 @@ class WalkSourcePaths extends CompilerProcessor with Logging {
                            .getOrElse(Seq.empty)
                            .map(SourcePath.apply)
                        )
-        _           <- error(s"path $path does not represent a file or directory").whenA(!isFile && !isDirectory)
+        _           <- compilerError(s"Path $path does not represent a file or directory.").whenA(!isFile && !isDirectory)
       } yield ()
     case _                => IO.unit
   }
