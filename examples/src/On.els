@@ -8,6 +8,6 @@ main() = high(pa1, b(c()))
 
 //pa1 = 1
 
-//b = native
+b = native
 
-//c = native
+c = native
