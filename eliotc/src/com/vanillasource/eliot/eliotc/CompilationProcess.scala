@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc
 
 import cats.effect.IO
+import cats.syntax.all._
 
 /** Passed into processors to access the currently running compilation process. Note, that processors can not have state
   * and are only allowed to interact with the current compilation process by consuming or producing facts that are
@@ -17,4 +18,7 @@ trait CompilationProcess {
   def getFact[K, F <: CompilerFact[K]](key: K): IO[Option[F]]
 
   def registerFact(value: CompilerFact[_]): IO[Unit]
+
+  def registerFacts(values: Seq[CompilerFact[_]]): IO[Unit] =
+    values.map(registerFact).sequence_
 }
