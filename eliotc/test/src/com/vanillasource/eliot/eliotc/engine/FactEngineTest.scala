@@ -1,9 +1,9 @@
 package com.vanillasource.eliot.eliotc.engine
 
 import cats.effect.IO
-import cats.syntax.all._
 import cats.effect.testing.scalatest.AsyncIOSpec
-import org.scalatest.flatspec.{AnyFlatSpec, AsyncFlatSpec}
+import cats.syntax.all.*
+import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 class FactEngineTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
