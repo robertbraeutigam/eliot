@@ -8,7 +8,8 @@ object eliotc extends RootModule with ScalaModule {
     ivy"org.typelevel::cats-free:2.10.0",
     ivy"io.github.timwspence::cats-stm:0.13.4",
     ivy"org.apache.logging.log4j:log4j-core:2.22.1",
-    ivy"com.github.scopt::scopt:4.1.0"
+    ivy"com.github.scopt::scopt:4.1.0",
+    ivy"com.github.j-mie6::parsley-cats:1.3.0"
   )
 
   object test extends ScalaTests {
