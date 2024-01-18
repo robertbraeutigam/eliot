@@ -10,6 +10,7 @@ final class FactEngine[K, V] private (processors: Seq[FactProcessor[K, V]]) exte
       engine <- RunningFactEngine.create(processors)
       _      <- engine.registerFacts(facts)
       result <- engine.waitForTermination()
+      _      <- info(s"fact engine exists with ${result.size} facts")
     } yield result
 }
 
