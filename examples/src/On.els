@@ -6,7 +6,7 @@ main() = high(pa1, b(c()))
 
 high(n) = native
 
-//pa1 = 1
+pa1 = 1
 
 b = native
 

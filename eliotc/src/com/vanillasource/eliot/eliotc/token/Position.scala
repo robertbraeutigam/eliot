@@ -6,7 +6,9 @@ package com.vanillasource.eliot.eliotc.token
   * @param col
   *   The column of the position, starting from 1 (!).
   */
-case class Position(line: Position.Line, col: Position.Column)
+case class Position(line: Position.Line, col: Position.Column) {
+  def next = Position(line, col + 1)
+}
 
 object Position {
   type Line   = Int

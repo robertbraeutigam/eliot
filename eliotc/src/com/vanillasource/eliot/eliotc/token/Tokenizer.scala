@@ -14,6 +14,7 @@ import parsley.token.predicate.Basic
 import parsley.position.pos
 import parsley.character
 import parsley.errors.combinator.markAsToken
+import parsley.errors.combinator._
 
 import java.io.File
 
@@ -59,11 +60,11 @@ class Tokenizer extends CompilerProcessor with Logging with User {
 
   private lazy val standaloneSymbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
     character.oneOf('(', ')', ',').map(_.toString).map(Token.Symbol.apply)
-  )
+  ).label("special operators")
 
   private lazy val keywords: Parsley[Sourced[Token.Keyword]] = sourcedLexeme(
     character.strings("import", "native").map(Token.Keyword.apply)
-  )
+  ).label("keywords")
 
   private lazy val identifier: Parsley[Sourced[Token.Identifier]] = sourcedLexeme(
     lexer.nonlexeme.names.identifier.map(Token.Identifier.apply)
@@ -78,9 +79,18 @@ class Tokenizer extends CompilerProcessor with Logging with User {
 
   private def tokenize(file: File, content: String)(using process: CompilationProcess): IO[Unit] =
     fullParser
-      .parse(content)
+      .parse(content)(using new TokenErrorBuilder())
       .fold(
-        errorMessage => compilerError(errorMessage),
+        errorMessage =>
+          compilerError(
+            file,
+            content,
+            errorMessage.range.from.line,
+            errorMessage.range.from.col,
+            errorMessage.range.to.line,
+            errorMessage.range.to.col,
+            errorMessage.value
+          ),
         tokens => debug(s"tokenized $file into $tokens") >> process.registerFact(SourceTokens(file, tokens))
       )
 
