@@ -25,7 +25,7 @@ class Tokenizer extends CompilerProcessor with Logging with User {
     LexicalDesc(
       NameDesc(
         identifierStart = Basic(_.isLetter),
-        identifierLetter = Basic(c => c.isLetterOrDigit || c === '_'),
+        identifierLetter = Basic(c => c.isLetterOrDigit),
         operatorStart = Basic(":!#$%&*+./<=>?@\\^|-~;".contains(_)),
         operatorLetter = Basic(":!#$%&*+./<=>?@\\^|-~;".contains(_))
       ),
@@ -51,7 +51,7 @@ class Tokenizer extends CompilerProcessor with Logging with User {
   private lazy val fullParser: Parsley[List[Sourced[Token]]] = lexer.fully(Parsley.many(tokenParser))
 
   private lazy val tokenParser: Parsley[Sourced[Token]] =
-    standaloneSymbolParser <|> keywords <|> identifier <|> symbolParser
+    identifier <|> symbolParser <|> standaloneSymbolParser <|> keywords
 
   private lazy val symbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
     lexer.nonlexeme.names.userDefinedOperator.map(Token.Symbol.apply)
