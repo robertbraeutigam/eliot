@@ -8,7 +8,7 @@ package com.vanillasource.eliot.eliotc.source
   *   The column of the position, starting from 1 (!).
   */
 case class Position(line: Position.Line, col: Position.Column) {
-  def next = Position(line, col + 1)
+  def next: Position = Position(line, col + 1)
 }
 
 object Position {
