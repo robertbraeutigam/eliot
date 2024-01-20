@@ -60,11 +60,11 @@ class Tokenizer extends CompilerProcessor with Logging with User {
 
   private lazy val standaloneSymbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
     character.oneOf('(', ')', ',').map(_.toString).map(Token.Symbol.apply)
-  ).label("special operators")
+  ).label("special operator")
 
   private lazy val keywords: Parsley[Sourced[Token.Keyword]] = sourcedLexeme(
     character.strings("import", "native").map(Token.Keyword.apply)
-  ).label("keywords")
+  ).label("keyword")
 
   private lazy val identifier: Parsley[Sourced[Token.Identifier]] = sourcedLexeme(
     lexer.nonlexeme.names.identifier.map(Token.Identifier.apply)
