@@ -1,7 +1,5 @@
 package com.vanillasource.eliot.eliotc.source
 
-import com.vanillasource.eliot.eliotc.token.Position
-
 /** A single character's position inside a source.
  *
  * @param line

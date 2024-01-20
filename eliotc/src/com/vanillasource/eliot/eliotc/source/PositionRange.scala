@@ -1,7 +1,5 @@
 package com.vanillasource.eliot.eliotc.source
 
-import com.vanillasource.eliot.eliotc.token.Position
-
 /** Delimiting a snippet of continuous code in a source.
  *
   * @param from

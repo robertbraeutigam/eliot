@@ -10,10 +10,10 @@ class TokenErrorBuilder extends ErrorBuilder[Sourced[String]] {
   def format(pos: Position, source: Source, lines: ErrorInfoLines): Sourced[String] =
     Sourced(PositionRange(pos, pos.next), s"Parser error, ${lines.mkString(", ")}.")
 
-  type Position = source.Position
+  type Position = com.vanillasource.eliot.eliotc.source.Position
   type Source   = Option[String]
 
-  def pos(line: Int, col: Int): Position = source.Position(line, col)
+  def pos(line: Int, col: Int): Position = com.vanillasource.eliot.eliotc.source.Position(line, col)
 
   def source(sourceName: Option[String]): Source = sourceName
 
