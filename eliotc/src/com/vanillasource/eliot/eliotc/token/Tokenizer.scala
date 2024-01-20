@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.token
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
-import com.vanillasource.eliot.eliotc.source.SourceContent
+import com.vanillasource.eliot.eliotc.source.{Position, PositionRange, SourceContent, Sourced}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import parsley.Parsley
 import parsley.token.Lexer
@@ -14,7 +14,7 @@ import parsley.token.predicate.Basic
 import parsley.position.pos
 import parsley.character
 import parsley.errors.combinator.markAsToken
-import parsley.errors.combinator._
+import parsley.errors.combinator.*
 
 import java.io.File
 

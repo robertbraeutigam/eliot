@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.token
 
+import com.vanillasource.eliot.eliotc.source
+import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
 import parsley.errors
 import parsley.errors.{DefaultErrorBuilder, ErrorBuilder}
 import parsley.errors.tokenextractors.SingleChar
@@ -8,10 +10,10 @@ class TokenErrorBuilder extends ErrorBuilder[Sourced[String]] {
   def format(pos: Position, source: Source, lines: ErrorInfoLines): Sourced[String] =
     Sourced(PositionRange(pos, pos.next), s"Parser error, ${lines.mkString(", ")}.")
 
-  type Position = com.vanillasource.eliot.eliotc.token.Position
+  type Position = source.Position
   type Source   = Option[String]
 
-  def pos(line: Int, col: Int): Position = com.vanillasource.eliot.eliotc.token.Position(line, col)
+  def pos(line: Int, col: Int): Position = source.Position(line, col)
 
   def source(sourceName: Option[String]): Source = sourceName
 

@@ -1,4 +1,6 @@
-package com.vanillasource.eliot.eliotc.token
+package com.vanillasource.eliot.eliotc.source
+
+import com.vanillasource.eliot.eliotc.token.PositionRange
 
 import java.io.File
 

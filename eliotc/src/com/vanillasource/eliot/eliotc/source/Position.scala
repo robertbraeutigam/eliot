@@ -1,7 +1,10 @@
-package com.vanillasource.eliot.eliotc.token
+package com.vanillasource.eliot.eliotc.source
+
+import com.vanillasource.eliot.eliotc.token.Position
 
 /** A single character's position inside a source.
-  * @param line
+ *
+ * @param line
   *   The line of the position, starting from 1 (!).
   * @param col
   *   The column of the position, starting from 1 (!).

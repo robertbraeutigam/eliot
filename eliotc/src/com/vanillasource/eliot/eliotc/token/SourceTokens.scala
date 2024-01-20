@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.token
 
 import com.vanillasource.eliot.eliotc.CompilerFact
+import com.vanillasource.eliot.eliotc.source.Sourced
 
 import java.io.File
 
