@@ -9,11 +9,10 @@ import cats.syntax.all._
 import java.io.File
 
 class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
-  override def process(fact: CompilerFact[_])(using process: CompilationProcess): IO[Unit] = fact match {
+  override def process(fact: CompilerFact)(using process: CompilationProcess): IO[Unit] = fact match {
     case SourcedError(file, Sourced(PositionRange(Position(fromLine, fromCol), Position(toLine, toCol)), message)) =>
       for {
-        // TODO: do this better?
-        contentOption <- process.getFact[SourceContent.Key, SourceContent](SourceContent.Key(file))
+        contentOption <- process.getFact(SourceContent.Key(file))
         _             <- contentOption match
                            case Some(content) =>
                              compilerSourcedError(file, content.content, fromLine, fromCol, toLine, toCol, message)

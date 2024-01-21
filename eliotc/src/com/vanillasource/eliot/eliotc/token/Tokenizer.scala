@@ -72,7 +72,7 @@ class Tokenizer extends CompilerProcessor with Logging with User {
 
   private lazy val position: Parsley[Position] = pos.map(Position.apply.tupled)
 
-  override def process(fact: CompilerFact[_])(using CompilationProcess): IO[Unit] = fact match {
+  override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
     case SourceContent(file, content) => tokenize(file, content)
     case _                            => IO.unit
   }

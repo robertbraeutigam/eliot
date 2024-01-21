@@ -9,7 +9,7 @@ import java.io.File
 /** Puts all the source paths as facts into the compiler.
   */
 class InitSourcePaths(paths: Seq[File]) extends CompilerProcessor with Logging {
-  override def process(fact: CompilerFact[_])(using process: CompilationProcess): IO[Unit] = fact match
+  override def process(fact: CompilerFact)(using process: CompilationProcess): IO[Unit] = fact match
     case Init => process.registerFacts(paths.map(SourcePath.apply))
     case _    => IO.unit
 }

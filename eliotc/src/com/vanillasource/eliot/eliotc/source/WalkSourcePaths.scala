@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 import java.io.{File, FilenameFilter}
 
 class WalkSourcePaths extends CompilerProcessor with Logging with User {
-  override def process(fact: CompilerFact[_])(using process: CompilationProcess): IO[Unit] = fact match {
+  override def process(fact: CompilerFact)(using process: CompilationProcess): IO[Unit] = fact match {
     case SourcePath(path) =>
       for {
         isFile      <- IO(path.isFile)

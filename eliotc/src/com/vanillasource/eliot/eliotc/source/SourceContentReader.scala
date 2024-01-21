@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 import scala.io.Source
 
 class SourceContentReader extends CompilerProcessor {
-  override def process(fact: CompilerFact[_])(using process: CompilationProcess): IO[Unit] = fact match
+  override def process(fact: CompilerFact)(using process: CompilationProcess): IO[Unit] = fact match
     case SourceFile(file) =>
       Resource.make(IO(Source.fromFile(file)))(source => IO(source.close())).use { source =>
         for {
