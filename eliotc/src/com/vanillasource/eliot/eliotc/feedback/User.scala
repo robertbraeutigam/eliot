@@ -14,6 +14,7 @@ trait User {
     error(s"$msg (repeated to console)") >>
       Console[IO].errorln(s"eliotc: $msg")
 
+  // TODO: move this to error printer!
   def compilerError(
       file: File,
       content: String,

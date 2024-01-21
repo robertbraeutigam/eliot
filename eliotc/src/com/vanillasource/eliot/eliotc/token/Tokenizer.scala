@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.token
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
-import com.vanillasource.eliot.eliotc.source.{Position, PositionRange, SourceContent, Sourced}
+import com.vanillasource.eliot.eliotc.source.{Position, PositionRange, SourceContent, Sourced, SourcedError}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import parsley.Parsley
 import parsley.token.Lexer
@@ -81,16 +81,7 @@ class Tokenizer extends CompilerProcessor with Logging with User {
     fullParser
       .parse(content)(using new TokenErrorBuilder())
       .fold(
-        errorMessage =>
-          compilerError(
-            file,
-            content,
-            errorMessage.range.from.line,
-            errorMessage.range.from.col,
-            errorMessage.range.to.line,
-            errorMessage.range.to.col,
-            errorMessage.value
-          ),
+        errorMessage => SourcedError.compilerError(file, errorMessage),
         tokens => debug(s"tokenized $file into $tokens") >> process.registerFact(SourceTokens(file, tokens))
       )
 
