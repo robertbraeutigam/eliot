@@ -20,7 +20,7 @@ class WalkSourcePaths extends CompilerProcessor with Logging with User {
                            .getOrElse(Seq.empty)
                            .map(SourcePath.apply)
                        )
-        _           <- compilerError(s"Path $path does not represent a file or directory.").whenA(!isFile && !isDirectory)
+        _           <- compilerGlobalError(s"Path $path does not represent a file or directory.").whenA(!isFile && !isDirectory)
       } yield ()
     case _                => IO.unit
   }
