@@ -10,9 +10,11 @@ import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
 object TokenParser extends Parsers {
   override type Elem = Sourced[Token]
 
-  lazy val astParser = for {
-    importStatements <- importStatement.*
-  } yield AST(importStatements)
+  lazy val astParser = phrase {
+    for {
+      importStatements <- importStatement.*
+    } yield AST(importStatements)
+  }
 
   lazy val importStatement = for {
     keyword      <- topLevelKeyword("import")
