@@ -38,19 +38,25 @@ class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
       .drop(fromLine - 1)
       .headOption
       .map { line =>
-        Seq(
-          s"$BOLD$file$RESET:$BOLD${RED}error$RESET:$fromLine:$fromCol:$message",
-          s"$MAGENTA$markerSpaces | ",
-          if (fromLine === toLine) {
-            // Single line error
-            s"$MAGENTA$lineMarker |$RESET ${line.substring(0, fromCol - 1)}$BOLD$RED${line
-                .substring(fromCol - 1, toCol - 1)}$RESET${line.substring(toCol - 1)}"
-          } else {
-            // Multi line error
-            s"$MAGENTA$lineMarker |$RESET ${line.substring(0, fromCol - 1)}$BOLD$RED${line.substring(fromCol - 1)}$RESET"
-          },
-          s"$MAGENTA$markerSpaces | ${" ".repeat(fromCol - 1)}$BOLD$RED${"^".repeat(toCol - fromCol)}$multiLinePoints$RESET"
-        )
+        if (fromLine === toLine && fromCol === toCol) {
+          Seq(
+            s"$BOLD$file$RESET:$BOLD${RED}error$RESET:1:1:$message"
+          )
+        } else {
+          Seq(
+            s"$BOLD$file$RESET:$BOLD${RED}error$RESET:$fromLine:$fromCol:$message",
+            s"$MAGENTA$markerSpaces | ",
+            if (fromLine === toLine) {
+              // Single line error
+              s"$MAGENTA$lineMarker |$RESET ${line.substring(0, fromCol - 1)}$BOLD$RED${line
+                  .substring(fromCol - 1, toCol - 1)}$RESET${line.substring(toCol - 1)}"
+            } else {
+              // Multi line error
+              s"$MAGENTA$lineMarker |$RESET ${line.substring(0, fromCol - 1)}$BOLD$RED${line.substring(fromCol - 1)}$RESET"
+            },
+            s"$MAGENTA$markerSpaces | ${" ".repeat(fromCol - 1)}$BOLD$RED${"^".repeat(toCol - fromCol)}$multiLinePoints$RESET"
+          )
+        }
       }
       .map(lines => compilerGenericError(lines.mkString("\n")))
       .getOrElse(IO.unit)
