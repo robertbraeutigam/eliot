@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.ast
 
+import cats.Show
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 
@@ -9,6 +10,13 @@ import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
 
 object TokenParser extends Parsers {
   override type Elem = Sourced[Token]
+
+  implicit val tokenShow: Show[Token] = new Show[Token]:
+    override def show(t: Token): String = t match
+      case Identifier(content)          => s"identifier '$content'"
+      case Symbol(content)              => s"symbol '$content''"
+      case Keyword(content)             => s"keyword '$content'"
+      case Token.NumberLiteral(content) => s"number literal '$content'"
 
   lazy val astParser = phrase {
     for {
