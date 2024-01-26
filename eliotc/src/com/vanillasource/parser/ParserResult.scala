@@ -34,11 +34,7 @@ object ParserResult {
     override def pure[A](a: A): ParserResult[A] = Success(a)
 
     override def flatMap[A, B](fa: ParserResult[A])(f: A => ParserResult[B]): ParserResult[B] = fa match
-      case Success(a)      =>
-        f(a) match
-          case Success(b)      => Success(b)
-          case Skip(expected)  => Error(expected)
-          case Error(expected) => Error(expected)
+      case Success(a)      => f(a)
       case Skip(expected)  => Skip(expected)
       case Error(expected) => Error(expected)
 

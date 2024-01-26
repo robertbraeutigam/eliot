@@ -18,4 +18,29 @@ class ParserTest extends AnyFlatSpec with Matchers {
 
     p.runA(Stream.ofString("abc")) shouldBe Error("end of input")
   }
+
+  "literal" should "match the literal in stream" in {
+    val p = literal('a')
+
+    p.runA(Stream.ofString("abc")) shouldBe Success('a')
+  }
+
+  it should "fail on different literal" in {
+    val p = literal('a')
+
+    p.runA(Stream.ofString("bc")) shouldBe Skip("a")
+  }
+
+  "full parsing" should "succeeds if stream ends" in {
+    val p = fully(literal('a'))
+
+    p.runA(Stream.ofString("a")) shouldBe Success('a')
+  }
+
+  it should "fail if stream does not end" in {
+    val p = fully(literal('a'))
+
+    p.runA(Stream.ofString("ab")) shouldBe Error("end of input")
+  }
+
 }
