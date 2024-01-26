@@ -11,13 +11,6 @@ import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
 object TokenParser extends Parsers {
   override type Elem = Sourced[Token]
 
-  implicit val tokenShow: Show[Token] = new Show[Token]:
-    override def show(t: Token): String = t match
-      case Identifier(content)          => s"identifier '$content'"
-      case Symbol(content)              => s"symbol '$content''"
-      case Keyword(content)             => s"keyword '$content'"
-      case Token.NumberLiteral(content) => s"number literal '$content'"
-
   lazy val astParser = phrase {
     for {
       importStatements <- importStatement.*
@@ -30,6 +23,7 @@ object TokenParser extends Parsers {
     moduleName   <- moduleNameOnSameLineAs(keyword)
   } yield ImportStatement(keyword, packageNames, moduleName)
 
+  // TODO: expected package name OR module name
   private def moduleNameOnSameLineAs(keyword: Sourced[Token]) =
     acceptIfAll(Seq(isIdentifier, isUpperCase, isOnSameLineAs(keyword)), "module name on same line as import")
 
@@ -68,4 +62,11 @@ object TokenParser extends Parsers {
   }
 
   private def isTopLevel(st: Sourced[Token]): Boolean = st.range.from.col === 1
+
+  given Show[Token] = {
+    case Identifier(content)          => s"identifier '$content'"
+    case Symbol(content)              => s"symbol '$content''"
+    case Keyword(content)             => s"keyword '$content'"
+    case Token.NumberLiteral(content) => s"number literal '$content'"
+  }
 }

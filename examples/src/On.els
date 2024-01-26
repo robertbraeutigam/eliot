@@ -1,3 +1,6 @@
+import a.b
+import b.c
+
 /**
  * Example program to switch PA1 pin on.
  */
