@@ -10,7 +10,6 @@ object eliotc extends RootModule with ScalaModule {
     ivy"org.apache.logging.log4j:log4j-core:2.22.1",
     ivy"com.github.scopt::scopt:4.1.0",
     ivy"com.github.j-mie6::parsley-cats:1.3.0",
-    ivy"org.scala-lang.modules::scala-parser-combinators:2.3.0"
   )
 
   object test extends ScalaTests {

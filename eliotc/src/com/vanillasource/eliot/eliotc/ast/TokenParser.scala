@@ -3,15 +3,13 @@ package com.vanillasource.eliot.eliotc.ast
 import cats.Show
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
-
-import scala.util.parsing.combinator.Parsers
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
+import com.vanillasource.parser.Parser.{acceptIfAll, fully}
 
-object TokenParser extends Parsers {
-  override type Elem = Sourced[Token]
-
-  lazy val astParser = phrase {
+object TokenParser {
+  /*
+  lazy val astParser = fully {
     for {
       importStatements <- importStatement.*
     } yield AST(importStatements)
@@ -19,16 +17,18 @@ object TokenParser extends Parsers {
 
   lazy val importStatement = for {
     keyword      <- topLevelKeyword("import")
-    packageNames <- (packageNameOnSameLineAs(keyword) <~ symbol(".")).*
+    packageNames <- (packageNameOnSameLineAs(keyword) <* symbol(".")).*
     moduleName   <- moduleNameOnSameLineAs(keyword)
   } yield ImportStatement(keyword, packageNames, moduleName)
 
+   */
+
   // TODO: expected package name OR module name
   private def moduleNameOnSameLineAs(keyword: Sourced[Token]) =
-    acceptIfAll(Seq(isIdentifier, isUpperCase, isOnSameLineAs(keyword)), "module name on same line as import")
+    acceptIfAll(isIdentifier, isUpperCase, isOnSameLineAs(keyword))("module name on same line as import")
 
   private def packageNameOnSameLineAs(keyword: Sourced[Token]) =
-    acceptIfAll(Seq(isIdentifier, isLowerCase, isOnSameLineAs(keyword)), "package name on same line as import")
+    acceptIfAll(isIdentifier, isLowerCase, isOnSameLineAs(keyword))("package name on same line as import")
 
   private def isOnSameLineAs(sample: Sourced[Token])(st: Sourced[Token]) = sample.range.to.line === st.range.from.line
 
@@ -37,14 +37,11 @@ object TokenParser extends Parsers {
   private def isLowerCase(st: Sourced[Token]) = st.value.content.charAt(0).isUpper
 
   private def topLevelKeyword(word: String) =
-    acceptIfAll(Seq(isTopLevel, isKeyword, hasContent(word)), s"top level keyword '$word'")
-
-  private def acceptIfAll(ps: Seq[Elem => Boolean], errorMessage: String): Parser[Sourced[Token]] =
-    acceptIf(e => ps.forall(_.apply(e)))(_ => errorMessage)
+    acceptIfAll(isTopLevel, isKeyword, hasContent(word))(s"top level keyword '$word'")
 
   private def hasContent(content: String)(st: Sourced[Token]) = st.value.content === content
 
-  private def symbol(s: String) = acceptIfAll(Seq(isSymbol, hasContent(s)), s"symbol '$s'")
+  private def symbol(s: String) = acceptIfAll(isSymbol, hasContent(s))(s"symbol '$s'")
 
   private def isKeyword(st: Sourced[Token]): Boolean = st match {
     case Sourced(range, Keyword(_)) => true
