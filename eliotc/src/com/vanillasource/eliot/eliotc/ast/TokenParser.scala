@@ -5,30 +5,28 @@ import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
-import com.vanillasource.parser.Parser.{acceptIfAll, fully}
+import com.vanillasource.parser.Parser
+import com.vanillasource.parser.Parser.{acceptIfAll, anyTimes, fully}
 
 object TokenParser {
-  /*
-  lazy val astParser = fully {
+  lazy val astParser: Parser[Sourced[Token], AST] = fully {
     for {
-      importStatements <- importStatement.*
+      importStatements <- anyTimes(importStatement)
     } yield AST(importStatements)
   }
 
-  lazy val importStatement = for {
+  private lazy val importStatement = for {
     keyword      <- topLevelKeyword("import")
-    packageNames <- (packageNameOnSameLineAs(keyword) <* symbol(".")).*
+    packageNames <- anyTimes(packageNameOnSameLineAs(keyword) <* symbol("."))
     moduleName   <- moduleNameOnSameLineAs(keyword)
   } yield ImportStatement(keyword, packageNames, moduleName)
 
-   */
-
   // TODO: expected package name OR module name
   private def moduleNameOnSameLineAs(keyword: Sourced[Token]) =
-    acceptIfAll(isIdentifier, isUpperCase, isOnSameLineAs(keyword))("module name on same line as import")
+    acceptIfAll(isIdentifier, isUpperCase, isOnSameLineAs(keyword))("module name")
 
   private def packageNameOnSameLineAs(keyword: Sourced[Token]) =
-    acceptIfAll(isIdentifier, isLowerCase, isOnSameLineAs(keyword))("package name on same line as import")
+    acceptIfAll(isIdentifier, isLowerCase, isOnSameLineAs(keyword))("package name")
 
   private def isOnSameLineAs(sample: Sourced[Token])(st: Sourced[Token]) = sample.range.to.line === st.range.from.line
 

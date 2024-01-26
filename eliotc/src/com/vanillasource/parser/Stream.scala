@@ -12,4 +12,10 @@ object Stream {
 
     override def tail: Stream[Char] = ofString(input.tail)
   }
+
+  def ofSeq[A](input: Seq[A]): Stream[A] = new Stream[A] {
+    override def head: Option[A] = input.headOption
+
+    override def tail: Stream[A] = ofSeq(input.tail)
+  }
 }

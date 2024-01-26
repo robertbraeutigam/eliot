@@ -4,6 +4,8 @@ import cats.{Functor, Monad}
 
 sealed trait ParserResult[A] {
   def fold[B](ifEmpty: => B)(f: A => B): B
+
+  def toEither: Either[String, A]
 }
 
 object ParserResult {
@@ -11,12 +13,16 @@ object ParserResult {
   /** Parser successfully got a value without parsing any input. */
   case class SuccessWithoutConsuming[A](a: A) extends ParserResult[A] {
     override def fold[B](ifEmpty: => B)(f: A => B): B = f(a)
+
+    override def toEither: Either[String, A] = Right(a)
   }
 
   /** Parser successfully parsed a value by consuming some input.
     */
   case class SuccessWithConsuming[A](a: A) extends ParserResult[A] {
     override def fold[B](ifEmpty: => B)(f: A => B): B = f(a)
+
+    override def toEither: Either[String, A] = Right(a)
   }
 
   /** Parser wants to be skipped. Normally this means "failed without consuming input", but its meaning might extend to
@@ -24,12 +30,16 @@ object ParserResult {
     */
   case class FailedWithoutConsuming[A](expected: String) extends ParserResult[A] {
     override def fold[B](ifEmpty: => B)(f: A => B): B = ifEmpty
+
+    override def toEither: Either[String, A] = Left(expected)
   }
 
   /** Means that the parser failed in mid-parsing, and there's no safe way to continue parsing.
     */
   case class FailedWithConsuming[A](expected: String) extends ParserResult[A] {
     override def fold[B](ifEmpty: => B)(f: A => B): B = ifEmpty
+
+    override def toEither: Either[String, A] = Left(expected)
   }
 
   given Functor[ParserResult] = new Functor[ParserResult]:
@@ -49,5 +59,10 @@ object ParserResult {
       case FailedWithoutConsuming(expected) => FailedWithoutConsuming(expected)
       case FailedWithConsuming(expected)    => FailedWithConsuming(expected)
 
-    override def tailRecM[A, B](a: A)(f: A => ParserResult[Either[A, B]]): ParserResult[B] = ???
+    // TODO: this is not stack-safe
+    override def tailRecM[A, B](a: A)(f: A => ParserResult[Either[A, B]]): ParserResult[B] =
+      flatMap(f(a)) {
+        case Left(newA) => tailRecM(newA)(f)
+        case Right(b)   => pure(b)
+      }
 }
