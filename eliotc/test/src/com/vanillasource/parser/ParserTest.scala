@@ -72,4 +72,10 @@ class ParserTest extends AnyFlatSpec with Matchers {
 
     p.runA("ac") shouldBe Failure(consumed = true, Seq("literal 'b'"))
   }
+
+  "expected items" should "be listed in a many followed by a literal" in {
+    val p = anyTimes(literal('a')) >> literal('b')
+
+    p.runA("aac") shouldBe Failure(consumed = true, Seq("literal 'a'", "literal 'b'"))
+  }
 }

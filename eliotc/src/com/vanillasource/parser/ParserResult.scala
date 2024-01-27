@@ -42,19 +42,13 @@ object ParserResult {
 
     override def flatMap[A, B](fa: ParserResult[A])(f: A => ParserResult[B]): ParserResult[B] = fa match
       case Success(false, expected, a) =>
-        // Previous parser did not consume input, so if the followup didn't either, then
-        // add their expected items
         f(a) match
-          case Success(false, expected2, a2) => Success(false, expected ++ expected2, a2)
-          case Success(true, expected2, a2)  => Success(true, expected2, a2)
-          case Failure(false, expected2)     => Failure(false, expected ++ expected2)
-          case Failure(true, expected2)      => Failure(true, expected2)
-      case Success(true, _, a)         =>
-        // Previous parser consumed input, so forget all expected items
-        // Also, the combined parser will then have consumed items
+          case Success(consumed, expected2, a2) => Success(consumed, expected ++ expected2, a2)
+          case Failure(consumed, expected2)     => Failure(consumed, expected ++ expected2)
+      case Success(true, expected, a)  =>
         f(a) match
-          case Success(_, expected, a2) => Success(true, expected, a2)
-          case Failure(_, expected)     => Failure(true, expected)
+          case Success(_, expected2, a2) => Success(true, expected ++ expected2, a2)
+          case Failure(_, expected2)     => Failure(true, expected ++ expected2)
       // Failures are short-circuit, follow-up parser is not executed
       case Failure(false, expected)    => Failure(false, expected)
       case Failure(true, expected)     => Failure(true, expected)
