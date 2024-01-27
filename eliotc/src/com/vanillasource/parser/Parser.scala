@@ -7,7 +7,7 @@ import com.vanillasource.parser.ParserResult.*
 
 /** A parser combinator that consumes items of type [[I]] and produces results of some type [[O]].
   */
-type Parser[I, O] = StateT[ParserResult, Stream[I], O]
+type Parser[I, O] = StateT[ParserResult, Seq[I], O]
 
 object Parser {
 
@@ -18,7 +18,7 @@ object Parser {
   /** Accept if the given predicate holds.
     */
   def acceptIf[I](predicate: I => Boolean, expected: String): Parser[I, I] = StateT { input =>
-    input.head match {
+    input.headOption match {
       case Some(nextI) if predicate(nextI) => SuccessWithConsuming((input.tail, nextI))
       case _                               => FailedWithoutConsuming(expected)
     }
@@ -51,7 +51,7 @@ object Parser {
   /** A parser that matches the end of input.
     */
   def endOfInput[I](): Parser[I, Unit] = StateT { input =>
-    input.head match {
+    input.headOption match {
       case None => SuccessWithConsuming((input, ()))
       case _    => FailedWithConsuming("end of input")
     }
