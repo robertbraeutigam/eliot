@@ -2,9 +2,7 @@ package com.vanillasource.parser
 
 import cats.{Functor, Monad}
 
-sealed trait ParserResult[A] {
-  def fold[B](ifEmpty: => B)(f: A => B): B
-}
+sealed trait ParserResult[A]
 
 object ParserResult {
 
@@ -18,9 +16,7 @@ object ParserResult {
     * @param a
     *   The successfully parsed value.
     */
-  case class Success[A](consumed: Boolean, expected: Seq[String], a: A) extends ParserResult[A] {
-    override def fold[B](ifEmpty: => B)(f: A => B): B = f(a)
-  }
+  case class Success[A](consumed: Boolean, expected: Seq[String], a: A) extends ParserResult[A]
 
   /** Parser failed to get a valid value.
     *
@@ -30,9 +26,7 @@ object ParserResult {
     *   The sequence of expected item parsers that were tried and/or possible at this given position. Note that even if
     *   the parser successfully parsed a value it may have tried some other things, which must be listed here.
     */
-  case class Failure[A](consumed: Boolean, expected: Seq[String]) extends ParserResult[A] {
-    override def fold[B](ifEmpty: => B)(f: A => B): B = ifEmpty
-  }
+  case class Failure[A](consumed: Boolean, expected: Seq[String]) extends ParserResult[A]
 
   given Functor[ParserResult] = new Functor[ParserResult]:
     override def map[A, B](fa: ParserResult[A])(f: A => B): ParserResult[B] = ???
