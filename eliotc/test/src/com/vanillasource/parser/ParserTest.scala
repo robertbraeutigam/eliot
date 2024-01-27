@@ -3,8 +3,10 @@ package com.vanillasource.parser
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import com.vanillasource.parser.Parser.*
-import com.vanillasource.parser.ParserResult._
-import cats.syntax.all._
+import com.vanillasource.parser.ParserResult.*
+import cats.syntax.all.*
+
+import scala.collection.immutable.Seq
 
 class ParserTest extends AnyFlatSpec with Matchers {
   "end-of-input parser" should "match end-of-input" in {
@@ -77,5 +79,23 @@ class ParserTest extends AnyFlatSpec with Matchers {
     val p = literal('a').anyTimes() >> literal('b')
 
     p.runA("aac") shouldBe Failure(consumed = true, Seq("a", "b"))
+  }
+
+  "or" should "return first parser, if it matches" in {
+    val p = literal('a').or(literal('b'))
+
+    p.runA("a") shouldBe Success(consumed = true, Seq.empty, 'a')
+  }
+
+  it should "return second parser, if the first does not match" in {
+    val p = literal('a').or(literal('b'))
+
+    p.runA("b") shouldBe Success(consumed = true, Seq.empty, 'b')
+  }
+
+  it should "retrn both expected if none match" in {
+    val p = literal('a').or(literal('b'))
+
+    p.runA("c") shouldBe Failure(false, Seq("a", "b"))
   }
 }

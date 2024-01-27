@@ -3,7 +3,7 @@ package com.vanillasource.parser
 import cats.{Functor, Monad}
 
 sealed trait ParserResult[A] {
-  def additionalExpected(es: Seq[String]): ParserResult[A]
+  def prependExpected(es: Seq[String]): ParserResult[A]
 
   def setConsumed(): ParserResult[A]
 }
@@ -21,7 +21,12 @@ object ParserResult {
     *   The successfully parsed value.
     */
   case class Success[A](consumed: Boolean, expected: Seq[String], a: A) extends ParserResult[A] {
-    override def additionalExpected(es: Seq[String]): ParserResult[A] = Success(consumed, es ++ expected, a)
+    override def prependExpected(es: Seq[String]): ParserResult[A] =
+      if (consumed) {
+        Success(true, expected, a)
+      } else {
+        Success(false, es ++ expected, a)
+      }
 
     override def setConsumed(): ParserResult[A] = Success(true, expected, a)
   }
@@ -35,7 +40,7 @@ object ParserResult {
     *   the parser successfully parsed a value it may have tried some other things, which must be listed here.
     */
   case class Failure[A](consumed: Boolean, expected: Seq[String]) extends ParserResult[A] {
-    override def additionalExpected(es: Seq[String]): ParserResult[A] = Failure(consumed, es ++ expected)
+    override def prependExpected(es: Seq[String]): ParserResult[A] = Failure(consumed, es ++ expected)
 
     override def setConsumed(): ParserResult[A] = Failure(true, expected)
   }
@@ -47,8 +52,8 @@ object ParserResult {
     override def pure[A](a: A): ParserResult[A] = Success(consumed = false, Seq.empty, a)
 
     override def flatMap[A, B](fa: ParserResult[A])(f: A => ParserResult[B]): ParserResult[B] = fa match
-      case Success(false, expected, a) => f(a).additionalExpected(expected)
-      case Success(true, expected, a)  => f(a).additionalExpected(expected).setConsumed()
+      case Success(false, expected, a) => f(a).prependExpected(expected)
+      case Success(true, expected, a)  => f(a).prependExpected(expected).setConsumed()
       case Failure(false, expected)    => Failure(false, expected)
       case Failure(true, expected)     => Failure(true, expected)
 

@@ -34,6 +34,15 @@ object Parser {
           case None        => Right(acc)
         }
       }
+
+    /** Returns the result of the first parser, if it succeeds, or the second one if the first one fails without
+      * consuming any input.
+      */
+    def or(p2: Parser[I, O]): Parser[I, O] =
+      p.optional().flatMap {
+        case Some(a) => a.pure
+        case None    => p2
+      }
   }
 
   /** A parser that will consume exactly the given item, or fail without consuming input.
