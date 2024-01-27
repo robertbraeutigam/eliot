@@ -4,15 +4,14 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.TokenParser.{astParser, given}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
+import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.token.{SourceTokens, Token}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
 
 import java.io.File
-import scala.collection.immutable.{AbstractSeq, LinearSeq}
 
 class ASTParser extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
