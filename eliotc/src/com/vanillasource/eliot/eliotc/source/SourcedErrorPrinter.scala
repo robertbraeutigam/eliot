@@ -7,6 +7,7 @@ import scala.io.AnsiColor._
 import cats.syntax.all._
 
 import java.io.File
+import scala.math.*
 
 class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
   override def process(fact: CompilerFact)(using process: CompilationProcess): IO[Unit] = fact match {
@@ -48,8 +49,7 @@ class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
             s"$MAGENTA$markerSpaces | ",
             if (fromLine === toLine) {
               // Single line error
-              s"$MAGENTA$lineMarker |$RESET ${line.substring(0, fromCol - 1)}$BOLD$RED${line
-                  .substring(fromCol - 1, toCol - 1)}$RESET${line.substring(toCol - 1)}"
+              s"$MAGENTA$lineMarker |$RESET ${safeSubstring(line, 0, fromCol - 1)}$BOLD$RED${safeSubstring(line, fromCol - 1, toCol - 1)}$RESET${safeSubstring(line, toCol - 1, line.length)}"
             } else {
               // Multi line error
               s"$MAGENTA$lineMarker |$RESET ${line.substring(0, fromCol - 1)}$BOLD$RED${line.substring(fromCol - 1)}$RESET"
@@ -62,4 +62,12 @@ class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
       .getOrElse(IO.unit)
   }
 
+  private def safeSubstring(line: String, from: Int, to: Int): String =
+    if (from >= line.length) {
+      ""
+    } else if (to >= line.length) {
+      line.substring(from)
+    } else {
+      line.substring(from, to)
+    }
 }
