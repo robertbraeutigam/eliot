@@ -32,7 +32,7 @@ object TokenParser {
 
   private def isUpperCase(st: Sourced[Token]) = st.value.content.charAt(0).isUpper
 
-  private def isLowerCase(st: Sourced[Token]) = st.value.content.charAt(0).isUpper
+  private def isLowerCase(st: Sourced[Token]) = st.value.content.charAt(0).isLower
 
   private def topLevelKeyword(word: String) =
     acceptIfAll(isTopLevel, isKeyword, hasContent(word))(s"top level keyword '$word'")
