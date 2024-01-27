@@ -20,15 +20,15 @@ object ParserResult {
     * @param a
     *   The successfully parsed value.
     */
-  case class Success[A](consumed: Boolean, expected: Seq[String], a: A) extends ParserResult[A] {
+  case class Success[A](consumed: Boolean, expectedPos: Int, expected: Seq[String], a: A) extends ParserResult[A] {
     override def prependExpected(es: Seq[String]): ParserResult[A] =
       if (consumed) {
-        Success(true, expected, a)
+        Success(true, expectedPos, expected, a)
       } else {
-        Success(false, es ++ expected, a)
+        Success(false, expectedPos, es ++ expected, a)
       }
 
-    override def setConsumed(): ParserResult[A] = Success(true, expected, a)
+    override def setConsumed(): ParserResult[A] = Success(true, expectedPos, expected, a)
   }
 
   /** Parser failed to get a valid value.
@@ -39,23 +39,23 @@ object ParserResult {
     *   The sequence of expected item parsers that were tried and/or possible at this given position. Note that even if
     *   the parser successfully parsed a value it may have tried some other things, which must be listed here.
     */
-  case class Failure[A](consumed: Boolean, expected: Seq[String]) extends ParserResult[A] {
-    override def prependExpected(es: Seq[String]): ParserResult[A] = Failure(consumed, es ++ expected)
+  case class Failure[A](consumed: Boolean, expectedPos: Int, expected: Seq[String]) extends ParserResult[A] {
+    override def prependExpected(es: Seq[String]): ParserResult[A] = Failure(consumed, expectedPos, es ++ expected)
 
-    override def setConsumed(): ParserResult[A] = Failure(true, expected)
+    override def setConsumed(): ParserResult[A] = Failure(true, expectedPos, expected)
   }
 
   given Functor[ParserResult] = new Functor[ParserResult]:
     override def map[A, B](fa: ParserResult[A])(f: A => B): ParserResult[B] = ???
 
   given Monad[ParserResult] = new Monad[ParserResult]:
-    override def pure[A](a: A): ParserResult[A] = Success(consumed = false, Seq.empty, a)
+    override def pure[A](a: A): ParserResult[A] = Success(consumed = false, 0, Seq.empty, a)
 
     override def flatMap[A, B](fa: ParserResult[A])(f: A => ParserResult[B]): ParserResult[B] = fa match
-      case Success(false, expected, a) => f(a).prependExpected(expected)
-      case Success(true, expected, a)  => f(a).prependExpected(expected).setConsumed()
-      case Failure(false, expected)    => Failure(false, expected)
-      case Failure(true, expected)     => Failure(true, expected)
+      case Success(false, _, expected, a)        => f(a).prependExpected(expected)
+      case Success(true, _, expected, a)         => f(a).prependExpected(expected).setConsumed()
+      case Failure(false, expectedPos, expected) => Failure(false, expectedPos, expected)
+      case Failure(true, expectedPos, expected)  => Failure(true, expectedPos, expected)
 
     // TODO: this is not stack-safe
     override def tailRecM[A, B](a: A)(f: A => ParserResult[Either[A, B]]): ParserResult[B] =
