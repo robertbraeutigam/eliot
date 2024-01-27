@@ -93,7 +93,7 @@ class ParserTest extends AnyFlatSpec with Matchers {
     p.runA("b") shouldBe Success(consumed = true, Seq.empty, 'b')
   }
 
-  it should "retrn both expected if none match" in {
+  it should "return both expected if none match" in {
     val p = literal('a').or(literal('b'))
 
     p.runA("c") shouldBe Failure(false, Seq("a", "b"))
