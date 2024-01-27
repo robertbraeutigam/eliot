@@ -16,6 +16,13 @@ object Parser {
       */
     def runParser(input: Seq[I]): ParserResult[O] = p.runA(InputStream.of(input))
 
+    /** Parse the given input element with this parser, and return a user-friendly representation of the results.
+      */
+    def parse(input: Seq[I]): Either[ParserError[I], O] =
+      runParser(input) match
+        case Success(consumed, expectedPos, expected, a) => Right(a)
+        case Failure(consumed, expectedPos, expected)    => Left(ParserError(input.drop(expectedPos), expected))
+
     /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
       */
     def fully(): Parser[I, O] = p <* endOfInput()
