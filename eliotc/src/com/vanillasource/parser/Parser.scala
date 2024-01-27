@@ -36,9 +36,9 @@ object Parser {
       }
   }
 
-  /** A parser that will consume exactly the given item, or fail without consuming input. TODO: remove literal
+  /** A parser that will consume exactly the given item, or fail without consuming input.
     */
-  def literal[I](i: I)(using Eq[I], Show[I]): Parser[I, I] = acceptIf(_ === i, s"literal '${i.show}'")
+  def literal[I](i: I)(using Eq[I], Show[I]): Parser[I, I] = acceptIf(_ === i, i.show)
 
   /** Accept if the given predicate holds.
     */

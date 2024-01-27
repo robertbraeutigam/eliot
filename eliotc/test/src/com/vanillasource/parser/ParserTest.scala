@@ -28,7 +28,7 @@ class ParserTest extends AnyFlatSpec with Matchers {
   it should "fail on different literal" in {
     val p = literal('a')
 
-    p.runA("bc") shouldBe Failure(consumed = false, Seq("literal 'a'"))
+    p.runA("bc") shouldBe Failure(consumed = false, Seq("a"))
   }
 
   "full parsing" should "succeeds if stream ends" in {
@@ -52,7 +52,7 @@ class ParserTest extends AnyFlatSpec with Matchers {
   it should "return none successfully if parser fails" in {
     val p = literal('a').optional()
 
-    p.runA("b") shouldBe Success(consumed = false, Seq("literal 'a'"), None)
+    p.runA("b") shouldBe Success(consumed = false, Seq("a"), None)
   }
 
   "sequence of parsers" should "return skip if first parser fails" in {
@@ -64,18 +64,18 @@ class ParserTest extends AnyFlatSpec with Matchers {
   it should "indicate nothing consumed if first parser fails" in {
     val p = literal('a') >> literal('b')
 
-    p.runA("bb") shouldBe Failure(consumed = false, Seq("literal 'a'"))
+    p.runA("bb") shouldBe Failure(consumed = false, Seq("a"))
   }
 
   it should "indicate something consumed if second parser fails" in {
     val p = literal('a') >> literal('b')
 
-    p.runA("ac") shouldBe Failure(consumed = true, Seq("literal 'b'"))
+    p.runA("ac") shouldBe Failure(consumed = true, Seq("b"))
   }
 
   "expected items" should "be listed in a many followed by a literal" in {
     val p = literal('a').anyTimes() >> literal('b')
 
-    p.runA("aac") shouldBe Failure(consumed = true, Seq("literal 'a'", "literal 'b'"))
+    p.runA("aac") shouldBe Failure(consumed = true, Seq("a", "b"))
   }
 }
