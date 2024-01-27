@@ -7,10 +7,14 @@ import com.vanillasource.parser.ParserResult.*
 
 /** A parser combinator that consumes items of type [[I]] and produces results of some type [[O]].
   */
-type Parser[I, O] = StateT[ParserResult, Seq[I], O]
+type Parser[I, O] = StateT[ParserResult, InputStream[I], O]
 
 object Parser {
   extension [I, O](p: Parser[I, O]) {
+
+    /** Parse the given input elements with this parser.
+      */
+    def runParser(input: Seq[I]): ParserResult[O] = p.runA(InputStream.of(input))
 
     /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
       */

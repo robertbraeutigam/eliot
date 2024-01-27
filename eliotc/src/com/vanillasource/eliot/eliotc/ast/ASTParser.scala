@@ -19,8 +19,11 @@ class ASTParser extends CompilerProcessor with Logging {
     case _                          => IO.unit
   }
 
-  private def parseAST(file: File, tokens: Seq[Sourced[Token]])(using process: CompilationProcess): IO[Unit] =
+  private def parseAST(file: File, tokens: Seq[Sourced[Token]])(using process: CompilationProcess): IO[Unit] = ???
+  /*
     astParser.runA(tokens) match
       case Failure(_, expected) => compilerError(file, expected.mkString(", "))
       case Success(_, _, ast)   => debug(s"generated AST: $ast") >> process.registerFact(SourceAST(file, ast))
+
+   */
 }
