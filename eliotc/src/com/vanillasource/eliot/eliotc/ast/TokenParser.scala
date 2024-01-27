@@ -9,15 +9,15 @@ import com.vanillasource.parser.Parser
 import com.vanillasource.parser.Parser.{acceptIfAll, anyTimes, fully}
 
 object TokenParser {
-  lazy val astParser: Parser[Sourced[Token], AST] = fully {
+  lazy val astParser: Parser[Sourced[Token], AST] = {
     for {
-      importStatements <- anyTimes(importStatement)
+      importStatements <- importStatement.anyTimes()
     } yield AST(importStatements)
-  }
+  }.fully()
 
   private lazy val importStatement = for {
     keyword      <- topLevelKeyword("import")
-    packageNames <- anyTimes(packageNameOnSameLineAs(keyword) <* symbol("."))
+    packageNames <- (packageNameOnSameLineAs(keyword) <* symbol(".")).anyTimes()
     moduleName   <- moduleNameOnSameLineAs(keyword)
   } yield ImportStatement(keyword, packageNames, moduleName)
 

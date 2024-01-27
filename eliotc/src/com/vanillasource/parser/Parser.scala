@@ -10,8 +10,33 @@ import com.vanillasource.parser.ParserResult.*
 type Parser[I, O] = StateT[ParserResult, Seq[I], O]
 
 object Parser {
+  extension [I, O](p: Parser[I, O]) {
 
-  /** A parser that will consume exactly the given item, or fail without consuming input.
+    /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
+      */
+    def fully(): Parser[I, O] = p <* endOfInput()
+
+    /** Match the given parser optionally. The parser returns None, if the given parser can be skipped, i.e. it consumes
+      * no input.
+      */
+    def optional(): Parser[I, Option[O]] = StateT { input =>
+      p.run(input) match
+        case Success(consumed, expected, (restInput, o)) => Success(consumed, expected, (restInput, Some(o)))
+        case Failure(false, expected)                    => Success(consumed = false, expected, (input, None))
+        case Failure(true, expected)                     => Failure(consumed = true, expected)
+    }
+
+    /** Match the given parser zero or more times. */
+    def anyTimes(): Parser[I, Seq[O]] =
+      Seq.empty[O].tailRecM { acc =>
+        optional().map {
+          case Some(value) => Left(acc.appended(value))
+          case None        => Right(acc)
+        }
+      }
+  }
+
+  /** A parser that will consume exactly the given item, or fail without consuming input. TODO: remove literal
     */
   def literal[I](i: I)(using Eq[I], Show[I]): Parser[I, I] = acceptIf(_ === i, s"literal '${i.show}'")
 
@@ -23,29 +48,6 @@ object Parser {
       case _                               => Failure(consumed = false, Seq(expected))
     }
   }
-
-  /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
-    */
-  def fully[I, O](p: Parser[I, O]): Parser[I, O] = p <* endOfInput()
-
-  /** Match the given parser optionally. The parser returns None, if the given parser can be skipped, i.e. it consumes
-    * no input.
-    */
-  def option[I, O](p: Parser[I, O]): Parser[I, Option[O]] = StateT { input =>
-    p.run(input) match
-      case Success(consumed, expected, (restInput, o)) => Success(consumed, expected, (restInput, Some(o)))
-      case Failure(false, expected)                    => Success(consumed = false, expected, (input, None))
-      case Failure(true, expected)                     => Failure(consumed = true, expected)
-  }
-
-  /** Match the given parser zero or more times. */
-  def anyTimes[I, O](p: Parser[I, O]): Parser[I, Seq[O]] =
-    Seq.empty[O].tailRecM { acc =>
-      option(p).map {
-        case Some(value) => Left(acc.appended(value))
-        case None        => Right(acc)
-      }
-    }
 
   /** A parser that matches the end of input.
     */
