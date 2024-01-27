@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
 import com.vanillasource.eliot.eliotc.token.{SourceTokens, Token}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import com.vanillasource.parser.ParserResult.{Failure, Success}
 
 import java.io.File
 
@@ -19,7 +20,7 @@ class ASTParser extends CompilerProcessor with Logging {
   }
 
   private def parseAST(file: File, tokens: Seq[Sourced[Token]])(using process: CompilationProcess): IO[Unit] =
-    astParser.runA(tokens).toEither match
-      case Left(expected) => compilerError(file, expected)
-      case Right(ast)     => debug(s"generated AST: $ast") >> process.registerFact(SourceAST(file, ast))
+    astParser.runA(tokens) match
+      case Failure(_, expected) => compilerError(file, expected.mkString(", "))
+      case Success(_, _, ast)   => debug(s"generated AST: $ast") >> process.registerFact(SourceAST(file, ast))
 }

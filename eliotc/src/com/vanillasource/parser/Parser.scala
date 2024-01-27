@@ -19,8 +19,8 @@ object Parser {
     */
   def acceptIf[I](predicate: I => Boolean, expected: String): Parser[I, I] = StateT { input =>
     input.headOption match {
-      case Some(nextI) if predicate(nextI) => Success(consumed = true, (input.tail, nextI))
-      case _                               => Failure(consumed = false, expected)
+      case Some(nextI) if predicate(nextI) => Success(consumed = true, Seq.empty, (input.tail, nextI))
+      case _                               => Failure(consumed = false, Seq(expected))
     }
   }
 
@@ -33,9 +33,9 @@ object Parser {
     */
   def option[I, O](p: Parser[I, O]): Parser[I, Option[O]] = StateT { input =>
     p.run(input) match
-      case Success(consumed, (restInput, o)) => Success(consumed, (restInput, Some(o)))
-      case Failure(false, expected)          => Success(consumed = false, (input, None))
-      case Failure(true, expected)           => Failure(consumed = true, expected)
+      case Success(consumed, expected, (restInput, o)) => Success(consumed, expected, (restInput, Some(o)))
+      case Failure(false, expected)                    => Success(consumed = false, expected, (input, None))
+      case Failure(true, expected)                     => Failure(consumed = true, expected)
   }
 
   /** Match the given parser zero or more times. */
@@ -51,8 +51,8 @@ object Parser {
     */
   def endOfInput[I](): Parser[I, Unit] = StateT { input =>
     input.headOption match {
-      case None => Success(consumed = false, (input, ()))
-      case _    => Failure(consumed = false, "end of input")
+      case None => Success(consumed = false, Seq.empty, (input, ()))
+      case _    => Failure(consumed = false, Seq("end of input"))
     }
   }
 
