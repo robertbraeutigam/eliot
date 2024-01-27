@@ -5,38 +5,22 @@ import cats.{Functor, Monad}
 sealed trait ParserResult[A] {
   def fold[B](ifEmpty: => B)(f: A => B): B
 
+  // TODO: make a proper API function to parse()
   def toEither: Either[String, A]
 }
 
 object ParserResult {
 
-  /** Parser successfully got a value without parsing any input. */
-  case class SuccessWithoutConsuming[A](a: A) extends ParserResult[A] {
+  /** Parser successfully got a value. */
+  case class Success[A](consumed: Boolean, a: A) extends ParserResult[A] {
     override def fold[B](ifEmpty: => B)(f: A => B): B = f(a)
 
     override def toEither: Either[String, A] = Right(a)
   }
 
-  /** Parser successfully parsed a value by consuming some input.
+  /** Parser failed to get a valid value.
     */
-  case class SuccessWithConsuming[A](a: A) extends ParserResult[A] {
-    override def fold[B](ifEmpty: => B)(f: A => B): B = f(a)
-
-    override def toEither: Either[String, A] = Right(a)
-  }
-
-  /** Parser wants to be skipped. Normally this means "failed without consuming input", but its meaning might extend to
-    * other cases depending on the combinator used.
-    */
-  case class FailedWithoutConsuming[A](expected: String) extends ParserResult[A] {
-    override def fold[B](ifEmpty: => B)(f: A => B): B = ifEmpty
-
-    override def toEither: Either[String, A] = Left(expected)
-  }
-
-  /** Means that the parser failed in mid-parsing, and there's no safe way to continue parsing.
-    */
-  case class FailedWithConsuming[A](expected: String) extends ParserResult[A] {
+  case class Failure[A](consumed: Boolean, expected: String) extends ParserResult[A] {
     override def fold[B](ifEmpty: => B)(f: A => B): B = ifEmpty
 
     override def toEither: Either[String, A] = Left(expected)
@@ -46,18 +30,16 @@ object ParserResult {
     override def map[A, B](fa: ParserResult[A])(f: A => B): ParserResult[B] = ???
 
   given Monad[ParserResult] = new Monad[ParserResult]:
-    override def pure[A](a: A): ParserResult[A] = SuccessWithoutConsuming(a)
+    override def pure[A](a: A): ParserResult[A] = Success(consumed = false, a)
 
     override def flatMap[A, B](fa: ParserResult[A])(f: A => ParserResult[B]): ParserResult[B] = fa match
-      case SuccessWithoutConsuming(a)       => f(a)
-      case SuccessWithConsuming(a)          =>
+      case Success(false, a)        => f(a)
+      case Success(true, a)         =>
         f(a) match
-          case SuccessWithoutConsuming(a)       => SuccessWithConsuming(a)
-          case SuccessWithConsuming(a)          => SuccessWithConsuming(a)
-          case FailedWithoutConsuming(expected) => FailedWithConsuming(expected)
-          case FailedWithConsuming(expected)    => FailedWithConsuming(expected)
-      case FailedWithoutConsuming(expected) => FailedWithoutConsuming(expected)
-      case FailedWithConsuming(expected)    => FailedWithConsuming(expected)
+          case Success(_, a2)       => Success(true, a2)
+          case Failure(_, expected) => Failure(true, expected)
+      case Failure(false, expected) => Failure(false, expected)
+      case Failure(true, expected)  => Failure(true, expected)
 
     // TODO: this is not stack-safe
     override def tailRecM[A, B](a: A)(f: A => ParserResult[Either[A, B]]): ParserResult[B] =

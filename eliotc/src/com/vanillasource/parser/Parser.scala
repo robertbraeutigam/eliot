@@ -19,8 +19,8 @@ object Parser {
     */
   def acceptIf[I](predicate: I => Boolean, expected: String): Parser[I, I] = StateT { input =>
     input.headOption match {
-      case Some(nextI) if predicate(nextI) => SuccessWithConsuming((input.tail, nextI))
-      case _                               => FailedWithoutConsuming(expected)
+      case Some(nextI) if predicate(nextI) => Success(consumed = true, (input.tail, nextI))
+      case _                               => Failure(consumed = false, expected)
     }
   }
 
@@ -33,10 +33,9 @@ object Parser {
     */
   def option[I, O](p: Parser[I, O]): Parser[I, Option[O]] = StateT { input =>
     p.run(input) match
-      case SuccessWithoutConsuming((restInput, o)) => SuccessWithoutConsuming((restInput, Some(o)))
-      case SuccessWithConsuming((restInput, o))    => SuccessWithConsuming((restInput, Some(o)))
-      case FailedWithoutConsuming(expected)        => SuccessWithConsuming((input, None))
-      case FailedWithConsuming(expected)           => FailedWithConsuming(expected)
+      case Success(consumed, (restInput, o)) => Success(consumed, (restInput, Some(o)))
+      case Failure(false, expected)          => Success(consumed = false, (input, None))
+      case Failure(true, expected)           => Failure(consumed = true, expected)
   }
 
   /** Match the given parser zero or more times. */
@@ -52,8 +51,8 @@ object Parser {
     */
   def endOfInput[I](): Parser[I, Unit] = StateT { input =>
     input.headOption match {
-      case None => SuccessWithConsuming((input, ()))
-      case _    => FailedWithConsuming("end of input")
+      case None => Success(consumed = false, (input, ()))
+      case _    => Failure(consumed = false, "end of input")
     }
   }
 
