@@ -98,4 +98,12 @@ class ParserTest extends AnyFlatSpec with Matchers {
 
     p.runParser("c") shouldBe Failure(false, 0, Seq("a", "b"))
   }
+
+  "atomic" should "should not consume any input" in {
+    val a = (literal('a') >> literal('b') >> literal('c')).atomic().as(1)
+    val b = (literal('a') >> literal('c')).as(2)
+    val p = a or b
+
+    p.runParser("ac") shouldBe Success(consumed = true, 0, Seq.empty, 2)
+  }
 }

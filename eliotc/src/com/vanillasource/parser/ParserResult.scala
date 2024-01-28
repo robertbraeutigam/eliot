@@ -1,6 +1,6 @@
 package com.vanillasource.parser
 
-import cats.{Functor, Monad}
+import cats.Monad
 
 sealed trait ParserResult[A] {
   def prependExpected(es: Seq[String]): ParserResult[A]
@@ -44,9 +44,6 @@ object ParserResult {
 
     override def setConsumed(): ParserResult[A] = Failure(true, expectedPos, expected)
   }
-
-  given Functor[ParserResult] = new Functor[ParserResult]:
-    override def map[A, B](fa: ParserResult[A])(f: A => B): ParserResult[B] = ???
 
   given Monad[ParserResult] = new Monad[ParserResult]:
     override def pure[A](a: A): ParserResult[A] = Success(consumed = false, 0, Seq.empty, a)

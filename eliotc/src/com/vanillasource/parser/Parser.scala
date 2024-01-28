@@ -47,6 +47,15 @@ object Parser {
         }
       }
 
+    /** Make the whole parser a single transaction. Which means that if it fails, it will always fail without consuming
+      * any input.
+      */
+    def atomic(): Parser[I, O] = StateT { input =>
+      p.run(input) match
+        case Success(consumed, expectedPos, expected, a) => Success(consumed, expectedPos, expected, a)
+        case Failure(_, expectedPos, expected)           => Failure(false, expectedPos, expected)
+    }
+
     /** Returns the result of the first parser, if it succeeds, or the second one if the first one fails without
       * consuming any input.
       */
