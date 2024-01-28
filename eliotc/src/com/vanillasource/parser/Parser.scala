@@ -53,7 +53,28 @@ object Parser {
     def atomic(): Parser[I, O] = StateT { input =>
       p.run(input) match
         case Success(consumed, expectedPos, expected, a) => Success(consumed, expectedPos, expected, a)
-        case Failure(_, expectedPos, expected)           => Failure(false, expectedPos, expected)
+        case Failure(_, expectedPos, expected)           => Failure(false, input.pos, expected)
+    }
+
+    /** Find the given parser in the stream. The resulting parser will advance the stream until the parser can be
+      * matched at some position.
+      *
+      * Note: when such a parser is made [[atomic]], that would mean that it will either find the given input which can
+      * be parsed, or it will not consume any input.
+      *
+      * Note: when such a parser is combined with [[anyTimes]], it will always consume the full input searching for the
+      * given parser.
+      *
+      * Note: when such a parser is both [[atomic]] and [[anyTimes]] (in that order), then the parser will be matched as
+      * many times as possible, but input will only be consumed to the end of the last match.
+      */
+    def find(): Parser[I, O] = StateT { input =>
+      p.run(input) match
+        case Success(consumed, expectedPos, expected, a)                          => Success(consumed, expectedPos, expected, a)
+        case Failure(consumed, expectedPos, expected) if input.headOption.isEmpty =>
+          Failure(consumed, expectedPos, expected)
+        case Failure(true, expectedPos, expected)                                 => find().run(input.tail).setConsumed()
+        case Failure(false, expectedPos, expected)                                => find().run(input.tail)
     }
 
     /** Returns the result of the first parser, if it succeeds, or the second one if the first one fails without

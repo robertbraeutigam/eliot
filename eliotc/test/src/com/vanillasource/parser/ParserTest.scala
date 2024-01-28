@@ -106,4 +106,44 @@ class ParserTest extends AnyFlatSpec with Matchers {
 
     p.runParser("ac") shouldBe Success(consumed = true, 0, Seq.empty, 2)
   }
+
+  "find" should "parse whole input to find the parser" in {
+    val p = (literal('a') >> literal('b') >> literal('c')).find()
+
+    p.runParser("..ab..abc..") shouldBe Success(consumed = true, 0, Seq.empty, 'c')
+  }
+
+  it should "fail if the input did not contain a match and consume all of the input" in {
+    val p = (literal('a') >> literal('b') >> literal('c')).find()
+
+    p.runParser("..ab..abd..") shouldBe Failure(true, 11, Seq("a"))
+  }
+
+  it should "fail with no input consumed, if atomic" in {
+    val p = (literal('a') >> literal('b') >> literal('c')).find().atomic()
+
+    p.runParser("..ab..abd..") shouldBe Failure(false, 0, Seq("a"))
+  }
+
+  it should "collect all found matches if it can match any times" in {
+    val p = (literal('a') >> literal('b') >> literal('c')).find().anyTimes().map(_.size)
+
+    p.runParser("..abc..abd..aaabc..") shouldBe Success(consumed = true, 0, Seq("a"), 2)
+  }
+
+  it should "collect all found matches, and then continue to parse after last match if combined with atomic and any times" in {
+    val a = (literal('a') >> literal('b') >> literal('c')).find().atomic().anyTimes().map(_.size)
+    val b = literal('c') >> literal('d').as(99)
+    val p = a >> b
+
+    p.runParser("..abc..abccd") shouldBe Success(consumed = true, 0, Seq.empty, 99)
+  }
+
+  it should "report expected from both itself and following parser after last match" in {
+    val a = (literal('a') >> literal('b') >> literal('c')).find().atomic().anyTimes().map(_.size)
+    val b = literal('c') >> literal('d').as(99)
+    val p = a >> b
+
+    p.runParser("..abc..abcxcd") shouldBe Failure(consumed = true, 10, Seq("a", "c"))
+  }
 }
