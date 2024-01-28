@@ -6,12 +6,12 @@ import com.vanillasource.eliot.eliotc.token.Token
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
 import com.vanillasource.parser.Parser
-import com.vanillasource.parser.Parser.{acceptIfAll, anyTimes, fully}
+import com.vanillasource.parser.Parser.*
 
 object TokenParser {
   lazy val astParser: Parser[Sourced[Token], AST] = {
     for {
-      importStatements <- importStatement.anyTimes()
+      importStatements <- importStatement.find().atomic().anyTimes()
     } yield AST(importStatements)
   }.fully()
 
