@@ -23,6 +23,19 @@ object Parser {
         case Success(consumed, expectedPos, expected, a) => Right(a)
         case Failure(consumed, expectedPos, expected)    => Left(ParserError(input.drop(expectedPos), expected))
 
+    def debugError(): Parser[I, O] = StateT { input =>
+      p.run(input) match
+        case Success(consumed, expectedPos, expected, a) => Success(consumed, expectedPos, expected, a)
+        case Failure(false, expectedPos, expected)       => Failure(false, expectedPos, expected)
+        case Failure(true, expectedPos, expected)        => {
+          // TODO: this is just for debugging for now
+          input.remainder.drop(expectedPos - input.pos).headOption match
+            case Some(token) => println(s"Couldn't match $token, expected: $expected")
+            case None        => println(s"Reached end of stream, expected: $expected")
+          Failure(true, expectedPos, expected)
+        }
+    }
+
     /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
       */
     def fully(): Parser[I, O] = p <* endOfInput()

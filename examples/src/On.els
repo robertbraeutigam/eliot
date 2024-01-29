@@ -1,6 +1,7 @@
 import a.b
 import b.c
 
+/*
 main() = high(pa1, b(c()))
 
 high(n) = native
@@ -10,3 +11,4 @@ high(n) = native
 b = native
 
 c = native
+*/

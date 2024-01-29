@@ -146,4 +146,11 @@ class ParserTest extends AnyFlatSpec with Matchers {
 
     p.runParser("..abc..abcxcd") shouldBe Failure(consumed = true, 10, Seq("a", "c"))
   }
+
+  it should "parse success even if nothing found with anyTimes()" in {
+    val p = (literal('a') >> literal('b') >> literal('c')).find().atomic().anyTimes().map(_.size)
+
+    p.runParser("..abd..abd..aaabd..") shouldBe Success(consumed = false, 0, Seq("a"), 0)
+  }
+
 }
