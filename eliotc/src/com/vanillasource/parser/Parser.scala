@@ -21,19 +21,18 @@ object Parser {
       */
     def parse(input: Seq[I]): Either[ParserError, O] =
       runParser(input) match
-        case Success(consumed, expected, a) => Right(a)
-        case Failure(consumed, expected)    => Left(expected)
+        case ParserResult(consume, currentError, Some(a)) => Right(a)
+        case ParserResult(_, currentError, _)             => Left(currentError)
 
     def debugError(): Parser[I, O] = StateT { input =>
       p.run(input) match
-        case Success(consume, expected, a)  => Success(consume, expected, a)
-        case Failure(NotConsumed, expected) => Failure(NotConsumed, expected)
-        case Failure(Consumed, expected)    =>
+        case err @ ParserResult(Consumed, expected, None) =>
           // TODO: this is just for debugging for now
           input.remainder.drop(expected.pos - input.pos).headOption match
             case Some(token) => println(s"Couldn't match $token, expected: $expected")
             case None        => println(s"Reached end of stream, expected: $expected")
-          Failure(Consumed, expected)
+          err
+        case other                                        => other
     }
 
     /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
@@ -45,10 +44,8 @@ object Parser {
       */
     def optional(): Parser[I, Option[O]] = StateT { input =>
       p.run(input) match
-        case Success(consumed, expected, (restInput, o)) =>
-          Success(consumed, expected, (restInput, Some(o)))
-        case Failure(NotConsumed, expected)              => Success(NotConsumed, expected, (input, None))
-        case Failure(Consumed, expected)                 => Failure(Consumed, expected)
+        case ParserResult(NotConsumed, expected, None) => ParserResult(NotConsumed, expected, Some((input, None)))
+        case other                                     => other.map((input, a) => (input, Some(a)))
     }
 
     /** Match the given parser zero or more times. */
@@ -65,8 +62,8 @@ object Parser {
       */
     def atomic(): Parser[I, O] = StateT { input =>
       p.run(input) match
-        case Success(consumed, expected, a) => Success(consumed, expected, a)
-        case Failure(_, expected)           => Failure(NotConsumed, expected) // TODO: is this right? Not input.pos?
+        case ParserResult(_, currentError, None) => ParserResult(NotConsumed, currentError, None)
+        case other                               => other
     }
 
     /** Find the given parser in the stream. The resulting parser will advance the stream until the parser can be
@@ -83,11 +80,14 @@ object Parser {
       */
     def find(): Parser[I, O] = StateT { input =>
       p.run(input) match
-        case Success(consumed, expected, a)                          => Success(consumed, expected, a)
-        case Failure(consumed, expected) if input.headOption.isEmpty =>
-          Failure(consumed, expected)
-        case Failure(Consumed, expected)                             => find().run(input.tail).setConsumed()
-        case Failure(NotConsumed, expected)                          => find().run(input.tail)
+        case ParserResult(consume, currentError, None) if input.headOption.nonEmpty =>
+          val np = find().run(input.tail)
+          ParserResult(
+            if (np.consume == Consumed || consume == Consumed) Consumed else NotConsumed,
+            np.currentError,
+            np.value
+          )
+        case other                                                                  => other
     }
 
     /** Returns the result of the first parser, if it succeeds, or the second one if the first one fails without
@@ -108,8 +108,8 @@ object Parser {
     */
   def acceptIf[I](predicate: I => Boolean, expected: String): Parser[I, I] = StateT { input =>
     input.headOption match {
-      case Some(nextI) if predicate(nextI) => Success(Consumed, ParserError.noError, (input.tail, nextI))
-      case _                               => Failure(NotConsumed, ParserError(input.pos, Seq(expected)))
+      case Some(nextI) if predicate(nextI) => ParserResult(Consumed, ParserError.noError, Some((input.tail, nextI)))
+      case _                               => ParserResult(NotConsumed, ParserError(input.pos, Seq(expected)), None)
     }
   }
 
@@ -117,8 +117,8 @@ object Parser {
     */
   def endOfInput[I](): Parser[I, Unit] = StateT { input =>
     input.headOption match {
-      case None => Success(NotConsumed, ParserError.noError, (input, ()))
-      case _    => Failure(NotConsumed, ParserError(input.pos, Seq("end of input")))
+      case None => ParserResult(NotConsumed, ParserError.noError, Some((input, ())))
+      case _    => ParserResult(NotConsumed, ParserError(input.pos, Seq("end of input")), None)
     }
   }
 
