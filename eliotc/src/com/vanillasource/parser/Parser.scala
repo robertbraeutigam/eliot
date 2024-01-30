@@ -18,22 +18,21 @@ object Parser {
 
     /** Parse the given input element with this parser, and return a user-friendly representation of the results.
       */
-    def parse(input: Seq[I]): Either[ParserError[I], O] =
+    def parse(input: Seq[I]): Either[ParserError, O] =
       runParser(input) match
-        case Success(consumed, expectedPos, expected, a) => Right(a)
-        case Failure(consumed, expectedPos, expected)    => Left(ParserError(input.drop(expectedPos), expected))
+        case Success(consumed, expected, a) => Right(a)
+        case Failure(consumed, expected)    => Left(expected)
 
     def debugError(): Parser[I, O] = StateT { input =>
       p.run(input) match
-        case Success(consumed, expectedPos, expected, a) => Success(consumed, expectedPos, expected, a)
-        case Failure(false, expectedPos, expected)       => Failure(false, expectedPos, expected)
-        case Failure(true, expectedPos, expected)        => {
+        case Success(consumed, expected, a) => Success(consumed, expected, a)
+        case Failure(false, expected)       => Failure(false, expected)
+        case Failure(true, expected)        =>
           // TODO: this is just for debugging for now
-          input.remainder.drop(expectedPos - input.pos).headOption match
+          input.remainder.drop(expected.pos - input.pos).headOption match
             case Some(token) => println(s"Couldn't match $token, expected: $expected")
             case None        => println(s"Reached end of stream, expected: $expected")
-          Failure(true, expectedPos, expected)
-        }
+          Failure(true, expected)
     }
 
     /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
@@ -45,10 +44,10 @@ object Parser {
       */
     def optional(): Parser[I, Option[O]] = StateT { input =>
       p.run(input) match
-        case Success(consumed, expectedPos, expected, (restInput, o)) =>
-          Success(consumed, expectedPos, expected, (restInput, Some(o)))
-        case Failure(false, expectedPos, expected)                    => Success(consumed = false, expectedPos, expected, (input, None))
-        case Failure(true, expectedPos, expected)                     => Failure(consumed = true, expectedPos, expected)
+        case Success(consumed, expected, (restInput, o)) =>
+          Success(consumed, expected, (restInput, Some(o)))
+        case Failure(false, expected)                    => Success(consumed = false, expected, (input, None))
+        case Failure(true, expected)                     => Failure(consumed = true, expected)
     }
 
     /** Match the given parser zero or more times. */
@@ -65,8 +64,8 @@ object Parser {
       */
     def atomic(): Parser[I, O] = StateT { input =>
       p.run(input) match
-        case Success(consumed, expectedPos, expected, a) => Success(consumed, expectedPos, expected, a)
-        case Failure(_, expectedPos, expected)           => Failure(false, input.pos, expected)
+        case Success(consumed, expected, a) => Success(consumed, expected, a)
+        case Failure(_, expected)           => Failure(false, expected) // TODO: is this right? Not input.pos?
     }
 
     /** Find the given parser in the stream. The resulting parser will advance the stream until the parser can be
@@ -83,11 +82,11 @@ object Parser {
       */
     def find(): Parser[I, O] = StateT { input =>
       p.run(input) match
-        case Success(consumed, expectedPos, expected, a)                          => Success(consumed, expectedPos, expected, a)
-        case Failure(consumed, expectedPos, expected) if input.headOption.isEmpty =>
-          Failure(consumed, expectedPos, expected)
-        case Failure(true, expectedPos, expected)                                 => find().run(input.tail).setConsumed()
-        case Failure(false, expectedPos, expected)                                => find().run(input.tail)
+        case Success(consumed, expected, a)                          => Success(consumed, expected, a)
+        case Failure(consumed, expected) if input.headOption.isEmpty =>
+          Failure(consumed, expected)
+        case Failure(true, expected)                                 => find().run(input.tail).setConsumed()
+        case Failure(false, expected)                                => find().run(input.tail)
     }
 
     /** Returns the result of the first parser, if it succeeds, or the second one if the first one fails without
@@ -108,8 +107,8 @@ object Parser {
     */
   def acceptIf[I](predicate: I => Boolean, expected: String): Parser[I, I] = StateT { input =>
     input.headOption match {
-      case Some(nextI) if predicate(nextI) => Success(consumed = true, 0, Seq.empty, (input.tail, nextI))
-      case _                               => Failure(consumed = false, input.pos, Seq(expected))
+      case Some(nextI) if predicate(nextI) => Success(consumed = true, ParserError.noError, (input.tail, nextI))
+      case _                               => Failure(consumed = false, ParserError(input.pos, Seq(expected)))
     }
   }
 
@@ -117,8 +116,8 @@ object Parser {
     */
   def endOfInput[I](): Parser[I, Unit] = StateT { input =>
     input.headOption match {
-      case None => Success(consumed = false, 0, Seq.empty, (input, ()))
-      case _    => Failure(consumed = false, input.pos, Seq("end of input"))
+      case None => Success(consumed = false, ParserError.noError, (input, ()))
+      case _    => Failure(consumed = false, ParserError(input.pos, Seq("end of input")))
     }
   }
 

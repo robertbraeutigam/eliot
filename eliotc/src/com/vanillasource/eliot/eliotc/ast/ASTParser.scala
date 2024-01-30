@@ -23,7 +23,7 @@ class ASTParser extends CompilerProcessor with Logging {
     astParser.parse(tokens) match
       case Left(p)    =>
         p match {
-          case ParserError(Nil, expected)        =>
+          case ParserError(pos, expected) if pos >= tokens.size =>
             tokens match {
               case Nil => compilerError(file, s"Expected ${expectedMessage(expected)}, but input was empty.")
               case _   =>
@@ -36,7 +36,8 @@ class ASTParser extends CompilerProcessor with Logging {
                   )
                 )
             }
-          case ParserError(token :: _, expected) =>
+          case ParserError(pos, expected)                       =>
+            val token = tokens.get(pos).get
             compilerError(
               file,
               token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
