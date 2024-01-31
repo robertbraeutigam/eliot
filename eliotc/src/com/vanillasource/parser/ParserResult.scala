@@ -6,6 +6,8 @@ import com.vanillasource.parser.ParserError.given
 import com.vanillasource.parser.ParserResult.Consume
 import com.vanillasource.parser.ParserResult.Consume.{Consumed, NotConsumed}
 
+import scala.util.control.TailCalls.{TailRec, done, tailcall}
+
 /** A result of a parser parsing some input.
   * @param consume
   *   Whether any input items were consumed or not. Note that if input was consumed it means that some prefix of a valid
@@ -33,10 +35,12 @@ object ParserResult {
           case ParserResult(Consumed, error, value)    => ParserResult(Consumed, error, value)
       case err                                          => err.asInstanceOf[ParserResult[B]]
 
-    // TODO: this is not stack-safe
-    override def tailRecM[A, B](a: A)(f: A => ParserResult[Either[A, B]]): ParserResult[B] =
-      flatMap(f(a)) {
-        case Left(newA) => tailRecM(newA)(f)
-        case Right(b)   => pure(b)
-      }
+    override def tailRecM[A, B](a: A)(f: A => ParserResult[Either[A, B]]): ParserResult[B] = {
+      def trampoline(current: ParserResult[Either[A, B]]): TailRec[ParserResult[B]] = current.value match
+        case None              => done(current.asInstanceOf[ParserResult[B]])
+        case Some(Right(b))    => done(flatMap(current)(_ => pure(b)))
+        case Some(Left(nextA)) => tailcall(trampoline(flatMap(current)(_ => f(nextA))))
+
+      trampoline(f(a)).result
+    }
 }
