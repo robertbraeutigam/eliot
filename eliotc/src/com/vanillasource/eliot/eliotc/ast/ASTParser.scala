@@ -19,31 +19,36 @@ class ASTParser extends CompilerProcessor with Logging {
     case _                          => IO.unit
   }
 
-  private def parseAST(file: File, tokens: Seq[Sourced[Token]])(using process: CompilationProcess): IO[Unit] =
-    astParser.parse(tokens) match
-      case Left(p)    =>
-        p match {
-          case ParserError(pos, expected) if pos >= tokens.size =>
-            tokens match {
-              case Nil => compilerError(file, s"Expected ${expectedMessage(expected)}, but input was empty.")
-              case _   =>
-                val pos = tokens.last.range.to
-                compilerError(
-                  file,
-                  Sourced(
-                    PositionRange(pos, pos.next),
-                    s"Expected ${expectedMessage(expected)}, but end of input reached."
-                  )
-                )
-            }
-          case ParserError(pos, expected)                       =>
-            val token = tokens.get(pos).get
-            compilerError(
-              file,
-              token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
-            )
-        }
-      case Right(ast) => debug(s"generated AST: $ast") >> process.registerFact(SourceAST(file, ast))
+  private def parseAST(file: File, tokens: Seq[Sourced[Token]])(using process: CompilationProcess): IO[Unit] = {
+    val astResult = astParser.parse(tokens)
+
+    for {
+      _ <- astResult.allErrors.map {
+             case ParserError(pos, expected) if pos >= tokens.size =>
+               tokens match {
+                 case Nil => compilerError(file, s"Expected ${expectedMessage(expected)}, but input was empty.")
+                 case _   =>
+                   val pos = tokens.last.range.to
+                   compilerError(
+                     file,
+                     Sourced(
+                       PositionRange(pos, pos.next),
+                       s"Expected ${expectedMessage(expected)}, but end of input reached."
+                     )
+                   )
+               }
+             case ParserError(pos, expected)                       =>
+               val token = tokens.get(pos).get
+               compilerError(
+                 file,
+                 token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
+               )
+           }.sequence_
+      _ <- astResult.value match
+             case Some(ast) => debug(s"generated AST: $ast") >> process.registerFact(SourceAST(file, ast))
+             case None      => IO.unit
+    } yield ()
+  }
 
   private def expectedMessage(expected: Seq[String]): String = expected match
     case Nil         => "nothing"
