@@ -153,4 +153,20 @@ class ParserTest extends AnyFlatSpec with Matchers {
     p.parse("..abd..abd..aaabd..") shouldBe ParserResult(NotConsumed, ParserError(0, Seq("a")), Seq.empty, Some(0))
   }
 
+  "saving error" should "add the error into the all errors list" in {
+    val p = (literal('a') >> literal('b')).saveError()
+
+    p.parse("ac") shouldBe ParserResult(Consumed, ParserError(1, Seq("b")), Seq(ParserError(1, Seq("b"))), None)
+  }
+
+  it should "collect all errors in find" in {
+    val p = (literal('a') >> literal('b')).saveError().find().anyTimes().map(_.size)
+
+    p.parse("ac ac") shouldBe ParserResult(
+      Consumed,
+      ParserError(5, List("a")),
+      Seq(ParserError(1, List("b")), ParserError(4, List("b"))),
+      None
+    )
+  }
 }

@@ -1,7 +1,7 @@
-import a.b
-import b.c
+import a.B
+improt a.B
+import b.C
 
-/*
 main() = high(pa1, b(c()))
 
 high(n) = native
@@ -11,4 +11,3 @@ high(n) = native
 b = native
 
 c = native
-*/

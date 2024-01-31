@@ -11,7 +11,7 @@ import com.vanillasource.parser.Parser.*
 object TokenParser {
   lazy val astParser: Parser[Sourced[Token], AST] = {
     for {
-      importStatements <- importStatement.debugError().find().atomic().anyTimes()
+      importStatements <- importStatement.saveError().find().atomic().anyTimes()
     } yield AST(importStatements)
   }
 

@@ -17,15 +17,14 @@ object Parser {
       */
     def parse(input: Seq[I]): ParserResult[O] = p.runA(InputStream.of(input))
 
-    def debugError(): Parser[I, O] = StateT { input =>
+    /** Save the error into the errors list. This does not alter the result in any other way, the parser will still fail
+      * on error.
+      */
+    def saveError(): Parser[I, O] = StateT { input =>
       p.run(input) match
-        case err @ ParserResult(Consumed, expected, allErrors, None) =>
-          // TODO: this is just for debugging for now
-          input.remainder.drop(expected.pos - input.pos).headOption match
-            case Some(token) => println(s"Couldn't match $token, expected: $expected")
-            case None        => println(s"Reached end of stream, expected: $expected")
-          err
-        case other                                                   => other
+        case ParserResult(Consumed, expected, allErrors, None) =>
+          ParserResult(Consumed, expected, allErrors :+ expected, None)
+        case other                                             => other
     }
 
     /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
@@ -79,7 +78,7 @@ object Parser {
           ParserResult(
             if (np.consume == Consumed || consume == Consumed) Consumed else NotConsumed,
             np.currentError,
-            np.allErrors,
+            allErrors ++ np.allErrors,
             np.value
           )
         case other                                                                             => other
