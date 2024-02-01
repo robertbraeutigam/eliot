@@ -22,9 +22,18 @@ object Parser {
       */
     def saveError(): Parser[I, O] = StateT { input =>
       p.run(input) match
-        case ParserResult(Consumed, expected, allErrors, None) =>
-          ParserResult(Consumed, expected, allErrors :+ expected, None)
-        case other                                             => other
+        case ParserResult(consume, expected, allErrors, None) =>
+          ParserResult(consume, expected, allErrors :+ expected, None)
+        case other                                            => other
+    }
+
+    /** Drop all saved errors from parser if it fails.
+      */
+    def dropErrors(): Parser[I, O] = StateT { input =>
+      p.run(input) match
+        case ParserResult(consume, expected, allErrors, None) =>
+          ParserResult(consume, expected, Seq.empty, None)
+        case other                                            => other
     }
 
     /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
@@ -71,10 +80,22 @@ object Parser {
       * Note: when such a parser is both [[atomic]] and [[anyTimes]] (in that order), then the parser will be matched as
       * many times as possible, but input will only be consumed to the end of the last match.
       */
-    def find(): Parser[I, O] =
-      (p.atomic().map(Some.apply) or any().as(None))
+    def find(): Parser[I, O] = findAt(any())
+
+    /** Find this input which matches this parser, but only in positions where the "at" parser matches.
+      */
+    def findAt(at: Parser[I, _]): Parser[I, O] =
+      (p.atomic().map(Some.apply) or (any() >> (at.lookahead().as(true) or any().as(false)).iterateUntil(identity))
+        .as(None))
         .iterateUntil(_.nonEmpty)
         .map(_.get)
+
+    /** Will match if this parser matches the input, but will not consume any input.
+      * @return
+      */
+    def lookahead(): Parser[I, Unit] = StateT { input =>
+      p.run(input).copy(consume = NotConsumed).as((input, ()))
+    }
 
     /** Returns the result of the first parser, if it succeeds, or the second one if the first one fails without
       * consuming any input.
