@@ -76,7 +76,8 @@ object Parser {
       */
     def atomic(): Parser[I, O] = StateT { input =>
       p.run(input) match
-        case ParserResult(_, currentError, allErrors, None) => ParserResult(NotConsumed, currentError, allErrors, None)
+        case ParserResult(_, currentError, allErrors, None) =>
+          ParserResult(NotConsumed, ParserError.noError, allErrors, None)
         case other                                          => other
     }
 
