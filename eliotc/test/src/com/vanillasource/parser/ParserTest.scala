@@ -116,25 +116,25 @@ class ParserTest extends AnyFlatSpec with Matchers {
   it should "fail if the input did not contain a match and consume all of the input" in {
     val p = (literal('a') >> literal('b') >> literal('c')).find()
 
-    p.parse("..ab..abd..") shouldBe ParserResult(Consumed, ParserError(11, Set("a")), Seq.empty, None)
+    p.parse("..ab..abd..") shouldBe ParserResult(Consumed, ParserError(11, Set("input")), Seq.empty, None)
   }
 
   it should "fail with no input consumed, if atomic" in {
     val p = (literal('a') >> literal('b') >> literal('c')).find().atomic()
 
-    p.parse("..ab..abd..") shouldBe ParserResult(NotConsumed, ParserError(11, Set("a")), Seq.empty, None)
+    p.parse("..ab..abd..") shouldBe ParserResult(NotConsumed, ParserError(11, Set("input")), Seq.empty, None)
   }
 
   it should "collect all found matches if it can match the last one" in {
     val p = (literal('a') >> literal('b') >> literal('c')).find().anyTimes().map(_.size)
 
-    p.parse("..abc..abd..aaabc") shouldBe ParserResult(Consumed, ParserError(0, Set("a")), Seq.empty, Some(2))
+    p.parse("..abc..abd..aaabc") shouldBe ParserResult(Consumed, ParserError(0, Set("a", "input")), Seq.empty, Some(2))
   }
 
   it should "fail with anyTimes() is the last portion does not match" in {
     val p = (literal('a') >> literal('b') >> literal('c')).find().anyTimes().map(_.size)
 
-    p.parse("..abc..abd..aaabc..") shouldBe ParserResult(Consumed, ParserError(19, Set("a")), Seq.empty, None)
+    p.parse("..abc..abd..aaabc..") shouldBe ParserResult(Consumed, ParserError(19, Set("input")), Seq.empty, None)
   }
 
   it should "collect all found matches, and then continue to parse after last match if combined with atomic and any times" in {
@@ -150,13 +150,13 @@ class ParserTest extends AnyFlatSpec with Matchers {
     val b = literal('c') >> literal('d').as(99)
     val p = a >> b
 
-    p.parse("..abc..abcxcd") shouldBe ParserResult(Consumed, ParserError(10, Set("a", "c")), Seq.empty, None)
+    p.parse("..abc..abcxcd") shouldBe ParserResult(Consumed, ParserError(10, Set("input", "c")), Seq.empty, None)
   }
 
   it should "parse success even if nothing found with anyTimes()" in {
     val p = (literal('a') >> literal('b') >> literal('c')).find().atomic().anyTimes().map(_.size)
 
-    p.parse("..abd..abd..aaabd..") shouldBe ParserResult(NotConsumed, ParserError(0, Set("a")), Seq.empty, Some(0))
+    p.parse("..abd..abd..aaabd..") shouldBe ParserResult(NotConsumed, ParserError(0, Set("input")), Seq.empty, Some(0))
   }
 
   "saving error" should "add the error into the all errors list" in {
