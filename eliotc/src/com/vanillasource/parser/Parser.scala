@@ -124,10 +124,6 @@ object Parser {
       }
   }
 
-  /** A parser that will consume exactly the given item, or fail without consuming input.
-    */
-  def literal[I](i: I)(using Eq[I], Show[I]): Parser[I, I] = acceptIf(_ === i, i.show)
-
   /** Accept if the given predicate holds.
     */
   def acceptIf[I](predicate: I => Boolean, expected: String = ""): Parser[I, I] = StateT { input =>
@@ -143,6 +139,10 @@ object Parser {
         )
     }
   }
+
+  /** A parser that will consume exactly the given item, or fail without consuming input.
+    */
+  def literal[I](i: I)(using Eq[I], Show[I]): Parser[I, I] = acceptIf(_ === i, i.show)
 
   /** A parser that fails with the given "expected" message and does not consume any input.
     */
