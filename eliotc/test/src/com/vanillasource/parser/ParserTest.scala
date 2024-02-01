@@ -18,7 +18,7 @@ class ParserTest extends AnyFlatSpec with Matchers {
   it should "return error if stream did not reach end-of-input" in {
     val p = endOfInput[Char]()
 
-    p.parse("abc") shouldBe ParserResult(NotConsumed, ParserError(0, Seq("end of input")), Seq.empty, None)
+    p.parse("abc") shouldBe ParserResult(NotConsumed, ParserError(0, Set("end of input")), Seq.empty, None)
   }
 
   "literal" should "match the literal in stream" in {
@@ -30,7 +30,7 @@ class ParserTest extends AnyFlatSpec with Matchers {
   it should "fail on different literal" in {
     val p = literal('a')
 
-    p.parse("bc") shouldBe ParserResult(NotConsumed, ParserError(0, Seq("a")), Seq.empty, None)
+    p.parse("bc") shouldBe ParserResult(NotConsumed, ParserError(0, Set("a")), Seq.empty, None)
   }
 
   "full parsing" should "succeeds if stream ends" in {
@@ -42,7 +42,7 @@ class ParserTest extends AnyFlatSpec with Matchers {
   it should "fail if stream does not end" in {
     val p = literal('a').fully()
 
-    p.parse("ab") shouldBe ParserResult(Consumed, ParserError(1, Seq("end of input")), Seq.empty, None)
+    p.parse("ab") shouldBe ParserResult(Consumed, ParserError(1, Set("end of input")), Seq.empty, None)
   }
 
   "optional parser" should "parse if successful" in {
@@ -54,7 +54,7 @@ class ParserTest extends AnyFlatSpec with Matchers {
   it should "return none successfully if parser fails" in {
     val p = literal('a').optional()
 
-    p.parse("b") shouldBe ParserResult(NotConsumed, ParserError(0, Seq("a")), Seq.empty, Some(None))
+    p.parse("b") shouldBe ParserResult(NotConsumed, ParserError(0, Set("a")), Seq.empty, Some(None))
   }
 
   "sequence of parsers" should "return skip if first parser fails" in {
@@ -66,19 +66,19 @@ class ParserTest extends AnyFlatSpec with Matchers {
   it should "indicate nothing consumed if first parser fails" in {
     val p = literal('a') >> literal('b')
 
-    p.parse("bb") shouldBe ParserResult(NotConsumed, ParserError(0, Seq("a")), Seq.empty, None)
+    p.parse("bb") shouldBe ParserResult(NotConsumed, ParserError(0, Set("a")), Seq.empty, None)
   }
 
   it should "indicate something consumed if second parser fails" in {
     val p = literal('a') >> literal('b')
 
-    p.parse("ac") shouldBe ParserResult(Consumed, ParserError(1, Seq("b")), Seq.empty, None)
+    p.parse("ac") shouldBe ParserResult(Consumed, ParserError(1, Set("b")), Seq.empty, None)
   }
 
   "expected items" should "be listed in a many followed by a literal" in {
     val p = literal('a').anyTimes() >> literal('b')
 
-    p.parse("aac") shouldBe ParserResult(Consumed, ParserError(2, Seq("a", "b")), Seq.empty, None)
+    p.parse("aac") shouldBe ParserResult(Consumed, ParserError(2, Set("a", "b")), Seq.empty, None)
   }
 
   "or" should "return first parser, if it matches" in {
@@ -96,7 +96,7 @@ class ParserTest extends AnyFlatSpec with Matchers {
   it should "return both expected if none match" in {
     val p = literal('a').or(literal('b'))
 
-    p.parse("c") shouldBe ParserResult(NotConsumed, ParserError(0, Seq("a", "b")), Seq.empty, None)
+    p.parse("c") shouldBe ParserResult(NotConsumed, ParserError(0, Set("a", "b")), Seq.empty, None)
   }
 
   "atomic" should "should not consume any input" in {
@@ -116,25 +116,25 @@ class ParserTest extends AnyFlatSpec with Matchers {
   it should "fail if the input did not contain a match and consume all of the input" in {
     val p = (literal('a') >> literal('b') >> literal('c')).find()
 
-    p.parse("..ab..abd..") shouldBe ParserResult(Consumed, ParserError(11, Seq("a")), Seq.empty, None)
+    p.parse("..ab..abd..") shouldBe ParserResult(Consumed, ParserError(11, Set("a")), Seq.empty, None)
   }
 
   it should "fail with no input consumed, if atomic" in {
     val p = (literal('a') >> literal('b') >> literal('c')).find().atomic()
 
-    p.parse("..ab..abd..") shouldBe ParserResult(NotConsumed, ParserError(11, Seq("a")), Seq.empty, None)
+    p.parse("..ab..abd..") shouldBe ParserResult(NotConsumed, ParserError(11, Set("a")), Seq.empty, None)
   }
 
   it should "collect all found matches if it can match the last one" in {
     val p = (literal('a') >> literal('b') >> literal('c')).find().anyTimes().map(_.size)
 
-    p.parse("..abc..abd..aaabc") shouldBe ParserResult(Consumed, ParserError(0, Seq("a")), Seq.empty, Some(2))
+    p.parse("..abc..abd..aaabc") shouldBe ParserResult(Consumed, ParserError(0, Set("a")), Seq.empty, Some(2))
   }
 
   it should "fail with anyTimes() is the last portion does not match" in {
     val p = (literal('a') >> literal('b') >> literal('c')).find().anyTimes().map(_.size)
 
-    p.parse("..abc..abd..aaabc..") shouldBe ParserResult(Consumed, ParserError(19, Seq("a")), Seq.empty, None)
+    p.parse("..abc..abd..aaabc..") shouldBe ParserResult(Consumed, ParserError(19, Set("a")), Seq.empty, None)
   }
 
   it should "collect all found matches, and then continue to parse after last match if combined with atomic and any times" in {
@@ -150,18 +150,18 @@ class ParserTest extends AnyFlatSpec with Matchers {
     val b = literal('c') >> literal('d').as(99)
     val p = a >> b
 
-    p.parse("..abc..abcxcd") shouldBe ParserResult(Consumed, ParserError(10, Seq("a", "c")), Seq.empty, None)
+    p.parse("..abc..abcxcd") shouldBe ParserResult(Consumed, ParserError(10, Set("a", "c")), Seq.empty, None)
   }
 
   it should "parse success even if nothing found with anyTimes()" in {
     val p = (literal('a') >> literal('b') >> literal('c')).find().atomic().anyTimes().map(_.size)
 
-    p.parse("..abd..abd..aaabd..") shouldBe ParserResult(NotConsumed, ParserError(0, Seq("a")), Seq.empty, Some(0))
+    p.parse("..abd..abd..aaabd..") shouldBe ParserResult(NotConsumed, ParserError(0, Set("a")), Seq.empty, Some(0))
   }
 
   "saving error" should "add the error into the all errors list" in {
     val p = (literal('a') >> literal('b')).saveError()
 
-    p.parse("ac") shouldBe ParserResult(Consumed, ParserError(1, Seq("b")), Seq(ParserError(1, Seq("b"))), None)
+    p.parse("ac") shouldBe ParserResult(Consumed, ParserError(1, Set("b")), Seq(ParserError(1, Set("b"))), None)
   }
 }

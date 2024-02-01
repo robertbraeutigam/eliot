@@ -50,7 +50,7 @@ class ASTParser extends CompilerProcessor with Logging {
     } yield ()
   }
 
-  private def expectedMessage(expected: Seq[String]): String = expected match
+  private def expectedMessage(expected: Set[String]): String = expected.toSeq match
     case Nil         => "nothing"
     case head :: Nil => head
     case _           => s"${expected.init.mkString(", ")} or ${expected.last}"

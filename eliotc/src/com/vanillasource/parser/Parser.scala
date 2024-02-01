@@ -133,7 +133,7 @@ object Parser {
       case _                               =>
         ParserResult(
           NotConsumed,
-          ParserError(input.pos, Seq(expected)),
+          ParserError(input.pos, Set(expected)),
           Seq.empty,
           None
         )
@@ -146,7 +146,7 @@ object Parser {
     input => // TODO: acceptIf(true, "end of input").optional().map{None => } ?
       input.headOption match {
         case None => ParserResult(NotConsumed, ParserError.noError, Seq.empty, Some((input, ())))
-        case _    => ParserResult(NotConsumed, ParserError(input.pos, Seq("end of input")), Seq.empty, None)
+        case _    => ParserResult(NotConsumed, ParserError(input.pos, Set("end of input")), Seq.empty, None)
       }
   }
 
