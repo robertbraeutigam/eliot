@@ -90,8 +90,7 @@ object Parser {
         .iterateUntil(_.nonEmpty)
         .map(_.get)
 
-    /** Will match if this parser matches the input, but will not consume any input.
-      * @return
+    /** Will match if this parser matches the input, but will not consume any input regardless of success or failure.
       */
     def lookahead(): Parser[I, Unit] = StateT { input =>
       p.run(input).copy(consume = NotConsumed).as((input, ()))

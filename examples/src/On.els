@@ -1,6 +1,6 @@
-import a.B
-improt a.B
-import b.C
+import a.b
+improt b.B
+import a.b.c
 
 main() = high(pa1, b(c()))
 
