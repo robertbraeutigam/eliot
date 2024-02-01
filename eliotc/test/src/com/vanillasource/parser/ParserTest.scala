@@ -170,4 +170,16 @@ class ParserTest extends AnyFlatSpec with Matchers {
 
     p.parse("ac") shouldBe ParserResult(Consumed, ParserError(1, Set("b")), Seq(ParserError(1, Set("b"))), None)
   }
+
+  "any" should "consume a random item" in {
+    val p = any[Char]()
+
+    p.parse("a") shouldBe ParserResult(Consumed, ParserError.noError, Seq.empty, Some('a'))
+  }
+
+  it should "fail if there are no more tokens" in {
+    val p = any[Char]()
+
+    p.parse("") shouldBe ParserResult(NotConsumed, ParserError(0, Set("input")), Seq.empty, None)
+  }
 }

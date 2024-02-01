@@ -160,10 +160,12 @@ object Parser {
   def skipTo[I](p: Parser[I, _]): Parser[I, Unit] =
     (p.lookahead().as(true) or any().as(false)).iterateUntil(identity).void
 
-  /** Match any input item.
+  /** Match any input item. This will always succeed, except if there is no more input.
     */
   def any[I](): Parser[I, I] = acceptIf(_ => true, "input")
 
+  /** Accept a single token if all of the given predicates hold.
+    */
   def acceptIfAll[I](predicates: (I => Boolean)*)(expected: String): Parser[I, I] =
     acceptIf(i => predicates.forall(_.apply(i)), expected)
 }
