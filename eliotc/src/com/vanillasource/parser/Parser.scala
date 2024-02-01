@@ -10,7 +10,6 @@ import com.vanillasource.parser.ParserResult.Consume.*
   *
   * Foundational parsers are:
   *   - [[acceptIf]], which consumed a single token if the supplied predicate holds
-  *   - [[endOfInput]], which does not consume anything, but is successful if the end of input is reached
   *
   * Foundational combinators are:
   *   - [[lookahead]], which is successful if the given parser can be matched, but does not consume any input
@@ -106,8 +105,8 @@ object Parser {
 
     /** Will match if this parser matches the input, but will not consume any input regardless of success or failure.
       */
-    def lookahead(): Parser[I, Unit] = StateT { input =>
-      p.run(input).copy(consume = NotConsumed).as((input, ()))
+    def lookahead(): Parser[I, O] = StateT { input =>
+      p.run(input).copy(consume = NotConsumed).map((newInput, o) => (input, o))
     }
 
     /** Returns the result of the first parser, if it succeeds, or the second one if the first one fails without
@@ -126,29 +125,35 @@ object Parser {
 
   /** Accept if the given predicate holds.
     */
-  def acceptIf[I](predicate: I => Boolean, expected: String): Parser[I, I] = StateT { input =>
+  def acceptIf[I](predicate: I => Boolean, expected: String = ""): Parser[I, I] = StateT { input =>
     input.headOption match {
       case Some(nextI) if predicate(nextI) =>
         ParserResult(Consumed, ParserError.noError, Seq.empty, Some((input.tail, nextI)))
       case _                               =>
         ParserResult(
           NotConsumed,
-          ParserError(input.pos, Set(expected)),
+          ParserError(input.pos, if (expected.isBlank) Set.empty else Set(expected)),
           Seq.empty,
           None
         )
     }
   }
 
-  /** A parser that matches the end of input.
+  /** A parser that fails with the given "expected" message and does not consume any input.
     */
-  def endOfInput[I](): Parser[I, Unit] = StateT {
-    input => // TODO: acceptIf(true, "end of input").optional().map{None => } ?
-      input.headOption match {
-        case None => ParserResult(NotConsumed, ParserError.noError, Seq.empty, Some((input, ())))
-        case _    => ParserResult(NotConsumed, ParserError(input.pos, Set("end of input")), Seq.empty, None)
+  def error[I](expected: String): Parser[I, Unit] = acceptIf[I](_ => false, expected).as(())
+
+  /** A parser that matches the end of input. This does not consume input.
+    */
+  def endOfInput[I](): Parser[I, Unit] =
+    acceptIf[I](_ => true)
+      .optional()
+      .lookahead()
+      .flatMap {
+        case Some(_) => error("end of input")
+        case None    => ().pure
       }
-  }
+      .void
 
   /** Skip to a given input, but do not consume it.
     */

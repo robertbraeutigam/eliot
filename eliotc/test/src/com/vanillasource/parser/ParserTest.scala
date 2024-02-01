@@ -21,6 +21,12 @@ class ParserTest extends AnyFlatSpec with Matchers {
     p.parse("abc") shouldBe ParserResult(NotConsumed, ParserError(0, Set("end of input")), Seq.empty, None)
   }
 
+  "error" should "fail without consuming input" in {
+    val p = error[Char]("failed")
+
+    p.parse("abc") shouldBe ParserResult(NotConsumed, ParserError(0, Set("failed")), Seq.empty, None)
+  }
+
   "literal" should "match the literal in stream" in {
     val p = literal('a')
 
