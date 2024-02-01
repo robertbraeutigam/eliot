@@ -16,7 +16,7 @@ object TokenParser {
           .followedBy(topLevel)
           .saveError()
           .recoverWith(skipTo(topLevel))
-          .anyTimesWhen(topLevelKeyword("import").find())
+          .anyTimesWhile(topLevelKeyword("import").find())
     } yield AST(importStatements.flatten)
   }
 

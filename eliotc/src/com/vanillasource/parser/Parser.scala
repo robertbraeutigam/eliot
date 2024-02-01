@@ -42,15 +42,13 @@ object Parser {
     }
 
     /** Match the given parser zero or more times. */
-    def anyTimes(): Parser[I, Seq[O]] = // TODO: iterateWhile?
-      Seq.empty[O].tailRecM { acc =>
-        optional().map {
-          case Some(value) => Left(acc.appended(value))
-          case None        => Right(acc)
-        }
-      }
+    def anyTimes(): Parser[I, Seq[O]] = anyTimesWhile(().pure)
 
-    def anyTimesWhen(n: Parser[I, _]): Parser[I, Seq[O]] =
+    /** Match this parser any times while the given parser matches.
+      * @param n
+      *   The parser that should match before applying this parser.
+      */
+    def anyTimesWhile(n: Parser[I, _]): Parser[I, Seq[O]] =
       Seq.empty[O].tailRecM { acc =>
         (n.lookahead() *> p).optional().map {
           case Some(value) => Left(acc.appended(value))
