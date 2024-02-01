@@ -11,8 +11,13 @@ import com.vanillasource.parser.Parser.*
 object TokenParser {
   lazy val astParser: Parser[Sourced[Token], AST] = {
     for {
-      importStatements <- importStatement.saveError().findAt(acceptIf(isTopLevel)).atomic().anyTimes()
-    } yield AST(importStatements)
+      importStatements <-
+        importStatement
+          .followedBy(topLevel)
+          .saveError()
+          .recoverWith(skipTo(topLevel))
+          .anyTimesWhen(topLevelKeyword("import").find())
+    } yield AST(importStatements.flatten)
   }
 
   private lazy val importStatement = for {
@@ -29,6 +34,8 @@ object TokenParser {
     acceptIfAll(isIdentifier, isLowerCase, isOnSameLineAs(keyword))("package name")
 
   private def isOnSameLineAs(sample: Sourced[Token])(st: Sourced[Token]) = sample.range.to.line === st.range.from.line
+
+  private def topLevel = acceptIf(isTopLevel, "top level definition")
 
   private def isUpperCase(st: Sourced[Token]) = st.value.content.charAt(0).isUpper
 

@@ -27,15 +27,6 @@ object Parser {
         case other                                            => other
     }
 
-    /** Drop all saved errors from parser if it fails.
-      */
-    def dropErrors(): Parser[I, O] = StateT { input =>
-      p.run(input) match
-        case ParserResult(consume, expected, allErrors, None) =>
-          ParserResult(consume, expected, Seq.empty, None)
-        case other                                            => other
-    }
-
     /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
       */
     def fully(): Parser[I, O] = p <* endOfInput()
@@ -51,13 +42,25 @@ object Parser {
     }
 
     /** Match the given parser zero or more times. */
-    def anyTimes(): Parser[I, Seq[O]] =
+    def anyTimes(): Parser[I, Seq[O]] = // TODO: iterateWhile?
       Seq.empty[O].tailRecM { acc =>
         optional().map {
           case Some(value) => Left(acc.appended(value))
           case None        => Right(acc)
         }
       }
+
+    def anyTimesWhen(n: Parser[I, _]): Parser[I, Seq[O]] =
+      Seq.empty[O].tailRecM { acc =>
+        (n.lookahead() *> p).optional().map {
+          case Some(value) => Left(acc.appended(value))
+          case None        => Right(acc)
+        }
+      }
+
+    /** Parses if this parser is followed by the given parser. No input is consumed on the given parser.
+      */
+    def followedBy(n: Parser[I, _]): Parser[I, O] = p <* n.lookahead()
 
     /** Make the whole parser a single transaction. Which means that if it fails, it will always fail without consuming
       * any input.
@@ -85,10 +88,11 @@ object Parser {
     /** Find this input which matches this parser, but only in positions where the "at" parser matches.
       */
     def findAt(at: Parser[I, _]): Parser[I, O] =
-      (p.atomic().map(Some.apply) or (any() >> (at.lookahead().as(true) or any().as(false)).iterateUntil(identity))
-        .as(None))
+      recoverWith(skipTo(at))
         .iterateUntil(_.nonEmpty)
         .map(_.get)
+
+    def recoverWith(skip: Parser[I, _]): Parser[I, Option[O]] = p.atomic().map(Some.apply) or (any() >> skip.as(None))
 
     /** Will match if this parser matches the input, but will not consume any input regardless of success or failure.
       */
@@ -112,23 +116,28 @@ object Parser {
 
   /** Accept if the given predicate holds.
     */
-  def acceptIf[I](predicate: I => Boolean, expected: String = ""): Parser[I, I] = StateT { input =>
+  def acceptIf[I](predicate: I => Boolean, expected: String): Parser[I, I] = StateT { input =>
     input.headOption match {
       case Some(nextI) if predicate(nextI) =>
         ParserResult(Consumed, ParserError.noError, Seq.empty, Some((input.tail, nextI)))
       case _                               =>
         ParserResult(
           NotConsumed,
-          ParserError(input.pos, if (expected.isBlank) Seq.empty else Seq(expected)),
+          ParserError(input.pos, Seq(expected)),
           Seq.empty,
           None
         )
     }
   }
 
+  /** Skip to a given input, but do not consume it.
+    */
+  def skipTo[I](p: Parser[I, _]): Parser[I, Unit] =
+    (p.lookahead().as(true) or any().as(false)).iterateUntil(identity).void
+
   /** Match any input item.
     */
-  def any[I](): Parser[I, I] = acceptIf(_ => true)
+  def any[I](): Parser[I, I] = acceptIf(_ => true, "input")
 
   /** A parser that matches the end of input.
     */
