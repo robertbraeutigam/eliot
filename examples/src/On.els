@@ -1,5 +1,5 @@
 import a.b
-improt b.B
+import b.B
 import a.b.c
 
 main() = high(pa1, b(c()))

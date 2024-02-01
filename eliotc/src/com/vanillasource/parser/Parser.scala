@@ -7,6 +7,18 @@ import com.vanillasource.parser.ParserResult.*
 import com.vanillasource.parser.ParserResult.Consume.*
 
 /** A parser combinator that consumes items of type [[I]] and produces results of some type [[O]].
+  *
+  * Foundational parsers are:
+  *   - [[acceptIf]], which consumed a single token if the supplied predicate holds
+  *   - [[endOfInput]], which does not consume anything, but is successful if the end of input is reached
+  *
+  * Foundational combinators are:
+  *   - [[lookahead]], which is successful if the given parser can be matched, but does not consume any input
+  *   - [[atomic]], which makes the parser fail without consuming any input
+  *   - [[optional]], which makes a parser return None, if it failed without consuming input
+  *
+  * All other parsers are based on these foundational parsers or are combinations thereof, based on the foundational
+  * combinators.
   */
 type Parser[I, O] = StateT[ParserResult, InputStream[I], O]
 
@@ -128,6 +140,16 @@ object Parser {
     }
   }
 
+  /** A parser that matches the end of input.
+    */
+  def endOfInput[I](): Parser[I, Unit] = StateT {
+    input => // TODO: acceptIf(true, "end of input").optional().map{None => } ?
+      input.headOption match {
+        case None => ParserResult(NotConsumed, ParserError.noError, Seq.empty, Some((input, ())))
+        case _    => ParserResult(NotConsumed, ParserError(input.pos, Seq("end of input")), Seq.empty, None)
+      }
+  }
+
   /** Skip to a given input, but do not consume it.
     */
   def skipTo[I](p: Parser[I, _]): Parser[I, Unit] =
@@ -136,15 +158,6 @@ object Parser {
   /** Match any input item.
     */
   def any[I](): Parser[I, I] = acceptIf(_ => true, "input")
-
-  /** A parser that matches the end of input.
-    */
-  def endOfInput[I](): Parser[I, Unit] = StateT { input =>
-    input.headOption match {
-      case None => ParserResult(NotConsumed, ParserError.noError, Seq.empty, Some((input, ())))
-      case _    => ParserResult(NotConsumed, ParserError(input.pos, Seq("end of input")), Seq.empty, None)
-    }
-  }
 
   def acceptIfAll[I](predicates: (I => Boolean)*)(expected: String): Parser[I, I] =
     acceptIf(i => predicates.forall(_.apply(i)), expected)
