@@ -125,10 +125,16 @@ class ParserTest extends AnyFlatSpec with Matchers {
     p.parse("..ab..abd..") shouldBe ParserResult(NotConsumed, ParserError(11, Seq("a")), Seq.empty, None)
   }
 
-  it should "collect all found matches if it can match any times" in {
+  it should "collect all found matches if it can match the last one" in {
     val p = (literal('a') >> literal('b') >> literal('c')).find().anyTimes().map(_.size)
 
-    p.parse("..abc..abd..aaabc..") shouldBe ParserResult(Consumed, ParserError(0, Seq("a")), Seq.empty, Some(2))
+    p.parse("..abc..abd..aaabc") shouldBe ParserResult(Consumed, ParserError(0, Seq("a")), Seq.empty, Some(2))
+  }
+
+  it should "fail with anyTimes() is the last portion does not match" in {
+    val p = (literal('a') >> literal('b') >> literal('c')).find().anyTimes().map(_.size)
+
+    p.parse("..abc..abd..aaabc..") shouldBe ParserResult(Consumed, ParserError(19, Seq("a")), Seq.empty, None)
   }
 
   it should "collect all found matches, and then continue to parse after last match if combined with atomic and any times" in {

@@ -71,18 +71,10 @@ object Parser {
       * Note: when such a parser is both [[atomic]] and [[anyTimes]] (in that order), then the parser will be matched as
       * many times as possible, but input will only be consumed to the end of the last match.
       */
-    def find(): Parser[I, O] = StateT { input =>
-      p.run(input) match
-        case ParserResult(consume, currentError, allErrors, None) if input.headOption.nonEmpty =>
-          val np = find().run(input.tail)
-          ParserResult(
-            if (np.consume == Consumed || consume == Consumed) Consumed else NotConsumed,
-            np.currentError,
-            allErrors ++ np.allErrors,
-            np.value
-          )
-        case other                                                                             => other
-    }
+    def find(): Parser[I, O] =
+      (p.atomic().map(Some.apply) or any().as(None))
+        .iterateUntil(_.nonEmpty)
+        .map(_.get)
 
     /** Returns the result of the first parser, if it succeeds, or the second one if the first one fails without
       * consuming any input.
@@ -100,13 +92,23 @@ object Parser {
 
   /** Accept if the given predicate holds.
     */
-  def acceptIf[I](predicate: I => Boolean, expected: String): Parser[I, I] = StateT { input =>
+  def acceptIf[I](predicate: I => Boolean, expected: String = ""): Parser[I, I] = StateT { input =>
     input.headOption match {
       case Some(nextI) if predicate(nextI) =>
         ParserResult(Consumed, ParserError.noError, Seq.empty, Some((input.tail, nextI)))
-      case _                               => ParserResult(NotConsumed, ParserError(input.pos, Seq(expected)), Seq.empty, None)
+      case _                               =>
+        ParserResult(
+          NotConsumed,
+          ParserError(input.pos, if (expected.isBlank) Seq.empty else Seq(expected)),
+          Seq.empty,
+          None
+        )
     }
   }
+
+  /** Match any input item.
+    */
+  def any[I](): Parser[I, I] = acceptIf(_ => true)
 
   /** A parser that matches the end of input.
     */
