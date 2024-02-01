@@ -182,4 +182,28 @@ class ParserTest extends AnyFlatSpec with Matchers {
 
     p.parse("") shouldBe ParserResult(NotConsumed, ParserError(0, Set("input")), Seq.empty, None)
   }
+
+  "skip to" should "do nothing, if parser already matches" in {
+    val p = (literal('a') >> literal('b')).skipTo()
+
+    p.parse("ab") shouldBe ParserResult(NotConsumed, ParserError.noError, Seq.empty, Some('b'))
+  }
+
+  it should "skip through items that do not match" in {
+    val p = (literal('a') >> literal('b')).skipTo()
+
+    p.parse("..a..ac..ab..") shouldBe ParserResult(Consumed, ParserError.noError, Seq.empty, Some('b'))
+  }
+
+  it should "let the parser itself match again after it was skipped to" in {
+    val p = (literal('a') >> literal('b')).skipTo() >> (literal('a') >> literal('b'))
+
+    p.parse("..a..ac..abcd") shouldBe ParserResult(Consumed, ParserError.noError, Seq.empty, Some('b'))
+  }
+
+  it should "fail if pattern is nowhere to be found with consuming everything" in {
+    val p = (literal('a') >> literal('b')).skipTo()
+
+    p.parse("..a..ac..ad..") shouldBe ParserResult(Consumed, ParserError(13, Set("a", "input")), Seq.empty, None)
+  }
 }

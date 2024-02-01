@@ -97,9 +97,14 @@ object Parser {
     /** Find this input which matches this parser, but only in positions where the "at" parser matches.
       */
     def findAt(at: Parser[I, _]): Parser[I, O] =
-      recoverWith(skipTo(at))
+      recoverWith(at.skipTo())
         .iterateUntil(_.nonEmpty)
         .map(_.get)
+
+    /** Skip to this parser.
+      */
+    def skipTo(): Parser[I, O] =
+      (p.lookahead().map(Some.apply) or any().as(None)).iterateUntil(_.isDefined).map(_.get)
 
     def recoverWith(skip: Parser[I, _]): Parser[I, Option[O]] = p.atomic().map(Some.apply) or (any() >> skip.as(None))
 
@@ -154,11 +159,6 @@ object Parser {
         case None    => ().pure
       }
       .void
-
-  /** Skip to a given input, but do not consume it.
-    */
-  def skipTo[I](p: Parser[I, _]): Parser[I, Unit] =
-    (p.lookahead().as(true) or any().as(false)).iterateUntil(identity).void
 
   /** Match any input item. This will always succeed, except if there is no more input.
     */
