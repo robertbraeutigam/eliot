@@ -31,7 +31,7 @@ object Parser {
     /** Save the error into the errors list. This does not alter the result in any other way, the parser will still fail
       * on error.
       */
-    def saveError(): Parser[I, O] = StateT { input =>
+    private def saveError(): Parser[I, O] = StateT { input =>
       p.run(input) match
         case ParserResult(consume, expected, allErrors, None) =>
           ParserResult(consume, expected, allErrors :+ expected, None)
@@ -51,6 +51,14 @@ object Parser {
           ParserResult(NotConsumed, expected, allErrors, Some((input, None)))
         case other                                                => other.map((input, a) => (input, Some(a)))
     }
+
+    /** Attempt this parser for the input until the given other parser. If the parser fails, the error will be saved and
+      * the input will skip to the given delimeter.
+      */
+    def attemptPhraseTo(delimeter: Parser[I, _]): Parser[I, Option[O]] = p
+      .followedBy(delimeter)
+      .saveError()
+      .recoverWith(delimeter.skipTo())
 
     /** Match the given parser zero or more times. */
     def anyTimes(): Parser[I, Seq[O]] = anyTimesWhile(().pure)

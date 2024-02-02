@@ -14,15 +14,11 @@ object TokenParser {
     for {
       importStatements    <-
         importStatement
-          .followedBy(topLevel.void or endOfInput())
-          .saveError()
-          .recoverWith((topLevel.void or endOfInput()).skipTo())
+          .attemptPhraseTo(topLevel.void or endOfInput())
           .anyTimesWhile(topLevelKeyword("import").find())
       functionDefinitions <-
         functionDefinition
-          .followedBy(topLevel.void or endOfInput())
-          .saveError()
-          .recoverWith((topLevel.void or endOfInput()).skipTo())
+          .attemptPhraseTo(topLevel.void or endOfInput())
           .anyTimesWhile(any())
     } yield AST(importStatements.flatten, functionDefinitions.flatten)
   }.fully()
