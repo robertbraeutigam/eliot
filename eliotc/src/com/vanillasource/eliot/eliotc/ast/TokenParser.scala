@@ -4,6 +4,7 @@ import cats.Show
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.FunctionBody.{Native, NonNative}
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
 import com.vanillasource.parser.Parser
 import com.vanillasource.parser.Parser.*
@@ -11,20 +12,32 @@ import com.vanillasource.parser.Parser.*
 object TokenParser {
   lazy val astParser: Parser[Sourced[Token], AST] = {
     for {
-      importStatements <-
+      importStatements    <-
         importStatement
-          .followedBy(topLevel)
+          .followedBy(topLevel.void or endOfInput())
           .saveError()
-          .recoverWith(topLevel.skipTo())
+          .recoverWith((topLevel.void or endOfInput()).skipTo())
           .anyTimesWhile(topLevelKeyword("import").find())
-    } yield AST(importStatements.flatten)
-  }
+      functionDefinitions <-
+        functionDefinition
+          .followedBy(topLevel.void or endOfInput())
+          .saveError()
+          .recoverWith((topLevel.void or endOfInput()).skipTo())
+          .anyTimesWhile(any())
+    } yield AST(importStatements.flatten, functionDefinitions.flatten)
+  }.fully()
 
   private lazy val importStatement = for {
     keyword      <- topLevelKeyword("import")
     packageNames <- (packageNameOnSameLineAs(keyword) <* symbol(".")).anyTimes()
     moduleName   <- moduleNameOnSameLineAs(keyword)
   } yield ImportStatement(keyword, packageNames, moduleName)
+
+  private lazy val functionDefinition = for {
+    name         <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
+    _            <- symbol("=")
+    functionBody <- keyword("native").map(_.as(Native)) or any().map(_.as(NonNative()))
+  } yield FunctionDefinition(name, functionBody)
 
   // TODO: expected package name OR module name
   private def moduleNameOnSameLineAs(keyword: Sourced[Token]) =
@@ -45,6 +58,8 @@ object TokenParser {
     acceptIfAll(isTopLevel, isKeyword, hasContent(word))(s"top level keyword '$word'")
 
   private def hasContent(content: String)(st: Sourced[Token]) = st.value.content === content
+
+  private def keyword(s: String) = acceptIfAll(isKeyword, hasContent(s))(s"keyword '$s'")
 
   private def symbol(s: String) = acceptIfAll(isSymbol, hasContent(s))(s"symbol '$s'")
 

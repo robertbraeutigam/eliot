@@ -1,10 +1,8 @@
-import a.b
 import b.B
-import a.b.c
 
-main() = high(pa1, b(c()))
+main = something
 
-high(n) = native
+high = native
 
 //pa1 = 1
 

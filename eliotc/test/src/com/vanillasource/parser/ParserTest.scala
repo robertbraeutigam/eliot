@@ -194,4 +194,10 @@ class ParserTest extends AnyFlatSpec with Matchers {
 
     p.parse("..a..ac..ad..") shouldBe ParserResult(Consumed, ParserError(13, Set("a", "input")), Seq.empty, None)
   }
+
+  "any times" should "return a successful sequence and potential expected" in {
+    val p = (literal('a') >> literal('b')).anyTimes()
+
+    p.parse("ababab") shouldBe ParserResult(Consumed, ParserError(0, Set("a")), Seq.empty, Some(Seq('b', 'b', 'b')))
+  }
 }
