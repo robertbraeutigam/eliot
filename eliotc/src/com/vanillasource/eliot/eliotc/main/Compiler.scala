@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.main
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.module.ModuleProcessor
 import com.vanillasource.eliot.eliotc.source.{
   InitSourcePaths,
   SourceContentReader,
@@ -19,7 +20,8 @@ case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
     SourceContentReader(),
     SourcedErrorPrinter(),
     Tokenizer(),
-    ASTParser()
+    ASTParser(),
+    ModuleProcessor()
   )
 
   def run(): IO[Unit] = for {
