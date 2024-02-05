@@ -36,6 +36,29 @@ class ASTParserTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     )
   }
 
+  it should "not parse import on multiple lines, even if correct" in {
+    parseForErrors("import a.b\n.C").asserting(
+      _ shouldBe Seq(
+        "Expected package name or module name, but encountered identifier 'C'.",
+        "Expected function name, but encountered symbol '.'."
+      )
+    )
+  }
+
+  it should "not parse import that is not top-level, even if correct" in {
+    parseForErrors(" import a.b.C").asserting(
+      _ shouldBe Seq("Expected function name, but encountered keyword 'import'.")
+    )
+  }
+
+  it should "report multiple errors, not fail on the first one" in {
+    parseForErrors("import a.b\nimport c.d").asserting(_.size shouldBe 2)
+  }
+
+  it should "reject keyword 'import' as function name" in {
+    parseForErrors("a = b\nimport = a").asserting(_.size should be > 0)
+  }
+
   private val file = new File("test.els")
 
   private def parseForErrors(source: String): IO[Seq[String]] =
