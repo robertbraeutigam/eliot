@@ -24,6 +24,18 @@ class ASTParserTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     parseForImports("import a.b.C\nimport b.D\nimport g.g.H").asserting(_ shouldBe Seq("a.b.C", "b.D", "g.g.H"))
   }
 
+  it should "not parse import with point at the end" in {
+    parseForErrors("import a.b.c.").asserting(
+      _ shouldBe Seq("Expected package name or module name, but end of input reached.")
+    )
+  }
+
+  it should "not parse import with non-capitalized module name" in {
+    parseForErrors("import a.b.c").asserting(
+      _ shouldBe Seq("Expected symbol '.', but end of input reached.")
+    )
+  }
+
   private val file = new File("test.els")
 
   private def parseForErrors(source: String): IO[Seq[String]] =
