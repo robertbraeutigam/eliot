@@ -4,13 +4,13 @@ Implement compiler to compile following minimal program into bytecode:
 
 Source code:
 ```
-main = pa1.high()
+main = pa1.high
 
 // The actual hardware specific library will provide PA1 and an instance of this:
 trait DigitalOutput[P]
-   toggle pin:P IO[Unit]
-   high pin:P IO[Unit]
-   low pin:P IO[Unit]
+   toggle(pin:P): IO[Unit]
+   high(pin:P): IO[Unit]
+   low(pin:P): IO[Unit]
 ```
 
 This is supposed to set the PA1 pin high.
@@ -34,7 +34,7 @@ type ByteBit = Number[0, 7] // See below
 
 data ByteBit = 0 | 1 | 2 | 3 | 4 | 5 | 7 // ???
 
-data AvrPin = AvrPin port:Port bit:Bit
+data AvrPin = AvrPin(port:Port, bit:Bit)
 
 implementation DigitalOutput[AvrPin]
    def toggle pin = toggle pin.port pin.bit
@@ -47,13 +47,13 @@ external toggle pin:Byte pin:Byte
 
 
 ```
-def main = forever (toggle PA1; sleep 1 sec)
+main = (PA1.toggle; 1.seconds.sleep).forever
 
-def forever f = f; recurse f // ; only available for Monad or Applicative?, so <=> def forever f:F[A] F[B] where F: Applicative
+forever(f: Applicative) = f; f.forever // ; only available for Monad or Applicative?, so <=> def forever f:F[A] F[B] where F: Applicative
 
 data Duration = millis: Int // Some Int that desugars to Byte or Word depending on usage?
 
-seconds(n: Int) = Duration 1000 * n  // Should be internal to duration module. With . => 1000.seconds
+seconds(n: Int) = Duration(1000 * n)  // Should be internal to duration module. With . => 1000.seconds
 
 def x * y = ???
 
