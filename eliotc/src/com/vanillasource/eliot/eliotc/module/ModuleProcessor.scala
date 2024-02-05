@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.module
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.{AST, FunctionDefinition, SourceAST}
+import com.vanillasource.eliot.eliotc.ast.{AST, FunctionDefinition, ImportStatement, SourceAST}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
@@ -26,11 +26,67 @@ class ModuleProcessor extends CompilerProcessor with Logging {
   private def processFunctions(file: File, moduleName: ModuleName, ast: AST)(using
       process: CompilationProcess
   ): IO[Unit] = for {
-    functions <-
-      ast.functionDefinitions.foldM(Map.empty[String, FunctionDefinition])((acc, d) => extractFunction(file, acc, d))
-    _         <- process.registerFact(ModuleFunctionsNames(moduleName, functions.keySet))
-    _         <- debug(s"read function names for ${moduleName}: ${functions.keySet.mkString(", ")}")
+    localFunctions    <- extractFunctions(file, ast.functionDefinitions)
+    _                 <- process.registerFact(ModuleFunctionsNames(moduleName, localFunctions.keySet))
+    importedFunctions <- extractImportedFunctions(file, localFunctions.keySet, ast.importStatements)
+    _                 <- debug(s"read function names for ${moduleName.show}: ${localFunctions.keySet
+                             .mkString(", ")}, imported functions: ${importedFunctions.keySet.mkString(", ")}")
+    functionDictionary =
+      importedFunctions ++ localFunctions.keySet.map(name => (name, FunctionFQN(moduleName, name))).toMap
+    _                 <- localFunctions
+                           .map { (name, definition) =>
+                             process.registerFact(ModuleFunction(FunctionFQN(moduleName, name), functionDictionary, definition))
+                           }
+                           .toSeq
+                           .sequence_
   } yield ()
+
+  private def extractImportedFunctions(
+      file: File,
+      localFunctionNames: Set[String],
+      imports: Seq[ImportStatement]
+  )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] =
+    imports.foldM(Map.empty[String, FunctionFQN])((acc, i) => extractImport(file, localFunctionNames, acc, i))
+
+  private def extractImport(
+      file: File,
+      localFunctionNames: Set[String],
+      importedFunctions: Map[String, FunctionFQN],
+      statement: ImportStatement
+  )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] = for {
+    moduleFunctionsMaybe <- process.getFact(ModuleFunctionsNames.Key(ModuleName.fromImportStatement(statement)))
+    result               <- moduleFunctionsMaybe match
+                              case Some(moduleFunctions) =>
+                                if (moduleFunctions.functionNames.intersect(localFunctionNames).nonEmpty) {
+                                  compilerError(
+                                    file,
+                                    statement.outline.as(
+                                      s"Imported functions shadow local functions: ${moduleFunctions.functionNames.intersect(localFunctionNames).mkString(", ")}"
+                                    )
+                                  ).as(importedFunctions)
+                                } else if (moduleFunctions.functionNames.intersect(importedFunctions.keySet).nonEmpty) {
+                                  compilerError(
+                                    file,
+                                    statement.outline.as(
+                                      s"Imported functions shadow other imported functions: ${moduleFunctions.functionNames.intersect(importedFunctions.keySet).flatMap(importedFunctions.get).mkString(", ")}"
+                                    )
+                                  ).as(importedFunctions)
+                                } else {
+                                  IO.pure(
+                                    importedFunctions ++ moduleFunctions.functionNames
+                                      .map(name => (name, FunctionFQN(moduleFunctions.moduleName, name)))
+                                      .toMap
+                                  )
+                                }
+                              case None                  =>
+                                compilerError(file, statement.outline.as("Could not find imported module.")).as(importedFunctions)
+  } yield result
+
+  private def extractFunctions(
+      file: File,
+      functionDefinitions: Seq[FunctionDefinition]
+  )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] =
+    functionDefinitions.foldM(Map.empty[String, FunctionDefinition])((acc, d) => extractFunction(file, acc, d))
 
   private def extractFunction(
       file: File,
