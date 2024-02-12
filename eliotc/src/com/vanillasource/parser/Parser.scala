@@ -75,6 +75,11 @@ object Parser {
         }
       }
 
+    def atLeastOnce(): Parser[I, Seq[O]] = for {
+      head <- p
+      tail <- anyTimes()
+    } yield head +: tail
+
     /** Parses if this parser is followed by the given parser. No input is consumed on the given parser.
       */
     def followedBy(n: Parser[I, _]): Parser[I, O] = p <* n.lookahead()

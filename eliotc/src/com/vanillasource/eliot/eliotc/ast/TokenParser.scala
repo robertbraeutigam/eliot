@@ -1,12 +1,15 @@
 package com.vanillasource.eliot.eliotc.ast
 
 import cats.Show
+import cats.data.IndexedStateT
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import cats.syntax.all.*
+import com.vanillasource.collections.Tree
+import com.vanillasource.eliot.eliotc.ast.Expression.FunctionApplication
 import com.vanillasource.eliot.eliotc.ast.FunctionBody.{Native, NonNative}
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
-import com.vanillasource.parser.Parser
+import com.vanillasource.parser.{InputStream, Parser, ParserResult}
 import com.vanillasource.parser.Parser.*
 
 object TokenParser {
@@ -31,11 +34,34 @@ object TokenParser {
 
   private lazy val functionDefinition = for {
     name         <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
+    args         <- argumentListOf(acceptIf(isIdentifier, "argument name"))
     _            <- symbol("=")
-    functionBody <- keyword("native").map(_.as(Native)) or any().map(_.as(NonNative()))
+    functionBody <- nativeFunctionBody(args) or nonNativeFunctionBody(args)
   } yield FunctionDefinition(name, functionBody)
 
-  // TODO: expected package name OR module name
+  private def nativeFunctionBody(args: Seq[Sourced[Token]]): Parser[Sourced[Token], FunctionBody] =
+    keyword("native").map(keyword => Native(keyword, args))
+
+  private def nonNativeFunctionBody(args: Seq[Sourced[Token]]): Parser[Sourced[Token], FunctionBody] =
+    expression.map(body => NonNative(args, body))
+
+  private lazy val expression: Parser[Sourced[Token], Tree[Expression]] = functionApplication
+
+  private lazy val functionApplication: Parser[Sourced[Token], Tree[Expression]] = for {
+    name <- acceptIf(isIdentifier, "function name")
+    args <- argumentListOf(expression)
+  } yield Tree(FunctionApplication(name), args)
+
+  private def argumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] = {
+    val nonEmpty = for {
+      _     <- symbol("(")
+      items <- (item <* symbol(",")).atLeastOnce()
+      _     <- symbol(")")
+    } yield items
+
+    nonEmpty.optional().map(_.getOrElse(Seq.empty))
+  }
+
   private def moduleNameOnSameLineAs(keyword: Sourced[Token]) =
     acceptIfAll(isIdentifier, isUpperCase, isOnSameLineAs(keyword))("module name")
 
