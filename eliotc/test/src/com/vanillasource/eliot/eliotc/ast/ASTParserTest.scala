@@ -59,6 +59,26 @@ class ASTParserTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     parseForErrors("a = b\nimport = a").asserting(_.size should be > 0)
   }
 
+  it should "accept a constant definition without parentheses" in {
+    parseForErrors("a = b").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject a constant definition with empty parentheses for empty args" in {
+    parseForErrors("a() = b").asserting(_ shouldBe Seq("Expected argument name, but encountered symbol ')'."))
+  }
+
+  it should "accept a function definition with one argument" in {
+    parseForErrors("a(b) = b").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a function definition with two arguments" in {
+    parseForErrors("a(b, c) = b").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a function definition with three arguments" in {
+    parseForErrors("a(b, c, d) = b").asserting(_ shouldBe Seq.empty)
+  }
+
   private val file = new File("test.els")
 
   private def parseForErrors(source: String): IO[Seq[String]] =

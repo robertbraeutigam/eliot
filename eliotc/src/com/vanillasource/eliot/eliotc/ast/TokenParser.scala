@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import cats.syntax.all.*
 import com.vanillasource.collections.Tree
-import com.vanillasource.eliot.eliotc.ast.Expression.FunctionApplication
+import com.vanillasource.eliot.eliotc.ast.Expression.{FunctionApplication, IntegerLiteral}
 import com.vanillasource.eliot.eliotc.ast.FunctionBody.{Native, NonNative}
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
 import com.vanillasource.parser.{InputStream, Parser, ParserResult}
@@ -45,19 +45,25 @@ object TokenParser {
   private def nonNativeFunctionBody(args: Seq[Sourced[Token]]): Parser[Sourced[Token], FunctionBody] =
     expression.map(body => NonNative(args, body))
 
-  private lazy val expression: Parser[Sourced[Token], Tree[Expression]] = functionApplication
+  private lazy val expression: Parser[Sourced[Token], Tree[Expression]] =
+    functionApplication or integerLiteral
 
   private lazy val functionApplication: Parser[Sourced[Token], Tree[Expression]] = for {
     name <- acceptIf(isIdentifier, "function name")
     args <- argumentListOf(expression)
   } yield Tree(FunctionApplication(name), args)
 
+  private lazy val integerLiteral: Parser[Sourced[Token], Tree[Expression]] = for {
+    lit <- acceptIf(isIntegerLiteral, "integer literal")
+  } yield Tree(IntegerLiteral(lit))
+
   private def argumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] = {
     val nonEmpty = for {
       _     <- symbol("(")
-      items <- (item <* symbol(",")).atLeastOnce()
+      first <- item
+      tail  <- (symbol(",") *> item).anyTimes()
       _     <- symbol(")")
-    } yield items
+    } yield first +: tail
 
     nonEmpty.optional().map(_.getOrElse(Seq.empty))
   }
@@ -95,6 +101,11 @@ object TokenParser {
     case _                             => false
   }
 
+  private def isIntegerLiteral(st: Sourced[Token]): Boolean = st match {
+    case Sourced(range, Token.IntegerLiteral(_)) => true
+    case _                                       => false
+  }
+
   private def isSymbol(st: Sourced[Token]): Boolean = st match {
     case Sourced(range, Symbol(_)) => true
     case _                         => false
@@ -103,9 +114,9 @@ object TokenParser {
   private def isTopLevel(st: Sourced[Token]): Boolean = st.range.from.col === 1
 
   given Show[Token] = {
-    case Identifier(content)          => s"identifier '$content'"
-    case Symbol(content)              => s"symbol '$content'"
-    case Keyword(content)             => s"keyword '$content'"
+    case Identifier(content)           => s"identifier '$content'"
+    case Symbol(content)               => s"symbol '$content'"
+    case Keyword(content)              => s"keyword '$content'"
     case Token.IntegerLiteral(content) => s"number literal '$content'"
   }
 }

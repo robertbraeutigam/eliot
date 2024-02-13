@@ -7,4 +7,5 @@ sealed trait Expression
 
 object Expression {
   case class FunctionApplication(functionName: Sourced[Token]) extends Expression
+  case class IntegerLiteral(integerLiteral: Sourced[Token])    extends Expression
 }
