@@ -106,6 +106,6 @@ object TokenParser {
     case Identifier(content)          => s"identifier '$content'"
     case Symbol(content)              => s"symbol '$content'"
     case Keyword(content)             => s"keyword '$content'"
-    case Token.NumberLiteral(content) => s"number literal '$content'"
+    case Token.IntegerLiteral(content) => s"number literal '$content'"
   }
 }

@@ -5,7 +5,7 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.CompilerFact
 import com.vanillasource.eliot.eliotc.main.CompilerEngine
 import com.vanillasource.eliot.eliotc.source.*
-import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword}
+import com.vanillasource.eliot.eliotc.token.Token.{Identifier, IntegerLiteral, Keyword}
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -56,6 +56,18 @@ class TokenizerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "fail on illegal characters" in {
     parseForErrors(" token →").asserting(
       _.headOption.getOrElse("") should startWith("Parser error, unexpected \"→\"")
+    )
+  }
+
+  it should "parse 1 as integer literal" in {
+    parseForSourcedTokens("1").asserting(
+      _ shouldBe Seq(Sourced(PositionRange(Position(1, 1), Position(1, 2)), IntegerLiteral(BigInt(1))))
+    )
+  }
+
+  it should "parse 123 as integer literal" in {
+    parseForSourcedTokens("123").asserting(
+      _ shouldBe Seq(Sourced(PositionRange(Position(1, 1), Position(1, 4)), IntegerLiteral(BigInt(123))))
     )
   }
 

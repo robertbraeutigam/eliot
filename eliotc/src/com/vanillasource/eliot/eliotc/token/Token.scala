@@ -5,8 +5,10 @@ sealed trait Token {
 }
 
 object Token {
-  case class Identifier(content: String)    extends Token
-  case class Symbol(content: String)        extends Token
-  case class Keyword(content: String)       extends Token
-  case class NumberLiteral(content: String) extends Token
+  case class Identifier(content: String)   extends Token
+  case class Symbol(content: String)       extends Token
+  case class Keyword(content: String)      extends Token
+  case class IntegerLiteral(value: BigInt) extends Token {
+    override val content: String = value.toString
+  }
 }
