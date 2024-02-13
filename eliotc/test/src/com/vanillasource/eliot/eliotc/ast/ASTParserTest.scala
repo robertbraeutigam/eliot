@@ -75,8 +75,40 @@ class ASTParserTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     parseForErrors("a(b, c) = b").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "reject argument list without the comma separate" in {
+    parseForErrors("a(b c) = b").asserting(
+      _ shouldBe Seq("Expected symbol ',' or symbol ')', but encountered identifier 'c'.")
+    )
+  }
+
   it should "accept a function definition with three arguments" in {
     parseForErrors("a(b, c, d) = b").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a function application without parameters" in {
+    parseForErrors("a = b").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a function application with 1 parameters" in {
+    parseForErrors("a = b(c)").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject a function application with empty parameter list" in {
+    parseForErrors("a = b()").asserting(
+      _ shouldBe Seq("Expected function name or integer literal, but encountered symbol ')'.")
+    )
+  }
+
+  it should "accept a function application with 2 parameters" in {
+    parseForErrors("a = b(c, d)").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a function application with 3 parameters" in {
+    parseForErrors("a = b(c, d, e)").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a function application with 2 parameters, one is an integer literal" in {
+    parseForErrors("a = b(c, 1)").asserting(_ shouldBe Seq.empty)
   }
 
   private val file = new File("test.els")
