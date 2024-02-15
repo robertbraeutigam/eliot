@@ -44,7 +44,7 @@ class ASTParser extends CompilerProcessor with Logging {
                )
            }.sequence_
       _ <- astResult.value match
-             case Some(ast) => debug(s"generated AST: $ast") >> process.registerFact(SourceAST(file, ast))
+             case Some(ast) => debug(s"generated AST for $file: ${ast.show}") >> process.registerFact(SourceAST(file, ast))
              case None      => IO.unit
     } yield ()
   }
