@@ -36,8 +36,8 @@ class FunctionResolver extends CompilerProcessor with Logging {
   } yield {
     optionTree.sequence match
       case Some(tree) =>
-        debug(s"resolved $ffqn to: $tree")
-        process.registerFact(ResolvedFunction(ffqn, FunctionBody.NonNative(args.map(_.map(_.content)), tree)))
+        debug(s"resolved $ffqn to: $tree") >>
+          process.registerFact(ResolvedFunction(ffqn, FunctionBody.NonNative(args.map(_.map(_.content)), tree)))
       case None       => IO.unit
   }
 
