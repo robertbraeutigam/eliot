@@ -6,9 +6,11 @@ import parsley.errors
 import parsley.errors.{DefaultErrorBuilder, ErrorBuilder}
 import parsley.errors.tokenextractors.SingleChar
 
-class TokenErrorBuilder extends ErrorBuilder[Sourced[String]] {
+import java.io.File
+
+class TokenErrorBuilder(val file: File) extends ErrorBuilder[Sourced[String]] {
   def format(pos: Position, source: Source, lines: ErrorInfoLines): Sourced[String] =
-    Sourced(PositionRange(pos, pos.next), s"Parser error, ${lines.mkString(", ")}.")
+    Sourced(file, PositionRange(pos, pos.next), s"Parser error, ${lines.mkString(", ")}.")
 
   type Position = com.vanillasource.eliot.eliotc.source.Position
   type Source   = Option[String]

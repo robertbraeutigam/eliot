@@ -30,8 +30,8 @@ class ASTParser extends CompilerProcessor with Logging {
                  case _   =>
                    val pos = tokens.last.range.to
                    compilerError(
-                     file,
                      Sourced(
+                       file,
                        PositionRange(pos, pos.next),
                        s"Expected ${expectedMessage(expected)}, but end of input reached."
                      )
@@ -40,7 +40,6 @@ class ASTParser extends CompilerProcessor with Logging {
              case ParserError(pos, expected)                       =>
                val token = tokens.get(pos).get
                compilerError(
-                 file,
                  token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
                )
            }.sequence_

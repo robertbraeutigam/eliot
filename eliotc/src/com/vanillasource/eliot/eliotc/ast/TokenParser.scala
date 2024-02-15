@@ -92,23 +92,23 @@ object TokenParser {
   private def symbol(s: String) = acceptIfAll(isSymbol, hasContent(s))(s"symbol '$s'")
 
   private def isKeyword(st: Sourced[Token]): Boolean = st match {
-    case Sourced(range, Keyword(_)) => true
-    case _                          => false
+    case Sourced(_, _, Keyword(_)) => true
+    case _                         => false
   }
 
   private def isIdentifier(st: Sourced[Token]): Boolean = st match {
-    case Sourced(range, Identifier(_)) => true
-    case _                             => false
+    case Sourced(_, _, Identifier(_)) => true
+    case _                            => false
   }
 
   private def isIntegerLiteral(st: Sourced[Token]): Boolean = st match {
-    case Sourced(range, Token.IntegerLiteral(_)) => true
-    case _                                       => false
+    case Sourced(_, _, Token.IntegerLiteral(_)) => true
+    case _                                      => false
   }
 
   private def isSymbol(st: Sourced[Token]): Boolean = st match {
-    case Sourced(range, Symbol(_)) => true
-    case _                         => false
+    case Sourced(_, _, Symbol(_)) => true
+    case _                        => false
   }
 
   private def isTopLevel(st: Sourced[Token]): Boolean = st.range.from.col === 1

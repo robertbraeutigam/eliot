@@ -22,77 +22,17 @@ import java.io.File
   * comments.
   */
 class Tokenizer extends CompilerProcessor with Logging with User {
-  private val lexer = new Lexer(
-    LexicalDesc(
-      NameDesc(
-        identifierStart = Basic(_.isLetter),
-        identifierLetter = Basic(c => c.isLetterOrDigit),
-        operatorStart = Basic(":!#$%&*+./<=>?@\\^|-~;".contains(_)),
-        operatorLetter = Basic(":!#$%&*+./<=>?@\\^|-~;".contains(_))
-      ),
-      SymbolDesc(
-        hardKeywords = Set("import", "native"),
-        hardOperators = Set("(", ")"),
-        caseSensitive = true
-      ),
-      NumericDesc.plain,
-      TextDesc.plain,
-      SpaceDesc(
-        commentStart = "/*",
-        commentEnd = "*/",
-        commentLine = "//",
-        commentLineAllowsEOF = true,
-        nestedComments = false,
-        space = Basic(_.isWhitespace),
-        whitespaceIsContextDependent = false
-      )
-    )
-  )
-
-  private lazy val fullParser: Parsley[List[Sourced[Token]]] = lexer.fully(Parsley.many(tokenParser))
-
-  private lazy val tokenParser: Parsley[Sourced[Token]] =
-    identifier <|> symbolParser <|> standaloneSymbolParser <|> keyword <|> integerLiteral
-
-  private lazy val symbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
-    lexer.nonlexeme.names.userDefinedOperator.map(Token.Symbol.apply)
-  )
-
-  private lazy val standaloneSymbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
-    character.oneOf('(', ')', ',').map(_.toString).map(Token.Symbol.apply)
-  ).label("special operator")
-
-  private lazy val keyword: Parsley[Sourced[Token.Keyword]] = sourcedLexeme(
-    character.strings("import", "native").map(Token.Keyword.apply)
-  ).label("keyword")
-
-  private lazy val integerLiteral: Parsley[Sourced[Token.IntegerLiteral]] = sourcedLexeme(
-    lexer.nonlexeme.integer.decimal.map(Token.IntegerLiteral.apply)
-  ).label("integer literal")
-
-  private lazy val identifier: Parsley[Sourced[Token.Identifier]] = sourcedLexeme(
-    lexer.nonlexeme.names.identifier.map(Token.Identifier.apply)
-  )
-
-  private lazy val position: Parsley[Position] = pos.map(Position.apply.tupled)
-
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
     case SourceContent(file, content) => tokenize(file, content)
     case _                            => IO.unit
   }
 
   private def tokenize(file: File, content: String)(using process: CompilationProcess): IO[Unit] =
-    fullParser
-      .parse(content)(using new TokenErrorBuilder())
+    TokenParser(file).fullParser
+      .parse(content)(using new TokenErrorBuilder(file))
       .fold(
-        errorMessage => SourcedError.compilerError(file, errorMessage),
+        errorMessage => SourcedError.compilerError(errorMessage),
         tokens => debug(s"tokenized $file into $tokens") >> process.registerFact(SourceTokens(file, tokens))
       )
 
-  private def sourcedLexeme[T](parser: Parsley[T]): Parsley[Sourced[T]] = for {
-    from <- position
-    t    <- markAsToken(parser)
-    to   <- position
-    _    <- lexer.space.whiteSpace
-  } yield Sourced(PositionRange(from, to), t)
 }

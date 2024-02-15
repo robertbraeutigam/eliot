@@ -12,6 +12,8 @@ import org.scalatest.matchers.should.Matchers
 import java.io.File
 
 class TokenizerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+  private val file = new File("test.els")
+
   "tokenizer" should "return nothing for empty content" in {
     parseForTokens("").asserting(_ shouldBe Seq.empty)
   }
@@ -35,15 +37,15 @@ class TokenizerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "return correct positions for tokens" in {
     parseForSourcedTokens(" some\ntokens").asserting(
       _ shouldBe Seq(
-        Sourced(PositionRange(Position(1, 2), Position(1, 6)), Identifier("some")),
-        Sourced(PositionRange(Position(2, 1), Position(2, 7)), Identifier("tokens"))
+        Sourced(file, PositionRange(Position(1, 2), Position(1, 6)), Identifier("some")),
+        Sourced(file, PositionRange(Position(2, 1), Position(2, 7)), Identifier("tokens"))
       )
     )
   }
 
   it should "include comments in the position of a token" in {
     parseForSourcedTokens(" /* some comment */ token").asserting(
-      _ shouldBe Seq(Sourced(PositionRange(Position(1, 21), Position(1, 26)), Identifier("token")))
+      _ shouldBe Seq(Sourced(file, PositionRange(Position(1, 21), Position(1, 26)), Identifier("token")))
     )
   }
 
@@ -61,17 +63,15 @@ class TokenizerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   it should "parse 1 as integer literal" in {
     parseForSourcedTokens("1").asserting(
-      _ shouldBe Seq(Sourced(PositionRange(Position(1, 1), Position(1, 2)), IntegerLiteral(BigInt(1))))
+      _ shouldBe Seq(Sourced(file, PositionRange(Position(1, 1), Position(1, 2)), IntegerLiteral(BigInt(1))))
     )
   }
 
   it should "parse 123 as integer literal" in {
     parseForSourcedTokens("123").asserting(
-      _ shouldBe Seq(Sourced(PositionRange(Position(1, 1), Position(1, 4)), IntegerLiteral(BigInt(123))))
+      _ shouldBe Seq(Sourced(file, PositionRange(Position(1, 1), Position(1, 4)), IntegerLiteral(BigInt(123))))
     )
   }
-
-  private val file = new File("test.els")
 
   private def parseForTokens(source: String): IO[Seq[Token]] =
     parseForSourcedTokens(source)
@@ -83,7 +83,7 @@ class TokenizerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   private def parseForErrors(source: String): IO[Seq[String]] =
     runTokenizer(source)
-      .map(_.values.collect { case SourcedError(_, Sourced(_, msg)) => msg }.toSeq)
+      .map(_.values.collect { case SourcedError(Sourced(_, _, msg)) => msg }.toSeq)
 
   private def runTokenizer(source: String): IO[Map[Any, CompilerFact]] =
     CompilerEngine(Seq(new Tokenizer()))

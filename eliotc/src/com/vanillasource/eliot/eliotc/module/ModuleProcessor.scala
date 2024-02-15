@@ -59,14 +59,12 @@ class ModuleProcessor extends CompilerProcessor with Logging {
                               case Some(moduleFunctions) =>
                                 if (moduleFunctions.functionNames.intersect(localFunctionNames).nonEmpty) {
                                   compilerError(
-                                    file,
                                     statement.outline.as(
                                       s"Imported functions shadow local functions: ${moduleFunctions.functionNames.intersect(localFunctionNames).mkString(", ")}"
                                     )
                                   ).as(importedFunctions)
                                 } else if (moduleFunctions.functionNames.intersect(importedFunctions.keySet).nonEmpty) {
                                   compilerError(
-                                    file,
                                     statement.outline.as(
                                       s"Imported functions shadow other imported functions: ${moduleFunctions.functionNames.intersect(importedFunctions.keySet).flatMap(importedFunctions.get).mkString(", ")}"
                                     )
@@ -79,7 +77,7 @@ class ModuleProcessor extends CompilerProcessor with Logging {
                                   )
                                 }
                               case None                  =>
-                                compilerError(file, statement.outline.as("Could not find imported module.")).as(importedFunctions)
+                                compilerError(statement.outline.as("Could not find imported module.")).as(importedFunctions)
   } yield result
 
   private def extractFunctions(
@@ -94,9 +92,9 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       current: FunctionDefinition
   )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] = current.name.value.content match
     case fn if previousFunctions.contains(fn) =>
-      compilerError(file, current.name.as("Function was already defined in this module.")).as(previousFunctions)
+      compilerError(current.name.as("Function was already defined in this module.")).as(previousFunctions)
     case fn if !fn.charAt(0).isLower          =>
-      compilerError(file, current.name.as("Function name must start with lower case character.")).as(previousFunctions)
+      compilerError(current.name.as("Function name must start with lower case character.")).as(previousFunctions)
     case fn                                   => (previousFunctions ++ Map((fn, current))).pure
 
   private def determineModuleName(file: File)(using process: CompilationProcess): IO[Option[ModuleName]] = {

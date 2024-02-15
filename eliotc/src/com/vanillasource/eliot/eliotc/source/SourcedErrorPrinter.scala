@@ -11,7 +11,7 @@ import scala.math.*
 
 class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
   override def process(fact: CompilerFact)(using process: CompilationProcess): IO[Unit] = fact match {
-    case SourcedError(file, Sourced(PositionRange(Position(fromLine, fromCol), Position(toLine, toCol)), message)) =>
+    case SourcedError(Sourced(file, PositionRange(Position(fromLine, fromCol), Position(toLine, toCol)), message)) =>
       for {
         contentOption <- process.getFact(SourceContent.Key(file))
         _             <- contentOption match

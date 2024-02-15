@@ -31,9 +31,9 @@ class FunctionResolver extends CompilerProcessor with Logging {
       process: CompilationProcess
   ): IO[Option[Expression]] =
     expr match
-      case ast.Expression.FunctionApplication(functionName)                           => ???
-      case ast.Expression.IntegerLiteral(s @ Sourced(_, Token.IntegerLiteral(value))) =>
+      case ast.Expression.FunctionApplication(functionName)                              => ???
+      case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value))) =>
         Some(Expression.IntegerLiteral(s.as(value))).pure
-      case ast.Expression.IntegerLiteral(s)                                           =>
+      case ast.Expression.IntegerLiteral(s)                                              =>
         compilerError(s.as(s"Internal compiler error, not parsed as an integer literal.")) >> None.pure
 }
