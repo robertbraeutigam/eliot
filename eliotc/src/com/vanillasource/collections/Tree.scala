@@ -1,7 +1,7 @@
 package com.vanillasource.collections
 
-import cats.{Applicative, Eval, Foldable, Functor, Traverse}
-import cats.implicits._
+import cats.implicits.*
+import cats.{Applicative, Eval, Functor, Traverse}
 
 /** Immutable multi-node, sorting-preserving tree.
   */

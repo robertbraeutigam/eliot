@@ -31,11 +31,10 @@ class FunctionResolver extends CompilerProcessor with Logging {
       args: Seq[Sourced[Token]],
       body: Tree[ast.Expression]
   )(using process: CompilationProcess): IO[Unit] = for {
-    _          <- debug(s"resolving $ffqn")
     optionTree <- body.map(expr => resolveExpression(dictionary, expr)).sequence
     _          <- optionTree.sequence match
                     case Some(tree) =>
-                      debug(s"resolved $ffqn to: $tree") >>
+                      debug(s"resolved ${ffqn.show} to: ${tree.show}") >>
                         process.registerFact(ResolvedFunction(ffqn, FunctionBody.NonNative(args.map(_.map(_.content)), tree)))
                     case None       => IO.unit
   } yield ()
