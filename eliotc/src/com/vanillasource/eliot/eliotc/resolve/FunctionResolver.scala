@@ -23,15 +23,32 @@ class FunctionResolver extends CompilerProcessor with Logging {
   )(using process: CompilationProcess): IO[Unit] = definition.body match
     case ast.FunctionBody.Native(nativeKeyword, args) =>
       process.registerFact(ResolvedFunction(ffqn, FunctionBody.Native(nativeKeyword.void, args.map(_.map(_.content)))))
-    case ast.FunctionBody.NonNative(args, body)       => resolveNonNativeFunction(args, body)
+    case ast.FunctionBody.NonNative(args, body)       => resolveNonNativeFunction(ffqn, dictionary, args, body)
 
-  private def resolveNonNativeFunction(args: Seq[Sourced[Token]], body: Tree[ast.Expression]): IO[Unit] = ???
+  private def resolveNonNativeFunction(
+      ffqn: FunctionFQN,
+      dictionary: Map[String, FunctionFQN],
+      args: Seq[Sourced[Token]],
+      body: Tree[ast.Expression]
+  )(using process: CompilationProcess): IO[Unit] = for {
+    _          <- debug(s"resolving $ffqn")
+    optionTree <- body.map(expr => resolveExpression(dictionary, expr)).sequence
+  } yield {
+    optionTree.sequence match
+      case Some(tree) =>
+        debug(s"resolved $ffqn to: $tree")
+        process.registerFact(ResolvedFunction(ffqn, FunctionBody.NonNative(args.map(_.map(_.content)), tree)))
+      case None       => IO.unit
+  }
 
   private def resolveExpression(dictionary: Map[String, FunctionFQN], expr: ast.Expression)(using
       process: CompilationProcess
   ): IO[Option[Expression]] =
     expr match
-      case ast.Expression.FunctionApplication(functionName)                              => ???
+      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token))                  =>
+        dictionary.get(token.content) match
+          case Some(ffqn) => Some(Expression.FunctionApplication(s.as(ffqn))).pure
+          case None       => compilerError(s.as(s"Function not defined.")) >> None.pure
       case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value))) =>
         Some(Expression.IntegerLiteral(s.as(value))).pure
       case ast.Expression.IntegerLiteral(s)                                              =>

@@ -1,11 +1,6 @@
-import A
-
-main = something
+main = high(pa1)
 
 high = native
 
 pa1 = 1
 
-b = native
-
-c = native
