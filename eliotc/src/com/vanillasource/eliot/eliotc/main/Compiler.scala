@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.main
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ast.ASTParser
+import com.vanillasource.eliot.eliotc.avr.AVRCompiler
 import com.vanillasource.eliot.eliotc.resolve.FunctionResolver
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.ModuleProcessor
@@ -23,7 +24,8 @@ case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
     Tokenizer(),
     ASTParser(),
     ModuleProcessor(),
-    FunctionResolver()
+    FunctionResolver(),
+    AVRCompiler()
   )
 
   def run(): IO[Unit] = for {
