@@ -1,19 +1,25 @@
 package com.vanillasource.collections
 
 import cats.implicits.*
-import cats.{Applicative, Eval, Functor, Traverse}
+import cats.{Applicative, Eval, Functor, Monoid, Traverse}
 
 /** Immutable multi-node, sorting-preserving tree.
   */
-sealed trait Tree[+T]
+sealed trait Tree[T]
 
 object Tree {
-  case class Empty private[Tree] ()                                extends Tree[Nothing]
+  case class Empty[T] private[Tree] ()                             extends Tree[T]
   case class Node[T] private[Tree] (value: T, nodes: Seq[Tree[T]]) extends Tree[T]
 
-  def apply[T](value: T, nodes: Seq[Tree[T]] = Seq.empty): Tree[T] = Node(value, nodes)
+  def apply[T](value: T, nodes: Seq[Tree[T]] = Seq.empty[Tree[T]]): Tree[T] = Node(value, nodes)
 
   def empty[T](): Tree[T] = Empty()
+
+  private def foldDepthFirstMonoidInternal[B](fa: Tree[B])(using bm: Monoid[B]): B = fa match
+    case Empty()            => bm.empty
+    case Node(value, nodes) => nodes.map(fn => foldDepthFirstMonoidInternal(fn)).fold(bm.empty)(bm.combine) |+| value
+
+  extension [A](t: Tree[A])(using Monoid[A]) def foldDepthFirstMonoid(): A = foldDepthFirstMonoidInternal(t)
 
   given Functor[Tree] = new Functor[Tree]:
     // Note: this might be a little stack-heavy if the tree is big, use trampoline?
