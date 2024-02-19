@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.main
 
 import cats.effect.{ExitCode, IO, IOApp}
+import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleName}
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
 
 import java.io.File
@@ -11,6 +12,9 @@ object Main extends IOApp {
   private val cmdLineParser                                        = OParser.sequence(
     programName("eliotc"),
     help("help").text("prints this help text"),
+    opt[String]('m', "mainModule")
+      .required()
+      .action((moduleName, args) => args.copy(mainFunction = FunctionFQN(ModuleName.parse(moduleName), "main"))),
     arg[File]("<path>...")
       .unbounded()
       .required()
