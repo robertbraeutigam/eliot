@@ -3,12 +3,13 @@ package com.vanillasource.eliot.eliotc.avr
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.collections.Tree
-import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
+import com.vanillasource.eliot.eliotc.resolve.ResolvedError.compilerError
 import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionBody, ResolvedFunction}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor, Init}
 
-class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with User with Logging {
+class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
     case Init => writeAssembledFunction(mainFQN)
     case _    => IO.unit
@@ -32,7 +33,7 @@ class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with User wit
                          process.getFact(CompiledFunction.Key(calledFfqn)).flatMap {
                            case Some(compiledFact) => funs.map(_ :+ compiledFact).pure
                            case None               =>
-                             compilerGlobalError(s"Could not find compiled function ${calledFfqn.show}.") >> None.pure
+                             compilerError(calledFfqn, "Could not find implementation for function.") >> None.pure
                          }
                        }
                      case None       => None.pure[IO]
@@ -57,7 +58,9 @@ class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with User wit
                                    }
                                    .map(_._2)
                                case None        =>
-                                 compilerGlobalError(s"Could not find resolved function: ${ffqn.show}") >> None.pure[IO]
+                                 error(
+                                   s"could not find resolved function ${ffqn.show}, this should not happen, since we already have a resolved function"
+                                 ) >> None.pure[IO]
     } yield resolvedCalledTrees.map(calledTrees => Tree(ffqn, calledTrees))
   }
 
