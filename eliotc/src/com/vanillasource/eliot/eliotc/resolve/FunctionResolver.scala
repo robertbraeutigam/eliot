@@ -20,14 +20,21 @@ class FunctionResolver extends CompilerProcessor with Logging {
       ffqn: FunctionFQN,
       dictionary: Map[String, FunctionFQN],
       definition: ast.FunctionDefinition
-  )(using process: CompilationProcess): IO[Unit] = definition.body match
-    case ast.FunctionBody.Native(nativeKeyword, args) =>
-      process.registerFact(ResolvedFunction(ffqn, FunctionBody.Native(nativeKeyword.void, args.map(_.map(_.content)))))
-    case ast.FunctionBody.NonNative(args, body)       => resolveNonNativeFunction(ffqn, dictionary, args, body)
+  )(using process: CompilationProcess): IO[Unit] = definition match
+    case ast.FunctionDefinition(name, args, ast.FunctionBody.Native(nativeKeyword)) =>
+      process.registerFact(
+        ResolvedFunction(
+          ffqn,
+          FunctionDefinition(name.map(_.content), args.map(_.map(_.content)), FunctionBody.Native(nativeKeyword.void))
+        )
+      )
+    case ast.FunctionDefinition(name, args, ast.FunctionBody.NonNative(body))       =>
+      resolveNonNativeFunction(ffqn, dictionary, name, args, body)
 
   private def resolveNonNativeFunction(
       ffqn: FunctionFQN,
       dictionary: Map[String, FunctionFQN],
+      name: Sourced[Token],
       args: Seq[Sourced[Token]],
       body: Tree[ast.Expression]
   )(using process: CompilationProcess): IO[Unit] = for {
@@ -35,7 +42,12 @@ class FunctionResolver extends CompilerProcessor with Logging {
     _          <- optionTree.sequence match
                     case Some(tree) =>
                       debug(s"resolved ${ffqn.show} to: ${tree.show}") >>
-                        process.registerFact(ResolvedFunction(ffqn, FunctionBody.NonNative(args.map(_.map(_.content)), tree)))
+                        process.registerFact(
+                          ResolvedFunction(
+                            ffqn,
+                            FunctionDefinition(name.map(_.content), args.map(_.map(_.content)), FunctionBody.NonNative(tree))
+                          )
+                        )
                     case None       => IO.unit
   } yield ()
 

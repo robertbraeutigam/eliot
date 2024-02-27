@@ -36,14 +36,14 @@ object TokenParser {
     name         <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
     args         <- argumentListOf(acceptIf(isIdentifier, "argument name"))
     _            <- symbol("=")
-    functionBody <- nativeFunctionBody(args) or nonNativeFunctionBody(args)
-  } yield FunctionDefinition(name, functionBody)
+    functionBody <- nativeFunctionBody() or nonNativeFunctionBody()
+  } yield FunctionDefinition(name, args, functionBody)
 
-  private def nativeFunctionBody(args: Seq[Sourced[Token]]): Parser[Sourced[Token], FunctionBody] =
-    keyword("native").map(keyword => Native(keyword, args))
+  private def nativeFunctionBody(): Parser[Sourced[Token], FunctionBody] =
+    keyword("native").map(keyword => Native(keyword))
 
-  private def nonNativeFunctionBody(args: Seq[Sourced[Token]]): Parser[Sourced[Token], FunctionBody] =
-    expression.map(body => NonNative(args, body))
+  private def nonNativeFunctionBody(): Parser[Sourced[Token], FunctionBody] =
+    expression.map(body => NonNative(body))
 
   private lazy val expression: Parser[Sourced[Token], Tree[Expression]] =
     functionApplication or integerLiteral

@@ -48,7 +48,7 @@ class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with Logging 
       resolvedFunction    <- process.getFact(ResolvedFunction.Key(ffqn))
       resolvedCalledTrees <- resolvedFunction match
                                case Some(value) =>
-                                 allCalledFunctionsOfBody(value.body)
+                                 allCalledFunctionsOfBody(value.definition.body)
                                    .foldM(
                                      (alreadyCollected + ffqn, Option(Seq.empty[Tree[FunctionFQN]]))
                                    ) { case ((coll, trees), calledFfqn) =>
@@ -65,7 +65,7 @@ class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with Logging 
   }
 
   private def allCalledFunctionsOfBody(body: FunctionBody): Seq[FunctionFQN] = body match
-    case FunctionBody.Native(keyword, args) => Seq.empty
-    case FunctionBody.NonNative(args, tree) =>
+    case FunctionBody.Native(keyword) => Seq.empty
+    case FunctionBody.NonNative(tree) =>
       tree.toList.collect { case Expression.FunctionApplication(ffqn) => ffqn.value }
 }

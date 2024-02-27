@@ -6,6 +6,6 @@ import com.vanillasource.eliot.eliotc.source.Sourced
 sealed trait FunctionBody
 
 object FunctionBody {
-  case class Native(keyword: Sourced[Unit], args: Seq[Sourced[String]])    extends FunctionBody
-  case class NonNative(args: Seq[Sourced[String]], body: Tree[Expression]) extends FunctionBody
+  case class Native(keyword: Sourced[Unit])    extends FunctionBody
+  case class NonNative(body: Tree[Expression]) extends FunctionBody
 }
