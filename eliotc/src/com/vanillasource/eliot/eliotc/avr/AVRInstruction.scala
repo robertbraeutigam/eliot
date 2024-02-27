@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.avr
 
 sealed trait AVRInstruction {
-  def generateBytes(): Seq[Byte] = ???
+  def generateBytes(): Seq[Byte] = Seq(1, 2)
 }
 
 object AVRInstruction {
