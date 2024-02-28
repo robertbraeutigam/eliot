@@ -30,7 +30,6 @@ class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with Logging 
       callTree  <- distinctCallTree(ffqn, Set.empty)
       functions <- callTree match
                      case Some(tree) =>
-                       // TODO: we would need a breadth-first approach here!
                        tree
                          .map { calledFfqn =>
                            process.getFact(CompiledFunction.Key(calledFfqn)).flatMap {
