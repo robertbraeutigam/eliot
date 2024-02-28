@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.avr
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
 
-case class CompiledFunction(ffqn: FunctionFQN, routine: Routine) extends CompilerFact {
+case class CompiledFunction(ffqn: FunctionFQN, instr: AVRInstruction) extends CompilerFact {
   override def key(): CompilerFactKey = CompiledFunction.Key(ffqn)
 }
 
