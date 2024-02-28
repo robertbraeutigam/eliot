@@ -25,7 +25,7 @@ class AVRCompiler extends CompilerProcessor with Logging {
 
   private def compileNonNative(functionFQN: FunctionFQN, body: Tree[Expression]): AVRInstruction = {
     val instructionsTree = body.map {
-      case Expression.FunctionApplication(functionName) => rcall(0) // Fix relative calculation
+      case Expression.FunctionApplication(functionName) => rcall(functionName.value)
       case Expression.IntegerLiteral(integerLiteral)    => ldi(R16, integerLiteral.value.toByte) |+| push(R16)
     }
 
