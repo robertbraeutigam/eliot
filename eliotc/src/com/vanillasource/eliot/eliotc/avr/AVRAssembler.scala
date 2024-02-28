@@ -6,6 +6,7 @@ import com.vanillasource.collections.Tree
 import com.vanillasource.collections.Tree.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
+import com.vanillasource.eliot.eliotc.output.Output
 import com.vanillasource.eliot.eliotc.resolve.ResolvedError.compilerError
 import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionBody, ResolvedFunction}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor, Init, avr}
@@ -15,11 +16,12 @@ class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with Logging 
     case Init => writeAssembledFunction(mainFQN)
     case _    => IO.unit
 
-  private def writeAssembledFunction(mainFFQN: FunctionFQN)(using CompilationProcess): IO[Unit] = for {
+  private def writeAssembledFunction(mainFFQN: FunctionFQN)(using process: CompilationProcess): IO[Unit] = for {
     functions <- assembleFunction(mainFFQN)
     _         <- functions match
                    case Some(value) =>
-                     debug(s"assembled avr functions for ${mainFFQN.show}: ${value.map(_.ffqn.show).mkString(", ")}")
+                     debug(s"assembled avr functions for ${mainFFQN.show}: ${value.map(_.ffqn.show).mkString(", ")}") >>
+                       process.registerFact(new Output(mainFFQN.moduleName, value.map(_.instr).combineAll.generateBytes()))
                    case None        => IO.unit
   } yield ()
 

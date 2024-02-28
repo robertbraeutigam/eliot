@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.avr.{AVRAssembler, AVRCompiler}
 import com.vanillasource.eliot.eliotc.resolve.FunctionResolver
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.ModuleProcessor
+import com.vanillasource.eliot.eliotc.output.OutputWriter
 import com.vanillasource.eliot.eliotc.source.{
   InitSourcePaths,
   SourceContentReader,
@@ -26,7 +27,8 @@ case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
     ModuleProcessor(),
     FunctionResolver(),
     AVRCompiler(),
-    AVRAssembler(cmdLineArguments.mainFunction)
+    AVRAssembler(cmdLineArguments.mainFunction),
+    OutputWriter()
   )
 
   def run(): IO[Unit] = for {
