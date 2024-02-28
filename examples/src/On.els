@@ -1,6 +1,11 @@
-main = high(pa1)
+main = a(b, c)
 
-high = native
+a = 3
 
-pa1 = 1
+b = d
 
+d = 1
+
+c = 2
+
+// Expected order main, a, b, c, d

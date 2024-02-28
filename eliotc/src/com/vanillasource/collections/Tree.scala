@@ -3,6 +3,9 @@ package com.vanillasource.collections
 import cats.implicits.*
 import cats.{Applicative, Eval, Functor, Monoid, Traverse}
 
+import scala.annotation.tailrec
+import scala.collection.immutable.{AbstractSeq, LinearSeq}
+
 /** Immutable multi-node, sorting-preserving tree.
   */
 sealed trait Tree[T]
@@ -15,11 +18,26 @@ object Tree {
 
   def empty[T](): Tree[T] = Empty()
 
+  @tailrec
+  private def toSeqBreadthFirstInternal[B](fas: Seq[Tree[B]], acc: Seq[B]): Seq[B] = fas match
+    case Seq()        => acc
+    case head +: tail =>
+      head match
+        case Empty()            => toSeqBreadthFirstInternal(tail, acc)
+        case Node(value, nodes) => toSeqBreadthFirstInternal(tail ++ nodes, acc :+ value)
+
   private def foldDepthFirstMonoidInternal[B](fa: Tree[B])(using bm: Monoid[B]): B = fa match
     case Empty()            => bm.empty
     case Node(value, nodes) => nodes.map(fn => foldDepthFirstMonoidInternal(fn)).fold(bm.empty)(bm.combine) |+| value
 
-  extension [A](t: Tree[A])(using Monoid[A]) def foldDepthFirstMonoid(): A = foldDepthFirstMonoidInternal(t)
+  extension [A](t: Tree[A])(using Monoid[A]) {
+    def foldDepthFirstMonoid(): A = foldDepthFirstMonoidInternal(t)
+
+  }
+
+  extension [A](t: Tree[A]) {
+    def toSeqBreadthFirst: Seq[A] = toSeqBreadthFirstInternal(Seq(t), Seq.empty[A])
+  }
 
   given Functor[Tree] = new Functor[Tree]:
     // Note: this might be a little stack-heavy if the tree is big, use trampoline?

@@ -3,11 +3,12 @@ package com.vanillasource.eliot.eliotc.avr
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.collections.Tree
+import com.vanillasource.collections.Tree.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
 import com.vanillasource.eliot.eliotc.resolve.ResolvedError.compilerError
 import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionBody, ResolvedFunction}
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor, Init}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor, Init, avr}
 
 class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
@@ -29,13 +30,21 @@ class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with Logging 
       callTree  <- distinctCallTree(ffqn, Set.empty)
       functions <- callTree match
                      case Some(tree) =>
-                       tree.foldLeftM(Option(Seq.empty[CompiledFunction])) { (funs, calledFfqn) =>
-                         process.getFact(CompiledFunction.Key(calledFfqn)).flatMap {
-                           case Some(compiledFact) => funs.map(_ :+ compiledFact).pure
-                           case None               =>
-                             compilerError(calledFfqn, "Could not find implementation for function.") >> None.pure
+                       // TODO: we would need a breadth-first approach here!
+                       tree
+                         .map { calledFfqn =>
+                           process.getFact(CompiledFunction.Key(calledFfqn)).flatMap {
+                             case Some(compiledFact) => Some(compiledFact).pure[IO]
+                             case None               =>
+                               compilerError(
+                                 calledFfqn,
+                                 "Could not find implementation for function."
+                               ) >> Option.empty[avr.CompiledFunction].pure[IO]
+                           }
                          }
-                       }
+                         .toSeqBreadthFirst
+                         .sequence
+                         .map(_.sequence)
                      case None       => None.pure[IO]
     } yield functions
 
