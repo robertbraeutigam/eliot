@@ -20,6 +20,11 @@ object AVRInstruction {
     override def generateLabelsAt(pos: Int): Map[FunctionFQN, Int]                     = Map.empty
     override def generateBytesAt(pos: Int, labels: Map[FunctionFQN, Int]): Array[Byte] = Array.empty
 
+  private case class Label(ffqn: FunctionFQN) extends AVRInstruction:
+    override def length: Int                                                           = 0
+    override def generateLabelsAt(pos: Int): Map[FunctionFQN, Int]                     = Map((ffqn, pos))
+    override def generateBytesAt(pos: Int, labels: Map[FunctionFQN, Int]): Array[Byte] = Array.empty
+
   private case class FixedBytes(b: Array[Byte]) extends AVRInstruction:
     override def length: Int                                                           = b.length
     override def generateLabelsAt(pos: Int): Map[FunctionFQN, Int]                     = Map.empty
@@ -50,7 +55,7 @@ object AVRInstruction {
 
       val value = template
         .filterNot(_ === ' ')
-        .foldRight((0, calculatedArgs)) { case (nextCh, (sum, currentArgs)) =>
+        .foldLeft((0, calculatedArgs)) { case ((sum, currentArgs), nextCh) =>
           nextCh match
             case '0' => (sum << 1, calculatedArgs)
             case '1' => ((sum << 1) + 1, calculatedArgs)
@@ -67,12 +72,13 @@ object AVRInstruction {
         ._1
 
       ByteBuffer
-        .allocate(4)
-        .order(java.nio.ByteOrder.BIG_ENDIAN)
-        .putInt(value)
+        .allocate(2)
+        .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        .putShort(value.toShort)
         .array()
     }
 
+  def label(ffqn: FunctionFQN): AVRInstruction       = Label(ffqn)
   def push(reg: Register): AVRInstruction            =
     Parameterized16BitOpcode("1001 001d dddd 1111", (_, _) => Map(('d', reg.ordinal)))
   def ldi(reg: Register, value: Int): AVRInstruction =

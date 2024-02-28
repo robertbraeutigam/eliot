@@ -29,6 +29,6 @@ class AVRCompiler extends CompilerProcessor with Logging {
       case Expression.IntegerLiteral(integerLiteral)    => ldi(R16, integerLiteral.value.toByte) |+| push(R16)
     }
 
-    instructionsTree.foldDepthFirstMonoid()
+    label(functionFQN) |+| instructionsTree.foldDepthFirstMonoid()
   }
 }
