@@ -25,11 +25,6 @@ object AVRInstruction {
     override def generateLabelsAt(pos: Int): Map[FunctionFQN, Int]                     = Map((ffqn, pos))
     override def generateBytesAt(pos: Int, labels: Map[FunctionFQN, Int]): Array[Byte] = Array.empty
 
-  private case class FixedBytes(b: Array[Byte]) extends AVRInstruction:
-    override def length: Int                                                           = b.length
-    override def generateLabelsAt(pos: Int): Map[FunctionFQN, Int]                     = Map.empty
-    override def generateBytesAt(pos: Int, labels: Map[FunctionFQN, Int]): Array[Byte] = b
-
   private case class Parameterized16BitOpcode(template: String, args: (Int, Map[FunctionFQN, Int]) => Map[Char, Int])
       extends AVRInstruction:
     override def length: Int                                                           = 2
@@ -82,25 +77,27 @@ object AVRInstruction {
         .array()
     }
 
+  private def fixedTemplate(template: String, args: Map[Char, Int]): AVRInstruction =
+    Parameterized16BitOpcode(template, (_, _) => args)
+  private def constTemplate(template: String): AVRInstruction                       = fixedTemplate(template, Map.empty)
+
   def label(ffqn: FunctionFQN): AVRInstruction       = Label(ffqn)
   def push(reg: Register): AVRInstruction            =
-    Parameterized16BitOpcode("1001 001d dddd 1111", (_, _) => Map(('d', reg.ordinal)))
+    fixedTemplate("1001 001d dddd 1111", Map(('d', reg.ordinal)))
   def ldi(reg: Register, value: Int): AVRInstruction =
-    Parameterized16BitOpcode("1110 KKKK dddd KKKK", (_, _) => Map(('d', reg.ordinal - 16), ('K', value)))
+    fixedTemplate("1110 KKKK dddd KKKK", Map(('d', reg.ordinal - 16), ('K', value)))
   def rcall(ffqn: FunctionFQN): AVRInstruction       =
     Parameterized16BitOpcode(
       "1101 kkkk kkkk kkkk",
       (pos, labels) =>
-        Map(
-          (
-            'k',
-            labels.getOrElse(
-              ffqn,
-              throw new IllegalStateException(s"label for ${ffqn.show} does not exist")
-            ) - (pos + 4)
-          )
-        )
+        val relativePos =
+          labels.getOrElse(ffqn, throw new IllegalStateException(s"label for ${ffqn.show} does not exist")) - (pos + 2)
+        if (relativePos % 2 === 1) {
+          throw new IllegalStateException(s"relative position of label ${ffqn.show} is not even for rcall")
+        }
+        Map(('k', relativePos / 2))
     )
+  def ret(): AVRInstruction                          = constTemplate("1001 0101 0000 1000")
 
   given Monoid[AVRInstruction] = new Monoid[AVRInstruction] {
     override def empty: AVRInstruction = Empty

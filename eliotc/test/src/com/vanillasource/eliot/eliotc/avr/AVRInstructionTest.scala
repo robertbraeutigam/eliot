@@ -7,6 +7,6 @@ import org.scalatest.matchers.should.Matchers
 
 class AVRInstructionTest extends AsyncFlatSpec with Matchers {
   "push" should "generate right register code" in {
-    push(R16).generateBytes() shouldBe Array(0x0f.toByte, 0xd1.toByte)
+    push(R16).generateBytes() shouldBe Array(0x0f.toByte, 0x93.toByte)
   }
 }
