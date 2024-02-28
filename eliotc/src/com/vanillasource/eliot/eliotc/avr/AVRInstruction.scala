@@ -32,7 +32,7 @@ object AVRInstruction {
 
   private case class Parameterized16BitOpcode(template: String, args: (Int, Map[FunctionFQN, Int]) => Map[Char, Int])
       extends AVRInstruction:
-    override def length: Int                                                           = 4
+    override def length: Int                                                           = 2
     override def generateLabelsAt(pos: Int): Map[FunctionFQN, Int]                     = Map.empty
     override def generateBytesAt(pos: Int, labels: Map[FunctionFQN, Int]): Array[Byte] = {
       val calculatedArgs = args.apply(pos, labels)
@@ -41,7 +41,7 @@ object AVRInstruction {
         throw new IllegalArgumentException(s"template '$template' does not appear to be a 16 bit template")
       }
       // Check all arguments are inside the template
-      calculatedArgs.foreach { (name, value) =>
+      val argPos         = calculatedArgs.map { (name, value) =>
         val len = template.count(_ === name)
         if (len === 0) {
           throw new IllegalArgumentException(s"parameter '$name' is not in template '$template'")
@@ -51,23 +51,27 @@ object AVRInstruction {
             s"parameter '$name' with value $value is greater than template '$template' has place for"
           )
         }
+        (name, len)
       }
 
       val value = template
         .filterNot(_ === ' ')
-        .foldLeft((0, calculatedArgs)) { case ((sum, currentArgs), nextCh) =>
+        .foldLeft((0, argPos)) { case ((sum, currentArgPos), nextCh) =>
           nextCh match
-            case '0' => (sum << 1, calculatedArgs)
-            case '1' => ((sum << 1) + 1, calculatedArgs)
+            case '0' => (sum << 1, currentArgPos)
+            case '1' => ((sum << 1) + 1, currentArgPos)
             case c   =>
-              val argValue = currentArgs.getOrElse(
+              val argValue = calculatedArgs.getOrElse(
                 c,
                 throw new IllegalArgumentException(
                   s"template character $c in template '$template' does not refer to any existing arguments, which are: ${calculatedArgs.keys
                       .mkString(", ")}"
                 )
               )
-              ((sum << 1) + (argValue & 1), calculatedArgs ++ Map((c, argValue >> 1)))
+              (
+                (sum << 1) + ((argValue >> (currentArgPos(c) - 1)) & 1),
+                currentArgPos ++ Map((c, currentArgPos(c) - 1))
+              )
         }
         ._1
 
