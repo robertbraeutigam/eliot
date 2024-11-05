@@ -88,6 +88,14 @@ object Parser {
       tail <- (sep *> p).anyTimes()
     } yield head +: tail
 
+    /** Accept this parser when between the given parsers.
+      */
+    def between(begin: Parser[I, _], end: Parser[I, _]): Parser[I, O] = for {
+      _      <- begin
+      result <- p
+      _      <- end
+    } yield result
+
     /** Parses if this parser is followed by the given parser. No input is consumed on the given parser.
       */
     def followedBy(n: Parser[I, _]): Parser[I, O] = p <* n.lookahead()

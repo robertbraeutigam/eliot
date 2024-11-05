@@ -57,15 +57,12 @@ object TokenParser {
     lit <- acceptIf(isIntegerLiteral, "integer literal")
   } yield Tree(IntegerLiteral(lit))
 
-  private def argumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] = {
-    val nonEmpty = for {
-      _    <- symbol("(")
-      args <- item.atLeastOnceSeparatedBy(symbol(","))
-      _    <- symbol(")")
-    } yield args
-
-    nonEmpty.optional().map(_.getOrElse(Seq.empty))
-  }
+  private def argumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] =
+    item
+      .atLeastOnceSeparatedBy(symbol(","))
+      .between(symbol("("), symbol(")"))
+      .optional()
+      .map(_.getOrElse(Seq.empty))
 
   private def moduleNameOnSameLineAs(keyword: Sourced[Token]) =
     acceptIfAll(isIdentifier, isUpperCase, isOnSameLineAs(keyword))("module name")
