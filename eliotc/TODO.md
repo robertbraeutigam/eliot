@@ -4,7 +4,7 @@ Implement compiler to compile following minimal program into bytecode:
 
 Source code:
 ```
-main = pa1.high
+def main = pa1.high
 
 // The actual hardware specific library will provide PA1 and an instance of this:
 trait DigitalOutput[P]
@@ -21,7 +21,7 @@ the code "runs out".
 Inside hardware:
 
 ```
-type Address = Word
+alias Address = Word
 
 data Port = Port Address
 
@@ -29,6 +29,8 @@ portA = Port 0x1011
 portB = Port 0x1012
 portC = Port 0x1013
 portD = Port 0x1014
+
+alias Bit = Number[_, _ <= 1]
 
 type ByteBit = Number[0, 7] // See below
 

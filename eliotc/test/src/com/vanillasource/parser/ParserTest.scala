@@ -194,4 +194,23 @@ class ParserTest extends AnyFlatSpec with Matchers {
 
     p.parse("ababab") shouldBe ParserResult(Consumed, ParserError(0, Set("a")), Seq.empty, Some(Seq('b', 'b', 'b')))
   }
+
+  "at least once separated by" should "fail on empty input" in {
+    val p = literal('a').atLeastOnceSeparatedBy(literal(','))
+
+    p.parse("") shouldBe ParserResult(NotConsumed, ParserError(0, Set("a")), Seq.empty, None)
+  }
+
+  it should "parser a single item" in {
+    val p = literal('a').atLeastOnceSeparatedBy(literal(','))
+
+    p.parse("a") shouldBe ParserResult(Consumed, ParserError(0, Set(",")), Seq.empty, Some(Seq('a')))
+  }
+
+  it should "parser a two items" in {
+    val p = literal('a').atLeastOnceSeparatedBy(literal(','))
+
+    p.parse("a,a") shouldBe ParserResult(Consumed, ParserError(0, Set(",")), Seq.empty, Some(Seq('a', 'a')))
+  }
+
 }

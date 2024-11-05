@@ -80,6 +80,14 @@ object Parser {
       tail <- anyTimes()
     } yield head +: tail
 
+    /** Accept this parser at least once separated by another parser. If this parser only matches once, the separator is
+      * not used, otherwise it is.
+      */
+    def atLeastOnceSeparatedBy(sep: Parser[I, _]): Parser[I, Seq[O]] = for {
+      head <- p
+      tail <- (sep *> p).anyTimes()
+    } yield head +: tail
+
     /** Parses if this parser is followed by the given parser. No input is consumed on the given parser.
       */
     def followedBy(n: Parser[I, _]): Parser[I, O] = p <* n.lookahead()

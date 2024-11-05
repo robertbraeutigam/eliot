@@ -59,11 +59,10 @@ object TokenParser {
 
   private def argumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] = {
     val nonEmpty = for {
-      _     <- symbol("(")
-      first <- item
-      tail  <- (symbol(",") *> item).anyTimes()
-      _     <- symbol(")")
-    } yield first +: tail
+      _    <- symbol("(")
+      args <- item.atLeastOnceSeparatedBy(symbol(","))
+      _    <- symbol(")")
+    } yield args
 
     nonEmpty.optional().map(_.getOrElse(Seq.empty))
   }
