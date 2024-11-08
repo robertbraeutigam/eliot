@@ -32,7 +32,6 @@ object Tree {
 
   extension [A](t: Tree[A])(using Monoid[A]) {
     def foldDepthFirstMonoid(): A = foldDepthFirstMonoidInternal(t)
-
   }
 
   extension [A](t: Tree[A]) {
