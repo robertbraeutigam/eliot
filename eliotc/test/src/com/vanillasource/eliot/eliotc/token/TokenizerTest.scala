@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.token
 
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
-import com.vanillasource.eliot.eliotc.CompilerFact
+import com.vanillasource.eliot.eliotc.{CompilerFact, ProcessorTest}
 import com.vanillasource.eliot.eliotc.main.CompilerEngine
 import com.vanillasource.eliot.eliotc.source.*
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, IntegerLiteral, Keyword}
@@ -11,7 +11,7 @@ import org.scalatest.matchers.should.Matchers
 
 import java.io.File
 
-class TokenizerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+class TokenizerTest extends ProcessorTest(new Tokenizer()) {
   private val file = new File("test.els")
 
   "tokenizer" should "return nothing for empty content" in {
@@ -78,15 +78,6 @@ class TokenizerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       .map(_.map(_.value))
 
   private def parseForSourcedTokens(source: String): IO[Seq[Sourced[Token]]] =
-    runTokenizer(source)
+    runEngine(source)
       .map(_.get(SourceTokens.Key(file)).map(_.asInstanceOf[SourceTokens].tokens).getOrElse(Seq.empty))
-
-  private def parseForErrors(source: String): IO[Seq[String]] =
-    runTokenizer(source)
-      .map(_.values.collect { case SourcedError(Sourced(_, _, msg)) => msg }.toSeq)
-
-  private def runTokenizer(source: String): IO[Map[Any, CompilerFact]] =
-    CompilerEngine(Seq(new Tokenizer()))
-      .resolve(Seq(SourceContent(file, source)))
-
 }

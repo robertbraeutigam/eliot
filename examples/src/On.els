@@ -1,6 +1,6 @@
 main = a
 
-a = 3
+a = b(d)
 
 b = d
 

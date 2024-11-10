@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.ast
 
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
-import com.vanillasource.eliot.eliotc.CompilerFact
+import com.vanillasource.eliot.eliotc.{CompilerFact, ProcessorTest}
 import com.vanillasource.eliot.eliotc.main.CompilerEngine
 import com.vanillasource.eliot.eliotc.source.{SourceContent, Sourced, SourcedError}
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -11,7 +11,7 @@ import org.scalatest.matchers.should.Matchers
 
 import java.io.File
 
-class ASTParserTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   "ast parser" should "successfully parse empty file" in {
     parseForErrors("").asserting(_ shouldBe Seq.empty)
   }
@@ -106,14 +106,8 @@ class ASTParserTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     parseForErrors("a = b(c, 1)").asserting(_ shouldBe Seq.empty)
   }
 
-  private val file = new File("test.els")
-
-  private def parseForErrors(source: String): IO[Seq[String]] =
-    runTokenizer(source)
-      .map(_.values.collect { case SourcedError(Sourced(_, _, msg)) => msg }.toSeq)
-
   private def parseForImports(source: String): IO[Seq[String]] = for {
-    results <- runTokenizer(source)
+    results <- runEngine(source)
   } yield {
     results.values
       .collect { case SourceAST(_, AST(statements, _)) =>
@@ -122,9 +116,4 @@ class ASTParserTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       .toSeq
       .flatten
   }
-
-  private def runTokenizer(source: String): IO[Map[Any, CompilerFact]] =
-    CompilerEngine(Seq(new Tokenizer(), new ASTParser()))
-      .resolve(Seq(SourceContent(file, source)))
-
 }
