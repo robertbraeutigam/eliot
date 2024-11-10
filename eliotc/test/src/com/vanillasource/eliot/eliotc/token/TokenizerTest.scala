@@ -50,13 +50,13 @@ class TokenizerTest extends ProcessorTest(new Tokenizer()) {
   }
 
   it should "fail on non-complete block comment" in {
-    parseForErrors(" token /* some comment").asserting(
+    runEngineForErrors(" token /* some comment").asserting(
       _ shouldBe Seq("Parser error, unexpected end of input, expected end of comment.")
     )
   }
 
   it should "fail on illegal characters" in {
-    parseForErrors(" token →").asserting(
+    runEngineForErrors(" token →").asserting(
       _.headOption.getOrElse("") should startWith("Parser error, unexpected \"→\"")
     )
   }
