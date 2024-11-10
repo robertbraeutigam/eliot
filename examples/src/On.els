@@ -1,4 +1,4 @@
-main = a(b, c)
+main = a
 
 a = 3
 
