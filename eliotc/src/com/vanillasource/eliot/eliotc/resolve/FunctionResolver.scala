@@ -21,14 +21,14 @@ class FunctionResolver extends CompilerProcessor with Logging {
       dictionary: Map[String, FunctionFQN],
       definition: ast.FunctionDefinition
   )(using process: CompilationProcess): IO[Unit] = definition match
-    case ast.FunctionDefinition(name, args, ast.FunctionBody.Native(nativeKeyword)) =>
+    case ast.FunctionDefinition(name, args, _, ast.FunctionBody.Native(nativeKeyword)) =>
       process.registerFact(
         ResolvedFunction(
           ffqn,
           FunctionDefinition(name.map(_.content), args.map(_.map(_.content)), FunctionBody.Native(nativeKeyword.void))
         )
       )
-    case ast.FunctionDefinition(name, args, ast.FunctionBody.NonNative(body))       =>
+    case ast.FunctionDefinition(name, args, _, ast.FunctionBody.NonNative(body))       =>
       resolveNonNativeFunction(ffqn, dictionary, name, args, body)
 
   private def resolveNonNativeFunction(

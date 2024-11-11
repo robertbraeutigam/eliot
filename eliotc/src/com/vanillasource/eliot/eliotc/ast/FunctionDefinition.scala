@@ -5,7 +5,12 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 
-case class FunctionDefinition(name: Sourced[Token], args: Seq[Sourced[Token]], body: FunctionBody)
+case class FunctionDefinition(
+    name: Sourced[Token],
+    args: Seq[Sourced[Token]],
+    typeDefinition: TypeDefinition,
+    body: FunctionBody
+)
 
 object FunctionDefinition {
   given Show[FunctionDefinition] = (fd: FunctionDefinition) =>

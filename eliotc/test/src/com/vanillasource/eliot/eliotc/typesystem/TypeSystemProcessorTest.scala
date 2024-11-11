@@ -10,27 +10,27 @@ import com.vanillasource.eliot.eliotc.token.Tokenizer
 class TypeSystemProcessorTest
     extends ProcessorTest(Tokenizer(), ASTParser(), ModuleProcessor(), FunctionResolver(), TypeSystemProcessor()) {
   "function call" should "compile if same number of arguments" in {
-    runEngineForErrors("a = b\nb = 1")
+    runEngineForErrors("a: Byte = b\nb: Byte = 1")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "not compile if call site has arguments, but definition doesn't" in {
-    runEngineForErrors("a = b(1)\nb = 1")
+    runEngineForErrors("a: Byte = b(1)\nb: Byte = 1")
       .asserting(_ shouldBe Seq("Function is called with 1 parameters, but needs 0."))
   }
 
   it should "not compile if call site has no arguments, but definition has one" in {
-    runEngineForErrors("a = b\nb(x) = 1")
+    runEngineForErrors("a: Byte = b\nb(x): Byte = 1")
       .asserting(_ shouldBe Seq("Function is called with 0 parameters, but needs 1."))
   }
 
   "processor" should "produce type checked results if arities are ok" in {
-    runForTypedFunctions("a = b\nb = 1")
+    runForTypedFunctions("a: Byte = b\nb: Byte = 1")
       .asserting(_.length shouldBe 2)
   }
 
   it should "not produce type checked results if arities mismatch" in {
-    runForTypedFunctions("a = b(3)\nb = 1")
+    runForTypedFunctions("a: Byte = b(3)\nb: Byte = 1")
       .asserting(_.length shouldBe 1)
   }
 

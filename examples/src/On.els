@@ -1,11 +1,11 @@
-main = a
+main: Byte = a
 
-a = b(d)
+a: Byte = b(d)
 
-b(x) = d
+b(x): Byte = d
 
-d = 1
+d: Byte = 1
 
-c = 2
+c: Byte = 2
 
 // Expected order main, a, b, c, d

@@ -51,59 +51,59 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   }
 
   it should "reject keyword 'import' as function name" in {
-    runEngineForErrors("a = b\nimport = a").asserting(_.size should be > 0)
+    runEngineForErrors("a: Byte = b\nimport = a").asserting(_.size should be > 0)
   }
 
   it should "accept a constant definition without parentheses" in {
-    runEngineForErrors("a = b").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a: Byte = b").asserting(_ shouldBe Seq.empty)
   }
 
   it should "reject a constant definition with empty parentheses for empty args" in {
-    runEngineForErrors("a() = b").asserting(_ shouldBe Seq("Expected argument name, but encountered symbol ')'."))
+    runEngineForErrors("a(): Byte = b").asserting(_ shouldBe Seq("Expected argument name, but encountered symbol ')'."))
   }
 
   it should "accept a function definition with one argument" in {
-    runEngineForErrors("a(b) = b").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a(b): Byte = b").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept a function definition with two arguments" in {
-    runEngineForErrors("a(b, c) = b").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a(b, c): Byte = b").asserting(_ shouldBe Seq.empty)
   }
 
   it should "reject argument list without the comma separate" in {
-    runEngineForErrors("a(b c) = b").asserting(
+    runEngineForErrors("a(b c): Byte = b").asserting(
       _ shouldBe Seq("Expected symbol ',' or symbol ')', but encountered identifier 'c'.")
     )
   }
 
   it should "accept a function definition with three arguments" in {
-    runEngineForErrors("a(b, c, d) = b").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a(b, c, d): Byte = b").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept a function application without parameters" in {
-    runEngineForErrors("a = b").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a: Byte = b").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept a function application with 1 parameters" in {
-    runEngineForErrors("a = b(c)").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a: Byte = b(c)").asserting(_ shouldBe Seq.empty)
   }
 
   it should "reject a function application with empty parameter list" in {
-    runEngineForErrors("a = b()").asserting(
+    runEngineForErrors("a: Byte = b()").asserting(
       _ shouldBe Seq("Expected function name or integer literal, but encountered symbol ')'.")
     )
   }
 
   it should "accept a function application with 2 parameters" in {
-    runEngineForErrors("a = b(c, d)").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a: Byte = b(c, d)").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept a function application with 3 parameters" in {
-    runEngineForErrors("a = b(c, d, e)").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a: Byte = b(c, d, e)").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept a function application with 2 parameters, one is an integer literal" in {
-    runEngineForErrors("a = b(c, 1)").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a: Byte = b(c, 1)").asserting(_ shouldBe Seq.empty)
   }
 
   private def parseForImports(source: String): IO[Seq[String]] = for {

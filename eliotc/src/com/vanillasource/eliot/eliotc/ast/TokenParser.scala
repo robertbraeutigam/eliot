@@ -33,11 +33,15 @@ object TokenParser {
   } yield ImportStatement(keyword, packageNames, moduleName)
 
   private lazy val functionDefinition = for {
-    name         <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
-    args         <- argumentListOf(acceptIf(isIdentifier, "argument name"))
-    _            <- symbol("=")
-    functionBody <- nativeFunctionBody() or nonNativeFunctionBody()
-  } yield FunctionDefinition(name, args, functionBody)
+    name           <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
+    args           <- argumentListOf(acceptIf(isIdentifier, "argument name"))
+    typeDefinition <- typeDefinition()
+    _              <- symbol("=")
+    functionBody   <- nativeFunctionBody() or nonNativeFunctionBody()
+  } yield FunctionDefinition(name, args, typeDefinition, functionBody)
+
+  private def typeDefinition(): Parser[Sourced[Token], TypeDefinition] =
+    symbol(":") *> acceptIfAll(isIdentifier, isUpperCase)("type name").map(TypeDefinition(_))
 
   private def nativeFunctionBody(): Parser[Sourced[Token], FunctionBody] =
     keyword("native").map(keyword => Native(keyword))
