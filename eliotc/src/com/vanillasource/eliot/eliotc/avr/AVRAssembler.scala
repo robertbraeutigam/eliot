@@ -68,9 +68,8 @@ class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with Logging 
                                    }
                                    .map(_._2)
                                case None        =>
-                                 error(
-                                   s"could not find resolved function ${ffqn.show}, this should not happen, since we already have a resolved function"
-                                 ) >> None.pure[IO]
+                                 // This can happen if the definition of the function is wrong
+                                 None.pure[IO]
     } yield resolvedCalledTrees.map(calledTrees => Tree(ffqn, calledTrees))
   }
 
