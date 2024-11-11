@@ -2,7 +2,7 @@ main = a
 
 a = b(d)
 
-b = d
+b(x) = d
 
 d = 1
 

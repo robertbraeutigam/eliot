@@ -29,7 +29,7 @@ class TypeSystemProcessorTest
       .asserting(_.length shouldBe 2)
   }
 
-  "processor" should "not produce type checked results if arities mismatch" in {
+  it should "not produce type checked results if arities mismatch" in {
     runForTypedFunctions("a = b(3)\nb = 1")
       .asserting(_.length shouldBe 1)
   }
