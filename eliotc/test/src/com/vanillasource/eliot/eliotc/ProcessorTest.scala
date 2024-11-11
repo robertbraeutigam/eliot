@@ -10,7 +10,7 @@ import org.scalatest.matchers.should.Matchers
 import java.io.File
 
 abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFlatSpec with AsyncIOSpec with Matchers {
-  private val file = new File("Test.els")
+  val file = new File("Test.els")
 
   def runEngineForErrors(source: String): IO[Seq[String]] =
     runEngine(source)

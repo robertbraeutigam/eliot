@@ -12,8 +12,6 @@ import org.scalatest.matchers.should.Matchers
 import java.io.File
 
 class TokenizerTest extends ProcessorTest(new Tokenizer()) {
-  private val file = new File("Test.els")
-
   "tokenizer" should "return nothing for empty content" in {
     parseForTokens("").asserting(_ shouldBe Seq.empty)
   }
