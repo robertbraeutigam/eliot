@@ -9,12 +9,12 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
 import com.vanillasource.eliot.eliotc.resolve.FunctionBody.NonNative
 import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionBody, FunctionDefinition}
-import com.vanillasource.eliot.eliotc.typesystem.ArityCheckedFunction
+import com.vanillasource.eliot.eliotc.typesystem.{ArityCheckedFunction, TypeCheckedFunction}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 
 class AVRCompiler extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
-    case ArityCheckedFunction(ffqn, fdef) => compile(ffqn, fdef)
+    case TypeCheckedFunction(ffqn, fdef) => compile(ffqn, fdef)
     case _                               => IO.unit
 
   private def compile(ffqn: FunctionFQN, fdef: FunctionDefinition)(using process: CompilationProcess): IO[Unit] =
