@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.source.{
   WalkSourcePaths
 }
 import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.typesystem.TypeSystemProcessor
+import com.vanillasource.eliot.eliotc.typesystem.ArityCheckProcessor
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey, CompilerProcessor, Init}
 
 case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
@@ -27,7 +27,7 @@ case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
     ASTParser(),
     ModuleProcessor(),
     FunctionResolver(),
-    TypeSystemProcessor(),
+    ArityCheckProcessor(),
     AVRCompiler(),
     AVRAssembler(cmdLineArguments.mainFunction),
     OutputWriter()

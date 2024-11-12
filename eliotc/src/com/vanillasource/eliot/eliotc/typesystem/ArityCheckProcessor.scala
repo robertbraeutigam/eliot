@@ -12,11 +12,11 @@ import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 
-class TypeSystemProcessor extends CompilerProcessor with Logging {
+class ArityCheckProcessor extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using processor: CompilationProcess): IO[Unit] = fact match
     case ResolvedFunction(ffqn, functionDefinition @ FunctionDefinition(_, _, NonNative(body))) =>
       checkCallArities(body).ifM(
-        processor.registerFact(TypeCheckedFunction(ffqn, functionDefinition)),
+        processor.registerFact(ArityCheckedFunction(ffqn, functionDefinition)),
         IO.unit
       )
     case _                                                                                      => IO.unit
