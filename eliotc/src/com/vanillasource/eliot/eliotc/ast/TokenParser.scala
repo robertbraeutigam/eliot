@@ -34,11 +34,17 @@ object TokenParser {
 
   private lazy val functionDefinition = for {
     name           <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
-    args           <- argumentListOf(acceptIf(isIdentifier, "argument name"))
+    args           <- argumentListOf(argument())
     typeDefinition <- typeDefinition()
     _              <- symbol("=")
     functionBody   <- nativeFunctionBody() or nonNativeFunctionBody()
   } yield FunctionDefinition(name, args, typeDefinition, functionBody)
+
+  private def argument(): Parser[Sourced[Token], ArgumentDefinition] =
+    for {
+      name <- acceptIf(isIdentifier, "argument name")
+      typeDefinition <- typeDefinition()
+    } yield ArgumentDefinition(name, typeDefinition)
 
   private def typeDefinition(): Parser[Sourced[Token], TypeDefinition] =
     symbol(":") *> acceptIfAll(isIdentifier, isUpperCase)("type name").map(TypeDefinition(_))

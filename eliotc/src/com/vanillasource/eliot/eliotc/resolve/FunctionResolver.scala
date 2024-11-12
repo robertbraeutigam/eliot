@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.Sourced
 import cats.syntax.all.*
 import com.vanillasource.collections.Tree
+import com.vanillasource.eliot.eliotc.ast.ArgumentDefinition
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleFunction}
 import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
 import com.vanillasource.eliot.eliotc.token.Token
@@ -25,7 +26,11 @@ class FunctionResolver extends CompilerProcessor with Logging {
       process.registerFact(
         ResolvedFunction(
           ffqn,
-          FunctionDefinition(name.map(_.content), args.map(_.map(_.content)), FunctionBody.Native(nativeKeyword.void))
+          FunctionDefinition(
+            name.map(_.content),
+            args.map(_.name.map(_.content)),
+            FunctionBody.Native(nativeKeyword.void)
+          )
         )
       )
     case ast.FunctionDefinition(name, args, _, ast.FunctionBody.NonNative(body))       =>
@@ -35,7 +40,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
       ffqn: FunctionFQN,
       dictionary: Map[String, FunctionFQN],
       name: Sourced[Token],
-      args: Seq[Sourced[Token]],
+      args: Seq[ArgumentDefinition],
       body: Tree[ast.Expression]
   )(using process: CompilationProcess): IO[Unit] = for {
     optionTree <- body.map(expr => resolveExpression(dictionary, expr)).sequence
@@ -45,7 +50,11 @@ class FunctionResolver extends CompilerProcessor with Logging {
                         process.registerFact(
                           ResolvedFunction(
                             ffqn,
-                            FunctionDefinition(name.map(_.content), args.map(_.map(_.content)), FunctionBody.NonNative(tree))
+                            FunctionDefinition(
+                              name.map(_.content),
+                              args.map(_.name.map(_.content)),
+                              FunctionBody.NonNative(tree)
+                            )
                           )
                         )
                     case None       => IO.unit

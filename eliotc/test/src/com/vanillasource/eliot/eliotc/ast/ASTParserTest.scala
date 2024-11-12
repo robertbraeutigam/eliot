@@ -58,26 +58,34 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("a: Byte = b").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "reject a definition without type" in {
+    runEngineForErrors("a = b").asserting(_.size should be > 0)
+  }
+
   it should "reject a constant definition with empty parentheses for empty args" in {
     runEngineForErrors("a(): Byte = b").asserting(_ shouldBe Seq("Expected argument name, but encountered symbol ')'."))
   }
 
   it should "accept a function definition with one argument" in {
-    runEngineForErrors("a(b): Byte = b").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a(b: Byte): Byte = b").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept a function definition with two arguments" in {
-    runEngineForErrors("a(b, c): Byte = b").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a(b: Byte, c: Byte): Byte = b").asserting(_ shouldBe Seq.empty)
   }
 
   it should "reject argument list without the comma separate" in {
-    runEngineForErrors("a(b c): Byte = b").asserting(
+    runEngineForErrors("a(b: Byte c: Byte): Byte = b").asserting(
       _ shouldBe Seq("Expected symbol ',' or symbol ')', but encountered identifier 'c'.")
     )
   }
 
   it should "accept a function definition with three arguments" in {
-    runEngineForErrors("a(b, c, d): Byte = b").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("a(b: Byte, c: Byte, d: Byte): Byte = b").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject even if one parameter does not have a type definition" in {
+    runEngineForErrors("a(b: Byte, c, d: Byte): Byte = b").asserting(_.size should be > 0)
   }
 
   it should "accept a function application without parameters" in {

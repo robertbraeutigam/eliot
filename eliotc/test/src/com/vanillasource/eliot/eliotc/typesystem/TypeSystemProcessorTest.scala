@@ -20,7 +20,7 @@ class TypeSystemProcessorTest
   }
 
   it should "not compile if call site has no arguments, but definition has one" in {
-    runEngineForErrors("a: Byte = b\nb(x): Byte = 1")
+    runEngineForErrors("a: Byte = b\nb(x: Byte): Byte = 1")
       .asserting(_ shouldBe Seq("Function is called with 0 parameters, but needs 1."))
   }
 

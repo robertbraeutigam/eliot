@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.token.Token
 
 case class FunctionDefinition(
     name: Sourced[Token],
-    args: Seq[Sourced[Token]],
+    args: Seq[ArgumentDefinition],
     typeDefinition: TypeDefinition,
     body: FunctionBody
 )
