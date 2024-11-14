@@ -1,19 +1,20 @@
 package com.vanillasource.eliot.eliotc.typesystem
 
 import cats.effect.IO
-import cats.syntax.all._
+import cats.syntax.all.*
 import com.vanillasource.collections.Tree
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
+import com.vanillasource.eliot.eliotc.processor.{TrackingCompilationProcess, TrackingCompilerProcessor}
 import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral}
 import com.vanillasource.eliot.eliotc.resolve.FunctionBody.NonNative
 import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, ResolvedFunction}
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact}
 
-class TypeCheckProcessor extends CompilerProcessor with Logging {
-  override def process(fact: CompilerFact)(using processor: CompilationProcess): IO[Unit] = fact match
+class TypeCheckProcessor extends TrackingCompilerProcessor with Logging {
+  override def processTrack(fact: CompilerFact)(using processor: TrackingCompilationProcess): IO[Unit] = fact match
     case ResolvedFunction(
           ffqn,
           functionDefinition @ FunctionDefinition(functionName, _, typeDefinition, NonNative(body))
@@ -23,15 +24,12 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
         _            <- topTypeMaybe match
                           case None          => IO.unit // This means some function could not be resolved
                           case Some(topType) =>
-                            if (topType.value === typeDefinition.typeName.value) {
-                              processor.registerFact(TypeCheckedFunction(ffqn, functionDefinition))
-                            } else {
-                              compilerError(
-                                topType.as(
-                                  s"Return type is ${topType.value}, but function declared to return ${typeDefinition.typeName.value}"
-                                )
+                            compilerError(
+                              topType.as(
+                                s"Return type is ${topType.value}, but function declared to return ${typeDefinition.typeName.value}"
                               )
-                            }
+                            ).whenA(topType.value =!= typeDefinition.typeName.value)
+        _            <- processor.registerFactOnSuccess(TypeCheckedFunction(ffqn, functionDefinition))
       } yield ()
     case _ => IO.unit
 
