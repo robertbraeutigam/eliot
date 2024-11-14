@@ -2,7 +2,7 @@ main: Byte = a
 
 a: Byte = b(d)
 
-b(x: Byte): Byte = d
+b(x: Byte): Word = d
 
 d: Byte = 1
 

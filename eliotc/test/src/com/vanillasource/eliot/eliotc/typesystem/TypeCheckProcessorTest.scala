@@ -7,8 +7,8 @@ import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleProcessor}
 import com.vanillasource.eliot.eliotc.resolve.FunctionResolver
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
-class ArityCheckProcessorTest
-    extends ProcessorTest(Tokenizer(), ASTParser(), ModuleProcessor(), FunctionResolver(), ArityCheckProcessor()) {
+class TypeCheckProcessorTest
+    extends ProcessorTest(Tokenizer(), ASTParser(), ModuleProcessor(), FunctionResolver(), TypeCheckProcessor()) {
   "function call" should "compile if same number of arguments" in {
     runEngineForErrors("a: Byte = b\nb: Byte = 1")
       .asserting(_ shouldBe Seq.empty)
@@ -37,7 +37,7 @@ class ArityCheckProcessorTest
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
     results <- runEngine(source)
   } yield {
-    results.values.collect { case ArityCheckedFunction(ffqn, _) =>
+    results.values.collect { case TypeCheckedFunction(ffqn, _) =>
       ffqn
     }.toSeq
   }

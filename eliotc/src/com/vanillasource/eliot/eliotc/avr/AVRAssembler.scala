@@ -37,10 +37,12 @@ class AVRAssembler(mainFQN: FunctionFQN) extends CompilerProcessor with Logging 
                            process.getFact(CompiledFunction.Key(calledFfqn)).flatMap {
                              case Some(compiledFact) => Some(compiledFact).pure[IO]
                              case None               =>
-                               compilerError(
+                               /* This seems to be redundant.
+                                 compilerError(
                                  calledFfqn,
                                  "Could not find implementation for function."
-                               ) >> Option.empty[avr.CompiledFunction].pure[IO]
+                               ) >> */
+                               Option.empty[avr.CompiledFunction].pure[IO]
                            }
                          }
                          .toSeqBreadthFirst

@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
 import com.vanillasource.eliot.eliotc.resolve.FunctionBody.NonNative
 import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionBody, FunctionDefinition}
-import com.vanillasource.eliot.eliotc.typesystem.{ArityCheckedFunction, TypeCheckedFunction}
+import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 
 class AVRCompiler extends CompilerProcessor with Logging {
