@@ -14,12 +14,12 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 
 class ArityCheckProcessor extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using processor: CompilationProcess): IO[Unit] = fact match
-    case ResolvedFunction(ffqn, functionDefinition @ FunctionDefinition(_, _, NonNative(body))) =>
+    case ResolvedFunction(ffqn, functionDefinition @ FunctionDefinition(_, _, _, NonNative(body))) =>
       checkCallArities(body).ifM(
         processor.registerFact(ArityCheckedFunction(ffqn, functionDefinition)),
         IO.unit
       )
-    case _                                                                                      => IO.unit
+    case _                                                                                         => IO.unit
 
   /** @return
     *   True, iff check all checks complete and no problems found.
@@ -43,7 +43,7 @@ class ArityCheckProcessor extends CompilerProcessor with Logging {
     result                  <- functionDefinitionMaybe match
                                  case Some(functionDefinition) =>
                                    val calledWithCount  = nodes.length
-                                   val definedWithCount = functionDefinition.definition.args.length
+                                   val definedWithCount = functionDefinition.definition.arguments.length
 
                                    compilerError(
                                      sourcedFfqn.as(

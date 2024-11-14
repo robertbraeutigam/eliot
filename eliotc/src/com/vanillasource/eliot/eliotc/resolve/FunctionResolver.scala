@@ -6,7 +6,6 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.Sourced
 import cats.syntax.all.*
 import com.vanillasource.collections.Tree
-import com.vanillasource.eliot.eliotc.ast.ArgumentDefinition
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleFunction}
 import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
 import com.vanillasource.eliot.eliotc.token.Token
@@ -22,25 +21,32 @@ class FunctionResolver extends CompilerProcessor with Logging {
       dictionary: Map[String, FunctionFQN],
       definition: ast.FunctionDefinition
   )(using process: CompilationProcess): IO[Unit] = definition match
-    case ast.FunctionDefinition(name, args, _, ast.FunctionBody.Native(nativeKeyword)) =>
+    case ast.FunctionDefinition(name, args, typeDefinition, ast.FunctionBody.Native(nativeKeyword)) =>
       process.registerFact(
         ResolvedFunction(
           ffqn,
           FunctionDefinition(
             name.map(_.content),
-            args.map(_.name.map(_.content)),
+            args.map(argDef =>
+              ArgumentDefinition(
+                argDef.name.map(_.content),
+                TypeDefinition(argDef.typeDefinition.typeName.map(_.content))
+              )
+            ),
+            TypeDefinition(typeDefinition.typeName.map(_.content)),
             FunctionBody.Native(nativeKeyword.void)
           )
         )
       )
-    case ast.FunctionDefinition(name, args, _, ast.FunctionBody.NonNative(body))       =>
-      resolveNonNativeFunction(ffqn, dictionary, name, args, body)
+    case ast.FunctionDefinition(name, args, typeDefinition, ast.FunctionBody.NonNative(body))       =>
+      resolveNonNativeFunction(ffqn, dictionary, name, args, typeDefinition, body)
 
   private def resolveNonNativeFunction(
       ffqn: FunctionFQN,
       dictionary: Map[String, FunctionFQN],
       name: Sourced[Token],
-      args: Seq[ArgumentDefinition],
+      args: Seq[ast.ArgumentDefinition],
+      typeDefinition: ast.TypeDefinition,
       body: Tree[ast.Expression]
   )(using process: CompilationProcess): IO[Unit] = for {
     optionTree <- body.map(expr => resolveExpression(dictionary, expr)).sequence
@@ -52,7 +58,13 @@ class FunctionResolver extends CompilerProcessor with Logging {
                             ffqn,
                             FunctionDefinition(
                               name.map(_.content),
-                              args.map(_.name.map(_.content)),
+                              args.map(argDef =>
+                                ArgumentDefinition(
+                                  argDef.name.map(_.content),
+                                  TypeDefinition(argDef.typeDefinition.typeName.map(_.content))
+                                )
+                              ),
+                              TypeDefinition(typeDefinition.typeName.map(_.content)),
                               FunctionBody.NonNative(tree)
                             )
                           )
