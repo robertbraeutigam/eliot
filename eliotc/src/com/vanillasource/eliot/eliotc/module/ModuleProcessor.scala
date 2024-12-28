@@ -1,26 +1,26 @@
 package com.vanillasource.eliot.eliotc.module
 
+import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.{AST, FunctionDefinition, ImportStatement, SourceAST}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import com.vanillasource.util.CatsOps.*
 
 import java.io.File
 
 class ModuleProcessor extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case SourceAST(file, ast) => process(file, ast)
+    case SourceAST(file, ast) => process(file, ast).getOrUnit
     case _                    => IO.unit
   }
 
-  private def process(file: File, ast: AST)(using CompilationProcess): IO[Unit] =
+  private def process(file: File, ast: AST)(using CompilationProcess): OptionT[IO, Unit] =
     for {
-      moduleName <- determineModuleName(file)
-      _          <- moduleName match
-                      case Some(mn) => processFunctions(file, mn, ast)
-                      case None     => IO.unit
+      moduleName <- determineModuleName(file).toOptionT
+      _          <- processFunctions(file, moduleName, ast).liftOptionT
     } yield ()
 
   private def processFunctions(file: File, moduleName: ModuleName, ast: AST)(using
