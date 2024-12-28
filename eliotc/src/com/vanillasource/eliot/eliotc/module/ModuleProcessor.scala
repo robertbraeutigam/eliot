@@ -46,10 +46,9 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       localFunctionNames: Set[String],
       imports: Seq[ImportStatement]
   )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] =
-    imports.foldM(Map.empty[String, FunctionFQN])((acc, i) => extractImport(file, localFunctionNames, acc, i))
+    imports.foldM(Map.empty[String, FunctionFQN])((acc, i) => extractImport(localFunctionNames, acc, i))
 
   private def extractImport(
-      file: File,
       localFunctionNames: Set[String],
       importedFunctions: Map[String, FunctionFQN],
       statement: ImportStatement
@@ -84,10 +83,9 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       file: File,
       functionDefinitions: Seq[FunctionDefinition]
   )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] =
-    functionDefinitions.foldM(Map.empty[String, FunctionDefinition])((acc, d) => extractFunction(file, acc, d))
+    functionDefinitions.foldM(Map.empty[String, FunctionDefinition])((acc, d) => extractFunction(acc, d))
 
   private def extractFunction(
-      file: File,
       previousFunctions: Map[String, FunctionDefinition],
       current: FunctionDefinition
   )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] = current.name.value.content match
