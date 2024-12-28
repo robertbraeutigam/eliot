@@ -1,6 +1,7 @@
 package com.vanillasource.util
 
 import cats.Functor
+import cats.Monad
 import cats.data.OptionT
 
 object CatsOps {
@@ -13,7 +14,9 @@ object CatsOps {
     def getOrUnit: F[Unit] = opt.getOrElse(())
   }
 
-  extension [F[_]: Functor, A](value: F[A]) {
+  extension [F[_]: Monad, A](value: F[A]) {
     def liftOptionT: OptionT[F, A] = OptionT.liftF(value)
+
+    def liftOptionTNone[B]: OptionT[F, B] = liftOptionT.flatMap(_ => OptionT.none)
   }
 }

@@ -52,32 +52,35 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       localFunctionNames: Set[String],
       importedFunctions: Map[String, FunctionFQN],
       statement: ImportStatement
-  )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] = for {
-    moduleFunctionsMaybe <- process.getFact(ModuleFunctionsNames.Key(ModuleName.fromImportStatement(statement)))
-    result               <- moduleFunctionsMaybe match
-                              case Some(moduleFunctions) =>
-                                if (moduleFunctions.functionNames.intersect(localFunctionNames).nonEmpty) {
-                                  compilerError(
-                                    statement.outline.as(
-                                      s"Imported functions shadow local functions: ${moduleFunctions.functionNames.intersect(localFunctionNames).mkString(", ")}"
-                                    )
-                                  ).as(importedFunctions)
-                                } else if (moduleFunctions.functionNames.intersect(importedFunctions.keySet).nonEmpty) {
-                                  compilerError(
-                                    statement.outline.as(
-                                      s"Imported functions shadow other imported functions: ${moduleFunctions.functionNames.intersect(importedFunctions.keySet).flatMap(importedFunctions.get).mkString(", ")}"
-                                    )
-                                  ).as(importedFunctions)
-                                } else {
-                                  IO.pure(
-                                    importedFunctions ++ moduleFunctions.functionNames
-                                      .map(name => (name, FunctionFQN(moduleFunctions.moduleName, name)))
-                                      .toMap
-                                  )
-                                }
-                              case None                  =>
-                                compilerError(statement.outline.as("Could not find imported module.")).as(importedFunctions)
-  } yield result
+  )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] = {
+    val extractedImport = for {
+      moduleFunctions <- process.getFact(ModuleFunctionsNames.Key(ModuleName.fromImportStatement(statement))).toOptionT
+      result          <-
+        if (moduleFunctions.functionNames.intersect(localFunctionNames).nonEmpty) {
+          compilerError(
+            statement.outline.as(
+              s"Imported functions shadow local functions: ${moduleFunctions.functionNames.intersect(localFunctionNames).mkString(", ")}"
+            )
+          ).liftOptionTNone
+        } else if (moduleFunctions.functionNames.intersect(importedFunctions.keySet).nonEmpty) {
+          compilerError(
+            statement.outline.as(
+              s"Imported functions shadow other imported functions: ${moduleFunctions.functionNames.intersect(importedFunctions.keySet).flatMap(importedFunctions.get).mkString(", ")}"
+            )
+          ).liftOptionTNone
+        } else {
+          IO.pure(
+            importedFunctions ++ moduleFunctions.functionNames
+              .map(name => (name, FunctionFQN(moduleFunctions.moduleName, name)))
+              .toMap
+          ).liftOptionT
+        }
+    } yield result
+
+    extractedImport.getOrElseF {
+      compilerError(statement.outline.as("Could not find imported module.")).as(importedFunctions)
+    }
+  }
 
   private def extractFunctions(
       file: File,
