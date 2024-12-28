@@ -20,15 +20,13 @@ class ModuleProcessor extends CompilerProcessor with Logging {
   private def process(file: File, ast: AST)(using CompilationProcess): OptionT[IO, Unit] =
     for {
       moduleName <- determineModuleName(file).toOptionT
-      _          <- processFunctions(file, moduleName, ast).liftOptionT
+      _          <- processFunctions(moduleName, ast).liftOptionT
     } yield ()
 
-  private def processFunctions(file: File, moduleName: ModuleName, ast: AST)(using
-      process: CompilationProcess
-  ): IO[Unit] = for {
-    localFunctions    <- extractFunctions(file, ast.functionDefinitions)
+  private def processFunctions(moduleName: ModuleName, ast: AST)(using process: CompilationProcess): IO[Unit] = for {
+    localFunctions    <- extractFunctions(ast.functionDefinitions)
     _                 <- process.registerFact(ModuleFunctionsNames(moduleName, localFunctions.keySet))
-    importedFunctions <- extractImportedFunctions(file, localFunctions.keySet, ast.importStatements)
+    importedFunctions <- extractImportedFunctions(localFunctions.keySet, ast.importStatements)
     _                 <- debug(s"read function names for ${moduleName.show}: ${localFunctions.keySet
                              .mkString(", ")}, imported functions: ${importedFunctions.keySet.mkString(", ")}")
     functionDictionary =
@@ -42,7 +40,6 @@ class ModuleProcessor extends CompilerProcessor with Logging {
   } yield ()
 
   private def extractImportedFunctions(
-      file: File,
       localFunctionNames: Set[String],
       imports: Seq[ImportStatement]
   )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] =
@@ -83,7 +80,6 @@ class ModuleProcessor extends CompilerProcessor with Logging {
   }
 
   private def extractFunctions(
-      file: File,
       functionDefinitions: Seq[FunctionDefinition]
   )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] =
     functionDefinitions.foldM(Map.empty[String, FunctionDefinition])((acc, d) => extractFunction(acc, d))
