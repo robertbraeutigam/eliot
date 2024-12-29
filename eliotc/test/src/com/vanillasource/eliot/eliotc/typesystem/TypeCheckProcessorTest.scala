@@ -31,7 +31,7 @@ class TypeCheckProcessorTest
 
   it should "not produce type checked results if arities mismatch" in {
     runForTypedFunctions("a: Byte = b(3)\nb: Byte = 1")
-      .asserting(_.length shouldBe 1)
+      .asserting(_ shouldBe Seq.empty)
   }
 
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {

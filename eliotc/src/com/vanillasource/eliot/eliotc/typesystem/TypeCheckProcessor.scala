@@ -1,37 +1,47 @@
 package com.vanillasource.eliot.eliotc.typesystem
 
+import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.collections.Tree
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
-import com.vanillasource.eliot.eliotc.processor.{TrackingCompilationProcess, TrackingCompilerProcessor}
 import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral}
 import com.vanillasource.eliot.eliotc.resolve.FunctionBody.NonNative
-import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, ResolvedFunction}
+import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, ResolvedFunction, TypeDefinition}
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import com.vanillasource.util.CatsOps.*
 
-class TypeCheckProcessor extends TrackingCompilerProcessor with Logging {
-  override def processTrack(fact: CompilerFact)(using processor: TrackingCompilationProcess): IO[Unit] = fact match
+class TypeCheckProcessor extends CompilerProcessor with Logging {
+  override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
     case ResolvedFunction(
           ffqn,
-          functionDefinition @ FunctionDefinition(functionName, _, typeDefinition, NonNative(body))
+          functionDefinition @ FunctionDefinition(_, _, typeDefinition, NonNative(body))
         ) =>
-      for {
-        topTypeMaybe <- checkCallTypes(body)
-        _            <- topTypeMaybe match
-                          case None          => IO.unit // This means some function could not be resolved
-                          case Some(topType) =>
-                            compilerError(
-                              topType.as(
-                                s"Return type is ${topType.value}, but function declared to return ${typeDefinition.typeName.value}"
-                              )
-                            ).whenA(topType.value =!= typeDefinition.typeName.value)
-        _            <- processor.registerFactOnSuccess(TypeCheckedFunction(ffqn, functionDefinition))
-      } yield ()
+      process(ffqn, functionDefinition, typeDefinition, body).getOrUnit
     case _ => IO.unit
+
+  private def process(
+      ffqn: FunctionFQN,
+      functionDefinition: FunctionDefinition,
+      typeDefinition: TypeDefinition,
+      body: Tree[Expression]
+  )(using process: CompilationProcess): OptionT[IO, Unit] = {
+    for {
+      topType <- checkCallTypes(body).toOptionT
+      _       <- if (topType.value === typeDefinition.typeName.value) {
+                   process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftOptionT
+                 } else {
+                   compilerError(
+                     topType.as(
+                       s"Return type is ${topType.value}, but function declared to return ${typeDefinition.typeName.value}"
+                     )
+                   ).liftOptionT
+                 }
+    } yield ()
+  }
 
   /** @return
     *   True, iff check all checks complete and no problems found.
@@ -43,7 +53,7 @@ class TypeCheckProcessor extends TrackingCompilerProcessor with Logging {
         recursiveResults <- nodes.map(checkCallTypes).sequence
         result           <- checkCallType(sourcedFfqn, recursiveResults)
       } yield result.map(sourcedFfqn.as(_))
-    case Tree.Node(IntegerLiteral(value), _)                => Some(value.as("Byte")).pure // Hardcoded for now
+    case Tree.Node(IntegerLiteral(value), _)                => Some(value.as("Byte")).pure // TODO: Hardcoded for now
 
   /** @return
     *   True, iff check is complete and no problems found.
