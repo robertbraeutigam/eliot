@@ -19,6 +19,11 @@ class TypeCheckProcessorTest
       .asserting(_ shouldBe Seq("Function is called with 1 parameters, but needs 0."))
   }
 
+  it should "issue error when referencing an undefined function" in {
+    runEngineForErrors("a: Byte = c")
+      .asserting(_ shouldBe Seq("Function not defined."))
+  }
+
   it should "not compile if call site has no arguments, but definition has one" in {
     runEngineForErrors("a: Byte = b\nb(x: Byte): Byte = 1")
       .asserting(_ shouldBe Seq("Function is called with 0 parameters, but needs 1."))
