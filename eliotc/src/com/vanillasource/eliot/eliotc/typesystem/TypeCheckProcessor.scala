@@ -11,7 +11,6 @@ import com.vanillasource.eliot.eliotc.resolve.FunctionBody.NonNative
 import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, ResolvedFunction, TypeDefinition}
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
-import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import com.vanillasource.util.CatsOps.*
 
@@ -30,19 +29,19 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       typeDefinition: TypeDefinition,
       body: Tree[Expression]
   )(using process: CompilationProcess): IO[Unit] =
-    checkCallTypes(body).value.runIfSuccessful {
-      case Some(topType) =>
+    checkCallTypes(body)
+      .foreachF { topType =>
         if (topType.value === typeDefinition.typeName.value) {
-          process.registerFact(TypeCheckedFunction(ffqn, functionDefinition))
+          process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftToCompilationIO.ifNoErrors
         } else {
-          registerCompilerError(
+          compilerError(
             topType.as(
               s"Expression type is ${topType.value}, but function declared to return ${typeDefinition.typeName.value}"
             )
           )
         }
-      case _             => IO.unit
-    }
+      }
+      .runCompilation_()
 
   private def checkCallTypes(expression: Tree[Expression])(using
       CompilationProcess

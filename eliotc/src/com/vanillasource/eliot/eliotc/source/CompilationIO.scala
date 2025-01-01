@@ -20,10 +20,10 @@ object CompilationIO {
   extension [A](value: CompilationIO[A]) {
     def runCompilation(): IO[(Boolean, A)] = value.run(true)
 
-    def runIfSuccessful(block: A => IO[Unit]): IO[Unit] = runCompilation().flatMap {
-      case (true, value) => block(value)
-      case _             => IO.unit
-    }
+    def runCompilation_(): IO[Unit] = value.run(true).void
+
+    def ifNoErrors: CompilationIO[Unit] =
+      StateT.get[IO, Boolean].ifM(value.void, IO.unit.liftToCompilationIO)
   }
 
   def compilerError(message: Sourced[String])(using process: CompilationProcess): CompilationIO[Unit] =
