@@ -59,20 +59,20 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       process: CompilationProcess
   ): OptionT[CompilationIO, Sourced[String]] = for {
     functionDefinition <- process.getFact(ResolvedFunction.Key(sourcedFfqn.value)).liftToCompilationIO.toOptionT
-    _                  <- checkArgumentTypes(sourcedFfqn, functionDefinition, calculatedArgumentTypes)
+    _                  <- checkArgumentTypes(sourcedFfqn, functionDefinition, calculatedArgumentTypes).liftOptionT
   } yield sourcedFfqn.as(functionDefinition.definition.typeDefinition.typeName.value)
 
   private def checkArgumentTypes(
       sourcedFfqn: Sourced[FunctionFQN],
       functionDefinition: ResolvedFunction,
       calculatedArgumentTypes: Seq[Sourced[String]]
-  )(using process: CompilationProcess): OptionT[CompilationIO, Unit] = {
+  )(using process: CompilationProcess): CompilationIO[Unit] = {
     if (calculatedArgumentTypes.length =!= functionDefinition.definition.arguments.length) {
       compilerError(
         sourcedFfqn.as(
           s"Function is called with ${calculatedArgumentTypes.length} parameters, but needs ${functionDefinition.definition.arguments.length}."
         )
-      ).liftOptionT
+      )
     } else {
       // Check argument types one by one
       calculatedArgumentTypes
@@ -89,7 +89,6 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           }
         }
         .sequence_
-        .liftOptionT
     }
   }
 }
