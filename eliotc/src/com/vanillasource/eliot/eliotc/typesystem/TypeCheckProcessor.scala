@@ -32,7 +32,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
     checkCallTypes(body)
       .foreachF { topType =>
         if (topType.value === typeDefinition.typeName.value) {
-          process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftToCompilationIO.ifNoErrors
+          process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftIfNoErrors
         } else {
           compilerError(
             topType.as(

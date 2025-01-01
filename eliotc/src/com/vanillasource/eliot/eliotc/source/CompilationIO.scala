@@ -15,6 +15,8 @@ object CompilationIO {
 
   extension [A](value: IO[A]) {
     def liftToCompilationIO: CompilationIO[A] = StateT.liftF[IO, Boolean, A](value)
+
+    def liftIfNoErrors: CompilationIO[Unit] = value.liftToCompilationIO.ifNoErrors
   }
 
   extension [A](value: CompilationIO[A]) {
