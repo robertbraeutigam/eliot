@@ -60,29 +60,37 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       process: CompilationProcess
   ): OptionT[CompilationIO, Sourced[String]] = for {
     functionDefinition <- process.getFact(ResolvedFunction.Key(sourcedFfqn.value)).liftToCompilationIO.toOptionT
-    _                  <- if (calculatedArgumentTypes.length =!= functionDefinition.definition.arguments.length) {
-                            compilerError(
-                              sourcedFfqn.as(
-                                s"Function is called with ${calculatedArgumentTypes.length} parameters, but needs ${functionDefinition.definition.arguments.length}."
-                              )
-                            ).as(false).liftOptionT
-                          } else {
-                            // Check argument types one by one
-                            calculatedArgumentTypes
-                              .zip(functionDefinition.definition.arguments)
-                              .map { (calculatedType, argumentDefinition) =>
-                                if (calculatedType.value === argumentDefinition.typeDefinition.typeName.value) {
-                                  ().pure[CompilationIO]
-                                } else {
-                                  compilerError(
-                                    calculatedType.as(
-                                      s"Expression had type ${calculatedType.value}, but needed: ${argumentDefinition.typeDefinition.typeName.value}"
-                                    )
-                                  )
-                                }
-                              }
-                              .sequence_
-                              .liftOptionT
-                          }
+    _                  <- checkArgumentTypes(sourcedFfqn, functionDefinition, calculatedArgumentTypes)
   } yield sourcedFfqn.as(functionDefinition.definition.typeDefinition.typeName.value)
+
+  private def checkArgumentTypes(
+      sourcedFfqn: Sourced[FunctionFQN],
+      functionDefinition: ResolvedFunction,
+      calculatedArgumentTypes: Seq[Sourced[String]]
+  )(using process: CompilationProcess): OptionT[CompilationIO, Unit] = {
+    if (calculatedArgumentTypes.length =!= functionDefinition.definition.arguments.length) {
+      compilerError(
+        sourcedFfqn.as(
+          s"Function is called with ${calculatedArgumentTypes.length} parameters, but needs ${functionDefinition.definition.arguments.length}."
+        )
+      ).liftOptionT
+    } else {
+      // Check argument types one by one
+      calculatedArgumentTypes
+        .zip(functionDefinition.definition.arguments)
+        .map { (calculatedType, argumentDefinition) =>
+          if (calculatedType.value === argumentDefinition.typeDefinition.typeName.value) {
+            ().pure[CompilationIO]
+          } else {
+            compilerError(
+              calculatedType.as(
+                s"Expression had type ${calculatedType.value}, but needed: ${argumentDefinition.typeDefinition.typeName.value}"
+              )
+            )
+          }
+        }
+        .sequence_
+        .liftOptionT
+    }
+  }
 }
