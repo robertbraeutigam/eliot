@@ -22,7 +22,7 @@ class Tokenizer extends CompilerProcessor with Logging with User {
     TokenParser(file).fullParser
       .parse(content)(using new TokenErrorBuilder(file))
       .fold(
-        errorMessage => SourcedError.compilerError(errorMessage),
+        errorMessage => SourcedError.registerCompilerError(errorMessage),
         tokens =>
           debug(s"tokenized $file into: ${tokens.map(_.show).mkString(", ")}") >> process.registerFact(
             SourceTokens(file, tokens)

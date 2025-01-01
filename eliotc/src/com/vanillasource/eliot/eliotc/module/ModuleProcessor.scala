@@ -5,7 +5,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.{AST, FunctionDefinition, ImportStatement, SourceAST}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
+import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import com.vanillasource.util.CatsOps.*
 
@@ -54,13 +54,13 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       moduleFunctions <- process.getFact(ModuleFunctionsNames.Key(ModuleName.fromImportStatement(statement))).toOptionT
       result          <-
         if (moduleFunctions.functionNames.intersect(localFunctionNames).nonEmpty) {
-          compilerError(
+          registerCompilerError(
             statement.outline.as(
               s"Imported functions shadow local functions: ${moduleFunctions.functionNames.intersect(localFunctionNames).mkString(", ")}"
             )
           ).liftOptionTNone
         } else if (moduleFunctions.functionNames.intersect(importedFunctions.keySet).nonEmpty) {
-          compilerError(
+          registerCompilerError(
             statement.outline.as(
               s"Imported functions shadow other imported functions: ${moduleFunctions.functionNames.intersect(importedFunctions.keySet).flatMap(importedFunctions.get).mkString(", ")}"
             )
@@ -75,7 +75,7 @@ class ModuleProcessor extends CompilerProcessor with Logging {
     } yield result
 
     extractedImport.getOrElseF {
-      compilerError(statement.outline.as("Could not find imported module.")).as(importedFunctions)
+      registerCompilerError(statement.outline.as("Could not find imported module.")).as(importedFunctions)
     }
   }
 
@@ -89,18 +89,19 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       current: FunctionDefinition
   )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] = current.name.value.content match
     case fn if previousFunctions.contains(fn) =>
-      compilerError(current.name.as("Function was already defined in this module.")).as(previousFunctions)
+      registerCompilerError(current.name.as("Function was already defined in this module.")).as(previousFunctions)
     case fn if !fn.charAt(0).isLower          =>
-      compilerError(current.name.as("Function name must start with lower case character.")).as(previousFunctions)
+      registerCompilerError(current.name.as("Function name must start with lower case character."))
+        .as(previousFunctions)
     case fn                                   => (previousFunctions ++ Map((fn, current))).pure
 
   private def determineModuleName(file: File)(using process: CompilationProcess): IO[Option[ModuleName]] = {
     // TODO: needs to parse packages to determine module path
     val candidateName = file.getName
     candidateName match
-      case ""                       => compilerError(file, "Module name is empty.").as(None)
-      case s if !s.endsWith(".els") => compilerError(file, "File for module does not end in '.els'.").as(None)
-      case s if s.charAt(0).isLower => compilerError(file, "Module name must be capitalized.").as(None)
+      case ""                       => registerCompilerError(file, "Module name is empty.").as(None)
+      case s if !s.endsWith(".els") => registerCompilerError(file, "File for module does not end in '.els'.").as(None)
+      case s if s.charAt(0).isLower => registerCompilerError(file, "Module name must be capitalized.").as(None)
       case s                        => Some(ModuleName(Seq.empty, s.substring(0, s.length - 4))).pure
   }
 }

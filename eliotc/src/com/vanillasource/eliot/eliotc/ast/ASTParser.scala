@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.TokenParser.{astParser, given}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
+import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.token.{SourceTokens, Token}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
@@ -26,10 +26,10 @@ class ASTParser extends CompilerProcessor with Logging {
       _ <- astResult.allErrors.map {
              case ParserError(pos, expected) if pos >= tokens.size =>
                tokens match {
-                 case Nil => compilerError(file, s"Expected ${expectedMessage(expected)}, but input was empty.")
+                 case Nil => registerCompilerError(file, s"Expected ${expectedMessage(expected)}, but input was empty.")
                  case _   =>
                    val pos = tokens.last.range.to
-                   compilerError(
+                   registerCompilerError(
                      Sourced(
                        file,
                        PositionRange(pos, pos.next),
@@ -39,12 +39,13 @@ class ASTParser extends CompilerProcessor with Logging {
                }
              case ParserError(pos, expected)                       =>
                val token = tokens.get(pos).get
-               compilerError(
+               registerCompilerError(
                  token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
                )
            }.sequence_
       _ <- astResult.value match
-             case Some(ast) => debug(s"generated AST for $file: ${ast.show}") >> process.registerFact(SourceAST(file, ast))
+             case Some(ast) =>
+               debug(s"generated AST for $file: ${ast.show}") >> process.registerFact(SourceAST(file, ast))
              case None      => IO.unit
     } yield ()
   }

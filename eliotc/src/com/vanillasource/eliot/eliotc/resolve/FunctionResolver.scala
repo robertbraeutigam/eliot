@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.source.Sourced
 import cats.syntax.all.*
 import com.vanillasource.collections.Tree
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleFunction}
-import com.vanillasource.eliot.eliotc.source.SourcedError.compilerError
+import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 
@@ -79,9 +79,9 @@ class FunctionResolver extends CompilerProcessor with Logging {
       case ast.Expression.FunctionApplication(s @ Sourced(_, _, token))                  =>
         dictionary.get(token.content) match
           case Some(ffqn) => Some(Expression.FunctionApplication(s.as(ffqn))).pure
-          case None       => compilerError(s.as(s"Function not defined.")) >> None.pure
+          case None       => registerCompilerError(s.as(s"Function not defined.")) >> None.pure
       case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value))) =>
         Some(Expression.IntegerLiteral(s.as(value))).pure
       case ast.Expression.IntegerLiteral(s)                                              =>
-        compilerError(s.as(s"Internal compiler error, not parsed as an integer literal.")) >> None.pure
+        registerCompilerError(s.as(s"Internal compiler error, not parsed as an integer literal.")) >> None.pure
 }

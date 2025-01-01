@@ -11,7 +11,7 @@ object ResolvedError extends Logging {
   def compilerError(ffqn: FunctionFQN, message: String)(using process: CompilationProcess): IO[Unit] = for {
     resolvedFunction <- process.getFact(ResolvedFunction.Key(ffqn))
     _                <- resolvedFunction match
-                          case Some(value) => SourcedError.compilerError(value.definition.name.as(message))
+                          case Some(value) => SourcedError.registerCompilerError(value.definition.name.as(message))
                           case None        =>
                             error(
                               s"could not print error '$message' for resolved function ${ffqn.show}, because resolved function is not found"
