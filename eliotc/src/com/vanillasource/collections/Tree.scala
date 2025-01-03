@@ -1,10 +1,9 @@
 package com.vanillasource.collections
 
 import cats.implicits.*
-import cats.{Applicative, Eval, Functor, Monoid, Traverse}
+import cats.{Applicative, Eval, Functor, Monad, Monoid, Traverse}
 
 import scala.annotation.tailrec
-import scala.collection.immutable.{AbstractSeq, LinearSeq}
 
 /** Immutable multi-node, sorting-preserving tree.
   */
@@ -34,8 +33,25 @@ object Tree {
     def foldDepthFirstMonoid(): A = foldDepthFirstMonoidInternal(t)
   }
 
-  extension [A](t: Tree[A]) {
-    def toSeqBreadthFirst: Seq[A] = toSeqBreadthFirstInternal(Seq(t), Seq.empty[A])
+  extension [A](tree: Tree[A]) {
+    def toSeqBreadthFirst: Seq[A] = toSeqBreadthFirstInternal(Seq(tree), Seq.empty[A])
+
+    def head: Option[A] = tree match
+      case Empty()        => None
+      case Node(value, _) => Some(value)
+
+    // Note: this might be a little stack-heavy if the tree is big, use trampoline?
+    def foreachWithChildrenF[F[_]](f: (A, Seq[Option[A]]) => F[Unit])(using fm: Monad[F]): F[Unit] =
+      tree match
+        case Empty()            => fm.pure(())
+        case Node(value, nodes) =>
+          nodes.map(_.foreachWithChildrenF(f)).sequence_ >> f(
+            value,
+            nodes.map {
+              case Empty()        => None
+              case Node(value, _) => Some(value)
+            }
+          )
   }
 
   given Functor[Tree] = new Functor[Tree]:
