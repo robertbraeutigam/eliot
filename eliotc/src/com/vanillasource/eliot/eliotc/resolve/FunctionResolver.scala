@@ -52,7 +52,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
     optionTree <- body.map(expr => resolveExpression(dictionary, expr)).sequence
     _          <- optionTree.sequence match
                     case Some(tree) =>
-                      debug(s"resolved ${ffqn.show} to: ${tree.show}") >>
+                      debug(s"resolved ${ffqn.show} (${typeDefinition.show}) to: ${tree.show}") >>
                         process.registerFact(
                           ResolvedFunction(
                             ffqn,
