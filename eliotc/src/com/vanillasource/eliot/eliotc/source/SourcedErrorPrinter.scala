@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.source.Position.{Column, Line}
 
 import java.io.File
 import scala.math.*
+import com.vanillasource.util.CatsOps.*
 
 class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
@@ -21,13 +22,10 @@ class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
   private def process(file: File, fromLine: Line, fromCol: Column, toLine: Line, toCol: Column, message: String)(using
       process: CompilationProcess
   ): IO[Unit] = {
-    for {
-      contentOption <- process.getFact(SourceContent.Key(file))
-      _             <- contentOption match
-                         case Some(content) =>
-                           compilerSourcedError(file, content.content, fromLine, fromCol, toLine, toCol, message)
-                         case None          => compilerGlobalError(s"File contents for $file are not available.")
-    } yield ()
+    (for {
+      content <- process.getFact(SourceContent.Key(file)).toOptionT
+      _       <- compilerSourcedError(file, content.content, fromLine, fromCol, toLine, toCol, message).liftOptionT
+    } yield ()).getOrElseF(compilerGlobalError(s"File contents for $file are not available."))
   }
 
   private def compilerSourcedError(
