@@ -58,7 +58,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       .map { topType =>
         compilerError(
           topType.as(
-            s"Expression type is ${topType.value}, but function declared to return ${definition.typeName.value}"
+            s"Expression type is ${topType.value}, but function declared to return ${definition.typeName.value}."
           )
         ).whenA(topType.value =!= definition.typeName.value)
       }
@@ -96,7 +96,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           } else {
             compilerError(
               calculatedType.as(
-                s"Expression had type ${calculatedType.value}, but needed: ${argumentDefinition.typeDefinition.typeName.value}"
+                s"Expression had type ${calculatedType.value}, but needed: ${argumentDefinition.typeDefinition.typeName.value}."
               )
             )
           }

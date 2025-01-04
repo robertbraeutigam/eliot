@@ -39,6 +39,11 @@ class TypeCheckProcessorTest
       .asserting(_.length shouldBe 1)
   }
 
+  it should "display type mismatch error" in {
+    runEngineForErrors("a: Word = 3")
+      .asserting(_ shouldBe Seq("Expression type is Byte, but function declared to return Word."))
+  }
+
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
     results <- runEngine(source)
   } yield {
