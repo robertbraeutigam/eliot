@@ -3,23 +3,31 @@ package com.vanillasource.eliot.eliotc.source
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
-import scala.io.AnsiColor._
-import cats.syntax.all._
+
+import scala.io.AnsiColor.*
+import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.source.Position.{Column, Line}
 
 import java.io.File
 import scala.math.*
 
 class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
-  override def process(fact: CompilerFact)(using process: CompilationProcess): IO[Unit] = fact match {
+  override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
     case SourcedError(Sourced(file, PositionRange(Position(fromLine, fromCol), Position(toLine, toCol)), message)) =>
-      for {
-        contentOption <- process.getFact(SourceContent.Key(file))
-        _             <- contentOption match
-                           case Some(content) =>
-                             compilerSourcedError(file, content.content, fromLine, fromCol, toLine, toCol, message)
-                           case None          => compilerGlobalError(s"File contents for $file are not available.")
-      } yield ()
+      process(file, fromLine, fromCol, toLine, toCol, message)
     case _                                                                                                         => IO.unit
+  }
+
+  private def process(file: File, fromLine: Line, fromCol: Column, toLine: Line, toCol: Column, message: String)(using
+      process: CompilationProcess
+  ): IO[Unit] = {
+    for {
+      contentOption <- process.getFact(SourceContent.Key(file))
+      _             <- contentOption match
+                         case Some(content) =>
+                           compilerSourcedError(file, content.content, fromLine, fromCol, toLine, toCol, message)
+                         case None          => compilerGlobalError(s"File contents for $file are not available.")
+    } yield ()
   }
 
   private def compilerSourcedError(
