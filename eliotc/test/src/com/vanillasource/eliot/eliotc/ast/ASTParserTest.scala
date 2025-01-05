@@ -42,7 +42,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "not parse import that is not top-level, even if correct" in {
     runEngineForErrors(" import a.b.C").asserting(
-      _ shouldBe Seq("Expected function name, but encountered keyword 'import'.")
+      _ shouldBe Seq("Expected function name or top level keyword 'data', but encountered keyword 'import'.")
     )
   }
 
@@ -118,7 +118,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     results <- runEngine(source)
   } yield {
     results.values
-      .collect { case SourceAST(_, AST(statements, _)) =>
+      .collect { case SourceAST(_, AST(statements, _, _)) =>
         statements.map(i => (i.packageNames.map(_.value.content) :+ i.moduleName.value.content).mkString("."))
       }
       .toSeq

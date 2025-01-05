@@ -152,6 +152,11 @@ object Parser {
         case Some(a) => a.pure
         case None    => p2
       }
+
+    /** Parses either this or the given parser if this fails. This is like "or", but the two parsers may differ in type,
+      * therefore, a pair is returned.
+      */
+    def xor[P](p2: Parser[I, P]): Parser[I, Either[O, P]] = p.map(Left(_)) or p2.map(Right(_))
   }
 
   /** Accept if the given predicate holds.

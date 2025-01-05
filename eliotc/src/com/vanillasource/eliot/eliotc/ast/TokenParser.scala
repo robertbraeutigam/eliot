@@ -14,15 +14,17 @@ import com.vanillasource.parser.Parser.*
 object TokenParser {
   lazy val astParser: Parser[Sourced[Token], AST] = {
     for {
-      importStatements    <-
+      importStatements <-
         importStatement
           .attemptPhraseTo(topLevel.void or endOfInput())
           .anyTimesWhile(topLevelKeyword("import").find())
-      functionDefinitions <-
-        functionDefinition
+          .map(_.flatten)
+      definitions      <-
+        (functionDefinition xor typeDefinition)
           .attemptPhraseTo(topLevel.void or endOfInput())
           .anyTimesWhile(any())
-    } yield AST(importStatements.flatten, functionDefinitions.flatten)
+          .map(_.flatten)
+    } yield AST(importStatements, definitions.flatMap(_.left.toSeq), definitions.flatMap(_.toSeq))
   }.fully()
 
   private lazy val importStatement = for {
@@ -31,20 +33,25 @@ object TokenParser {
     moduleName   <- moduleNameOnSameLineAs(keyword)
   } yield ImportStatement(keyword, packageNames, moduleName)
 
+  private lazy val typeDefinition = for {
+    _    <- topLevelKeyword("data")
+    name <- acceptIfAll(isIdentifier, isUpperCase)("type name")
+  } yield TypeDefinition(name)
+
   private lazy val functionDefinition = for {
     name           <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
     args           <- argumentListOf(argument())
-    typeDefinition <- typeDefinition()
+    typeDefinition <- typeReference()
     functionBody   <- functionBody()
   } yield FunctionDefinition(name, args, typeDefinition, functionBody)
 
   private def argument(): Parser[Sourced[Token], ArgumentDefinition] =
     for {
       name           <- acceptIf(isIdentifier, "argument name")
-      typeDefinition <- typeDefinition()
+      typeDefinition <- typeReference()
     } yield ArgumentDefinition(name, typeDefinition)
 
-  private def typeDefinition(): Parser[Sourced[Token], TypeReference] =
+  private def typeReference(): Parser[Sourced[Token], TypeReference] =
     symbol(":") *> acceptIfAll(isIdentifier, isUpperCase)("type name").map(TypeReference(_))
 
   private def functionBody(): Parser[Sourced[Token], Tree[Expression]] =
