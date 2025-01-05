@@ -41,12 +41,12 @@ class TypeCheckProcessorTest
 
   it should "display type mismatch error" in {
     runEngineForErrors("a: Word = 3")
-      .asserting(_ shouldBe Seq("Expression type is Byte, but function declared to return Word."))
+      .asserting(_ shouldBe Seq("Function body type is Byte, but function declared to return Word."))
   }
 
   it should "fail only once when a function is used wrong" in {
     runEngineForErrors("a: Byte = 3\nb: Word = a")
-      .asserting(_ shouldBe Seq("Expression type is Byte, but function declared to return Word."))
+      .asserting(_ shouldBe Seq("Function body type is Byte, but function declared to return Word."))
   }
 
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
