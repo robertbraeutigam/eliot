@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.typesystem
 
-import cats.data.{IndexedStateT, OptionT}
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.collections.Tree
@@ -9,8 +8,8 @@ import com.vanillasource.eliot.eliotc.module.FunctionFQN
 import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral}
 import com.vanillasource.eliot.eliotc.resolve.FunctionBody.NonNative
 import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, ResolvedFunction, TypeDefinition}
-import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
+import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import com.vanillasource.util.CatsOps.*
 
