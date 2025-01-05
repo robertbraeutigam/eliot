@@ -2,14 +2,14 @@ package com.vanillasource.eliot.eliotc.ast
 
 import cats.Show
 import cats.data.IndexedStateT
-import com.vanillasource.eliot.eliotc.source.Sourced
-import com.vanillasource.eliot.eliotc.token.Token
 import cats.syntax.all.*
 import com.vanillasource.collections.Tree
 import com.vanillasource.eliot.eliotc.ast.Expression.{FunctionApplication, IntegerLiteral}
+import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
-import com.vanillasource.parser.{InputStream, Parser, ParserResult}
 import com.vanillasource.parser.Parser.*
+import com.vanillasource.parser.{Parser, ParserResult}
 
 object TokenParser {
   lazy val astParser: Parser[Sourced[Token], AST] = {

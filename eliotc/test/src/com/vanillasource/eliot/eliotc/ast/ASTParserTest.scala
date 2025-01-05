@@ -114,6 +114,14 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("a: Byte = b(c, 1)").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "accept am empty data definition" in {
+    runEngineForErrors("data A").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "not accept data definition with lower case" in {
+    runEngineForErrors("data a").asserting(_ shouldBe Seq("Expected type name, but encountered identifier 'a'."))
+  }
+
   private def parseForImports(source: String): IO[Seq[String]] = for {
     results <- runEngine(source)
   } yield {
