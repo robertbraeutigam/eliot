@@ -96,7 +96,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           } else {
             compilerError(
               calculatedType.as(
-                s"Expression had type ${calculatedType.value}, but needed: ${argumentDefinition.typeDefinition.typeName.value}."
+                s"Expression has type ${calculatedType.value}, but needs: ${argumentDefinition.typeDefinition.typeName.value}."
               )
             )
           }

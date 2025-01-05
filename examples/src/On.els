@@ -1,11 +1,5 @@
 main: Byte = a
 
-a: Byte = b(d)
-
-b(x: Byte): Word = d
-
-d: Byte = 1
-
-c: Byte = 2
+a: Word = 3
 
 // Expected order main, a, b, c, d
