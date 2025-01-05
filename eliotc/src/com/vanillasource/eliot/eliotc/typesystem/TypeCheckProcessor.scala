@@ -6,7 +6,6 @@ import com.vanillasource.collections.Tree
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
 import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral}
-import com.vanillasource.eliot.eliotc.resolve.FunctionBody.NonNative
 import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, ResolvedFunction, TypeDefinition}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
@@ -17,7 +16,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
     case ResolvedFunction(
           ffqn,
-          functionDefinition @ FunctionDefinition(_, _, typeDefinition, NonNative(body))
+          functionDefinition @ FunctionDefinition(_, _, typeDefinition, body)
         ) =>
       process(ffqn, functionDefinition, typeDefinition, body).runCompilation_()
     case _ => IO.unit

@@ -7,7 +7,6 @@ import com.vanillasource.eliot.eliotc.token.Token
 import cats.syntax.all.*
 import com.vanillasource.collections.Tree
 import com.vanillasource.eliot.eliotc.ast.Expression.{FunctionApplication, IntegerLiteral}
-import com.vanillasource.eliot.eliotc.ast.FunctionBody.{Native, NonNative}
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
 import com.vanillasource.parser.{InputStream, Parser, ParserResult}
 import com.vanillasource.parser.Parser.*
@@ -36,24 +35,20 @@ object TokenParser {
     name           <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
     args           <- argumentListOf(argument())
     typeDefinition <- typeDefinition()
-    _              <- symbol("=")
-    functionBody   <- nativeFunctionBody() or nonNativeFunctionBody()
+    functionBody   <- functionBody()
   } yield FunctionDefinition(name, args, typeDefinition, functionBody)
 
   private def argument(): Parser[Sourced[Token], ArgumentDefinition] =
     for {
-      name <- acceptIf(isIdentifier, "argument name")
+      name           <- acceptIf(isIdentifier, "argument name")
       typeDefinition <- typeDefinition()
     } yield ArgumentDefinition(name, typeDefinition)
 
   private def typeDefinition(): Parser[Sourced[Token], TypeDefinition] =
     symbol(":") *> acceptIfAll(isIdentifier, isUpperCase)("type name").map(TypeDefinition(_))
 
-  private def nativeFunctionBody(): Parser[Sourced[Token], FunctionBody] =
-    keyword("native").map(keyword => Native(keyword))
-
-  private def nonNativeFunctionBody(): Parser[Sourced[Token], FunctionBody] =
-    expression.map(body => NonNative(body))
+  private def functionBody(): Parser[Sourced[Token], Tree[Expression]] =
+    (symbol("=") *> expression).optional().map(_.getOrElse(Tree.empty()))
 
   private lazy val expression: Parser[Sourced[Token], Tree[Expression]] =
     functionApplication or integerLiteral

@@ -13,35 +13,11 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 
 class FunctionResolver extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
-    case ModuleFunction(ffqn, dictionary, functionDefinition) => process(ffqn, dictionary, functionDefinition)
-    case _                                                    => IO.unit
+    case ModuleFunction(ffqn, dictionary, ast.FunctionDefinition(name, args, typeDefinition, body)) =>
+      process(ffqn, dictionary, name, args, typeDefinition, body)
+    case _                                                                                          => IO.unit
 
   private def process(
-      ffqn: FunctionFQN,
-      dictionary: Map[String, FunctionFQN],
-      definition: ast.FunctionDefinition
-  )(using process: CompilationProcess): IO[Unit] = definition match
-    case ast.FunctionDefinition(name, args, typeDefinition, ast.FunctionBody.Native(nativeKeyword)) =>
-      process.registerFact(
-        ResolvedFunction(
-          ffqn,
-          FunctionDefinition(
-            name.map(_.content),
-            args.map(argDef =>
-              ArgumentDefinition(
-                argDef.name.map(_.content),
-                TypeDefinition(argDef.typeDefinition.typeName.map(_.content))
-              )
-            ),
-            TypeDefinition(typeDefinition.typeName.map(_.content)),
-            FunctionBody.Native(nativeKeyword.void)
-          )
-        )
-      )
-    case ast.FunctionDefinition(name, args, typeDefinition, ast.FunctionBody.NonNative(body))       =>
-      resolveNonNativeFunction(ffqn, dictionary, name, args, typeDefinition, body)
-
-  private def resolveNonNativeFunction(
       ffqn: FunctionFQN,
       dictionary: Map[String, FunctionFQN],
       name: Sourced[Token],
@@ -65,7 +41,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
                                 )
                               ),
                               TypeDefinition(typeDefinition.typeName.map(_.content)),
-                              FunctionBody.NonNative(tree)
+                              tree
                             )
                           )
                         )
