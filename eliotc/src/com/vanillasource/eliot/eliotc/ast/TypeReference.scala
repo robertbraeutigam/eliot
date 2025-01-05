@@ -4,8 +4,8 @@ import cats.Show
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 
-case class TypeDefinition(typeName: Sourced[Token])
+case class TypeReference(typeName: Sourced[Token])
 
-object TypeDefinition {
-  given Show[TypeDefinition] = _.typeName.value.content
+object TypeReference {
+  given Show[TypeReference] = _.typeName.value.content
 }

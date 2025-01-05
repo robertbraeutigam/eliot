@@ -1,5 +1,3 @@
 main: Byte = a
 
-a: Word = 3
-
-// Expected order main, a, b, c, d
+a: Byte = 3

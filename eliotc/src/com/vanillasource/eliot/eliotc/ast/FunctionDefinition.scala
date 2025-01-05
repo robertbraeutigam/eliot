@@ -7,10 +7,10 @@ import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 
 case class FunctionDefinition(
-    name: Sourced[Token],
-    args: Seq[ArgumentDefinition],
-    typeDefinition: TypeDefinition,
-    body: Tree[Expression] // Can be empty for "abstract" definitions
+                               name: Sourced[Token],
+                               args: Seq[ArgumentDefinition],
+                               typeDefinition: TypeReference,
+                               body: Tree[Expression] // Can be empty for "abstract" definitions
 )
 
 object FunctionDefinition {

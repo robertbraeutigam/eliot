@@ -44,8 +44,8 @@ object TokenParser {
       typeDefinition <- typeDefinition()
     } yield ArgumentDefinition(name, typeDefinition)
 
-  private def typeDefinition(): Parser[Sourced[Token], TypeDefinition] =
-    symbol(":") *> acceptIfAll(isIdentifier, isUpperCase)("type name").map(TypeDefinition(_))
+  private def typeDefinition(): Parser[Sourced[Token], TypeReference] =
+    symbol(":") *> acceptIfAll(isIdentifier, isUpperCase)("type name").map(TypeReference(_))
 
   private def functionBody(): Parser[Sourced[Token], Tree[Expression]] =
     (symbol("=") *> expression).optional().map(_.getOrElse(Tree.empty()))

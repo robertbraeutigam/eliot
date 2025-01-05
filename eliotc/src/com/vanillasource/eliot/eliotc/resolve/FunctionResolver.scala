@@ -18,12 +18,12 @@ class FunctionResolver extends CompilerProcessor with Logging {
     case _                                                                                          => IO.unit
 
   private def process(
-      ffqn: FunctionFQN,
-      dictionary: Map[String, FunctionFQN],
-      name: Sourced[Token],
-      args: Seq[ast.ArgumentDefinition],
-      typeDefinition: ast.TypeDefinition,
-      body: Tree[ast.Expression]
+                       ffqn: FunctionFQN,
+                       dictionary: Map[String, FunctionFQN],
+                       name: Sourced[Token],
+                       args: Seq[ast.ArgumentDefinition],
+                       typeDefinition: ast.TypeReference,
+                       body: Tree[ast.Expression]
   )(using process: CompilationProcess): IO[Unit] = for {
     optionTree <- body.map(expr => resolveExpression(dictionary, expr)).sequence
     _          <- optionTree.sequence match
