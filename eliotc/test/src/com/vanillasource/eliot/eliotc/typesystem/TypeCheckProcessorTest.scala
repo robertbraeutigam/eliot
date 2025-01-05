@@ -44,6 +44,11 @@ class TypeCheckProcessorTest
       .asserting(_ shouldBe Seq("Expression type is Byte, but function declared to return Word."))
   }
 
+  it should "fail only once when a function is used wrong" in {
+    runEngineForErrors("a: Byte = 3\nb: Word = a")
+      .asserting(_ shouldBe Seq("Expression type is Byte, but function declared to return Word."))
+  }
+
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
     results <- runEngine(source)
   } yield {
