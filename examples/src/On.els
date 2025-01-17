@@ -1,3 +1,6 @@
 main: Byte = a
 
+data A
+data B
+
 a: Byte = 3

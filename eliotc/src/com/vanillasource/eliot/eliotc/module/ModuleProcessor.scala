@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.module
 import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.{AST, FunctionDefinition, ImportStatement, SourceAST}
+import com.vanillasource.eliot.eliotc.ast.{AST, FunctionDefinition, ImportStatement, SourceAST, TypeDefinition}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
@@ -25,9 +25,11 @@ class ModuleProcessor extends CompilerProcessor with Logging {
 
   private def processFunctions(moduleName: ModuleName, ast: AST)(using process: CompilationProcess): IO[Unit] = for {
     localFunctions    <- extractFunctions(ast.functionDefinitions)
-    _                 <- process.registerFact(ModuleFunctionsNames(moduleName, localFunctions.keySet))
+    localTypes        <- extractTypes(ast.typeDefinitions)
+    _                 <- process.registerFact(ModuleNames(moduleName, localFunctions.keySet, localTypes.keySet))
     importedFunctions <- extractImportedFunctions(localFunctions.keySet, ast.importStatements)
-    _                 <- debug(s"read function names for ${moduleName.show}: ${localFunctions.keySet
+    _                 <- debug(s"for ${moduleName.show} read function names: ${localFunctions.keySet
+                             .mkString(", ")}, type names: ${localTypes.keySet
                              .mkString(", ")}, imported functions: ${importedFunctions.keySet.mkString(", ")}")
     functionDictionary =
       importedFunctions ++ localFunctions.keySet.map(name => (name, FunctionFQN(moduleName, name))).toMap
@@ -51,7 +53,7 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       statement: ImportStatement
   )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] = {
     val extractedImport = for {
-      moduleFunctions <- process.getFact(ModuleFunctionsNames.Key(ModuleName.fromImportStatement(statement))).toOptionT
+      moduleFunctions <- process.getFact(ModuleNames.Key(ModuleName.fromImportStatement(statement))).toOptionT
       result          <-
         if (moduleFunctions.functionNames.intersect(localFunctionNames).nonEmpty) {
           registerCompilerError(
@@ -78,6 +80,22 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       registerCompilerError(statement.outline.as("Could not find imported module.")).as(importedFunctions)
     }
   }
+
+  private def extractTypes(definitions: Seq[TypeDefinition])(using
+      process: CompilationProcess
+  ): IO[Map[String, TypeDefinition]] =
+    definitions.foldM(Map.empty[String, TypeDefinition])((acc, d) => extractType(acc, d))
+
+  private def extractType(
+      previousTypes: Map[String, TypeDefinition],
+      current: TypeDefinition
+  )(using process: CompilationProcess): IO[Map[String, TypeDefinition]] = current.name.value.content match
+    case ty if previousTypes.contains(ty) =>
+      registerCompilerError(current.name.as("Type was already defined in this module.")).as(previousTypes)
+    case ty if !ty.charAt(0).isUpper      =>
+      registerCompilerError(current.name.as("Type name must start with upper case character."))
+        .as(previousTypes)
+    case ty                               => (previousTypes ++ Map((ty, current))).pure
 
   private def extractFunctions(
       functionDefinitions: Seq[FunctionDefinition]
