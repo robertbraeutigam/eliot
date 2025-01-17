@@ -6,7 +6,7 @@ import com.vanillasource.collections.Tree
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
 import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral}
-import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, ResolvedFunction, TypeDefinition}
+import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
@@ -22,10 +22,10 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
     case _ => IO.unit
 
   private def process(
-      ffqn: FunctionFQN,
-      functionDefinition: FunctionDefinition,
-      typeDefinition: TypeDefinition,
-      body: Tree[Expression]
+                       ffqn: FunctionFQN,
+                       functionDefinition: FunctionDefinition,
+                       typeDefinition: TypeReference,
+                       body: Tree[Expression]
   )(using process: CompilationProcess): CompilationIO[Unit] = for {
     treeWithTypes <- treeWithExpressionTypes(body).liftToCompilationIO
     _             <- checkReturnType(treeWithTypes, typeDefinition)
@@ -49,7 +49,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
 
   private def checkReturnType(
       expression: Tree[(Expression, Option[Sourced[String]])],
-      definition: TypeDefinition
+      definition: TypeReference
   )(using process: CompilationProcess): CompilationIO[Unit] =
     expression.head
       .flatMap(_._2)

@@ -37,10 +37,10 @@ class FunctionResolver extends CompilerProcessor with Logging {
                               args.map(argDef =>
                                 ArgumentDefinition(
                                   argDef.name.map(_.content),
-                                  TypeDefinition(argDef.typeDefinition.typeName.map(_.content))
+                                  TypeReference(argDef.typeDefinition.typeName.map(_.content))
                                 )
                               ),
-                              TypeDefinition(typeDefinition.typeName.map(_.content)),
+                              TypeReference(typeDefinition.typeName.map(_.content)),
                               tree
                             )
                           )
