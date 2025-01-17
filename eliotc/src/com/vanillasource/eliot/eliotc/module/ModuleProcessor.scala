@@ -28,9 +28,11 @@ class ModuleProcessor extends CompilerProcessor with Logging {
     localTypes        <- extractTypes(ast.typeDefinitions)
     _                 <- process.registerFact(ModuleNames(moduleName, localFunctions.keySet, localTypes.keySet))
     importedFunctions <- extractImportedFunctions(localFunctions.keySet, ast.importStatements)
+    importedTypes     <- extractImportedTypes(localTypes.keySet, ast.importStatements)
     _                 <- debug(s"for ${moduleName.show} read function names: ${localFunctions.keySet
                              .mkString(", ")}, type names: ${localTypes.keySet
-                             .mkString(", ")}, imported functions: ${importedFunctions.keySet.mkString(", ")}")
+                             .mkString(", ")}, imported functions: ${importedFunctions.keySet
+                             .mkString(", ")}, imported types: ${importedTypes.keySet.mkString(", ")}")
     functionDictionary =
       importedFunctions ++ localFunctions.keySet.map(name => (name, FunctionFQN(moduleName, name))).toMap
     _                 <- localFunctions
@@ -45,9 +47,9 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       localFunctionNames: Set[String],
       imports: Seq[ImportStatement]
   )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] =
-    imports.foldM(Map.empty[String, FunctionFQN])((acc, i) => extractImport(localFunctionNames, acc, i))
+    imports.foldM(Map.empty[String, FunctionFQN])((acc, i) => extractImportedFunctions(localFunctionNames, acc, i))
 
-  private def extractImport(
+  private def extractImportedFunctions(
       localFunctionNames: Set[String],
       importedFunctions: Map[String, FunctionFQN],
       statement: ImportStatement
@@ -112,6 +114,46 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       registerCompilerError(current.name.as("Function name must start with lower case character."))
         .as(previousFunctions)
     case fn                                   => (previousFunctions ++ Map((fn, current))).pure
+
+  private def extractImportedTypes(
+      localTypeNames: Set[String],
+      imports: Seq[ImportStatement]
+  )(using process: CompilationProcess): IO[Map[String, TypeFQN]] =
+    imports.foldM(Map.empty[String, TypeFQN])((acc, i) => extractImportedTypes(localTypeNames, acc, i))
+
+  private def extractImportedTypes(
+      localTypeNames: Set[String],
+      importedTypes: Map[String, TypeFQN],
+      statement: ImportStatement
+  )(using process: CompilationProcess): IO[Map[String, TypeFQN]] = {
+    val extractedImport = for {
+      moduleFunctions <- process.getFact(ModuleNames.Key(ModuleName.fromImportStatement(statement))).toOptionT
+      result          <-
+        if (moduleFunctions.typeNames.intersect(localTypeNames).nonEmpty) {
+          registerCompilerError(
+            statement.outline.as(
+              s"Imported types shadow local type: ${moduleFunctions.typeNames.intersect(localTypeNames).mkString(", ")}"
+            )
+          ).liftOptionTNone
+        } else if (moduleFunctions.typeNames.intersect(importedTypes.keySet).nonEmpty) {
+          registerCompilerError(
+            statement.outline.as(
+              s"Imported types shadow other imported types: ${moduleFunctions.typeNames.intersect(importedTypes.keySet).flatMap(importedTypes.get).mkString(", ")}"
+            )
+          ).liftOptionTNone
+        } else {
+          IO.pure(
+            importedTypes ++ moduleFunctions.typeNames
+              .map(name => (name, TypeFQN(moduleFunctions.moduleName, name)))
+              .toMap
+          ).liftOptionT
+        }
+    } yield result
+
+    extractedImport.getOrElseF {
+      registerCompilerError(statement.outline.as("Could not find imported module.")).as(importedTypes)
+    }
+  }
 
   private def determineModuleName(file: File)(using process: CompilationProcess): IO[Option[ModuleName]] = {
     // TODO: needs to parse packages to determine module path

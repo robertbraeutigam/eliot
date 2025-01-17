@@ -1,1 +1,3 @@
-id = a
+data C
+
+c: Byte = 3
