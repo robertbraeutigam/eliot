@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.typesystem
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.collections.Tree
-import com.vanillasource.eliot.eliotc.ast.TypeReference
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral}
