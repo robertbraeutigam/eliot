@@ -1,8 +1,6 @@
-import A
-
-main: Byte = a
+main: A = a
 
 data A
 data B
 
-a: Byte = 3
+a: A = 3

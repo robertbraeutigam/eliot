@@ -5,7 +5,8 @@ import com.vanillasource.eliot.eliotc.ast.FunctionDefinition
 
 case class ModuleFunction(
     ffqn: FunctionFQN,
-    dictionary: Map[String, FunctionFQN],
+    functionDictionary: Map[String, FunctionFQN],
+    typeDictionary: Map[String, TypeFQN],
     functionDefinition: FunctionDefinition
 ) extends CompilerFact {
   override def key(): CompilerFactKey = ModuleFunction.Key(ffqn)

@@ -35,9 +35,13 @@ class ModuleProcessor extends CompilerProcessor with Logging {
                              .mkString(", ")}, imported types: ${importedTypes.keySet.mkString(", ")}")
     functionDictionary =
       importedFunctions ++ localFunctions.keySet.map(name => (name, FunctionFQN(moduleName, name))).toMap
+    typeDictionary     =
+      importedTypes ++ localTypes.keySet.map(name => (name, TypeFQN(moduleName, name))).toMap
     _                 <- localFunctions
                            .map { (name, definition) =>
-                             process.registerFact(ModuleFunction(FunctionFQN(moduleName, name), functionDictionary, definition))
+                             process.registerFact(
+                               ModuleFunction(FunctionFQN(moduleName, name), functionDictionary, typeDictionary, definition)
+                             )
                            }
                            .toSeq
                            .sequence_

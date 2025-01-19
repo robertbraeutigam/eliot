@@ -5,7 +5,7 @@ import cats.syntax.all._
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 
-case class ArgumentDefinition(name: Sourced[Token], typeDefinition: TypeReference)
+case class ArgumentDefinition(name: Sourced[Token], typeReference: TypeReference)
 
 object ArgumentDefinition {
   given Show[ArgumentDefinition] = _.name.show
