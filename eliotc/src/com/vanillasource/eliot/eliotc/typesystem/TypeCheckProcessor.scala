@@ -9,7 +9,6 @@ import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, R
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
-import com.vanillasource.util.CatsOps.*
 
 class TypeCheckProcessor extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
@@ -26,68 +25,62 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       returnType: Sourced[TypeFQN],
       body: Expression
   )(using process: CompilationProcess): CompilationIO[Unit] = for {
-    treeWithTypes <- treeWithExpressionTypes(body).liftToCompilationIO
-    _             <- checkReturnType(treeWithTypes, returnType)
-    _             <- checkAllArgumentTypes(treeWithTypes)
-    _             <- process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftIfNoErrors
+    bodyType <- checkRecursiveArgumentTypes(body)
+    _        <- checkReturnType(bodyType, returnType)
+    _        <- process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftIfNoErrors
   } yield ()
 
-  private def treeWithExpressionTypes(body: Option[Expression])(using
-      process: CompilationProcess
-  ): IO[Tree[(Expression, Option[Sourced[TypeFQN]])]] =
-    body.map(e => typeOf(e).map((e, _))).sequence
-
-  /** Determine the type of the single expression atom.
-    */
-  private def typeOf(expression: Expression)(using
-      process: CompilationProcess
-  ): IO[Option[Sourced[TypeFQN]]] = expression match
-    case FunctionApplication(functionName) =>
-      process.getFact(ResolvedFunction.Key(functionName.value)).map(_.map(_.definition.returnType))
-    case IntegerLiteral(value)             =>
-      IO.pure(Some(value.as(TypeFQN(ModuleName(Seq("eliot"), "Number"), "Byte")))) // TODO: Hardcoded for now
-
   private def checkReturnType(
-      expression: Tree[(Expression, Option[Sourced[TypeFQN]])],
+      bodyType: Option[Sourced[TypeFQN]],
       returnType: Sourced[TypeFQN]
   )(using process: CompilationProcess): CompilationIO[Unit] =
-    expression.head
-      .flatMap(_._2)
-      .map { topType =>
+    bodyType match {
+      case Some(bodyType) =>
         compilerError(
           returnType.as(
-            s"Function body type is ${topType.value.show}, but function declared to return ${returnType.value.show}."
+            s"Function body type is ${bodyType.value.show}, but function declared to return ${returnType.value.show}."
           )
-        ).whenA(topType.value =!= returnType.value)
-      }
-      .getOrElse(().pure[CompilationIO])
+        ).whenA(bodyType.value =!= returnType.value)
+      case None           => ().pure[CompilationIO]
+    }
 
-  private def checkAllArgumentTypes(value: Tree[(Expression, Option[Sourced[TypeFQN]])])(using
-      process: CompilationProcess
-  ): CompilationIO[Unit] = value.foreachWithChildrenF {
-    case ((FunctionApplication(calledFfqn), _), arguments) =>
-      (for {
-        functionDefinition <- process.getFact(ResolvedFunction.Key(calledFfqn.value)).liftToCompilationIO.toOptionT
-        _                  <- checkSingleCallArgumentTypes(calledFfqn, functionDefinition, arguments.map(_.flatMap(_._2))).liftOptionT
-      } yield ()).value.void
-    case _                                                 => ().pure[CompilationIO]
-  }
+  private def checkRecursiveArgumentTypes(
+      expression: Expression
+  )(using process: CompilationProcess): CompilationIO[Option[Sourced[TypeFQN]]] =
+    expression match {
+      case FunctionApplication(calledFfqn, args) =>
+        for {
+          calledDefinitionMaybe <-
+            process.getFact(ResolvedFunction.Key(calledFfqn.value)).map(_.map(_.definition)).liftToCompilationIO
+          _                     <- calledDefinitionMaybe match {
+                                     case Some(calledDefinition) =>
+                                       for {
+                                         argTypes <- args.map(checkRecursiveArgumentTypes).sequence
+                                         _        <- checkSingleCallArgumentTypes(calledFfqn, calledDefinition, argTypes)
+                                       } yield ()
+                                     case _                      => None.pure[CompilationIO]
+                                   }
+        } yield calledDefinitionMaybe.map(_.returnType)
+      case IntegerLiteral(value)                 =>
+        IO.pure(Some(value.as(TypeFQN(ModuleName(Seq("eliot"), "Number"), "Byte"))))
+          .liftToCompilationIO // TODO: Hardcoded for now
+    }
 
   private def checkSingleCallArgumentTypes(
       sourcedFfqn: Sourced[FunctionFQN],
-      functionDefinition: ResolvedFunction,
+      functionDefinition: FunctionDefinition,
       calculatedArgumentTypes: Seq[Option[Sourced[TypeFQN]]]
   )(using process: CompilationProcess): CompilationIO[Unit] = {
-    if (calculatedArgumentTypes.length =!= functionDefinition.definition.arguments.length) {
+    if (calculatedArgumentTypes.length =!= functionDefinition.arguments.length) {
       compilerError(
         sourcedFfqn.as(
-          s"Function is called with ${calculatedArgumentTypes.length} parameters, but needs ${functionDefinition.definition.arguments.length}."
+          s"Function is called with ${calculatedArgumentTypes.length} parameters, but needs ${functionDefinition.arguments.length}."
         )
       )
     } else {
       // Check argument types one by one
       calculatedArgumentTypes
-        .zip(functionDefinition.definition.arguments)
+        .zip(functionDefinition.arguments)
         .collect { case (Some(calculatedType), argumentDefinition) =>
           compilerError(
             calculatedType.as(
