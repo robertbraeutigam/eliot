@@ -7,7 +7,6 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.Sourced
 import cats.syntax.all.*
-import com.vanillasource.collections.Tree
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleFunction, TypeFQN}
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.token.Token
@@ -31,9 +30,9 @@ class FunctionResolver extends CompilerProcessor with Logging {
       name: Sourced[Token],
       args: Seq[ast.ArgumentDefinition],
       typeReference: ast.TypeReference,
-      body: Tree[ast.Expression]
+      body: Option[ast.Expression]
   )(using process: CompilationProcess): OptionT[IO, Unit] = for {
-    tree          <- body.map(expr => resolveExpression(functionDictionary, expr)).sequence
+    resolvedBody  <- body.map(expr => resolveExpression(functionDictionary, expr)).sequence
     returnType    <- resolveType(typeReference, typeDictionary)
     argumentTypes <- args.map(_.typeReference).map(tr => resolveType(tr, typeDictionary)).sequence
     _             <-
@@ -47,7 +46,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
                 .zip(argumentTypes)
                 .map((argDef, argType) => ArgumentDefinition(argDef.name.map(_.content), argType)),
               returnType,
-              tree
+              resolvedBody
             )
           )
         )
@@ -64,9 +63,12 @@ class FunctionResolver extends CompilerProcessor with Logging {
       process: CompilationProcess
   ): OptionT[IO, Expression] =
     expr match
-      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token))                  =>
+      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), args)            =>
         dictionary.get(token.content) match
-          case Some(ffqn) => Expression.FunctionApplication(s.as(ffqn)).pure
+          case Some(ffqn) =>
+            for {
+              newArgs <- args.map(arg => resolveExpression(dictionary, arg)).sequence
+            } yield Expression.FunctionApplication(s.as(ffqn), newArgs)
           case None       => registerCompilerError(s.as(s"Function not defined.")).liftOptionTNone
       case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value))) =>
         Expression.IntegerLiteral(s.as(value)).pure

@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.ast
 import cats.Show
 import cats.data.IndexedStateT
 import cats.syntax.all.*
-import com.vanillasource.collections.Tree
 import com.vanillasource.eliot.eliotc.ast.Expression.{FunctionApplication, IntegerLiteral}
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
@@ -54,20 +53,20 @@ object TokenParser {
   private def typeReference(): Parser[Sourced[Token], TypeReference] =
     symbol(":") *> acceptIfAll(isIdentifier, isUpperCase)("type name").map(TypeReference(_))
 
-  private def functionBody(): Parser[Sourced[Token], Tree[Expression]] =
-    (symbol("=") *> expression).optional().map(_.getOrElse(Tree.empty()))
+  private def functionBody(): Parser[Sourced[Token], Option[Expression]] =
+    (symbol("=") *> expression).optional()
 
-  private lazy val expression: Parser[Sourced[Token], Tree[Expression]] =
+  private lazy val expression: Parser[Sourced[Token], Expression] =
     functionApplication or integerLiteral
 
-  private lazy val functionApplication: Parser[Sourced[Token], Tree[Expression]] = for {
+  private lazy val functionApplication: Parser[Sourced[Token], Expression] = for {
     name <- acceptIf(isIdentifier, "function name")
     args <- argumentListOf(expression)
-  } yield Tree(FunctionApplication(name), args)
+  } yield FunctionApplication(name, args)
 
-  private lazy val integerLiteral: Parser[Sourced[Token], Tree[Expression]] = for {
+  private lazy val integerLiteral: Parser[Sourced[Token], Expression] = for {
     lit <- acceptIf(isIntegerLiteral, "integer literal")
-  } yield Tree(IntegerLiteral(lit))
+  } yield IntegerLiteral(lit)
 
   private def argumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] =
     item

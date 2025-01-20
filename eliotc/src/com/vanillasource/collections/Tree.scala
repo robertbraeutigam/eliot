@@ -5,18 +5,14 @@ import cats.{Applicative, Eval, Functor, Monad, Monoid, Traverse}
 
 import scala.annotation.tailrec
 
-/** Immutable multi-node, sorting-preserving tree.
-  */
-sealed trait Tree[T]
+/*
+sealed trait Tree[T] {
+  def children(self: T): Seq[Tree[T]]
+
+  def transform[R](f: T => R): Tree[R]
+}
 
 object Tree {
-  case class Empty[T] private[Tree] ()                             extends Tree[T]
-  case class Node[T] private[Tree] (value: T, nodes: Seq[Tree[T]]) extends Tree[T]
-
-  def apply[T](value: T, nodes: Seq[Tree[T]] = Seq.empty[Tree[T]]): Tree[T] = Node(value, nodes)
-
-  def empty[T](): Tree[T] = Empty()
-
   @tailrec
   private def toSeqBreadthFirstInternal[B](fas: Seq[Tree[B]], acc: Seq[B]): Seq[B] = fas match
     case Seq()        => acc
@@ -60,13 +56,9 @@ object Tree {
       case Empty()            => Empty()
       case Node(value, nodes) => Node(f(value), nodes.map(map(_)(f)))
 
-  given Traverse[Tree] = new Traverse[Tree]:
-    override def traverse[G[_], A, B](fa: Tree[A])(f: A => G[B])(using gapp: Applicative[G]): G[Tree[B]] = fa match
-      case Empty()            => gapp.pure(Empty())
-      case Node(value, nodes) =>
-        val traversedNodes   = nodes.toList.traverse(traverse(_)(f))
-        val transformedValue = f(value)
-        gapp.map2(transformedValue, traversedNodes)(Node(_, _))
+  given Traverse[Tree] = new Traverse[Tree]() {
+    override def traverse[G[_], A, B](fa: Tree[A])(f: A => G[B])(using Applicative[G]): G[Tree[B]] =
+
 
     override def foldLeft[A, B](fa: Tree[A], b: B)(f: (B, A) => B): B = fa match
       case Empty()            => b
@@ -75,4 +67,7 @@ object Tree {
     override def foldRight[A, B](fa: Tree[A], lb: Eval[B])(f: (A, Eval[B]) => Eval[B]): Eval[B] = fa match
       case Empty()            => lb
       case Node(value, nodes) => nodes.foldRight(f(value, lb))((node, acc) => foldRight(node, acc)(f))
+  }
+
 }
+ */

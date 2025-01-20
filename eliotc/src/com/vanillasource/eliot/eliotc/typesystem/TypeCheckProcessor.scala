@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.typesystem
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.collections.Tree
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral}
@@ -16,7 +15,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
     case ResolvedFunction(
           ffqn,
-          functionDefinition @ FunctionDefinition(_, _, typeReference, body)
+          functionDefinition @ FunctionDefinition(_, _, typeReference, Some(body))
         ) =>
       process(ffqn, functionDefinition, typeReference, body).runCompilation_()
     case _ => IO.unit
@@ -25,7 +24,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       ffqn: FunctionFQN,
       functionDefinition: FunctionDefinition,
       returnType: Sourced[TypeFQN],
-      body: Tree[Expression]
+      body: Expression
   )(using process: CompilationProcess): CompilationIO[Unit] = for {
     treeWithTypes <- treeWithExpressionTypes(body).liftToCompilationIO
     _             <- checkReturnType(treeWithTypes, returnType)
@@ -33,7 +32,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
     _             <- process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftIfNoErrors
   } yield ()
 
-  private def treeWithExpressionTypes(body: Tree[Expression])(using
+  private def treeWithExpressionTypes(body: Option[Expression])(using
       process: CompilationProcess
   ): IO[Tree[(Expression, Option[Sourced[TypeFQN]])]] =
     body.map(e => typeOf(e).map((e, _))).sequence
