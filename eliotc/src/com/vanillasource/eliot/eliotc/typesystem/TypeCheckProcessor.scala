@@ -89,12 +89,12 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       calculatedArgumentTypes
         .zip(functionDefinition.definition.arguments)
         .collect { case (Some(calculatedType), argumentDefinition) =>
-          if (calculatedType.value === argumentDefinition.typeDefinition.value) {
+          if (calculatedType.value === argumentDefinition.typeReference.value) {
             ().pure[CompilationIO]
           } else {
             compilerError(
               calculatedType.as(
-                s"Expression has type ${calculatedType.value.show}, but needs: ${argumentDefinition.typeDefinition.value.show}."
+                s"Expression has type ${calculatedType.value.show}, but needs: ${argumentDefinition.typeReference.value.show}."
               )
             )
           }
