@@ -31,12 +31,12 @@ class TypeCheckProcessorTest
 
   "processor" should "produce type checked results if arities are ok" in {
     runForTypedFunctions("data A\na: A = b\nb: A")
-      .asserting(_.length shouldBe 2)
+      .asserting(_.length shouldBe 1)
   }
 
   it should "not produce type checked results if arities mismatch" in {
     runForTypedFunctions("data A\na: A = b(3)\nb: A")
-      .asserting(_.length shouldBe 1)
+      .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail only once when a function is used wrong" in {
