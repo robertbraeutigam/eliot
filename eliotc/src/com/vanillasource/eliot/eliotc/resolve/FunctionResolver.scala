@@ -32,7 +32,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
       typeReference: ast.TypeReference,
       body: Option[ast.Expression]
   )(using process: CompilationProcess): OptionT[IO, Unit] = for {
-    resolvedBody  <- body.map(expr => resolveExpression(functionDictionary, expr)).sequence
+    resolvedBody  <- body.map(expr => resolveExpression(functionDictionary, expr, args)).sequence
     returnType    <- resolveType(typeReference, typeDictionary)
     argumentTypes <- args.map(_.typeReference).map(tr => resolveType(tr, typeDictionary)).sequence
     _             <-
@@ -59,19 +59,27 @@ class FunctionResolver extends CompilerProcessor with Logging {
     case Some(typeFQN) => reference.typeName.as(typeFQN).pure
     case None          => registerCompilerError(reference.typeName.as("Type not defined.")).liftOptionTNone
 
-  private def resolveExpression(dictionary: Map[String, FunctionFQN], expr: ast.Expression)(using
+  private def resolveExpression(
+      dictionary: Map[String, FunctionFQN],
+      expr: ast.Expression,
+      callArgs: Seq[ast.ArgumentDefinition]
+  )(using
       process: CompilationProcess
   ): OptionT[IO, Expression] =
-    expr match
+    expr match {
+      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), _)
+          if callArgs.map(_.name.value.content).contains(token.content) =>
+        Expression.ParameterReference(s.as(token.content)).pure
       case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), args)            =>
         dictionary.get(token.content) match
           case Some(ffqn) =>
             for {
-              newArgs <- args.map(arg => resolveExpression(dictionary, arg)).sequence
+              newArgs <- args.map(arg => resolveExpression(dictionary, arg, callArgs)).sequence
             } yield Expression.FunctionApplication(s.as(ffqn), newArgs)
           case None       => registerCompilerError(s.as(s"Function not defined.")).liftOptionTNone
       case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value))) =>
         Expression.IntegerLiteral(s.as(value)).pure
       case ast.Expression.IntegerLiteral(s)                                              =>
         registerCompilerError(s.as(s"Internal compiler error, not parsed as an integer literal.")).liftOptionTNone
+    }
 }
