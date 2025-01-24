@@ -14,6 +14,6 @@ class ModuleProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), Module
   }
 
   it should "fail if parameter names are not unique" in {
-    runEngineForErrors("a(b: B, b: B): A").asserting(_ shouldBe Seq("Duplicate parameter names."))
+    runEngineForErrors("a(b: B, b: B): A").asserting(_ shouldBe Seq("Duplicate parameter name."))
   }
 }

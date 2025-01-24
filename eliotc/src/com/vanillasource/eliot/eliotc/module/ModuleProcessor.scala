@@ -5,6 +5,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.{AST, FunctionDefinition, ImportStatement, SourceAST, TypeDefinition}
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import com.vanillasource.util.CatsOps.*
@@ -118,7 +119,10 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       registerCompilerError(current.name.as("Function name must start with lower case character."))
         .as(previousFunctions)
     case _ if current.args.map(_.name.value.content).toSet.size != current.args.length =>
-      registerCompilerError(current.name.as("Duplicate parameter names."))
+      val duplicateName = current.args.groupBy(_.name.value.content).collectFirst {
+        case (_, list) if list.length > 1 => list.head
+      }
+      registerCompilerError(duplicateName.get.name.as("Duplicate parameter name."))
         .as(previousFunctions)
     case fn                                                                            => (previousFunctions ++ Map((fn, current))).pure
 

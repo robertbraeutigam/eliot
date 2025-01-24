@@ -2,5 +2,5 @@ main: A
 
 data A
 
-b(a: A): A = a
+b(b: A, a: A): A = a
 
