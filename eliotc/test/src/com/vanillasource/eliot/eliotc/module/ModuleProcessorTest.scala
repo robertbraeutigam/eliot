@@ -12,4 +12,8 @@ class ModuleProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), Module
   it should "detect duplicate functions" in {
     runEngineForErrors("a: A\na: A").asserting(_ shouldBe Seq("Function was already defined in this module."))
   }
+
+  it should "fail if parameter names are not unique" in {
+    runEngineForErrors("a(b: B, b: B): A").asserting(_ shouldBe Seq("Duplicate parameter names."))
+  }
 }

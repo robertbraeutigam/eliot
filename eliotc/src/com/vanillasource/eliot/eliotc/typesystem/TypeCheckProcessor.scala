@@ -4,8 +4,8 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral}
-import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, ResolvedFunction}
+import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral, ParameterReference}
+import com.vanillasource.eliot.eliotc.resolve.{ArgumentDefinition, Expression, FunctionDefinition, ResolvedFunction}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
@@ -14,18 +14,22 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
     case ResolvedFunction(
           ffqn,
-          functionDefinition @ FunctionDefinition(_, _, typeReference, Some(body))
+          functionDefinition @ FunctionDefinition(_, parameters, typeReference, Some(body))
         ) =>
-      process(ffqn, functionDefinition, typeReference, body).runCompilation_()
+      process(ffqn, parameters, functionDefinition, typeReference, body).runCompilation_()
     case _ => IO.unit
 
   private def process(
       ffqn: FunctionFQN,
+      parameters: Seq[ArgumentDefinition],
       functionDefinition: FunctionDefinition,
       returnType: Sourced[TypeFQN],
       body: Expression
   )(using process: CompilationProcess): CompilationIO[Unit] = for {
-    bodyType <- checkRecursiveArgumentTypes(body)
+    bodyType <- checkRecursiveArgumentTypes(
+                  body,
+                  parameters.groupBy(_.name.value).map(e => (e._1, e._2.head))
+                )
     _        <- checkReturnType(bodyType, returnType)
     _        <- process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftIfNoErrors
   } yield ()
@@ -45,9 +49,12 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
     }
 
   private def checkRecursiveArgumentTypes(
-      expression: Expression
+      expression: Expression,
+      parameters: Map[String, ArgumentDefinition]
   )(using process: CompilationProcess): CompilationIO[Option[Sourced[TypeFQN]]] =
     expression match {
+      case ParameterReference(parameterName)     =>
+        IO.pure(parameters.get(parameterName.value).map(_.typeReference)).liftToCompilationIO
       case FunctionApplication(calledFfqn, args) =>
         for {
           calledDefinitionMaybe <-
@@ -55,7 +62,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           _                     <- calledDefinitionMaybe match {
                                      case Some(calledDefinition) =>
                                        for {
-                                         argTypes <- args.map(checkRecursiveArgumentTypes).sequence
+                                         argTypes <- args.map(e => checkRecursiveArgumentTypes(e, parameters)).sequence
                                          _        <- checkSingleCallArgumentTypes(calledFfqn, calledDefinition, argTypes)
                                        } yield ()
                                      case _                      => None.pure[CompilationIO]

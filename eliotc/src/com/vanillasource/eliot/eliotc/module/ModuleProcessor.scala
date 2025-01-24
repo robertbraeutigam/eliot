@@ -112,12 +112,15 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       previousFunctions: Map[String, FunctionDefinition],
       current: FunctionDefinition
   )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] = current.name.value.content match
-    case fn if previousFunctions.contains(fn) =>
+    case fn if previousFunctions.contains(fn)                                          =>
       registerCompilerError(current.name.as("Function was already defined in this module.")).as(previousFunctions)
-    case fn if !fn.charAt(0).isLower          =>
+    case fn if !fn.charAt(0).isLower                                                   =>
       registerCompilerError(current.name.as("Function name must start with lower case character."))
         .as(previousFunctions)
-    case fn                                   => (previousFunctions ++ Map((fn, current))).pure
+    case _ if current.args.map(_.name.value.content).toSet.size != current.args.length =>
+      registerCompilerError(current.name.as("Duplicate parameter names."))
+        .as(previousFunctions)
+    case fn                                                                            => (previousFunctions ++ Map((fn, current))).pure
 
   private def extractImportedTypes(
       localTypeNames: Set[String],

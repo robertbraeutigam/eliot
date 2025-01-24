@@ -44,6 +44,16 @@ class TypeCheckProcessorTest
       .asserting(_ shouldBe Seq("Function body type is Test.A, but function declared to return Test.B."))
   }
 
+  it should "fail if parameter is of wrong type" in {
+    runEngineForErrors("data A\ndata B\na(b: B): A = b")
+      .asserting(_ shouldBe Seq("Function body type is Test.B, but function declared to return Test.A."))
+  }
+
+  it should "fail if parameter is used as a wrong parameter in another function" in {
+    runEngineForErrors("data A\ndata B\na(b: B): A\nb(x: A): A = a(x)")
+      .asserting(_ shouldBe Seq("Expression has type Test.A, but needs: Test.B."))
+  }
+
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
     results <- runEngine(source)
   } yield {
