@@ -1,6 +1,6 @@
-main: A = a
+main: A
 
 data A
-data B
 
-a: A = 3
+b(a: A): A = a
+
