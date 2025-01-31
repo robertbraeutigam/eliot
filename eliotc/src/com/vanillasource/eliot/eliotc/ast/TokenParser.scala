@@ -16,7 +16,7 @@ object TokenParser {
   lazy val astParser: Parser[Sourced[Token], AST] = {
     for {
       importStatements <-
-        importStatement
+        component[ImportStatement]
           .attemptPhraseTo(topLevel.void or endOfInput())
           .anyTimesWhile(topLevelKeyword("import").find())
           .map(_.flatten)
@@ -27,12 +27,6 @@ object TokenParser {
           .map(_.flatten)
     } yield AST(importStatements, definitions.flatMap(_.left.toSeq), definitions.flatMap(_.toSeq))
   }.fully()
-
-  private lazy val importStatement = for {
-    keyword      <- topLevelKeyword("import")
-    packageNames <- (packageNameOnSameLineAs(keyword) <* symbol(".")).anyTimes()
-    moduleName   <- moduleNameOnSameLineAs(keyword)
-  } yield ImportStatement(keyword, packageNames, moduleName)
 
   private lazy val functionDefinition = for {
     name          <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
@@ -68,14 +62,6 @@ object TokenParser {
       .between(symbol("("), symbol(")"))
       .optional()
       .map(_.getOrElse(Seq.empty))
-
-  private def moduleNameOnSameLineAs(keyword: Sourced[Token]) =
-    acceptIfAll(isIdentifier, isUpperCase, isOnSameLineAs(keyword))("module name")
-
-  private def packageNameOnSameLineAs(keyword: Sourced[Token]) =
-    acceptIfAll(isIdentifier, isLowerCase, isOnSameLineAs(keyword))("package name")
-
-  private def isOnSameLineAs(sample: Sourced[Token])(st: Sourced[Token]) = sample.range.to.line === st.range.from.line
 
   private def topLevel = acceptIf(isTopLevel, "top level definition")
 
