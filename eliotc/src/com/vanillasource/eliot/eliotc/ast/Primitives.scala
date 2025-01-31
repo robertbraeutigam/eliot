@@ -4,9 +4,17 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
-import com.vanillasource.parser.Parser.acceptIfAll
+import com.vanillasource.parser.Parser
+import com.vanillasource.parser.Parser.*
 
 object Primitives {
+  def argumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] =
+    item
+      .atLeastOnceSeparatedBy(symbol(","))
+      .between(symbol("("), symbol(")"))
+      .optional()
+      .map(_.getOrElse(Seq.empty))
+
   def symbol(s: String) = acceptIfAll(isSymbol, hasContent(s))(s"symbol '$s'")
 
   def topLevelKeyword(word: String) =

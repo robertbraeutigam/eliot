@@ -42,26 +42,7 @@ object TokenParser {
     } yield ArgumentDefinition(name, typeReference)
 
   private def functionBody(): Parser[Sourced[Token], Option[Expression]] =
-    (symbol("=") *> expression).optional()
-
-  private lazy val expression: Parser[Sourced[Token], Expression] =
-    functionApplication or integerLiteral
-
-  private lazy val functionApplication: Parser[Sourced[Token], Expression] = for {
-    name <- acceptIf(isIdentifier, "function name")
-    args <- argumentListOf(expression)
-  } yield FunctionApplication(name, args)
-
-  private lazy val integerLiteral: Parser[Sourced[Token], Expression] = for {
-    lit <- acceptIf(isIntegerLiteral, "integer literal")
-  } yield IntegerLiteral(lit)
-
-  private def argumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] =
-    item
-      .atLeastOnceSeparatedBy(symbol(","))
-      .between(symbol("("), symbol(")"))
-      .optional()
-      .map(_.getOrElse(Seq.empty))
+    (symbol("=") *> component[Expression]).optional()
 
   private def topLevel = acceptIf(isTopLevel, "top level definition")
 
