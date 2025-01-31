@@ -21,7 +21,7 @@ object TokenParser {
           .anyTimesWhile(topLevelKeyword("import").find())
           .map(_.flatten)
       definitions      <-
-        (functionDefinition xor typeDefinition)
+        (functionDefinition xor component[DataDefinition])
           .attemptPhraseTo(topLevel.void or endOfInput())
           .anyTimesWhile(any())
           .map(_.flatten)
@@ -33,11 +33,6 @@ object TokenParser {
     packageNames <- (packageNameOnSameLineAs(keyword) <* symbol(".")).anyTimes()
     moduleName   <- moduleNameOnSameLineAs(keyword)
   } yield ImportStatement(keyword, packageNames, moduleName)
-
-  private lazy val typeDefinition = for {
-    _    <- topLevelKeyword("data")
-    name <- acceptIfAll(isIdentifier, isUpperCase)("type name")
-  } yield DataDefinition(name)
 
   private lazy val functionDefinition = for {
     name          <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")

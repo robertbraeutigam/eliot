@@ -14,7 +14,7 @@ object TypeReference {
   given Show[TypeReference] = _.typeName.value.content
 
   given ASTComponent[TypeReference] = new ASTComponent[TypeReference] {
-    override def parser: Parser[Sourced[Token], TypeReference] =
+    override val parser: Parser[Sourced[Token], TypeReference] =
       symbol(":") *> acceptIfAll(isIdentifier, isUpperCase)("type name").map(TypeReference(_))
   }
 }
