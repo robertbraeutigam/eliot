@@ -3,9 +3,8 @@ package com.vanillasource.eliot.eliotc.ast
 import cats.Show
 import cats.data.IndexedStateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.Primitives.*
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
-import com.vanillasource.eliot.eliotc.ast.Expression.{FunctionApplication, IntegerLiteral}
+import com.vanillasource.eliot.eliotc.ast.Primitives.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
@@ -30,16 +29,10 @@ object TokenParser {
 
   private lazy val functionDefinition = for {
     name          <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
-    args          <- argumentListOf(argument())
+    args          <- argumentListOf(component[ArgumentDefinition])
     typeReference <- component[TypeReference]
     functionBody  <- functionBody()
   } yield FunctionDefinition(name, args, typeReference, functionBody)
-
-  private def argument(): Parser[Sourced[Token], ArgumentDefinition] =
-    for {
-      name          <- acceptIf(isIdentifier, "argument name")
-      typeReference <- component[TypeReference]
-    } yield ArgumentDefinition(name, typeReference)
 
   private def functionBody(): Parser[Sourced[Token], Option[Expression]] =
     (symbol("=") *> component[Expression]).optional()
