@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.ast
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.TokenParser.{astParser, given}
+import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
@@ -20,7 +20,7 @@ class ASTParser extends CompilerProcessor with Logging {
   }
 
   private def parseAST(file: File, tokens: Seq[Sourced[Token]])(using process: CompilationProcess): IO[Unit] = {
-    val astResult = astParser.parse(tokens)
+    val astResult = component[AST].fully().parse(tokens)
 
     for {
       _ <- astResult.allErrors.map {
