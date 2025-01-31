@@ -6,7 +6,7 @@ import cats.syntax.all.*
 case class AST(
     importStatements: Seq[ImportStatement],
     functionDefinitions: Seq[FunctionDefinition],
-    typeDefinitions: Seq[TypeDefinition]
+    typeDefinitions: Seq[DataDefinition]
 )
 
 object AST {

@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.module
 import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.{AST, FunctionDefinition, ImportStatement, SourceAST, TypeDefinition}
+import com.vanillasource.eliot.eliotc.ast.{AST, FunctionDefinition, ImportStatement, SourceAST, DataDefinition}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
@@ -88,15 +88,15 @@ class ModuleProcessor extends CompilerProcessor with Logging {
     }
   }
 
-  private def extractTypes(definitions: Seq[TypeDefinition])(using
-      process: CompilationProcess
-  ): IO[Map[String, TypeDefinition]] =
-    definitions.foldM(Map.empty[String, TypeDefinition])((acc, d) => extractType(acc, d))
+  private def extractTypes(definitions: Seq[DataDefinition])(using
+                                                             process: CompilationProcess
+  ): IO[Map[String, DataDefinition]] =
+    definitions.foldM(Map.empty[String, DataDefinition])((acc, d) => extractType(acc, d))
 
   private def extractType(
-      previousTypes: Map[String, TypeDefinition],
-      current: TypeDefinition
-  )(using process: CompilationProcess): IO[Map[String, TypeDefinition]] = current.name.value.content match
+                           previousTypes: Map[String, DataDefinition],
+                           current: DataDefinition
+  )(using process: CompilationProcess): IO[Map[String, DataDefinition]] = current.name.value.content match
     case ty if previousTypes.contains(ty) =>
       registerCompilerError(current.name.as("Type was already defined in this module.")).as(previousTypes)
     case ty if !ty.charAt(0).isUpper      =>

@@ -37,7 +37,7 @@ object TokenParser {
   private lazy val typeDefinition = for {
     _    <- topLevelKeyword("data")
     name <- acceptIfAll(isIdentifier, isUpperCase)("type name")
-  } yield TypeDefinition(name)
+  } yield DataDefinition(name)
 
   private lazy val functionDefinition = for {
     name          <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
