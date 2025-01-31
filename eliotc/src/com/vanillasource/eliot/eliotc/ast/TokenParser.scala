@@ -20,22 +20,12 @@ object TokenParser {
           .anyTimesWhile(topLevelKeyword("import").find())
           .map(_.flatten)
       definitions      <-
-        (functionDefinition xor component[DataDefinition])
+        (component[FunctionDefinition] xor component[DataDefinition])
           .attemptPhraseTo(topLevel.void or endOfInput())
           .anyTimesWhile(any())
           .map(_.flatten)
     } yield AST(importStatements, definitions.flatMap(_.left.toSeq), definitions.flatMap(_.toSeq))
   }.fully()
-
-  private lazy val functionDefinition = for {
-    name          <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
-    args          <- argumentListOf(component[ArgumentDefinition])
-    typeReference <- component[TypeReference]
-    functionBody  <- functionBody()
-  } yield FunctionDefinition(name, args, typeReference, functionBody)
-
-  private def functionBody(): Parser[Sourced[Token], Option[Expression]] =
-    (symbol("=") *> component[Expression]).optional()
 
   private def topLevel = acceptIf(isTopLevel, "top level definition")
 
