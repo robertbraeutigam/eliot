@@ -114,6 +114,14 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("a: Byte = b(c, 1)").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "accept one generic type parameter" in {
+    runEngineForErrors("a[A]: A").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept two generic type parameters, separated by comma" in {
+    runEngineForErrors("a[A, B]: A").asserting(_ shouldBe Seq.empty)
+  }
+
   it should "accept am empty data definition" in {
     runEngineForErrors("data A").asserting(_ shouldBe Seq.empty)
   }

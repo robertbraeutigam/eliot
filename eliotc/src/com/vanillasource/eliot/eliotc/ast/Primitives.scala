@@ -9,9 +9,16 @@ import com.vanillasource.parser.Parser.*
 
 object Primitives {
   def argumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] =
+    bracketedCommaSeparatedItems("(", item, ")")
+
+  def bracketedCommaSeparatedItems[A](
+      bracketStartSymbol: String,
+      item: Parser[Sourced[Token], A],
+      bracketEndSymbol: String
+  ): Parser[Sourced[Token], Seq[A]] =
     item
       .atLeastOnceSeparatedBy(symbol(","))
-      .between(symbol("("), symbol(")"))
+      .between(symbol(bracketStartSymbol), symbol(bracketEndSymbol))
       .optional()
       .map(_.getOrElse(Seq.empty))
 

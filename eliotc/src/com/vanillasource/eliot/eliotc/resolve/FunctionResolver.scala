@@ -18,9 +18,9 @@ class FunctionResolver extends CompilerProcessor with Logging {
           ffqn,
           functionDictionary,
           typeDictionary,
-          ast.FunctionDefinition(name, args, typeDefinition, body)
+          ast.FunctionDefinition(name, genericParameters, args, typeDefinition, body)
         ) =>
-      process(ffqn, functionDictionary, typeDictionary, name, args, typeDefinition, body).value.void
+      process(ffqn, functionDictionary, typeDictionary, name, genericParameters, args, typeDefinition, body).value.void
     case _ => IO.unit
 
   private def process(
@@ -28,6 +28,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
       functionDictionary: Map[String, FunctionFQN],
       typeDictionary: Map[String, TypeFQN],
       name: Sourced[Token],
+      genericParameters: Seq[Sourced[Token]],
       args: Seq[ast.ArgumentDefinition],
       typeReference: ast.TypeReference,
       body: Option[ast.Expression]
