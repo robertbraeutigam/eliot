@@ -14,13 +14,14 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
     case ResolvedFunction(
           ffqn,
-          functionDefinition @ FunctionDefinition(_, parameters, typeReference, Some(body))
+          functionDefinition @ FunctionDefinition(_, genericParameters, parameters, typeReference, Some(body))
         ) =>
-      process(ffqn, parameters, functionDefinition, typeReference, body).runCompilation_()
+      process(ffqn, genericParameters, parameters, functionDefinition, typeReference, body).runCompilation_()
     case _ => IO.unit
 
   private def process(
       ffqn: FunctionFQN,
+      genericParameters: Seq[Sourced[String]],
       parameters: Seq[ArgumentDefinition],
       functionDefinition: FunctionDefinition,
       returnType: Sourced[TypeFQN],

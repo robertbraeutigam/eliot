@@ -43,6 +43,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
             ffqn,
             FunctionDefinition(
               name.map(_.content),
+              genericParameters.map(_.map(_.content)),
               args
                 .zip(argumentTypes)
                 .map((argDef, argType) => ArgumentDefinition(argDef.name.map(_.content), argType)),
