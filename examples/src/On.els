@@ -4,3 +4,4 @@ data A
 
 b(b: A, a: A): A = a
 
+f[T]: T

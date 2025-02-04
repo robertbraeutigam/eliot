@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.Sourced
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleFunction, TypeFQN}
+import com.vanillasource.eliot.eliotc.resolve.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
@@ -20,7 +21,16 @@ class FunctionResolver extends CompilerProcessor with Logging {
           typeDictionary,
           ast.FunctionDefinition(name, genericParameters, args, typeDefinition, body)
         ) =>
-      process(ffqn, functionDictionary, typeDictionary, name, genericParameters, args, typeDefinition, body).value.void
+      process(
+        ffqn,
+        functionDictionary,
+        typeDictionary,
+        name,
+        genericParameters.groupMapReduce(_.value.content)(_.map(_.content))((left, _) => left),
+        args,
+        typeDefinition,
+        body
+      ).value.void
     case _ => IO.unit
 
   private def process(
@@ -28,14 +38,14 @@ class FunctionResolver extends CompilerProcessor with Logging {
       functionDictionary: Map[String, FunctionFQN],
       typeDictionary: Map[String, TypeFQN],
       name: Sourced[Token],
-      genericParameters: Seq[Sourced[Token]],
+      genericParameters: Map[String, Sourced[String]],
       args: Seq[ast.ArgumentDefinition],
       typeReference: ast.TypeReference,
       body: Option[ast.Expression]
   )(using process: CompilationProcess): OptionT[IO, Unit] = for {
     resolvedBody  <- body.map(expr => resolveExpression(functionDictionary, expr, args)).sequence
-    returnType    <- resolveType(typeReference, typeDictionary)
-    argumentTypes <- args.map(_.typeReference).map(tr => resolveType(tr, typeDictionary)).sequence
+    returnType    <- resolveType(typeReference, genericParameters, typeDictionary)
+    argumentTypes <- args.map(_.typeReference).map(tr => resolveType(tr, genericParameters, typeDictionary)).sequence
     _             <-
       process
         .registerFact(
@@ -43,7 +53,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
             ffqn,
             FunctionDefinition(
               name.map(_.content),
-              genericParameters.map(_.map(_.content)),
+              genericParameters.values.toSeq,
               args
                 .zip(argumentTypes)
                 .map((argDef, argType) => ArgumentDefinition(argDef.name.map(_.content), argType)),
@@ -55,11 +65,19 @@ class FunctionResolver extends CompilerProcessor with Logging {
         .liftOptionT
   } yield ()
 
-  private def resolveType(reference: ast.TypeReference, typeDictionary: Map[String, TypeFQN])(using
+  private def resolveType(
+      reference: ast.TypeReference,
+      genericParameters: Map[String, Sourced[String]],
+      typeDictionary: Map[String, TypeFQN]
+  )(using
       process: CompilationProcess
-  ): OptionT[IO, Sourced[TypeFQN]] = typeDictionary.get(reference.typeName.value.content) match
-    case Some(typeFQN) => reference.typeName.as(typeFQN).pure
-    case None          => registerCompilerError(reference.typeName.as("Type not defined.")).liftOptionTNone
+  ): OptionT[IO, TypeReference] =
+    genericParameters.get(reference.typeName.value.content) match
+      case Some(genericParameter) => GenericTypeReference(genericParameter).pure
+      case None                   =>
+        typeDictionary.get(reference.typeName.value.content) match
+          case Some(typeFQN) => DirectTypeReference(reference.typeName.as(typeFQN)).pure
+          case None          => registerCompilerError(reference.typeName.as("Type not defined.")).liftOptionTNone
 
   private def resolveExpression(
       dictionary: Map[String, FunctionFQN],

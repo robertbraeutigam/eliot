@@ -31,6 +31,10 @@ class FunctionResolverTest extends ProcessorTest(Tokenizer(), ASTParser(), Modul
     }
   }
 
+  it should "resolve generic types" in {
+    runEngineForErrors("f[A]: A").asserting(_ shouldBe Seq())
+  }
+
   private def parseForExpressions(source: String): IO[Seq[Expression]] = for {
     results <- runEngine(source)
   } yield {
