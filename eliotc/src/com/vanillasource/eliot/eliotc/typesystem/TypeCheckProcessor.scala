@@ -34,13 +34,12 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       returnType: TypeReference,
       body: Expression
   )(using process: CompilationProcess): CompilationIO[Unit] = for {
-    inference <- TypeInferenceEngine().inferTypeFor(returnType)
-    _         <- checkTypes(
-                   inference,
-                   body,
-                   parameters.groupMapReduce(_.name.value)(_.typeReference)((left, _) => left)
-                 )
-    _         <- process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftIfNoErrors
+    _ <- checkTypes(
+           TypeInference.forReturnType(returnType),
+           body,
+           parameters.groupMapReduce(_.name.value)(_.typeReference)((left, _) => left)
+         )
+    _ <- process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftIfNoErrors
   } yield ()
 
   private def checkTypes(
