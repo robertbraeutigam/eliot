@@ -6,16 +6,17 @@ import com.vanillasource.eliot.eliotc.resolve.TypeReference
 import com.vanillasource.eliot.eliotc.source.CompilationIO.CompilationIO
 
 class TypeInference private (
-    mainTypeReference: TypeReference,
+    unifiedTypeReference: Ref[CompilationIO, TypeReference],
     scope: Ref[CompilationIO, Map[String, TypeInference]],
     equalTo: Ref[CompilationIO, Seq[TypeInference]]
 ) {
   def receivesFrom(typeReference: TypeReference): CompilationIO[TypeInference] = for {
-    emptyScope  <- Ref.of[CompilationIO, Map[String, TypeInference]](Map.empty)
-    newEqualTo  <- Ref.of[CompilationIO, Seq[TypeInference]](Seq(this))
-    newInference = TypeInference(typeReference, emptyScope, newEqualTo)
-    // TODO: unifications here
-    _           <- equalTo.update(newInference +: _)
+    newTypeReference <- Ref[CompilationIO].of(typeReference)
+    emptyScope       <- Ref.of[CompilationIO, Map[String, TypeInference]](Map.empty)
+    newEqualTo       <- Ref.of[CompilationIO, Seq[TypeInference]](Seq(this))
+    newInference      = TypeInference(newTypeReference, emptyScope, newEqualTo)
+    _                <- equalTo.update(newInference +: _)
+    _                <- unifyWith(typeReference)
   } yield newInference
 
   def inferTypeFor(typeReference: TypeReference): CompilationIO[TypeInference] = typeReference match
@@ -28,14 +29,17 @@ class TypeInference private (
       } yield inference
 
   private def newSameScopeInference(typeReference: TypeReference) = for {
-    emptyEqualTo <- Ref.of[CompilationIO, Seq[TypeInference]](Seq.empty)
-  } yield TypeInference(typeReference, scope, emptyEqualTo)
+    newTypeReference <- Ref[CompilationIO].of(typeReference)
+    emptyEqualTo     <- Ref.of[CompilationIO, Seq[TypeInference]](Seq.empty)
+  } yield TypeInference(newTypeReference, scope, emptyEqualTo)
 
+  private def unifyWith(incoming: TypeReference): CompilationIO[Unit] = ???
 }
 
 object TypeInference {
   def forType(typeReference: TypeReference): CompilationIO[TypeInference] = for {
-    emptyScope   <- Ref.of[CompilationIO, Map[String, TypeInference]](Map.empty)
-    emptyEqualTo <- Ref.of[CompilationIO, Seq[TypeInference]](Seq.empty)
-  } yield TypeInference(typeReference, emptyScope, emptyEqualTo)
+    newTypeReference <- Ref[CompilationIO].of(typeReference)
+    emptyScope       <- Ref.of[CompilationIO, Map[String, TypeInference]](Map.empty)
+    emptyEqualTo     <- Ref.of[CompilationIO, Seq[TypeInference]](Seq.empty)
+  } yield TypeInference(newTypeReference, emptyScope, emptyEqualTo)
 }
