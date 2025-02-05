@@ -16,10 +16,10 @@ class TypeInference private (
     case TypeReference.DirectTypeReference(_)     => newSameScopeInference(typeReference)
     case TypeReference.GenericTypeReference(name) =>
       for {
-        scopeMap     <- scope.get
-        newInference <-
-          scopeMap.get(name.value).map(_.pure[CompilationIO]).getOrElse(newSameScopeInference(typeReference))
-      } yield newInference
+        scopeMap  <- scope.get
+        inference <- scopeMap.get(name.value).map(_.pure[CompilationIO]).getOrElse(newSameScopeInference(typeReference))
+        _         <- scope.set(scopeMap ++ Seq((name.value, inference)))
+      } yield inference
 
   private def newSameScopeInference(typeReference: TypeReference) = for {
     emptyEqualTo <- Ref.of[CompilationIO, Seq[TypeInference]](Seq.empty)
