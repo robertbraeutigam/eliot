@@ -62,7 +62,13 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           _                     <- calledDefinitionMaybe match {
                                      case None             => ().pure[CompilationIO]
                                      case Some(definition) =>
-                                       checkFunctionApplicationTypes(functionName, currentTypeInference, definition, arguments)
+                                       checkFunctionApplicationTypes(
+                                         functionName,
+                                         currentTypeInference,
+                                         definition,
+                                         arguments,
+                                         parameterTypes
+                                       )
                                    }
         } yield ()
 
@@ -70,17 +76,27 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       functionName: Sourced[FunctionFQN],
       currentTypeInference: TypeInference,
       functionDefinition: FunctionDefinition,
-      arguments: Seq[Expression]
+      arguments: Seq[Expression],
+      parameterTypes: Map[String, TypeReference]
   )(using process: CompilationProcess): CompilationIO[Unit] = for {
-    _ <- currentTypeInference.receivesFrom(functionDefinition.returnType)
-    _ <- if (arguments.length =!= functionDefinition.arguments.length) {
-           compilerError(
-             functionName.as(
-               s"Function is called with ${arguments.length} parameters, but needs ${functionDefinition.arguments.length}."
-             )
-           )
-         } else {
-           ???
-         }
+    _              <- currentTypeInference.receivesFrom(functionDefinition.returnType)
+    inferenceScope <- currentTypeInference.newScope()
+    _              <- if (arguments.length =!= functionDefinition.arguments.length) {
+                        compilerError(
+                          functionName.as(
+                            s"Function is called with ${arguments.length} parameters, but needs ${functionDefinition.arguments.length}."
+                          )
+                        )
+                      } else {
+                        functionDefinition.arguments
+                          .zip(arguments)
+                          .map { (argumentDefinition, expression) =>
+                            for {
+                              currentInference <- inferenceScope.inferTypeFor(argumentDefinition.typeReference)
+                              _                <- checkTypes(currentInference, expression, parameterTypes)
+                            } yield ()
+                          }
+                          .sequence_
+                      }
   } yield ()
 }
