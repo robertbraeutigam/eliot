@@ -34,7 +34,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       returnType: TypeReference,
       body: Expression
   )(using process: CompilationProcess): CompilationIO[Unit] = for {
-    inference <- TypeInference.forReturnType(returnType)
+    inference <- TypeInference.forType(returnType)
     _         <- checkTypes(
                    inference,
                    body,
