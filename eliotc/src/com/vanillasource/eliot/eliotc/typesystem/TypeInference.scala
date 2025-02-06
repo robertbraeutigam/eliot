@@ -3,22 +3,29 @@ package com.vanillasource.eliot.eliotc.typesystem
 import cats.syntax.all.*
 import cats.effect.Ref
 import com.vanillasource.eliot.eliotc.CompilationProcess
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.resolve.TypeReference
 import com.vanillasource.eliot.eliotc.resolve.TypeReference.{DirectTypeReference, GenericTypeReference}
-import com.vanillasource.eliot.eliotc.source.CompilationIO.{CompilationIO, compilerError}
+import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 
 class TypeInference private (
     unifiedTypeReference: Ref[CompilationIO, TypeReference],
     scope: Ref[CompilationIO, Map[String, TypeInference]],
     equalTo: Ref[CompilationIO, Seq[TypeInference]]
-)(using CompilationProcess) {
+)(using CompilationProcess)
+    extends Logging {
   def receivesFrom(typeReference: TypeReference): CompilationIO[TypeInference] = for {
     newTypeReference <- Ref[CompilationIO].of(typeReference)
     emptyScope       <- Ref.of[CompilationIO, Map[String, TypeInference]](Map.empty)
     newEqualTo       <- Ref.of[CompilationIO, Seq[TypeInference]](Seq(this))
     newInference      = TypeInference(newTypeReference, emptyScope, newEqualTo)
+    _                <- typeReference match
+                          case DirectTypeReference(_)     => ().pure[CompilationIO]
+                          case GenericTypeReference(name) => emptyScope.update(_ ++ Seq((name.value, newInference)))
     _                <- equalTo.update(newInference +: _)
     _                <- unifyWith(typeReference)
+    // unifiedType      <- unifiedTypeReference.get
+    // _                <- newInference.unifyWith(unifiedType) // Send back message too
   } yield newInference
 
   def inferTypeFor(typeReference: TypeReference): CompilationIO[TypeInference] = typeReference match
@@ -26,6 +33,7 @@ class TypeInference private (
     case GenericTypeReference(name) =>
       for {
         scopeMap  <- scope.get
+        _         <- debug(s"Lookup in scope: ${scopeMap.keySet.mkString(", ")}").liftToCompilationIO
         inference <- scopeMap.get(name.value).map(_.pure[CompilationIO]).getOrElse(newSameScopeInference(typeReference))
         _         <- scope.set(scopeMap ++ Seq((name.value, inference)))
       } yield inference
@@ -38,6 +46,7 @@ class TypeInference private (
   private def unifyWith(incoming: TypeReference): CompilationIO[Unit] = for {
     unifiedType    <- unifiedTypeReference.get
     newUnifiedType <- unifyLocalWith(unifiedType, incoming)
+    _              <- debug(s"Unifying ${unifiedType.show} <- ${incoming.show} = ${newUnifiedType.show}").liftToCompilationIO
     _              <- unifiedTypeReference.set(newUnifiedType)
     unifiedNodes   <- equalTo.get
     _              <- unifiedNodes.map(_.unifyWith(newUnifiedType)).sequence_.whenA(newUnifiedType != unifiedType)

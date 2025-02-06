@@ -1,14 +1,20 @@
 package com.vanillasource.eliot.eliotc.resolve
 
+import cats.Show
 import com.vanillasource.eliot.eliotc.module.TypeFQN
 import com.vanillasource.eliot.eliotc.source.Sourced
-import cats.syntax.all._
+import cats.syntax.all.*
 
 sealed trait TypeReference
 
 object TypeReference {
   case class DirectTypeReference(dataType: Sourced[TypeFQN]) extends TypeReference
   case class GenericTypeReference(name: Sourced[String])     extends TypeReference
+
+  given Show[TypeReference] = {
+    case DirectTypeReference(dataType) => dataType.value.show
+    case GenericTypeReference(name)    => name.value
+  }
 
   extension (typeReference: TypeReference) {
     def sourcedAt(source: Sourced[_]): TypeReference = typeReference match
