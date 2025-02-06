@@ -14,5 +14,14 @@ object TypeReference {
     def sourcedAt(source: Sourced[_]): TypeReference = typeReference match
       case DirectTypeReference(dataType) => DirectTypeReference(source.as(dataType.value))
       case GenericTypeReference(name)    => GenericTypeReference(source.as(name.value))
+
+    def sourcedAt(source: TypeReference): TypeReference = typeReference match
+      case DirectTypeReference(dataType) => DirectTypeReference(source.source.as(dataType.value))
+      case GenericTypeReference(name)    => GenericTypeReference(source.source.as(name.value))
+
+    private def source = typeReference match
+      case DirectTypeReference(dataType) => dataType
+      case GenericTypeReference(name)    => name
+
   }
 }

@@ -54,6 +54,26 @@ class TypeCheckProcessorTest
       .asserting(_ shouldBe Seq("Expression with type Test.A can not be assigned to type Test.B."))
   }
 
+  "generic types" should "type check when returning itself from a parameter" in {
+    runEngineForErrors("a[A](a: A): A = a")
+      .asserting(_ shouldBe Seq())
+  }
+
+  it should "type check when returning different, but non-constrained generic" in {
+    runEngineForErrors("a[A, B](a: A, b: B): A = b")
+      .asserting(_ shouldBe Seq("No"))
+  }
+
+  it should "forward unification to concrete types" in {
+    runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nb(i: Int, s: String): String = id(s)")
+      .asserting(_ shouldBe Seq())
+  }
+
+  it should "fail if forward unification to concrete types produces conflict" in {
+    runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nb(i: Int, s: String): String = id(i)")
+      .asserting(_ shouldBe Seq("No"))
+  }
+
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
     results <- runEngine(source)
   } yield {

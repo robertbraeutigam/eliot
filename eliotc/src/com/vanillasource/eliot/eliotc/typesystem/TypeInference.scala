@@ -45,7 +45,7 @@ class TypeInference private (
 
   private def unifyLocalWith(current: TypeReference, incoming: TypeReference): CompilationIO[TypeReference] =
     current match
-      case DirectTypeReference(currentType)  =>
+      case DirectTypeReference(currentType) =>
         incoming match
           case DirectTypeReference(incomingType) if currentType.value === incomingType.value =>
             current.pure[CompilationIO] // Same type, so return current one
@@ -58,8 +58,11 @@ class TypeInference private (
               .as(current)
           case GenericTypeReference(_)                                                       =>
             current.pure[CompilationIO] // Incoming more generic, so return current one
-      case GenericTypeReference(genericName) => ???
-
+      case GenericTypeReference(_)          =>
+        incoming match
+          case DirectTypeReference(_)  =>
+            incoming.sourcedAt(current).pure[CompilationIO] // Switch to more concrete type
+          case GenericTypeReference(_) => current.pure[CompilationIO] // Nothing's changed, no constraints
 }
 
 object TypeInference {
