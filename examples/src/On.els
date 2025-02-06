@@ -4,6 +4,8 @@ data A
 
 data B
 
-b(b: B, a: A): A = b
+c: B
+
+b(b: B, a: A): A = c
 
 f[T]: T

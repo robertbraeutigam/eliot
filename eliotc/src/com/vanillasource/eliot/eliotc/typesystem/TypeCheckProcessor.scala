@@ -79,7 +79,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       arguments: Seq[Expression],
       parameterTypes: Map[String, TypeReference]
   )(using process: CompilationProcess): CompilationIO[Unit] = for {
-    currentTypeInference <- previousTypeInference.receivesFrom(functionDefinition.returnType)
+    currentTypeInference <- previousTypeInference.receivesFrom(functionDefinition.returnType.sourcedAt(functionName))
     _                    <- if (arguments.length =!= functionDefinition.arguments.length) {
                               compilerError(
                                 functionName.as(
