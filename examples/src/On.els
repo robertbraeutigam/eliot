@@ -2,6 +2,8 @@ main: A
 
 data A
 
-b(b: A, a: A): A = a
+data B
+
+b(b: B, a: A): A = b
 
 f[T]: T

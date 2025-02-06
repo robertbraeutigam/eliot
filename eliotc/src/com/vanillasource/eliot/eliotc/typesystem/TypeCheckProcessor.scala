@@ -50,7 +50,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   )(using process: CompilationProcess): CompilationIO[Unit] =
     expression match
       case ParameterReference(parameterName)            =>
-        currentTypeInference.receivesFrom(parameterTypes(parameterName.value)).void
+        currentTypeInference.receivesFrom(parameterTypes(parameterName.value).sourcedAt(parameterName)).void
       case IntegerLiteral(integerLiteral)               =>
         currentTypeInference
           .receivesFrom(DirectTypeReference(integerLiteral.as(TypeFQN(ModuleName(Seq("eliot"), "Number"), "Byte"))))
