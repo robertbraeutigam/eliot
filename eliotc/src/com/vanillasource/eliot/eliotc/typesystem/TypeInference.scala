@@ -24,8 +24,6 @@ class TypeInference private (
                           case GenericTypeReference(name) => emptyScope.update(_ ++ Seq((name.value, newInference)))
     _                <- equalTo.update(newInference +: _)
     _                <- unifyWith(typeReference)
-    // unifiedType      <- unifiedTypeReference.get
-    // _                <- newInference.unifyWith(unifiedType) // Send back message too
   } yield newInference
 
   def inferTypeFor(typeReference: TypeReference): CompilationIO[TypeInference] = typeReference match
@@ -33,7 +31,6 @@ class TypeInference private (
     case GenericTypeReference(name) =>
       for {
         scopeMap  <- scope.get
-        _         <- debug(s"Lookup in scope: ${scopeMap.keySet.mkString(", ")}").liftToCompilationIO
         inference <- scopeMap.get(name.value).map(_.pure[CompilationIO]).getOrElse(newSameScopeInference(typeReference))
         _         <- scope.set(scopeMap ++ Seq((name.value, inference)))
       } yield inference
@@ -46,7 +43,7 @@ class TypeInference private (
   private def unifyWith(incoming: TypeReference): CompilationIO[Unit] = for {
     unifiedType    <- unifiedTypeReference.get
     newUnifiedType <- unifyLocalWith(unifiedType, incoming)
-    _              <- debug(s"Unifying ${unifiedType.show} <- ${incoming.show} = ${newUnifiedType.show}").liftToCompilationIO
+    _              <- debug(s"unifying ${unifiedType.show} <- ${incoming.show} = ${newUnifiedType.show}").liftToCompilationIO
     _              <- unifiedTypeReference.set(newUnifiedType)
     unifiedNodes   <- equalTo.get
     _              <- unifiedNodes.map(_.unifyWith(newUnifiedType)).sequence_.whenA(newUnifiedType != unifiedType)

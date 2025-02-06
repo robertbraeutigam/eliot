@@ -71,7 +71,7 @@ class TypeCheckProcessorTest
 
   it should "fail if forward unification to concrete types produces conflict" in {
     runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nb(i: Int, s: String): String = id(i)")
-      .asserting(_ shouldBe Seq("No"))
+      .asserting(_ shouldBe Seq("Expression with type Test.Int can not be assigned to type Test.String."))
   }
 
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
