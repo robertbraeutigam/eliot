@@ -69,8 +69,32 @@ class TypeCheckProcessorTest
       .asserting(_ shouldBe Seq())
   }
 
+  it should "forward unification to concrete types in recursive setup" in {
+    runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nb(i: Int, s: String): String = id(id(id(s)))")
+      .asserting(_ shouldBe Seq())
+  }
+
   it should "fail if forward unification to concrete types produces conflict" in {
     runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nb(i: Int, s: String): String = id(i)")
+      .asserting(_ shouldBe Seq("Expression with type Test.Int can not be assigned to type Test.String."))
+  }
+
+  it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
+    runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nb(i: Int, s: String): String = id(id(id(i)))")
+      .asserting(_ shouldBe Seq("Expression with type Test.Int can not be assigned to type Test.String."))
+  }
+
+  it should "unify on multiple parameters" in {
+    runEngineForErrors(
+      "f[A](a: A, b: A, c: A): A = a\nsomeA[A]: A\ndata String\ndata Int\nb(i: Int, s: String): String = f(someA, someA, s)"
+    )
+      .asserting(_ shouldBe Seq())
+  }
+
+  it should "fail, if unifying on multiple parameters fail at later stage" in {
+    runEngineForErrors(
+      "f[A](a: A, b: A, c: A): A = a\nsomeA[A]: A\ndata String\ndata Int\nb(i: Int, s: String): String = f(someA, someA, i)"
+    )
       .asserting(_ shouldBe Seq("Expression with type Test.Int can not be assigned to type Test.String."))
   }
 
