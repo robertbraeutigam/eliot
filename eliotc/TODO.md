@@ -4,7 +4,7 @@ Implement compiler to compile following minimal program into bytecode:
 
 Source code:
 ```
-def main = pa1.high
+main = pa1.high
 
 // The actual hardware specific library will provide PA1 and an instance of this:
 trait DigitalOutput[P]
