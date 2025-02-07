@@ -79,7 +79,8 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       arguments: Seq[Expression],
       parameterTypes: Map[String, TypeReference]
   )(using process: CompilationProcess): CompilationIO[Unit] = for {
-    currentTypeInference <- previousTypeInference.receivesFrom(functionDefinition.returnType.sourcedAt(functionName))
+    currentTypeInference <-
+      previousTypeInference.receivesFrom(functionDefinition.returnType.sourcedAt(functionName).instantiateType())
     _                    <- if (arguments.length =!= functionDefinition.arguments.length) {
                               compilerError(
                                 functionName.as(
@@ -91,7 +92,8 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
                                 .zip(arguments)
                                 .map { (argumentDefinition, expression) =>
                                   for {
-                                    currentInference <- currentTypeInference.inferTypeFor(argumentDefinition.typeReference)
+                                    currentInference <-
+                                      currentTypeInference.inferTypeFor(argumentDefinition.typeReference.instantiateType())
                                     _                <- checkTypes(currentInference, expression, parameterTypes)
                                   } yield ()
                                 }

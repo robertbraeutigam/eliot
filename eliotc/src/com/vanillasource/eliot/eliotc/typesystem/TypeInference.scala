@@ -5,7 +5,7 @@ import cats.effect.Ref
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.resolve.TypeReference
-import com.vanillasource.eliot.eliotc.resolve.TypeReference.{DirectTypeReference, GenericTypeReference}
+import com.vanillasource.eliot.eliotc.resolve.TypeReference.*
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 
 class TypeInference private (
@@ -20,15 +20,22 @@ class TypeInference private (
     newEqualTo       <- Ref.of[CompilationIO, Seq[TypeInference]](Seq(this))
     newInference      = TypeInference(newTypeReference, emptyScope, newEqualTo)
     _                <- typeReference match
-                          case DirectTypeReference(_)     => ().pure[CompilationIO]
-                          case GenericTypeReference(name) => emptyScope.update(_ ++ Seq((name.value, newInference)))
+                          case DirectTypeReference(_)           => ().pure[CompilationIO]
+                          case ForAllGenericTypeReference(name) => emptyScope.update(_ ++ Seq((name.value, newInference)))
+                          case ExistsGenericTypeReference(name) => emptyScope.update(_ ++ Seq((name.value, newInference)))
     _                <- equalTo.update(newInference +: _)
     _                <- unifyWith(typeReference)
   } yield newInference
 
   def inferTypeFor(typeReference: TypeReference): CompilationIO[TypeInference] = typeReference match
-    case DirectTypeReference(_)     => newSameScopeInference(typeReference)
-    case GenericTypeReference(name) =>
+    case DirectTypeReference(_)           => newSameScopeInference(typeReference)
+    case ForAllGenericTypeReference(name) =>
+      for {
+        scopeMap  <- scope.get
+        inference <- scopeMap.get(name.value).map(_.pure[CompilationIO]).getOrElse(newSameScopeInference(typeReference))
+        _         <- scope.set(scopeMap ++ Seq((name.value, inference)))
+      } yield inference
+    case ExistsGenericTypeReference(name) =>
       for {
         scopeMap  <- scope.get
         inference <- scopeMap.get(name.value).map(_.pure[CompilationIO]).getOrElse(newSameScopeInference(typeReference))
@@ -51,7 +58,7 @@ class TypeInference private (
 
   private def unifyLocalWith(current: TypeReference, incoming: TypeReference): CompilationIO[TypeReference] =
     current match
-      case DirectTypeReference(currentType) =>
+      case DirectTypeReference(currentType)        =>
         incoming match
           case DirectTypeReference(incomingType) if currentType.value === incomingType.value =>
             current.pure[CompilationIO] // Same type, so return current one
@@ -62,13 +69,31 @@ class TypeInference private (
               )
             )
               .as(current)
-          case GenericTypeReference(_)                                                       =>
+          case ForAllGenericTypeReference(_)                                                 =>
             current.pure[CompilationIO] // Incoming more generic, so return current one
-      case GenericTypeReference(_)          =>
+          case ExistsGenericTypeReference(_)                                                 =>
+            current.pure[CompilationIO] // Incoming more generic, so return current one
+      case ExistsGenericTypeReference(_)           =>
         incoming match
-          case DirectTypeReference(_)  =>
+          case DirectTypeReference(_)        =>
             incoming.sourcedAt(current).pure[CompilationIO] // Switch to more concrete type
-          case GenericTypeReference(_) => current.pure[CompilationIO] // Nothing's changed, no constraints
+          case ForAllGenericTypeReference(_) => current.pure[CompilationIO] // Nothing's changed, no constraints
+          case ExistsGenericTypeReference(_) => current.pure[CompilationIO] // Nothing's changed, no constraints
+      case ForAllGenericTypeReference(currentType) =>
+        incoming match
+          case DirectTypeReference(incomingType)        =>
+            compilerError(
+              incomingType.as(
+                s"Expression with type ${incomingType.value.show} can not be assigned to universal generic type ${currentType.value.show}."
+              )
+            ).as(current)
+          case ForAllGenericTypeReference(incomingType) =>
+            compilerError(
+              incomingType.as(
+                s"Expression with universal generic type ${incomingType.value.show} can not be assigned to universal generic type ${currentType.value.show}."
+              )
+            ).whenA(incomingType.value =!= currentType.value).as(current)
+          case ExistsGenericTypeReference(_)            => current.pure[CompilationIO] // Nothing's changed, no constraints
 }
 
 object TypeInference {

@@ -61,7 +61,9 @@ class TypeCheckProcessorTest
 
   it should "type check when returning different, but non-constrained generic" in {
     runEngineForErrors("a[A, B](a: A, b: B): A = b")
-      .asserting(_ shouldBe Seq("No"))
+      .asserting(
+        _ shouldBe Seq("Expression with universal generic type B can not be assigned to universal generic type A.")
+      )
   }
 
   it should "forward unification to concrete types" in {

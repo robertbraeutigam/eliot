@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.Sourced
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleFunction, TypeFQN}
-import com.vanillasource.eliot.eliotc.resolve.TypeReference.{DirectTypeReference, GenericTypeReference}
+import com.vanillasource.eliot.eliotc.resolve.TypeReference.*
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
@@ -73,7 +73,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
       process: CompilationProcess
   ): OptionT[IO, TypeReference] =
     genericParameters.get(reference.typeName.value.content) match
-      case Some(genericParameter) => GenericTypeReference(genericParameter).pure
+      case Some(genericParameter) => ForAllGenericTypeReference(genericParameter).pure
       case None                   =>
         typeDictionary.get(reference.typeName.value.content) match
           case Some(typeFQN) => DirectTypeReference(reference.typeName.as(typeFQN)).pure
