@@ -8,36 +8,25 @@ import cats.syntax.all.*
 sealed trait TypeReference
 
 object TypeReference {
-  case class DirectTypeReference(dataType: Sourced[TypeFQN])   extends TypeReference
-  case class ForAllGenericTypeReference(name: Sourced[String]) extends TypeReference
-  case class ExistsGenericTypeReference(name: Sourced[String]) extends TypeReference
+  case class DirectTypeReference(dataType: Sourced[TypeFQN]) extends TypeReference
+  case class GenericTypeReference(name: Sourced[String])     extends TypeReference
 
   given Show[TypeReference] = {
-    case DirectTypeReference(dataType)    => dataType.value.show
-    case ForAllGenericTypeReference(name) => name.value
-    case ExistsGenericTypeReference(name) => name.value
+    case DirectTypeReference(dataType) => dataType.value.show
+    case GenericTypeReference(name)    => name.value
   }
 
   extension (typeReference: TypeReference) {
     def sourcedAt(source: Sourced[_]): TypeReference = typeReference match
-      case DirectTypeReference(dataType)    => DirectTypeReference(source.as(dataType.value))
-      case ForAllGenericTypeReference(name) => ForAllGenericTypeReference(source.as(name.value))
-      case ExistsGenericTypeReference(name) => ExistsGenericTypeReference(source.as(name.value))
+      case DirectTypeReference(dataType) => DirectTypeReference(source.as(dataType.value))
+      case GenericTypeReference(name)    => GenericTypeReference(source.as(name.value))
 
     def sourcedAt(source: TypeReference): TypeReference = typeReference match
-      case DirectTypeReference(dataType)    => DirectTypeReference(source.source.as(dataType.value))
-      case ForAllGenericTypeReference(name) => ForAllGenericTypeReference(source.source.as(name.value))
-      case ExistsGenericTypeReference(name) => ExistsGenericTypeReference(source.source.as(name.value))
-
-    def instantiateType(): TypeReference = typeReference match
-      case DirectTypeReference(_)           => typeReference
-      case ForAllGenericTypeReference(name) => ExistsGenericTypeReference(name)
-      case ExistsGenericTypeReference(_)    => typeReference
+      case DirectTypeReference(dataType) => DirectTypeReference(source.source.as(dataType.value))
+      case GenericTypeReference(name)    => GenericTypeReference(source.source.as(name.value))
 
     private def source = typeReference match
-      case DirectTypeReference(dataType)    => dataType
-      case ForAllGenericTypeReference(name) => name
-      case ExistsGenericTypeReference(name) => name
-
+      case DirectTypeReference(dataType) => dataType
+      case GenericTypeReference(name)    => name
   }
 }

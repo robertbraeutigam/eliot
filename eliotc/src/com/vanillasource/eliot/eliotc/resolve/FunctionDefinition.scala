@@ -4,7 +4,7 @@ import com.vanillasource.eliot.eliotc.source.Sourced
 
 case class FunctionDefinition(
     name: Sourced[String],
-    genericParameters: Seq[Sourced[String]],
+    genericParameters: Seq[GenericParameter],
     arguments: Seq[ArgumentDefinition],
     returnType: TypeReference,
     body: Option[Expression]

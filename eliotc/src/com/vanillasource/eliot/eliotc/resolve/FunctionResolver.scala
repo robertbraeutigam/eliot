@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.Sourced
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleFunction, TypeFQN}
+import com.vanillasource.eliot.eliotc.resolve.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.TypeReference.*
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.token.Token
@@ -26,7 +27,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
         functionDictionary,
         typeDictionary,
         name,
-        genericParameters.groupMapReduce(_.value.content)(_.map(_.content))((left, _) => left),
+        genericParameters,
         args,
         typeDefinition,
         body
@@ -38,22 +39,23 @@ class FunctionResolver extends CompilerProcessor with Logging {
       functionDictionary: Map[String, FunctionFQN],
       typeDictionary: Map[String, TypeFQN],
       name: Sourced[Token],
-      genericParameters: Map[String, Sourced[String]],
+      genericParameters: Seq[Sourced[Token]],
       args: Seq[ast.ArgumentDefinition],
       typeReference: ast.TypeReference,
       body: Option[ast.Expression]
   )(using process: CompilationProcess): OptionT[IO, Unit] = for {
-    resolvedBody  <- body.map(expr => resolveExpression(functionDictionary, expr, args)).sequence
-    returnType    <- resolveType(typeReference, genericParameters, typeDictionary)
-    argumentTypes <- args.map(_.typeReference).map(tr => resolveType(tr, genericParameters, typeDictionary)).sequence
-    _             <-
+    resolvedBody        <- body.map(expr => resolveExpression(functionDictionary, expr, args)).sequence
+    genericParametersMap = genericParameters.groupMapReduce(_.value.content)(_.map(_.content))((left, _) => left)
+    returnType          <- resolveType(typeReference, genericParametersMap, typeDictionary)
+    argumentTypes       <- args.map(_.typeReference).map(tr => resolveType(tr, genericParametersMap, typeDictionary)).sequence
+    _                   <-
       process
         .registerFact(
           ResolvedFunction(
             ffqn,
             FunctionDefinition(
               name.map(_.content),
-              genericParameters.values.toSeq,
+              genericParameters.map(st => UniversalGenericParameter(st.map(_.content))),
               args
                 .zip(argumentTypes)
                 .map((argDef, argType) => ArgumentDefinition(argDef.name.map(_.content), argType)),
@@ -73,7 +75,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
       process: CompilationProcess
   ): OptionT[IO, TypeReference] =
     genericParameters.get(reference.typeName.value.content) match
-      case Some(genericParameter) => ForAllGenericTypeReference(genericParameter).pure
+      case Some(genericParameter) => GenericTypeReference(genericParameter).pure
       case None                   =>
         typeDictionary.get(reference.typeName.value.content) match
           case Some(typeFQN) => DirectTypeReference(reference.typeName.as(typeFQN)).pure

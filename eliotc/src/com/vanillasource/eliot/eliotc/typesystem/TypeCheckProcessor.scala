@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.typesystem
 
 import cats.effect.IO
 import cats.syntax.all.*
+import cats.implicits.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral, ParameterReference}
@@ -10,6 +11,7 @@ import com.vanillasource.eliot.eliotc.resolve.{
   ArgumentDefinition,
   Expression,
   FunctionDefinition,
+  GenericParameter,
   ResolvedFunction,
   TypeReference
 }
@@ -21,36 +23,40 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
     case ResolvedFunction(
           ffqn,
-          functionDefinition @ FunctionDefinition(_, genericParameters, parameters, typeReference, Some(body))
+          functionDefinition @ FunctionDefinition(_, _, _, _, Some(body))
         ) =>
-      process(ffqn, genericParameters, parameters, functionDefinition, typeReference, body).runCompilation_()
+      process(ffqn, functionDefinition, body).runCompilation_()
     case _ => IO.unit
 
   private def process(
       ffqn: FunctionFQN,
-      genericParameters: Seq[Sourced[String]],
-      parameters: Seq[ArgumentDefinition],
       functionDefinition: FunctionDefinition,
-      returnType: TypeReference,
       body: Expression
   )(using process: CompilationProcess): CompilationIO[Unit] = for {
-    inference <- TypeInference.forType(returnType)
-    _         <- checkTypes(
-                   inference,
-                   body,
-                   parameters.groupMapReduce(_.name.value)(_.typeReference)((left, _) => left)
-                 )
-    _         <- process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftIfNoErrors
+    inference          <- TypeInference.forType(
+                            functionDefinition.genericParameters.groupMapReduce(_.name.value)(identity)((left, _) => left),
+                            functionDefinition.returnType
+                          )
+    parameterInference <-
+      functionDefinition.arguments.traverse(argumentDefinition =>
+        inference.inferTypeFor(argumentDefinition.typeReference).map(i => (argumentDefinition.name.value, i))
+      )
+    _                  <- checkTypes(
+                            inference,
+                            body,
+                            parameterInference.groupMapReduce(_._1)(_._2)((left, _) => left)
+                          )
+    _                  <- process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftIfNoErrors
   } yield ()
 
   private def checkTypes(
       currentTypeInference: TypeInference,
       expression: Expression,
-      parameterTypes: Map[String, TypeReference]
+      parameterInferences: Map[String, TypeInference]
   )(using process: CompilationProcess): CompilationIO[Unit] =
     expression match
       case ParameterReference(parameterName)            =>
-        currentTypeInference.receivesFrom(parameterTypes(parameterName.value).sourcedAt(parameterName)).void
+        currentTypeInference.receivesFrom(parameterName, parameterInferences(parameterName.value)).void
       case IntegerLiteral(integerLiteral)               =>
         currentTypeInference
           .receivesFrom(DirectTypeReference(integerLiteral.as(TypeFQN(ModuleName(Seq("eliot"), "Number"), "Byte"))))
@@ -67,7 +73,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
                                          currentTypeInference,
                                          definition,
                                          arguments,
-                                         parameterTypes
+                                         parameterInferences
                                        )
                                    }
         } yield ()
@@ -77,10 +83,10 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       previousTypeInference: TypeInference,
       functionDefinition: FunctionDefinition,
       arguments: Seq[Expression],
-      parameterTypes: Map[String, TypeReference]
+      parameterTypes: Map[String, TypeInference]
   )(using process: CompilationProcess): CompilationIO[Unit] = for {
     currentTypeInference <-
-      previousTypeInference.receivesFrom(functionDefinition.returnType.sourcedAt(functionName).instantiateType())
+      previousTypeInference.receivesFrom(functionDefinition.returnType.sourcedAt(functionName))
     _                    <- if (arguments.length =!= functionDefinition.arguments.length) {
                               compilerError(
                                 functionName.as(
@@ -93,7 +99,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
                                 .map { (argumentDefinition, expression) =>
                                   for {
                                     currentInference <-
-                                      currentTypeInference.inferTypeFor(argumentDefinition.typeReference.instantiateType())
+                                      currentTypeInference.inferTypeFor(argumentDefinition.typeReference)
                                     _                <- checkTypes(currentInference, expression, parameterTypes)
                                   } yield ()
                                 }
