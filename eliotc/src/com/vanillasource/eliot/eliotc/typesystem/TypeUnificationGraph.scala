@@ -15,6 +15,12 @@ case class TypeUnificationGraph(genericParameters: Map[String, GenericParameter]
       }
     )
 
+  def addGenericParameter(genericParameter: GenericParameter): TypeUnificationGraph =
+    TypeUnificationGraph(
+      genericParameters ++ Map((genericParameter.name.value, genericParameter)),
+      nodes
+    )
+
   def printProblem: String =
     genericParameters.values.map {
       case GenericParameter.ExistentialGenericParameter(name) => s"∃${name.value}"
@@ -27,6 +33,9 @@ case class TypeUnificationGraph(genericParameters: Map[String, GenericParameter]
 }
 
 object TypeUnificationGraph {
+  def genericParameters(genericParameters: Seq[GenericParameter]): TypeUnificationGraph =
+    genericParameters.foldLeft(new TypeUnificationGraph(Map.empty, Map.empty))(_.addGenericParameter(_))
+
   def assignment(target: TypeReference, source: TypeReference): TypeUnificationGraph =
     new TypeUnificationGraph(Map.empty, Map.empty).addAssignment(target, source)
 

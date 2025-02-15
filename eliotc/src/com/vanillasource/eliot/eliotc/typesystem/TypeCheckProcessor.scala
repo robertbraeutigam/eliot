@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.resolve.TypeReference.DirectTypeReference
 import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
-import com.vanillasource.eliot.eliotc.typesystem.TypeUnificationGraph.assignment
+import com.vanillasource.eliot.eliotc.typesystem.TypeUnificationGraph.{assignment, genericParameters}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 
 class TypeCheckProcessor extends CompilerProcessor with Logging {
@@ -26,10 +26,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       functionDefinition: FunctionDefinition,
       body: Expression
   )(using process: CompilationProcess): CompilationIO[Unit] = {
-    val typeGraph      = TypeUnificationGraph(
-      functionDefinition.genericParameters.groupMapReduce(_.name.value)(identity)((left, _) => left),
-      Map.empty
-    )
+    val typeGraph      = genericParameters(functionDefinition.genericParameters)
     val parameterTypes = functionDefinition.arguments.groupMapReduce(_.name.value)(_.typeReference)((left, _) => left)
 
     for {
@@ -41,7 +38,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   }
 
   private def constructTypeGraphs(
-      namespacePrefix: String,
+      namespace: String,
       parentTypeReference: TypeReference, // Type this expression goes into
       parameterTypes: Map[String, TypeReference],
       expression: Expression
@@ -63,7 +60,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
                                      case None             => TypeUnificationGraph(Map.empty, Map.empty).pure[CompilationIO]
                                      case Some(definition) =>
                                        checkFunctionApplicationTypes(
-                                         namespacePrefix + s"#${functionName.value.show}#",
+                                         namespace + s"#${functionName.value.show}#",
                                          parentTypeReference,
                                          parameterTypes,
                                          functionName,
@@ -74,7 +71,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
         } yield result
 
   private def checkFunctionApplicationTypes(
-      namespacePrefix: String,
+      namespace: String,
       parentTypeReference: TypeReference, // Type this expression goes into
       parameterTypes: Map[String, TypeReference],
       functionName: Sourced[FunctionFQN],
@@ -82,7 +79,8 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       arguments: Seq[Expression]
   )(using process: CompilationProcess): CompilationIO[TypeUnificationGraph] = {
     val baseGraph =
-      assignment(parentTypeReference, functionDefinition.returnType.shiftGenericToNamespace(namespacePrefix))
+      genericParameters(functionDefinition.genericParameters.map(_.shiftToNamespace(namespace).instantiate()))
+        .addAssignment(parentTypeReference, functionDefinition.returnType.shiftGenericToNamespace(namespace))
 
     if (arguments.length =!= functionDefinition.arguments.length) {
       compilerError(
@@ -96,8 +94,8 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
         .zipWithIndex
         .map { case ((argumentDefinition, expression), index) =>
           constructTypeGraphs(
-            s"$namespacePrefix$index",
-            argumentDefinition.typeReference.shiftGenericToNamespace(namespacePrefix),
+            s"$namespace$index",
+            argumentDefinition.typeReference.shiftGenericToNamespace(namespace),
             parameterTypes,
             expression
           )
