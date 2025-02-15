@@ -25,6 +25,14 @@ object TypeReference {
       case DirectTypeReference(dataType) => DirectTypeReference(source.source.as(dataType.value))
       case GenericTypeReference(name)    => GenericTypeReference(source.source.as(name.value))
 
+    def shiftGenericToNamespace(namespace: String): TypeReference = typeReference match
+      case DirectTypeReference(dataType) => typeReference
+      case GenericTypeReference(name)    => GenericTypeReference(name.map(_ + namespace))
+
+    def name: String = typeReference match
+      case DirectTypeReference(dataType) => dataType.value.show
+      case GenericTypeReference(name)    => name.value
+
     private def source = typeReference match
       case DirectTypeReference(dataType) => dataType
       case GenericTypeReference(name)    => name
