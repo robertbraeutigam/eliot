@@ -33,6 +33,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       constructedTypeGraph <- constructTypeGraphs("", functionDefinition.returnType, parameterTypes, body)
       fullTypeGraph         = typeGraph combine constructedTypeGraph
       _                    <- debug(s"solving ${fullTypeGraph.printProblem}").liftToCompilationIO
+      _                    <- fullTypeGraph.solve()
       _                    <- process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftIfNoErrors
     } yield ()
   }
