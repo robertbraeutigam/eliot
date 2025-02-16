@@ -65,7 +65,6 @@ case class TypeUnification(genericParameters: Map[String, GenericParameter], nod
       }
     )
 
-  // TODO: remove this, we know these when adding assignments
   def addGenericParameter(genericParameter: GenericParameter): TypeUnification =
     TypeUnification(
       genericParameters ++ Map((genericParameter.name.value, genericParameter)),
