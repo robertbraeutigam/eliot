@@ -7,9 +7,9 @@ import com.vanillasource.eliot.eliotc.resolve.GenericParameter.UniversalGenericP
 import com.vanillasource.eliot.eliotc.resolve.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.{GenericParameter, TypeReference}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.{CompilationIO, compilerError}
-import com.vanillasource.eliot.eliotc.typesystem.TypeUnificationGraph.Node
+import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.Node
 
-case class TypeUnificationGraph(genericParameters: Map[String, GenericParameter], nodes: Map[String, Node]) {
+case class TypeUnification(genericParameters: Map[String, GenericParameter], nodes: Map[String, Node]) {
   def solve()(using CompilationProcess): CompilationIO[Unit] = nodes.values.toList.traverse_(solve)
 
   private def solve(node: Node)(using CompilationProcess): CompilationIO[TypeReference] =
@@ -55,8 +55,8 @@ case class TypeUnificationGraph(genericParameters: Map[String, GenericParameter]
   private def isUniversal(genericTypeName: String) =
     genericParameters.get(genericTypeName).exists(_.isInstanceOf[UniversalGenericParameter])
 
-  def addAssignment(target: TypeReference, source: TypeReference): TypeUnificationGraph =
-    TypeUnificationGraph(
+  def addAssignment(target: TypeReference, source: TypeReference): TypeUnification =
+    TypeUnification(
       genericParameters,
       nodes.updatedWith(target.name) {
         case Some(node) => Some(Node(node.originType, source +: node.equivalence))
@@ -64,12 +64,14 @@ case class TypeUnificationGraph(genericParameters: Map[String, GenericParameter]
       }
     )
 
-  def addGenericParameter(genericParameter: GenericParameter): TypeUnificationGraph =
-    TypeUnificationGraph(
+  // TODO: remove this, we know these when adding assignments
+  def addGenericParameter(genericParameter: GenericParameter): TypeUnification =
+    TypeUnification(
       genericParameters ++ Map((genericParameter.name.value, genericParameter)),
       nodes
     )
 
+  // TODO: make this Show
   def printProblem: String =
     genericParameters.values.map {
       case GenericParameter.ExistentialGenericParameter(name) => s"∃${name.value}"
@@ -81,19 +83,19 @@ case class TypeUnificationGraph(genericParameters: Map[String, GenericParameter]
         .mkString(" ∧ ")
 }
 
-object TypeUnificationGraph {
-  def genericParameters(genericParameters: Seq[GenericParameter]): TypeUnificationGraph =
-    genericParameters.foldLeft(new TypeUnificationGraph(Map.empty, Map.empty))(_.addGenericParameter(_))
+object TypeUnification {
+  def genericParameters(genericParameters: Seq[GenericParameter]): TypeUnification =
+    genericParameters.foldLeft(new TypeUnification(Map.empty, Map.empty))(_.addGenericParameter(_))
 
-  def assignment(target: TypeReference, source: TypeReference): TypeUnificationGraph =
-    new TypeUnificationGraph(Map.empty, Map.empty).addAssignment(target, source)
+  def assignment(target: TypeReference, source: TypeReference): TypeUnification =
+    new TypeUnification(Map.empty, Map.empty).addAssignment(target, source)
 
   case class Node(originType: TypeReference, equivalence: Seq[TypeReference])
 
   given Semigroup[Node] = (left: Node, right: Node) => Node(left.originType, left.equivalence ++ right.equivalence)
 
-  given Semigroup[TypeUnificationGraph] = (left: TypeUnificationGraph, right: TypeUnificationGraph) =>
-    TypeUnificationGraph(
+  given Semigroup[TypeUnification] = (left: TypeUnification, right: TypeUnification) =>
+    TypeUnification(
       left.genericParameters ++ right.genericParameters, // These should be unique, so no merge
       (left.nodes.toSeq ++ right.nodes.toSeq).groupMapReduce(_._1)(_._2)(_ combine _)
     )
