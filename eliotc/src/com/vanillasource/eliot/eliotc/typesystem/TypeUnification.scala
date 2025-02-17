@@ -3,15 +3,14 @@ package com.vanillasource.eliot.eliotc.typesystem
 import cats.Show
 import cats.collections.DisjointSets
 import cats.effect.IO
-import cats.kernel.{Monoid, Semigroup}
+import cats.implicits.*
+import cats.kernel.Monoid
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.resolve.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.{GenericParameter, TypeReference}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
-
-import scala.collection.immutable.{AbstractSeq, LinearSeq}
 
 case class TypeUnification private (
     genericParameters: Map[String, GenericParameter],
