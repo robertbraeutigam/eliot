@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.source
 
-import cats.{Functor, Show}
+import cats.{Functor, Order, Show}
 import cats.implicits.*
 import cats.syntax.all.*
 
@@ -17,6 +17,8 @@ object Sourced {
   }
 
   given [T]: Show[Sourced[T]] = (t: Sourced[T]) => s"${t.value.toString} (${t.range.show})"
+
+  given [T]: Order[Sourced[T]] = Order.whenEqual(Order.by(_.file.getAbsolutePath), Order.by(_.range))
 
   def outline(ss: Seq[Sourced[_]]): Sourced[Unit] = ss match
     case head :: _ => Sourced(head.file, PositionRange(ss.map(_.range.from).min, ss.map(_.range.to).max), ())

@@ -1,20 +1,28 @@
 package com.vanillasource.eliot.eliotc.typesystem
 
 import cats.Show
-import cats.kernel.Semigroup
+import cats.collections.DisjointSets
+import cats.effect.IO
+import cats.kernel.{Monoid, Semigroup}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.resolve.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.{GenericParameter, TypeReference}
-import com.vanillasource.eliot.eliotc.source.CompilationIO.{CompilationIO, compilerError}
-import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.Node
+import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 
-case class TypeUnification(genericParameters: Map[String, GenericParameter], nodes: Map[String, Node]) {
-  def solve()(using CompilationProcess): CompilationIO[Unit] = nodes.values.toList.traverse_(solve)
+import scala.collection.immutable.{AbstractSeq, LinearSeq}
 
-  private def solve(node: Node)(using CompilationProcess): CompilationIO[TypeReference] =
-    node.equivalence.foldLeftM(node.originType)(unify)
+case class TypeUnification private (
+    genericParameters: Map[String, GenericParameter],
+    groups: DisjointSets[TypeReference]
+) {
+  def solve()(using CompilationProcess): CompilationIO[Unit] =
+    groups.toSets._2.toScalaMap.values.map(_.toList).toList.traverse_(solve)
+
+  private def solve(types: Seq[TypeReference])(using CompilationProcess): CompilationIO[TypeReference] = types match
+    case head :: tail => tail.foldLeftM(head)(unify)
+    case _            => IO.raiseError(IllegalStateException("Empty type group.")).liftToCompilationIO
 
   private def unify(current: TypeReference, incoming: TypeReference)(using
       CompilationProcess
@@ -55,39 +63,38 @@ case class TypeUnification(genericParameters: Map[String, GenericParameter], nod
 
   private def isUniversal(genericTypeName: String) =
     genericParameters.get(genericTypeName).exists(_.isInstanceOf[UniversalGenericParameter])
-
-  def addAssignment(target: TypeReference, source: TypeReference): TypeUnification =
-    TypeUnification(
-      genericParameters,
-      nodes.updatedWith(target.name) {
-        case Some(node) => Some(Node(node.originType, source +: node.equivalence))
-        case None       => Some(Node(target, Seq(source)))
-      }
-    )
-
-  def addGenericParameter(genericParameter: GenericParameter): TypeUnification =
-    TypeUnification(
-      genericParameters ++ Map((genericParameter.name.value, genericParameter)),
-      nodes
-    )
 }
 
 object TypeUnification {
   def genericParameters(genericParameters: Seq[GenericParameter]): TypeUnification =
-    genericParameters.foldLeft(new TypeUnification(Map.empty, Map.empty))(_.addGenericParameter(_))
+    TypeUnification(genericParameters.map(e => e.name.value -> e).toMap, DisjointSets())
 
   def assignment(target: TypeReference, source: TypeReference): TypeUnification =
-    new TypeUnification(Map.empty, Map.empty).addAssignment(target, source)
+    TypeUnification(Map.empty, DisjointSets(target, source).union(target, source)._1)
 
-  case class Node(originType: TypeReference, equivalence: Seq[TypeReference])
+  given Monoid[TypeUnification] = new Monoid[TypeUnification] {
+    override def empty: TypeUnification = TypeUnification(Map.empty, DisjointSets())
 
-  given Semigroup[Node] = (left: Node, right: Node) => Node(left.originType, left.equivalence ++ right.equivalence)
+    override def combine(left: TypeUnification, right: TypeUnification): TypeUnification =
+      TypeUnification(
+        left.genericParameters ++ right.genericParameters, // These should be unique, so no merge
+        fromSets(
+          left.groups.toSets._2.toScalaMap.values.map(_.toList).toList ++
+            right.groups.toSets._2.toScalaMap.values.map(_.toList).toList
+        )
+      )
 
-  given Semigroup[TypeUnification] = (left: TypeUnification, right: TypeUnification) =>
-    TypeUnification(
-      left.genericParameters ++ right.genericParameters, // These should be unique, so no merge
-      (left.nodes.toSeq ++ right.nodes.toSeq).groupMapReduce(_._1)(_._2)(_ combine _)
-    )
+    private def fromSets(sets: Seq[Seq[TypeReference]]): DisjointSets[TypeReference] =
+      sets.foldLeft(DisjointSets[TypeReference]()) { (ds, group) =>
+        group match {
+          case Nil          => ds
+          case head :: tail =>
+            group.foldLeft(ds) { (acc, a) =>
+              (acc + a).union(head, a)._1
+            }
+        }
+      }
+  }
 
   given Show[TypeUnification] = (unification: TypeUnification) =>
     unification.genericParameters.values.map {
@@ -95,7 +102,9 @@ object TypeUnification {
       case GenericParameter.UniversalGenericParameter(name)   => s"∀${name.value}"
     }.mkString +
       ": " +
-      unification.nodes
-        .map((name, ns) => s"$name <- ${ns.equivalence.map(_.show).mkString(", ")}")
+      unification.groups.toSets._2.toScalaMap.values
+        .map(_.toList)
+        .toList
+        .map(_.map(_.show).mkString("unify(", ", ", ")"))
         .mkString(" ∧ ")
 }

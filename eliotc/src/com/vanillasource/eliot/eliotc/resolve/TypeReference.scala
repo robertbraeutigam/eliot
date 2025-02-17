@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.resolve
 
-import cats.Show
+import cats.{Order, Show}
 import com.vanillasource.eliot.eliotc.module.TypeFQN
 import com.vanillasource.eliot.eliotc.source.Sourced
 import cats.syntax.all.*
@@ -15,6 +15,8 @@ object TypeReference {
     case DirectTypeReference(dataType) => dataType.value.show
     case GenericTypeReference(name)    => name.value
   }
+
+  given Order[TypeReference] = Order.by(_.source)
 
   extension (typeReference: TypeReference) {
     def sourcedAt(source: Sourced[_]): TypeReference = typeReference match

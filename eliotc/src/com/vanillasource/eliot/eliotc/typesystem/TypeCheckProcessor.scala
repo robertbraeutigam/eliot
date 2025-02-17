@@ -2,6 +2,8 @@ package com.vanillasource.eliot.eliotc.typesystem
 
 import cats.effect.IO
 import cats.implicits.*
+import cats.kernel.Monoid
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral, ParameterReference}
@@ -58,7 +60,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           calledDefinitionMaybe <-
             process.getFact(ResolvedFunction.Key(functionName.value)).map(_.map(_.definition)).liftToCompilationIO
           result                <- calledDefinitionMaybe match {
-                                     case None             => TypeUnification(Map.empty, Map.empty).pure[CompilationIO]
+                                     case None             => Monoid[TypeUnification].empty.pure[CompilationIO]
                                      case Some(definition) =>
                                        checkFunctionApplicationTypes(
                                          namespace + s"#${functionName.value.show}#",
@@ -80,15 +82,15 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       arguments: Seq[Expression]
   )(using process: CompilationProcess): CompilationIO[TypeUnification] = {
     val baseGraph =
-      genericParameters(functionDefinition.genericParameters.map(_.shiftToNamespace(namespace).instantiate()))
-        .addAssignment(parentTypeReference, functionDefinition.returnType.shiftGenericToNamespace(namespace))
+      genericParameters(functionDefinition.genericParameters.map(_.shiftToNamespace(namespace).instantiate())) |+|
+        assignment(parentTypeReference, functionDefinition.returnType.shiftGenericToNamespace(namespace))
 
     if (arguments.length =!= functionDefinition.arguments.length) {
       compilerError(
         functionName.as(
           s"Function is called with ${arguments.length} parameters, but needs ${functionDefinition.arguments.length}."
         )
-      ).as(TypeUnification(Map.empty, Map.empty))
+      ).as(Monoid[TypeUnification].empty)
     } else {
       functionDefinition.arguments
         .zip(arguments)

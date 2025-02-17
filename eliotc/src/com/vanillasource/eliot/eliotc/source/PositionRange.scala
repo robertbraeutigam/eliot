@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.source
 
-import cats.Show
+import cats.{Order, Show}
 import cats.syntax.all.*
 
 /** Delimiting a snippet of continuous code in a source.
@@ -14,4 +14,6 @@ case class PositionRange(from: Position, to: Position)
 
 object PositionRange {
   given Show[PositionRange] = (r: PositionRange) => s"${r.from.show}->${r.to.show}"
+
+  given Order[PositionRange] = Order.whenEqual(Order.by(_.from), Order.by(_.to))
 }

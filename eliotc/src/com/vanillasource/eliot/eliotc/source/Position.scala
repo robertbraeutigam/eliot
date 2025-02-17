@@ -18,10 +18,7 @@ object Position {
   type Line   = Int
   type Column = Int
 
-  given Order[Position] = (x: Position, y: Position) =>
-    x.line - y.line match
-      case result if result === 0 => x.col - y.col
-      case result                 => result
+  given Order[Position] = Order.whenEqual(Order.by(_.line), Order.by(_.col))
 
   given Show[Position] = (x: Position) => s"${x.line}:${x.col}"
 }
