@@ -41,12 +41,12 @@ class TypeCheckProcessorTest
 
   it should "fail only once when a function is used wrong" in {
     runEngineForErrors("data A\ndata B\na: A\nb: B = a")
-      .asserting(_ shouldBe Seq("Expression with type Test.B can not be assigned to type Test.A."))
+      .asserting(_ shouldBe Seq("Expression with type Test.A can not be assigned to type Test.B."))
   }
 
   it should "fail if parameter is of wrong type" in {
     runEngineForErrors("data A\ndata B\na(b: B): A = b")
-      .asserting(_ shouldBe Seq("Expression with type Test.A can not be assigned to type Test.B."))
+      .asserting(_ shouldBe Seq("Expression with type Test.B can not be assigned to type Test.A."))
   }
 
   it should "fail if parameter is used as a wrong parameter in another function" in {
@@ -78,12 +78,12 @@ class TypeCheckProcessorTest
 
   it should "fail if forward unification to concrete types produces conflict" in {
     runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nb(i: Int, s: String): String = id(i)")
-      .asserting(_ shouldBe Seq("Expression with type Test.String can not be assigned to type Test.Int."))
+      .asserting(_ shouldBe Seq("Expression with type Test.Int can not be assigned to type Test.String."))
   }
 
   it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
     runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nb(i: Int, s: String): String = id(id(id(i)))")
-      .asserting(_ shouldBe Seq("Expression with type Test.String can not be assigned to type Test.Int."))
+      .asserting(_ shouldBe Seq("Expression with type Test.Int can not be assigned to type Test.String."))
   }
 
   it should "unify on multiple parameters" in {
@@ -97,7 +97,7 @@ class TypeCheckProcessorTest
     runEngineForErrors(
       "f[A](a: A, b: A, c: A): A = a\nsomeA[A]: A\ndata String\ndata Int\nb(i: Int, s: String): String = f(someA, someA, i)"
     )
-      .asserting(_ shouldBe Seq("Expression with type Test.String can not be assigned to type Test.Int."))
+      .asserting(_ shouldBe Seq("Expression with type Test.Int can not be assigned to type Test.String."))
   }
 
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
