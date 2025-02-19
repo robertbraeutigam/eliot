@@ -53,7 +53,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
         // TODO: we hardcode the integer literal type here, fix this later
         assignment(
           parentTypeReference,
-          DirectTypeReference(integerLiteral.as(TypeFQN(ModuleName(Seq("eliot"), "Number"), "Byte")))
+          DirectTypeReference(integerLiteral.as(TypeFQN(ModuleName(Seq("eliot"), "Number"), "Byte")), Seq.empty)
         ).pure[CompilationIO]
       case FunctionApplication(functionName, arguments) =>
         for {
