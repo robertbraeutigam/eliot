@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.typesystem
 
-import cats.Monoid
 import com.vanillasource.eliot.eliotc.resolve.TypeReference
 import com.vanillasource.eliot.eliotc.typesystem.TypeUnificationState.UnifiedType
 
