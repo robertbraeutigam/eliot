@@ -5,7 +5,6 @@ import cats.collections.DisjointSets
 import cats.effect.IO
 import cats.implicits.*
 import cats.kernel.Monoid
-import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.resolve.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.TypeReference.{DirectTypeReference, GenericTypeReference}
@@ -86,8 +85,8 @@ object TypeUnification {
     private def fromSets(sets: Seq[Seq[TypeReference]]): DisjointSets[TypeReference] =
       sets.foldLeft(DisjointSets[TypeReference]()) { (ds, group) =>
         group match {
-          case Nil          => ds
-          case head :: tail =>
+          case Nil       => ds
+          case head :: _ =>
             group.foldLeft(ds) { (acc, a) =>
               (acc + a).union(head, a)._1
             }
