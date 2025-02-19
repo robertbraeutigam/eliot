@@ -83,7 +83,10 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   )(using process: CompilationProcess): CompilationIO[TypeUnification] = {
     val baseGraph =
       genericParameters(functionDefinition.genericParameters.map(_.shiftToNamespace(namespace).instantiate())) |+|
-        assignment(parentTypeReference, functionDefinition.returnType.shiftGenericToNamespace(namespace))
+        assignment(
+          parentTypeReference,
+          functionDefinition.returnType.sourcedAt(functionName).shiftGenericToNamespace(namespace)
+        )
 
     if (arguments.length =!= functionDefinition.arguments.length) {
       compilerError(

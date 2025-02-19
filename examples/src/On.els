@@ -3,6 +3,7 @@ main: String
 data String
 data Int
 id[A](a: A): A = a
+
 b(i: Int, s: String): String = id(s)
 
 c(a: Int): Int = b(a, a)
