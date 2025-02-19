@@ -39,23 +39,31 @@ class FunctionResolver extends CompilerProcessor with Logging {
       functionDictionary: Map[String, FunctionFQN],
       typeDictionary: Map[String, TypeFQN],
       name: Sourced[Token],
-      genericParameters: Seq[Sourced[Token]],
+      genericParameters: Seq[ast.GenericParameter],
       args: Seq[ast.ArgumentDefinition],
       typeReference: ast.TypeReference,
       body: Option[ast.Expression]
   )(using process: CompilationProcess): OptionT[IO, Unit] = for {
-    resolvedBody        <- body.map(expr => resolveExpression(functionDictionary, expr, args)).sequence
-    genericParametersMap = genericParameters.groupMapReduce(_.value.content)(_.map(_.content))((left, _) => left)
-    returnType          <- resolveType(typeReference, genericParametersMap, typeDictionary)
-    argumentTypes       <- args.map(_.typeReference).map(tr => resolveType(tr, genericParametersMap, typeDictionary)).sequence
-    _                   <-
+    resolvedBody              <- body.map(expr => resolveExpression(functionDictionary, expr, args)).sequence
+    genericParametersMap       = genericParameters.map(_.name).map(name => name.value.content -> name.map(_.content)).toMap
+    returnType                <- resolveType(typeReference, genericParametersMap, typeDictionary)
+    argumentTypes             <- args.map(_.typeReference).traverse(tr => resolveType(tr, genericParametersMap, typeDictionary))
+    resolvedGenericParameters <-
+      genericParameters.traverse(genericParameter =>
+        genericParameter.genericParameters
+          .traverse(typeReference => resolveType(typeReference, genericParametersMap, typeDictionary))
+          .map(resolvedGenericTypes =>
+            UniversalGenericParameter(genericParameter.name.map(_.content), resolvedGenericTypes)
+          )
+      )
+    _                         <-
       process
         .registerFact(
           ResolvedFunction(
             ffqn,
             FunctionDefinition(
               name.map(_.content),
-              genericParameters.map(st => UniversalGenericParameter(st.map(_.content))),
+              resolvedGenericParameters,
               args
                 .zip(argumentTypes)
                 .map((argDef, argType) => ArgumentDefinition(argDef.name.map(_.content), argType)),
@@ -73,13 +81,20 @@ class FunctionResolver extends CompilerProcessor with Logging {
       typeDictionary: Map[String, TypeFQN]
   )(using
       process: CompilationProcess
-  ): OptionT[IO, TypeReference] =
-    genericParameters.get(reference.typeName.value.content) match
-      case Some(genericParameter) => GenericTypeReference(genericParameter).pure
-      case None                   =>
-        typeDictionary.get(reference.typeName.value.content) match
-          case Some(typeFQN) => DirectTypeReference(reference.typeName.as(typeFQN)).pure
-          case None          => registerCompilerError(reference.typeName.as("Type not defined.")).liftOptionTNone
+  ): OptionT[IO, TypeReference] = for {
+    resolvedGenericParameters <-
+      reference.genericParameters.traverse(param => resolveType(param, genericParameters, typeDictionary))
+    resolvedType              <- genericParameters.get(reference.typeName.value.content) match
+                                   case Some(genericParameter) =>
+                                     GenericTypeReference(genericParameter, resolvedGenericParameters).pure[IO].liftOptionT
+                                   case None                   =>
+                                     typeDictionary.get(reference.typeName.value.content) match
+                                       case Some(typeFQN) =>
+                                         DirectTypeReference(reference.typeName.as(typeFQN), resolvedGenericParameters)
+                                           .pure[IO]
+                                           .liftOptionT
+                                       case None          => registerCompilerError(reference.typeName.as("Type not defined.")).liftOptionTNone
+  } yield resolvedType
 
   private def resolveExpression(
       dictionary: Map[String, FunctionFQN],

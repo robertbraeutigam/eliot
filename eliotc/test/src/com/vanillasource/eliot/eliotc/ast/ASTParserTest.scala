@@ -122,8 +122,20 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("a[A, B]: A").asserting(_ shouldBe Seq.empty)
   }
 
-  it should "accept am empty data definition" in {
+  it should "accept an empty data definition" in {
     runEngineForErrors("data A").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an empty data definition with generics" in {
+    runEngineForErrors("data A[B, C]").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept return types with generic type parameters" in {
+    runEngineForErrors("data A[B, C]\nf[B, C]: A[B, C]").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept generic type parameters in parameter definitions" in {
+    runEngineForErrors("data A[B, C]\nf[B, C](p: A[B, C]): C").asserting(_ shouldBe Seq.empty)
   }
 
   it should "not accept data definition with lower case" in {

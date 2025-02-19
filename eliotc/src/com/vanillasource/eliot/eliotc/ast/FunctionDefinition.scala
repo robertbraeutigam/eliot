@@ -19,7 +19,7 @@ import com.vanillasource.parser.Parser.*
 
 case class FunctionDefinition(
     name: Sourced[Token],
-    genericParameters: Seq[Sourced[Token]],
+    genericParameters: Seq[GenericParameter],
     args: Seq[ArgumentDefinition],
     typeDefinition: TypeReference,
     body: Option[Expression] // Can be empty for abstract functions
@@ -32,13 +32,11 @@ object FunctionDefinition {
   given ASTComponent[FunctionDefinition] = new ASTComponent[FunctionDefinition] {
     override val parser: Parser[Sourced[Token], FunctionDefinition] = for {
       name              <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
-      genericParameters <- bracketedCommaSeparatedItems("[", genericTypeParameter, "]")
+      genericParameters <- component[Seq[GenericParameter]]
       args              <- argumentListOf(component[ArgumentDefinition])
       typeReference     <- component[TypeReference]
       functionBody      <- functionBody
     } yield FunctionDefinition(name, genericParameters, args, typeReference, functionBody)
-
-    private val genericTypeParameter = acceptIfAll(isUpperCase, isIdentifier)("generic type parameter")
 
     private val functionBody =
       (symbol("=") *> component[Expression]).optional()
