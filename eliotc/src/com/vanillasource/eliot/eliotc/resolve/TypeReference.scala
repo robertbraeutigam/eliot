@@ -16,8 +16,6 @@ object TypeReference {
     case GenericTypeReference(name)    => name.value
   }
 
-  given Order[TypeReference] = Order.by(_.source)
-
   extension (typeReference: TypeReference) {
     def sourcedAt(source: Sourced[_]): TypeReference = typeReference match
       case DirectTypeReference(dataType) => DirectTypeReference(source.as(dataType.value))
