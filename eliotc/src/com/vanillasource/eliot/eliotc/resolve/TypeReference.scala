@@ -43,6 +43,10 @@ object TypeReference {
       case DirectTypeReference(dataType, _) => dataType.value.show
       case GenericTypeReference(name, _)    => name.value
 
+    def genericParameters: Seq[TypeReference] = typeReference match
+      case DirectTypeReference(_, genericParameters)  => genericParameters
+      case GenericTypeReference(_, genericParameters) => genericParameters
+
     private def source = typeReference match
       case DirectTypeReference(dataType, _) => dataType
       case GenericTypeReference(name, _)    => name

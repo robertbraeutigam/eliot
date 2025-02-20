@@ -30,42 +30,43 @@ case class TypeUnification private (
     unify(targetCurrent, sourceCurrent).map(unifiedType => state.unifyTo(target, source, unifiedType))
   }
 
+  // FIXME: consider generic parameter arities here
   private def unify(current: TypeReference, incoming: TypeReference)(using
       CompilationProcess
   ): CompilationIO[TypeReference] =
     current match
-      case DirectTypeReference(currentType)                                    =>
+      case DirectTypeReference(currentType, _)                                    =>
         incoming match
-          case DirectTypeReference(incomingType) if currentType.value === incomingType.value =>
+          case DirectTypeReference(incomingType, _) if currentType.value === incomingType.value =>
             current.pure[CompilationIO] // Same type, so return current one
-          case DirectTypeReference(incomingType)                                             =>
+          case DirectTypeReference(incomingType, _)                                             =>
             compilerError(
               incomingType.as(
                 s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}."
               )
             ).as(current)
-          case GenericTypeReference(_)                                                       =>
+          case GenericTypeReference(_, _)                                                       =>
             current.pure[CompilationIO] // Incoming more generic, so return current one
-      case GenericTypeReference(currentType) if isUniversal(currentType.value) =>
+      case GenericTypeReference(currentType, _) if isUniversal(currentType.value) =>
         incoming match
-          case DirectTypeReference(incomingType)                                     =>
+          case DirectTypeReference(incomingType, _)                                     =>
             compilerError(
               incomingType.as(
                 s"Expression with type ${incomingType.value.show} can not be assigned to universal generic type ${currentType.value.show}."
               )
             ).as(current)
-          case GenericTypeReference(incomingType) if isUniversal(incomingType.value) =>
+          case GenericTypeReference(incomingType, _) if isUniversal(incomingType.value) =>
             compilerError(
               incomingType.as(
                 s"Expression with universal generic type ${incomingType.value.show} can not be assigned to universal generic type ${currentType.value.show}."
               )
             ).whenA(incomingType.value =!= currentType.value).as(current)
-          case GenericTypeReference(_)                                               => current.pure[CompilationIO] // Nothing's changed, no constraints
-      case GenericTypeReference(_)                                             =>
+          case GenericTypeReference(_, _)                                               => current.pure[CompilationIO] // Nothing's changed, no constraints
+      case GenericTypeReference(_, _)                                             =>
         incoming match
-          case DirectTypeReference(_)  =>
+          case DirectTypeReference(_, _)  =>
             incoming.sourcedAt(current).pure[CompilationIO] // Switch to more concrete type
-          case GenericTypeReference(_) => current.pure[CompilationIO] // Nothing's changed, no constraints
+          case GenericTypeReference(_, _) => current.pure[CompilationIO] // Nothing's changed, no constraints
 
   private def isUniversal(genericTypeName: String) =
     genericParameters.get(genericTypeName).exists(_.isInstanceOf[UniversalGenericParameter])
@@ -77,6 +78,7 @@ object TypeUnification {
 
   def assignment(target: TypeReference, source: TypeReference): TypeUnification =
     TypeUnification(Map.empty, Seq((target, source)))
+      .combine((target.genericParameters zip source.genericParameters).map(assignment.tupled).combineAll)
 
   given Monoid[TypeUnification] = new Monoid[TypeUnification] {
     override def empty: TypeUnification = TypeUnification(Map.empty, Seq.empty)
@@ -90,8 +92,8 @@ object TypeUnification {
 
   given Show[TypeUnification] = (unification: TypeUnification) =>
     unification.genericParameters.values.map {
-      case GenericParameter.ExistentialGenericParameter(name) => s"∃${name.value}"
-      case GenericParameter.UniversalGenericParameter(name)   => s"∀${name.value}"
+      case GenericParameter.ExistentialGenericParameter(name, _) => s"∃${name.value}"
+      case GenericParameter.UniversalGenericParameter(name, _)   => s"∀${name.value}"
     }.mkString +
       ": " +
       unification.assignments
