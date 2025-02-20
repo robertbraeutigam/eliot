@@ -4,6 +4,9 @@ data String
 data Int
 id[A](a: A): A = a
 
-b(i: Int, s: String): String = id(s)
+// b(i: Int, s: String): String = id(s)
 
-c(a: Int): Int = b(a, a)
+// c(a: Int): Int = b(a, a)
+
+data A[B, C]
+f[B, C]: A[B, C]

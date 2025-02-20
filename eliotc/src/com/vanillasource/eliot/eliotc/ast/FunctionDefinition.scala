@@ -34,6 +34,7 @@ object FunctionDefinition {
       name              <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
       genericParameters <- component[Seq[GenericParameter]]
       args              <- argumentListOf(component[ArgumentDefinition])
+      _                 <- symbol(":")
       typeReference     <- component[TypeReference]
       functionBody      <- functionBody
     } yield FunctionDefinition(name, genericParameters, args, typeReference, functionBody)

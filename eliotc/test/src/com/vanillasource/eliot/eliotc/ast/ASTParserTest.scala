@@ -76,7 +76,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "reject argument list without the comma separate" in {
     runEngineForErrors("a(b: Byte c: Byte): Byte = b").asserting(
-      _ shouldBe Seq("Expected symbol ',' or symbol ')', but encountered identifier 'c'.")
+      _ shouldBe Seq("Expected symbol '[', symbol ',' or symbol ')', but encountered identifier 'c'.")
     )
   }
 
