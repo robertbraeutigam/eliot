@@ -35,6 +35,18 @@ class FunctionResolverTest extends ProcessorTest(Tokenizer(), ASTParser(), Modul
     runEngineForErrors("f[A]: A").asserting(_ shouldBe Seq())
   }
 
+  it should "not resolve missing embedded generic type" in {
+    runEngineForErrors("data Function[A, B]\nf[A]: Function[A, B]").asserting(_ shouldBe Seq("Type not defined."))
+  }
+
+  it should "resolve embedded generic type" in {
+    runEngineForErrors("data Function[A, B]\nf[A, B]: Function[A, B]").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "resolve generic type with non-generic parameters" in {
+    runEngineForErrors("data String\ndata Function[A, B]\nf: Function[String, String]").asserting(_ shouldBe Seq.empty)
+  }
+
   private def parseForExpressions(source: String): IO[Seq[Expression]] = for {
     results <- runEngine(source)
   } yield {
