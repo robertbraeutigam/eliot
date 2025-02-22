@@ -100,6 +100,16 @@ class TypeCheckProcessorTest
       .asserting(_ shouldBe Seq("Expression with type Test.Int can not be assigned to type Test.String."))
   }
 
+  "higher kind generic types" should "type check through single generic placeholder" in {
+    runEngineForErrors("id[A](a: A): A\nf[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject different arities of generic parameters" in {
+    runEngineForErrors("id[B, A[B]](a: A[B]): A[B]\nf[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
+      .asserting(_ shouldBe Seq("No"))
+  }
+
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
     results <- runEngine(source)
   } yield {

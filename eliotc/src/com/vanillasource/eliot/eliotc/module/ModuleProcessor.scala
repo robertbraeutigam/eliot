@@ -46,6 +46,14 @@ class ModuleProcessor extends CompilerProcessor with Logging {
                            }
                            .toSeq
                            .sequence_
+    _                 <- localTypes
+                           .map { (name, definition) =>
+                             process.registerFact(
+                               ModuleData(TypeFQN(moduleName, name), typeDictionary, definition)
+                             )
+                           }
+                           .toSeq
+                           .sequence_
   } yield ()
 
   private def extractImportedFunctions(
@@ -89,13 +97,13 @@ class ModuleProcessor extends CompilerProcessor with Logging {
   }
 
   private def extractTypes(definitions: Seq[DataDefinition])(using
-                                                             process: CompilationProcess
+      process: CompilationProcess
   ): IO[Map[String, DataDefinition]] =
     definitions.foldM(Map.empty[String, DataDefinition])((acc, d) => extractType(acc, d))
 
   private def extractType(
-                           previousTypes: Map[String, DataDefinition],
-                           current: DataDefinition
+      previousTypes: Map[String, DataDefinition],
+      current: DataDefinition
   )(using process: CompilationProcess): IO[Map[String, DataDefinition]] = current.name.value.content match
     case ty if previousTypes.contains(ty) =>
       registerCompilerError(current.name.as("Type was already defined in this module.")).as(previousTypes)

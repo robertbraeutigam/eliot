@@ -47,6 +47,22 @@ class FunctionResolverTest extends ProcessorTest(Tokenizer(), ASTParser(), Modul
     runEngineForErrors("data String\ndata Function[A, B]\nf: Function[String, String]").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "not resolve a type with generic parameters that were not given" in {
+    runEngineForErrors("data Function[A, B]\nf: Function").asserting(_ shouldBe Seq("No"))
+  }
+
+  it should "not resolve a type with generic parameters that were not fully given" in {
+    runEngineForErrors("data Function[A, B]\nf: Function[A]").asserting(_ shouldBe Seq("No"))
+  }
+
+  it should "not resolve generic type with wrong arity as parameter" in {
+    runEngineForErrors("f[A, B, C[A, B]](p: C[A]): B").asserting(_ shouldBe Seq("No"))
+  }
+
+  it should "not resolve generic type with wrong arity as return type" in {
+    runEngineForErrors("f[A, B, C[A, B]]: C[A]").asserting(_ shouldBe Seq("No"))
+  }
+
   private def parseForExpressions(source: String): IO[Seq[Expression]] = for {
     results <- runEngine(source)
   } yield {

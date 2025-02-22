@@ -7,7 +7,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.Sourced
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleFunction, TypeFQN}
+import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleData, ModuleFunction, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.TypeReference.*
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
@@ -94,6 +94,8 @@ class FunctionResolver extends CompilerProcessor with Logging {
                                            .pure[IO]
                                            .liftOptionT
                                        case None          => registerCompilerError(reference.typeName.as("Type not defined.")).liftOptionTNone
+    // dataDefinition            <-
+    //  process.getFact(ModuleData.Key(resolvedType.)).toOptionT
   } yield resolvedType
 
   private def resolveExpression(
