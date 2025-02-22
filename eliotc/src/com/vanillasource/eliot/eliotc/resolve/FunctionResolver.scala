@@ -89,13 +89,18 @@ class FunctionResolver extends CompilerProcessor with Logging {
                                      GenericTypeReference(genericParameter, resolvedGenericParameters).pure[IO].liftOptionT
                                    case None                   =>
                                      typeDictionary.get(reference.typeName.value.content) match
-                                       case Some(typeFQN) =>
-                                         DirectTypeReference(reference.typeName.as(typeFQN), resolvedGenericParameters)
-                                           .pure[IO]
-                                           .liftOptionT
+                                       case Some(typeFqn) =>
+                                         for {
+                                           dataDefinition <- process.getFact(ModuleData.Key(typeFqn)).toOptionT
+                                           _              <-
+                                             registerCompilerError(
+                                               reference.typeName.as("Incorrect number of generic parameters for type.")
+                                             ).liftOptionTNone
+                                               .whenA(
+                                                 dataDefinition.dataDefinition.genericParameters.length =!= resolvedGenericParameters.length
+                                               )
+                                         } yield DirectTypeReference(reference.typeName.as(typeFqn), resolvedGenericParameters)
                                        case None          => registerCompilerError(reference.typeName.as("Type not defined.")).liftOptionTNone
-    // dataDefinition            <-
-    //  process.getFact(ModuleData.Key(resolvedType.)).toOptionT
   } yield resolvedType
 
   private def resolveExpression(

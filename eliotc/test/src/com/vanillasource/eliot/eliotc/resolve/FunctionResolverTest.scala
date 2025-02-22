@@ -48,11 +48,15 @@ class FunctionResolverTest extends ProcessorTest(Tokenizer(), ASTParser(), Modul
   }
 
   it should "not resolve a type with generic parameters that were not given" in {
-    runEngineForErrors("data Function[A, B]\nf: Function").asserting(_ shouldBe Seq("No"))
+    runEngineForErrors("data Function[A, B]\nf: Function").asserting(
+      _ shouldBe Seq("Incorrect number of generic parameters for type.")
+    )
   }
 
   it should "not resolve a type with generic parameters that were not fully given" in {
-    runEngineForErrors("data Function[A, B]\nf: Function[A]").asserting(_ shouldBe Seq("No"))
+    runEngineForErrors("data Function[A, B]\nf[A]: Function[A]").asserting(
+      _ shouldBe Seq("Incorrect number of generic parameters for type.")
+    )
   }
 
   it should "not resolve generic type with wrong arity as parameter" in {
