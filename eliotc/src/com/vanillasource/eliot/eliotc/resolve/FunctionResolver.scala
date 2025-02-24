@@ -45,7 +45,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
       body: Option[ast.Expression]
   )(using process: CompilationProcess): OptionT[IO, Unit] = for {
     resolvedBody              <- body.map(expr => resolveExpression(functionDictionary, expr, args)).sequence
-    genericParametersMap       = genericParameters.map(_.name).map(name => name.value.content -> name.map(_.content)).toMap
+    genericParametersMap       = genericParameters.map(gp => gp.name.value.content -> gp).toMap
     returnType                <- resolveType(typeReference, genericParametersMap, typeDictionary)
     argumentTypes             <- args.map(_.typeReference).traverse(tr => resolveType(tr, genericParametersMap, typeDictionary))
     resolvedGenericParameters <-
@@ -77,7 +77,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
 
   private def resolveType(
       reference: ast.TypeReference,
-      genericParameters: Map[String, Sourced[String]],
+      genericParameters: Map[String, ast.GenericParameter],
       typeDictionary: Map[String, TypeFQN]
   )(using
       process: CompilationProcess
@@ -86,7 +86,9 @@ class FunctionResolver extends CompilerProcessor with Logging {
       reference.genericParameters.traverse(param => resolveType(param, genericParameters, typeDictionary))
     resolvedType              <- genericParameters.get(reference.typeName.value.content) match
                                    case Some(genericParameter) =>
-                                     GenericTypeReference(genericParameter, resolvedGenericParameters).pure[IO].liftOptionT
+                                     GenericTypeReference(genericParameter.name.map(_.content), resolvedGenericParameters)
+                                       .pure[IO]
+                                       .liftOptionT
                                    case None                   =>
                                      typeDictionary.get(reference.typeName.value.content) match
                                        case Some(typeFqn) =>
