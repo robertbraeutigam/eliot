@@ -35,9 +35,10 @@ case class TypeUnification private (
       CompilationProcess
   ): CompilationIO[TypeReference] =
     current match
-      case DirectTypeReference(currentType, _)                                    =>
+      case DirectTypeReference(currentType, _)                                                           =>
         incoming match
           case DirectTypeReference(incomingType, _) if currentType.value === incomingType.value =>
+            // Both direct references _must_ have the correct arity per resolver
             current.pure[CompilationIO] // Same type, so return current one
           case DirectTypeReference(incomingType, _)                                             =>
             compilerError(
@@ -45,9 +46,18 @@ case class TypeUnification private (
                 s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}."
               )
             ).as(current)
-          case GenericTypeReference(_, _)                                                       =>
-            current.pure[CompilationIO] // Incoming more generic, so return current one
-      case GenericTypeReference(currentType, _) if isUniversal(currentType.value) =>
+          case GenericTypeReference(incomingType, genericParameters)                            =>
+            // Note: the direct type needs to have the generic parameters defined
+            if (genericParameters.isEmpty || genericParameters.length === current.genericParameters.length) {
+              current.pure[CompilationIO] // Incoming more generic, so return current one
+            } else {
+              compilerError(
+                incomingType.as(
+                  s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}, because they have different number of generic parameters."
+                )
+              ).as(current)
+            }
+      case GenericTypeReference(currentType, currentGenericParameters) if isUniversal(currentType.value) =>
         incoming match
           case DirectTypeReference(incomingType, _)                                     =>
             compilerError(
@@ -61,12 +71,54 @@ case class TypeUnification private (
                 s"Expression with universal generic type ${incomingType.value.show} can not be assigned to universal generic type ${currentType.value.show}."
               )
             ).whenA(incomingType.value =!= currentType.value).as(current)
-          case GenericTypeReference(_, _)                                               => current.pure[CompilationIO] // Nothing's changed, no constraints
-      case GenericTypeReference(_, _)                                             =>
+          case GenericTypeReference(incomingType, incomingGenericParameters)            =>
+            if (
+              incomingGenericParameters.isEmpty || currentGenericParameters.isEmpty || incomingGenericParameters.length === currentGenericParameters.length
+            ) {
+              // Add generic parameter restrictions (remember the more restrictive type reference)
+              if (incomingGenericParameters.isEmpty) {
+                current.pure[CompilationIO]
+              } else {
+                incoming.sourcedAt(current).pure[CompilationIO]
+              }
+            } else {
+              compilerError(
+                incomingType.as(
+                  s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}, because they have different number of generic parameters."
+                )
+              ).as(current)
+            }
+      case GenericTypeReference(currentType, currentGenericParameters)                                   =>
         incoming match
-          case DirectTypeReference(_, _)  =>
-            incoming.sourcedAt(current).pure[CompilationIO] // Switch to more concrete type
-          case GenericTypeReference(_, _) => current.pure[CompilationIO] // Nothing's changed, no constraints
+          case DirectTypeReference(incomingType, incomingGenericParameters)  =>
+            if (
+              currentGenericParameters.isEmpty || currentGenericParameters.length === incomingGenericParameters.length
+            ) {
+              incoming.sourcedAt(current).pure[CompilationIO] // Switch to more concrete type
+            } else {
+              compilerError(
+                incomingType.as(
+                  s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}, because they have different number of generic parameters."
+                )
+              ).as(current)
+            }
+          case GenericTypeReference(incomingType, incomingGenericParameters) =>
+            if (
+              incomingGenericParameters.isEmpty || currentGenericParameters.isEmpty || incomingGenericParameters.length === currentGenericParameters.length
+            ) {
+              // Add generic parameter restrictions (remember the more restrictive type reference)
+              if (incomingGenericParameters.isEmpty) {
+                current.pure[CompilationIO]
+              } else {
+                incoming.sourcedAt(current).pure[CompilationIO]
+              }
+            } else {
+              compilerError(
+                incomingType.as(
+                  s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}, because they have different number of generic parameters."
+                )
+              ).as(current)
+            }
 
   private def isUniversal(genericTypeName: String) =
     genericParameters.get(genericTypeName).exists(_.isInstanceOf[UniversalGenericParameter])

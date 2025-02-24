@@ -107,7 +107,11 @@ class TypeCheckProcessorTest
 
   it should "reject different arities of generic parameters" in {
     runEngineForErrors("id[B, A[B]](a: A[B]): A[B]\nf[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
-      .asserting(_ shouldBe Seq("No"))
+      .asserting(
+        _ shouldBe Seq(
+          "Expression with type A#Test.id# can not be assigned to type C, because they have different number of generic parameters."
+        )
+      )
   }
 
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
