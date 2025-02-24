@@ -86,9 +86,15 @@ class FunctionResolver extends CompilerProcessor with Logging {
       reference.genericParameters.traverse(param => resolveType(param, genericParameters, typeDictionary))
     resolvedType              <- genericParameters.get(reference.typeName.value.content) match
                                    case Some(genericParameter) =>
-                                     GenericTypeReference(genericParameter.name.map(_.content), resolvedGenericParameters)
-                                       .pure[IO]
-                                       .liftOptionT
+                                     if (genericParameter.genericParameters.length =!= resolvedGenericParameters.length) {
+                                       registerCompilerError(
+                                         reference.typeName.as("Incorrect number of generic parameters for type.")
+                                       ).liftOptionTNone
+                                     } else {
+                                       GenericTypeReference(genericParameter.name.map(_.content), resolvedGenericParameters)
+                                         .pure[IO]
+                                         .liftOptionT
+                                     }
                                    case None                   =>
                                      typeDictionary.get(reference.typeName.value.content) match
                                        case Some(typeFqn) =>

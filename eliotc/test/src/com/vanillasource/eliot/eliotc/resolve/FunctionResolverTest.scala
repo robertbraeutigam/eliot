@@ -60,11 +60,15 @@ class FunctionResolverTest extends ProcessorTest(Tokenizer(), ASTParser(), Modul
   }
 
   it should "not resolve generic type with wrong arity as parameter" in {
-    runEngineForErrors("f[A, B, C[A, B]](p: C[A]): B").asserting(_ shouldBe Seq("No"))
+    runEngineForErrors("f[A, B, C[A, B]](p: C[A]): B").asserting(
+      _ shouldBe Seq("Incorrect number of generic parameters for type.")
+    )
   }
 
   it should "not resolve generic type with wrong arity as return type" in {
-    runEngineForErrors("f[A, B, C[A, B]]: C[A]").asserting(_ shouldBe Seq("No"))
+    runEngineForErrors("f[A, B, C[A, B]]: C[A]").asserting(
+      _ shouldBe Seq("Incorrect number of generic parameters for type.")
+    )
   }
 
   private def parseForExpressions(source: String): IO[Seq[Expression]] = for {
