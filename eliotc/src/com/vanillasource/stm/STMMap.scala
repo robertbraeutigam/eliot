@@ -1,32 +1,26 @@
 package com.vanillasource.stm
 
-import cats.effect.IO
 import cats.free.Free
 import cats.syntax.all.*
 import com.vanillasource.stm.STM.*
 
 import scala.collection.concurrent.TrieMap
 
-class STMMap[K, V] private (values: TrieMap[K, STMVar[Option[V]]]) {
-  def lookup(key: K): STM[Option[V]] = getOrCreateTVar(key).flatMap(_.get())
+case class STMMap[K, V] private (stmMap: STMVar[Map[K, V]]) {
+  def lookup(key: K): STM[Option[V]] = stmMap.get().map(_.get(key))
 
-  def insert(key: K, value: V): STM[Unit] = getOrCreateTVar(key).flatMap(_.set(Some(value)))
+  def insert(key: K, value: V): STM[Unit] = stmMap.update(_ + (key -> value))
 
   def putIfAbsent(key: K, value: V): STM[Option[V]] = for {
     oldValue <- lookup(key)
     _        <- oldValue match
-                  case Some(value) => ().pure[STM]
-                  case None        => insert(key, value)
+                  case Some(_) => ().pure[STM]
+                  case None    => insert(key, value)
   } yield oldValue
 
-  def toMap(): STM[Map[K, V]] =
-    values.toSeq.map((key, stmVar) => stmVar.get().map(_.map(value => (key, value)))).sequence.map(_.flatten.toMap)
-
-  private def getOrCreateTVar(key: K): STM[STMVar[Option[V]]] = for {
-    newTVar <- createSTMVar(Option.empty[V])
-  } yield values.putIfAbsent(key, newTVar).getOrElse(newTVar)
+  def toMap: STM[Map[K, V]] = stmMap.get()
 }
 
 object STMMap {
-  def empty[K, V](): STM[STMMap[K, V]] = Free.pure(new STMMap(TrieMap.empty))
+  def empty[K, V](): STM[STMMap[K, V]] = createSTMVar(Map.empty[K, V]).map(STMMap.apply)
 }

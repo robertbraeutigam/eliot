@@ -37,7 +37,7 @@ case class RunningFactEngine[K, V] private (
 
   private[engine] def waitForTermination(): IO[Map[K, V]] = for {
     _       <- status.waitForTermination()
-    results <- facts.toMap().commit
+    results <- facts.toMap.commit
   } yield results
 }
 
