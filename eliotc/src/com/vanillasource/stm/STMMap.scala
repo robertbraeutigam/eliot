@@ -1,10 +1,7 @@
 package com.vanillasource.stm
 
-import cats.free.Free
 import cats.syntax.all.*
 import com.vanillasource.stm.STM.*
-
-import scala.collection.concurrent.TrieMap
 
 case class STMMap[K, V] private (stmMap: STMVar[Map[K, V]]) {
   def lookup(key: K): STM[Option[V]] = stmMap.get().map(_.get(key))
