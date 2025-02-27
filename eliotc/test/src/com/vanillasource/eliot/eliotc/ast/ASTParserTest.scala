@@ -142,6 +142,10 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("data a").asserting(_ shouldBe Seq("Expected type name, but encountered identifier 'a'."))
   }
 
+  it should "parse function literal with one parameter without parenthesis" in {
+    runEngineForErrors("f: A = a:A -> a").asserting(_ shouldBe Seq.empty)
+  }
+
   private def parseForImports(source: String): IO[Seq[String]] = for {
     results <- runEngine(source)
   } yield {

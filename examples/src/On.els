@@ -8,6 +8,8 @@ id[A](a: A): A = a
 
 // c(a: Int): Int = b(a, a)
 
-data Function[A, B]
+//data Function[A, B]
 
-f[A]: Function[A]
+//f[A]: Function[A]
+
+f: A = a:A -> a

@@ -27,7 +27,7 @@ class TokenParser(file: File) {
       ),
       SymbolDesc(
         hardKeywords = Set("import", "data"),
-        hardOperators = Set("(", ")", "[", "]"),
+        hardOperators = Set("(", ")", "[", "]", "->"),
         caseSensitive = true
       ),
       NumericDesc.plain,
