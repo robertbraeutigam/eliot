@@ -98,7 +98,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "reject a function application with empty parameter list" in {
     runEngineForErrors("a: Byte = b()").asserting(
-      _ shouldBe Seq("Expected function name or integer literal, but encountered symbol ')'.")
+      _ shouldBe Seq("Expected symbol '(', symbol '->', function name or integer literal, but encountered symbol ')'.")
     )
   }
 
