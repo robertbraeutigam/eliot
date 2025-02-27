@@ -26,7 +26,7 @@ object Expression {
 
   given ASTComponent[Expression] = new ASTComponent[Expression] {
     override def parser: Parser[Sourced[Token], Expression] =
-      functionLiteral or functionApplication or integerLiteral
+      functionLiteral.atomic() or functionApplication or integerLiteral
 
     private val functionApplication: Parser[Sourced[Token], Expression] = for {
       name <- acceptIf(isIdentifier, "function name")
@@ -35,7 +35,7 @@ object Expression {
 
     private val functionLiteral: Parser[Sourced[Token], Expression] = for {
       parameters <-
-        optionalBracketedCommaSeparatedItems("(", component[ArgumentDefinition], ")") or
+        bracketedCommaSeparatedItems("(", component[ArgumentDefinition], ")") or
           component[ArgumentDefinition].map(Seq(_))
       _          <- symbol("->")
       body       <- parser

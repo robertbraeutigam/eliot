@@ -11,6 +11,15 @@ object Primitives {
   def optionalArgumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] =
     optionalBracketedCommaSeparatedItems("(", item, ")")
 
+  def bracketedCommaSeparatedItems[A](
+      bracketStartSymbol: String,
+      item: Parser[Sourced[Token], A],
+      bracketEndSymbol: String
+  ): Parser[Sourced[Token], Seq[A]] =
+    item
+      .atLeastOnceSeparatedBy(symbol(","))
+      .between(symbol(bracketStartSymbol), symbol(bracketEndSymbol))
+
   def optionalBracketedCommaSeparatedItems[A](
       bracketStartSymbol: String,
       item: Parser[Sourced[Token], A],
