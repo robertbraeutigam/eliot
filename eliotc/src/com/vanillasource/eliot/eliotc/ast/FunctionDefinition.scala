@@ -4,8 +4,8 @@ import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.Primitives.{
-  argumentListOf,
-  bracketedCommaSeparatedItems,
+  optionalArgumentListOf,
+  optionalBracketedCommaSeparatedItems,
   isIdentifier,
   isLowerCase,
   isTopLevel,
@@ -33,7 +33,7 @@ object FunctionDefinition {
     override val parser: Parser[Sourced[Token], FunctionDefinition] = for {
       name              <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
       genericParameters <- component[Seq[GenericParameter]]
-      args              <- argumentListOf(component[ArgumentDefinition])
+      args              <- optionalArgumentListOf(component[ArgumentDefinition])
       _                 <- symbol(":")
       typeReference     <- component[TypeReference]
       functionBody      <- functionBody

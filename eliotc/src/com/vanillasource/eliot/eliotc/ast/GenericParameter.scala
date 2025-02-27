@@ -12,11 +12,11 @@ case class GenericParameter(name: Sourced[Token], genericParameters: Seq[TypeRef
 object GenericParameter {
   given ASTComponent[Seq[GenericParameter]] = new ASTComponent[Seq[GenericParameter]] {
     override def parser: Parser[Sourced[Token], Seq[GenericParameter]] =
-      bracketedCommaSeparatedItems("[", genericParameter, "]")
+      optionalBracketedCommaSeparatedItems("[", genericParameter, "]")
 
     private val genericParameter = for {
       name              <- acceptIfAll(isUpperCase, isIdentifier)("generic type parameter")
-      genericParameters <- bracketedCommaSeparatedItems("[", component[TypeReference], "]")
+      genericParameters <- optionalBracketedCommaSeparatedItems("[", component[TypeReference], "]")
     } yield GenericParameter(name, genericParameters)
   }
 }

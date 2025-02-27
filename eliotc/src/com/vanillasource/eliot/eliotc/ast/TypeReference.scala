@@ -17,7 +17,7 @@ object TypeReference {
   given ASTComponent[TypeReference] = new ASTComponent[TypeReference] {
     override val parser: Parser[Sourced[Token], TypeReference] = for {
       name              <- acceptIfAll(isIdentifier, isUpperCase)("type name")
-      genericParameters <- bracketedCommaSeparatedItems("[", parser, "]")
+      genericParameters <- optionalBracketedCommaSeparatedItems("[", parser, "]")
     } yield TypeReference(name, genericParameters)
   }
 }

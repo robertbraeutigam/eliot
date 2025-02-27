@@ -30,12 +30,12 @@ object Expression {
 
     private val functionApplication: Parser[Sourced[Token], Expression] = for {
       name <- acceptIf(isIdentifier, "function name")
-      args <- argumentListOf(parser)
+      args <- optionalArgumentListOf(parser)
     } yield FunctionApplication(name, args)
 
     private val functionLiteral: Parser[Sourced[Token], Expression] = for {
       parameters <-
-        bracketedCommaSeparatedItems("(", component[ArgumentDefinition], ")") or
+        optionalBracketedCommaSeparatedItems("(", component[ArgumentDefinition], ")") or
           component[ArgumentDefinition].map(Seq(_))
       _          <- symbol("->")
       body       <- parser

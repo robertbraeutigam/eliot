@@ -8,10 +8,10 @@ import com.vanillasource.parser.Parser
 import com.vanillasource.parser.Parser.*
 
 object Primitives {
-  def argumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] =
-    bracketedCommaSeparatedItems("(", item, ")")
+  def optionalArgumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] =
+    optionalBracketedCommaSeparatedItems("(", item, ")")
 
-  def bracketedCommaSeparatedItems[A](
+  def optionalBracketedCommaSeparatedItems[A](
       bracketStartSymbol: String,
       item: Parser[Sourced[Token], A],
       bracketEndSymbol: String
