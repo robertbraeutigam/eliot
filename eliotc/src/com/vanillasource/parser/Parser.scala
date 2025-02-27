@@ -28,7 +28,7 @@ object Parser {
       */
     def parse(input: Seq[I]): ParserResult[O] = p.runA(InputStream.of(input))
 
-    /** Save the error into the errors list. This does not alter the result in any other way, the parser will still fail
+    /** Save the error into the error list. This does not alter the result in any other way, the parser will still fail
       * on error.
       */
     private def saveError(): Parser[I, O] = StateT { input =>
@@ -42,8 +42,8 @@ object Parser {
       */
     def fully(): Parser[I, O] = p <* endOfInput()
 
-    /** Match the given parser optionally. The parser returns None, if the given parser can be skipped, i.e. it consumes
-      * no input.
+    /** Match the given parser optionally. The parser returns None, if the given parser can be skipped, i.e., it
+      * consumes no input.
       */
     def optional(): Parser[I, Option[O]] = StateT { input =>
       p.run(input) match
@@ -53,12 +53,12 @@ object Parser {
     }
 
     /** Attempt this parser for the input until the given other parser. If the parser fails, the error will be saved and
-      * the input will skip to the given delimeter.
+      * the input will skip to the given delimiter.
       */
-    def attemptPhraseTo(delimeter: Parser[I, _]): Parser[I, Option[O]] = p
-      .followedBy(delimeter)
+    def attemptPhraseTo(delimiter: Parser[I, _]): Parser[I, Option[O]] = p
+      .followedBy(delimiter)
       .saveError()
-      .recoverWith(delimeter.skipTo())
+      .recoverWith(delimiter.skipTo())
 
     /** Match the given parser zero or more times. */
     def anyTimes(): Parser[I, Seq[O]] = anyTimesWhile(().pure)
@@ -81,7 +81,7 @@ object Parser {
     } yield head +: tail
 
     /** Accept this parser at least once separated by another parser. If this parser only matches once, the separator is
-      * not used, otherwise it is.
+      * not used. Otherwise, it is.
       */
     def atLeastOnceSeparatedBy(sep: Parser[I, _]): Parser[I, Seq[O]] = for {
       head <- p
@@ -105,9 +105,9 @@ object Parser {
       */
     def atomic(): Parser[I, O] = StateT { input =>
       p.run(input) match
-        case ParserResult(_, currentError, allErrors, None) =>
+        case ParserResult(_, _, allErrors, None) =>
           ParserResult(NotConsumed, ParserError.noError, allErrors, None)
-        case other                                          => other
+        case other                               => other
     }
 
     /** Find the given parser in the stream. The resulting parser will advance the stream until the parser can be
@@ -141,10 +141,10 @@ object Parser {
     /** Will match if this parser matches the input, but will not consume any input regardless of success or failure.
       */
     def lookahead(): Parser[I, O] = StateT { input =>
-      p.run(input).copy(consume = NotConsumed).map((newInput, o) => (input, o))
+      p.run(input).copy(consume = NotConsumed).map((_, o) => (input, o))
     }
 
-    /** Returns the result of the first parser, if it succeeds, or the second one if the first one fails without
+    /** Returns the result of the first parser if it succeeds, or the second one if the first one fails without
       * consuming any input.
       */
     def or(p2: Parser[I, O]): Parser[I, O] =
@@ -199,7 +199,7 @@ object Parser {
     */
   def any[I](): Parser[I, I] = acceptIf(_ => true, "input")
 
-  /** Accept a single token if all of the given predicates hold.
+  /** Accept a single token if all the given predicates hold.
     */
   def acceptIfAll[I](predicates: (I => Boolean)*)(expected: String): Parser[I, I] =
     acceptIf(i => predicates.forall(_.apply(i)), expected)
