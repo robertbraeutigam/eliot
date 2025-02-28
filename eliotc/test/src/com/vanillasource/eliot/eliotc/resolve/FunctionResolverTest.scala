@@ -71,6 +71,24 @@ class FunctionResolverTest extends ProcessorTest(Tokenizer(), ASTParser(), Modul
     )
   }
 
+  it should "not resolve lambda with unknown parameter type" in {
+    runEngineForErrors("data String\nf: String = a:A -> a").asserting(
+      _ shouldBe Seq("Type not defined.")
+    )
+  }
+
+  it should "not resolve lambda unknown variable/function as body" in {
+    runEngineForErrors("data String\nf: String = a:String -> b").asserting(
+      _ shouldBe Seq("Function not defined.")
+    )
+  }
+
+  it should "resolve lambda with proper type and returning the input parameter" in {
+    runEngineForErrors("data String\nf: String = a:String -> a").asserting(
+      _ shouldBe Seq()
+    )
+  }
+
   private def parseForExpressions(source: String): IO[Seq[Expression]] = for {
     results <- runEngine(source)
   } yield {
