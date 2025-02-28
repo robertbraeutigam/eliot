@@ -43,37 +43,43 @@ class FunctionResolver extends CompilerProcessor with Logging {
       args: Seq[ast.ArgumentDefinition],
       typeReference: ast.TypeReference,
       body: Option[ast.Expression]
-  )(using process: CompilationProcess): OptionT[IO, Unit] = for {
-    resolvedBody              <- body.map(expr => resolveExpression(functionDictionary, expr, args)).sequence
-    genericParametersMap       = genericParameters.map(gp => gp.name.value.content -> gp).toMap
-    returnType                <- resolveType(typeReference, genericParametersMap, typeDictionary)
-    argumentTypes             <- args.map(_.typeReference).traverse(tr => resolveType(tr, genericParametersMap, typeDictionary))
-    resolvedGenericParameters <-
-      genericParameters.traverse(genericParameter =>
-        genericParameter.genericParameters
-          .traverse(typeReference => resolveType(typeReference, genericParametersMap, typeDictionary))
-          .map(resolvedGenericTypes =>
-            UniversalGenericParameter(genericParameter.name.map(_.content), resolvedGenericTypes)
-          )
-      )
-    _                         <-
-      process
-        .registerFact(
-          ResolvedFunction(
-            ffqn,
-            FunctionDefinition(
-              name.map(_.content),
-              resolvedGenericParameters,
-              args
-                .zip(argumentTypes)
-                .map((argDef, argType) => ArgumentDefinition(argDef.name.map(_.content), argType)),
-              returnType,
-              resolvedBody
+  )(using process: CompilationProcess): OptionT[IO, Unit] = {
+    val genericParametersMap = genericParameters.map(gp => gp.name.value.content -> gp).toMap
+
+    for {
+      resolvedBody              <-
+        body
+          .map(expr => resolveExpression(functionDictionary, typeDictionary, genericParametersMap, expr, args))
+          .sequence
+      returnType                <- resolveType(typeReference, genericParametersMap, typeDictionary)
+      argumentTypes             <- args.map(_.typeReference).traverse(tr => resolveType(tr, genericParametersMap, typeDictionary))
+      resolvedGenericParameters <-
+        genericParameters.traverse(genericParameter =>
+          genericParameter.genericParameters
+            .traverse(typeReference => resolveType(typeReference, genericParametersMap, typeDictionary))
+            .map(resolvedGenericTypes =>
+              UniversalGenericParameter(genericParameter.name.map(_.content), resolvedGenericTypes)
+            )
+        )
+      _                         <-
+        process
+          .registerFact(
+            ResolvedFunction(
+              ffqn,
+              FunctionDefinition(
+                name.map(_.content),
+                resolvedGenericParameters,
+                args
+                  .zip(argumentTypes)
+                  .map((argDef, argType) => ArgumentDefinition(argDef.name.map(_.content), argType)),
+                returnType,
+                resolvedBody
+              )
             )
           )
-        )
-        .liftOptionT
-  } yield ()
+          .liftOptionT
+    } yield ()
+  }
 
   private def resolveType(
       reference: ast.TypeReference,
@@ -112,7 +118,9 @@ class FunctionResolver extends CompilerProcessor with Logging {
   } yield resolvedType
 
   private def resolveExpression(
-      dictionary: Map[String, FunctionFQN],
+      functionDictionary: Map[String, FunctionFQN],
+      typeDictionary: Map[String, TypeFQN],
+      genericParameters: Map[String, ast.GenericParameter],
       expr: ast.Expression,
       callArgs: Seq[ast.ArgumentDefinition]
   )(using
@@ -123,12 +131,26 @@ class FunctionResolver extends CompilerProcessor with Logging {
           if callArgs.map(_.name.value.content).contains(token.content) =>
         Expression.ParameterReference(s.as(token.content)).pure
       case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), args)            =>
-        dictionary.get(token.content) match
+        functionDictionary.get(token.content) match
           case Some(ffqn) =>
             for {
-              newArgs <- args.map(arg => resolveExpression(dictionary, arg, callArgs)).sequence
+              newArgs <-
+                args
+                  .map(arg => resolveExpression(functionDictionary, typeDictionary, genericParameters, arg, callArgs))
+                  .sequence
             } yield Expression.FunctionApplication(s.as(ffqn), newArgs)
           case None       => registerCompilerError(s.as(s"Function not defined.")).liftOptionTNone
+      case ast.Expression.FunctionLiteral(parameters, body)                              =>
+        for {
+          resolvedParameters <-
+            parameters
+              .traverse(arg =>
+                resolveType(arg.typeReference, genericParameters, typeDictionary).map(resolvedType =>
+                  ArgumentDefinition(arg.name.map(_.content), resolvedType)
+                )
+              )
+          resolvedExpression <- resolveExpression(functionDictionary, typeDictionary, genericParameters, body, callArgs)
+        } yield Expression.FunctionLiteral(resolvedParameters, resolvedExpression)
       case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value))) =>
         Expression.IntegerLiteral(s.as(value)).pure
       case ast.Expression.IntegerLiteral(s)                                              =>
