@@ -2,10 +2,10 @@ package com.vanillasource.eliot.eliotc.main
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ast.ASTParser
-import com.vanillasource.eliot.eliotc.resolve.FunctionResolver
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.ModuleProcessor
 import com.vanillasource.eliot.eliotc.output.OutputWriter
+import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
 import com.vanillasource.eliot.eliotc.source.{
   InitSourcePaths,
   SourceContentReader,

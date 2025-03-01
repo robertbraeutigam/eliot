@@ -1,7 +1,8 @@
-package com.vanillasource.eliot.eliotc.resolve
+package com.vanillasource.eliot.eliotc.resolve.fact
 
-import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
+import com.vanillasource.eliot.eliotc.resolve.fact.FunctionDefinition
+import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
 case class ResolvedFunction(ffqn: FunctionFQN, definition: FunctionDefinition) extends CompilerFact {
   override def key(): CompilerFactKey = ResolvedFunction.Key(ffqn)

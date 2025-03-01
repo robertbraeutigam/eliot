@@ -4,7 +4,9 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleName, ModuleProcessor}
-import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral, ParameterReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction}
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{FunctionApplication, IntegerLiteral, ParameterReference}
+import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 

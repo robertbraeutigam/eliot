@@ -1,9 +1,9 @@
-package com.vanillasource.eliot.eliotc.resolve
+package com.vanillasource.eliot.eliotc.resolve.fact
 
+import cats.syntax.all.*
 import cats.{Order, Show}
 import com.vanillasource.eliot.eliotc.module.TypeFQN
 import com.vanillasource.eliot.eliotc.source.Sourced
-import cats.syntax.all.*
 
 sealed trait TypeReference
 

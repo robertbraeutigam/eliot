@@ -1,18 +1,18 @@
-package com.vanillasource.eliot.eliotc.resolve
+package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.data.OptionT
-import com.vanillasource.util.CatsOps.*
-import com.vanillasource.eliot.eliotc.ast
 import cats.effect.IO
-import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.source.Sourced
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleData, ModuleFunction, TypeFQN}
-import com.vanillasource.eliot.eliotc.resolve.GenericParameter.UniversalGenericParameter
-import com.vanillasource.eliot.eliotc.resolve.TypeReference.*
+import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
+import com.vanillasource.eliot.eliotc.resolve.fact.*
+import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.token.Token
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor, ast}
+import com.vanillasource.util.CatsOps.*
 
 class FunctionResolver extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match

@@ -1,8 +1,9 @@
-package com.vanillasource.eliot.eliotc.resolve
+package com.vanillasource.eliot.eliotc.resolve.fact
 
 import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.FunctionFQN
+import com.vanillasource.eliot.eliotc.resolve.fact.ArgumentDefinition
 import com.vanillasource.eliot.eliotc.source.Sourced
 
 sealed trait Expression

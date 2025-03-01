@@ -6,9 +6,9 @@ import cats.effect.IO
 import cats.implicits.*
 import cats.kernel.Monoid
 import com.vanillasource.eliot.eliotc.CompilationProcess
-import com.vanillasource.eliot.eliotc.resolve.GenericParameter.UniversalGenericParameter
-import com.vanillasource.eliot.eliotc.resolve.TypeReference.{DirectTypeReference, GenericTypeReference}
-import com.vanillasource.eliot.eliotc.resolve.{GenericParameter, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.{GenericParameter, TypeReference}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 
 case class TypeUnification private (

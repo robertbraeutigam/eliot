@@ -6,9 +6,9 @@ import cats.kernel.Monoid
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.resolve.Expression.{FunctionApplication, IntegerLiteral, ParameterReference}
-import com.vanillasource.eliot.eliotc.resolve.TypeReference.DirectTypeReference
-import com.vanillasource.eliot.eliotc.resolve.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{FunctionApplication, IntegerLiteral, ParameterReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.{assignment, genericParameters}

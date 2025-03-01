@@ -4,7 +4,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleProcessor}
-import com.vanillasource.eliot.eliotc.resolve.FunctionResolver
+import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class TypeCheckProcessorTest

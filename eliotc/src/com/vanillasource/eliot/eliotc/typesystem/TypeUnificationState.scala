@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.typesystem
 
-import com.vanillasource.eliot.eliotc.resolve.TypeReference
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference
 import com.vanillasource.eliot.eliotc.typesystem.TypeUnificationState.UnifiedType
 
 case class TypeUnificationState(states: Map[String, UnifiedType] = Map.empty) {
