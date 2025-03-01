@@ -44,19 +44,21 @@ class FunctionResolver extends CompilerProcessor with Logging {
       typeReference: ast.TypeReference,
       body: Option[ast.Expression]
   )(using process: CompilationProcess): OptionT[IO, Unit] = {
-    val genericParametersMap = genericParameters.map(gp => gp.name.value.content -> gp).toMap
+    val scope = ResolverScope(
+      functionDictionary,
+      typeDictionary,
+      genericParameters.map(gp => gp.name.value.content -> gp).toMap,
+      args.map(arg => arg.name.value.content -> arg).toMap
+    )
 
     for {
-      resolvedBody              <-
-        body
-          .map(expr => resolveExpression(functionDictionary, typeDictionary, genericParametersMap, expr, args))
-          .sequence
-      returnType                <- resolveType(typeReference, genericParametersMap, typeDictionary)
-      argumentTypes             <- args.map(_.typeReference).traverse(tr => resolveType(tr, genericParametersMap, typeDictionary))
+      resolvedBody              <- body.traverse(expr => resolveExpression(scope, expr))
+      returnType                <- resolveType(scope, typeReference)
+      argumentTypes             <- args.map(_.typeReference).traverse(tr => resolveType(scope, tr))
       resolvedGenericParameters <-
         genericParameters.traverse(genericParameter =>
           genericParameter.genericParameters
-            .traverse(typeReference => resolveType(typeReference, genericParametersMap, typeDictionary))
+            .traverse(typeReference => resolveType(scope, typeReference))
             .map(resolvedGenericTypes =>
               UniversalGenericParameter(genericParameter.name.map(_.content), resolvedGenericTypes)
             )
@@ -82,15 +84,14 @@ class FunctionResolver extends CompilerProcessor with Logging {
   }
 
   private def resolveType(
-      reference: ast.TypeReference,
-      genericParameters: Map[String, ast.GenericParameter],
-      typeDictionary: Map[String, TypeFQN]
+      scope: ResolverScope,
+      reference: ast.TypeReference
   )(using
       process: CompilationProcess
   ): OptionT[IO, TypeReference] = for {
     resolvedGenericParameters <-
-      reference.genericParameters.traverse(param => resolveType(param, genericParameters, typeDictionary))
-    resolvedType              <- genericParameters.get(reference.typeName.value.content) match
+      reference.genericParameters.traverse(param => resolveType(scope, param))
+    resolvedType              <- scope.visibleGenericTypes.get(reference.typeName.value.content) match
                                    case Some(genericParameter) =>
                                      if (genericParameter.genericParameters.length =!= resolvedGenericParameters.length) {
                                        registerCompilerError(
@@ -102,7 +103,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
                                          .liftOptionT
                                      }
                                    case None                   =>
-                                     typeDictionary.get(reference.typeName.value.content) match
+                                     scope.typeDictionary.get(reference.typeName.value.content) match
                                        case Some(typeFqn) =>
                                          for {
                                            dataDefinition <- process.getFact(ModuleData.Key(typeFqn)).toOptionT
@@ -118,42 +119,35 @@ class FunctionResolver extends CompilerProcessor with Logging {
   } yield resolvedType
 
   private def resolveExpression(
-      functionDictionary: Map[String, FunctionFQN],
-      typeDictionary: Map[String, TypeFQN],
-      genericParameters: Map[String, ast.GenericParameter],
-      expr: ast.Expression,
-      callArgs: Seq[ast.ArgumentDefinition]
+      scope: ResolverScope,
+      expr: ast.Expression
   )(using
       process: CompilationProcess
   ): OptionT[IO, Expression] =
     expr match {
-      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), _)
-          if callArgs.map(_.name.value.content).contains(token.content) =>
+      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), _) if scope.isValueVisible(token.content) =>
         Expression.ParameterReference(s.as(token.content)).pure
-      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), args)            =>
-        functionDictionary.get(token.content) match
+      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), args)                                     =>
+        scope.functionDictionary.get(token.content) match
           case Some(ffqn) =>
             for {
-              newArgs <-
-                args
-                  .map(arg => resolveExpression(functionDictionary, typeDictionary, genericParameters, arg, callArgs))
-                  .sequence
+              newArgs <- args.traverse(arg => resolveExpression(scope, arg))
             } yield Expression.FunctionApplication(s.as(ffqn), newArgs)
           case None       => registerCompilerError(s.as(s"Function not defined.")).liftOptionTNone
-      case ast.Expression.FunctionLiteral(parameters, body)                              =>
+      case ast.Expression.FunctionLiteral(parameters, body)                                                       =>
         for {
           resolvedParameters <-
             parameters
               .traverse(arg =>
-                resolveType(arg.typeReference, genericParameters, typeDictionary).map(resolvedType =>
+                resolveType(scope, arg.typeReference).map(resolvedType =>
                   ArgumentDefinition(arg.name.map(_.content), resolvedType)
                 )
               )
-          resolvedExpression <- resolveExpression(functionDictionary, typeDictionary, genericParameters, body, callArgs)
+          resolvedExpression <- resolveExpression(scope, body)
         } yield Expression.FunctionLiteral(resolvedParameters, resolvedExpression)
-      case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value))) =>
+      case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value)))                          =>
         Expression.IntegerLiteral(s.as(value)).pure
-      case ast.Expression.IntegerLiteral(s)                                              =>
+      case ast.Expression.IntegerLiteral(s)                                                                       =>
         registerCompilerError(s.as(s"Internal compiler error, not parsed as an integer literal.")).liftOptionTNone
     }
 }
