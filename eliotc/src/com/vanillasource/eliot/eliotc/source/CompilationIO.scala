@@ -11,7 +11,7 @@ import java.io.File
 object CompilationIO {
   type CompilationIO[T] = StateT[IO, Boolean, T]
 
-  val compilationError: CompilationIO[Unit] = StateT.set[IO, Boolean](false)
+  private val compilationError: CompilationIO[Unit] = StateT.set[IO, Boolean](false)
 
   extension [A](value: IO[A]) {
     def liftToCompilationIO: CompilationIO[A] = StateT.liftF[IO, Boolean, A](value)
