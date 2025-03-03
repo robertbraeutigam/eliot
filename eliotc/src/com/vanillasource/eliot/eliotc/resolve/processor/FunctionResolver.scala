@@ -47,7 +47,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
     val scope = ResolverScope(
       functionDictionary,
       typeDictionary,
-      genericParameters.map(gp => gp.name.value.content -> gp).toMap,
+      genericParameters.map(gp => gp.name.value -> gp).toMap,
       args.map(arg => arg.name.value -> arg).toMap
     )
 
@@ -59,9 +59,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
         genericParameters.traverse(genericParameter =>
           genericParameter.genericParameters
             .traverse(resolveType)
-            .map(resolvedGenericTypes =>
-              UniversalGenericParameter(genericParameter.name.map(_.content), resolvedGenericTypes)
-            )
+            .map(resolvedGenericTypes => UniversalGenericParameter(genericParameter.name, resolvedGenericTypes))
         )
       _                         <-
         process
@@ -96,7 +94,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
                                            reference.typeName.as("Incorrect number of generic parameters for type.")
                                          ).liftToScoped
                                        } else {
-                                         GenericTypeReference(genericParameter.name.map(_.content), resolvedGenericParameters)
+                                         GenericTypeReference(genericParameter.name, resolvedGenericParameters)
                                            .pure[ScopedIO]
                                        }
                                      case None                   =>

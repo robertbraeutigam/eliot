@@ -6,8 +6,9 @@ import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.parser.Parser
 import com.vanillasource.parser.Parser.acceptIfAll
+import cats.syntax.all.*
 
-case class GenericParameter(name: Sourced[Token], genericParameters: Seq[TypeReference])
+case class GenericParameter(name: Sourced[String], genericParameters: Seq[TypeReference])
 
 object GenericParameter {
   given ASTComponent[Seq[GenericParameter]] = new ASTComponent[Seq[GenericParameter]] {
@@ -17,6 +18,6 @@ object GenericParameter {
     private val genericParameter = for {
       name              <- acceptIfAll(isUpperCase, isIdentifier)("generic type parameter")
       genericParameters <- optionalBracketedCommaSeparatedItems("[", component[TypeReference], "]")
-    } yield GenericParameter(name, genericParameters)
+    } yield GenericParameter(name.map(_.content), genericParameters)
   }
 }
