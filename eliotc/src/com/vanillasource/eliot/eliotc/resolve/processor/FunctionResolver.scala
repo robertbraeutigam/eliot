@@ -38,7 +38,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
       ffqn: FunctionFQN,
       functionDictionary: Map[String, FunctionFQN],
       typeDictionary: Map[String, TypeFQN],
-      name: Sourced[Token],
+      name: Sourced[String],
       genericParameters: Seq[ast.GenericParameter],
       args: Seq[ast.ArgumentDefinition],
       typeReference: ast.TypeReference,
@@ -67,7 +67,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
             ResolvedFunction(
               ffqn,
               FunctionDefinition(
-                name.map(_.content),
+                name,
                 resolvedGenericParameters,
                 args
                   .zip(argumentTypes)

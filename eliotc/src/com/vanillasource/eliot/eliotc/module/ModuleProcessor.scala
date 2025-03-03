@@ -120,7 +120,7 @@ class ModuleProcessor extends CompilerProcessor with Logging {
   private def extractFunction(
       previousFunctions: Map[String, FunctionDefinition],
       current: FunctionDefinition
-  )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] = current.name.value.content match
+  )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] = current.name.value match
     case fn if previousFunctions.contains(fn)                                  =>
       registerCompilerError(current.name.as("Function was already defined in this module.")).as(previousFunctions)
     case fn if !fn.charAt(0).isLower                                           =>

@@ -18,7 +18,7 @@ import com.vanillasource.parser.Parser
 import com.vanillasource.parser.Parser.*
 
 case class FunctionDefinition(
-    name: Sourced[Token],
+    name: Sourced[String],
     genericParameters: Seq[GenericParameter],
     args: Seq[ArgumentDefinition],
     typeDefinition: TypeReference,
@@ -37,7 +37,7 @@ object FunctionDefinition {
       _                 <- symbol(":")
       typeReference     <- component[TypeReference]
       functionBody      <- functionBody
-    } yield FunctionDefinition(name, genericParameters, args, typeReference, functionBody)
+    } yield FunctionDefinition(name.map(_.content), genericParameters, args, typeReference, functionBody)
 
     private val functionBody =
       (symbol("=") *> component[Expression]).optional()
