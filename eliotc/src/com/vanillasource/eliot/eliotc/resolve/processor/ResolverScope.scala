@@ -25,9 +25,9 @@ object ResolverScope {
   def addVisibleValue(arg: ast.ArgumentDefinition)(using CompilationProcess): ScopedIO[Unit] = for {
     visibleValues <- StateT.get[CompilationIO, ResolverScope].map(_.visibleValues)
     _             <- compilerAbort(arg.name.as("Name already exists in scope.")).liftToScoped
-                       .whenA(visibleValues.contains(arg.name.value.content))
+                       .whenA(visibleValues.contains(arg.name.value))
     _             <- StateT.modify[CompilationIO, ResolverScope](
-                       _.copy(visibleValues = visibleValues + (arg.name.value.content -> arg))
+                       _.copy(visibleValues = visibleValues + (arg.name.value -> arg))
                      )
   } yield ()
 

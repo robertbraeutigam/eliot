@@ -48,7 +48,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
       functionDictionary,
       typeDictionary,
       genericParameters.map(gp => gp.name.value.content -> gp).toMap,
-      args.map(arg => arg.name.value.content -> arg).toMap
+      args.map(arg => arg.name.value -> arg).toMap
     )
 
     val resolveProgram = for {
@@ -73,7 +73,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
                 resolvedGenericParameters,
                 args
                   .zip(argumentTypes)
-                  .map((argDef, argType) => ArgumentDefinition(argDef.name.map(_.content), argType)),
+                  .map((argDef, argType) => ArgumentDefinition(argDef.name, argType)),
                 returnType,
                 resolvedBody
               )
@@ -135,9 +135,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
           resolvedParameters <-
             parameters
               .traverse(arg =>
-                resolveType(arg.typeReference).map(resolvedType =>
-                  ArgumentDefinition(arg.name.map(_.content), resolvedType)
-                )
+                resolveType(arg.typeReference).map(resolvedType => ArgumentDefinition(arg.name, resolvedType))
               )
           _                  <- parameters.traverse(addVisibleValue)
           resolvedExpression <- resolveExpression(body)

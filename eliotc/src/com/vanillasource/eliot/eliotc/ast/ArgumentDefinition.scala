@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.parser.Parser
 import com.vanillasource.parser.Parser.acceptIf
 
-case class ArgumentDefinition(name: Sourced[Token], typeReference: TypeReference)
+case class ArgumentDefinition(name: Sourced[String], typeReference: TypeReference)
 
 object ArgumentDefinition {
   given Show[ArgumentDefinition] = _.name.show
@@ -19,6 +19,6 @@ object ArgumentDefinition {
       name          <- acceptIf(isIdentifier, "argument name")
       _             <- symbol(":")
       typeReference <- component[TypeReference]
-    } yield ArgumentDefinition(name, typeReference)
+    } yield ArgumentDefinition(name.map(_.content), typeReference)
   }
 }
