@@ -155,7 +155,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   } yield {
     results.values
       .collect { case SourceAST(_, AST(statements, _, _)) =>
-        statements.map(i => (i.packageNames.map(_.value.content) :+ i.moduleName.value.content).mkString("."))
+        statements.map(i => (i.packageNames.map(_.value) :+ i.moduleName.value).mkString("."))
       }
       .toSeq
       .flatten

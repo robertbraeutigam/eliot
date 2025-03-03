@@ -9,9 +9,9 @@ import com.vanillasource.parser.Parser
 import com.vanillasource.parser.Parser.*
 
 case class ImportStatement(
-    keyword: Sourced[Token],
-    packageNames: Seq[Sourced[Token]],
-    moduleName: Sourced[Token]
+    keyword: Sourced[String],
+    packageNames: Seq[Sourced[String]],
+    moduleName: Sourced[String]
 ) {
   def outline: Sourced[Unit] = Sourced.outline(packageNames :+ moduleName)
 }
@@ -24,7 +24,7 @@ object ImportStatement {
       keyword      <- topLevelKeyword("import")
       packageNames <- (packageNameOnSameLineAs(keyword) <* symbol(".")).anyTimes()
       moduleName   <- moduleNameOnSameLineAs(keyword)
-    } yield ImportStatement(keyword, packageNames, moduleName)
+    } yield ImportStatement(keyword.map(_.content), packageNames.map(_.map(_.content)), moduleName.map(_.content))
 
     private def moduleNameOnSameLineAs(keyword: Sourced[Token]) =
       acceptIfAll(isIdentifier, isUpperCase, isOnSameLineAs(keyword))("module name")
