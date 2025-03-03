@@ -72,6 +72,8 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
                                        )
                                    }
         } yield result
+      case Expression.FunctionLiteral(parameters, body) => // FIXME: needs 1 parameter to make Function[A, B]
+        ???
 
   private def checkFunctionApplicationTypes(
       namespace: String,
