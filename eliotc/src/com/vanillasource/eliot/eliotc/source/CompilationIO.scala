@@ -15,7 +15,11 @@ object CompilationIO {
 
   val compilationError: CompilationIO[Unit] = StateT.set[OptionIOT, Boolean](false)
 
-  val compilationAbort: CompilationIO[Unit] = StateT.liftF(OptionT.none)
+  def compilationAbort[T]: CompilationIO[T] = StateT.liftF(OptionT.none)
+
+  extension [A](value: IO[Option[A]]) {
+    def liftOptionToCompilationIO: CompilationIO[A] = StateT.liftF[OptionIOT, Boolean, A](OptionT(value))
+  }
 
   extension [A](value: IO[A]) {
     def liftToCompilationIO: CompilationIO[A] = StateT.liftF[OptionIOT, Boolean, A](value.map(Some.apply).toOptionT)
@@ -36,9 +40,9 @@ object CompilationIO {
   def compilerError(file: File, message: String)(using process: CompilationProcess): CompilationIO[Unit] =
     registerCompilerError(file, message).liftToCompilationIO >> compilationError
 
-  def compilerAbort(message: Sourced[String])(using process: CompilationProcess): CompilationIO[Unit] =
+  def compilerAbort[T](message: Sourced[String])(using process: CompilationProcess): CompilationIO[T] =
     compilerError(message) >> compilationAbort
 
-  def compilerAbort(file: File, message: String)(using process: CompilationProcess): CompilationIO[Unit] =
+  def compilerAbort[T](file: File, message: String)(using process: CompilationProcess): CompilationIO[T] =
     compilerError(file, message) >> compilationAbort
 }

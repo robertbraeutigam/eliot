@@ -8,8 +8,8 @@ import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleData, ModuleFun
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.*
+import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
-import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor, ast}
 import com.vanillasource.util.CatsOps.*
@@ -31,7 +31,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
         args,
         typeDefinition,
         body
-      ).value.void
+      ).runCompilation_()
     case _ => IO.unit
 
   private def process(
@@ -43,7 +43,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
       args: Seq[ast.ArgumentDefinition],
       typeReference: ast.TypeReference,
       body: Option[ast.Expression]
-  )(using process: CompilationProcess): OptionT[IO, Unit] = {
+  )(using process: CompilationProcess): CompilationIO[Unit] = {
     val scope = ResolverScope(
       functionDictionary,
       typeDictionary,
@@ -79,7 +79,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
               )
             )
           )
-          .liftOptionT
+          .liftToCompilationIO
     } yield ()
   }
 
@@ -88,34 +88,30 @@ class FunctionResolver extends CompilerProcessor with Logging {
       reference: ast.TypeReference
   )(using
       process: CompilationProcess
-  ): OptionT[IO, TypeReference] = for {
+  ): CompilationIO[TypeReference] = for {
     resolvedGenericParameters <-
       reference.genericParameters.traverse(param => resolveType(scope, param))
     resolvedType              <- scope.visibleGenericTypes.get(reference.typeName.value.content) match
                                    case Some(genericParameter) =>
                                      if (genericParameter.genericParameters.length =!= resolvedGenericParameters.length) {
-                                       registerCompilerError(
-                                         reference.typeName.as("Incorrect number of generic parameters for type.")
-                                       ).liftOptionTNone
+                                       compilerAbort(reference.typeName.as("Incorrect number of generic parameters for type."))
                                      } else {
                                        GenericTypeReference(genericParameter.name.map(_.content), resolvedGenericParameters)
-                                         .pure[IO]
-                                         .liftOptionT
+                                         .pure[CompilationIO]
                                      }
                                    case None                   =>
                                      scope.typeDictionary.get(reference.typeName.value.content) match
                                        case Some(typeFqn) =>
                                          for {
-                                           dataDefinition <- process.getFact(ModuleData.Key(typeFqn)).toOptionT
+                                           dataDefinition <- process.getFact(ModuleData.Key(typeFqn)).liftOptionToCompilationIO
                                            _              <-
-                                             registerCompilerError(
+                                             compilerAbort(
                                                reference.typeName.as("Incorrect number of generic parameters for type.")
-                                             ).liftOptionTNone
-                                               .whenA(
-                                                 dataDefinition.dataDefinition.genericParameters.length =!= resolvedGenericParameters.length
-                                               )
+                                             ).whenA(
+                                               dataDefinition.dataDefinition.genericParameters.length =!= resolvedGenericParameters.length
+                                             )
                                          } yield DirectTypeReference(reference.typeName.as(typeFqn), resolvedGenericParameters)
-                                       case None          => registerCompilerError(reference.typeName.as("Type not defined.")).liftOptionTNone
+                                       case None          => compilerAbort(reference.typeName.as("Type not defined."))
   } yield resolvedType
 
   private def resolveExpression(
@@ -123,7 +119,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
       expr: ast.Expression
   )(using
       process: CompilationProcess
-  ): OptionT[IO, Expression] =
+  ): CompilationIO[Expression] =
     expr match {
       case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), _) if scope.isValueVisible(token.content) =>
         Expression.ParameterReference(s.as(token.content)).pure
@@ -133,7 +129,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
             for {
               newArgs <- args.traverse(arg => resolveExpression(scope, arg))
             } yield Expression.FunctionApplication(s.as(ffqn), newArgs)
-          case None       => registerCompilerError(s.as(s"Function not defined.")).liftOptionTNone
+          case None       => compilerAbort(s.as(s"Function not defined."))
       case ast.Expression.FunctionLiteral(parameters, body)                                                       =>
         for {
           resolvedParameters <-
@@ -148,6 +144,6 @@ class FunctionResolver extends CompilerProcessor with Logging {
       case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value)))                          =>
         Expression.IntegerLiteral(s.as(value)).pure
       case ast.Expression.IntegerLiteral(s)                                                                       =>
-        registerCompilerError(s.as(s"Internal compiler error, not parsed as an integer literal.")).liftOptionTNone
+        compilerAbort(s.as(s"Internal compiler error, not parsed as an integer literal."))
     }
 }
