@@ -136,8 +136,8 @@ class FunctionResolver extends CompilerProcessor with Logging {
                 resolveType(arg.typeReference).map(resolvedType => ArgumentDefinition(arg.name, resolvedType))
               )
           _                  <- parameters.traverse(addVisibleValue)
-          resolvedExpression <- resolveExpression(body)
-        } yield Expression.FunctionLiteral(resolvedParameters, resolvedExpression)
+          resolvedBody       <- resolveExpression(body)
+        } yield resolvedParameters.foldRight(resolvedBody)(Expression.FunctionLiteral(_, _))
       case ast.Expression.IntegerLiteral(s @ Sourced(_, _, value))           =>
         Expression.IntegerLiteral(s.as(BigInt(value))).pure
     }
