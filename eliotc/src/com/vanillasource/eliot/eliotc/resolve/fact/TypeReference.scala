@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.resolve.fact
 
+import cats.Show
 import cats.syntax.all.*
-import cats.{Order, Show}
 import com.vanillasource.eliot.eliotc.module.TypeFQN
 import com.vanillasource.eliot.eliotc.source.Sourced
 
