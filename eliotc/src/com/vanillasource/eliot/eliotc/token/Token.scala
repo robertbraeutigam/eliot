@@ -7,12 +7,10 @@ sealed trait Token {
 }
 
 object Token {
-  case class Identifier(content: String)   extends Token
-  case class Symbol(content: String)       extends Token
-  case class Keyword(content: String)      extends Token
-  case class IntegerLiteral(value: BigInt) extends Token {
-    override val content: String = value.toString
-  }
+  case class Identifier(content: String)     extends Token
+  case class Symbol(content: String)         extends Token
+  case class Keyword(content: String)        extends Token
+  case class IntegerLiteral(content: String) extends Token
 
   given Show[Token] = {
     case Identifier(content)           => s"identifier '$content'"

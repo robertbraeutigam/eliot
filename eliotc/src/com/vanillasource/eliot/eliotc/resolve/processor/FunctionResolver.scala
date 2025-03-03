@@ -117,10 +117,10 @@ class FunctionResolver extends CompilerProcessor with Logging {
 
   private def resolveExpression(expr: ast.Expression)(using process: CompilationProcess): ScopedIO[Expression] =
     expr match {
-      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), args)            =>
-        isValueVisible(token.content).ifM(
-          Expression.ParameterReference(s.as(token.content)).pure,
-          getFunction(token.content).flatMap {
+      case ast.Expression.FunctionApplication(s @ Sourced(_, _, name), args) =>
+        isValueVisible(name).ifM(
+          Expression.ParameterReference(s.as(name)).pure,
+          getFunction(name).flatMap {
             case Some(ffqn) =>
               for {
                 newArgs <- args.traverse(resolveExpression)
@@ -128,7 +128,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
             case None       => compilerAbort(s.as(s"Function not defined.")).liftToScoped
           }
         )
-      case ast.Expression.FunctionLiteral(parameters, body)                              =>
+      case ast.Expression.FunctionLiteral(parameters, body)                  =>
         for {
           resolvedParameters <-
             parameters
@@ -138,9 +138,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
           _                  <- parameters.traverse(addVisibleValue)
           resolvedExpression <- resolveExpression(body)
         } yield Expression.FunctionLiteral(resolvedParameters, resolvedExpression)
-      case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value))) =>
-        Expression.IntegerLiteral(s.as(value)).pure
-      case ast.Expression.IntegerLiteral(s)                                              =>
-        compilerAbort(s.as(s"Internal compiler error, not parsed as an integer literal.")).liftToScoped
+      case ast.Expression.IntegerLiteral(s @ Sourced(_, _, value))           =>
+        Expression.IntegerLiteral(s.as(BigInt(value))).pure
     }
 }

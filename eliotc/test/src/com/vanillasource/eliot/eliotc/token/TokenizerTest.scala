@@ -61,13 +61,13 @@ class TokenizerTest extends ProcessorTest(new Tokenizer()) {
 
   it should "parse 1 as integer literal" in {
     parseForSourcedTokens("1").asserting(
-      _ shouldBe Seq(Sourced(file, PositionRange(Position(1, 1), Position(1, 2)), IntegerLiteral(BigInt(1))))
+      _ shouldBe Seq(Sourced(file, PositionRange(Position(1, 1), Position(1, 2)), IntegerLiteral("1")))
     )
   }
 
   it should "parse 123 as integer literal" in {
     parseForSourcedTokens("123").asserting(
-      _ shouldBe Seq(Sourced(file, PositionRange(Position(1, 1), Position(1, 4)), IntegerLiteral(BigInt(123))))
+      _ shouldBe Seq(Sourced(file, PositionRange(Position(1, 1), Position(1, 4)), IntegerLiteral("123")))
     )
   }
 

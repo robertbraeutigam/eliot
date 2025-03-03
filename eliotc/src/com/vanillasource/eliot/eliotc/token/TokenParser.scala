@@ -62,7 +62,7 @@ class TokenParser(file: File) {
   ).label("keyword")
 
   private lazy val integerLiteral: Parsley[Sourced[Token.IntegerLiteral]] = sourcedLexeme(
-    lexer.nonlexeme.integer.decimal.map(Token.IntegerLiteral.apply)
+    lexer.nonlexeme.integer.decimal.map(value => Token.IntegerLiteral(value.toString))
   ).label("integer literal")
 
   private lazy val identifier: Parsley[Sourced[Token.Identifier]] = sourcedLexeme(

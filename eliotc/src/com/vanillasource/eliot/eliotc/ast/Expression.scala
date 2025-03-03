@@ -12,15 +12,15 @@ import com.vanillasource.parser.Parser.*
 sealed trait Expression
 
 object Expression {
-  case class FunctionApplication(functionName: Sourced[Token], arguments: Seq[Expression]) extends Expression
-  case class FunctionLiteral(parameters: Seq[ArgumentDefinition], body: Expression)        extends Expression
-  case class IntegerLiteral(integerLiteral: Sourced[Token])                                extends Expression
+  case class FunctionApplication(functionName: Sourced[String], arguments: Seq[Expression]) extends Expression
+  case class FunctionLiteral(parameters: Seq[ArgumentDefinition], body: Expression)         extends Expression
+  case class IntegerLiteral(integerLiteral: Sourced[String])                                extends Expression
 
   given Show[Expression] = {
-    case IntegerLiteral(Sourced(_, _, value))                   => value.toString
+    case IntegerLiteral(Sourced(_, _, value))                   => value
     case FunctionApplication(Sourced(_, _, value), ns @ _ :: _) =>
-      s"${value.toString}(${ns.map(_.show).mkString(", ")})"
-    case FunctionApplication(Sourced(_, _, value), _)           => value.toString
+      s"${value}(${ns.map(_.show).mkString(", ")})"
+    case FunctionApplication(Sourced(_, _, value), _)           => value
     case FunctionLiteral(parameters, body)                      => parameters.map(_.show).mkString("(", ", ", ")") + " -> " + body.show
   }
 
@@ -31,7 +31,7 @@ object Expression {
     private val functionApplication: Parser[Sourced[Token], Expression] = for {
       name <- acceptIf(isIdentifier, "function name")
       args <- optionalArgumentListOf(parser)
-    } yield FunctionApplication(name, args)
+    } yield FunctionApplication(name.map(_.content), args)
 
     private val functionLiteral: Parser[Sourced[Token], Expression] = for {
       parameters <-
@@ -43,6 +43,6 @@ object Expression {
 
     private val integerLiteral: Parser[Sourced[Token], Expression] = for {
       lit <- acceptIf(isIntegerLiteral, "integer literal")
-    } yield IntegerLiteral(lit)
+    } yield IntegerLiteral(lit.map(_.content))
   }
 }
