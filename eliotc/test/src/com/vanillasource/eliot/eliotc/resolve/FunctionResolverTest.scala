@@ -85,6 +85,12 @@ class FunctionResolverTest extends ProcessorTest(Tokenizer(), ASTParser(), Modul
     )
   }
 
+  it should "not allow function literal names that are already in scope" in {
+    runEngineForErrors("data String\nf(a: String): String = a:String -> a").asserting(
+      _ shouldBe Seq("Name already exists in scope.")
+    )
+  }
+
   it should "resolve lambda with proper type and returning the input parameter" in {
     runEngineForErrors("data String\nf: String = a:String -> a").asserting(
       _ shouldBe Seq()

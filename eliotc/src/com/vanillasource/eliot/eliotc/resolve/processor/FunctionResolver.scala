@@ -53,13 +53,13 @@ class FunctionResolver extends CompilerProcessor with Logging {
     )
 
     val resolveProgram = for {
-      resolvedBody              <- body.traverse(expr => resolveExpression(scope, expr))
-      returnType                <- resolveType(scope, typeReference)
-      argumentTypes             <- args.map(_.typeReference).traverse(tr => resolveType(scope, tr))
+      resolvedBody              <- body.traverse(resolveExpression)
+      returnType                <- resolveType(typeReference)
+      argumentTypes             <- args.map(_.typeReference).traverse(resolveType)
       resolvedGenericParameters <-
         genericParameters.traverse(genericParameter =>
           genericParameter.genericParameters
-            .traverse(typeReference => resolveType(scope, typeReference))
+            .traverse(resolveType)
             .map(resolvedGenericTypes =>
               UniversalGenericParameter(genericParameter.name.map(_.content), resolvedGenericTypes)
             )
@@ -87,70 +87,65 @@ class FunctionResolver extends CompilerProcessor with Logging {
     resolveProgram.runS(scope).void
   }
 
-  private def resolveType(
-      scope: ResolverScope,
-      reference: ast.TypeReference
-  )(using
-      process: CompilationProcess
-  ): ScopedIO[TypeReference] = for {
-    resolvedGenericParameters <-
-      reference.genericParameters.traverse(param => resolveType(scope, param))
-    resolvedType              <- scope.visibleGenericTypes.get(reference.typeName.value.content) match
-                                   case Some(genericParameter) =>
-                                     if (genericParameter.genericParameters.length =!= resolvedGenericParameters.length) {
-                                       compilerAbort(
-                                         reference.typeName.as("Incorrect number of generic parameters for type.")
-                                       ).liftToScoped
-                                     } else {
-                                       GenericTypeReference(genericParameter.name.map(_.content), resolvedGenericParameters)
-                                         .pure[ScopedIO]
-                                     }
-                                   case None                   =>
-                                     scope.typeDictionary.get(reference.typeName.value.content) match
-                                       case Some(typeFqn) =>
-                                         for {
-                                           dataDefinition <-
-                                             process.getFact(ModuleData.Key(typeFqn)).liftOptionToCompilationIO.liftToScoped
-                                           _              <-
-                                             compilerAbort(
-                                               reference.typeName.as("Incorrect number of generic parameters for type.")
-                                             ).liftToScoped.whenA(
-                                               dataDefinition.dataDefinition.genericParameters.length =!= resolvedGenericParameters.length
-                                             )
-                                         } yield DirectTypeReference(reference.typeName.as(typeFqn), resolvedGenericParameters)
-                                       case None          => compilerAbort(reference.typeName.as("Type not defined.")).liftToScoped
-  } yield resolvedType
+  private def resolveType(reference: ast.TypeReference)(using process: CompilationProcess): ScopedIO[TypeReference] =
+    for {
+      resolvedGenericParameters <- reference.genericParameters.traverse(resolveType)
+      resolvedType              <- getGenericParameter(reference.typeName.value.content).flatMap {
+                                     case Some(genericParameter) =>
+                                       if (genericParameter.genericParameters.length =!= resolvedGenericParameters.length) {
+                                         compilerAbort(
+                                           reference.typeName.as("Incorrect number of generic parameters for type.")
+                                         ).liftToScoped
+                                       } else {
+                                         GenericTypeReference(genericParameter.name.map(_.content), resolvedGenericParameters)
+                                           .pure[ScopedIO]
+                                       }
+                                     case None                   =>
+                                       getType(reference.typeName.value.content).flatMap {
+                                         case Some(typeFqn) =>
+                                           for {
+                                             dataDefinition <-
+                                               process.getFact(ModuleData.Key(typeFqn)).liftOptionToCompilationIO.liftToScoped
+                                             _              <-
+                                               compilerAbort(
+                                                 reference.typeName.as("Incorrect number of generic parameters for type.")
+                                               ).liftToScoped.whenA(
+                                                 dataDefinition.dataDefinition.genericParameters.length =!= resolvedGenericParameters.length
+                                               )
+                                           } yield DirectTypeReference(reference.typeName.as(typeFqn), resolvedGenericParameters)
+                                         case None          => compilerAbort(reference.typeName.as("Type not defined.")).liftToScoped
+                                       }
+                                   }
+    } yield resolvedType
 
-  private def resolveExpression(
-      scope: ResolverScope,
-      expr: ast.Expression
-  )(using
-      process: CompilationProcess
-  ): ScopedIO[Expression] =
+  private def resolveExpression(expr: ast.Expression)(using process: CompilationProcess): ScopedIO[Expression] =
     expr match {
-      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), _) if scope.isValueVisible(token.content) =>
-        Expression.ParameterReference(s.as(token.content)).pure
-      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), args)                                     =>
-        scope.functionDictionary.get(token.content) match
-          case Some(ffqn) =>
-            for {
-              newArgs <- args.traverse(arg => resolveExpression(scope, arg))
-            } yield Expression.FunctionApplication(s.as(ffqn), newArgs)
-          case None       => compilerAbort(s.as(s"Function not defined.")).liftToScoped
-      case ast.Expression.FunctionLiteral(parameters, body)                                                       =>
+      case ast.Expression.FunctionApplication(s @ Sourced(_, _, token), args)            =>
+        isValueVisible(token.content).ifM(
+          Expression.ParameterReference(s.as(token.content)).pure,
+          getFunction(token.content).flatMap {
+            case Some(ffqn) =>
+              for {
+                newArgs <- args.traverse(resolveExpression)
+              } yield Expression.FunctionApplication(s.as(ffqn), newArgs)
+            case None       => compilerAbort(s.as(s"Function not defined.")).liftToScoped
+          }
+        )
+      case ast.Expression.FunctionLiteral(parameters, body)                              =>
         for {
           resolvedParameters <-
             parameters
               .traverse(arg =>
-                resolveType(scope, arg.typeReference).map(resolvedType =>
+                resolveType(arg.typeReference).map(resolvedType =>
                   ArgumentDefinition(arg.name.map(_.content), resolvedType)
                 )
               )
-          resolvedExpression <- resolveExpression(scope, body)
+          _                  <- parameters.traverse(addVisibleValue)
+          resolvedExpression <- resolveExpression(body)
         } yield Expression.FunctionLiteral(resolvedParameters, resolvedExpression)
-      case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value)))                          =>
+      case ast.Expression.IntegerLiteral(s @ Sourced(_, _, Token.IntegerLiteral(value))) =>
         Expression.IntegerLiteral(s.as(value)).pure
-      case ast.Expression.IntegerLiteral(s)                                                                       =>
+      case ast.Expression.IntegerLiteral(s)                                              =>
         compilerAbort(s.as(s"Internal compiler error, not parsed as an integer literal.")).liftToScoped
     }
 }
