@@ -89,7 +89,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
   private def resolveType(reference: ast.TypeReference)(using process: CompilationProcess): ScopedIO[TypeReference] =
     for {
       resolvedGenericParameters <- reference.genericParameters.traverse(resolveType)
-      resolvedType              <- getGenericParameter(reference.typeName.value.content).flatMap {
+      resolvedType              <- getGenericParameter(reference.typeName.value).flatMap {
                                      case Some(genericParameter) =>
                                        if (genericParameter.genericParameters.length =!= resolvedGenericParameters.length) {
                                          compilerAbort(
@@ -100,7 +100,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
                                            .pure[ScopedIO]
                                        }
                                      case None                   =>
-                                       getType(reference.typeName.value.content).flatMap {
+                                       getType(reference.typeName.value).flatMap {
                                          case Some(typeFqn) =>
                                            for {
                                              dataDefinition <-

@@ -104,7 +104,7 @@ class ModuleProcessor extends CompilerProcessor with Logging {
   private def extractType(
       previousTypes: Map[String, DataDefinition],
       current: DataDefinition
-  )(using process: CompilationProcess): IO[Map[String, DataDefinition]] = current.name.value.content match
+  )(using process: CompilationProcess): IO[Map[String, DataDefinition]] = current.name.value match
     case ty if previousTypes.contains(ty) =>
       registerCompilerError(current.name.as("Type was already defined in this module.")).as(previousTypes)
     case ty if !ty.charAt(0).isUpper      =>
