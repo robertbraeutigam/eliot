@@ -128,6 +128,9 @@ object TypeUnification {
   def genericParameters(genericParameters: Seq[GenericParameter]): TypeUnification =
     TypeUnification(genericParameters.map(e => e.name.value -> e).toMap, Seq.empty)
 
+  def genericParameter(genericParameter: GenericParameter): TypeUnification =
+    genericParameters(Seq(genericParameter))
+
   def assignment(target: TypeReference, source: TypeReference): TypeUnification =
     TypeUnification(Map.empty, Seq((target, source)))
       .combine((target.genericParameters zip source.genericParameters).map(assignment.tupled).combineAll)

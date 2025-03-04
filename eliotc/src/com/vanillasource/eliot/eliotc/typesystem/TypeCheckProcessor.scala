@@ -6,12 +6,19 @@ import cats.kernel.Monoid
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{FunctionApplication, IntegerLiteral, ParameterReference}
-import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
+import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.ExistentialGenericParameter
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.{
+  Expression,
+  FunctionDefinition,
+  GenericParameter,
+  ResolvedFunction,
+  TypeReference
+}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
-import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.{assignment, genericParameters}
+import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 
 class TypeCheckProcessor extends CompilerProcessor with Logging {
@@ -50,10 +57,9 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       case ParameterReference(parameterName)            =>
         assignment(parentTypeReference, parameterTypes(parameterName.value)).pure[CompilationIO]
       case IntegerLiteral(integerLiteral)               =>
-        // TODO: we hardcode the integer literal type here, fix this later
         assignment(
           parentTypeReference,
-          DirectTypeReference(integerLiteral.as(TypeFQN(ModuleName(Seq("eliot"), "Number"), "Byte")), Seq.empty)
+          DirectTypeReference(integerLiteral.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "Number"), "Byte")), Seq.empty)
         ).pure[CompilationIO]
       case FunctionApplication(functionName, arguments) =>
         for {
@@ -72,8 +78,25 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
                                        )
                                    }
         } yield result
-      case Expression.FunctionLiteral(parameters, body) => // FIXME: needs 1 parameter to make Function[A, B]
-        ???
+      case FunctionLiteral(parameter, body)             =>
+        val functionReturnGenericTypeName = parameter.name.as(namespace + "$R")
+
+        constructTypeGraphs(
+          namespace + "$",
+          GenericTypeReference(functionReturnGenericTypeName, Seq.empty),
+          parameterTypes + (parameter.name.value -> parameter.typeReference),
+          body
+        ).map(
+          _ |+|
+            genericParameter(ExistentialGenericParameter(functionReturnGenericTypeName, Seq.empty)) |+|
+            assignment(
+              parentTypeReference,
+              DirectTypeReference(
+                parameter.name.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "Function"), "Function")),
+                Seq(parameter.typeReference, GenericTypeReference(functionReturnGenericTypeName, Seq.empty))
+              )
+            )
+        )
 
   private def checkFunctionApplicationTypes(
       namespace: String,

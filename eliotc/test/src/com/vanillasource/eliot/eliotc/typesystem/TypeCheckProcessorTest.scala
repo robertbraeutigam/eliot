@@ -114,6 +114,8 @@ class TypeCheckProcessorTest
       )
   }
 
+  // TODO: if two generics come together during unification, their generic parameters are not associated!!!
+
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
     results <- runEngine(source)
   } yield {
