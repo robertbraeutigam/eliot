@@ -12,9 +12,9 @@ import com.vanillasource.parser.Parser.*
 sealed trait Expression
 
 object Expression {
-  case class FunctionApplication(functionName: Sourced[String], arguments: Seq[Expression]) extends Expression
-  case class FunctionLiteral(parameters: Seq[ArgumentDefinition], body: Expression)         extends Expression
-  case class IntegerLiteral(integerLiteral: Sourced[String])                                extends Expression
+  case class FunctionApplication(functionName: Sourced[String], arguments: Seq[Expression])  extends Expression
+  case class FunctionLiteral(parameters: Seq[ArgumentDefinition], body: Sourced[Expression]) extends Expression
+  case class IntegerLiteral(integerLiteral: Sourced[String])                                 extends Expression
 
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                   => value
@@ -38,7 +38,7 @@ object Expression {
         bracketedCommaSeparatedItems("(", component[ArgumentDefinition], ")") or
           component[ArgumentDefinition].map(Seq(_))
       _          <- symbol("->")
-      body       <- parser
+      body       <- sourced(parser)
     } yield FunctionLiteral(parameters, body)
 
     private val integerLiteral: Parser[Sourced[Token], Expression] = for {

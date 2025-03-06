@@ -31,6 +31,11 @@ object Primitives {
       .optional()
       .map(_.getOrElse(Seq.empty))
 
+  def sourced[A](p: Parser[Sourced[Token], A]): Parser[Sourced[Token], Sourced[A]] =
+    p.leftJoin(any[Sourced[Token]]().anyTimes()).map { case (result, tokenList) =>
+      Sourced.outline(tokenList.get).as(result)
+    }
+
   def symbol(s: String) = acceptIfAll(isSymbol, hasContent(s))(s"symbol '$s'")
 
   def topLevelKeyword(word: String) =
