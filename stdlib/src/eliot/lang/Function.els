@@ -1,0 +1,4 @@
+/**
+ * A build-in abstraction over functions, function literals.
+ */
+data Function[A, B]

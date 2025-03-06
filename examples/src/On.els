@@ -1,15 +1,4 @@
-main: String
 
-data String
-data Int
-id[A](a: A): A = a
+data Foo
 
-// b(i: Int, s: String): String = id(s)
-
-// c(a: Int): Int = b(a, a)
-
-//data Function[A, B]
-
-//f[A]: Function[A]
-
-f: Int = a:Int -> a
+f: Function[Foo, Foo] = a:Foo -> a
