@@ -133,7 +133,6 @@ object TypeUnification {
 
   def assignment(target: TypeReference, source: TypeReference): TypeUnification =
     TypeUnification(Map.empty, Seq((target, source)))
-      .combine((target.genericParameters zip source.genericParameters).map(assignment.tupled).combineAll)
 
   given Monoid[TypeUnification] = new Monoid[TypeUnification] {
     override def empty: TypeUnification = TypeUnification(Map.empty, Seq.empty)
