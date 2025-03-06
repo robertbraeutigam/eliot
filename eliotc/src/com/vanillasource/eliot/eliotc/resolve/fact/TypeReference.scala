@@ -15,10 +15,10 @@ object TypeReference {
   given Show[TypeReference] = {
     case DirectTypeReference(dataType, genericParameters) =>
       dataType.value.show + (if (genericParameters.isEmpty) ""
-                             else genericParameters.map(_.show).mkString("[", ", ", "]"))
+                             else genericParameters.map(_.show).mkString("[", ",", "]"))
     case GenericTypeReference(name, genericParameters)    =>
       name.value + (if (genericParameters.isEmpty) ""
-                    else genericParameters.map(_.show).mkString("[", ", ", "]"))
+                    else genericParameters.map(_.show).mkString("[", ",", "]"))
   }
 
   extension (typeReference: TypeReference) {
@@ -39,9 +39,7 @@ object TypeReference {
       case GenericTypeReference(name, genericParameters) =>
         GenericTypeReference(name.map(_ + namespace), genericParameters.map(_.shiftGenericToNamespace(namespace)))
 
-    def name: String = typeReference match
-      case DirectTypeReference(dataType, _) => dataType.value.show
-      case GenericTypeReference(name, _)    => name.value
+    def identifier: String = typeReference.show
 
     def genericParameters: Seq[TypeReference] = typeReference match
       case DirectTypeReference(_, genericParameters)  => genericParameters

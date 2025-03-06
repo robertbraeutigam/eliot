@@ -21,7 +21,7 @@ case class TypeUnificationState(states: Map[String, UnifiedType] = Map.empty) {
   }
 
   private def unifiedTypeOf(typeReference: TypeReference): UnifiedType =
-    states.getOrElse(typeReference.name, UnifiedType(typeReference, Set(typeReference.name)))
+    states.getOrElse(typeReference.identifier, UnifiedType(typeReference, Set(typeReference.identifier)))
 }
 
 object TypeUnificationState {

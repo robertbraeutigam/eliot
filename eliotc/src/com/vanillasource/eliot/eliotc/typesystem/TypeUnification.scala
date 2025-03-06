@@ -17,20 +17,19 @@ case class TypeUnification private (
 ) {
   def solve()(using CompilationProcess): CompilationIO[Unit] =
     assignments
-      .traverse(pair => StateT.modifyF(state => solve(state, pair._1, pair._2)))
+      .traverse(solve.tupled)
       .runS(TypeUnificationState())
       .void
 
-  private def solve(state: TypeUnificationState, target: TypeReference, source: TypeReference)(using
+  private def solve(target: TypeReference, source: TypeReference)(using
       CompilationProcess
-  ): CompilationIO[TypeUnificationState] = {
-    val targetCurrent = state.getCurrentType(target)
-    val sourceCurrent = state.getCurrentType(source)
+  ): StateT[CompilationIO, TypeUnificationState, Unit] = for {
+    targetCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(target))
+    sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(source))
+    unifiedType   <- StateT.liftF(unify(targetCurrent, sourceCurrent))
+    _             <- StateT.modify[CompilationIO, TypeUnificationState](_.unifyTo(target, source, unifiedType))
+  } yield ()
 
-    unify(targetCurrent, sourceCurrent).map(unifiedType => state.unifyTo(target, source, unifiedType))
-  }
-
-  // FIXME: consider generic parameter arities here
   private def unify(current: TypeReference, incoming: TypeReference)(using
       CompilationProcess
   ): CompilationIO[TypeReference] =
