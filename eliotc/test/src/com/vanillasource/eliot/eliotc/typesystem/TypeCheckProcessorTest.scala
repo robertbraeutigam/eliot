@@ -114,7 +114,12 @@ class TypeCheckProcessorTest
       )
   }
 
-  // TODO: if two generics come together during unification, their generic parameters are not associated!!!
+  it should "unify generic parameters of generics via a non-parameterized generic" in {
+    runEngineForErrors(
+      "data Foo\ndata Bar\ndata Function[A, B]\nid[A](a: A): A\nf(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)"
+    )
+      .asserting(_ shouldBe Seq("No"))
+  }
 
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
     results <- runEngine(source)

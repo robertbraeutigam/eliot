@@ -123,7 +123,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       functionDefinition.arguments
         .zip(arguments)
         .zipWithIndex
-        .map { case ((argumentDefinition, expression), index) =>
+        .traverse { case ((argumentDefinition, expression), index) =>
           constructTypeGraphs(
             s"$namespace$index",
             argumentDefinition.typeReference.shiftGenericToNamespace(namespace),
@@ -131,7 +131,6 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
             expression
           )
         }
-        .sequence
         .map(_.fold(baseGraph)(_ combine _))
     }
   }
