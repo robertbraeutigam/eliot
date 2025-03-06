@@ -10,10 +10,11 @@ import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGen
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.{GenericParameter, TypeReference}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
+import com.vanillasource.eliot.eliotc.source.Sourced
 
 case class TypeUnification private (
     genericParameters: Map[String, GenericParameter],
-    assignments: Seq[(TypeReference, TypeReference)]
+    assignments: Seq[(TypeReference, Sourced[TypeReference])]
 ) {
   def solve()(using CompilationProcess): CompilationIO[Unit] =
     assignments
@@ -21,28 +22,28 @@ case class TypeUnification private (
       .runS(TypeUnificationState())
       .void
 
-  private def solve(target: TypeReference, source: TypeReference)(using
+  private def solve(target: TypeReference, source: Sourced[TypeReference])(using
       CompilationProcess
   ): StateT[CompilationIO, TypeUnificationState, Unit] = for {
     targetCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(target))
-    sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(source))
-    unifiedType   <- StateT.liftF(unify(targetCurrent, sourceCurrent))
-    _             <- StateT.modify[CompilationIO, TypeUnificationState](_.unifyTo(target, source, unifiedType))
-    _             <- (targetCurrent.genericParameters zip sourceCurrent.genericParameters).traverse(solve.tupled)
+    sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(source.value))
+    unifiedType   <- StateT.liftF(unify(targetCurrent, source.as(sourceCurrent)))
+    _             <- StateT.modify[CompilationIO, TypeUnificationState](_.unifyTo(target, source.value, unifiedType))
+    _             <- (targetCurrent.genericParameters zip sourceCurrent.genericParameters.map(source.as)).traverse(solve.tupled)
   } yield ()
 
-  private def unify(current: TypeReference, incoming: TypeReference)(using
+  private def unify(current: TypeReference, incoming: Sourced[TypeReference])(using
       CompilationProcess
   ): CompilationIO[TypeReference] =
     current match
       case DirectTypeReference(currentType, _)                                                           =>
-        incoming match
+        incoming.value match
           case DirectTypeReference(incomingType, _) if currentType.value === incomingType.value =>
             // Both direct references _must_ have the correct arity per resolver
             current.pure[CompilationIO] // Same type, so return current one
           case DirectTypeReference(incomingType, _)                                             =>
             compilerError(
-              incomingType.as(
+              incoming.as(
                 s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}."
               )
             ).as(current)
@@ -52,22 +53,22 @@ case class TypeUnification private (
               current.pure[CompilationIO] // Incoming more generic, so return current one
             } else {
               compilerError(
-                incomingType.as(
+                incoming.as(
                   s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}, because they have different number of generic parameters."
                 )
               ).as(current)
             }
       case GenericTypeReference(currentType, currentGenericParameters) if isUniversal(currentType.value) =>
-        incoming match
+        incoming.value match
           case DirectTypeReference(incomingType, _)                                     =>
             compilerError(
-              incomingType.as(
+              incoming.as(
                 s"Expression with type ${incomingType.value.show} can not be assigned to universal generic type ${currentType.value.show}."
               )
             ).as(current)
           case GenericTypeReference(incomingType, _) if isUniversal(incomingType.value) =>
             compilerError(
-              incomingType.as(
+              incoming.as(
                 s"Expression with universal generic type ${incomingType.value.show} can not be assigned to universal generic type ${currentType.value.show}."
               )
             ).whenA(incomingType.value =!= currentType.value).as(current)
@@ -79,25 +80,25 @@ case class TypeUnification private (
               if (incomingGenericParameters.isEmpty) {
                 current.pure[CompilationIO]
               } else {
-                incoming.sourcedAt(current).pure[CompilationIO]
+                incoming.value.sourcedAt(current).pure[CompilationIO]
               }
             } else {
               compilerError(
-                incomingType.as(
+                incoming.as(
                   s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}, because they have different number of generic parameters."
                 )
               ).as(current)
             }
       case GenericTypeReference(currentType, currentGenericParameters)                                   =>
-        incoming match
+        incoming.value match
           case DirectTypeReference(incomingType, incomingGenericParameters)  =>
             if (
               currentGenericParameters.isEmpty || currentGenericParameters.length === incomingGenericParameters.length
             ) {
-              incoming.sourcedAt(current).pure[CompilationIO] // Switch to more concrete type
+              incoming.value.sourcedAt(current).pure[CompilationIO] // Switch to more concrete type
             } else {
               compilerError(
-                incomingType.as(
+                incoming.as(
                   s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}, because they have different number of generic parameters."
                 )
               ).as(current)
@@ -110,11 +111,11 @@ case class TypeUnification private (
               if (incomingGenericParameters.isEmpty) {
                 current.pure[CompilationIO]
               } else {
-                incoming.sourcedAt(current).pure[CompilationIO]
+                incoming.value.sourcedAt(current).pure[CompilationIO]
               }
             } else {
               compilerError(
-                incomingType.as(
+                incoming.as(
                   s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}, because they have different number of generic parameters."
                 )
               ).as(current)
@@ -131,7 +132,7 @@ object TypeUnification {
   def genericParameter(genericParameter: GenericParameter): TypeUnification =
     genericParameters(Seq(genericParameter))
 
-  def assignment(target: TypeReference, source: TypeReference): TypeUnification =
+  def assignment(target: TypeReference, source: Sourced[TypeReference]): TypeUnification =
     TypeUnification(Map.empty, Seq((target, source)))
 
   given Monoid[TypeUnification] = new Monoid[TypeUnification] {

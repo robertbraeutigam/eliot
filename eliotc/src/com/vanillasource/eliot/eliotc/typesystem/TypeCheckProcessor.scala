@@ -55,11 +55,16 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   )(using process: CompilationProcess): CompilationIO[TypeUnification] =
     expression match
       case ParameterReference(parameterName)            =>
-        assignment(parentTypeReference, parameterTypes(parameterName.value)).pure[CompilationIO]
+        assignment(parentTypeReference, parameterName.map(parameterTypes.apply)).pure[CompilationIO]
       case IntegerLiteral(integerLiteral)               =>
         assignment(
           parentTypeReference,
-          DirectTypeReference(integerLiteral.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "Number"), "Byte")), Seq.empty)
+          integerLiteral.as(
+            DirectTypeReference(
+              integerLiteral.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "Number"), "Byte")),
+              Seq.empty
+            )
+          )
         ).pure[CompilationIO]
       case FunctionApplication(functionName, arguments) =>
         for {
@@ -91,10 +96,14 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
             genericParameter(ExistentialGenericParameter(functionReturnGenericTypeName, Seq.empty)) |+|
             assignment(
               parentTypeReference,
-              DirectTypeReference(
-                parameter.name.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "Function"), "Function")),
-                Seq(parameter.typeReference, GenericTypeReference(functionReturnGenericTypeName, Seq.empty))
-              )
+              Sourced
+                .outline(Seq(parameter.name, body)) // TODO: this is a hack for the expression not being Sourced
+                .as(
+                  DirectTypeReference(
+                    parameter.name.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "Function"), "Function")),
+                    Seq(parameter.typeReference, GenericTypeReference(functionReturnGenericTypeName, Seq.empty))
+                  )
+                )
             )
         )
 
@@ -110,7 +119,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       genericParameters(functionDefinition.genericParameters.map(_.shiftToNamespace(namespace).instantiate())) |+|
         assignment(
           parentTypeReference,
-          functionDefinition.returnType.sourcedAt(functionName).shiftGenericToNamespace(namespace)
+          functionName.as(functionDefinition.returnType.shiftGenericToNamespace(namespace))
         )
 
     if (arguments.length =!= functionDefinition.arguments.length) {
