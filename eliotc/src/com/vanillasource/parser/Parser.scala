@@ -3,8 +3,11 @@ package com.vanillasource.parser
 import cats.data.StateT
 import cats.syntax.all.*
 import cats.{Eq, Show}
+import com.vanillasource.parser.InputStream.LimitedInputStream
 import com.vanillasource.parser.ParserResult.*
 import com.vanillasource.parser.ParserResult.Consume.*
+
+import scala.util.chaining.scalaUtilChainingOps
 
 /** A parser combinator that consumes items of type [[I]] and produces results of some type [[O]].
   *
@@ -36,6 +39,21 @@ object Parser {
         case ParserResult(consume, expected, allErrors, None) =>
           ParserResult(consume, expected, allErrors :+ expected, None)
         case other                                            => other
+    }
+
+    /** Run another parser on exactly the matched input. The resulting parser will match exactly when this parser
+      * matches, and if it does, it will potentially contain the other parser's result as well.
+      */
+    def leftJoin[P](other: Parser[I, P]): Parser[I, (O, Option[P])] = StateT { input =>
+      p.run(input) match
+        case ParserResult(consume, currentError, allErrors, None)                     =>
+          ParserResult(consume, currentError, allErrors, None)
+        case ParserResult(consume, currentError, allErrors, Some(nextInput, pResult)) =>
+          other.run(LimitedInputStream(input, nextInput.pos)) match
+            case ParserResult(_, _, _, None)                   =>
+              ParserResult(consume, currentError, allErrors, Some(nextInput, (pResult, None)))
+            case ParserResult(_, _, _, Some((_, otherResult))) =>
+              ParserResult(consume, currentError, allErrors, Some(nextInput, (pResult, Some(otherResult))))
     }
 
     /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
