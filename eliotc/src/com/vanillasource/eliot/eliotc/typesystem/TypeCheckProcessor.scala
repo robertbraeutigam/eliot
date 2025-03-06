@@ -85,7 +85,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           namespace + "$",
           GenericTypeReference(functionReturnGenericTypeName, Seq.empty),
           parameterTypes + (parameter.name.value -> parameter.typeReference),
-          body
+          body.value
         ).map(
           _ |+|
             genericParameter(ExistentialGenericParameter(functionReturnGenericTypeName, Seq.empty)) |+|
