@@ -28,6 +28,7 @@ case class TypeUnification private (
     sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(source))
     unifiedType   <- StateT.liftF(unify(targetCurrent, sourceCurrent))
     _             <- StateT.modify[CompilationIO, TypeUnificationState](_.unifyTo(target, source, unifiedType))
+    _             <- (targetCurrent.genericParameters zip sourceCurrent.genericParameters).traverse(solve.tupled)
   } yield ()
 
   private def unify(current: TypeReference, incoming: TypeReference)(using

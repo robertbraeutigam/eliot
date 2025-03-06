@@ -118,7 +118,7 @@ class TypeCheckProcessorTest
     runEngineForErrors(
       "data Foo\ndata Bar\ndata Function[A, B]\nid[A](a: A): A\nf(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)"
     )
-      .asserting(_ shouldBe Seq("No"))
+      .asserting(_ shouldBe Seq("Expression with type Test.Bar can not be assigned to type Test.Foo."))
   }
 
   private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
