@@ -21,4 +21,6 @@ object Position {
   given Order[Position] = Order.whenEqual(Order.by(_.line), Order.by(_.col))
 
   given Show[Position] = (x: Position) => s"${x.line}:${x.col}"
+
+  val zero = Position(1, 1)
 }

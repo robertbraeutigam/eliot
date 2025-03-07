@@ -3,9 +3,9 @@ package com.vanillasource.eliot.eliotc.module
 import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.{AST, FunctionDefinition, ImportStatement, SourceAST, DataDefinition}
+import com.vanillasource.eliot.eliotc.ast.{AST, DataDefinition, FunctionDefinition, ImportStatement, SourceAST}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import com.vanillasource.util.CatsOps.*
@@ -13,6 +13,11 @@ import com.vanillasource.util.CatsOps.*
 import java.io.File
 
 class ModuleProcessor extends CompilerProcessor with Logging {
+  private val systemPackage = Seq("eliot", "lang")
+  private val systemModules = Seq(
+    ModuleName(systemPackage, "Function")
+  )
+
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
     case SourceAST(file, ast) => process(file, ast).getOrUnit
     case _                    => IO.unit
@@ -21,14 +26,16 @@ class ModuleProcessor extends CompilerProcessor with Logging {
   private def process(file: File, ast: AST)(using CompilationProcess): OptionT[IO, Unit] =
     for {
       moduleName <- determineModuleName(file).toOptionT
-      _          <- processFunctions(moduleName, ast).liftOptionT
+      _          <- processFunctions(file: File, moduleName, ast).liftOptionT
     } yield ()
 
-  private def processFunctions(moduleName: ModuleName, ast: AST)(using process: CompilationProcess): IO[Unit] = for {
+  private def processFunctions(file: File, moduleName: ModuleName, ast: AST)(using
+      process: CompilationProcess
+  ): IO[Unit] = for {
     localFunctions    <- extractFunctions(ast.functionDefinitions)
     localTypes        <- extractTypes(ast.typeDefinitions)
     _                 <- process.registerFact(ModuleNames(moduleName, localFunctions.keySet, localTypes.keySet))
-    importedFunctions <- extractImportedFunctions(localFunctions.keySet, ast.importStatements)
+    importedFunctions <- extractImportedFunctions(file, localFunctions.keySet, ast.importStatements)
     importedTypes     <- extractImportedTypes(localTypes.keySet, ast.importStatements)
     _                 <- debug(s"for ${moduleName.show} read function names: ${localFunctions.keySet
                              .mkString(", ")}, type names: ${localTypes.keySet
@@ -57,11 +64,13 @@ class ModuleProcessor extends CompilerProcessor with Logging {
   } yield ()
 
   private def extractImportedFunctions(
+      file: File,
       localFunctionNames: Set[String],
       imports: Seq[ImportStatement]
   )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] =
     imports
       .map(importStatement => importStatement.outline.as(ModuleName.fromImportStatement(importStatement)))
+      .prependedAll(systemModules.map(sm => Sourced(file, PositionRange.zero, sm))) // Import all system modules
       .foldM(Map.empty[String, FunctionFQN])((acc, i) => importModule(localFunctionNames, acc, i))
 
   private def importModule(

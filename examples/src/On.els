@@ -1,5 +1,3 @@
-import AB
-
 data Foo
 
 f: Function[Foo, Foo] = a:Foo -> a
