@@ -35,7 +35,7 @@ class ModuleProcessor extends CompilerProcessor with Logging {
     localFunctions    <- extractFunctions(ast.functionDefinitions)
     localTypes        <- extractTypes(ast.typeDefinitions)
     _                 <- process.registerFact(ModuleNames(moduleName, localFunctions.keySet, localTypes.keySet))
-    importedFunctions <- extractImportedFunctions(file, localFunctions.keySet, ast.importStatements)
+    importedFunctions <- extractImportedFunctions(file, moduleName, localFunctions.keySet, ast.importStatements)
     importedTypes     <- extractImportedTypes(localTypes.keySet, ast.importStatements)
     _                 <- debug(s"for ${moduleName.show} read function names: ${localFunctions.keySet
                              .mkString(", ")}, type names: ${localTypes.keySet
@@ -65,12 +65,15 @@ class ModuleProcessor extends CompilerProcessor with Logging {
 
   private def extractImportedFunctions(
       file: File,
+      moduleName: ModuleName,
       localFunctionNames: Set[String],
       imports: Seq[ImportStatement]
   )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] =
     imports
       .map(importStatement => importStatement.outline.as(ModuleName.fromImportStatement(importStatement)))
-      .prependedAll(systemModules.map(sm => Sourced(file, PositionRange.zero, sm))) // Import all system modules
+      .prependedAll(
+        systemModules.filter(_ =!= moduleName).map(sm => Sourced(file, PositionRange.zero, sm))
+      ) // Import all system modules
       .foldM(Map.empty[String, FunctionFQN])((acc, i) => importModule(localFunctionNames, acc, i))
 
   private def importModule(
