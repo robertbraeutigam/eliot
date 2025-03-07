@@ -6,7 +6,14 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.*
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleData, ModuleFunction, ModuleName, ModuleNames, TypeFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{
+  FunctionFQN,
+  ModuleData,
+  ModuleFunction,
+  ModuleName,
+  ModuleNames,
+  TypeFQN
+}
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
@@ -16,12 +23,7 @@ import java.io.File
 import java.util.Locale
 import scala.jdk.CollectionConverters.IteratorHasAsScala
 
-class ModuleProcessor extends CompilerProcessor with Logging {
-  private val systemPackage = Seq("eliot", "lang")
-  private val systemModules = Seq(
-    ModuleName(systemPackage, "Function")
-  )
-
+class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
     case SourceAST(file, rootPath, ast) => process(file, rootPath, ast).getOrUnit
     case _                              => IO.unit
@@ -209,7 +211,7 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       case s                        =>
         val moduleSegments = rootPath.toPath
           .normalize()
-          .relativize(file.getParentFile.toPath.normalize())
+          .relativize(Option(file.getParentFile).getOrElse(File(".")).toPath.normalize())
           .iterator()
           .asScala
           .map(_.toString)
@@ -224,4 +226,11 @@ class ModuleProcessor extends CompilerProcessor with Logging {
           Some(ModuleName(moduleSegments, s.substring(0, s.length - 4))).pure
         }
   }
+}
+
+object ModuleProcessor {
+  private val defaultSystemPackage = Seq("eliot", "lang")
+  private val defaultSystemModules = Seq(
+    ModuleName(defaultSystemPackage, "Function")
+  )
 }

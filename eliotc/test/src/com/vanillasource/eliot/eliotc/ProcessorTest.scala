@@ -16,7 +16,8 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     runEngine(source)
       .map(_.values.collect { case SourcedError(Sourced(_, _, msg)) => msg }.toSeq)
 
-  def runEngine(source: String): IO[Map[Any, CompilerFact]] =
+  def runEngine(source: String): IO[Map[Any, CompilerFact]] = {
     CompilerEngine(processors)
-      .resolve(Seq(SourceContent(file, file.getParentFile, source)))
+      .resolve(Seq(SourceContent(file, Option(file.getParentFile).getOrElse(File(".")), source)))
+  }
 }

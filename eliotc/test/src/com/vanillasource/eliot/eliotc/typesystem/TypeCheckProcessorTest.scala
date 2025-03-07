@@ -9,7 +9,13 @@ import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class TypeCheckProcessorTest
-    extends ProcessorTest(Tokenizer(), ASTParser(), ModuleProcessor(), FunctionResolver(), TypeCheckProcessor()) {
+    extends ProcessorTest(
+      Tokenizer(),
+      ASTParser(),
+      ModuleProcessor(Seq.empty),
+      FunctionResolver(),
+      TypeCheckProcessor()
+    ) {
   "function call" should "compile if same number of arguments" in {
     runEngineForErrors("data A\na: A = b\nb: A")
       .asserting(_ shouldBe Seq.empty)

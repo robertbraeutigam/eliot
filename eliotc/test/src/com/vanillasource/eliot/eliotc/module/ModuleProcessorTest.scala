@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
-class ModuleProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), ModuleProcessor()) {
+class ModuleProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), ModuleProcessor(Seq.empty)) {
   "module processor" should "issue no errors on valid function" in {
     runEngineForErrors("a: A").asserting(_ shouldBe Seq())
   }
