@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.main
 
 import cats.effect.{ExitCode, IO, IOApp}
-import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleName}
+import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
 
 import java.io.File

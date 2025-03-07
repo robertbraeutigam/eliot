@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.module
 
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.ASTParser
+import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class ModuleProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), ModuleProcessor()) {

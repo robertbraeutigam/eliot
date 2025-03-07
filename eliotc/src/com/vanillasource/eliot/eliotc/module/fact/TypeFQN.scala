@@ -1,7 +1,7 @@
-package com.vanillasource.eliot.eliotc.module
+package com.vanillasource.eliot.eliotc.module.fact
 
-import cats.{Eq, Show}
 import cats.syntax.all.*
+import cats.{Eq, Show}
 
 case class TypeFQN(moduleName: ModuleName, typeName: String)
 

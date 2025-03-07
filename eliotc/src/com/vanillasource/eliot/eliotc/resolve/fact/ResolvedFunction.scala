@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.resolve.fact
 
-import com.vanillasource.eliot.eliotc.module.FunctionFQN
+import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
 case class ResolvedFunction(ffqn: FunctionFQN, definition: FunctionDefinition) extends CompilerFact {

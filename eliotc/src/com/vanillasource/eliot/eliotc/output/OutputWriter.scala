@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.output
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.ModuleName
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 
 import java.io.{BufferedOutputStream, FileOutputStream}

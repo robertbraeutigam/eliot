@@ -1,12 +1,14 @@
-package com.vanillasource.eliot.eliotc.module
+package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.{AST, DataDefinition, FunctionDefinition, ImportStatement, SourceAST}
+import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.module.*
+import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleData, ModuleFunction, ModuleName, ModuleNames, TypeFQN}
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
+import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import com.vanillasource.util.CatsOps.*
 

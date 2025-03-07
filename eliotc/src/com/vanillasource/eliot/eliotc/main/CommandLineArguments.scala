@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.main
 
-import com.vanillasource.eliot.eliotc.module.{FunctionFQN, ModuleName}
+import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 
 import java.io.File
 

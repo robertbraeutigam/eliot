@@ -1,7 +1,7 @@
-package com.vanillasource.eliot.eliotc.module
+package com.vanillasource.eliot.eliotc.module.fact
 
-import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.ast.FunctionDefinition
+import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
 case class ModuleFunction(
     ffqn: FunctionFQN,
