@@ -152,6 +152,6 @@ object TypeUnification {
     }.mkString +
       ": " +
       unification.assignments
-        .map((target, source) => s"${target.show} <- ${source.show}")
+        .map((target, source) => s"${target.show} <- ${source.value.show}")
         .mkString(" ∧ ")
 }

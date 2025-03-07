@@ -38,7 +38,7 @@ class ModuleProcessor extends CompilerProcessor with Logging {
     localTypes        <- extractTypes(ast.typeDefinitions)
     _                 <- process.registerFact(ModuleNames(moduleName, localFunctions.keySet, localTypes.keySet))
     importedFunctions <- extractImportedFunctions(file, moduleName, localFunctions.keySet, ast.importStatements)
-    importedTypes     <- extractImportedTypes(localTypes.keySet, ast.importStatements)
+    importedTypes     <- extractImportedTypes(file, moduleName, localTypes.keySet, ast.importStatements)
     _                 <- debug(s"for ${moduleName.show} read function names: ${localFunctions.keySet
                              .mkString(", ")}, type names: ${localTypes.keySet
                              .mkString(", ")}, imported functions: ${importedFunctions.keySet
@@ -76,9 +76,9 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       .prependedAll(
         systemModules.filter(_ =!= moduleName).map(sm => Sourced(file, PositionRange.zero, sm))
       ) // Import all system modules
-      .foldM(Map.empty[String, FunctionFQN])((acc, i) => importModule(localFunctionNames, acc, i))
+      .foldM(Map.empty[String, FunctionFQN])((acc, i) => importModuleFunctions(localFunctionNames, acc, i))
 
-  private def importModule(
+  private def importModuleFunctions(
       localFunctionNames: Set[String],
       importedFunctions: Map[String, FunctionFQN],
       module: Sourced[ModuleName]
@@ -151,28 +151,35 @@ class ModuleProcessor extends CompilerProcessor with Logging {
     case fn                                                                    => (previousFunctions ++ Map((fn, current))).pure
 
   private def extractImportedTypes(
+      file: File,
+      moduleName: ModuleName,
       localTypeNames: Set[String],
       imports: Seq[ImportStatement]
   )(using process: CompilationProcess): IO[Map[String, TypeFQN]] =
-    imports.foldM(Map.empty[String, TypeFQN])((acc, i) => extractImportedTypes(localTypeNames, acc, i))
+    imports
+      .map(importStatement => importStatement.outline.as(ModuleName.fromImportStatement(importStatement)))
+      .prependedAll(
+        systemModules.filter(_ =!= moduleName).map(sm => Sourced(file, PositionRange.zero, sm))
+      ) // Import all system modules
+      .foldM(Map.empty[String, TypeFQN])((acc, i) => importModuleTypes(localTypeNames, acc, i))
 
-  private def extractImportedTypes(
+  private def importModuleTypes(
       localTypeNames: Set[String],
       importedTypes: Map[String, TypeFQN],
-      statement: ImportStatement
+      module: Sourced[ModuleName]
   )(using process: CompilationProcess): IO[Map[String, TypeFQN]] = {
     val extractedImport = for {
-      moduleFunctions <- process.getFact(ModuleNames.Key(ModuleName.fromImportStatement(statement))).toOptionT
+      moduleFunctions <- process.getFact(ModuleNames.Key(module.value)).toOptionT
       result          <-
         if (moduleFunctions.typeNames.intersect(localTypeNames).nonEmpty) {
           registerCompilerError(
-            statement.outline.as(
+            module.as(
               s"Imported types shadow local type: ${moduleFunctions.typeNames.intersect(localTypeNames).mkString(", ")}"
             )
           ).liftOptionTNone
         } else if (moduleFunctions.typeNames.intersect(importedTypes.keySet).nonEmpty) {
           registerCompilerError(
-            statement.outline.as(
+            module.as(
               s"Imported types shadow other imported types: ${moduleFunctions.typeNames.intersect(importedTypes.keySet).flatMap(importedTypes.get).mkString(", ")}"
             )
           ).liftOptionTNone
