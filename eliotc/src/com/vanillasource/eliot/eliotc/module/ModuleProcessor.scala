@@ -60,25 +60,27 @@ class ModuleProcessor extends CompilerProcessor with Logging {
       localFunctionNames: Set[String],
       imports: Seq[ImportStatement]
   )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] =
-    imports.foldM(Map.empty[String, FunctionFQN])((acc, i) => extractImportedFunctions(localFunctionNames, acc, i))
+    imports
+      .map(importStatement => importStatement.outline.as(ModuleName.fromImportStatement(importStatement)))
+      .foldM(Map.empty[String, FunctionFQN])((acc, i) => importModule(localFunctionNames, acc, i))
 
-  private def extractImportedFunctions(
+  private def importModule(
       localFunctionNames: Set[String],
       importedFunctions: Map[String, FunctionFQN],
-      statement: ImportStatement
+      module: Sourced[ModuleName]
   )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] = {
     val extractedImport = for {
-      moduleFunctions <- process.getFact(ModuleNames.Key(ModuleName.fromImportStatement(statement))).toOptionT
+      moduleFunctions <- process.getFact(ModuleNames.Key(module.value)).toOptionT
       result          <-
         if (moduleFunctions.functionNames.intersect(localFunctionNames).nonEmpty) {
           registerCompilerError(
-            statement.outline.as(
+            module.as(
               s"Imported functions shadow local functions: ${moduleFunctions.functionNames.intersect(localFunctionNames).mkString(", ")}"
             )
           ).liftOptionTNone
         } else if (moduleFunctions.functionNames.intersect(importedFunctions.keySet).nonEmpty) {
           registerCompilerError(
-            statement.outline.as(
+            module.as(
               s"Imported functions shadow other imported functions: ${moduleFunctions.functionNames.intersect(importedFunctions.keySet).flatMap(importedFunctions.get).mkString(", ")}"
             )
           ).liftOptionTNone
@@ -92,7 +94,7 @@ class ModuleProcessor extends CompilerProcessor with Logging {
     } yield result
 
     extractedImport.getOrElseF {
-      registerCompilerError(statement.outline.as("Could not find imported module.")).as(importedFunctions)
+      registerCompilerError(module.as("Could not find imported module.")).as(importedFunctions)
     }
   }
 
