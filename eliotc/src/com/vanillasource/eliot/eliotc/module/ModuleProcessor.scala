@@ -169,9 +169,8 @@ class ModuleProcessor extends CompilerProcessor with Logging {
         }
     } yield result
 
-    extractedImport.getOrElseF {
-      registerCompilerError(statement.outline.as("Could not find imported module.")).as(importedTypes)
-    }
+    // Note: the "could not find imported module was already caught earlier, so don't issue the error again
+    extractedImport.getOrElse(importedTypes)
   }
 
   private def determineModuleName(file: File)(using process: CompilationProcess): IO[Option[ModuleName]] = {
