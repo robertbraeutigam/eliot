@@ -154,7 +154,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     results <- runEngine(source)
   } yield {
     results.values
-      .collect { case SourceAST(_, AST(statements, _, _)) =>
+      .collect { case SourceAST(_, _, AST(statements, _, _)) =>
         statements.map(i => (i.packageNames.map(_.value) :+ i.moduleName.value).mkString("."))
       }
       .toSeq

@@ -14,18 +14,18 @@ import java.io.File
   */
 class Tokenizer extends CompilerProcessor with Logging with User {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case SourceContent(file, content) => tokenize(file, content)
-    case _                            => IO.unit
+    case SourceContent(file, rootPath, content) => tokenize(file, rootPath, content)
+    case _                                      => IO.unit
   }
 
-  private def tokenize(file: File, content: String)(using process: CompilationProcess): IO[Unit] =
+  private def tokenize(file: File, rootPath: File, content: String)(using process: CompilationProcess): IO[Unit] =
     TokenParser(file).fullParser
       .parse(content)(using new TokenErrorBuilder(file))
       .fold(
         errorMessage => SourcedError.registerCompilerError(errorMessage),
         tokens =>
           debug(s"tokenized $file into: ${tokens.map(_.show).mkString(", ")}") >> process.registerFact(
-            SourceTokens(file, tokens)
+            SourceTokens(file, rootPath, tokens)
           )
       )
 

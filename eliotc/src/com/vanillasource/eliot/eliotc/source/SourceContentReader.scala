@@ -11,7 +11,7 @@ class SourceContentReader extends CompilerProcessor {
       Resource.make(IO(Source.fromFile(file)))(source => IO(source.close())).use { source =>
         for {
           content <- IO.blocking(source.getLines().mkString("\n"))
-          _       <- process.registerFact(SourceContent(file, content))
+          _       <- process.registerFact(SourceContent(file, rootPath, content))
         } yield ()
       }
     case _                          => IO.unit

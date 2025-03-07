@@ -18,6 +18,5 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
 
   def runEngine(source: String): IO[Map[Any, CompilerFact]] =
     CompilerEngine(processors)
-      .resolve(Seq(SourceContent(file, source)))
-
+      .resolve(Seq(SourceContent(file, file.getParentFile, source)))
 }

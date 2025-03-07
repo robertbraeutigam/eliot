@@ -11,6 +11,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 import com.vanillasource.util.CatsOps.*
 
 import java.io.File
+import scala.jdk.CollectionConverters.IteratorHasAsScala
 
 class ModuleProcessor extends CompilerProcessor with Logging {
   private val systemPackage = Seq("eliot", "lang")
@@ -19,13 +20,13 @@ class ModuleProcessor extends CompilerProcessor with Logging {
   )
 
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case SourceAST(file, ast) => process(file, ast).getOrUnit
-    case _                    => IO.unit
+    case SourceAST(file, rootPath, ast) => process(file, rootPath, ast).getOrUnit
+    case _                              => IO.unit
   }
 
-  private def process(file: File, ast: AST)(using CompilationProcess): OptionT[IO, Unit] =
+  private def process(file: File, rootPath: File, ast: AST)(using CompilationProcess): OptionT[IO, Unit] =
     for {
-      moduleName <- determineModuleName(file).toOptionT
+      moduleName <- determineModuleName(file, rootPath).toOptionT
       _          <- processFunctions(file: File, moduleName, ast).liftOptionT
     } yield ()
 
@@ -187,13 +188,20 @@ class ModuleProcessor extends CompilerProcessor with Logging {
     extractedImport.getOrElse(importedTypes)
   }
 
-  private def determineModuleName(file: File)(using process: CompilationProcess): IO[Option[ModuleName]] = {
+  private def determineModuleName(file: File, rootPath: File)(using
+      process: CompilationProcess
+  ): IO[Option[ModuleName]] = {
     // TODO: needs to parse packages to determine module path
     val candidateName = file.getName
     candidateName match
       case ""                       => registerCompilerError(file, "Module name is empty.").as(None)
       case s if !s.endsWith(".els") => registerCompilerError(file, "File for module does not end in '.els'.").as(None)
       case s if s.charAt(0).isLower => registerCompilerError(file, "Module name must be capitalized.").as(None)
-      case s                        => Some(ModuleName(Seq.empty, s.substring(0, s.length - 4))).pure
+      case s                        =>
+        val segments =
+          file.toPath.normalize().relativize(rootPath.toPath.normalize()).iterator().asScala.map(_.toString)
+
+        println(s"File $file from $rootPath resulted in segments: ${segments.mkString(":")}")
+        Some(ModuleName(Seq.empty, s.substring(0, s.length - 4))).pure
   }
 }

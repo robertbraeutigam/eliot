@@ -6,7 +6,7 @@ import java.io.File
 
 /** The contents of a source file.
   */
-case class SourceContent(file: File, content: String) extends CompilerFact {
+case class SourceContent(file: File, rootPath: File, content: String) extends CompilerFact {
   override def key(): SourceContent.Key = SourceContent.Key(file)
 }
 

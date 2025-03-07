@@ -15,11 +15,13 @@ import java.io.File
 
 class ASTParser extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case SourceTokens(file, tokens) => parseAST(file, tokens)
-    case _                          => IO.unit
+    case SourceTokens(file, rootPath, tokens) => parseAST(file, rootPath, tokens)
+    case _                                    => IO.unit
   }
 
-  private def parseAST(file: File, tokens: Seq[Sourced[Token]])(using process: CompilationProcess): IO[Unit] = {
+  private def parseAST(file: File, rootPath: File, tokens: Seq[Sourced[Token]])(using
+      process: CompilationProcess
+  ): IO[Unit] = {
     val astResult = component[AST].fully().parse(tokens)
 
     for {
@@ -45,7 +47,7 @@ class ASTParser extends CompilerProcessor with Logging {
            }.sequence_
       _ <- astResult.value match
              case Some(ast) =>
-               debug(s"generated AST for $file: ${ast.show}") >> process.registerFact(SourceAST(file, ast))
+               debug(s"generated AST for $file: ${ast.show}") >> process.registerFact(SourceAST(file, rootPath, ast))
              case None      => IO.unit
     } yield ()
   }
