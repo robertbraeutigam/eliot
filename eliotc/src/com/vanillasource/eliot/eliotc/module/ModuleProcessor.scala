@@ -11,6 +11,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 import com.vanillasource.util.CatsOps.*
 
 import java.io.File
+import java.util.Locale
 import scala.jdk.CollectionConverters.IteratorHasAsScala
 
 class ModuleProcessor extends CompilerProcessor with Logging {
@@ -191,17 +192,27 @@ class ModuleProcessor extends CompilerProcessor with Logging {
   private def determineModuleName(file: File, rootPath: File)(using
       process: CompilationProcess
   ): IO[Option[ModuleName]] = {
-    // TODO: needs to parse packages to determine module path
     val candidateName = file.getName
     candidateName match
       case ""                       => registerCompilerError(file, "Module name is empty.").as(None)
       case s if !s.endsWith(".els") => registerCompilerError(file, "File for module does not end in '.els'.").as(None)
       case s if s.charAt(0).isLower => registerCompilerError(file, "Module name must be capitalized.").as(None)
       case s                        =>
-        val segments =
-          file.toPath.normalize().relativize(rootPath.toPath.normalize()).iterator().asScala.map(_.toString)
+        val moduleSegments = rootPath.toPath
+          .normalize()
+          .relativize(file.getParentFile.toPath.normalize())
+          .iterator()
+          .asScala
+          .map(_.toString)
+          .filter(_.nonEmpty)
+          .toSeq
 
-        println(s"File $file from $rootPath resulted in segments: ${segments.mkString(":")}")
-        Some(ModuleName(Seq.empty, s.substring(0, s.length - 4))).pure
+        if (moduleSegments.exists(s => s =!= s.toLowerCase(Locale.ROOT))) {
+          registerCompilerError(file, "Directory names, as they are package names, must be lower case.").as(None)
+        } else if (moduleSegments.exists(_ === "src")) {
+          registerCompilerError(file, "Package names must not contain 'src'. Please check root paths.").as(None)
+        } else {
+          Some(ModuleName(moduleSegments, s.substring(0, s.length - 4))).pure
+        }
   }
 }
