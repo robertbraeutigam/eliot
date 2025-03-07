@@ -8,8 +8,8 @@ import java.io.File
 
 /** Puts all the source paths as facts into the compiler.
   */
-class InitSourcePaths(paths: Seq[File]) extends CompilerProcessor with Logging {
+class InitSourcePaths(rootPaths: Seq[File]) extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using process: CompilationProcess): IO[Unit] = fact match
-    case Init => process.registerFacts(paths.map(SourcePath.apply))
+    case Init => process.registerFacts(rootPaths.map(p => SourcePath(p, p)))
     case _    => IO.unit
 }
