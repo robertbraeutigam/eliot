@@ -1,3 +1,9 @@
 data Foo
 
-f: Function[Foo, Foo] = a:Foo -> a
+//f: Function[Foo, Foo] = a:Foo -> a
+
+f(a: Foo): Foo = a
+
+a: Function[Foo, Foo] = f
+
+//a(p: Foo): Foo = f(p)

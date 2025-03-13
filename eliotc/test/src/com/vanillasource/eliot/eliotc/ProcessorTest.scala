@@ -10,14 +10,22 @@ import org.scalatest.matchers.should.Matchers
 import java.io.File
 
 abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFlatSpec with AsyncIOSpec with Matchers {
-  val file = new File("Test.els")
+  val file                  = new File("Test.els")
+  private val systemImports = Seq(SystemImport("Function", "data Function[A, B]"))
 
-  def runEngineForErrors(source: String): IO[Seq[String]] =
-    runEngine(source)
+  def runEngineForErrors(source: String, imports: Seq[SystemImport] = Seq.empty): IO[Seq[String]] =
+    runEngine(source, imports)
       .map(_.values.collect { case SourcedError(Sourced(_, _, msg)) => msg }.toSeq)
 
-  def runEngine(source: String): IO[Map[Any, CompilerFact]] = {
+  def runEngine(source: String, imports: Seq[SystemImport] = Seq.empty): IO[Map[Any, CompilerFact]] = {
     CompilerEngine(processors)
-      .resolve(Seq(SourceContent(file, Option(file.getParentFile).getOrElse(File(".")), source)))
+      .resolve(
+        imports.map(i => SourceContent(new File(s"eliot/lang/${i.module}.els"), new File("."), i.content)) ++
+          Seq(SourceContent(file, Option(file.getParentFile).getOrElse(File(".")), source))
+      )
   }
+
+  def runEngineForErrorsWithImports(source: String): IO[Seq[String]] = runEngineForErrors(source, systemImports)
+
+  case class SystemImport(module: String, content: String)
 }
