@@ -70,7 +70,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
               FunctionDefinition(
                 name,
                 resolvedGenericParameters,
-                // Arguments, so unroll into Function[A, Function[B, ...]]
+                // Unroll return type into Function[A, Function[B, ...]]
                 argumentDefinitions.foldRight(returnType)((arg, typ) =>
                   DirectTypeReference(
                     typeReference.typeName.as(TypeFQN.systemFunctionType),
@@ -132,7 +132,9 @@ class FunctionResolver extends CompilerProcessor with Logging {
             case Some(ffqn) =>
               for {
                 newArgs <- args.traverse(resolveExpression)
-              } yield Expression.FunctionApplication(s.as(ffqn), newArgs)
+              } yield newArgs.foldRight(Expression.ValueReference(s.as(ffqn)))((expr, arg) =>
+                Expression.FunctionApplication(expr, arg)
+              )
             case None       => compilerAbort(s.as(s"Function not defined.")).liftToScoped
           }
         )
