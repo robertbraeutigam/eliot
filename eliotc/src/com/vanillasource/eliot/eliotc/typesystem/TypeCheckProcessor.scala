@@ -25,7 +25,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
     case ResolvedFunction(
           ffqn,
-          functionDefinition @ FunctionDefinition(_, _, _, _, Some(body))
+          functionDefinition @ FunctionDefinition(_, _, _, Some(body))
         ) =>
       process(ffqn, functionDefinition, body).runCompilation_()
     case _ => IO.unit
@@ -35,11 +35,11 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       functionDefinition: FunctionDefinition,
       body: Expression
   )(using process: CompilationProcess): CompilationIO[Unit] = {
-    val typeGraph      = genericParameters(functionDefinition.genericParameters)
-    val parameterTypes = functionDefinition.arguments.groupMapReduce(_.name.value)(_.typeReference)((left, _) => left)
+    val typeGraph = genericParameters(functionDefinition.genericParameters)
 
     for {
-      constructedTypeGraph <- constructTypeGraphs("", functionDefinition.returnType, parameterTypes, body)
+      constructedTypeGraph <-
+        constructTypeGraphs("", functionDefinition.valueType, Map.empty[String, TypeReference], body)
       fullTypeGraph         = typeGraph combine constructedTypeGraph
       _                    <- debug(s"solving ${fullTypeGraph.show}").liftToCompilationIO
       _                    <- fullTypeGraph.solve()
@@ -100,7 +100,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
                 .outline(Seq(parameter.name, body)) // TODO: this is a hack for the expression not being Sourced
                 .as(
                   DirectTypeReference(
-                    parameter.name.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "Function"), "Function")),
+                    parameter.name.as(TypeFQN.systemFunctionType),
                     Seq(parameter.typeReference, GenericTypeReference(functionReturnGenericTypeName, Seq.empty))
                   )
                 )
@@ -119,7 +119,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       genericParameters(functionDefinition.genericParameters.map(_.shiftToNamespace(namespace).instantiate())) |+|
         assignment(
           parentTypeReference,
-          functionName.as(functionDefinition.returnType.shiftGenericToNamespace(namespace))
+          functionName.as(functionDefinition.valueType.shiftGenericToNamespace(namespace))
         )
 
     if (arguments.length =!= functionDefinition.arguments.length) {

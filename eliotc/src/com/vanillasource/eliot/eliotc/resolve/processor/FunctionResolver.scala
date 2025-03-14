@@ -6,6 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleData, ModuleFunction, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.fact.*
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression.FunctionLiteral
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
@@ -51,9 +52,10 @@ class FunctionResolver extends CompilerProcessor with Logging {
     )
 
     val resolveProgram = for {
-      resolvedBody              <- body.traverse(resolveExpression)
+      resolvedBodyMaybe         <- body.traverse(resolveExpression)
       returnType                <- resolveType(typeReference)
       argumentTypes             <- args.map(_.typeReference).traverse(resolveType)
+      argumentDefinitions        = args.zip(argumentTypes).map((argDef, argType) => ArgumentDefinition(argDef.name, argType))
       resolvedGenericParameters <-
         genericParameters.traverse(genericParameter =>
           genericParameter.genericParameters
@@ -68,11 +70,18 @@ class FunctionResolver extends CompilerProcessor with Logging {
               FunctionDefinition(
                 name,
                 resolvedGenericParameters,
-                args
-                  .zip(argumentTypes)
-                  .map((argDef, argType) => ArgumentDefinition(argDef.name, argType)),
-                returnType,
-                resolvedBody
+                // Arguments, so unroll into Function[A, Function[B, ...]]
+                argumentDefinitions.foldRight(returnType)((arg, typ) =>
+                  DirectTypeReference(
+                    typeReference.typeName.as(TypeFQN.systemFunctionType),
+                    Seq(arg.typeReference, typ)
+                  )
+                ),
+                // Unroll body to use function literals: arg1 -> arg2 -> ... -> body
+                // FIXME: sourcing of expressions are bad
+                resolvedBodyMaybe.map(resolvedBody =>
+                  argumentDefinitions.foldRight(resolvedBody)((arg, expr) => FunctionLiteral(arg, name.as(expr)))
+                )
               )
             )
           )
