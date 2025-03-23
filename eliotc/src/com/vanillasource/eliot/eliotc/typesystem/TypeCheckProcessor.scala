@@ -54,9 +54,23 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       expression: Expression
   )(using process: CompilationProcess): CompilationIO[TypeUnification] =
     expression match
-      case ParameterReference(parameterName)            =>
+      case ParameterReference(parameterName)     =>
         assignment(parentTypeReference, parameterName.map(parameterTypes.apply)).pure[CompilationIO]
-      case IntegerLiteral(integerLiteral)               =>
+      case ValueReference(functionName)          =>
+        for {
+          calledDefinitionMaybe <-
+            process.getFact(ResolvedFunction.Key(functionName.value)).map(_.map(_.definition)).liftToCompilationIO
+          result                <- calledDefinitionMaybe match {
+                                     case None             => Monoid[TypeUnification].empty.pure[CompilationIO]
+                                     case Some(definition) =>
+                                       // TODO: do we need to define generic types, do we care, or can we just create those that are referenced from return type?
+                                       assignment(
+                                         parentTypeReference,
+                                         functionName.as(definition.valueType.shiftGenericToNamespace(namespace + "$VT$"))
+                                       ).pure[CompilationIO]
+                                   }
+        } yield result
+      case IntegerLiteral(integerLiteral)        =>
         assignment(
           parentTypeReference,
           integerLiteral.as(
@@ -66,24 +80,33 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
             )
           )
         ).pure[CompilationIO]
-      case FunctionApplication(functionName, arguments) =>
+      case FunctionApplication(target, argument) =>
+        val argumentType = argument.as(namespace + "$FA")
+        val returnType   = target.as(namespace + "$FB")
+
         for {
-          calledDefinitionMaybe <-
-            process.getFact(ResolvedFunction.Key(functionName.value)).map(_.map(_.definition)).liftToCompilationIO
-          result                <- calledDefinitionMaybe match {
-                                     case None             => Monoid[TypeUnification].empty.pure[CompilationIO]
-                                     case Some(definition) =>
-                                       checkFunctionApplicationTypes(
-                                         namespace + s"#${functionName.value.show}#",
-                                         parentTypeReference,
-                                         parameterTypes,
-                                         functionName,
-                                         definition,
-                                         arguments
-                                       )
-                                   }
-        } yield result
-      case FunctionLiteral(parameter, body)             =>
+          targetUnification   <-
+            constructTypeGraphs(
+              namespace + "$Target",
+              DirectTypeReference(
+                target.as(TypeFQN.systemFunctionType),
+                Seq(GenericTypeReference(argumentType, Seq.empty), GenericTypeReference(returnType, Seq.empty))
+              ),
+              parameterTypes,
+              target.value
+            )
+          argumentUnification <-
+            constructTypeGraphs(
+              namespace + "$Argument",
+              GenericTypeReference(argumentType, Seq.empty),
+              parameterTypes,
+              argument.value
+            )
+        } yield targetUnification |+| argumentUnification |+| assignment(
+          parentTypeReference,
+          target.as(GenericTypeReference(returnType, Seq.empty))
+        )
+      case FunctionLiteral(parameter, body)      =>
         val functionReturnGenericTypeName = parameter.name.as(namespace + "$R")
 
         constructTypeGraphs(
@@ -106,41 +129,4 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
                 )
             )
         )
-
-  private def checkFunctionApplicationTypes(
-      namespace: String,
-      parentTypeReference: TypeReference, // Type this expression goes into
-      parameterTypes: Map[String, TypeReference],
-      functionName: Sourced[FunctionFQN],
-      functionDefinition: FunctionDefinition,
-      arguments: Seq[Expression]
-  )(using process: CompilationProcess): CompilationIO[TypeUnification] = {
-    val baseGraph =
-      genericParameters(functionDefinition.genericParameters.map(_.shiftToNamespace(namespace).instantiate())) |+|
-        assignment(
-          parentTypeReference,
-          functionName.as(functionDefinition.valueType.shiftGenericToNamespace(namespace))
-        )
-
-    if (arguments.length =!= functionDefinition.arguments.length) {
-      compilerError(
-        functionName.as(
-          s"Function is called with ${arguments.length} parameters, but needs ${functionDefinition.arguments.length}."
-        )
-      ).as(Monoid[TypeUnification].empty)
-    } else {
-      functionDefinition.arguments
-        .zip(arguments)
-        .zipWithIndex
-        .traverse { case ((argumentDefinition, expression), index) =>
-          constructTypeGraphs(
-            s"$namespace$index",
-            argumentDefinition.typeReference.shiftGenericToNamespace(namespace),
-            parameterTypes,
-            expression
-          )
-        }
-        .map(_.fold(baseGraph)(_ combine _))
-    }
-  }
 }

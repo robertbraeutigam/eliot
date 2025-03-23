@@ -11,7 +11,8 @@ import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
-class FunctionResolverTest extends ProcessorTest(Tokenizer(), ASTParser(), ModuleProcessor(Seq.empty), FunctionResolver()) {
+class FunctionResolverTest
+    extends ProcessorTest(Tokenizer(), ASTParser(), ModuleProcessor(Seq.empty), FunctionResolver()) {
   "resolver" should "resolve a literal integer expression" in {
     parseForExpressions("data A\na: A = 1").flatMap {
       case Seq(IntegerLiteral(Sourced(_, _, value))) => IO.delay(value shouldBe BigInt(1))
@@ -101,7 +102,7 @@ class FunctionResolverTest extends ProcessorTest(Tokenizer(), ASTParser(), Modul
   private def parseForExpressions(source: String): IO[Seq[Expression]] = for {
     results <- runEngine(source)
   } yield {
-    results.values.collect { case ResolvedFunction(_, FunctionDefinition(_, _, _, _, Some(expression))) =>
+    results.values.collect { case ResolvedFunction(_, FunctionDefinition(_, _, _, Some(expression))) =>
       expression
     }.toSeq
   }
