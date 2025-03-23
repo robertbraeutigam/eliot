@@ -6,7 +6,12 @@ import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction}
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{FunctionApplication, IntegerLiteral, ParameterReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{
+  FunctionApplication,
+  IntegerLiteral,
+  ParameterReference,
+  ValueReference
+}
 import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -20,11 +25,11 @@ class FunctionResolverTest
     }
   }
 
-  it should "resolve function calls to other function" in {
+  it should "resolve value references" in {
     parseForExpressions("data A\na: A\nb: A = a").flatMap {
-      case Seq(FunctionApplication(Sourced(_, _, ffqn), Seq())) =>
+      case Seq(ValueReference(Sourced(_, _, ffqn))) =>
         IO.delay(ffqn shouldBe FunctionFQN(ModuleName(Seq(), "Test"), "a"))
-      case x                                                    => IO.delay(fail(s"was not a function application, instead: $x"))
+      case x                                        => IO.delay(fail(s"was not a value reference, instead: $x"))
     }
   }
 
