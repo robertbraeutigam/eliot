@@ -81,8 +81,8 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           )
         ).pure[CompilationIO]
       case FunctionApplication(target, argument) =>
-        val argumentType = argument.as(namespace + "$FA")
-        val returnType   = target.as(namespace + "$FB")
+        val argumentType = argument.as(namespace + "$AppArg")
+        val returnType   = target.as(namespace + "$AppRet")
 
         for {
           targetUnification   <-
@@ -107,10 +107,10 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           target.as(GenericTypeReference(returnType, Seq.empty))
         )
       case FunctionLiteral(parameter, body)      =>
-        val functionReturnGenericTypeName = parameter.name.as(namespace + "$R")
+        val functionReturnGenericTypeName = parameter.name.as(namespace + "$LitResult")
 
         constructTypeGraphs(
-          namespace + "$",
+          namespace + "$LitBody",
           GenericTypeReference(functionReturnGenericTypeName, Seq.empty),
           parameterTypes + (parameter.name.value -> parameter.typeReference),
           body.value
