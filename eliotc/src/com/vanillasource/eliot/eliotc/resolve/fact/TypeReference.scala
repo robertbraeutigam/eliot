@@ -14,11 +14,11 @@ object TypeReference {
 
   given Show[TypeReference] = {
     case DirectTypeReference(dataType, genericParameters) =>
-      dataType.value.show + (if (genericParameters.isEmpty) ""
-                             else genericParameters.map(_.show).mkString("[", ",", "]"))
+      "Data:" + dataType.value.show + (if (genericParameters.isEmpty) ""
+                                       else genericParameters.map(_.show).mkString("[", ",", "]"))
     case GenericTypeReference(name, genericParameters)    =>
-      name.value + (if (genericParameters.isEmpty) ""
-                    else genericParameters.map(_.show).mkString("[", ",", "]"))
+      "Generic:" + name.value + (if (genericParameters.isEmpty) ""
+                                 else genericParameters.map(_.show).mkString("[", ",", "]"))
   }
 
   extension (typeReference: TypeReference) {

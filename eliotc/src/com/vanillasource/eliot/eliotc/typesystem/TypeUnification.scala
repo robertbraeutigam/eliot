@@ -5,6 +5,7 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.implicits.*
 import cats.kernel.Monoid
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
@@ -24,13 +25,20 @@ case class TypeUnification private (
 
   private def solve(target: TypeReference, source: Sourced[TypeReference])(using
       CompilationProcess
-  ): StateT[CompilationIO, TypeUnificationState, Unit] = for {
-    targetCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(target))
-    sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(source.value))
-    unifiedType   <- StateT.liftF(unify(targetCurrent, source.as(sourceCurrent)))
-    _             <- StateT.modify[CompilationIO, TypeUnificationState](_.unifyTo(target, source.value, unifiedType))
-    _             <- (targetCurrent.genericParameters zip sourceCurrent.genericParameters.map(source.as)).traverse(solve.tupled)
-  } yield ()
+  ): StateT[CompilationIO, TypeUnificationState, Unit] = {
+    println(s"Solving $target <- $source")
+
+    for {
+      targetCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(target))
+      sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(source.value))
+      unifiedType   <- StateT.liftF(unify(targetCurrent, source.as(sourceCurrent)))
+      _             <- StateT.modify[CompilationIO, TypeUnificationState](_.unifyTo(target, source.value, unifiedType))
+      _             <-
+        (targetCurrent.genericParameters zip sourceCurrent.genericParameters.map(source.as))
+          .traverse(solve.tupled)
+          .whenA(targetCurrent.identifier =!= sourceCurrent.identifier)
+    } yield ()
+  }
 
   private def unify(current: TypeReference, incoming: Sourced[TypeReference])(using
       CompilationProcess
