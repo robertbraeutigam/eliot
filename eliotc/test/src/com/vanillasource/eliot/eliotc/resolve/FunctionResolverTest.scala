@@ -5,9 +5,15 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction}
+import com.vanillasource.eliot.eliotc.resolve.fact.{
+  ArgumentDefinition,
+  Expression,
+  FunctionDefinition,
+  ResolvedFunction
+}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{
   FunctionApplication,
+  FunctionLiteral,
   IntegerLiteral,
   ParameterReference,
   ValueReference
@@ -33,10 +39,13 @@ class FunctionResolverTest
     }
   }
 
-  it should "resolve using parameters" in {
+  it should "resolve function to function literal" in {
     parseForExpressions("data A\nb(a: A): A = a").flatMap {
-      case Seq(ParameterReference(Sourced(_, _, name))) => IO.delay(name shouldBe "a")
-      case x                                            => IO.delay(fail(s"was not a parameter reference, instead: $x"))
+      case Seq(
+            FunctionLiteral(_, Sourced(_, _, ParameterReference(Sourced(_, _, name))))
+          ) =>
+        IO.delay(name shouldBe "a")
+      case x => IO.delay(fail(s"was not a function literal with a parameter reference as body, instead: $x"))
     }
   }
 
