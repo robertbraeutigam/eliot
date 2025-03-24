@@ -132,7 +132,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
             case Some(ffqn) =>
               for {
                 newArgs <- args.traverse(resolveExpression)
-              } yield newArgs.foldRight[Expression](Expression.ValueReference(s.as(ffqn)))((expr, arg) =>
+              } yield newArgs.foldRight[Expression](Expression.ValueReference(s.as(ffqn)))((arg, expr) =>
                 Expression.FunctionApplication(s.as(expr), s.as(arg)) // FIXME: sourcing is wrong
               )
             case None       => compilerAbort(s.as(s"Function not defined.")).liftToScoped
