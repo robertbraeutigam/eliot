@@ -25,9 +25,7 @@ case class TypeUnification private (
 
   private def solve(target: TypeReference, source: Sourced[TypeReference])(using
       CompilationProcess
-  ): StateT[CompilationIO, TypeUnificationState, Unit] = {
-    println(s"Solving $target <- $source")
-
+  ): StateT[CompilationIO, TypeUnificationState, Unit] =
     for {
       targetCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(target))
       sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(source.value))
@@ -38,7 +36,6 @@ case class TypeUnification private (
           .traverse(solve.tupled)
           .whenA(targetCurrent.identifier =!= sourceCurrent.identifier)
     } yield ()
-  }
 
   private def unify(current: TypeReference, incoming: Sourced[TypeReference])(using
       CompilationProcess
