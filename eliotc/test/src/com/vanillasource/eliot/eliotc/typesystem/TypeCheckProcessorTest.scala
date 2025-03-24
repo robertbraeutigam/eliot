@@ -23,7 +23,9 @@ class TypeCheckProcessorTest
 
   it should "not compile if call site has arguments, but definition doesn't" in {
     runEngineForErrorsWithImports("data A\na: A = b(1)\nb: A")
-      .asserting(_ shouldBe Seq("Function is called with 1 parameters, but needs 0."))
+      .asserting(
+        _ shouldBe Seq("Expression with type Test.A can not be assigned to type eliot.lang.Function.Function.")
+      ) // FIXME: Correct, but confusing message
   }
 
   it should "issue error when referencing an undefined function" in {
@@ -33,7 +35,9 @@ class TypeCheckProcessorTest
 
   it should "not compile if call site has no arguments, but definition has one" in {
     runEngineForErrorsWithImports("data A\na: A = b\nb(x: A): A")
-      .asserting(_ shouldBe Seq("Function is called with 0 parameters, but needs 1."))
+      .asserting(
+        _ shouldBe Seq("Expression with type eliot.lang.Function.Function can not be assigned to type Test.A.")
+      )
   }
 
   "processor" should "produce type checked results if arities are ok" in {
