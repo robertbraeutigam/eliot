@@ -112,11 +112,11 @@ case class TypeUnification private (
             if (
               incomingGenericParameters.isEmpty || currentGenericParameters.isEmpty || incomingGenericParameters.length === currentGenericParameters.length
             ) {
-              // Add generic parameter restrictions (remember the more restrictive type reference)
-              if (incomingGenericParameters.isEmpty) {
-                current.pure[CompilationIO]
-              } else {
+              // If incoming is more restrictive (has parameters or is universal), pick that
+              if (incomingGenericParameters.nonEmpty || isUniversal(incomingType.value)) {
                 incoming.value.sourcedAt(current).pure[CompilationIO]
+              } else {
+                current.pure[CompilationIO]
               }
             } else {
               compilerError(
