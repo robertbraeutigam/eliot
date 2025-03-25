@@ -124,7 +124,7 @@ class TypeCheckProcessorTest
     runEngineForErrorsWithImports("id[B, A[B]](a: A[B]): A[B]\nf[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
       .asserting(
         _ shouldBe Seq(
-          "Expression with type A#Test.id# can not be assigned to type C, because they have different number of generic parameters."
+          "Expression with type C can not be assigned to type A$LitBody$Target$VT$, because they have different number of generic parameters."
         )
       )
   }
