@@ -1,9 +1,3 @@
-data Foo
+id[B, A[B]](a: A[B]): A[B]
 
-//f: Function[Foo, Foo] = a:Foo -> a
-
-f(a: Foo): Foo = a
-
-a: Function[Foo, Foo] = f
-
-//a(p: Foo): Foo = f(p)
+f[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)
