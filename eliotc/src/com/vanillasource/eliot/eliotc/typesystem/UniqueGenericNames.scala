@@ -11,9 +11,8 @@ case class UniqueGenericNames(nextNameIndex: Int = 0, boundNames: Map[String, Ty
 
   def advanceNameIndex(): UniqueGenericNames = UniqueGenericNames(nextNameIndex + 1, boundNames)
 
-  // FIXME: fix name to be unique
-  def boundType(argumentDefinition: ArgumentDefinition): UniqueGenericNames =
-    UniqueGenericNames(nextNameIndex, boundNames + (argumentDefinition.name.value -> argumentDefinition.typeReference))
+  def boundType(name: String, typeReference: TypeReference): UniqueGenericNames =
+    UniqueGenericNames(nextNameIndex, boundNames + (name -> typeReference))
 
   @tailrec
   private def generateName(remainingIndex: Int, alreadyGeneratedSuffix: String): String =
@@ -34,7 +33,7 @@ object UniqueGenericNames {
     } yield currentNames.boundNames.apply(name)
 
   def boundType[F[_]](arg: ArgumentDefinition)(using Monad[F]): StateT[F, UniqueGenericNames, Unit] =
-    StateT.modifyF[F, UniqueGenericNames](names => Monad[F].pure(names.boundType(arg)))
+    StateT.modifyF[F, UniqueGenericNames](names => Monad[F].pure(names.boundType(arg.name.value, arg.typeReference)))
 
   def generateNextUniqueName[F[_]]()(using Monad[F]): StateT[F, UniqueGenericNames, String] =
     for {
