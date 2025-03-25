@@ -20,6 +20,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.*
+import com.vanillasource.eliot.eliotc.typesystem.UniqueGenericNames.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 
 class TypeCheckProcessor extends CompilerProcessor with Logging {
@@ -40,7 +41,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
 
     for {
       constructedTypeGraph <-
-        constructTypeGraphs("", functionDefinition.valueType, Map.empty[String, TypeReference], body)
+        constructTypeGraphs("", functionDefinition.valueType, body)
           .runA(UniqueGenericNames())
       fullTypeGraph         = typeGraph combine constructedTypeGraph
       _                    <- debug(s"solving ${fullTypeGraph.show}").liftToCompilationIO
@@ -54,12 +55,13 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   private def constructTypeGraphs(
       namespace: String,
       parentTypeReference: TypeReference, // Type this expression goes into
-      parameterTypes: Map[String, TypeReference],
       expression: Expression
   )(using process: CompilationProcess): TypeGraphIO[TypeUnification] =
     expression match
       case ParameterReference(parameterName)     =>
-        assignment(parentTypeReference, parameterName.map(parameterTypes.apply)).pure[TypeGraphIO]
+        for {
+          parameterType <- getBoundType(parameterName.value)
+        } yield assignment(parentTypeReference, parameterName.as(parameterType))
       case ValueReference(functionName)          =>
         for {
           calledDefinitionMaybe <-
@@ -98,14 +100,12 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
                 target.as(TypeFQN.systemFunctionType),
                 Seq(GenericTypeReference(argumentType, Seq.empty), GenericTypeReference(returnType, Seq.empty))
               ),
-              parameterTypes,
               target.value
             )
           argumentUnification <-
             constructTypeGraphs(
               namespace + "$Argument",
               GenericTypeReference(argumentType, Seq.empty),
-              parameterTypes,
               argument.value
             )
         } yield targetUnification |+| argumentUnification |+| assignment(
@@ -115,24 +115,32 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       case FunctionLiteral(parameter, body)      =>
         val functionReturnGenericTypeName = parameter.name.as(namespace + "$LitResult")
 
-        constructTypeGraphs(
-          namespace + "$LitBody",
-          GenericTypeReference(functionReturnGenericTypeName, Seq.empty),
-          parameterTypes + (parameter.name.value -> parameter.typeReference),
-          body.value
-        ).map(
-          _ |+|
-            genericParameter(ExistentialGenericParameter(functionReturnGenericTypeName, Seq.empty)) |+|
-            assignment(
-              parentTypeReference,
-              Sourced
-                .outline(Seq(parameter.name, body)) // TODO: this is a hack for the expression not being Sourced
-                .as(
-                  DirectTypeReference(
-                    parameter.name.as(TypeFQN.systemFunctionType),
-                    Seq(parameter.typeReference, GenericTypeReference(functionReturnGenericTypeName, Seq.empty))
+        for {
+          _               <- boundType(parameter)
+          bodyUnification <- constructTypeGraphs(
+                               namespace + "$LitBody",
+                               GenericTypeReference(functionReturnGenericTypeName, Seq.empty),
+                               body.value
+                             )
+        } yield bodyUnification |+|
+          genericParameter(
+            ExistentialGenericParameter(functionReturnGenericTypeName, Seq.empty)
+          ) |+|
+          assignment(
+            parentTypeReference,
+            Sourced
+              .outline(
+                Seq(parameter.name, body)
+              ) // TODO: this is a hack for the expression not being Sourced
+              .as(
+                DirectTypeReference(
+                  parameter.name.as(TypeFQN.systemFunctionType),
+                  Seq(
+                    parameter.typeReference,
+                    GenericTypeReference(functionReturnGenericTypeName, Seq.empty)
                   )
                 )
-            )
-        )
+              )
+          )
+
 }
