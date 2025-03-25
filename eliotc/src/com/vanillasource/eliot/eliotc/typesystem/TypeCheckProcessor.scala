@@ -123,9 +123,6 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
                                body.value
                              )
         } yield bodyUnification |+|
-          genericParameter(
-            ExistentialGenericParameter(functionReturnGenericTypeName, Seq.empty)
-          ) |+|
           assignment(
             parentTypeReference,
             Sourced

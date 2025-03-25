@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.typesystem
 
-import cats.{Applicative, Monad}
+import cats.Monad
 import cats.data.StateT
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, TypeReference}
 
