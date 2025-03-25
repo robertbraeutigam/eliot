@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.typesystem
 
-import cats.data.State
+import cats.Applicative
+import cats.data.StateT
 
 import scala.annotation.tailrec
 
@@ -21,6 +22,6 @@ case class UniqueGenericNames(nextNameIndex: Int = 0) {
 }
 
 object UniqueGenericNames {
-  def reserveNextName(): State[UniqueGenericNames, String] =
-    State.apply(_.reserveNextName())
+  def reserveNextName[F[_]]()(using Applicative[F]): StateT[F, UniqueGenericNames, String] =
+    StateT.apply[F, UniqueGenericNames, String](s => Applicative[F].pure(s.reserveNextName()))
 }

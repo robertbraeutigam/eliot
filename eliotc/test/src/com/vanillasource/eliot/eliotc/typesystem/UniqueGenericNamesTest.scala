@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.typesystem
 
+import cats.Eval
 import com.vanillasource.eliot.eliotc.typesystem.UniqueGenericNames.reserveNextName
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -15,14 +16,14 @@ class UniqueGenericNamesTest extends AnyFlatSpec with Matchers {
   }
 
   it should "generate 'Z' as 26th" in {
-    reserveNextName().replicateA(26).runA(UniqueGenericNames()).value.last shouldBe "Z"
+    reserveNextName[Eval]().replicateA(26).runA(UniqueGenericNames()).value.last shouldBe "Z"
   }
 
   it should "generate 'AA' as 27th" in {
-    reserveNextName().replicateA(27).runA(UniqueGenericNames()).value.last shouldBe "AA"
+    reserveNextName[Eval]().replicateA(27).runA(UniqueGenericNames()).value.last shouldBe "AA"
   }
 
   it should "generate 'AB' as 28th" in {
-    reserveNextName().replicateA(28).runA(UniqueGenericNames()).value.last shouldBe "AB"
+    reserveNextName[Eval]().replicateA(28).runA(UniqueGenericNames()).value.last shouldBe "AB"
   }
 }
