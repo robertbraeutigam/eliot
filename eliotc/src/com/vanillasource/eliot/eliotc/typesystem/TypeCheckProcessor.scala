@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.typesystem
 
+import cats.data.StateT
 import cats.effect.IO
 import cats.implicits.*
 import cats.kernel.Monoid
@@ -40,6 +41,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
     for {
       constructedTypeGraph <-
         constructTypeGraphs("", functionDefinition.valueType, Map.empty[String, TypeReference], body)
+          .runA(UniqueGenericNames())
       fullTypeGraph         = typeGraph combine constructedTypeGraph
       _                    <- debug(s"solving ${fullTypeGraph.show}").liftToCompilationIO
       _                    <- fullTypeGraph.solve()
@@ -47,27 +49,31 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
     } yield ()
   }
 
+  private type TypeGraphIO[T] = StateT[CompilationIO, UniqueGenericNames, T]
+
   private def constructTypeGraphs(
       namespace: String,
       parentTypeReference: TypeReference, // Type this expression goes into
       parameterTypes: Map[String, TypeReference],
       expression: Expression
-  )(using process: CompilationProcess): CompilationIO[TypeUnification] =
+  )(using process: CompilationProcess): TypeGraphIO[TypeUnification] =
     expression match
       case ParameterReference(parameterName)     =>
-        assignment(parentTypeReference, parameterName.map(parameterTypes.apply)).pure[CompilationIO]
+        assignment(parentTypeReference, parameterName.map(parameterTypes.apply)).pure[TypeGraphIO]
       case ValueReference(functionName)          =>
         for {
           calledDefinitionMaybe <-
-            process.getFact(ResolvedFunction.Key(functionName.value)).map(_.map(_.definition)).liftToCompilationIO
+            StateT.liftF(
+              process.getFact(ResolvedFunction.Key(functionName.value)).map(_.map(_.definition)).liftToCompilationIO
+            )
           result                <- calledDefinitionMaybe match {
-                                     case None             => Monoid[TypeUnification].empty.pure[CompilationIO]
+                                     case None             => Monoid[TypeUnification].empty.pure[TypeGraphIO]
                                      case Some(definition) =>
                                        // TODO: do we need to define generic types, do we care, or can we just create those that are referenced from return type?
                                        assignment(
                                          parentTypeReference,
                                          functionName.as(definition.valueType.shiftGenericToNamespace(namespace + "$VT$"))
-                                       ).pure[CompilationIO]
+                                       ).pure[TypeGraphIO]
                                    }
         } yield result
       case IntegerLiteral(integerLiteral)        =>
@@ -79,7 +85,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
               Seq.empty
             )
           )
-        ).pure[CompilationIO]
+        ).pure[TypeGraphIO]
       case FunctionApplication(target, argument) =>
         val argumentType = argument.as(namespace + "$AppArg")
         val returnType   = target.as(namespace + "$AppRet")
