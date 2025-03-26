@@ -56,7 +56,7 @@ object UniqueGenericNames {
   ): StateT[F, UniqueGenericNames, TypeReference] =
     typeReference match
       case DirectTypeReference(dataType, genericParameters) =>
-        genericParameters.traverse(makeUnique).map(DirectTypeReference(dataType, _))
+        genericParameters.traverse(makeUniqueCached).map(DirectTypeReference(dataType, _))
       case GenericTypeReference(name, genericParameters)    =>
         for {
           currentNames        <- StateT.get[F, UniqueGenericNames]
@@ -65,13 +65,13 @@ object UniqueGenericNames {
                                      cachedTypeReference.pure[[T] =>> StateT[F, UniqueGenericNames, T]]
                                    case None                      =>
                                      for {
-                                       uniqueParameters   <- genericParameters.traverse(makeUnique)
+                                       uniqueParameters   <- genericParameters.traverse(makeUniqueCached)
                                        currentNames       <- StateT.get[F, UniqueGenericNames]
                                        uniqueName          = currentNames.generateCurrentName()
                                        uniqueTypeReference = GenericTypeReference(name.as(uniqueName), uniqueParameters)
                                        _                  <-
                                          StateT.set(
-                                           currentNames.advanceNameIndex().addToCache(uniqueName, uniqueTypeReference)
+                                           currentNames.advanceNameIndex().addToCache(name.value, uniqueTypeReference)
                                          )
                                      } yield uniqueTypeReference
         } yield uniqueTypeReference

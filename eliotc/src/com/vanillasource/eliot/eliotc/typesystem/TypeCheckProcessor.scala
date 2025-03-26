@@ -71,11 +71,9 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           result                <- calledDefinitionMaybe match {
                                      case None             => Monoid[TypeUnification].empty.pure[TypeGraphIO]
                                      case Some(definition) =>
-                                       // TODO: do we need to define generic types, do we care, or can we just create those that are referenced from return type?
-                                       assignment(
-                                         parentTypeReference,
-                                         functionName.as(definition.valueType.shiftGenericToNamespace(namespace + "$VT$"))
-                                       ).pure[TypeGraphIO]
+                                       for {
+                                         uniqueValueType <- makeUnique[CompilationIO](definition.valueType)
+                                       } yield assignment(parentTypeReference, functionName.as(uniqueValueType))
                                    }
         } yield result
       case IntegerLiteral(integerLiteral)        =>
