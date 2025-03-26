@@ -41,7 +41,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
 
     for {
       constructedTypeGraph <-
-        constructTypeGraphs("", functionDefinition.valueType, body)
+        constructTypeGraphs(functionDefinition.valueType, body)
           .runA(UniqueGenericNames())
       fullTypeGraph         = typeGraph combine constructedTypeGraph
       _                    <- debug(s"solving ${fullTypeGraph.show}").liftToCompilationIO
@@ -53,7 +53,6 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   private type TypeGraphIO[T] = StateT[CompilationIO, UniqueGenericNames, T]
 
   private def constructTypeGraphs(
-      namespace: String,
       parentTypeReference: TypeReference, // Type this expression goes into
       expression: Expression
   )(using process: CompilationProcess): TypeGraphIO[TypeUnification] =
@@ -92,22 +91,16 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           returnType          <- generateUniqueGeneric[CompilationIO](target)
           targetUnification   <-
             constructTypeGraphs(
-              namespace + "$Target",
               DirectTypeReference(target.as(TypeFQN.systemFunctionType), Seq(argumentType, returnType)),
               target.value
             )
-          argumentUnification <-
-            constructTypeGraphs(
-              namespace + "$Argument",
-              argumentType,
-              argument.value
-            )
+          argumentUnification <- constructTypeGraphs(argumentType, argument.value)
         } yield targetUnification |+| argumentUnification |+| assignment(parentTypeReference, target.as(returnType))
       case FunctionLiteral(parameter, body)      =>
         for {
           returnType      <- generateUniqueGeneric[CompilationIO](parameter.name)
           _               <- boundType(parameter)
-          bodyUnification <- constructTypeGraphs(namespace + "$LitBody", returnType, body.value)
+          bodyUnification <- constructTypeGraphs(returnType, body.value)
         } yield bodyUnification |+|
           assignment(
             parentTypeReference,
