@@ -34,12 +34,6 @@ object TypeReference {
       case GenericTypeReference(name, genericParameters)    =>
         GenericTypeReference(source.source.as(name.value), genericParameters)
 
-    def shiftGenericToNamespace(namespace: String): TypeReference = typeReference match
-      case DirectTypeReference(dataType, genericParameters) =>
-        DirectTypeReference(dataType, genericParameters.map(_.shiftGenericToNamespace(namespace)))
-      case GenericTypeReference(name, genericParameters)    =>
-        GenericTypeReference(name.map(_ + namespace), genericParameters.map(_.shiftGenericToNamespace(namespace)))
-
     def identifier: String = typeReference.show
 
     def genericParameters: Seq[TypeReference] = typeReference match
