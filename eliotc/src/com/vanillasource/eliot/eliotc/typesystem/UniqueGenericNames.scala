@@ -84,12 +84,7 @@ object UniqueGenericNames {
         } yield uniqueTypeReference
 
   def boundType[F[_]](arg: ArgumentDefinition)(using Monad[F]): StateT[F, UniqueGenericNames, Unit] =
-    for {
-      uniqueTypeReference <- makeUnique(arg.typeReference)
-      _                   <- StateT.modifyF[F, UniqueGenericNames](names =>
-                               Monad[F].pure(names.boundType(arg.name.value, uniqueTypeReference))
-                             )
-    } yield ()
+    StateT.modifyF[F, UniqueGenericNames](names => Monad[F].pure(names.boundType(arg.name.value, arg.typeReference)))
 
   def generateNextUniqueName[F[_]]()(using Monad[F]): StateT[F, UniqueGenericNames, String] =
     for {
