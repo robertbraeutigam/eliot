@@ -87,28 +87,24 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           )
         ).pure[TypeGraphIO]
       case FunctionApplication(target, argument) =>
-        val argumentType = argument.as(namespace + "$AppArg")
-        val returnType   = target.as(namespace + "$AppRet")
-
         for {
+          argumentType        <- generateUniqueGeneric[CompilationIO](argument)
+          returnType          <- generateUniqueGeneric[CompilationIO](target)
           targetUnification   <-
             constructTypeGraphs(
               namespace + "$Target",
-              DirectTypeReference(
-                target.as(TypeFQN.systemFunctionType),
-                Seq(GenericTypeReference(argumentType, Seq.empty), GenericTypeReference(returnType, Seq.empty))
-              ),
+              DirectTypeReference(target.as(TypeFQN.systemFunctionType), Seq(argumentType, returnType)),
               target.value
             )
           argumentUnification <-
             constructTypeGraphs(
               namespace + "$Argument",
-              GenericTypeReference(argumentType, Seq.empty),
+              argumentType,
               argument.value
             )
         } yield targetUnification |+| argumentUnification |+| assignment(
           parentTypeReference,
-          target.as(GenericTypeReference(returnType, Seq.empty))
+          target.as(returnType)
         )
       case FunctionLiteral(parameter, body)      =>
         val functionReturnGenericTypeName = parameter.name.as(namespace + "$LitResult")
