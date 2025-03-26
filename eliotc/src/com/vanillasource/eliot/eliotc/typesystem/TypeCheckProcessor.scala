@@ -102,10 +102,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
               argumentType,
               argument.value
             )
-        } yield targetUnification |+| argumentUnification |+| assignment(
-          parentTypeReference,
-          target.as(returnType)
-        )
+        } yield targetUnification |+| argumentUnification |+| assignment(parentTypeReference, target.as(returnType))
       case FunctionLiteral(parameter, body)      =>
         val functionReturnGenericTypeName = parameter.name.as(namespace + "$LitResult")
 

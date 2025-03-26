@@ -12,13 +12,14 @@ object TypeReference {
       extends TypeReference
   case class GenericTypeReference(name: Sourced[String], genericParameters: Seq[TypeReference]) extends TypeReference
 
+  // FIXME: using this for identifier is wrong, do something about this
   given Show[TypeReference] = {
     case DirectTypeReference(dataType, genericParameters) =>
-      "Data:" + dataType.value.show + (if (genericParameters.isEmpty) ""
-                                       else genericParameters.map(_.show).mkString("[", ",", "]"))
+      dataType.value.show + (if (genericParameters.isEmpty) ""
+                             else genericParameters.map(_.show).mkString("[", ",", "]"))
     case GenericTypeReference(name, genericParameters)    =>
-      "Generic:" + name.value + (if (genericParameters.isEmpty) ""
-                                 else genericParameters.map(_.show).mkString("[", ",", "]"))
+      name.value + (if (genericParameters.isEmpty) ""
+                    else genericParameters.map(_.show).mkString("[", ",", "]"))
   }
 
   extension (typeReference: TypeReference) {

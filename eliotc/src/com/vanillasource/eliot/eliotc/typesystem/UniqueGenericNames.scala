@@ -15,7 +15,7 @@ case class UniqueGenericNames(
     boundNames: Map[String, TypeReference] = Map.empty,
     cache: Map[String, TypeReference] = Map.empty
 ) {
-  def generateCurrentName(): String = generateName(nextNameIndex, "")
+  def generateCurrentName(): String = generateName(nextNameIndex, "$")
 
   def advanceNameIndex(): UniqueGenericNames = UniqueGenericNames(nextNameIndex + 1, boundNames, cache)
 
