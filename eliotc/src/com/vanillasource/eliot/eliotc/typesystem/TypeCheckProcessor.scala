@@ -4,19 +4,11 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.implicits.*
 import cats.kernel.Monoid
-import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
-import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.ExistentialGenericParameter
-import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
-import com.vanillasource.eliot.eliotc.resolve.fact.{
-  Expression,
-  FunctionDefinition,
-  GenericParameter,
-  ResolvedFunction,
-  TypeReference
-}
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
+import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.*
@@ -41,7 +33,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
 
     for {
       constructedTypeGraph <-
-        constructTypeGraphs(functionDefinition.valueType, body)
+        constructTypeGraph(functionDefinition.valueType, body)
           .runA(UniqueGenericNames())
       fullTypeGraph         = typeGraph combine constructedTypeGraph
       _                    <- debug(s"solving ${fullTypeGraph.show}").liftToCompilationIO
@@ -52,68 +44,91 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
 
   private type TypeGraphIO[T] = StateT[CompilationIO, UniqueGenericNames, T]
 
-  private def constructTypeGraphs(
-      parentTypeReference: TypeReference, // Type this expression goes into
+  private def constructTypeGraph(
+      parentTypeReference: TypeReference,
       expression: Expression
   )(using process: CompilationProcess): TypeGraphIO[TypeUnification] =
-    expression match
-      case ParameterReference(parameterName)     =>
-        for {
-          parameterType <- getBoundType(parameterName.value)
-        } yield assignment(parentTypeReference, parameterName.as(parameterType))
-      case ValueReference(functionName)          =>
-        for {
-          calledDefinitionMaybe <-
-            StateT.liftF(
-              process.getFact(ResolvedFunction.Key(functionName.value)).map(_.map(_.definition)).liftToCompilationIO
-            )
-          result                <- calledDefinitionMaybe match {
-                                     case None             => Monoid[TypeUnification].empty.pure[TypeGraphIO]
-                                     case Some(definition) =>
-                                       for {
-                                         uniqueValueType <- makeUnique[CompilationIO](definition.valueType)
-                                       } yield assignment(parentTypeReference, functionName.as(uniqueValueType))
-                                   }
-        } yield result
-      case IntegerLiteral(integerLiteral)        =>
-        assignment(
-          parentTypeReference,
-          integerLiteral.as(
-            DirectTypeReference(
-              integerLiteral.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "Number"), "Byte")),
-              Seq.empty
-            )
-          )
-        ).pure[TypeGraphIO]
-      case FunctionApplication(target, argument) =>
-        for {
-          argumentType        <- generateUniqueGeneric[CompilationIO](argument)
-          returnType          <- generateUniqueGeneric[CompilationIO](target)
-          targetUnification   <-
-            constructTypeGraphs(
-              DirectTypeReference(target.as(TypeFQN.systemFunctionType), Seq(argumentType, returnType)),
-              target.value
-            )
-          argumentUnification <- constructTypeGraphs(argumentType, argument.value)
-        } yield targetUnification |+| argumentUnification |+| assignment(parentTypeReference, target.as(returnType))
-      case FunctionLiteral(parameter, body)      =>
-        for {
-          returnType      <- generateUniqueGeneric[CompilationIO](parameter.name)
-          _               <- boundType(parameter)
-          bodyUnification <- constructTypeGraphs(returnType, body.value)
-        } yield bodyUnification |+|
-          assignment(
-            parentTypeReference,
-            Sourced
-              .outline(
-                Seq(parameter.name, body)
-              ) // TODO: this is a hack for the expression not being Sourced
-              .as(
-                DirectTypeReference(
-                  parameter.name.as(TypeFQN.systemFunctionType),
-                  Seq(parameter.typeReference, returnType)
-                )
-              )
-          )
+    (constructTypeGraphForParameterReference(parentTypeReference) orElse
+      constructTypeGraphForIntegerLiteral(parentTypeReference) orElse
+      constructTypeGraphForValueReference(parentTypeReference) orElse
+      constructTypeGraphForFunctionApplication(parentTypeReference) orElse
+      constructTypeGraphForFunctionLiteral(parentTypeReference))(expression)
 
+  private def constructTypeGraphForParameterReference(parentTypeReference: TypeReference)(using
+      process: CompilationProcess
+  ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case ParameterReference(parameterName) =>
+    for {
+      parameterType <- getBoundType(parameterName.value)
+    } yield assignment(parentTypeReference, parameterName.as(parameterType))
+  }
+
+  private def constructTypeGraphForValueReference(parentTypeReference: TypeReference)(using
+      process: CompilationProcess
+  ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case ValueReference(functionName) =>
+    for {
+      calledDefinitionMaybe <-
+        StateT.liftF(
+          process.getFact(ResolvedFunction.Key(functionName.value)).map(_.map(_.definition)).liftToCompilationIO
+        )
+      result                <- calledDefinitionMaybe match {
+                                 case None             => Monoid[TypeUnification].empty.pure[TypeGraphIO]
+                                 case Some(definition) =>
+                                   for {
+                                     uniqueValueType <- makeUnique[CompilationIO](definition.valueType)
+                                   } yield assignment(parentTypeReference, functionName.as(uniqueValueType))
+                               }
+    } yield result
+  }
+
+  private def constructTypeGraphForIntegerLiteral(parentTypeReference: TypeReference)(using
+      process: CompilationProcess
+  ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case IntegerLiteral(integerLiteral) =>
+    assignment(
+      parentTypeReference,
+      integerLiteral.as(
+        DirectTypeReference(
+          integerLiteral.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "Number"), "Byte")),
+          Seq.empty
+        )
+      )
+    ).pure[TypeGraphIO]
+  }
+
+  private def constructTypeGraphForFunctionApplication(parentTypeReference: TypeReference)(using
+      process: CompilationProcess
+  ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case FunctionApplication(target, argument) =>
+    for {
+      argumentType        <- generateUniqueGeneric[CompilationIO](argument)
+      returnType          <- generateUniqueGeneric[CompilationIO](target)
+      targetUnification   <-
+        constructTypeGraph(
+          DirectTypeReference(target.as(TypeFQN.systemFunctionType), Seq(argumentType, returnType)),
+          target.value
+        )
+      argumentUnification <- constructTypeGraph(argumentType, argument.value)
+    } yield targetUnification |+| argumentUnification |+| assignment(parentTypeReference, target.as(returnType))
+  }
+
+  private def constructTypeGraphForFunctionLiteral(parentTypeReference: TypeReference)(using
+      process: CompilationProcess
+  ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case FunctionLiteral(parameter, body) =>
+    for {
+      returnType      <- generateUniqueGeneric[CompilationIO](parameter.name)
+      _               <- boundType(parameter)
+      bodyUnification <- constructTypeGraph(returnType, body.value)
+    } yield bodyUnification |+|
+      assignment(
+        parentTypeReference,
+        Sourced
+          .outline(
+            Seq(parameter.name, body)
+          ) // TODO: this is a hack for the expression not being Sourced
+          .as(
+            DirectTypeReference(
+              parameter.name.as(TypeFQN.systemFunctionType),
+              Seq(parameter.typeReference, returnType)
+            )
+          )
+      )
+  }
 }
