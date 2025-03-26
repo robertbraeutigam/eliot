@@ -104,15 +104,10 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
             )
         } yield targetUnification |+| argumentUnification |+| assignment(parentTypeReference, target.as(returnType))
       case FunctionLiteral(parameter, body)      =>
-        val functionReturnGenericTypeName = parameter.name.as(namespace + "$LitResult")
-
         for {
+          returnType      <- generateUniqueGeneric[CompilationIO](parameter.name)
           _               <- boundType(parameter)
-          bodyUnification <- constructTypeGraphs(
-                               namespace + "$LitBody",
-                               GenericTypeReference(functionReturnGenericTypeName, Seq.empty),
-                               body.value
-                             )
+          bodyUnification <- constructTypeGraphs(namespace + "$LitBody", returnType, body.value)
         } yield bodyUnification |+|
           assignment(
             parentTypeReference,
@@ -123,10 +118,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
               .as(
                 DirectTypeReference(
                   parameter.name.as(TypeFQN.systemFunctionType),
-                  Seq(
-                    parameter.typeReference,
-                    GenericTypeReference(functionReturnGenericTypeName, Seq.empty)
-                  )
+                  Seq(parameter.typeReference, returnType)
                 )
               )
           )
