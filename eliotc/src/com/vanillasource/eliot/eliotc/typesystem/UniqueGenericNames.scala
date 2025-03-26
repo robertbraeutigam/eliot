@@ -5,6 +5,7 @@ import cats.Monad
 import cats.data.StateT
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, TypeReference}
+import com.vanillasource.eliot.eliotc.source.Sourced
 
 import scala.annotation.tailrec
 
@@ -45,6 +46,15 @@ object UniqueGenericNames {
       currentNames <- StateT.get[F, UniqueGenericNames]
     } yield currentNames.boundNames.apply(name)
 
+  def generateUniqueGeneric[F[_]](source: Sourced[_], parameters: Seq[TypeReference] = Seq.empty)(using
+      Monad[F]
+  ): StateT[F, UniqueGenericNames, TypeReference] =
+    for {
+      currentNames <- StateT.get[F, UniqueGenericNames]
+      uniqueName    = currentNames.generateCurrentName()
+      _            <- StateT.set(currentNames.advanceNameIndex())
+    } yield GenericTypeReference(source.as(uniqueName), parameters)
+
   def makeUnique[F[_]](typeReference: TypeReference)(using Monad[F]): StateT[F, UniqueGenericNames, TypeReference] =
     clearCache() >> makeUniqueCached(typeReference)
 
@@ -65,14 +75,11 @@ object UniqueGenericNames {
                                      cachedTypeReference.pure[[T] =>> StateT[F, UniqueGenericNames, T]]
                                    case None                      =>
                                      for {
-                                       uniqueParameters   <- genericParameters.traverse(makeUniqueCached)
-                                       currentNames       <- StateT.get[F, UniqueGenericNames]
-                                       uniqueName          = currentNames.generateCurrentName()
-                                       uniqueTypeReference = GenericTypeReference(name.as(uniqueName), uniqueParameters)
-                                       _                  <-
-                                         StateT.set(
-                                           currentNames.advanceNameIndex().addToCache(name.value, uniqueTypeReference)
-                                         )
+                                       uniqueParameters    <- genericParameters.traverse(makeUniqueCached)
+                                       uniqueTypeReference <- generateUniqueGeneric(name, uniqueParameters)
+                                       _                   <- StateT.modify[F, UniqueGenericNames](
+                                                                _.addToCache(name.value, uniqueTypeReference)
+                                                              )
                                      } yield uniqueTypeReference
         } yield uniqueTypeReference
 
