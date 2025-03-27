@@ -151,12 +151,13 @@ object TypeUnification {
   }
 
   given Show[TypeUnification] = (unification: TypeUnification) =>
-    unification.genericParameters.values.map {
-      case GenericParameter.ExistentialGenericParameter(name, _) => s"∃${name.value}"
-      case GenericParameter.UniversalGenericParameter(name, _)   => s"∀${name.value}"
-    }.mkString +
+    unification.genericParameters.values
+      .collect { case GenericParameter.UniversalGenericParameter(name, _) =>
+        s"∀${name.value}"
+      }
+      .mkString(", ") +
       ": " +
       unification.assignments
-        .map((target, source) => s"${target.show} <- ${source.value.show}")
+        .map((target, source) => s"${target.showSimple} <- ${source.value.showSimple}")
         .mkString(" ∧ ")
 }

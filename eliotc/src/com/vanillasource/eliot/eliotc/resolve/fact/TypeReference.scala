@@ -22,7 +22,20 @@ object TypeReference {
                     else genericParameters.map(_.show).mkString("[", ",", "]"))
   }
 
+  private def showParameters(parameters: Seq[TypeReference], currentShow: TypeReference => String): String =
+    if (parameters.isEmpty) {
+      ""
+    } else {
+      parameters.map(currentShow).mkString("[", ",", "]")
+    }
+
   extension (typeReference: TypeReference) {
+    def showSimple: String = typeReference match
+      case DirectTypeReference(dataType, genericParameters) =>
+        dataType.value.typeName + showParameters(genericParameters, _.showSimple)
+      case GenericTypeReference(name, genericParameters)    =>
+        name.value + showParameters(genericParameters, _.showSimple)
+
     def sourcedAt(source: Sourced[_]): TypeReference = typeReference match
       case DirectTypeReference(dataType, genericParameters) =>
         DirectTypeReference(source.as(dataType.value), genericParameters)
