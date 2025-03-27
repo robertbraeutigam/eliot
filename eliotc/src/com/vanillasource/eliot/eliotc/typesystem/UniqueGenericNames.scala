@@ -6,38 +6,24 @@ import cats.data.StateT
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, TypeReference}
 import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.typesystem.ShortUniqueIdentifiers.generateNextUniqueIdentifier
 
 import scala.annotation.tailrec
 
 // TODO: This is 3 things in one, split this up
 case class UniqueGenericNames(
-    nextNameIndex: Int = 0,
+    shortUniqueIdentifiers: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
     boundNames: Map[String, TypeReference] = Map.empty,
     cache: Map[String, TypeReference] = Map.empty
 ) {
-  def generateCurrentName(): String = generateName(nextNameIndex, "$")
-
-  def advanceNameIndex(): UniqueGenericNames = UniqueGenericNames(nextNameIndex + 1, boundNames, cache)
-
   def boundType(name: String, typeReference: TypeReference): UniqueGenericNames =
-    UniqueGenericNames(nextNameIndex, boundNames + (name -> typeReference), cache)
+    UniqueGenericNames(shortUniqueIdentifiers, boundNames + (name -> typeReference), cache)
 
   def addToCache(name: String, typeReference: TypeReference): UniqueGenericNames =
-    UniqueGenericNames(nextNameIndex, boundNames, cache + (name -> typeReference))
+    UniqueGenericNames(shortUniqueIdentifiers, boundNames, cache + (name -> typeReference))
 
   def clearCache(): UniqueGenericNames =
-    UniqueGenericNames(nextNameIndex, boundNames)
-
-  @tailrec
-  private def generateName(remainingIndex: Int, alreadyGeneratedSuffix: String): String =
-    if (remainingIndex < 0) {
-      alreadyGeneratedSuffix
-    } else {
-      generateName(
-        (remainingIndex / 26) - 1,
-        ('A'.toInt + (remainingIndex % 26)).toChar.toString + alreadyGeneratedSuffix
-      )
-    }
+    UniqueGenericNames(shortUniqueIdentifiers, boundNames)
 }
 
 object UniqueGenericNames {
@@ -49,11 +35,9 @@ object UniqueGenericNames {
   def generateUniqueGeneric[F[_]](source: Sourced[_], parameters: Seq[TypeReference] = Seq.empty)(using
       Monad[F]
   ): StateT[F, UniqueGenericNames, TypeReference] =
-    for {
-      currentNames <- StateT.get[F, UniqueGenericNames]
-      uniqueName    = currentNames.generateCurrentName()
-      _            <- StateT.set(currentNames.advanceNameIndex())
-    } yield GenericTypeReference(source.as(uniqueName), parameters)
+    generateNextUniqueIdentifier()
+      .transformS[UniqueGenericNames](_.shortUniqueIdentifiers, (ugn, sui) => ugn.copy(shortUniqueIdentifiers = sui))
+      .map(id => GenericTypeReference(source.as(id), parameters))
 
   def makeUnique[F[_]](typeReference: TypeReference)(using Monad[F]): StateT[F, UniqueGenericNames, TypeReference] =
     clearCache() >> makeUniqueCached(typeReference)
@@ -85,11 +69,4 @@ object UniqueGenericNames {
 
   def boundType[F[_]](arg: ArgumentDefinition)(using Monad[F]): StateT[F, UniqueGenericNames, Unit] =
     StateT.modifyF[F, UniqueGenericNames](names => Monad[F].pure(names.boundType(arg.name.value, arg.typeReference)))
-
-  def generateNextUniqueName[F[_]]()(using Monad[F]): StateT[F, UniqueGenericNames, String] =
-    for {
-      currentNames <- StateT.get[F, UniqueGenericNames]
-      currentName   = currentNames.generateCurrentName()
-      _            <- StateT.set(currentNames.advanceNameIndex())
-    } yield currentName
 }

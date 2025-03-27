@@ -41,7 +41,7 @@ case class TypeUnification private (
   private def unify(current: TypeReference, incoming: Sourced[TypeReference])(using
       CompilationProcess
   ): CompilationIO[TypeReference] = {
-    given Show[TypeFQN] = TypeFQN.unqualified
+    given Show[TypeFQN] = TypeFQN.fullyQualified
 
     current match
       case DirectTypeReference(currentType, _)                                                           =>
