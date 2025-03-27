@@ -7,6 +7,7 @@ import cats.implicits.*
 import cats.kernel.Monoid
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
+import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.{GenericParameter, TypeReference}
@@ -39,7 +40,9 @@ case class TypeUnification private (
 
   private def unify(current: TypeReference, incoming: Sourced[TypeReference])(using
       CompilationProcess
-  ): CompilationIO[TypeReference] =
+  ): CompilationIO[TypeReference] = {
+    given Show[TypeFQN] = TypeFQN.unqualified
+
     current match
       case DirectTypeReference(currentType, _)                                                           =>
         incoming.value match
@@ -125,6 +128,7 @@ case class TypeUnification private (
                 )
               ).as(current)
             }
+  }
 
   private def isUniversal(genericTypeName: String) =
     genericParameters.get(genericTypeName).exists(_.isInstanceOf[UniversalGenericParameter])
@@ -158,6 +162,8 @@ object TypeUnification {
       .mkString(", ") +
       ": " +
       unification.assignments
-        .map((target, source) => s"${target.showSimple} <- ${source.value.showSimple}")
+        .map((target, source) =>
+          s"${TypeReference.unqualified.show(target)} <- ${TypeReference.unqualified.show(source.value)}"
+        )
         .mkString(" ∧ ")
 }

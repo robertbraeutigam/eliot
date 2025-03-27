@@ -12,30 +12,30 @@ object TypeReference {
       extends TypeReference
   case class GenericTypeReference(name: Sourced[String], genericParameters: Seq[TypeReference]) extends TypeReference
 
-  // FIXME: using this for identifier is wrong, do something about this
-  given Show[TypeReference] = {
+  given fullyQualified: Show[TypeReference] = {
     case DirectTypeReference(dataType, genericParameters) =>
-      dataType.value.show + (if (genericParameters.isEmpty) ""
-                             else genericParameters.map(_.show).mkString("[", ",", "]"))
+      given Show[TypeFQN] = TypeFQN.fullyQualified
+      dataType.value.show + showParameters(genericParameters)(using fullyQualified)
     case GenericTypeReference(name, genericParameters)    =>
-      name.value + (if (genericParameters.isEmpty) ""
-                    else genericParameters.map(_.show).mkString("[", ",", "]"))
+      name.value + showParameters(genericParameters)(using fullyQualified)
   }
 
-  private def showParameters(parameters: Seq[TypeReference], currentShow: TypeReference => String): String =
+  given unqualified: Show[TypeReference] = {
+    case DirectTypeReference(dataType, genericParameters) =>
+      given Show[TypeFQN] = TypeFQN.unqualified
+      dataType.value.show + showParameters(genericParameters)(using unqualified)
+    case GenericTypeReference(name, genericParameters)    =>
+      name.value + showParameters(genericParameters)(using unqualified)
+  }
+
+  private def showParameters(parameters: Seq[TypeReference])(using Show[TypeReference]): String =
     if (parameters.isEmpty) {
       ""
     } else {
-      parameters.map(currentShow).mkString("[", ",", "]")
+      parameters.map(_.show).mkString("[", ",", "]")
     }
 
   extension (typeReference: TypeReference) {
-    def showSimple: String = typeReference match
-      case DirectTypeReference(dataType, genericParameters) =>
-        dataType.value.typeName + showParameters(genericParameters, _.showSimple)
-      case GenericTypeReference(name, genericParameters)    =>
-        name.value + showParameters(genericParameters, _.showSimple)
-
     def sourcedAt(source: Sourced[_]): TypeReference = typeReference match
       case DirectTypeReference(dataType, genericParameters) =>
         DirectTypeReference(source.as(dataType.value), genericParameters)
@@ -48,7 +48,8 @@ object TypeReference {
       case GenericTypeReference(name, genericParameters)    =>
         GenericTypeReference(source.source.as(name.value), genericParameters)
 
-    def identifier: String = typeReference.show
+    // FIXME: using show for identifiaction purposes is bad!
+    def identifier: String = fullyQualified.show(typeReference)
 
     def genericParameters: Seq[TypeReference] = typeReference match
       case DirectTypeReference(_, genericParameters)  => genericParameters

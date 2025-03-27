@@ -7,7 +7,9 @@ import com.vanillasource.eliot.eliotc.module.fact.ModuleName.systemFunctionModul
 case class TypeFQN(moduleName: ModuleName, typeName: String)
 
 object TypeFQN {
-  given Show[TypeFQN] = (tfqn: TypeFQN) => s"${tfqn.moduleName.show}.${tfqn.typeName}"
+  given fullyQualified: Show[TypeFQN] = (tfqn: TypeFQN) => s"${tfqn.moduleName.show}.${tfqn.typeName}"
+
+  given unqualified: Show[TypeFQN] = (tfqn: TypeFQN) => tfqn.typeName
 
   given Eq[TypeFQN] = (self: TypeFQN, other: TypeFQN) => self == other
 
