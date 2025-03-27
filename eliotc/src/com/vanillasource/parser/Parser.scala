@@ -7,8 +7,6 @@ import com.vanillasource.parser.InputStream.LimitedInputStream
 import com.vanillasource.parser.ParserResult.*
 import com.vanillasource.parser.ParserResult.Consume.*
 
-import scala.util.chaining.scalaUtilChainingOps
-
 /** A parser combinator that consumes items of type [[I]] and produces results of some type [[O]].
   *
   * Foundational parsers are:
