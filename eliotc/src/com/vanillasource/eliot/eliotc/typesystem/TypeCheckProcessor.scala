@@ -59,7 +59,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case ParameterReference(parameterName) =>
     for {
       parameterType <- getBoundType(parameterName.value)
-    } yield assignment(parentTypeReference, parameterName.as(parameterType))
+    } yield assignment(parentTypeReference, parameterName.as(parameterType.get))
   }
 
   private def constructTypeGraphForValueReference(parentTypeReference: TypeReference)(using
