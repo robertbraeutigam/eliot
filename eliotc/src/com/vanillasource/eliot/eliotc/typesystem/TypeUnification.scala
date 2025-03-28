@@ -13,28 +13,32 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeRefe
 import com.vanillasource.eliot.eliotc.resolve.fact.{GenericParameter, TypeReference}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.Assignment
 
 case class TypeUnification private (
     genericParameters: Map[String, GenericParameter],
-    assignments: Seq[(TypeReference, Sourced[TypeReference])]
+    assignments: Seq[Assignment]
 ) {
   def solve()(using CompilationProcess): CompilationIO[Unit] =
     assignments
-      .traverse(solve.tupled)
+      .traverse(solve)
       .runS(TypeUnificationState())
       .void
 
-  private def solve(target: TypeReference, source: Sourced[TypeReference])(using
+  private def solve(assignment: Assignment)(using
       CompilationProcess
   ): StateT[CompilationIO, TypeUnificationState, Unit] =
     for {
-      targetCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(target))
-      sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(source.value))
-      unifiedType   <- StateT.liftF(unify(targetCurrent, source.as(sourceCurrent)))
-      _             <- StateT.modify[CompilationIO, TypeUnificationState](_.unifyTo(target, source.value, unifiedType))
+      targetCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(assignment.target))
+      sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(assignment.source.value))
+      unifiedType   <- StateT.liftF(unify(targetCurrent, assignment.source.as(sourceCurrent)))
+      _             <- StateT.modify[CompilationIO, TypeUnificationState](
+                         _.unifyTo(assignment.target, assignment.source.value, unifiedType)
+                       )
       _             <-
-        (targetCurrent.genericParameters zip sourceCurrent.genericParameters.map(source.as))
-          .traverse(solve.tupled)
+        (targetCurrent.genericParameters zip sourceCurrent.genericParameters.map(assignment.source.as))
+          .map { case (targetGeneric, sourceGeneric) => Assignment(targetGeneric, sourceGeneric, "Type mismatch.") }
+          .traverse(solve)
           .whenA(targetCurrent.identifier =!= sourceCurrent.identifier)
     } yield ()
 
@@ -51,12 +55,10 @@ case class TypeUnification private (
             current.pure[CompilationIO] // Same type, so return current one
           case DirectTypeReference(incomingType, _)                                             =>
             compilerError(
-              incoming.as(
-                s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}."
-              ),
+              incoming.as("Type mismatch."),
               Seq(
-                s"Expected: ${currentType.value.show}",
-                s"Found:    ${incomingType.value.show}"
+                s"Expected: ${TypeReference.unqualified.show(current)}",
+                s"Found:    ${TypeReference.unqualified.show(incoming.value)}"
               )
             ).as(current)
           case GenericTypeReference(incomingType, genericParameters)                            =>
@@ -145,14 +147,24 @@ case class TypeUnification private (
 }
 
 object TypeUnification {
+  case class Assignment(
+      target: TypeReference,
+      source: Sourced[TypeReference],
+      errorMessage: String
+  )
+
   def genericParameters(genericParameters: Seq[GenericParameter]): TypeUnification =
     TypeUnification(genericParameters.map(e => e.name.value -> e).toMap, Seq.empty)
 
   def genericParameter(genericParameter: GenericParameter): TypeUnification =
     genericParameters(Seq(genericParameter))
 
-  def assignment(target: TypeReference, source: Sourced[TypeReference]): TypeUnification =
-    TypeUnification(Map.empty, Seq((target, source)))
+  def assignment(
+      target: TypeReference,
+      source: Sourced[TypeReference],
+      errorMessage: String = "Type mismatch."
+  ): TypeUnification =
+    TypeUnification(Map.empty, Seq(Assignment(target, source, errorMessage)))
 
   given Monoid[TypeUnification] = new Monoid[TypeUnification] {
     override def empty: TypeUnification = TypeUnification(Map.empty, Seq.empty)
@@ -172,8 +184,8 @@ object TypeUnification {
       .mkString(", ") +
       ": " +
       unification.assignments
-        .map((target, source) =>
-          s"${TypeReference.unqualified.show(target)} <- ${TypeReference.unqualified.show(source.value)}"
+        .map(assignment =>
+          s"${TypeReference.unqualified.show(assignment.target)} <- ${TypeReference.unqualified.show(assignment.source.value)}"
         )
         .mkString(" ∧ ")
 }

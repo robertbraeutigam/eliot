@@ -25,7 +25,7 @@ class TypeCheckProcessorTest
     runEngineForErrorsWithImports("data A\na: A = b(1)\nb: A")
       .asserting(
         _ shouldBe Seq("Expression with type Test.A can not be assigned to type eliot.lang.Function.Function.")
-      ) // FIXME: Correct, but confusing message
+      ) // FIXME: Correct, but confusing message. Should be something about function application!
   }
 
   it should "issue error when referencing an undefined function" in {
