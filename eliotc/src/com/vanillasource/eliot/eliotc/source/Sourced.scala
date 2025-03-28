@@ -1,11 +1,9 @@
 package com.vanillasource.eliot.eliotc.source
 
-import cats.{Functor, Order, Show}
 import cats.implicits.*
-import cats.syntax.all.*
+import cats.{Functor, Show}
 
 import java.io.File
-import scala.collection.immutable.{AbstractSeq, LinearSeq}
 
 /** A value of generic type transformed from a given snippet of code inside a given source code file.
   */
