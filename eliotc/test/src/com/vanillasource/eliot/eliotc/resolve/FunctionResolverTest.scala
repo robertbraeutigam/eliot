@@ -116,7 +116,7 @@ class FunctionResolverTest
   private def parseForExpressions(source: String): IO[Seq[Expression]] = for {
     results <- runEngine(source)
   } yield {
-    results.values.collect { case ResolvedFunction(_, FunctionDefinition(_, _, _, Some(expression))) =>
+    results.values.collect { case ResolvedFunction(_, FunctionDefinition(_, _, _, Some(Sourced(_, _, expression)))) =>
       expression
     }.toSeq
   }

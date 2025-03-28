@@ -4,12 +4,13 @@ import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.Primitives.{
-  optionalArgumentListOf,
-  optionalBracketedCommaSeparatedItems,
   isIdentifier,
   isLowerCase,
   isTopLevel,
   isUpperCase,
+  optionalArgumentListOf,
+  optionalBracketedCommaSeparatedItems,
+  sourced,
   symbol
 }
 import com.vanillasource.eliot.eliotc.source.Sourced
@@ -22,7 +23,7 @@ case class FunctionDefinition(
     genericParameters: Seq[GenericParameter],
     args: Seq[ArgumentDefinition],
     typeDefinition: TypeReference,
-    body: Option[Expression] // Can be empty for abstract functions
+    body: Option[Sourced[Expression]] // Can be empty for abstract functions
 )
 
 object FunctionDefinition {
@@ -40,6 +41,6 @@ object FunctionDefinition {
     } yield FunctionDefinition(name.map(_.content), genericParameters, args, typeReference, functionBody)
 
     private val functionBody =
-      (symbol("=") *> component[Expression]).optional()
+      sourced(symbol("=") *> component[Expression]).optional()
   }
 }

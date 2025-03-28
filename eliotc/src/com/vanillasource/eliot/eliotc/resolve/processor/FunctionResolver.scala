@@ -42,7 +42,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
       genericParameters: Seq[ast.GenericParameter],
       args: Seq[ast.ArgumentDefinition],
       typeReference: ast.TypeReference,
-      body: Option[ast.Expression]
+      body: Option[Sourced[ast.Expression]]
   )(using process: CompilationProcess): CompilationIO[Unit] = {
     val scope = ResolverScope(
       functionDictionary,
@@ -78,9 +78,8 @@ class FunctionResolver extends CompilerProcessor with Logging {
                   )
                 ),
                 // Unroll body to use function literals: arg1 -> arg2 -> ... -> body
-                // FIXME: sourcing of expressions are bad
                 resolvedBodyMaybe.map(resolvedBody =>
-                  argumentDefinitions.foldRight(resolvedBody)((arg, expr) => FunctionLiteral(arg, name.as(expr)))
+                  argumentDefinitions.foldRight(resolvedBody)((arg, expr) => expr.as(FunctionLiteral(arg, expr)))
                 )
               )
             )
@@ -123,17 +122,21 @@ class FunctionResolver extends CompilerProcessor with Logging {
                                    }
     } yield resolvedType
 
-  private def resolveExpression(expr: ast.Expression)(using process: CompilationProcess): ScopedIO[Expression] =
-    expr match {
+  private def resolveExpression(
+      expr: Sourced[ast.Expression]
+  )(using process: CompilationProcess): ScopedIO[Sourced[Expression]] =
+    expr.value match {
       case ast.Expression.FunctionApplication(s @ Sourced(_, _, name), args) =>
         isValueVisible(name).ifM(
-          Expression.ParameterReference(s.as(name)).pure,
+          expr.as(Expression.ParameterReference(s.as(name))).pure,
           getFunction(name).flatMap {
             case Some(ffqn) =>
               for {
                 newArgs <- args.traverse(resolveExpression)
-              } yield newArgs.foldRight[Expression](Expression.ValueReference(s.as(ffqn)))((arg, expr) =>
-                Expression.FunctionApplication(s.as(expr), s.as(arg)) // FIXME: sourcing is wrong
+              } yield expr.as(
+                newArgs.foldRight[Expression](Expression.ValueReference(s.as(ffqn)))((arg, expr) =>
+                  Expression.FunctionApplication(s.as(expr), arg)
+                )
               )
             case None       => compilerAbort(s.as(s"Function not defined.")).liftToScoped
           }
@@ -146,11 +149,11 @@ class FunctionResolver extends CompilerProcessor with Logging {
                 resolveType(arg.typeReference).map(resolvedType => ArgumentDefinition(arg.name, resolvedType))
               )
           _                  <- parameters.traverse(addVisibleValue)
-          resolvedBody       <- resolveExpression(body.value)
+          resolvedBody       <- resolveExpression(body)
         } yield resolvedParameters.foldRight(resolvedBody)((arg, expr) =>
-          Expression.FunctionLiteral(arg, body.as(expr))
+          expr.as(Expression.FunctionLiteral(arg, expr))
         )
       case ast.Expression.IntegerLiteral(s @ Sourced(_, _, value))           =>
-        Expression.IntegerLiteral(s.as(BigInt(value))).pure
+        expr.as(Expression.IntegerLiteral(s.as(BigInt(value)))).pure
     }
 }

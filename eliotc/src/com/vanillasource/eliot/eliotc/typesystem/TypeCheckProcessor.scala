@@ -27,13 +27,13 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   private def process(
       ffqn: FunctionFQN,
       functionDefinition: FunctionDefinition,
-      body: Expression
+      body: Sourced[Expression]
   )(using process: CompilationProcess): CompilationIO[Unit] = {
     val typeGraph = genericParameters(functionDefinition.genericParameters)
 
     for {
       constructedTypeGraph <-
-        constructTypeGraph(functionDefinition.valueType, body)
+        constructTypeGraph(functionDefinition.valueType, body.value)
           .runA(UniqueGenericNames())
       fullTypeGraph         = typeGraph combine constructedTypeGraph
       _                    <- debug(s"solving ${fullTypeGraph.show}").liftToCompilationIO
@@ -119,16 +119,12 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
     } yield bodyUnification |+|
       assignment(
         parentTypeReference,
-        Sourced
-          .outline(
-            Seq(parameter.name, body)
-          ) // TODO: this is a hack for the expression not being Sourced
-          .as(
-            DirectTypeReference(
-              parameter.name.as(TypeFQN.systemFunctionType),
-              Seq(parameter.typeReference, returnType)
-            )
+        body.as(
+          DirectTypeReference(
+            parameter.name.as(TypeFQN.systemFunctionType),
+            Seq(parameter.typeReference, returnType)
           )
+        )
       )
   }
 }

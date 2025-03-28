@@ -6,5 +6,5 @@ case class FunctionDefinition(
     name: Sourced[String],
     genericParameters: Seq[GenericParameter],
     valueType: TypeReference,
-    body: Option[Expression]
+    body: Option[Sourced[Expression]]
 )

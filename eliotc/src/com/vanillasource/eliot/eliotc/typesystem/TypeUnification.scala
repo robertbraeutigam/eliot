@@ -96,8 +96,10 @@ case class TypeUnification private (
               }
             } else {
               compilerError(
-                incoming.as(
-                  s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}, because they have different number of generic parameters."
+                incoming.as("Type mismatch, different number of generic parameters."),
+                Seq(
+                  s"Expected: ${TypeReference.unqualified.show(current)}",
+                  s"Found:    ${TypeReference.unqualified.show(incoming.value)}"
                 )
               ).as(current)
             }
@@ -141,7 +143,6 @@ case class TypeUnification private (
   private def isUniversal(genericTypeName: String) =
     genericParameters.get(genericTypeName).exists(_.isInstanceOf[UniversalGenericParameter])
 }
-
 
 object TypeUnification {
   def genericParameters(genericParameters: Seq[GenericParameter]): TypeUnification =
