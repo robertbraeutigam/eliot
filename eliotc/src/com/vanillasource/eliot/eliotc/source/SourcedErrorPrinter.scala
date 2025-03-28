@@ -14,17 +14,29 @@ import com.vanillasource.util.CatsOps.*
 
 class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case SourcedError(Sourced(file, PositionRange(Position(fromLine, fromCol), Position(toLine, toCol)), message)) =>
-      process(file, fromLine, fromCol, toLine, toCol, message)
-    case _                                                                                                         => IO.unit
+    case SourcedError(
+          Sourced(file, PositionRange(Position(fromLine, fromCol), Position(toLine, toCol)), message),
+          description
+        ) =>
+      process(file, fromLine, fromCol, toLine, toCol, message, description)
+    case _ => IO.unit
   }
 
-  private def process(file: File, fromLine: Line, fromCol: Column, toLine: Line, toCol: Column, message: String)(using
+  private def process(
+      file: File,
+      fromLine: Line,
+      fromCol: Column,
+      toLine: Line,
+      toCol: Column,
+      message: String,
+      description: Seq[String]
+  )(using
       process: CompilationProcess
   ): IO[Unit] = {
     (for {
       content <- process.getFact(SourceContent.Key(file)).toOptionT
-      _       <- compilerSourcedError(file, content.content, fromLine, fromCol, toLine, toCol, message).liftOptionT
+      _       <-
+        compilerSourcedError(file, content.content, fromLine, fromCol, toLine, toCol, message, description).liftOptionT
     } yield ()).getOrElseF(compilerGlobalError(s"File contents for $file are not available."))
   }
 
@@ -35,7 +47,8 @@ class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
       fromCol: Int,
       toLine: Int,
       toCol: Int,
-      message: String
+      message: String,
+      description: Seq[String]
   ): IO[Unit] = {
     val lineMarker      = fromLine.toString
     val markerSpaces    = " ".repeat(lineMarker.length)
@@ -61,7 +74,8 @@ class SourcedErrorPrinter extends CompilerProcessor with Logging with User {
               s"$MAGENTA$lineMarker |$RESET ${line.substring(0, fromCol - 1)}$BOLD$RED${line.substring(fromCol - 1)}$RESET"
             },
             s"$MAGENTA$markerSpaces | ${" ".repeat(fromCol - 1)}$BOLD$RED${"^".repeat(toCol - fromCol)}$multiLinePoints$RESET"
-          )
+          ) ++ (if (description.isEmpty) Seq.empty
+                else (description ++ Seq("")).map(d => s"$MAGENTA$markerSpaces |$RESET  $d"))
         }
       }
       .map(lines => compilerGenericError(lines.mkString("\n")))

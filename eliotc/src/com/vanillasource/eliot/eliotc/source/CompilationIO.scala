@@ -34,8 +34,10 @@ object CompilationIO {
       StateT.get[OptionIOT, Boolean].ifM(value.void, IO.unit.liftToCompilationIO)
   }
 
-  def compilerError(message: Sourced[String])(using process: CompilationProcess): CompilationIO[Unit] =
-    registerCompilerError(message).liftToCompilationIO >> compilationError
+  def compilerError(message: Sourced[String], description: Seq[String] = Seq.empty)(using
+      process: CompilationProcess
+  ): CompilationIO[Unit] =
+    registerCompilerError(message, description).liftToCompilationIO >> compilationError
 
   def compilerError(file: File, message: String)(using process: CompilationProcess): CompilationIO[Unit] =
     registerCompilerError(file, message).liftToCompilationIO >> compilationError
