@@ -1,6 +1,6 @@
-id[A](a: A): A = a
+data Foo
+data Bar
 
-data String
-data Int
+id[A](a: A): A
 
-b(i: Int, s: String): String = id(id(id(i)))
+f(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)

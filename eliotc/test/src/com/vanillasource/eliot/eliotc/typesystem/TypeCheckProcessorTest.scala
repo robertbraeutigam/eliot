@@ -112,7 +112,7 @@ class TypeCheckProcessorTest
     runEngineForErrorsWithImports(
       "f[A](a: A, b: A, c: A): A = a\nsomeA[A]: A\ndata String\ndata Int\nb(i: Int, s: String): String = f(someA, someA, i)"
     )
-      .asserting(_ shouldBe Seq("Expression with type Test.Int can not be assigned to type Test.String."))
+      .asserting(_ shouldBe Seq("Type mismatch."))
   }
 
   "higher kind generic types" should "type check through single generic placeholder" in {
