@@ -1,5 +1,4 @@
 data A
-
-a: A = b(1)
-
-b: A
+data B
+a: A
+b: B = a

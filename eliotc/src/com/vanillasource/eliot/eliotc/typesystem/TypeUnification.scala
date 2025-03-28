@@ -31,7 +31,7 @@ case class TypeUnification private (
     for {
       targetCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(assignment.target))
       sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(assignment.source.value))
-      unifiedType   <- StateT.liftF(unify(targetCurrent, assignment.source.as(sourceCurrent)))
+      unifiedType   <- StateT.liftF(unify(targetCurrent, assignment.source.as(sourceCurrent), assignment.errorMessage))
       _             <- StateT.modify[CompilationIO, TypeUnificationState](
                          _.unifyTo(assignment.target, assignment.source.value, unifiedType)
                        )
@@ -42,7 +42,7 @@ case class TypeUnification private (
           .whenA(targetCurrent.identifier =!= sourceCurrent.identifier)
     } yield ()
 
-  private def unify(current: TypeReference, incoming: Sourced[TypeReference])(using
+  private def unify(current: TypeReference, incoming: Sourced[TypeReference], errorMessage: String)(using
       CompilationProcess
   ): CompilationIO[TypeReference] = {
     given Show[TypeFQN] = TypeFQN.fullyQualified
@@ -55,7 +55,7 @@ case class TypeUnification private (
             current.pure[CompilationIO] // Same type, so return current one
           case DirectTypeReference(incomingType, _)                                             =>
             compilerError(
-              incoming.as("Type mismatch."),
+              incoming.as(errorMessage),
               Seq(
                 s"Expected: ${TypeReference.unqualified.show(current)}",
                 s"Found:    ${TypeReference.unqualified.show(incoming.value)}"
@@ -162,7 +162,7 @@ object TypeUnification {
   def assignment(
       target: TypeReference,
       source: Sourced[TypeReference],
-      errorMessage: String = "Type mismatch."
+      errorMessage: String
   ): TypeUnification =
     TypeUnification(Map.empty, Seq(Assignment(target, source, errorMessage)))
 

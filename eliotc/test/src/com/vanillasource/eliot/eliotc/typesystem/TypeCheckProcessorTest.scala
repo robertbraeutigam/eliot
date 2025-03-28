@@ -24,8 +24,8 @@ class TypeCheckProcessorTest
   it should "not compile if call site has arguments, but definition doesn't" in {
     runEngineForErrorsWithImports("data A\na: A = b(1)\nb: A")
       .asserting(
-        _ shouldBe Seq("Expression with type Test.A can not be assigned to type eliot.lang.Function.Function.")
-      ) // FIXME: Correct, but confusing message. Should be something about function application!
+        _ shouldBe Seq("Target of function application is not a Function. Possibly too many arguments.")
+      )
   }
 
   it should "issue error when referencing an undefined function" in {
@@ -36,7 +36,7 @@ class TypeCheckProcessorTest
   it should "not compile if call site has no arguments, but definition has one" in {
     runEngineForErrorsWithImports("data A\na: A = b\nb(x: A): A")
       .asserting(
-        _ shouldBe Seq("Expression with type eliot.lang.Function.Function can not be assigned to type Test.A.")
+        _ shouldBe Seq("Type mismatch.")
       )
   }
 
@@ -52,7 +52,7 @@ class TypeCheckProcessorTest
 
   it should "fail only once when a function is used wrong" in {
     runEngineForErrorsWithImports("data A\ndata B\na: A\nb: B = a")
-      .asserting(_ shouldBe Seq("Expression with type Test.A can not be assigned to type Test.B."))
+      .asserting(_ shouldBe Seq("Type mismatch."))
   }
 
   it should "fail if parameter is of wrong type" in {

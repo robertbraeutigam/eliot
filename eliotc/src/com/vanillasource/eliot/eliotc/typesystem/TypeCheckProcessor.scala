@@ -46,23 +46,24 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
 
   private def constructTypeGraph(
       parentTypeReference: TypeReference,
-      expression: Expression
+      expression: Expression,
+      errorMessage: String = "Type mismatch."
   )(using process: CompilationProcess): TypeGraphIO[TypeUnification] =
-    (constructTypeGraphForParameterReference(parentTypeReference) orElse
-      constructTypeGraphForIntegerLiteral(parentTypeReference) orElse
-      constructTypeGraphForValueReference(parentTypeReference) orElse
-      constructTypeGraphForFunctionApplication(parentTypeReference) orElse
-      constructTypeGraphForFunctionLiteral(parentTypeReference))(expression)
+    (constructTypeGraphForParameterReference(parentTypeReference, errorMessage) orElse
+      constructTypeGraphForIntegerLiteral(parentTypeReference, errorMessage) orElse
+      constructTypeGraphForValueReference(parentTypeReference, errorMessage) orElse
+      constructTypeGraphForFunctionApplication(parentTypeReference, errorMessage) orElse
+      constructTypeGraphForFunctionLiteral(parentTypeReference, errorMessage))(expression)
 
-  private def constructTypeGraphForParameterReference(parentTypeReference: TypeReference)(using
+  private def constructTypeGraphForParameterReference(parentTypeReference: TypeReference, errorMessage: String)(using
       process: CompilationProcess
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case ParameterReference(parameterName) =>
     for {
       parameterType <- getBoundType(parameterName.value)
-    } yield assignment(parentTypeReference, parameterName.as(parameterType.get))
+    } yield assignment(parentTypeReference, parameterName.as(parameterType.get), errorMessage)
   }
 
-  private def constructTypeGraphForValueReference(parentTypeReference: TypeReference)(using
+  private def constructTypeGraphForValueReference(parentTypeReference: TypeReference, errorMessage: String)(using
       process: CompilationProcess
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case ValueReference(functionName) =>
     for {
@@ -75,12 +76,12 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
                                  case Some(definition) =>
                                    for {
                                      uniqueValueType <- makeUnique[CompilationIO](definition.valueType)
-                                   } yield assignment(parentTypeReference, functionName.as(uniqueValueType))
+                                   } yield assignment(parentTypeReference, functionName.as(uniqueValueType), errorMessage)
                                }
     } yield result
   }
 
-  private def constructTypeGraphForIntegerLiteral(parentTypeReference: TypeReference)(using
+  private def constructTypeGraphForIntegerLiteral(parentTypeReference: TypeReference, errorMessage: String)(using
       process: CompilationProcess
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case IntegerLiteral(integerLiteral) =>
     assignment(
@@ -90,11 +91,12 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
           integerLiteral.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "Number"), "Byte")),
           Seq.empty
         )
-      )
+      ),
+      errorMessage
     ).pure[TypeGraphIO]
   }
 
-  private def constructTypeGraphForFunctionApplication(parentTypeReference: TypeReference)(using
+  private def constructTypeGraphForFunctionApplication(parentTypeReference: TypeReference, errorMessage: String)(using
       process: CompilationProcess
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case FunctionApplication(target, argument) =>
     for {
@@ -103,13 +105,18 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       targetUnification   <-
         constructTypeGraph(
           DirectTypeReference(target.as(TypeFQN.systemFunctionType), Seq(argumentType, returnType)),
-          target.value
+          target.value,
+          "Target of function application is not a Function. Possibly too many arguments."
         )
       argumentUnification <- constructTypeGraph(argumentType, argument.value)
-    } yield targetUnification |+| argumentUnification |+| assignment(parentTypeReference, target.as(returnType))
+    } yield targetUnification |+| argumentUnification |+| assignment(
+      parentTypeReference,
+      target.as(returnType),
+      errorMessage
+    )
   }
 
-  private def constructTypeGraphForFunctionLiteral(parentTypeReference: TypeReference)(using
+  private def constructTypeGraphForFunctionLiteral(parentTypeReference: TypeReference, errorMessage: String)(using
       process: CompilationProcess
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case FunctionLiteral(parameter, body) =>
     for {
@@ -124,7 +131,8 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
             parameter.name.as(TypeFQN.systemFunctionType),
             Seq(parameter.typeReference, returnType)
           )
-        )
+        ),
+        errorMessage
       )
   }
 }
