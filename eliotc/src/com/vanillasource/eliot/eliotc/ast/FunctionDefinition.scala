@@ -41,6 +41,6 @@ object FunctionDefinition {
     } yield FunctionDefinition(name.map(_.content), genericParameters, args, typeReference, functionBody)
 
     private val functionBody =
-      sourced(symbol("=") *> component[Expression]).optional()
+      (symbol("=") *> sourced(component[Expression])).optional()
   }
 }
