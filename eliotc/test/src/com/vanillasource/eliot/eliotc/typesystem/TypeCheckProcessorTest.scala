@@ -57,12 +57,12 @@ class TypeCheckProcessorTest
 
   it should "fail if parameter is of wrong type" in {
     runEngineForErrorsWithImports("data A\ndata B\na(b: B): A = b")
-      .asserting(_ shouldBe Seq("Expression with type Test.B can not be assigned to type Test.A."))
+      .asserting(_ shouldBe Seq("Type mismatch."))
   }
 
   it should "fail if parameter is used as a wrong parameter in another function" in {
     runEngineForErrorsWithImports("data A\ndata B\na(b: B): A\nb(x: A): A = a(x)")
-      .asserting(_ shouldBe Seq("Expression with type Test.A can not be assigned to type Test.B."))
+      .asserting(_ shouldBe Seq("Type mismatch."))
   }
 
   "generic types" should "type check when returning itself from a parameter" in {
@@ -91,14 +91,14 @@ class TypeCheckProcessorTest
 
   it should "fail if forward unification to concrete types produces conflict" in {
     runEngineForErrorsWithImports("id[A](a: A): A = a\ndata String\ndata Int\nb(i: Int, s: String): String = id(i)")
-      .asserting(_ shouldBe Seq("Expression with type Test.Int can not be assigned to type Test.String."))
+      .asserting(_ shouldBe Seq("Type mismatch."))
   }
 
   it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
     runEngineForErrorsWithImports(
       "id[A](a: A): A = a\ndata String\ndata Int\nb(i: Int, s: String): String = id(id(id(i)))"
     )
-      .asserting(_ shouldBe Seq("Expression with type Test.Int can not be assigned to type Test.String."))
+      .asserting(_ shouldBe Seq("Type mismatch."))
   }
 
   it should "unify on multiple parameters" in {

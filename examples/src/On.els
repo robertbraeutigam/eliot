@@ -1,4 +1,6 @@
-data A
-data B
-a: A
-b: B = a
+id[A](a: A): A = a
+
+data String
+data Int
+
+b(i: Int, s: String): String = id(id(id(i)))
