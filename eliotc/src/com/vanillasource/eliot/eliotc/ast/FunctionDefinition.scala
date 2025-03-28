@@ -3,16 +3,7 @@ package com.vanillasource.eliot.eliotc.ast
 import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
-import com.vanillasource.eliot.eliotc.ast.Primitives.{
-  isIdentifier,
-  isLowerCase,
-  isTopLevel,
-  isUpperCase,
-  optionalArgumentListOf,
-  optionalBracketedCommaSeparatedItems,
-  sourced,
-  symbol
-}
+import com.vanillasource.eliot.eliotc.ast.Primitives.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.parser.Parser

@@ -19,7 +19,7 @@ object Expression {
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                   => value
     case FunctionApplication(Sourced(_, _, value), ns @ _ :: _) =>
-      s"${value}(${ns.map(_.value.show).mkString(", ")})"
+      s"$value(${ns.map(_.value.show).mkString(", ")})"
     case FunctionApplication(Sourced(_, _, value), _)           => value
     case FunctionLiteral(parameters, body)                      => parameters.map(_.show).mkString("(", ", ", ")") + " -> " + body.show
   }
