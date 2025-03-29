@@ -37,7 +37,10 @@ case class TypeUnification private (
       _             <-
         (targetCurrent.genericParameters zip sourceCurrent.genericParameters.map(assignment.source.as))
           .map { case (targetGeneric, sourceGeneric) =>
-            assignment.refocus(targetGeneric, sourceGeneric).withErrorMessage("Type mismatch.")
+            assignment
+              .makeParents()
+              .refocus(targetGeneric, sourceGeneric)
+              .withErrorMessage("Type mismatch.")
           }
           .traverse(solve)
           .whenA(targetCurrent.identifier =!= sourceCurrent.identifier)
@@ -53,13 +56,7 @@ case class TypeUnification private (
             // Both direct references _must_ have the correct arity per resolver
             assignment.target.pure[CompilationIO] // Same type, so return assignment.target one
           case DirectTypeReference(_, _)                                                        =>
-            compilerError(
-              assignment.source.as(assignment.errorMessage),
-              Seq(
-                s"Expected: ${TypeReference.unqualified.show(assignment.target)}",
-                s"Found:    ${TypeReference.unqualified.show(assignment.source.value)}"
-              )
-            ).as(assignment.target)
+            assignment.issueError().as(assignment.target)
           case GenericTypeReference(incomingType, genericParameters)                            =>
             // Note: the direct type needs to have the generic parameters defined
             if (genericParameters.isEmpty || genericParameters.length === assignment.target.genericParameters.length) {
@@ -96,13 +93,7 @@ case class TypeUnification private (
                 assignment.source.value.sourcedAt(assignment.target).pure[CompilationIO]
               }
             } else {
-              compilerError(
-                assignment.source.as("Type mismatch, different number of generic parameters."),
-                Seq(
-                  s"Expected: ${TypeReference.unqualified.show(assignment.target)}",
-                  s"Found:    ${TypeReference.unqualified.show(assignment.source.value)}"
-                )
-              ).as(assignment.target)
+              assignment.issueError().as(assignment.target)
             }
       case GenericTypeReference(_, currentGenericParameters)                                             =>
         assignment.source.value match
@@ -112,13 +103,7 @@ case class TypeUnification private (
             ) {
               assignment.source.value.sourcedAt(assignment.target).pure[CompilationIO] // Switch to more concrete type
             } else {
-              compilerError(
-                assignment.source.as("Type mismatch, different number of generic parameters."),
-                Seq(
-                  s"Expected: ${TypeReference.unqualified.show(assignment.target)}",
-                  s"Found:    ${TypeReference.unqualified.show(assignment.source.value)}"
-                )
-              ).as(assignment.target)
+              assignment.issueError().as(assignment.target)
             }
           case GenericTypeReference(incomingType, incomingGenericParameters) =>
             if (
@@ -131,13 +116,7 @@ case class TypeUnification private (
                 assignment.target.pure[CompilationIO]
               }
             } else {
-              compilerError(
-                assignment.source.as("Type mismatch, different number of generic parameters."),
-                Seq(
-                  s"Expected: ${TypeReference.unqualified.show(assignment.target)}",
-                  s"Found:    ${TypeReference.unqualified.show(assignment.source.value)}"
-                )
-              ).as(assignment.target)
+              assignment.issueError().as(assignment.target)
             }
   }
 
@@ -149,7 +128,9 @@ object TypeUnification {
   case class Assignment(
       target: TypeReference,
       source: Sourced[TypeReference],
-      errorMessage: String
+      errorMessage: String,
+      targetParent: Option[TypeReference],
+      sourceParent: Option[TypeReference]
   ) {
     def refocus(newTarget: TypeReference, newSource: TypeReference): Assignment =
       copy(target = newTarget, source = source.as(newSource))
@@ -159,6 +140,18 @@ object TypeUnification {
 
     def withErrorMessage(newErrorMessage: String): Assignment =
       copy(errorMessage = newErrorMessage)
+
+    def makeParents(): Assignment =
+      copy(targetParent = targetParent.orElse(Some(target)), sourceParent = sourceParent.orElse(Some(source.value)))
+
+    def issueError()(using CompilationProcess): CompilationIO[Unit] =
+      compilerError(
+        source.as(errorMessage),
+        Seq(
+          s"Expected: ${TypeReference.unqualified.show(target)}",
+          s"Found:    ${TypeReference.unqualified.show(source.value)}"
+        )
+      )
   }
 
   def genericParameters(genericParameters: Seq[GenericParameter]): TypeUnification =
@@ -172,7 +165,7 @@ object TypeUnification {
       source: Sourced[TypeReference],
       errorMessage: String
   ): TypeUnification =
-    TypeUnification(Map.empty, Seq(Assignment(target, source, errorMessage)))
+    TypeUnification(Map.empty, Seq(Assignment(target, source, errorMessage, None, None)))
 
   given Monoid[TypeUnification] = new Monoid[TypeUnification] {
     override def empty: TypeUnification = TypeUnification(Map.empty, Seq.empty)

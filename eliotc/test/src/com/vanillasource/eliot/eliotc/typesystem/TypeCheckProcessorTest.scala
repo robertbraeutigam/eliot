@@ -124,7 +124,7 @@ class TypeCheckProcessorTest
     runEngineForErrorsWithImports("id[B, A[B]](a: A[B]): A[B]\nf[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
       .asserting(
         _ shouldBe Seq(
-          "Type mismatch, different number of generic parameters."
+          "Type mismatch."
         )
       )
   }
@@ -133,7 +133,7 @@ class TypeCheckProcessorTest
     runEngineForErrorsWithImports(
       "data Foo\ndata Bar\nid[A](a: A): A\nf(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)"
     )
-      .asserting(_ shouldBe Seq("Expression with type Test.Bar can not be assigned to type Test.Foo."))
+      .asserting(_ shouldBe Seq("Type mismatch."))
   }
 
   "top level functions" should "be assignable to function types" in {
