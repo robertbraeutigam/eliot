@@ -147,11 +147,24 @@ object TypeUnification {
     def issueError()(using CompilationProcess): CompilationIO[Unit] =
       compilerError(
         source.as(errorMessage),
-        Seq(
-          s"Expected: ${TypeReference.unqualified.show(target)}",
-          s"Found:    ${TypeReference.unqualified.show(source.value)}"
-        )
+        typeDescriptions() ++ parentDescriptions()
       )
+
+    private def typeDescriptions(): Seq[String] =
+      Seq(
+        s"Expected: ${TypeReference.unqualified.show(target)}",
+        s"Found:    ${TypeReference.unqualified.show(source.value)}"
+      )
+
+    private def parentDescriptions(): Seq[String] =
+      (for {
+        tp <- targetParent
+        sp <- sourceParent
+      } yield Seq(
+        "from encompassing types:",
+        s"Expected: ${TypeReference.unqualified.show(tp)}",
+        s"Found:    ${TypeReference.unqualified.show(sp)}"
+      )).getOrElse(Seq.empty)
   }
 
   def genericParameters(genericParameters: Seq[GenericParameter]): TypeUnification =
