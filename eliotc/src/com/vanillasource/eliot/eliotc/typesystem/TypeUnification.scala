@@ -36,7 +36,9 @@ case class TypeUnification private (
                        )
       _             <-
         (targetCurrent.genericParameters zip sourceCurrent.genericParameters.map(assignment.source.as))
-          .map { case (targetGeneric, sourceGeneric) => Assignment(targetGeneric, sourceGeneric, "Type mismatch.") }
+          .map { case (targetGeneric, sourceGeneric) =>
+            assignment.refocus(targetGeneric, sourceGeneric).withErrorMessage("Type mismatch.")
+          }
           .traverse(solve)
           .whenA(targetCurrent.identifier =!= sourceCurrent.identifier)
     } yield ()
@@ -150,7 +152,13 @@ object TypeUnification {
       errorMessage: String
   ) {
     def refocus(newTarget: TypeReference, newSource: TypeReference): Assignment =
-      Assignment(newTarget, source.as(newSource), errorMessage)
+      copy(target = newTarget, source = source.as(newSource))
+
+    def refocus(newTarget: TypeReference, newSource: Sourced[TypeReference]): Assignment =
+      copy(target = newTarget, source = newSource)
+
+    def withErrorMessage(newErrorMessage: String): Assignment =
+      copy(errorMessage = newErrorMessage)
   }
 
   def genericParameters(genericParameters: Seq[GenericParameter]): TypeUnification =
