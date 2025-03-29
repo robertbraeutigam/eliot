@@ -30,7 +30,7 @@ case class TypeUnification private (
     for {
       targetCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(assignment.target))
       sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(assignment.source.value))
-      unifiedType   <- StateT.liftF(unify(targetCurrent, assignment.source.as(sourceCurrent), assignment.errorMessage))
+      unifiedType   <- StateT.liftF(unify(assignment.refocus(targetCurrent, sourceCurrent)))
       _             <- StateT.modify[CompilationIO, TypeUnificationState](
                          _.unifyTo(assignment.target, assignment.source.value, unifiedType)
                        )
@@ -41,103 +41,101 @@ case class TypeUnification private (
           .whenA(targetCurrent.identifier =!= sourceCurrent.identifier)
     } yield ()
 
-  private def unify(current: TypeReference, incoming: Sourced[TypeReference], errorMessage: String)(using
-      CompilationProcess
-  ): CompilationIO[TypeReference] = {
+  private def unify(assignment: Assignment)(using CompilationProcess): CompilationIO[TypeReference] = {
     given Show[TypeFQN] = TypeFQN.fullyQualified
 
-    current match
+    assignment.target match
       case DirectTypeReference(currentType, _)                                                           =>
-        incoming.value match
+        assignment.source.value match
           case DirectTypeReference(incomingType, _) if currentType.value === incomingType.value =>
             // Both direct references _must_ have the correct arity per resolver
-            current.pure[CompilationIO] // Same type, so return current one
+            assignment.target.pure[CompilationIO] // Same type, so return assignment.target one
           case DirectTypeReference(_, _)                                                        =>
             compilerError(
-              incoming.as(errorMessage),
+              assignment.source.as(assignment.errorMessage),
               Seq(
-                s"Expected: ${TypeReference.unqualified.show(current)}",
-                s"Found:    ${TypeReference.unqualified.show(incoming.value)}"
+                s"Expected: ${TypeReference.unqualified.show(assignment.target)}",
+                s"Found:    ${TypeReference.unqualified.show(assignment.source.value)}"
               )
-            ).as(current)
+            ).as(assignment.target)
           case GenericTypeReference(incomingType, genericParameters)                            =>
             // Note: the direct type needs to have the generic parameters defined
-            if (genericParameters.isEmpty || genericParameters.length === current.genericParameters.length) {
-              current.pure[CompilationIO] // Incoming more generic, so return current one
+            if (genericParameters.isEmpty || genericParameters.length === assignment.target.genericParameters.length) {
+              assignment.target.pure[CompilationIO] // Incoming more generic, so return assignment.target one
             } else {
               compilerError(
-                incoming.as(
+                assignment.source.as(
                   s"Expression with type ${incomingType.value.show} can not be assigned to type ${currentType.value.show}, because they have different number of generic parameters."
                 )
-              ).as(current)
+              ).as(assignment.target)
             }
       case GenericTypeReference(currentType, currentGenericParameters) if isUniversal(currentType.value) =>
-        incoming.value match
+        assignment.source.value match
           case DirectTypeReference(incomingType, _)                                     =>
             compilerError(
-              incoming.as(
+              assignment.source.as(
                 s"Expression with type ${incomingType.value.show} can not be assigned to universal generic type ${currentType.value.show}."
               )
-            ).as(current)
+            ).as(assignment.target)
           case GenericTypeReference(incomingType, _) if isUniversal(incomingType.value) =>
             compilerError(
-              incoming.as(
+              assignment.source.as(
                 s"Expression with universal generic type ${incomingType.value.show} can not be assigned to universal generic type ${currentType.value.show}."
               )
-            ).whenA(incomingType.value =!= currentType.value).as(current)
+            ).whenA(incomingType.value =!= currentType.value).as(assignment.target)
           case GenericTypeReference(_, incomingGenericParameters)                       =>
             if (
               incomingGenericParameters.isEmpty || currentGenericParameters.isEmpty || incomingGenericParameters.length === currentGenericParameters.length
             ) {
               // Add generic parameter restrictions (remember the more restrictive type reference)
               if (incomingGenericParameters.isEmpty) {
-                current.pure[CompilationIO]
+                assignment.target.pure[CompilationIO]
               } else {
-                incoming.value.sourcedAt(current).pure[CompilationIO]
+                assignment.source.value.sourcedAt(assignment.target).pure[CompilationIO]
               }
             } else {
               compilerError(
-                incoming.as("Type mismatch, different number of generic parameters."),
+                assignment.source.as("Type mismatch, different number of generic parameters."),
                 Seq(
-                  s"Expected: ${TypeReference.unqualified.show(current)}",
-                  s"Found:    ${TypeReference.unqualified.show(incoming.value)}"
+                  s"Expected: ${TypeReference.unqualified.show(assignment.target)}",
+                  s"Found:    ${TypeReference.unqualified.show(assignment.source.value)}"
                 )
-              ).as(current)
+              ).as(assignment.target)
             }
       case GenericTypeReference(_, currentGenericParameters)                                             =>
-        incoming.value match
+        assignment.source.value match
           case DirectTypeReference(_, incomingGenericParameters)             =>
             if (
               currentGenericParameters.isEmpty || currentGenericParameters.length === incomingGenericParameters.length
             ) {
-              incoming.value.sourcedAt(current).pure[CompilationIO] // Switch to more concrete type
+              assignment.source.value.sourcedAt(assignment.target).pure[CompilationIO] // Switch to more concrete type
             } else {
               compilerError(
-                incoming.as("Type mismatch, different number of generic parameters."),
+                assignment.source.as("Type mismatch, different number of generic parameters."),
                 Seq(
-                  s"Expected: ${TypeReference.unqualified.show(current)}",
-                  s"Found:    ${TypeReference.unqualified.show(incoming.value)}"
+                  s"Expected: ${TypeReference.unqualified.show(assignment.target)}",
+                  s"Found:    ${TypeReference.unqualified.show(assignment.source.value)}"
                 )
-              ).as(current)
+              ).as(assignment.target)
             }
           case GenericTypeReference(incomingType, incomingGenericParameters) =>
             if (
               incomingGenericParameters.isEmpty || currentGenericParameters.isEmpty || incomingGenericParameters.length === currentGenericParameters.length
             ) {
-              // If incoming is more restrictive (has parameters or is universal), pick that
+              // If assignment.source is more restrictive (has parameters or is universal), pick that
               if (incomingGenericParameters.nonEmpty || isUniversal(incomingType.value)) {
-                incoming.value.sourcedAt(current).pure[CompilationIO]
+                assignment.source.value.sourcedAt(assignment.target).pure[CompilationIO]
               } else {
-                current.pure[CompilationIO]
+                assignment.target.pure[CompilationIO]
               }
             } else {
               compilerError(
-                incoming.as("Type mismatch, different number of generic parameters."),
+                assignment.source.as("Type mismatch, different number of generic parameters."),
                 Seq(
-                  s"Expected: ${TypeReference.unqualified.show(current)}",
-                  s"Found:    ${TypeReference.unqualified.show(incoming.value)}"
+                  s"Expected: ${TypeReference.unqualified.show(assignment.target)}",
+                  s"Found:    ${TypeReference.unqualified.show(assignment.source.value)}"
                 )
-              ).as(current)
+              ).as(assignment.target)
             }
   }
 
@@ -150,7 +148,10 @@ object TypeUnification {
       target: TypeReference,
       source: Sourced[TypeReference],
       errorMessage: String
-  )
+  ) {
+    def refocus(newTarget: TypeReference, newSource: TypeReference): Assignment =
+      Assignment(newTarget, source.as(newSource), errorMessage)
+  }
 
   def genericParameters(genericParameters: Seq[GenericParameter]): TypeUnification =
     TypeUnification(genericParameters.map(e => e.name.value -> e).toMap, Seq.empty)
