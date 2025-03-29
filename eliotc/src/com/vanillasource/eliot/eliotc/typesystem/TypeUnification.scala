@@ -5,7 +5,6 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.implicits.*
 import cats.kernel.Monoid
-import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
@@ -53,7 +52,7 @@ case class TypeUnification private (
           case DirectTypeReference(incomingType, _) if currentType.value === incomingType.value =>
             // Both direct references _must_ have the correct arity per resolver
             current.pure[CompilationIO] // Same type, so return current one
-          case DirectTypeReference(incomingType, _)                                             =>
+          case DirectTypeReference(_, _)                                                        =>
             compilerError(
               incoming.as(errorMessage),
               Seq(
@@ -86,7 +85,7 @@ case class TypeUnification private (
                 s"Expression with universal generic type ${incomingType.value.show} can not be assigned to universal generic type ${currentType.value.show}."
               )
             ).whenA(incomingType.value =!= currentType.value).as(current)
-          case GenericTypeReference(incomingType, incomingGenericParameters)            =>
+          case GenericTypeReference(_, incomingGenericParameters)                       =>
             if (
               incomingGenericParameters.isEmpty || currentGenericParameters.isEmpty || incomingGenericParameters.length === currentGenericParameters.length
             ) {
@@ -105,9 +104,9 @@ case class TypeUnification private (
                 )
               ).as(current)
             }
-      case GenericTypeReference(currentType, currentGenericParameters)                                   =>
+      case GenericTypeReference(_, currentGenericParameters)                                             =>
         incoming.value match
-          case DirectTypeReference(incomingType, incomingGenericParameters)  =>
+          case DirectTypeReference(_, incomingGenericParameters)             =>
             if (
               currentGenericParameters.isEmpty || currentGenericParameters.length === incomingGenericParameters.length
             ) {
