@@ -15,9 +15,11 @@ object Expression {
   case class FunctionApplication(functionName: Sourced[String], arguments: Seq[Sourced[Expression]]) extends Expression
   case class FunctionLiteral(parameters: Seq[ArgumentDefinition], body: Sourced[Expression])         extends Expression
   case class IntegerLiteral(integerLiteral: Sourced[String])                                         extends Expression
+  case class StringLiteral(stringLiteral: Sourced[String])                                           extends Expression
 
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                   => value
+    case StringLiteral(Sourced(_, _, value))                    => value
     case FunctionApplication(Sourced(_, _, value), ns @ _ :: _) =>
       s"$value(${ns.map(_.value.show).mkString(", ")})"
     case FunctionApplication(Sourced(_, _, value), _)           => value
@@ -26,7 +28,7 @@ object Expression {
 
   given ASTComponent[Expression] = new ASTComponent[Expression] {
     override def parser: Parser[Sourced[Token], Expression] =
-      functionLiteral.atomic() or functionApplication or integerLiteral
+      functionLiteral.atomic() or functionApplication or integerLiteral or stringLiteral
 
     private val functionApplication: Parser[Sourced[Token], Expression] = for {
       name <- acceptIf(isIdentifier, "function name")
@@ -44,5 +46,10 @@ object Expression {
     private val integerLiteral: Parser[Sourced[Token], Expression] = for {
       lit <- acceptIf(isIntegerLiteral, "integer literal")
     } yield IntegerLiteral(lit.map(_.content))
+
+    private val stringLiteral: Parser[Sourced[Token], Expression] = for {
+      lit <- acceptIf(isStringLiteral, "string literal")
+    } yield StringLiteral(lit.map(_.content))
+
   }
 }

@@ -62,6 +62,11 @@ object Primitives {
     case _                                      => false
   }
 
+  def isStringLiteral(st: Sourced[Token]): Boolean = st match {
+    case Sourced(_, _, Token.StringLiteral(_)) => true
+    case _                                     => false
+  }
+
   def isSymbol(st: Sourced[Token]): Boolean = st match {
     case Sourced(_, _, Symbol(_)) => true
     case _                        => false
