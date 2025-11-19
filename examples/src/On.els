@@ -1,6 +1,0 @@
-data Foo
-data Bar
-
-id[A](a: A): A
-
-f(p: Function[Bar, Foo]): Function[Bar, Foo] = id(p)
