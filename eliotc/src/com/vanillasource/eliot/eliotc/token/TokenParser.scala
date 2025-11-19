@@ -47,7 +47,7 @@ class TokenParser(file: File) {
   lazy val fullParser: Parsley[List[Sourced[Token]]] = lexer.fully(Parsley.many(tokenParser))
 
   private lazy val tokenParser: Parsley[Sourced[Token]] =
-    identifier <|> symbolParser <|> standaloneSymbolParser <|> keyword <|> integerLiteral
+    identifier <|> symbolParser <|> standaloneSymbolParser <|> keyword <|> integerLiteral <|> stringLiteral
 
   private lazy val symbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
     lexer.nonlexeme.names.userDefinedOperator.map(Token.Symbol.apply)
@@ -64,6 +64,10 @@ class TokenParser(file: File) {
   private lazy val integerLiteral: Parsley[Sourced[Token.IntegerLiteral]] = sourcedLexeme(
     lexer.nonlexeme.integer.decimal.map(value => Token.IntegerLiteral(value.toString))
   ).label("integer literal")
+
+  private lazy val stringLiteral: Parsley[Sourced[Token.StringLiteral]] = sourcedLexeme(
+    lexer.nonlexeme.string.fullUtf16.map(Token.StringLiteral(_))
+  ).label("string literal")
 
   private lazy val identifier: Parsley[Sourced[Token.Identifier]] = sourcedLexeme(
     lexer.nonlexeme.names.identifier.map(Token.Identifier.apply)

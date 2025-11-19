@@ -1,15 +1,9 @@
 package com.vanillasource.eliot.eliotc.token
 
 import cats.effect.IO
-import cats.effect.testing.scalatest.AsyncIOSpec
-import com.vanillasource.eliot.eliotc.{CompilerFact, ProcessorTest}
-import com.vanillasource.eliot.eliotc.main.CompilerEngine
+import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.source.*
-import com.vanillasource.eliot.eliotc.token.Token.{Identifier, IntegerLiteral, Keyword}
-import org.scalatest.flatspec.AsyncFlatSpec
-import org.scalatest.matchers.should.Matchers
-
-import java.io.File
+import com.vanillasource.eliot.eliotc.token.Token.{Identifier, IntegerLiteral, Keyword, StringLiteral}
 
 class TokenizerTest extends ProcessorTest(new Tokenizer()) {
   "tokenizer" should "return nothing for empty content" in {
@@ -68,6 +62,24 @@ class TokenizerTest extends ProcessorTest(new Tokenizer()) {
   it should "parse 123 as integer literal" in {
     parseForSourcedTokens("123").asserting(
       _ shouldBe Seq(Sourced(file, PositionRange(Position(1, 1), Position(1, 4)), IntegerLiteral("123")))
+    )
+  }
+
+  it should "parse an empty string literal as empty string" in {
+    parseForSourcedTokens("\"\"").asserting(
+      _ shouldBe Seq(Sourced(file, PositionRange(Position(1, 1), Position(1, 3)), StringLiteral("")))
+    )
+  }
+
+  it should "parse 'abc' string literal" in {
+    parseForSourcedTokens("\"abc\"").asserting(
+      _ shouldBe Seq(Sourced(file, PositionRange(Position(1, 1), Position(1, 6)), StringLiteral("abc")))
+    )
+  }
+
+  it should "parse unicode in string literal" in {
+    parseForSourcedTokens("\"αβγ\"").asserting(
+      _ shouldBe Seq(Sourced(file, PositionRange(Position(1, 1), Position(1, 6)), StringLiteral("αβγ")))
     )
   }
 
