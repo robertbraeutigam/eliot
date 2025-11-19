@@ -22,7 +22,7 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
   ): CompilationIO[Unit] =
     for {
       usedFunctions <- processDefinition(ffqn, definition)
-      _             <- debug(s"Used functions: ${usedFunctions.mkString(", ")}").liftIfNoErrors
+      _             <- debug(s"Used functions: ${usedFunctions.map(_.show).mkString(", ")}").liftIfNoErrors
       _             <- process.registerFact(UsedSymbols(usedFunctions)).liftIfNoErrors
     } yield ()
 
@@ -59,7 +59,9 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
                                    case Some(loadedFunction) =>
                                      processDefinition(loadedFunction.ffqn, loadedFunction.definition)
                                    case None                 =>
-                                     compilerError(s.as("Function not found, possibly not implemented.")).as(Set.empty)
+                                     // Function not type checked. We assume that the platform has it,
+                                     // or the platform will issue "linking" error
+                                     IO.pure(Set(ffqn)).liftToCompilationIO
                                  }
         } yield usedFunctions
       case Expression.FunctionLiteral(_, Sourced(_, _, body))                             =>
