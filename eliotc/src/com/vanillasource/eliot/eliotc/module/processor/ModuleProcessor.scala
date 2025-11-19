@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.*
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName.systemFunctionModuleName
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.{defaultSystemModules, systemFunctionModuleName}
 import com.vanillasource.eliot.eliotc.module.fact.{
   FunctionFQN,
   ModuleData,
@@ -225,10 +225,4 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
           Some(ModuleName(moduleSegments, s.substring(0, s.length - 4))).pure
         }
   }
-}
-
-object ModuleProcessor {
-  private val defaultSystemModules = Seq(
-    systemFunctionModuleName
-  )
 }

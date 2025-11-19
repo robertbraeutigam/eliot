@@ -20,4 +20,10 @@ object ModuleName {
   private val defaultSystemPackage = Seq("eliot", "lang")
 
   val systemFunctionModuleName: ModuleName = ModuleName(defaultSystemPackage, "Function")
+  val defaultSystemModules                 = Seq(
+    "Function",
+    "Unit",
+    "String"
+  ).map(ModuleName(defaultSystemPackage, _))
+
 }

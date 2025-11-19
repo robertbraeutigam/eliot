@@ -51,6 +51,7 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
   )(using process: CompilationProcess): TypeGraphIO[TypeUnification] =
     (constructTypeGraphForParameterReference(parentTypeReference, errorMessage) orElse
       constructTypeGraphForIntegerLiteral(parentTypeReference, errorMessage) orElse
+      constructTypeGraphForStringLiteral(parentTypeReference, errorMessage) orElse
       constructTypeGraphForValueReference(parentTypeReference, errorMessage) orElse
       constructTypeGraphForFunctionApplication(parentTypeReference, errorMessage) orElse
       constructTypeGraphForFunctionLiteral(parentTypeReference, errorMessage))(expression)
@@ -89,6 +90,21 @@ class TypeCheckProcessor extends CompilerProcessor with Logging {
       integerLiteral.as(
         DirectTypeReference(
           integerLiteral.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "Number"), "Byte")),
+          Seq.empty
+        )
+      ),
+      errorMessage
+    ).pure[TypeGraphIO]
+  }
+
+  private def constructTypeGraphForStringLiteral(parentTypeReference: TypeReference, errorMessage: String)(using
+      process: CompilationProcess
+  ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case StringLiteral(stringLiteral) =>
+    assignment(
+      parentTypeReference,
+      stringLiteral.as(
+        DirectTypeReference(
+          stringLiteral.as(TypeFQN(ModuleName(Seq("eliot", "lang"), "String"), "String")),
           Seq.empty
         )
       ),

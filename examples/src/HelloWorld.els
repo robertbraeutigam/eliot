@@ -1,1 +1,1 @@
-main = println("Hello World!")
+main: Unit = println("Hello World!")

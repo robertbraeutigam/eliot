@@ -11,12 +11,14 @@ sealed trait Expression
 object Expression {
   case class FunctionApplication(target: Sourced[Expression], argument: Sourced[Expression]) extends Expression
   case class IntegerLiteral(integerLiteral: Sourced[BigInt])                                 extends Expression
+  case class StringLiteral(stringLiteral: Sourced[String])                                   extends Expression
   case class ParameterReference(parameterName: Sourced[String])                              extends Expression
   case class ValueReference(valueName: Sourced[FunctionFQN])                                 extends Expression
   case class FunctionLiteral(parameter: ArgumentDefinition, body: Sourced[Expression])       extends Expression
 
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                                          => value.toString()
+    case StringLiteral(Sourced(_, _, value))                                           => value
     case FunctionApplication(Sourced(_, _, targetValue), Sourced(_, _, argumentValue)) =>
       s"${targetValue.show}(${argumentValue.show})"
     case FunctionLiteral(parameter, body)                                              => parameter.name.value + " -> " + body.value.show

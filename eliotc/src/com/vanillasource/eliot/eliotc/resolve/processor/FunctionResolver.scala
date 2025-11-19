@@ -155,5 +155,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
         )
       case ast.Expression.IntegerLiteral(s @ Sourced(_, _, value))           =>
         expr.as(Expression.IntegerLiteral(s.as(BigInt(value)))).pure
+      case ast.Expression.StringLiteral(s @ Sourced(_, _, value))            =>
+        expr.as(Expression.StringLiteral(s.as(value))).pure
     }
 }
