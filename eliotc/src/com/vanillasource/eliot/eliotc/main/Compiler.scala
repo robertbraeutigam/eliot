@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.main
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.jvm.{JvmClassGenerator, JvmProgramGenerator}
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.output.OutputWriter
 import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
@@ -29,7 +30,9 @@ case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
     FunctionResolver(),
     TypeCheckProcessor(),
     UsedSymbolsProcessor(cmdLineArguments.mainFunction),
-    OutputWriter()
+    OutputWriter(),
+    JvmProgramGenerator(),
+    JvmClassGenerator()
   )
 
   def run(): IO[Unit] = for {

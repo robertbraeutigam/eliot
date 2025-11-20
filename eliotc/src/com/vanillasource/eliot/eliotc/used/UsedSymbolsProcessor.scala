@@ -20,16 +20,16 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
       process: CompilationProcess
   ): IO[Unit] =
     for {
-      usedFunctions <- processDefinition(ffqn, definition)
+      usedFunctions <- processDefinition(definition).map(_ + ((ffqn, definition.name)))
       _             <- debug(s"Used functions: ${usedFunctions.map(_.show).mkString(", ")}")
       _             <- process.registerFact(UsedSymbols(usedFunctions))
     } yield ()
 
-  private def processDefinition(ffqn: FunctionFQN, definition: FunctionDefinition)(using
+  private def processDefinition(definition: FunctionDefinition)(using
       CompilationProcess
-  ): IO[Set[FunctionFQN]] =
+  ): IO[Map[FunctionFQN, Sourced[_]]] =
     definition.body match {
-      case Some(Sourced(_, _, expression)) => processExpression(expression).map(_ + ffqn)
+      case Some(Sourced(_, _, expression)) => processExpression(expression)
       case None                            =>
         IO.raiseError(new IllegalStateException("Should not happen, body of type-checked function is empty."))
     }
@@ -37,7 +37,7 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
   // FIXME: not safe when recursive!
   private def processExpression(
       expression: Expression
-  )(using process: CompilationProcess): IO[Set[FunctionFQN]] =
+  )(using process: CompilationProcess): IO[Map[FunctionFQN, Sourced[_]]] =
     expression match {
       case Expression.FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         for {
@@ -45,21 +45,21 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
           argumentResult <- processExpression(argument)
         } yield targetResult ++ argumentResult
       case Expression.IntegerLiteral(integerLiteral)                                      =>
-        IO.pure(Set.empty)
+        IO.pure(Map.empty)
       case Expression.StringLiteral(stringLiteral)                                        =>
-        IO.pure(Set.empty)
+        IO.pure(Map.empty)
       case Expression.ParameterReference(parameterName)                                   =>
-        IO.pure(Set.empty)
-      case Expression.ValueReference(s @ Sourced(_, _, ffqn))                             =>
+        IO.pure(Map.empty)
+      case Expression.ValueReference(sourcedFfqn @ Sourced(_, _, ffqn))                   =>
         for {
           loadedFunctionMaybe <- process.getFact(TypeCheckedFunction.Key(ffqn))
           usedFunctions       <- loadedFunctionMaybe match {
                                    case Some(loadedFunction) =>
-                                     processDefinition(loadedFunction.ffqn, loadedFunction.definition)
+                                     processDefinition(loadedFunction.definition).map(_ + ((ffqn, sourcedFfqn)))
                                    case None                 =>
                                      // Function not type checked. We assume that the platform has it,
                                      // or the platform will issue "linking" error
-                                     IO.pure(Set(ffqn))
+                                     IO.pure(Map((ffqn, sourcedFfqn)))
                                  }
         } yield usedFunctions
       case Expression.FunctionLiteral(_, Sourced(_, _, body))                             =>
