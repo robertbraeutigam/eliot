@@ -4,7 +4,7 @@ import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.jvm.NativeImplementations.implementations
+import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbols

@@ -4,12 +4,12 @@ import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackag
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import org.objectweb.asm.{MethodVisitor, Opcodes}
 
-trait NativeImplementations {
+trait NativeImplementation {
   def withArguments(methodVisitor: MethodVisitor, argumentsGenerator: => Unit): Unit
 }
 
-object NativeImplementations {
-  val implementations: Map[FunctionFQN, NativeImplementations] = Map.from(
+object NativeImplementation {
+  val implementations: Map[FunctionFQN, NativeImplementation] = Map.from(
     Seq(
       (systemLangFunction("String", "println"), eliot_lang_String_println)
     )
@@ -18,7 +18,7 @@ object NativeImplementations {
   private def systemLangFunction(moduleName: String, functionName: String): FunctionFQN =
     FunctionFQN(ModuleName(defaultSystemPackage, moduleName), functionName)
 
-  private def eliot_lang_String_println: NativeImplementations = new NativeImplementations {
+  private def eliot_lang_String_println: NativeImplementation = new NativeImplementation {
     override def withArguments(methodVisitor: MethodVisitor, argumentsGenerator: => Unit): Unit = {
       methodVisitor.visitFieldInsn(
         Opcodes.GETSTATIC,

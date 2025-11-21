@@ -14,4 +14,6 @@ object TypeFQN {
   given Eq[TypeFQN] = (self: TypeFQN, other: TypeFQN) => self == other
 
   val systemFunctionType: TypeFQN = TypeFQN(systemFunctionModuleName, "Function")
+
+  val systemAnyType: TypeFQN = TypeFQN(systemFunctionModuleName, "Any")
 }
