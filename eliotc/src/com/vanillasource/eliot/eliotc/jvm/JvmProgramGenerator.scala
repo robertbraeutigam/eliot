@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
+import org.objectweb.asm.{ClassWriter, Opcodes}
 
 import java.nio.file.StandardOpenOption.*
 import java.nio.file.{Files, Path, StandardOpenOption}
@@ -37,17 +38,22 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends Co
   private def generateJarFile(allClasses: Seq[GeneratedClass]): IO[Unit] =
     jarOutputStream.use { jos =>
       IO.blocking {
-        allClasses.foreach { case GeneratedClass(moduleName, bytes) =>
-          val pathName  = if (moduleName.packages.isEmpty) "" else moduleName.packages.mkString("", "/", "/")
-          val entryName = moduleName.name + ".class" // FIXME: same javaname conversion as in class! Use the class name!
-          val entry     = new JarEntry(pathName + entryName)
-
-          jos.putNextEntry(entry)
-          jos.write(bytes)
-          jos.closeEntry()
-        }
+        generateClasses(jos, allClasses)
+        generateMain(jos)
       }
     }
+
+  private def generateClasses(jos: JarOutputStream, allClasses: Seq[GeneratedClass]): Unit = {
+    allClasses.foreach { case GeneratedClass(moduleName, bytes) =>
+      val pathName  = if (moduleName.packages.isEmpty) "" else moduleName.packages.mkString("", "/", "/")
+      val entryName = moduleName.name + ".class" // FIXME: same javaname conversion as in class! Use the class name!
+      val entry     = new JarEntry(pathName + entryName)
+
+      jos.putNextEntry(entry)
+      jos.write(bytes)
+      jos.closeEntry()
+    }
+  }
 
   private def jarOutputStream: Resource[IO, JarOutputStream] =
     for {
@@ -59,4 +65,49 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends Co
   private def jarFilePath: Path = targetDir.resolve(jarFileName)
 
   private def jarFileName: String = mainFunction.moduleName.name + ".jar"
+
+  private def generateMain(jos: JarOutputStream): Unit = {
+    jos.putNextEntry(new JarEntry("main.class"))
+    jos.write(generateMainClassBytes)
+    jos.closeEntry()
+  }
+
+  private def generateMainClassBytes: Array[Byte] = {
+    val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
+
+    classWriter.visit(
+      Opcodes.V17,
+      Opcodes.ACC_PUBLIC,
+      "main",
+      null,
+      "java/lang/Object",
+      null
+    )
+
+    val methodVisitor = classWriter.visitMethod(
+      Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
+      "main",
+      "([Ljava/lang/String;)V",
+      null,
+      null
+    )
+
+    methodVisitor.visitCode()
+
+    methodVisitor.visitMethodInsn(
+      Opcodes.INVOKESTATIC,
+      mainFunction.moduleName.packages.appended(mainFunction.moduleName.name).mkString("/"),
+      "main",
+      "()V",
+      false
+    )
+
+    methodVisitor.visitInsn(Opcodes.RETURN)
+    methodVisitor.visitMaxs(0, 0)
+    methodVisitor.visitEnd()
+
+    classWriter.visitEnd()
+
+    classWriter.toByteArray
+  }
 }
