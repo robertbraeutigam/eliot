@@ -31,7 +31,7 @@ case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
     TypeCheckProcessor(),
     UsedSymbolsProcessor(cmdLineArguments.mainFunction),
     OutputWriter(),
-    JvmProgramGenerator(),
+    JvmProgramGenerator(cmdLineArguments.mainFunction, cmdLineArguments.targetPath),
     JvmClassGenerator()
   )
 
