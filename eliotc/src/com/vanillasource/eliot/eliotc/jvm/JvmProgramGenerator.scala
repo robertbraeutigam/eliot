@@ -9,8 +9,8 @@ import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
 
-import java.nio.file.StandardOpenOption.CREATE_NEW
-import java.nio.file.{Files, Path}
+import java.nio.file.StandardOpenOption.*
+import java.nio.file.{Files, Path, StandardOpenOption}
 import java.util.jar.{JarEntry, JarOutputStream}
 
 class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends CompilerProcessor with Logging {
@@ -52,7 +52,7 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends Co
   private def jarOutputStream: Resource[IO, JarOutputStream] =
     for {
       _   <- Resource.eval(IO.blocking(Files.createDirectories(targetDir)))
-      os  <- Resource.fromAutoCloseable(IO.blocking(Files.newOutputStream(jarFilePath, CREATE_NEW)))
+      os  <- Resource.fromAutoCloseable(IO.blocking(Files.newOutputStream(jarFilePath, CREATE, TRUNCATE_EXISTING)))
       jos <- Resource.fromAutoCloseable(IO.blocking(new JarOutputStream(os)))
     } yield jos
 
