@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
+import java.nio.charset.StandardCharsets
 import java.nio.file.StandardOpenOption.*
 import java.nio.file.{Files, Path, StandardOpenOption}
 import java.util.jar.{JarEntry, JarOutputStream}
@@ -38,6 +39,7 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends Co
   private def generateJarFile(allClasses: Seq[GeneratedClass]): IO[Unit] =
     jarOutputStream.use { jos =>
       IO.blocking {
+        generateManifest(jos)
         generateClasses(jos, allClasses)
         generateMain(jos)
       }
@@ -109,5 +111,11 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends Co
     classWriter.visitEnd()
 
     classWriter.toByteArray
+  }
+
+  private def generateManifest(jos: JarOutputStream): Unit = {
+    jos.putNextEntry(new JarEntry("META-INF/MANIFEST.MF"))
+    jos.write("Manifest-Version: 1.0\nMain-Class: main\n".getBytes(StandardCharsets.UTF_8))
+    jos.closeEntry()
   }
 }
