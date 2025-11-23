@@ -79,7 +79,7 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends Co
 
     classWriter.visit(
       Opcodes.V17,
-      Opcodes.ACC_PUBLIC,
+      Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
       "main",
       null,
       "java/lang/Object",
