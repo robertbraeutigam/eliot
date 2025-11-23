@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
+import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemLangType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 
 trait NativeType {
@@ -11,8 +12,8 @@ trait NativeType {
 object NativeType {
   val types: Map[TypeFQN, NativeType] = Map.from(
     Seq(
-      (systemLangType("String", "String"), eliot_lang_String),
-      (systemLangType("Unit", "Unit"), eliot_lang_Unit)
+      (systemLangType("String"), eliot_lang_String),
+      (systemLangType("Unit"), eliot_lang_Unit)
     )
   )
 
@@ -27,9 +28,6 @@ object NativeType {
       // Type should be a static internal type
       typeFQN.moduleName.packages.appended(typeFQN.moduleName.name).appended(typeFQN.typeName).mkString("L", "/", ";")
     }
-
-  private def systemLangType(moduleName: String, typeName: String): TypeFQN =
-    TypeFQN(ModuleName(defaultSystemPackage, moduleName), typeName)
 
   private def eliot_lang_String: NativeType = new NativeType {
     override def javaSignatureName: String = "Ljava/lang/String;"

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.module.fact
 
 import cats.syntax.all.*
 import cats.{Eq, Show}
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName.systemFunctionModuleName
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.{defaultSystemPackage, systemFunctionModuleName}
 
 case class TypeFQN(moduleName: ModuleName, typeName: String)
 
@@ -13,7 +13,12 @@ object TypeFQN {
 
   given Eq[TypeFQN] = (self: TypeFQN, other: TypeFQN) => self == other
 
-  val systemFunctionType: TypeFQN = TypeFQN(systemFunctionModuleName, "Function")
+  def systemLangType(typeName: String): TypeFQN =
+    TypeFQN(ModuleName(defaultSystemPackage, typeName), typeName)
 
-  val systemAnyType: TypeFQN = TypeFQN(systemFunctionModuleName, "Any")
+  val systemFunctionType: TypeFQN = systemLangType("Function")
+
+  val systemAnyType: TypeFQN = systemLangType("Any")
+
+  val systemUnitType: TypeFQN = systemLangType("Unit")
 }

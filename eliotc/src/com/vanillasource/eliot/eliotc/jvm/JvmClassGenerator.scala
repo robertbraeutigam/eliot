@@ -1,17 +1,19 @@
 package com.vanillasource.eliot.eliotc.jvm
 
+import cats.Show
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.NativeType.javaSignatureName
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType}
+import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType, systemUnitType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
-import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{fullyQualified, *}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
@@ -49,29 +51,35 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
                                  }
     } yield ()
 
-  private def createClassMethod(classWriter: ClassWriter, functionDefinition: TypeCheckedFunction): IO[Unit] =
+  private def calculateSignatureString(signatureTypes: Seq[TypeFQN]): String =
+    s"(${signatureTypes.init.map(javaSignatureName).mkString})${javaSignatureName(signatureTypes.last)}"
+
+  private def createClassMethod(classWriter: ClassWriter, functionDefinition: TypeCheckedFunction)(using
+      CompilationProcess
+  ): IO[Unit] =
     val signatureTypes = calculateMethodSignature(functionDefinition.definition.valueType)
 
     val methodVisitor = classWriter.visitMethod(
       Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
       functionDefinition.ffqn.functionName, // TODO: can every method name be converted to Java?
-      s"(${signatureTypes.init.map(javaSignatureName).mkString})${javaSignatureName(signatureTypes.last)}",
+      calculateSignatureString(signatureTypes),
       null,
       null
     )
 
     for {
-      _ <- IO(methodVisitor.visitCode())
-
+      _   <- IO(methodVisitor.visitCode())
       body = extractMethodBody(functionDefinition.definition.body.get.value, signatureTypes.length)
-
-      _ <- createExpressionCode(methodVisitor, body)
-
-      _ <- IO {
-             methodVisitor.visitInsn(Opcodes.RETURN)
-             methodVisitor.visitMaxs(0, 0)
-             methodVisitor.visitEnd()
-           }
+      _   <- createExpressionCode(methodVisitor, body)
+      _   <- IO {
+               if (signatureTypes.last === systemUnitType) {
+                 methodVisitor.visitInsn(Opcodes.RETURN)
+               } else {
+                 methodVisitor.visitInsn(Opcodes.ARETURN)
+               }
+               methodVisitor.visitMaxs(0, 0)
+               methodVisitor.visitEnd()
+             }
     } yield ()
 
   /** Extracts parameter arity from curried form.
@@ -103,7 +111,9 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       }
     }
 
-  private def createExpressionCode(methodVisitor: MethodVisitor, expression: Expression): IO[Unit] =
+  private def createExpressionCode(methodVisitor: MethodVisitor, expression: Expression)(using
+      CompilationProcess
+  ): IO[Unit] =
     expression match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         generateFunctionApplication(methodVisitor, target, Seq(argument)) // One-argument call
@@ -120,7 +130,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       methodVisitor: MethodVisitor,
       target: Expression,
       arguments: Seq[Expression]
-  ): IO[Unit] =
+  )(using process: CompilationProcess): IO[Unit] =
     target match {
       case FunctionApplication(target @ Sourced(_, _, ValueReference(Sourced(_, _, calledFfqn))), argument) =>
         // Means this application contains another one on a ValueReference
@@ -152,7 +162,26 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       case IntegerLiteral(integerLiteral)                                                                   => ???
       case StringLiteral(stringLiteral)                                                                     => ???
       case ParameterReference(parameterName)                                                                => ???
-      case ValueReference(valueName)                                                                        => ??? // This should not be possible
+      case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn))                                    =>
+        // Calling a function without any parameters
+        for {
+          functionDefinitionMaybe <- process.getFact(ResolvedFunction.Key(calledFfqn))
+          _                       <- functionDefinitionMaybe match
+                                       case Some(functionDefinition) =>
+                                         IO(
+                                           methodVisitor.visitMethodInsn(
+                                             Opcodes.INVOKESTATIC,
+                                             calledFfqn.moduleName.packages
+                                               .appended(calledFfqn.moduleName.name)
+                                               .mkString("/"),        // TODO: export this
+                                             calledFfqn.functionName, // TODO: not a safe name
+                                             calculateSignatureString(calculateMethodSignature(functionDefinition.definition.valueType)),
+                                             false
+                                           )
+                                         )
+                                       case None                     =>
+                                         registerCompilerError(sourcedCalledFfqn.as(s"Could not find type checked ${calledFfqn.show}"))
+        } yield ()
       case FunctionLiteral(parameter, body)                                                                 => ???
     }
 
