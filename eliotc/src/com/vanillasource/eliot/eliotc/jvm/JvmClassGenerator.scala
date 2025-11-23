@@ -44,12 +44,12 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
     for {
       functionDefinitionMaybe <- process.getFact(TypeCheckedFunction.Key(ffqn)).liftToCompilationIO
       _                       <- functionDefinitionMaybe match {
-                                   case Some(functionDefinition) => IO(createClassMethod(classWriter, functionDefinition)).liftToCompilationIO
+                                   case Some(functionDefinition) => createClassMethod(classWriter, functionDefinition).liftToCompilationIO
                                    case None                     => compilerError(exampleUsage.as(s"Could not find implementation."))
                                  }
     } yield ()
 
-  private def createClassMethod(classWriter: ClassWriter, functionDefinition: TypeCheckedFunction): Unit = {
+  private def createClassMethod(classWriter: ClassWriter, functionDefinition: TypeCheckedFunction): IO[Unit] =
     val signatureTypes = calculateMethodSignature(functionDefinition.definition.valueType)
 
     val methodVisitor = classWriter.visitMethod(
@@ -60,15 +60,19 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       null
     )
 
-    methodVisitor.visitCode()
+    for {
+      _ <- IO(methodVisitor.visitCode())
 
-    val body = extractMethodBody(functionDefinition.definition.body.get.value, signatureTypes.length)
-    createExpressionCode(methodVisitor, body)
+      body = extractMethodBody(functionDefinition.definition.body.get.value, signatureTypes.length)
 
-    methodVisitor.visitInsn(Opcodes.RETURN)
-    methodVisitor.visitMaxs(0, 0)
-    methodVisitor.visitEnd()
-  }
+      _ <- createExpressionCode(methodVisitor, body)
+
+      _ <- IO {
+             methodVisitor.visitInsn(Opcodes.RETURN)
+             methodVisitor.visitMaxs(0, 0)
+             methodVisitor.visitEnd()
+           }
+    } yield ()
 
   /** Extracts parameter arity from curried form.
     */
@@ -99,12 +103,13 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       }
     }
 
-  private def createExpressionCode(methodVisitor: MethodVisitor, expression: Expression): Unit =
+  private def createExpressionCode(methodVisitor: MethodVisitor, expression: Expression): IO[Unit] =
     expression match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         generateFunctionApplication(methodVisitor, target, Seq(argument)) // One-argument call
       case IntegerLiteral(integerLiteral)                                      => ???
-      case StringLiteral(stringLiteral)                                        => methodVisitor.visitLdcInsn(stringLiteral.value)
+      case StringLiteral(stringLiteral)                                        =>
+        IO(methodVisitor.visitLdcInsn(stringLiteral.value))
       case ParameterReference(parameterName)                                   => ???
       case ValueReference(Sourced(_, _, ffqn))                                 => ???
       case FunctionLiteral(parameter, body)                                    => ???
@@ -115,7 +120,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       methodVisitor: MethodVisitor,
       target: Expression,
       arguments: Seq[Expression]
-  ): Unit =
+  ): IO[Unit] =
     target match {
       case FunctionApplication(target @ Sourced(_, _, ValueReference(Sourced(_, _, calledFfqn))), argument) =>
         // Means this application contains another one on a ValueReference
@@ -124,17 +129,22 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
           implementations(calledFfqn)
             .withArguments(methodVisitor, createExpressionCode(methodVisitor, argument.value))
         } else {
-          // Place arguments left to right onto the stack
-          arguments.foreach(expression => createExpressionCode(methodVisitor, expression))
-          // Called a non-native function, so generate static call
-          methodVisitor.visitMethodInsn(
-            Opcodes.INVOKESTATIC,
-            calledFfqn.moduleName.packages.appended(calledFfqn.moduleName.name).mkString("/"), // TODO: export this
-            calledFfqn.functionName,                                                           // TODO: not a safe name
-            // TODO: I don't know the signature here, big problem
-            "",
-            false
-          )
+          for {
+            // Place arguments left to right onto the stack
+            _ <- arguments.traverse(expression => createExpressionCode(methodVisitor, expression))
+            // Called a non-native function, so generate static call
+            _ <- IO(
+                   methodVisitor.visitMethodInsn(
+                     Opcodes.INVOKESTATIC,
+                     calledFfqn.moduleName.packages
+                       .appended(calledFfqn.moduleName.name)
+                       .mkString("/"),        // TODO: export this
+                     calledFfqn.functionName, // TODO: not a safe name
+                     "",                      // FIXME: get signature of ffqn!
+                     false
+                   )
+                 )
+          } yield ()
         }
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument))                              =>
         // Means this is another argument, so just recurse

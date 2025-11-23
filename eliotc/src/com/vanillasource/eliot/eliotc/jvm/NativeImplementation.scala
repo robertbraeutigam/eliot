@@ -1,11 +1,12 @@
 package com.vanillasource.eliot.eliotc.jvm
 
+import cats.effect.IO
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import org.objectweb.asm.{MethodVisitor, Opcodes}
 
 trait NativeImplementation {
-  def withArguments(methodVisitor: MethodVisitor, argumentsGenerator: => Unit): Unit
+  def withArguments(methodVisitor: MethodVisitor, argumentsGenerator: IO[Unit]): IO[Unit]
 }
 
 object NativeImplementation {
@@ -19,23 +20,28 @@ object NativeImplementation {
     FunctionFQN(ModuleName(defaultSystemPackage, moduleName), functionName)
 
   private def eliot_lang_String_println: NativeImplementation = new NativeImplementation {
-    override def withArguments(methodVisitor: MethodVisitor, argumentsGenerator: => Unit): Unit = {
-      methodVisitor.visitFieldInsn(
-        Opcodes.GETSTATIC,
-        "java/lang/System",
-        "out",
-        "Ljava/io/PrintStream;"
-      )
+    override def withArguments(methodVisitor: MethodVisitor, argumentsGenerator: IO[Unit]): IO[Unit] =
+      for {
+        _ <- IO(
+               methodVisitor.visitFieldInsn(
+                 Opcodes.GETSTATIC,
+                 "java/lang/System",
+                 "out",
+                 "Ljava/io/PrintStream;"
+               )
+             )
 
-      argumentsGenerator
+        _ <- argumentsGenerator
 
-      methodVisitor.visitMethodInsn(
-        Opcodes.INVOKEVIRTUAL,
-        "java/io/PrintStream",
-        "println",
-        "(Ljava/lang/String;)V",
-        false
-      )
-    }
+        _ <- IO(
+               methodVisitor.visitMethodInsn(
+                 Opcodes.INVOKEVIRTUAL,
+                 "java/io/PrintStream",
+                 "println",
+                 "(Ljava/lang/String;)V",
+                 false
+               )
+             )
+      } yield ()
   }
 }
