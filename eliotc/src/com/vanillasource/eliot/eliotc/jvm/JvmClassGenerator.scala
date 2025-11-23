@@ -101,29 +101,50 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
 
   private def createExpressionCode(methodVisitor: MethodVisitor, expression: Expression): Unit =
     expression match {
-      case FunctionApplication(target @ Sourced(_, _, ValueReference(Sourced(_, _, calledFfqn))), argument)
-          if implementations.contains(calledFfqn) =>
-        // Called an native
-        implementations(calledFfqn)
-          .withArguments(methodVisitor, createExpressionCode(methodVisitor, argument.value))
-      case FunctionApplication(target, argument) => ???
-      case IntegerLiteral(integerLiteral)        => ???
-      case StringLiteral(stringLiteral)          => methodVisitor.visitLdcInsn(stringLiteral.value)
-      case ParameterReference(parameterName)     => ???
-      case ValueReference(Sourced(_, _, ffqn))   => ??? // generateFunctionCall(methodVisitor, ffqn)
-      case FunctionLiteral(parameter, body)      => ???
+      case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
+        generateFunctionApplication(methodVisitor, target, Seq(argument)) // One-argument call
+      case IntegerLiteral(integerLiteral)                                      => ???
+      case StringLiteral(stringLiteral)                                        => methodVisitor.visitLdcInsn(stringLiteral.value)
+      case ParameterReference(parameterName)                                   => ???
+      case ValueReference(Sourced(_, _, ffqn))                                 => ???
+      case FunctionLiteral(parameter, body)                                    => ???
     }
 
-  /*
-  private def generateFunctionCall(methodVisitor: MethodVisitor, ffqn: FunctionFQN): Unit = {
-    methodVisitor.visitMethodInsn(
-      Opcodes.INVOKESTATIC,
-      "owner/internal/Name",
-      "methodName",
-      "(ArgumentDescriptor...)ReturnDescriptor",
-      false
-    )
-  }*/
+  @tailrec
+  private def generateFunctionApplication(
+      methodVisitor: MethodVisitor,
+      target: Expression,
+      arguments: Seq[Expression]
+  ): Unit =
+    target match {
+      case FunctionApplication(target @ Sourced(_, _, ValueReference(Sourced(_, _, calledFfqn))), argument) =>
+        // Means this application contains another one on a ValueReference
+        if (implementations.contains(calledFfqn)) {
+          // Called a native function
+          implementations(calledFfqn)
+            .withArguments(methodVisitor, createExpressionCode(methodVisitor, argument.value))
+        } else {
+          // Place arguments left to right onto the stack
+          arguments.foreach(expression => createExpressionCode(methodVisitor, expression))
+          // Called a non-native function, so generate static call
+          methodVisitor.visitMethodInsn(
+            Opcodes.INVOKESTATIC,
+            calledFfqn.moduleName.packages.appended(calledFfqn.moduleName.name).mkString("/"), // TODO: export this
+            calledFfqn.functionName,                                                           // TODO: not a safe name
+            // TODO: I don't know the signature here, big problem
+            "",
+            false
+          )
+        }
+      case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument))                              =>
+        // Means this is another argument, so just recurse
+        generateFunctionApplication(methodVisitor, target, arguments.appended(argument))
+      case IntegerLiteral(integerLiteral)                                                                   => ???
+      case StringLiteral(stringLiteral)                                                                     => ???
+      case ParameterReference(parameterName)                                                                => ???
+      case ValueReference(valueName)                                                                        => ??? // This should not be possible
+      case FunctionLiteral(parameter, body)                                                                 => ???
+    }
 
   private def createClassWriter(name: ModuleName): ClassWriter = {
     val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
