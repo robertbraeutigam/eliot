@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.jvm
 
-import cats.Show
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -8,9 +7,9 @@ import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.NativeType.javaSignatureName
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType, systemUnitType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
-import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{fullyQualified, *}
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
@@ -121,7 +120,9 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       case StringLiteral(stringLiteral)                                        =>
         IO(methodVisitor.visitLdcInsn(stringLiteral.value))
       case ParameterReference(parameterName)                                   => ???
-      case ValueReference(Sourced(_, _, ffqn))                                 => ???
+      case ValueReference(Sourced(_, _, ffqn))                                 =>
+        // No-argument call
+        generateFunctionApplication(methodVisitor, expression, Seq.empty)
       case FunctionLiteral(parameter, body)                                    => ???
     }
 
@@ -132,57 +133,47 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       arguments: Seq[Expression]
   )(using process: CompilationProcess): IO[Unit] =
     target match {
-      case FunctionApplication(target @ Sourced(_, _, ValueReference(Sourced(_, _, calledFfqn))), argument) =>
-        // Means this application contains another one on a ValueReference
-        if (implementations.contains(calledFfqn)) {
-          // Called a native function
-          implementations(calledFfqn)
-            .withArguments(methodVisitor, createExpressionCode(methodVisitor, argument.value))
-        } else {
-          for {
-            // Place arguments left to right onto the stack
-            _ <- arguments.traverse(expression => createExpressionCode(methodVisitor, expression))
-            // Called a non-native function, so generate static call
-            _ <- IO(
-                   methodVisitor.visitMethodInsn(
-                     Opcodes.INVOKESTATIC,
-                     calledFfqn.moduleName.packages
-                       .appended(calledFfqn.moduleName.name)
-                       .mkString("/"),        // TODO: export this
-                     calledFfqn.functionName, // TODO: not a safe name
-                     "",                      // FIXME: get signature of ffqn!
-                     false
-                   )
-                 )
-          } yield ()
-        }
-      case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument))                              =>
+      case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         // Means this is another argument, so just recurse
         generateFunctionApplication(methodVisitor, target, arguments.appended(argument))
-      case IntegerLiteral(integerLiteral)                                                                   => ???
-      case StringLiteral(stringLiteral)                                                                     => ???
-      case ParameterReference(parameterName)                                                                => ???
-      case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn))                                    =>
-        // Calling a function without any parameters
+      case IntegerLiteral(integerLiteral)                                      => ???
+      case StringLiteral(stringLiteral)                                        => ???
+      case ParameterReference(parameterName)                                   => ???
+      case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn))       =>
+        // Calling a function with exactly one argument
         for {
           functionDefinitionMaybe <- process.getFact(ResolvedFunction.Key(calledFfqn))
           _                       <- functionDefinitionMaybe match
                                        case Some(functionDefinition) =>
-                                         IO(
-                                           methodVisitor.visitMethodInsn(
-                                             Opcodes.INVOKESTATIC,
-                                             calledFfqn.moduleName.packages
-                                               .appended(calledFfqn.moduleName.name)
-                                               .mkString("/"),        // TODO: export this
-                                             calledFfqn.functionName, // TODO: not a safe name
-                                             calculateSignatureString(calculateMethodSignature(functionDefinition.definition.valueType)),
-                                             false
-                                           )
-                                         )
+                                         if (implementations.contains(calledFfqn)) {
+                                           // Called a native function
+                                           implementations(calledFfqn)
+                                             .withArguments(
+                                               methodVisitor,
+                                               arguments.traverse_(expression => createExpressionCode(methodVisitor, expression))
+                                             )
+                                         } else {
+                                           for {
+                                             _ <- arguments.traverse_(expression => createExpressionCode(methodVisitor, expression))
+                                             _ <- IO(
+                                                    methodVisitor.visitMethodInsn(
+                                                      Opcodes.INVOKESTATIC,
+                                                      calledFfqn.moduleName.packages
+                                                        .appended(calledFfqn.moduleName.name)
+                                                        .mkString("/"),        // TODO: export this
+                                                      calledFfqn.functionName, // TODO: not a safe name
+                                                      calculateSignatureString(
+                                                        calculateMethodSignature(functionDefinition.definition.valueType)
+                                                      ),
+                                                      false
+                                                    )
+                                                  )
+                                           } yield ()
+                                         }
                                        case None                     =>
                                          registerCompilerError(sourcedCalledFfqn.as(s"Could not find type checked ${calledFfqn.show}"))
         } yield ()
-      case FunctionLiteral(parameter, body)                                                                 => ???
+      case FunctionLiteral(parameter, body)                                    => ???
     }
 
   private def createClassWriter(name: ModuleName): ClassWriter = {
