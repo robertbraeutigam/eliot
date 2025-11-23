@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
-import com.vanillasource.eliot.eliotc.jvm.NativeType.{javaSignatureName, types}
+import com.vanillasource.eliot.eliotc.jvm.NativeType.javaSignatureName
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, TypeReference}
@@ -54,7 +54,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
 
     val methodVisitor = classWriter.visitMethod(
       Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
-      functionDefinition.ffqn.functionName, // FIXME: can every method name be converted to Java?
+      functionDefinition.ffqn.functionName, // TODO: can every method name be converted to Java?
       s"(${signatureTypes.init.map(javaSignatureName).mkString})${javaSignatureName(signatureTypes.last)}",
       null,
       null
@@ -79,7 +79,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
   private def calculateMethodSignature(typeReference: TypeReference): Seq[TypeFQN] =
     typeReference match {
       case DirectTypeReference(Sourced(_, _, dataType), genericParameters) if dataType === systemFunctionType =>
-        calculateMethodSignature(genericParameters(0)) ++ calculateMethodSignature(genericParameters(1))
+        calculateMethodSignature(genericParameters.head) ++ calculateMethodSignature(genericParameters.last)
       case DirectTypeReference(Sourced(_, _, dataType), genericParameters)                                    =>
         Seq(dataType)
       case GenericTypeReference(name, genericParameters)                                                      =>
