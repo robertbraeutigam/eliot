@@ -126,6 +126,10 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("data A").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "accept an empty data definition with empty parenthesis" in {
+    runEngineForErrors("data A()").asserting(_ shouldBe Seq("Expected argument name, but encountered symbol ')'."))
+  }
+
   it should "accept an empty data definition with generics" in {
     runEngineForErrors("data A[B, C]").asserting(_ shouldBe Seq.empty)
   }

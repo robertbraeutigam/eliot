@@ -11,7 +11,8 @@ import com.vanillasource.parser.Parser.acceptIfAll
 
 case class DataDefinition(
     name: Sourced[String],
-    genericParameters: Seq[GenericParameter]
+    genericParameters: Seq[GenericParameter],
+    arguments: Seq[ArgumentDefinition]
 )
 
 object DataDefinition {
@@ -22,6 +23,7 @@ object DataDefinition {
       _                 <- topLevelKeyword("data")
       name              <- acceptIfAll(isIdentifier, isUpperCase)("type name")
       genericParameters <- component[Seq[GenericParameter]]
-    } yield DataDefinition(name.map(_.content), genericParameters)
+      arguments         <- optionalArgumentListOf(component[ArgumentDefinition])
+    } yield DataDefinition(name.map(_.content), genericParameters, arguments)
   }
 }

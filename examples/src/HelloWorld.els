@@ -1,3 +1,5 @@
-main: Unit = println(greeting)
+main: Unit = println(message(greeting))
 
-greeting: String = "Hello World!"
+data Greeting(message: String)
+
+greeting: Greeting = Greeting("Hello World!")
