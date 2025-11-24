@@ -6,17 +6,11 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.*
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName.{defaultSystemModules, systemFunctionModuleName}
-import com.vanillasource.eliot.eliotc.module.fact.{
-  FunctionFQN,
-  ModuleData,
-  ModuleFunction,
-  ModuleName,
-  ModuleNames,
-  TypeFQN
-}
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemModules
+import com.vanillasource.eliot.eliotc.module.fact.*
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import com.vanillasource.util.CatsOps.*
 
@@ -26,8 +20,8 @@ import scala.jdk.CollectionConverters.IteratorHasAsScala
 
 class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case SourceAST(file, rootPath, ast) => process(file, rootPath, ast).getOrUnit
-    case _                              => IO.unit
+    case DesugaredSourceAST(file, rootPath, ast) => process(file, rootPath, ast).getOrUnit
+    case _                                       => IO.unit
   }
 
   private def process(file: File, rootPath: File, ast: AST)(using CompilationProcess): OptionT[IO, Unit] =
@@ -149,9 +143,6 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
   )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] = current.name.value match
     case fn if previousFunctions.contains(fn)                                  =>
       registerCompilerError(current.name.as("Function was already defined in this module.")).as(previousFunctions)
-    case fn if !fn.charAt(0).isLower                                           =>
-      registerCompilerError(current.name.as("Function name must start with lower case character."))
-        .as(previousFunctions)
     case _ if current.args.map(_.name.value).toSet.size != current.args.length =>
       val duplicateName = current.args.groupBy(_.name.value).collectFirst {
         case (_, list) if list.length > 1 => list.head

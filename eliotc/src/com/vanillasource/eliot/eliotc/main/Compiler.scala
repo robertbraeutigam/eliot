@@ -13,6 +13,7 @@ import com.vanillasource.eliot.eliotc.source.{
   SourcedErrorPrinter,
   WalkSourcePaths
 }
+import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckProcessor
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsProcessor
@@ -26,6 +27,7 @@ case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
     SourcedErrorPrinter(),
     Tokenizer(),
     ASTParser(),
+    DesugarProcessor(),
     ModuleProcessor(),
     FunctionResolver(),
     TypeCheckProcessor(),
