@@ -21,7 +21,7 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
   ): IO[Unit] =
     for {
       usedFunctions <- processDefinition(definition).map(_ + ((ffqn, definition.name)))
-      _             <- debug(s"Used functions: ${usedFunctions.map(_.show).mkString(", ")}")
+      _             <- debug(s"Used functions: ${usedFunctions.keys.map(_.show).mkString(", ")}")
       _             <- process.registerFact(UsedSymbols(usedFunctions))
     } yield ()
 

@@ -182,7 +182,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
     classWriter.visit(
       Opcodes.V17,
       Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
-      name.name, // FIXME: all class names are legal here?
+      name.name, // TODO: all class names are legal here?
       null,
       "java/lang/Object",
       null
