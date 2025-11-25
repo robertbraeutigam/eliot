@@ -52,14 +52,7 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
       case Expression.ValueReference(sourcedFfqn @ Sourced(_, _, ffqn))                   =>
         for {
           loadedFunctionMaybe <- process.getFact(TypeCheckedFunction.Key(ffqn)).liftToUsedSymbols
-          _                   <- loadedFunctionMaybe match {
-                                   case Some(loadedFunction) =>
-                                     addFunctionUsed(sourcedFfqn) >> processDefinition(loadedFunction.definition)
-                                   case None                 =>
-                                     // Function not type checked. We assume that the platform has it,
-                                     // or the platform will issue "linking" error
-                                     IO.unit.liftToUsedSymbols
-                                 }
+          _                   <- addFunctionUsed(sourcedFfqn) >> loadedFunctionMaybe.traverse_(t => processDefinition(t.definition))
         } yield ()
       case Expression.FunctionLiteral(_, Sourced(_, _, body))                             =>
         processExpression(body)
