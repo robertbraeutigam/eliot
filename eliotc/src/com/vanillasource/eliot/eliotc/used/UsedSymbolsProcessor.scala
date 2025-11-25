@@ -38,7 +38,6 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
           .liftToUsedSymbols
     }
 
-  // FIXME: does not work when processing recursive functions, becomes endless loop
   private def processExpression(expression: Expression)(using process: CompilationProcess): UsedSymbolsIO[Unit] =
     expression match {
       case Expression.FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
@@ -50,10 +49,14 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
       case Expression.ParameterReference(parameterName)                                   =>
         IO.unit.liftToUsedSymbols
       case Expression.ValueReference(sourcedFfqn @ Sourced(_, _, ffqn))                   =>
-        for {
-          loadedFunctionMaybe <- process.getFact(TypeCheckedFunction.Key(ffqn)).liftToUsedSymbols
-          _                   <- addFunctionUsed(sourcedFfqn) >> loadedFunctionMaybe.traverse_(t => processDefinition(t.definition))
-        } yield ()
+        isFunctionUsed(ffqn).ifM(
+          IO.unit.liftToUsedSymbols,
+          // Only recurse if not already used
+          for {
+            loadedFunctionMaybe <- process.getFact(TypeCheckedFunction.Key(ffqn)).liftToUsedSymbols
+            _                   <- addFunctionUsed(sourcedFfqn) >> loadedFunctionMaybe.traverse_(t => processDefinition(t.definition))
+          } yield ()
+        )
       case Expression.FunctionLiteral(_, Sourced(_, _, body))                             =>
         processExpression(body)
     }
