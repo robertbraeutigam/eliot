@@ -4,7 +4,8 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition}
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, TypeReference}
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsState.*
@@ -32,7 +33,14 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
       CompilationProcess
   ): UsedSymbolsIO[Unit] =
     definition.body match {
-      case Some(Sourced(_, _, expression)) => processExpression(expression)
+      case Some(Sourced(_, _, expression)) =>
+        for {
+          _ <- processTypeReference(definition.valueType)
+          _ <- definition.genericParameters
+                 .flatMap(_.genericParameters)
+                 .traverse_(processTypeReference)
+          _ <- processExpression(expression)
+        } yield ()
       case None                            =>
         IO.raiseError(new IllegalStateException("Should not happen, body of type-checked function is empty."))
           .liftToUsedSymbols
@@ -60,4 +68,16 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
       case Expression.FunctionLiteral(_, Sourced(_, _, body))                             =>
         processExpression(body)
     }
+
+  private def processTypeReference(reference: TypeReference)(using process: CompilationProcess): UsedSymbolsIO[Unit] = {
+    reference match {
+      case DirectTypeReference(dataType, genericParameters) =>
+        isTypeUsed(dataType.value).ifM(
+          IO.unit.liftToUsedSymbols,
+          addTypeUsed(dataType) >> genericParameters.traverse_(processTypeReference)
+        )
+      case GenericTypeReference(name, genericParameters)    =>
+        genericParameters.traverse_(processTypeReference)
+    }
+  }
 }
