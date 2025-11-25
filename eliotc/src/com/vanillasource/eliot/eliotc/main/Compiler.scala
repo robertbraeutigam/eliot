@@ -5,9 +5,13 @@ import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.{JvmClassGenerator, JvmProgramGenerator}
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
-import com.vanillasource.eliot.eliotc.output.OutputWriter
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
-import com.vanillasource.eliot.eliotc.source.{InitSourcePaths, SourceContentReader, SourcedErrorPrinter, WalkSourcePaths}
+import com.vanillasource.eliot.eliotc.source.{
+  InitSourcePaths,
+  SourceContentReader,
+  SourcedErrorPrinter,
+  WalkSourcePaths
+}
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckProcessor
@@ -28,7 +32,6 @@ case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
     TypeResolver(),
     TypeCheckProcessor(),
     UsedSymbolsProcessor(cmdLineArguments.mainFunction),
-    OutputWriter(),
     JvmProgramGenerator(cmdLineArguments.mainFunction, cmdLineArguments.targetPath),
     JvmClassGenerator()
   )
