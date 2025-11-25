@@ -31,19 +31,13 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
   private def processDefinition(definition: FunctionDefinition)(using
       CompilationProcess
   ): UsedSymbolsIO[Unit] =
-    definition.body match {
-      case Some(Sourced(_, _, expression)) =>
-        for {
-          _ <- processTypeReference(definition.valueType)
-          _ <- definition.genericParameters
-                 .flatMap(_.genericParameters)
-                 .traverse_(processTypeReference)
-          _ <- processExpression(expression)
-        } yield ()
-      case None                            =>
-        // No problem, this function may have a type error, or it may be native
-        IO.unit.liftToUsedSymbols
-    }
+    for {
+      _ <- processTypeReference(definition.valueType)
+      _ <- definition.genericParameters
+             .flatMap(_.genericParameters)
+             .traverse_(processTypeReference)
+      _ <- definition.body.traverse_(sourcedBody => processExpression(sourcedBody.value))
+    } yield ()
 
   private def processExpression(expression: Expression)(using process: CompilationProcess): UsedSymbolsIO[Unit] =
     expression match {
