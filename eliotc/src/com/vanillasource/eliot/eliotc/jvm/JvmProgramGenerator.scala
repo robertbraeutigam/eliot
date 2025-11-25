@@ -2,12 +2,11 @@ package com.vanillasource.eliot.eliotc.jvm
 
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
-import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
+import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
 import java.nio.charset.StandardCharsets
@@ -18,19 +17,28 @@ import java.util.jar.{JarEntry, JarOutputStream}
 class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
     fact match
-      case UsedSymbols(usedFunctions, usedTypes) => generateAllClasses(usedFunctions)
+      case UsedSymbols(usedFunctions, usedTypes) => generateAllClasses(usedFunctions, usedTypes)
       case _                                     => IO.unit
 
   private def generateAllClasses(
-      usedFunctions: Seq[Sourced[FunctionFQN]]
+      usedFunctions: Seq[Sourced[FunctionFQN]],
+      usedTypes: Seq[Sourced[TypeFQN]]
   )(using process: CompilationProcess): IO[Unit] = {
     val groupedFunctions = usedFunctions.groupBy(_.value.moduleName)
+    val groupedTypes     = usedTypes.groupBy(_.value.moduleName)
+    val facts            = (groupedFunctions.keys ++ groupedTypes.keys)
+      .map(moduleName =>
+        GenerateClass(
+          moduleName,
+          groupedFunctions.getOrElse(moduleName, Seq.empty),
+          groupedTypes.getOrElse(moduleName, Seq.empty)
+        )
+      )
+      .toSeq
 
     for {
-      _            <- groupedFunctions.toSeq
-                        .traverse_((moduleName, usedFunctions) => process.registerFact(GenerateClass(moduleName, usedFunctions)))
-      classesMaybe <-
-        groupedFunctions.keys.toSeq.traverse(moduleName => process.getFact(GeneratedClass.Key(moduleName)))
+      _            <- facts.traverse_(process.registerFact)
+      classesMaybe <- facts.map(_.moduleName).traverse(moduleName => process.getFact(GeneratedClass.Key(moduleName)))
       _            <- classesMaybe.sequence.traverse_(generateJarFile) // Skips jar if not all modules got bytecode
     } yield ()
   }

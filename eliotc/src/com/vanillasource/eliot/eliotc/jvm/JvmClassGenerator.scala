@@ -22,8 +22,8 @@ import scala.annotation.tailrec
 class JvmClassGenerator extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
     fact match
-      case GenerateClass(moduleName, usedFunctions) => generateClass(moduleName, usedFunctions)
-      case _                                        => IO.unit
+      case GenerateClass(moduleName, usedFunctions, usedTypes) => generateClass(moduleName, usedFunctions)
+      case _                                                   => IO.unit
 
   private def generateClass(moduleName: ModuleName, usedFunctions: Seq[Sourced[FunctionFQN]])(using
       process: CompilationProcess
