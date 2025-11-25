@@ -4,7 +4,7 @@ import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.source.Sourced
 
-case class GenerateClass(moduleName: ModuleName, usedFunctions: Seq[(FunctionFQN, Sourced[_])]) extends CompilerFact {
+case class GenerateClass(moduleName: ModuleName, usedFunctions: Seq[Sourced[FunctionFQN]]) extends CompilerFact {
   override def key(): CompilerFactKey = GenerateClass.Key(moduleName)
 }
 

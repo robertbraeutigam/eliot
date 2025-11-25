@@ -18,13 +18,13 @@ import java.util.jar.{JarEntry, JarOutputStream}
 class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
     fact match
-      case UsedSymbols(usedFunctions) => generateAllClasses(usedFunctions)
-      case _                          => IO.unit
+      case UsedSymbols(usedFunctions, usedTypes) => generateAllClasses(usedFunctions)
+      case _                                     => IO.unit
 
   private def generateAllClasses(
-      usedFunctions: Map[FunctionFQN, Sourced[_]]
+      usedFunctions: Seq[Sourced[FunctionFQN]]
   )(using process: CompilationProcess): IO[Unit] = {
-    val groupedFunctions = usedFunctions.toSeq.groupBy(_._1.moduleName)
+    val groupedFunctions = usedFunctions.groupBy(_.value.moduleName)
 
     for {
       _            <- groupedFunctions.toSeq

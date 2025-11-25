@@ -25,13 +25,13 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       case GenerateClass(moduleName, usedFunctions) => generateClass(moduleName, usedFunctions)
       case _                                        => IO.unit
 
-  private def generateClass(moduleName: ModuleName, usedFunctions: Seq[(FunctionFQN, Sourced[_])])(using
+  private def generateClass(moduleName: ModuleName, usedFunctions: Seq[Sourced[FunctionFQN]])(using
       process: CompilationProcess
   ): IO[Unit] = {
     val classWriter = createClassWriter(moduleName)
 
     (for {
-      _ <- usedFunctions.traverse_(tuple => createClassMethod(classWriter, tuple._1, tuple._2))
+      _ <- usedFunctions.traverse_(sourcedFfqn => createClassMethod(classWriter, sourcedFfqn))
       _ <- IO(classWriter.visitEnd()).liftToCompilationIO
       _ <- process
              .registerFact(GeneratedClass(moduleName, classWriter.toByteArray))
@@ -39,17 +39,17 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
     } yield ()).runCompilation_()
   }
 
-  private def createClassMethod(classWriter: ClassWriter, ffqn: FunctionFQN, exampleUsage: Sourced[_])(using
+  private def createClassMethod(classWriter: ClassWriter, sourcedFfqn: Sourced[FunctionFQN])(using
       process: CompilationProcess
   ): CompilationIO[Unit] =
     for {
-      functionDefinitionMaybe <- process.getFact(TypeCheckedFunction.Key(ffqn)).liftToCompilationIO
+      functionDefinitionMaybe <- process.getFact(TypeCheckedFunction.Key(sourcedFfqn.value)).liftToCompilationIO
       _                       <- functionDefinitionMaybe match {
                                    case Some(functionDefinition) => createClassMethod(classWriter, functionDefinition).liftToCompilationIO
                                    case None                     =>
-                                     implementations.get(ffqn) match {
+                                     implementations.get(sourcedFfqn.value) match {
                                        case Some(nativeImplementation) => nativeImplementation.generateMethod(classWriter).liftToCompilationIO
-                                       case None                       => compilerError(exampleUsage.as(s"Could not find implementation."))
+                                       case None                       => compilerError(sourcedFfqn.as(s"Could not find implementation."))
                                      }
                                  }
     } yield ()
