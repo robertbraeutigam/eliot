@@ -5,18 +5,17 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.Sourced
-import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsState.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 
 class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
     fact match
-      case TypeCheckedFunction(ffqn, definition) if ffqn === mainFunction =>
+      case ResolvedFunction(ffqn, definition) if ffqn === mainFunction =>
         processMain(ffqn, definition)
-      case _                                                              => IO.unit
+      case _                                                           => IO.unit
 
   private def processMain(ffqn: FunctionFQN, definition: FunctionDefinition)(using
       process: CompilationProcess
@@ -42,8 +41,8 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
           _ <- processExpression(expression)
         } yield ()
       case None                            =>
-        IO.raiseError(new IllegalStateException("Should not happen, body of type-checked function is empty."))
-          .liftToUsedSymbols
+        // No problem, this function may have a type error, or it may be native
+        IO.unit.liftToUsedSymbols
     }
 
   private def processExpression(expression: Expression)(using process: CompilationProcess): UsedSymbolsIO[Unit] =
@@ -61,7 +60,7 @@ class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor 
           IO.unit.liftToUsedSymbols,
           // Only recurse if not already used
           for {
-            loadedFunctionMaybe <- process.getFact(TypeCheckedFunction.Key(ffqn)).liftToUsedSymbols
+            loadedFunctionMaybe <- process.getFact(ResolvedFunction.Key(ffqn)).liftToUsedSymbols
             _                   <- addFunctionUsed(sourcedFfqn) >> loadedFunctionMaybe.traverse_(t => processDefinition(t.definition))
           } yield ()
         )
