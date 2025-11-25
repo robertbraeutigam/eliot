@@ -24,8 +24,7 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends Co
   private def generateAllClasses(
       usedFunctions: Map[FunctionFQN, Sourced[_]]
   )(using process: CompilationProcess): IO[Unit] = {
-    // Remove native functions from used functions
-    val groupedFunctions = usedFunctions.filter(uf => !implementations.contains(uf._1)).toSeq.groupBy(_._1.moduleName)
+    val groupedFunctions = usedFunctions.toSeq.groupBy(_._1.moduleName)
 
     for {
       _            <- groupedFunctions.toSeq

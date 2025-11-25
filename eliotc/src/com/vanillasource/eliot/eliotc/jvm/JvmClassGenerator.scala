@@ -46,7 +46,11 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       functionDefinitionMaybe <- process.getFact(TypeCheckedFunction.Key(ffqn)).liftToCompilationIO
       _                       <- functionDefinitionMaybe match {
                                    case Some(functionDefinition) => createClassMethod(classWriter, functionDefinition).liftToCompilationIO
-                                   case None                     => compilerError(exampleUsage.as(s"Could not find implementation."))
+                                   case None                     =>
+                                     implementations.get(ffqn) match {
+                                       case Some(nativeImplementation) => nativeImplementation.generateMethod(classWriter).liftToCompilationIO
+                                       case None                       => compilerError(exampleUsage.as(s"Could not find implementation."))
+                                     }
                                  }
     } yield ()
 
@@ -145,31 +149,22 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
           functionDefinitionMaybe <- process.getFact(ResolvedFunction.Key(calledFfqn))
           _                       <- functionDefinitionMaybe match
                                        case Some(functionDefinition) =>
-                                         if (implementations.contains(calledFfqn)) {
-                                           // Called a native function
-                                           implementations(calledFfqn)
-                                             .withArguments(
-                                               methodVisitor,
-                                               arguments.traverse_(expression => createExpressionCode(methodVisitor, expression))
-                                             )
-                                         } else {
-                                           for {
-                                             _ <- arguments.traverse_(expression => createExpressionCode(methodVisitor, expression))
-                                             _ <- IO(
-                                                    methodVisitor.visitMethodInsn(
-                                                      Opcodes.INVOKESTATIC,
-                                                      calledFfqn.moduleName.packages
-                                                        .appended(calledFfqn.moduleName.name)
-                                                        .mkString("/"),        // TODO: export this
-                                                      calledFfqn.functionName, // TODO: not a safe name
-                                                      calculateSignatureString(
-                                                        calculateMethodSignature(functionDefinition.definition.valueType)
-                                                      ),
-                                                      false
-                                                    )
+                                         for {
+                                           _ <- arguments.traverse_(expression => createExpressionCode(methodVisitor, expression))
+                                           _ <- IO(
+                                                  methodVisitor.visitMethodInsn(
+                                                    Opcodes.INVOKESTATIC,
+                                                    calledFfqn.moduleName.packages
+                                                      .appended(calledFfqn.moduleName.name)
+                                                      .mkString("/"),        // TODO: export this
+                                                    calledFfqn.functionName, // TODO: not a safe name
+                                                    calculateSignatureString(
+                                                      calculateMethodSignature(functionDefinition.definition.valueType)
+                                                    ),
+                                                    false
                                                   )
-                                           } yield ()
-                                         }
+                                                )
+                                         } yield ()
                                        case None                     =>
                                          registerCompilerError(sourcedCalledFfqn.as(s"Could not find type checked ${calledFfqn.show}"))
         } yield ()
