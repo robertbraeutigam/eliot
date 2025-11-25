@@ -53,13 +53,13 @@ class FunctionResolver extends CompilerProcessor with Logging {
 
     val resolveProgram = for {
       resolvedBodyMaybe         <- body.traverse(resolveExpression)
-      returnType                <- resolveType(typeReference)
-      argumentTypes             <- args.map(_.typeReference).traverse(resolveType)
+      returnType                <- TypeResolver.resolveType(typeReference)
+      argumentTypes             <- args.map(_.typeReference).traverse(TypeResolver.resolveType)
       argumentDefinitions        = args.zip(argumentTypes).map((argDef, argType) => ArgumentDefinition(argDef.name, argType))
       resolvedGenericParameters <-
         genericParameters.traverse(genericParameter =>
           genericParameter.genericParameters
-            .traverse(resolveType)
+            .traverse(TypeResolver.resolveType)
             .map(resolvedGenericTypes => UniversalGenericParameter(genericParameter.name, resolvedGenericTypes))
         )
       _                         <-
@@ -91,37 +91,6 @@ class FunctionResolver extends CompilerProcessor with Logging {
     resolveProgram.runS(scope).void
   }
 
-  private def resolveType(reference: ast.TypeReference)(using process: CompilationProcess): ScopedIO[TypeReference] =
-    for {
-      resolvedGenericParameters <- reference.genericParameters.traverse(resolveType)
-      resolvedType              <- getGenericParameter(reference.typeName.value).flatMap {
-                                     case Some(genericParameter) =>
-                                       if (genericParameter.genericParameters.length =!= resolvedGenericParameters.length) {
-                                         compilerAbort(
-                                           reference.typeName.as("Incorrect number of generic parameters for type.")
-                                         ).liftToScoped
-                                       } else {
-                                         GenericTypeReference(genericParameter.name, resolvedGenericParameters)
-                                           .pure[ScopedIO]
-                                       }
-                                     case None                   =>
-                                       getType(reference.typeName.value).flatMap {
-                                         case Some(typeFqn) =>
-                                           for {
-                                             dataDefinition <-
-                                               process.getFact(ModuleData.Key(typeFqn)).liftOptionToCompilationIO.liftToScoped
-                                             _              <-
-                                               compilerAbort(
-                                                 reference.typeName.as("Incorrect number of generic parameters for type.")
-                                               ).liftToScoped.whenA(
-                                                 dataDefinition.dataDefinition.genericParameters.length =!= resolvedGenericParameters.length
-                                               )
-                                           } yield DirectTypeReference(reference.typeName.as(typeFqn), resolvedGenericParameters)
-                                         case None          => compilerAbort(reference.typeName.as("Type not defined.")).liftToScoped
-                                       }
-                                   }
-    } yield resolvedType
-
   private def resolveExpression(
       expr: Sourced[ast.Expression]
   )(using process: CompilationProcess): ScopedIO[Sourced[Expression]] =
@@ -146,7 +115,9 @@ class FunctionResolver extends CompilerProcessor with Logging {
           resolvedParameters <-
             parameters
               .traverse(arg =>
-                resolveType(arg.typeReference).map(resolvedType => ArgumentDefinition(arg.name, resolvedType))
+                TypeResolver
+                  .resolveType(arg.typeReference)
+                  .map(resolvedType => ArgumentDefinition(arg.name, resolvedType))
               )
           _                  <- parameters.traverse(addVisibleValue)
           resolvedBody       <- resolveExpression(body)
