@@ -24,7 +24,7 @@ object NativeImplementation {
   private def eliot_lang_String_println: NativeImplementation = new NativeImplementation {
     override def generateMethod(classGenerator: ClassGenerator): IO[Unit] = {
       classGenerator
-        .createMethod("println", Seq(systemLangType("String"), systemLangType("Unit")))
+        .createMethod[IO]("println", Seq(systemLangType("String"), systemLangType("Unit")))
         .use { methodGenerator =>
           methodGenerator.runNative { methodVisitor =>
             methodVisitor.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;")

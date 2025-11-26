@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm
 
-import cats.effect.IO
+import cats.effect.{Async, IO, Sync}
 import cats.effect.kernel.Resource
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.jvm.GeneratedModule.ClassFile
@@ -36,39 +36,57 @@ object CatsAsm {
       IO(classWriter.visitEnd()) >> IO.pure(ClassFile(pathName + entryName, classWriter.toByteArray))
     }
 
-    def createMethod(name: String, signatureTypes: Seq[TypeFQN]): Resource[IO, MethodGenerator] = Resource.make(IO {
-      val methodVisitor = classWriter.visitMethod(
-        Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
-        name, // TODO: can every method name be converted to Java?
-        calculateSignatureString(signatureTypes),
-        null,
-        null
-      )
+    def createInnerClassGenerator(innerName: String): IO[ClassGenerator] =
+      for {
+        classGenerator <- createClassGenerator(ModuleName(name.packages, name.name + "$" + innerName))
+        _              <- IO(
+                            classGenerator.classWriter.visitInnerClass(
+                              name.name + "$" + innerName,
+                              name.name,
+                              innerName,
+                              Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL
+                            )
+                          )
+        _              <- IO(
+                            classWriter.visitInnerClass(
+                              name.name + "$" + innerName,
+                              name.name,
+                              innerName,
+                              Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL
+                            )
+                          )
+      } yield classGenerator
 
-      methodVisitor.visitCode()
+    def createMethod[F[_]: Sync](name: String, signatureTypes: Seq[TypeFQN]): Resource[F, MethodGenerator] =
+      Resource.make(Sync[F].delay {
+        val methodVisitor = classWriter.visitMethod(
+          Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
+          name, // TODO: can every method name be converted to Java?
+          calculateSignatureString(signatureTypes),
+          null,
+          null
+        )
 
-      MethodGenerator(methodVisitor)
-    })(methodGenerator =>
-      IO {
-        // TODO: add more types (primitives)
-        if (signatureTypes.last === systemUnitType) {
-          methodGenerator.methodVisitor.visitInsn(Opcodes.RETURN)
-        } else {
-          methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
+        methodVisitor.visitCode()
+
+        MethodGenerator(methodVisitor)
+      })(methodGenerator =>
+        Sync[F].delay {
+          // TODO: add more types (primitives)
+          if (signatureTypes.last === systemUnitType) {
+            methodGenerator.methodVisitor.visitInsn(Opcodes.RETURN)
+          } else {
+            methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
+          }
+
+          methodGenerator.methodVisitor.visitMaxs(0, 0)
+          methodGenerator.methodVisitor.visitEnd()
         }
-
-        methodGenerator.methodVisitor.visitMaxs(0, 0)
-        methodGenerator.methodVisitor.visitEnd()
-      }
-    )
+      )
   }
 
   class MethodGenerator(val methodVisitor: MethodVisitor) {
-    def addLdcInsn(value: Object): IO[Unit] = IO {
-      methodVisitor.visitLdcInsn(value)
-    }
-
-    def addCallTo(calledFfqn: FunctionFQN, callSignature: Seq[TypeFQN]): IO[Unit] = IO {
+    def addCallTo[F[_]: Sync](calledFfqn: FunctionFQN, callSignature: Seq[TypeFQN]): F[Unit] = Sync[F].delay {
       methodVisitor.visitMethodInsn(
         Opcodes.INVOKESTATIC,
         calledFfqn.moduleName.packages
@@ -80,7 +98,11 @@ object CatsAsm {
       )
     }
 
-    def runNative(block: MethodVisitor => Unit): IO[Unit] = IO {
+    def addLdcInsn[F[_]: Sync](value: Object): F[Unit] = Sync[F].delay {
+      methodVisitor.visitLdcInsn(value)
+    }
+
+    def runNative[F[_]: Sync](block: MethodVisitor => Unit): F[Unit] = Sync[F].delay {
       block(methodVisitor)
     }
   }

@@ -6,18 +6,16 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.CatsAsm.*
 import com.vanillasource.eliot.eliotc.jvm.GeneratedModule.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
-import com.vanillasource.eliot.eliotc.jvm.NativeType.javaSignatureName
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType, systemUnitType}
+import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedFunction, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedData, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
-import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
 
 import scala.annotation.tailrec
 
@@ -36,7 +34,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
   ): IO[Unit] = {
     (for {
       mainClassGenerator <- createClassGenerator(moduleName).liftToCompilationIO
-      typeFiles          <- usedTypes.flatTraverse(sourcedTfqn => createType(mainClassGenerator, sourcedTfqn))
+      typeFiles          <- usedTypes.flatTraverse(sourcedTfqn => createData(mainClassGenerator, sourcedTfqn))
       functionFiles      <- usedFunctions.flatTraverse(sourcedFfqn => createModuleMethod(mainClassGenerator, sourcedFfqn))
       mainClass          <- mainClassGenerator.generate().liftToCompilationIO
       _                  <- process
@@ -52,7 +50,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       functionDefinitionMaybe <- process.getFact(TypeCheckedFunction.Key(sourcedFfqn.value)).liftToCompilationIO
       _                       <- functionDefinitionMaybe match {
                                    case Some(functionDefinition) =>
-                                     createModuleMethod(mainClassGenerator, functionDefinition).liftToCompilationIO
+                                     createModuleMethod(mainClassGenerator, functionDefinition)
                                    case None                     =>
                                      implementations.get(sourcedFfqn.value) match {
                                        case Some(nativeImplementation) =>
@@ -64,14 +62,15 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
 
   private def createModuleMethod(classGenerator: ClassGenerator, functionDefinition: TypeCheckedFunction)(using
       CompilationProcess
-  ): IO[Unit] = {
+  ): CompilationIO[Unit] = {
     val signatureTypes = calculateMethodSignature(functionDefinition.definition.valueType)
 
-    classGenerator.createMethod(functionDefinition.ffqn.functionName, signatureTypes).use { methodGenerator =>
-      createExpressionCode(
-        methodGenerator,
-        extractMethodBody(functionDefinition.definition.body.get.value, signatureTypes.length)
-      )
+    classGenerator.createMethod[CompilationIO](functionDefinition.ffqn.functionName, signatureTypes).use {
+      methodGenerator =>
+        createExpressionCode(
+          methodGenerator,
+          extractMethodBody(functionDefinition.definition.body.get.value, signatureTypes.length)
+        )
     }
   }
 
@@ -106,7 +105,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
 
   private def createExpressionCode(methodGenerator: MethodGenerator, expression: Expression)(using
       CompilationProcess
-  ): IO[Unit] =
+  ): CompilationIO[Unit] =
     expression match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         generateFunctionApplication(methodGenerator, target, Seq(argument)) // One-argument call
@@ -125,7 +124,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       methodGenerator: MethodGenerator,
       target: Expression,
       arguments: Seq[Expression]
-  )(using process: CompilationProcess): IO[Unit] =
+  )(using process: CompilationProcess): CompilationIO[Unit] =
     target match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         // Means this is another argument, so just recurse
@@ -136,27 +135,42 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn))       =>
         // Calling a function with exactly one argument
         for {
-          functionDefinitionMaybe <- process.getFact(ResolvedFunction.Key(calledFfqn))
+          functionDefinitionMaybe <- process.getFact(ResolvedFunction.Key(calledFfqn)).liftToCompilationIO
           _                       <- functionDefinitionMaybe match
                                        case Some(functionDefinition) =>
                                          for {
                                            _ <- arguments.traverse_(expression => createExpressionCode(methodGenerator, expression))
-                                           _ <- methodGenerator.addCallTo(
+                                           _ <- methodGenerator.addCallTo[CompilationIO](
                                                   calledFfqn,
                                                   calculateMethodSignature(functionDefinition.definition.valueType)
                                                 )
                                          } yield ()
                                        case None                     =>
-                                         registerCompilerError(sourcedCalledFfqn.as(s"Could not find type checked ${calledFfqn.show}"))
+                                         compilerError(sourcedCalledFfqn.as(s"Could not find resolved ${calledFfqn.show}"))
         } yield ()
       case FunctionLiteral(parameter, body)                                    => ???
     }
 
-  private def createType(mainClassGenerator: ClassGenerator, value: Sourced[TypeFQN]): CompilationIO[Seq[ClassFile]] =
+  private def createData(
+      mainClassGenerator: ClassGenerator,
+      sourcedTfqn: Sourced[TypeFQN]
+  )(using process: CompilationProcess): CompilationIO[Seq[ClassFile]] =
     for {
       // Define the data object
-      _ <- IO {
-             ???
-           }.liftToCompilationIO
-    } yield Seq.empty
+      classWriter         <- mainClassGenerator.createInnerClassGenerator(sourcedTfqn.value.typeName).liftToCompilationIO
+      typeDefinitionMaybe <- process.getFact(ResolvedData.Key(sourcedTfqn.value)).liftToCompilationIO
+      _                   <- typeDefinitionMaybe match {
+                               case Some(typeDefinition) =>
+                                 IO {
+                                   ???
+                                 }.liftToCompilationIO
+                               case None                 =>
+                                 compilerError(
+                                   sourcedTfqn.as(
+                                     s"Could not find type resolved ${TypeFQN.fullyQualified.show(sourcedTfqn.value)}"
+                                   )
+                                 )
+                             }
+      classFile           <- classWriter.generate().liftToCompilationIO
+    } yield Seq(classFile)
 }
