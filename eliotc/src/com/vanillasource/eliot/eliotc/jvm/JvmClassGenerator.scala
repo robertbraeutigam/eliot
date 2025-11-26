@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.CatsAsm.*
 import com.vanillasource.eliot.eliotc.jvm.GeneratedModule.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
+import com.vanillasource.eliot.eliotc.jvm.NativeType.types
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
@@ -33,15 +34,18 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
   ): IO[Unit] = {
     (for {
       mainClassGenerator     <- createClassGenerator(moduleName).liftToCompilationIO
-      typeFiles              <- usedTypes.flatTraverse(sourcedTfqn => createData(mainClassGenerator, sourcedTfqn))
+      typeFiles              <- usedTypes
+                                  .filter(stfqn => !types.contains(stfqn.value))
+                                  .flatTraverse(sourcedTfqn => createData(mainClassGenerator, sourcedTfqn))
       typeGeneratedFunctions <- usedTypes.flatTraverse(collectTypeGeneratedFunctions).map(_.toSet)
       functionFiles          <- usedFunctions
                                   .filter(sffqn => !typeGeneratedFunctions.contains(sffqn.value.functionName))
                                   .flatTraverse(sourcedFfqn => createModuleMethod(mainClassGenerator, sourcedFfqn))
       mainClass              <- mainClassGenerator.generate().liftToCompilationIO
-      _                      <- process
-                                  .registerFact(GeneratedModule(moduleName, typeFiles ++ functionFiles ++ Seq(mainClass)))
-                                  .liftIfNoErrors
+      _                      <- (debug(s"Generated ${moduleName.show}, with type files: ${typeFiles
+                                    .map(_.fileName)
+                                    .mkString(", ")}, with function files: ${functionFiles.map(_.fileName).mkString(", ")}") >> process
+                                  .registerFact(GeneratedModule(moduleName, typeFiles ++ functionFiles ++ Seq(mainClass)))).liftIfNoErrors
     } yield ()).runCompilation_()
   }
 

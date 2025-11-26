@@ -12,6 +12,7 @@ object NativeType {
   val types: Map[TypeFQN, NativeType] = Map.from(
     Seq(
       (systemLangType("String"), eliot_lang_String),
+      (systemLangType("Function"), eliot_lang_Function),
       (systemLangType("Unit"), eliot_lang_Unit)
     )
   )
@@ -34,5 +35,9 @@ object NativeType {
 
   private def eliot_lang_Unit: NativeType = new NativeType {
     override def javaSignatureName: String = "V"
+  }
+
+  private def eliot_lang_Function: NativeType = new NativeType {
+    override def javaSignatureName: String = "Ljava/lang/Function;"
   }
 }
