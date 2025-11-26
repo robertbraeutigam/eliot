@@ -28,7 +28,7 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends Co
     val groupedTypes     = usedTypes.groupBy(_.value.moduleName)
     val facts            = (groupedFunctions.keys ++ groupedTypes.keys)
       .map(moduleName =>
-        GenerateClass(
+        GenerateModule(
           moduleName,
           groupedFunctions.getOrElse(moduleName, Seq.empty),
           groupedTypes.getOrElse(moduleName, Seq.empty)
@@ -38,12 +38,12 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends Co
 
     for {
       _            <- facts.traverse_(process.registerFact)
-      classesMaybe <- facts.map(_.moduleName).traverse(moduleName => process.getFact(GeneratedClass.Key(moduleName)))
+      classesMaybe <- facts.map(_.moduleName).traverse(moduleName => process.getFact(GeneratedModule.Key(moduleName)))
       _            <- classesMaybe.sequence.traverse_(generateJarFile) // Skips jar if not all modules got bytecode
     } yield ()
   }
 
-  private def generateJarFile(allClasses: Seq[GeneratedClass]): IO[Unit] =
+  private def generateJarFile(allClasses: Seq[GeneratedModule]): IO[Unit] =
     jarOutputStream.use { jos =>
       IO.blocking {
         generateManifest(jos)
@@ -52,8 +52,8 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends Co
       }
     }
 
-  private def generateClasses(jos: JarOutputStream, allClasses: Seq[GeneratedClass]): Unit = {
-    allClasses.foreach { case GeneratedClass(moduleName, bytes) =>
+  private def generateClasses(jos: JarOutputStream, allClasses: Seq[GeneratedModule]): Unit = {
+    allClasses.foreach { case GeneratedModule(moduleName, bytes) =>
       val pathName  = if (moduleName.packages.isEmpty) "" else moduleName.packages.mkString("", "/", "/")
       val entryName = moduleName.name + ".class" // FIXME: same javaname conversion as in class! Use the class name!
       val entry     = new JarEntry(pathName + entryName)

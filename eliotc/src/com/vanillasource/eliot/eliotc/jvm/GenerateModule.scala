@@ -4,16 +4,16 @@ import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.source.Sourced
 
-case class GenerateClass(
+case class GenerateModule(
     moduleName: ModuleName,
     usedFunctions: Seq[Sourced[FunctionFQN]],
     usedTypes: Seq[Sourced[TypeFQN]]
 ) extends CompilerFact {
-  override def key(): CompilerFactKey = GenerateClass.Key(moduleName)
+  override def key(): CompilerFactKey = GenerateModule.Key(moduleName)
 }
 
-object GenerateClass {
+object GenerateModule {
   case class Key(moduleName: ModuleName) extends CompilerFactKey {
-    override type FactType = GenerateClass
+    override type FactType = GenerateModule
   }
 }

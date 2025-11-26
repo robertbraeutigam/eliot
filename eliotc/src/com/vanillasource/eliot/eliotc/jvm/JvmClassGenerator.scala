@@ -22,7 +22,7 @@ import scala.annotation.tailrec
 class JvmClassGenerator extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
     fact match
-      case GenerateClass(moduleName, usedFunctions, usedTypes) => generateClass(moduleName, usedFunctions, usedTypes)
+      case GenerateModule(moduleName, usedFunctions, usedTypes) => generateClass(moduleName, usedFunctions, usedTypes)
       case _                                                   => IO.unit
 
   private def generateClass(
@@ -39,7 +39,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       _ <- usedFunctions.traverse_(sourcedFfqn => createClassMethod(classWriter, sourcedFfqn))
       _ <- IO(classWriter.visitEnd()).liftToCompilationIO
       _ <- process
-             .registerFact(GeneratedClass(moduleName, classWriter.toByteArray))
+             .registerFact(GeneratedModule(moduleName, classWriter.toByteArray))
              .liftIfNoErrors
     } yield ()).runCompilation_()
   }
