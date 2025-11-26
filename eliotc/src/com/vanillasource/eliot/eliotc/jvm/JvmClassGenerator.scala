@@ -32,13 +32,16 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       process: CompilationProcess
   ): IO[Unit] = {
     (for {
-      mainClassGenerator <- createClassGenerator(moduleName).liftToCompilationIO
-      typeFiles          <- usedTypes.flatTraverse(sourcedTfqn => createData(mainClassGenerator, sourcedTfqn))
-      functionFiles      <- usedFunctions.flatTraverse(sourcedFfqn => createModuleMethod(mainClassGenerator, sourcedFfqn))
-      mainClass          <- mainClassGenerator.generate().liftToCompilationIO
-      _                  <- process
-                              .registerFact(GeneratedModule(moduleName, typeFiles ++ functionFiles ++ Seq(mainClass)))
-                              .liftIfNoErrors
+      mainClassGenerator     <- createClassGenerator(moduleName).liftToCompilationIO
+      typeFiles              <- usedTypes.flatTraverse(sourcedTfqn => createData(mainClassGenerator, sourcedTfqn))
+      typeGeneratedFunctions <- usedTypes.flatTraverse(collectTypeGeneratedFunctions).map(_.toSet)
+      functionFiles          <- usedFunctions
+                                  .filter(sffqn => !typeGeneratedFunctions.contains(sffqn.value.functionName))
+                                  .flatTraverse(sourcedFfqn => createModuleMethod(mainClassGenerator, sourcedFfqn))
+      mainClass              <- mainClassGenerator.generate().liftToCompilationIO
+      _                      <- process
+                                  .registerFact(GeneratedModule(moduleName, typeFiles ++ functionFiles ++ Seq(mainClass)))
+                                  .liftIfNoErrors
     } yield ()).runCompilation_()
   }
 
@@ -180,4 +183,12 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
                              }
       classFile           <- classWriter.generate().liftToCompilationIO
     } yield Seq(classFile)
+
+  private def collectTypeGeneratedFunctions(sourcedTfqn: Sourced[TypeFQN])(using
+      process: CompilationProcess
+  ): CompilationIO[Seq[String]] =
+    process.getFact(ResolvedData.Key(sourcedTfqn.value)).liftToCompilationIO.map {
+      case Some(resolvedData) => resolvedData.definition.fields.map(_.name.value) ++ Seq(sourcedTfqn.value.typeName)
+      case None               => Seq(sourcedTfqn.value.typeName)
+    }
 }
