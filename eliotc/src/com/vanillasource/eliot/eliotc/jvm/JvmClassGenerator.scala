@@ -52,20 +52,19 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
 
   private def createModuleMethod(mainClassGenerator: ClassGenerator, sourcedFfqn: Sourced[FunctionFQN])(using
       process: CompilationProcess
-  ): CompilationIO[Seq[ClassFile]] =
-    for {
-      functionDefinitionMaybe <- process.getFact(TypeCheckedFunction.Key(sourcedFfqn.value)).liftToCompilationIO
-      _                       <- functionDefinitionMaybe match {
-                                   case Some(functionDefinition) =>
-                                     createModuleMethod(mainClassGenerator, functionDefinition)
-                                   case None                     =>
-                                     implementations.get(sourcedFfqn.value) match {
-                                       case Some(nativeImplementation) =>
-                                         nativeImplementation.generateMethod(mainClassGenerator).liftToCompilationIO
-                                       case None                       => compilerError(sourcedFfqn.as(s"Could not find implementation."))
-                                     }
-                                 }
-    } yield Seq.empty
+  ): CompilationIO[Seq[ClassFile]] = {
+    implementations.get(sourcedFfqn.value) match {
+      case Some(nativeImplementation) =>
+        nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty).liftToCompilationIO
+      case None                       =>
+        for {
+          functionDefinitionMaybe <- process.getFact(TypeCheckedFunction.Key(sourcedFfqn.value)).liftToCompilationIO
+          _                       <- functionDefinitionMaybe match
+                                       case Some(functionDefinition) => createModuleMethod(mainClassGenerator, functionDefinition)
+                                       case None                     => compilerError(sourcedFfqn.as(s"Could not find implementation."))
+        } yield Seq.empty
+    }
+  }
 
   private def createModuleMethod(classGenerator: ClassGenerator, functionDefinition: TypeCheckedFunction)(using
       CompilationProcess
