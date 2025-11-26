@@ -215,6 +215,46 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
 
                                             } yield ()
                                           }
+                                   // Define data function
+                                   _ <-
+                                     outerClassGenerator
+                                       .createMethod[CompilationIO](
+                                         sourcedTfqn.value.typeName, // TODO: is name legal?
+                                         typeDefinition.definition.fields.map(_.typeReference).map(simpleType) ++ Seq(sourcedTfqn.value)
+                                       )
+                                       .use { methodGenerator =>
+                                         for {
+                                           // Allocate new data object
+                                           _ <- methodGenerator.runNative[CompilationIO] { methodVisitor =>
+                                                  methodVisitor.visitTypeInsn(
+                                                    Opcodes.NEW,
+                                                    outerClassGenerator.name.name + "$" + sourcedTfqn.value.typeName
+                                                  )
+                                                  methodVisitor.visitInsn(Opcodes.DUP)
+                                                }
+                                           // Load constructor arguments
+                                           _ <- typeDefinition.definition.fields.zipWithIndex.traverse_ { (fieldDefinition, index) =>
+                                                  methodGenerator.runNative[CompilationIO] { methodVisitor =>
+                                                    methodVisitor.visitVarInsn(Opcodes.ALOAD, index) // TODO: Fix type
+                                                  }
+                                                }
+                                           // Call constructor
+                                           _ <- methodGenerator.runNative[CompilationIO] { methodVisitor =>
+                                                  methodVisitor.visitMethodInsn(
+                                                    Opcodes.INVOKESPECIAL,
+                                                    outerClassGenerator.name.name + "$" + sourcedTfqn.value.typeName,
+                                                    "<init>",
+                                                    calculateSignatureString(
+                                                      typeDefinition.definition.fields.map(_.typeReference).map(simpleType) ++ Seq(
+                                                        systemUnitType
+                                                      )
+                                                    ),
+                                                    false
+                                                  )
+                                                }
+                                         } yield ()
+                                       }
+
                                    // TODO: define accessors
                                  } yield ()
                                case None                 =>

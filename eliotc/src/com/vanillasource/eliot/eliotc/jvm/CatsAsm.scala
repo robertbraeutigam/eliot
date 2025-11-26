@@ -1,13 +1,12 @@
 package com.vanillasource.eliot.eliotc.jvm
 
-import cats.effect.{Async, IO, Sync}
 import cats.effect.kernel.Resource
+import cats.effect.{IO, Sync}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.jvm.GeneratedModule.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.NativeType.javaSignatureName
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference
 import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
 
 object CatsAsm {
@@ -26,7 +25,7 @@ object CatsAsm {
     new ClassGenerator(name, classWriter)
   }
 
-  private def calculateSignatureString(signatureTypes: Seq[TypeFQN]): String =
+  def calculateSignatureString(signatureTypes: Seq[TypeFQN]): String =
     s"(${signatureTypes.init.map(javaSignatureName).mkString})${javaSignatureName(signatureTypes.last)}"
 
   class ClassGenerator(val name: ModuleName, val classWriter: ClassWriter) {
@@ -73,7 +72,7 @@ object CatsAsm {
     def createMethod[F[_]: Sync](name: String, signatureTypes: Seq[TypeFQN]): Resource[F, MethodGenerator] =
       Resource.make(Sync[F].delay {
         val methodVisitor = classWriter.visitMethod(
-          Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
+          if (name === "<init>") Opcodes.ACC_PUBLIC else Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
           name, // TODO: can every method name be converted to Java?
           calculateSignatureString(signatureTypes),
           null,
