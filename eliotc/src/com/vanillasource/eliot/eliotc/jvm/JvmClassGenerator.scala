@@ -13,7 +13,6 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedData, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
-import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 
@@ -161,9 +160,16 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       typeDefinitionMaybe <- process.getFact(ResolvedData.Key(sourcedTfqn.value)).liftToCompilationIO
       _                   <- typeDefinitionMaybe match {
                                case Some(typeDefinition) =>
-                                 IO {
-                                   ???
-                                 }.liftToCompilationIO
+                                 // Define the inner data container
+                                 typeDefinition.definition.fields.traverse_ { argumentDefinition =>
+                                   argumentDefinition.typeReference match {
+                                     case DirectTypeReference(dataType, genericParameters) =>
+                                       classWriter.createField[CompilationIO](argumentDefinition.name.value, dataType.value)
+                                     case GenericTypeReference(name, genericParameters)    =>
+                                       classWriter.createField[CompilationIO](argumentDefinition.name.value, systemAnyType)
+                                   }
+                                 }
+                               // TODO: define accessors
                                case None                 =>
                                  compilerError(
                                    sourcedTfqn.as(

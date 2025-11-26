@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.jvm.CatsAsm.ClassGenerator
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemLangType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
-import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
+import org.objectweb.asm.Opcodes
 
 trait NativeImplementation {
   def generateMethod(mainClassGenerator: ClassGenerator): IO[Unit]

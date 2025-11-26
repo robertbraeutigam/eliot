@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.jvm.GeneratedModule.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.NativeType.javaSignatureName
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference
 import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
 
 object CatsAsm {
@@ -56,6 +57,18 @@ object CatsAsm {
                             )
                           )
       } yield classGenerator
+
+    def createField[F[_]: Sync](name: String, fieldType: TypeFQN): F[Unit] = Sync[F].delay {
+      classWriter
+        .visitField(
+          Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL,
+          name, // TODO: check name
+          javaSignatureName(fieldType),
+          null,
+          null
+        )
+        .visitEnd()
+    }
 
     def createMethod[F[_]: Sync](name: String, signatureTypes: Seq[TypeFQN]): Resource[F, MethodGenerator] =
       Resource.make(Sync[F].delay {
