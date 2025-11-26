@@ -6,8 +6,8 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.CatsAsm.*
 import com.vanillasource.eliot.eliotc.jvm.GeneratedModule.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
-import com.vanillasource.eliot.eliotc.jvm.NativeType.types
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType}
+import com.vanillasource.eliot.eliotc.jvm.NativeType.{javaSignatureName, types}
+import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType, systemUnitType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
@@ -16,6 +16,7 @@ import com.vanillasource.eliot.eliotc.source.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import org.objectweb.asm.Opcodes
 
 import scala.annotation.tailrec
 
@@ -158,26 +159,65 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
     }
 
   private def createData(
-      mainClassGenerator: ClassGenerator,
+      outerClassGenerator: ClassGenerator,
       sourcedTfqn: Sourced[TypeFQN]
   )(using process: CompilationProcess): CompilationIO[Seq[ClassFile]] =
     for {
       // Define the data object
-      classWriter         <- mainClassGenerator.createInnerClassGenerator(sourcedTfqn.value.typeName).liftToCompilationIO
+      innerClassWriter    <- outerClassGenerator.createInnerClassGenerator(sourcedTfqn.value.typeName).liftToCompilationIO
       typeDefinitionMaybe <- process.getFact(ResolvedData.Key(sourcedTfqn.value)).liftToCompilationIO
       _                   <- typeDefinitionMaybe match {
                                case Some(typeDefinition) =>
-                                 // Define the inner data container
-                                 typeDefinition.definition.fields.traverse_ { argumentDefinition =>
-                                   argumentDefinition.typeReference match {
-                                     case DirectTypeReference(dataType, genericParameters) =>
-                                       classWriter.createField[CompilationIO](argumentDefinition.name.value, dataType.value)
-                                     case GenericTypeReference(name, genericParameters)    =>
-                                       classWriter.createField[CompilationIO](argumentDefinition.name.value, systemAnyType)
-                                   }
-                                 }
-                               // TODO: define constructor function
-                               // TODO: define accessors
+                                 for {
+                                   // Define the inner data container
+                                   _ <- typeDefinition.definition.fields.traverse_ { argumentDefinition =>
+                                          argumentDefinition.typeReference match {
+                                            case DirectTypeReference(dataType, genericParameters) =>
+                                              innerClassWriter.createField[CompilationIO](argumentDefinition.name.value, dataType.value)
+                                            case GenericTypeReference(name, genericParameters)    =>
+                                              innerClassWriter.createField[CompilationIO](argumentDefinition.name.value, systemAnyType)
+                                          }
+                                        }
+                                   // Define constructor function
+                                   _ <- innerClassWriter
+                                          .createMethod[CompilationIO](
+                                            "<init>",
+                                            typeDefinition.definition.fields.map(_.typeReference).map(simpleType) ++ Seq(systemUnitType)
+                                          )
+                                          .use { methodGenerator =>
+                                            for {
+                                              // Call super.<init>
+                                              _ <- methodGenerator.runNative[CompilationIO] { methodVisitor =>
+                                                     methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
+                                                     methodVisitor.visitMethodInsn(
+                                                       Opcodes.INVOKESPECIAL,
+                                                       "java/lang/Object",
+                                                       "<init>",
+                                                       "()V",
+                                                       false
+                                                     )
+                                                   }
+                                              // Set all this.field = field
+                                              _ <- typeDefinition.definition.fields.zipWithIndex.traverse_ { (fieldDefinition, index) =>
+                                                     methodGenerator.runNative[CompilationIO] { methodVisitor =>
+                                                       methodVisitor.visitVarInsn(Opcodes.ALOAD, 0) // this
+                                                       methodVisitor.visitVarInsn(
+                                                         Opcodes.ALOAD,
+                                                         index + 1
+                                                       )                                            // TODO: doesn't support primitives
+                                                       methodVisitor.visitFieldInsn(
+                                                         Opcodes.PUTFIELD,
+                                                         sourcedTfqn.value.typeName,
+                                                         fieldDefinition.name.value,
+                                                         javaSignatureName(simpleType(fieldDefinition.typeReference))
+                                                       )
+                                                     }
+                                                   }
+
+                                            } yield ()
+                                          }
+                                   // TODO: define accessors
+                                 } yield ()
                                case None                 =>
                                  compilerError(
                                    sourcedTfqn.as(
@@ -185,8 +225,14 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
                                    )
                                  )
                              }
-      classFile           <- classWriter.generate().liftToCompilationIO
+      classFile           <- innerClassWriter.generate().liftToCompilationIO
     } yield Seq(classFile)
+
+  private def simpleType(typeReference: TypeReference): TypeFQN =
+    typeReference match {
+      case DirectTypeReference(dataType, genericParameters) => dataType.value
+      case GenericTypeReference(name, genericParameters)    => systemAnyType
+    }
 
   private def collectTypeGeneratedFunctions(sourcedTfqn: Sourced[TypeFQN])(using
       process: CompilationProcess
