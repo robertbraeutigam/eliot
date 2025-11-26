@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.jvm.CatsAsm.*
 import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.NativeType.javaSignatureName
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType, systemUnitType}
@@ -23,7 +24,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
     fact match
       case GenerateModule(moduleName, usedFunctions, usedTypes) => generateClass(moduleName, usedFunctions, usedTypes)
-      case _                                                   => IO.unit
+      case _                                                    => IO.unit
 
   private def generateClass(
       moduleName: ModuleName,
@@ -32,15 +33,14 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
   )(using
       process: CompilationProcess
   ): IO[Unit] = {
-    val classWriter = createClassWriter(moduleName)
-
     (for {
-      _ <- usedTypes.traverse_(sourcedTfqn => createType(classWriter, sourcedTfqn))
-      _ <- usedFunctions.traverse_(sourcedFfqn => createClassMethod(classWriter, sourcedFfqn))
-      _ <- IO(classWriter.visitEnd()).liftToCompilationIO
-      _ <- process
-             .registerFact(GeneratedModule(moduleName, classWriter.toByteArray))
-             .liftIfNoErrors
+      classWriter <- createClassWriter(moduleName).liftToCompilationIO
+      _           <- usedTypes.traverse_(sourcedTfqn => createType(classWriter, sourcedTfqn))
+      _           <- usedFunctions.traverse_(sourcedFfqn => createClassMethod(classWriter, sourcedFfqn))
+      _           <- IO(classWriter.visitEnd()).liftToCompilationIO
+      _           <- process
+                       .registerFact(GeneratedModule(moduleName, classWriter.toByteArray))
+                       .liftIfNoErrors
     } yield ()).runCompilation_()
   }
 
@@ -175,21 +175,6 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
         } yield ()
       case FunctionLiteral(parameter, body)                                    => ???
     }
-
-  private def createClassWriter(name: ModuleName): ClassWriter = {
-    val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
-
-    classWriter.visit(
-      Opcodes.V17,
-      Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
-      name.name, // TODO: all class names are legal here?
-      null,
-      "java/lang/Object",
-      null
-    )
-
-    classWriter
-  }
 
   private def createType(writer: ClassWriter, value: Sourced[TypeFQN]): CompilationIO[Unit] =
     for {
