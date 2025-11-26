@@ -53,14 +53,12 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends Co
     }
 
   private def generateClasses(jos: JarOutputStream, allClasses: Seq[GeneratedModule]): Unit = {
-    allClasses.foreach { case GeneratedModule(moduleName, bytes) =>
-      val pathName  = if (moduleName.packages.isEmpty) "" else moduleName.packages.mkString("", "/", "/")
-      val entryName = moduleName.name + ".class" // FIXME: same javaname conversion as in class! Use the class name!
-      val entry     = new JarEntry(pathName + entryName)
-
-      jos.putNextEntry(entry)
-      jos.write(bytes)
-      jos.closeEntry()
+    allClasses.foreach { case GeneratedModule(moduleName, classFiles) =>
+      classFiles.foreach { classFile =>
+        jos.putNextEntry(new JarEntry(classFile.fileName))
+        jos.write(classFile.bytecode)
+        jos.closeEntry()
+      }
     }
   }
 
