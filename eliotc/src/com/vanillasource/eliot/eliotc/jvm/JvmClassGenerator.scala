@@ -22,15 +22,20 @@ import scala.annotation.tailrec
 class JvmClassGenerator extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
     fact match
-      case GenerateClass(moduleName, usedFunctions, usedTypes) => generateClass(moduleName, usedFunctions)
+      case GenerateClass(moduleName, usedFunctions, usedTypes) => generateClass(moduleName, usedFunctions, usedTypes)
       case _                                                   => IO.unit
 
-  private def generateClass(moduleName: ModuleName, usedFunctions: Seq[Sourced[FunctionFQN]])(using
+  private def generateClass(
+      moduleName: ModuleName,
+      usedFunctions: Seq[Sourced[FunctionFQN]],
+      usedTypes: Seq[Sourced[TypeFQN]]
+  )(using
       process: CompilationProcess
   ): IO[Unit] = {
     val classWriter = createClassWriter(moduleName)
 
     (for {
+      _ <- usedTypes.traverse_(sourcedTfqn => createType(classWriter, sourcedTfqn))
       _ <- usedFunctions.traverse_(sourcedFfqn => createClassMethod(classWriter, sourcedFfqn))
       _ <- IO(classWriter.visitEnd()).liftToCompilationIO
       _ <- process
@@ -185,4 +190,12 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
 
     classWriter
   }
+
+  private def createType(writer: ClassWriter, value: Sourced[TypeFQN]): CompilationIO[Unit] =
+    for {
+      // Define the data object
+      _ <- IO {
+             ???
+           }.liftToCompilationIO
+    } yield ()
 }
