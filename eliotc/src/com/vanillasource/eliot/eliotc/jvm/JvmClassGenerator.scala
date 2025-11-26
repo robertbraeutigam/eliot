@@ -169,6 +169,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
                                        classWriter.createField[CompilationIO](argumentDefinition.name.value, systemAnyType)
                                    }
                                  }
+                               // TODO: define constructor function
                                // TODO: define accessors
                                case None                 =>
                                  compilerError(
