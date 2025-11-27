@@ -254,7 +254,25 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
                                                 }
                                          } yield ()
                                        }
-                                   // TODO: define accessors
+                                   // Define accessors
+                                   _ <- typeDefinition.definition.fields.traverse_ { argumentDefinition =>
+                                          outerClassGenerator
+                                            .createMethod[CompilationIO](
+                                              argumentDefinition.name.value,
+                                              Seq(sourcedTfqn.value, simpleType(argumentDefinition.typeReference))
+                                            )
+                                            .use { accessorGenerator =>
+                                              accessorGenerator.runNative[CompilationIO] { methodVisitor =>
+                                                methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
+                                                methodVisitor.visitFieldInsn(
+                                                  Opcodes.GETFIELD,
+                                                  outerClassGenerator.name.name + "$" + sourcedTfqn.value.typeName,
+                                                  argumentDefinition.name.value,
+                                                  javaSignatureName(simpleType(argumentDefinition.typeReference))
+                                                )
+                                              }
+                                            }
+                                        }
                                  } yield ()
                                case None                 =>
                                  compilerError(
