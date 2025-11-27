@@ -168,7 +168,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
       _                   <- typeDefinitionMaybe match {
                                case Some(typeDefinition) =>
                                  for {
-                                   // Define the inner data container
+                                   // Define the inner data fields
                                    _ <- typeDefinition.definition.fields.traverse_ { argumentDefinition =>
                                           argumentDefinition.typeReference match {
                                             case DirectTypeReference(dataType, genericParameters) =>
@@ -177,7 +177,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
                                               innerClassWriter.createField[CompilationIO](argumentDefinition.name.value, systemAnyType)
                                           }
                                         }
-                                   // Define constructor function
+                                   // Define constructor
                                    _ <- innerClassWriter
                                           .createMethod[CompilationIO](
                                             "<init>",
@@ -206,7 +206,7 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
                                                        )                                            // TODO: doesn't support primitives
                                                        methodVisitor.visitFieldInsn(
                                                          Opcodes.PUTFIELD,
-                                                         sourcedTfqn.value.typeName,
+                                                         outerClassGenerator.name.name + "$" + sourcedTfqn.value.typeName,
                                                          fieldDefinition.name.value,
                                                          javaSignatureName(simpleType(fieldDefinition.typeReference))
                                                        )
@@ -254,7 +254,6 @@ class JvmClassGenerator extends CompilerProcessor with Logging {
                                                 }
                                          } yield ()
                                        }
-
                                    // TODO: define accessors
                                  } yield ()
                                case None                 =>
