@@ -4,7 +4,7 @@ import cats.effect.kernel.Resource
 import cats.effect.{IO, Sync}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.jvm.GeneratedModule.ClassFile
-import com.vanillasource.eliot.eliotc.jvm.NativeType.javaSignatureName
+import com.vanillasource.eliot.eliotc.jvm.NativeType.{convertToMainClassName, javaSignatureName}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
@@ -16,7 +16,7 @@ object CatsAsm {
     classWriter.visit(
       Opcodes.V17,
       Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
-      name.name, // TODO: all class names are legal here?
+      convertToMainClassName(name), // TODO: all class names are legal here?
       null,
       "java/lang/Object",
       null

@@ -20,9 +20,12 @@ object NativeType {
   def javaSignatureName(typeFqn: TypeFQN): String =
     types.get(typeFqn).map(_.javaSignatureName).getOrElse(convertToJavaName(typeFqn))
 
-  private def convertToJavaName(typeFQN: TypeFQN): String =
+  def convertToJavaName(typeFQN: TypeFQN): String =
     // All data classes are nested classes inside the class denoted by the "module"!
-    "L" + typeFQN.moduleName.packages.appended(typeFQN.moduleName.name).mkString("/") + "$" + typeFQN.typeName + ";"
+    "L" + convertToMainClassName(typeFQN.moduleName) + "$" + typeFQN.typeName + ";"
+
+  def convertToMainClassName(moduleName: ModuleName): String =
+    moduleName.packages.appended(moduleName.name).mkString("/")
 
   private def eliot_lang_String: NativeType = new NativeType {
     override def javaSignatureName: String = "Ljava/lang/String;"
