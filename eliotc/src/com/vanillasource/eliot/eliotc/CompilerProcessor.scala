@@ -2,13 +2,12 @@ package com.vanillasource.eliot.eliotc
 
 import cats.effect.IO
 
-/** All processors of the compiler must implement this trait to process facts. Processors are called with every single
-  * fact that is produced and must decide themselves whether they want to act on it or not.
+/** All processors of the compiler must implement this trait to generate facts. When someone requests a fact from the
+  * engine which is not yet present, the engine will ask processors to generate the fact through this interface.
   */
 trait CompilerProcessor {
 
-  /** Process a fact. All processors will be be called with all the facts produced in the engine, the processor must
-    * ignore facts it doesn't need.
+  /** Generate the fact with the given key, if able. Otherwise, do nothing.
     */
-  def process(fact: CompilerFact)(using CompilationProcess): IO[Unit]
+  def generate(factKey: CompilerFactKey)(using CompilationProcess): IO[Unit]
 }

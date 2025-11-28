@@ -3,14 +3,14 @@ package com.vanillasource.eliot.eliotc.sugar
 import com.vanillasource.eliot.eliotc.ast.AST
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
-import java.io.File
+import java.nio.file.Path
 
-case class DesugaredSourceAST(file: File, rootPath: File, ast: AST) extends CompilerFact {
-  override def key(): CompilerFactKey = DesugaredSourceAST.Key(file)
+case class DesugaredSourceAST(path: Path, rootPath: Path, ast: AST) extends CompilerFact {
+  override def key(): CompilerFactKey = DesugaredSourceAST.Key(path)
 }
 
 object DesugaredSourceAST {
-  case class Key(file: File) extends CompilerFactKey {
+  case class Key(path: Path) extends CompilerFactKey {
     override type FactType = DesugaredSourceAST
   }
 }

@@ -2,14 +2,14 @@ package com.vanillasource.eliot.eliotc.ast
 
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
-import java.io.File
+import java.nio.file.Path
 
-case class SourceAST(file: File, rootPath: File, ast: AST) extends CompilerFact {
-  override def key(): CompilerFactKey = SourceAST.Key(file)
+case class SourceAST(path: Path, rootPath: Path, ast: AST) extends CompilerFact {
+  override def key(): CompilerFactKey = SourceAST.Key(path)
 }
 
 object SourceAST {
-  case class Key(file: File) extends CompilerFactKey {
+  case class Key(path: Path) extends CompilerFactKey {
     override type FactType = SourceAST
   }
 }

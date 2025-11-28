@@ -11,23 +11,37 @@ import com.vanillasource.eliot.eliotc.module.fact.*
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.util.CatsOps.*
 
 import java.io.File
+import java.nio.file.{Path, Paths}
 import java.util.Locale
 import scala.jdk.CollectionConverters.IteratorHasAsScala
 
 class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) extends CompilerProcessor with Logging {
-  override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case DesugaredSourceAST(file, rootPath, ast) => process(file, rootPath, ast).getOrUnit
+  override def generate(factKey: CompilerFactKey)(using CompilationProcess): IO[Unit] = factKey match {
+    case ModuleNames.Key(moduleName)                               => generateModule(moduleName)
+    case ModuleFunction.Key(FunctionFQN(moduleName, functionName)) => generateModule(moduleName)
+    case ModuleData.Key(TypeFQN(moduleName, typeName))             => generateModule(moduleName)
+    case _                                                         => IO.unit
+  }
+
+  private def generateModule(name: ModuleName)(using process: CompilationProcess): IO[Unit] =
+    process
+      .getFact(DesugaredSourceAST.Key((name.packages ++ Seq(name.name)).foldLeft(Paths.get(""))(_ resolve _)))
+      .map(_.traverse_(fact => processFact(name, fact)))
+
+  private def processFact(moduleName: ModuleName, fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
+    case DesugaredSourceAST(path, rootPath, ast) => process(moduleName, rootPath.resolve(path).toFile, ast).getOrUnit
     case _                                       => IO.unit
   }
 
-  private def process(file: File, rootPath: File, ast: AST)(using CompilationProcess): OptionT[IO, Unit] =
+  private def process(moduleName: ModuleName, file: File, ast: AST)(using
+      CompilationProcess
+  ): OptionT[IO, Unit] =
     for {
-      moduleName <- determineModuleName(file, rootPath).toOptionT
-      _          <- process(file: File, moduleName, ast).liftOptionT
+      _ <- process(file, moduleName, ast).liftOptionT
     } yield ()
 
   private def process(file: File, moduleName: ModuleName, ast: AST)(using

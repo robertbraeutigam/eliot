@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
 import com.vanillasource.eliot.eliotc.source.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor, Init}
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
 import java.nio.charset.StandardCharsets
@@ -15,7 +15,13 @@ import java.nio.file.{Files, Path, StandardOpenOption}
 import java.util.jar.{JarEntry, JarOutputStream}
 
 class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends CompilerProcessor with Logging {
-  override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
+  override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
+    case Init =>
+      process.getFact(UsedSymbols.Key()).flatMap(_.traverse_(processFact))
+    case _    => IO.unit
+  }
+
+  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
     fact match
       case UsedSymbols(usedFunctions, usedTypes) => generateAllClasses(usedFunctions, usedTypes)
       case _                                     => IO.unit

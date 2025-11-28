@@ -11,17 +11,24 @@ import com.vanillasource.eliot.eliotc.ast.{
   TypeReference
 }
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
 import java.io.File
+import java.nio.file.Path
 
 class DesugarProcessor extends CompilerProcessor with Logging {
-  override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case SourceAST(file, rootPath, ast) => process(file, rootPath, ast)
+  override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
+    case DesugaredSourceAST.Key(path) =>
+      process.getFact(SourceAST.Key(path)).map(_.traverse_(processFact))
+    case _                            => IO.unit
+  }
+
+  override def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
+    case SourceAST(path, rootPath, ast) => process(path, rootPath, ast)
     case _                              => IO.unit
   }
 
-  private def process(file: File, rootPath: File, ast: AST)(using process: CompilationProcess): IO[Unit] =
+  private def process(file: Path, rootPath: Path, ast: AST)(using process: CompilationProcess): IO[Unit] =
     process.registerFact(DesugaredSourceAST(file, rootPath, desugar(ast)))
 
   private def desugar(ast: AST): AST = AST(

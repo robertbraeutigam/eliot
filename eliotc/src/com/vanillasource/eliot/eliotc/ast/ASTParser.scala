@@ -7,22 +7,29 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.token.{SourceTokens, Token}
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
 
 import java.io.File
+import cats.syntax.all.*
+
+import java.nio.file.Path
 
 class ASTParser extends CompilerProcessor with Logging {
-  override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case SourceTokens(file, rootPath, tokens) => parseAST(file, rootPath, tokens)
-    case _                                    => IO.unit
+  override def generate(factKey: CompilerFactKey)(using compilation: CompilationProcess): IO[Unit] = factKey match {
+    case SourceAST.Key(path) =>
+      compilation
+        .getFact(SourceTokens.Key(path))
+        .flatMap(_.traverse_(tokens => parseAST(tokens.path, tokens.rootPath, tokens.tokens)))
+    case _                   => IO.unit
   }
 
-  private def parseAST(file: File, rootPath: File, tokens: Seq[Sourced[Token]])(using
+  private def parseAST(path: Path, rootPath: Path, tokens: Seq[Sourced[Token]])(using
       process: CompilationProcess
   ): IO[Unit] = {
     val astResult = component[AST].fully().parse(tokens)
+    val file      = rootPath.resolve(path).toFile
 
     for {
       _ <- astResult.allErrors.map {
@@ -47,7 +54,7 @@ class ASTParser extends CompilerProcessor with Logging {
            }.sequence_
       _ <- astResult.value match
              case Some(ast) =>
-               debug(s"generated AST for $file: ${ast.show}") >> process.registerFact(SourceAST(file, rootPath, ast))
+               debug(s"generated AST for $file: ${ast.show}") >> process.registerFact(SourceAST(path, rootPath, ast))
              case None      => IO.unit
     } yield ()
   }
