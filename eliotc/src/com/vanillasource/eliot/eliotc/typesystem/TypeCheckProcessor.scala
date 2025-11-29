@@ -13,10 +13,16 @@ import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.*
 import com.vanillasource.eliot.eliotc.typesystem.UniqueGenericNames.*
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
 class TypeCheckProcessor extends CompilerProcessor with Logging {
-  override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
+  override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
+    case TypeCheckedFunction.Key(ffqn) =>
+      process.getFact(ResolvedFunction.Key(ffqn)).map(_.traverse_(processFact))
+    case _                             => IO.unit
+  }
+
+  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
     case ResolvedFunction(
           ffqn,
           functionDefinition @ FunctionDefinition(_, _, _, Some(body))

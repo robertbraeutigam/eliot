@@ -8,10 +8,16 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsState.*
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
 class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor with Logging {
-  override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
+  override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
+    case UsedSymbols.Key() =>
+      process.getFact(ResolvedFunction.Key(mainFunction)).map(_.traverse_(processFact))
+    case _                 => IO.unit
+  }
+
+  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
     fact match
       case ResolvedFunction(ffqn, definition) if ffqn === mainFunction =>
         processMain(ffqn, definition)

@@ -23,7 +23,7 @@ class DesugarProcessor extends CompilerProcessor with Logging {
     case _                            => IO.unit
   }
 
-  override def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
+  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
     case SourceAST(path, rootPath, ast) => process(path, rootPath, ast)
     case _                              => IO.unit
   }

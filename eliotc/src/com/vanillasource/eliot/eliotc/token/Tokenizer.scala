@@ -19,7 +19,7 @@ class Tokenizer extends CompilerProcessor with Logging with User {
       process.getFact(ResolvedSourceContent.Key(path)).map(_.traverse_(processFact))
     case _                      => IO.unit
   }
-  override def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit]             = fact match {
+  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit]              = fact match {
     case ResolvedSourceContent(path, rootPath, content) => tokenize(path, rootPath, content)
     case _                                              => IO.unit
   }
