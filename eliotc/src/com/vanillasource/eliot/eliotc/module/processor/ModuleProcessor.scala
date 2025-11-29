@@ -203,31 +203,4 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
     // Note: the "could not find imported module was already caught earlier, so don't issue the error again
     extractedImport.getOrElse(importedTypes)
   }
-
-  private def determineModuleName(file: File, rootPath: File)(using
-      process: CompilationProcess
-  ): IO[Option[ModuleName]] = {
-    val candidateName = file.getName
-    candidateName match
-      case ""                       => registerCompilerError(file, "Module name is empty.").as(None)
-      case s if !s.endsWith(".els") => registerCompilerError(file, "File for module does not end in '.els'.").as(None)
-      case s if s.charAt(0).isLower => registerCompilerError(file, "Module name must be capitalized.").as(None)
-      case s                        =>
-        val moduleSegments = rootPath.toPath
-          .normalize()
-          .relativize(Option(file.getParentFile).getOrElse(File(".")).toPath.normalize())
-          .iterator()
-          .asScala
-          .map(_.toString)
-          .filter(_.nonEmpty)
-          .toSeq
-
-        if (moduleSegments.exists(s => s =!= s.toLowerCase(Locale.ROOT))) {
-          registerCompilerError(file, "Directory names, as they are package names, must be lower case.").as(None)
-        } else if (moduleSegments.exists(_ === "src")) {
-          registerCompilerError(file, "Package names must not contain 'src'. Please check root paths.").as(None)
-        } else {
-          Some(ModuleName(moduleSegments, s.substring(0, s.length - 4))).pure
-        }
-  }
 }
