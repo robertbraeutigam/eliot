@@ -16,8 +16,6 @@ import com.vanillasource.util.CatsOps.*
 
 import java.io.File
 import java.nio.file.Paths
-import java.util.Locale
-import scala.jdk.CollectionConverters.IteratorHasAsScala
 
 class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) extends CompilerProcessor with Logging {
   override def generate(factKey: CompilerFactKey)(using CompilationProcess): IO[Unit] = factKey match {
