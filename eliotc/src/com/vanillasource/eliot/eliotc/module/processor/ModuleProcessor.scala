@@ -6,8 +6,8 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.*
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemModules
 import com.vanillasource.eliot.eliotc.module.fact.*
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemModules
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 import com.vanillasource.util.CatsOps.*
 
 import java.io.File
-import java.nio.file.{Path, Paths}
+import java.nio.file.Paths
 import java.util.Locale
 import scala.jdk.CollectionConverters.IteratorHasAsScala
 
@@ -29,7 +29,7 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
 
   private def generateModule(name: ModuleName)(using process: CompilationProcess): IO[Unit] =
     process
-      .getFact(DesugaredSourceAST.Key((name.packages ++ Seq(name.name)).foldLeft(Paths.get(""))(_ resolve _)))
+      .getFact(DesugaredSourceAST.Key((name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ resolve _)))
       .map(_.traverse_(fact => processFact(name, fact)))
 
   private def processFact(moduleName: ModuleName, fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
