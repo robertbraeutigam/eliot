@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.source.pos.Sourced
 class TypeResolver extends CompilerProcessor with Logging {
   override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
     case ResolvedData.Key(tfqn) =>
-      process.getFact(ModuleData.Key(tfqn)).map(_.traverse_(processFact))
+      process.getFact(ModuleData.Key(tfqn)).flatMap(_.traverse_(processFact))
     case _                      => IO.unit
   }
 

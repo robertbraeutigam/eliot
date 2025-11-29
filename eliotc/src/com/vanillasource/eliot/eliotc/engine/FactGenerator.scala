@@ -18,12 +18,14 @@ final class FactGenerator(
                         .whenA(modifyResult._2)
                         .start // Only if we are first
       result       <- modifyResult._1.get
-      _            <- debug(s"Returning (${key.getClass.getName}) $key, present: ${result.isDefined}")
+      _            <- debug(s"${if (result.isDefined) "Returning" else "Failing"} (${key.getClass.getName}) $key")
     } yield result.map(_.asInstanceOf[key.FactType])
   }
 
-  override def registerFact(fact: CompilerFact): IO[Unit] =
-    modifyAtomicallyFor(fact.key()).flatMap(_._1.complete(Some(fact)).void)
+  override def registerFact(fact: CompilerFact): IO[Unit] = {
+    debug(s"Inserting fact (${fact.getClass.getName}) with key ${fact.key()}") >>
+      modifyAtomicallyFor(fact.key()).flatMap(_._1.complete(Some(fact)).void)
+  }
 
   private def modifyAtomicallyFor(key: CompilerFactKey): IO[(Deferred[IO, Option[CompilerFact]], Boolean)] =
     for {

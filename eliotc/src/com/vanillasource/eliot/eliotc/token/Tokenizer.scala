@@ -16,7 +16,7 @@ import java.nio.file.Path
 class Tokenizer extends CompilerProcessor with Logging with User {
   override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
     case SourceTokens.Key(path) =>
-      process.getFact(ResolvedSourceContent.Key(path)).map(_.traverse_(processFact))
+      process.getFact(ResolvedSourceContent.Key(path)).flatMap(_.traverse_(processFact))
     case _                      => IO.unit
   }
   private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit]              = fact match {

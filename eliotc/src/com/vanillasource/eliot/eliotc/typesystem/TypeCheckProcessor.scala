@@ -18,7 +18,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 class TypeCheckProcessor extends CompilerProcessor with Logging {
   override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
     case TypeCheckedFunction.Key(ffqn) =>
-      process.getFact(ResolvedFunction.Key(ffqn)).map(_.traverse_(processFact))
+      process.getFact(ResolvedFunction.Key(ffqn)).flatMap(_.traverse_(processFact))
     case _                             => IO.unit
   }
 

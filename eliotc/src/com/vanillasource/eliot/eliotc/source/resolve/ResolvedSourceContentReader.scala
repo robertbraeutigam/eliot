@@ -24,7 +24,9 @@ class ResolvedSourceContentReader(rootPaths: Seq[Path]) extends CompilerProcesso
 
         process
           .getFact(SourceContent.Key(file))
-          .map(_.traverse_(content => process.registerFact(ResolvedSourceContent(path, rootPath, content.content))))
+          .flatMap(
+            _.traverse_(content => process.registerFact(ResolvedSourceContent(path, rootPath, content.content)))
+          )
       }
   }
 }
