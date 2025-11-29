@@ -12,10 +12,15 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor, ast}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor, ast}
 
 class FunctionResolver extends CompilerProcessor with Logging {
-  override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
+  override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
+    case ResolvedFunction.Key(ffqn) =>
+      process.getFact(ModuleFunction.Key(ffqn)).map(_.traverse_(processFact))
+    case _                          => IO.unit
+  }
+  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit]              = fact match
     case ModuleFunction(
           ffqn,
           functionDictionary,

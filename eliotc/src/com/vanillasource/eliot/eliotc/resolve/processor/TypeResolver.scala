@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor, ast}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor, ast}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleData, ModuleFunction, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
@@ -13,7 +13,13 @@ import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
 class TypeResolver extends CompilerProcessor with Logging {
-  override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
+  override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
+    case ResolvedData.Key(tfqn) =>
+      process.getFact(ModuleData.Key(tfqn)).map(_.traverse_(processFact))
+    case _                      => IO.unit
+  }
+
+  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
     case ModuleData(
           tfqn,
           typeDictionary,
