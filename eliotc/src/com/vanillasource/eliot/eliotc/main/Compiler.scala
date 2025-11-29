@@ -34,6 +34,6 @@ case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
   def run(): IO[Unit] = for {
     _         <- info("compiler starting...")
     generator <- FactGenerator(SequentialCompilerProcessor(processors))
-    _         <- generator.getFact(Init.key())
+    _         <- generator.getFact(Init)
   } yield ()
 }

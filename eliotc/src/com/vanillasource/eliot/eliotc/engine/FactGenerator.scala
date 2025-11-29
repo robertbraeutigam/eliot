@@ -2,19 +2,23 @@ package com.vanillasource.eliot.eliotc.engine
 
 import cats.effect.{Deferred, IO, Ref}
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
 final class FactGenerator(
     generator: CompilerProcessor,
     facts: Ref[IO, Map[CompilerFactKey, Deferred[IO, Option[CompilerFact]]]]
-) extends CompilationProcess {
+) extends CompilationProcess
+    with Logging {
   override def getFact[K <: CompilerFactKey](key: K): IO[Option[key.FactType]] = {
     for {
+      _            <- debug(s"Getting $key")
       modifyResult <- modifyAtomicallyFor(key)
       _            <- (generator.generate(key)(using this) >> modifyResult._1.complete(None))
                         .whenA(modifyResult._2)
                         .start // Only if we are first
       result       <- modifyResult._1.get
+      _            <- debug(s"Returning $key, present: ${result.isDefined}")
     } yield result.map(_.asInstanceOf[key.FactType])
   }
 
