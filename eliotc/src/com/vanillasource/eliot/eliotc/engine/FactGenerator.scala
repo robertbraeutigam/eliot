@@ -12,13 +12,13 @@ final class FactGenerator(
     with Logging {
   override def getFact[K <: CompilerFactKey](key: K): IO[Option[key.FactType]] = {
     for {
-      _            <- debug(s"Getting $key")
+      _            <- debug(s"Getting (${key.getClass.getName}) $key")
       modifyResult <- modifyAtomicallyFor(key)
       _            <- (generator.generate(key)(using this) >> modifyResult._1.complete(None))
                         .whenA(modifyResult._2)
                         .start // Only if we are first
       result       <- modifyResult._1.get
-      _            <- debug(s"Returning $key, present: ${result.isDefined}")
+      _            <- debug(s"Returning (${key.getClass.getName}) $key, present: ${result.isDefined}")
     } yield result.map(_.asInstanceOf[key.FactType])
   }
 
