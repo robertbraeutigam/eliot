@@ -4,6 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.source.error.SourcedError
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.source.resolve.ResolvedSourceContent
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import parsley.token.descriptions.{numeric, text}
@@ -20,22 +21,18 @@ class Tokenizer extends CompilerProcessor with Logging with User {
     case _                      => IO.unit
   }
   private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit]              = fact match {
-    case ResolvedSourceContent(path, rootPath, content) => tokenize(path, rootPath, content)
-    case _                                              => IO.unit
+    case ResolvedSourceContent(path, sourcedContent) => tokenize(path, sourcedContent)
+    case _                                           => IO.unit
   }
 
-  private def tokenize(path: Path, rootPath: Path, content: String)(using process: CompilationProcess): IO[Unit] = {
-    val file = rootPath.resolve(path).toFile
-
-    TokenParser(file).fullParser
-      .parse(content)(using new TokenErrorBuilder(file))
+  private def tokenize(path: Path, sourcedContent: Sourced[String])(using process: CompilationProcess): IO[Unit] =
+    TokenParser(sourcedContent).fullParser
+      .parse(sourcedContent.value)(using new TokenErrorBuilder(sourcedContent))
       .fold(
         errorMessage => SourcedError.registerCompilerError(errorMessage),
         tokens =>
-          debug(s"tokenized $file into: ${tokens.map(_.show).mkString(", ")}") >> process.registerFact(
-            SourceTokens(path, rootPath, tokens)
-          )
+          debug(s"Tokenized $path into: ${tokens.map(_.show).mkString(", ")}.") >>
+            process.registerFact(SourceTokens(path, sourcedContent.as(tokens)))
       )
-  }
 
 }

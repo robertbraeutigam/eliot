@@ -8,7 +8,9 @@ import java.io.File
 
 /** A value of generic type transformed from a given snippet of code inside a given source code file.
   */
-case class Sourced[+T](file: File, range: PositionRange, value: T)
+case class Sourced[+T](file: File, range: PositionRange, value: T) {
+  def reFocus(newRange: PositionRange): Sourced[T] = copy(range = newRange)
+}
 
 object Sourced {
   given Functor[Sourced] = new Functor[Sourced] {

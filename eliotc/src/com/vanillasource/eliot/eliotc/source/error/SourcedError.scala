@@ -43,7 +43,16 @@ object SourcedError extends User {
     (for {
       content <- process.getFact(SourceContent.Key(file)).toOptionT
       _       <-
-        compilerSourcedError(file, content.content, fromLine, fromCol, toLine, toCol, message, description).liftOptionT
+        compilerSourcedError(
+          file,
+          content.content.value,
+          fromLine,
+          fromCol,
+          toLine,
+          toCol,
+          message,
+          description
+        ).liftOptionT
     } yield ()).getOrElseF(compilerGlobalError(s"File contents for $file are not available."))
   }
 

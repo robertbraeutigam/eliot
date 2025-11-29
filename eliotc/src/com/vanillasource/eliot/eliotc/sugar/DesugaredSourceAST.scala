@@ -1,11 +1,12 @@
 package com.vanillasource.eliot.eliotc.sugar
 
 import com.vanillasource.eliot.eliotc.ast.AST
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
 import java.nio.file.Path
 
-case class DesugaredSourceAST(path: Path, rootPath: Path, ast: AST) extends CompilerFact {
+case class DesugaredSourceAST(path: Path, sourcedAst: Sourced[AST]) extends CompilerFact {
   override def key(): CompilerFactKey = DesugaredSourceAST.Key(path)
 }
 

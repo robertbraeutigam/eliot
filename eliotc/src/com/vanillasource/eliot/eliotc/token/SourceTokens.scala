@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
 import java.nio.file.Path
 
-case class SourceTokens(path: Path, rootPath: Path, tokens: Seq[Sourced[Token]]) extends CompilerFact {
+case class SourceTokens(path: Path, tokens: Sourced[Seq[Sourced[Token]]]) extends CompilerFact {
   override def key(): SourceTokens.Key = SourceTokens.Key(path)
 }
 

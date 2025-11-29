@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.token
 
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.source
 import com.vanillasource.eliot.eliotc.source.{pos => posPackage}
 import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
@@ -9,9 +10,9 @@ import parsley.errors.tokenextractors.SingleChar
 
 import java.io.File
 
-class TokenErrorBuilder(val file: File) extends ErrorBuilder[Sourced[String]] {
+class TokenErrorBuilder(val sourced: Sourced[_]) extends ErrorBuilder[Sourced[String]] {
   def format(pos: Position, source: Source, lines: ErrorInfoLines): Sourced[String] =
-    Sourced(file, PositionRange(pos, pos.next), s"Parser error, ${lines.mkString(", ")}.")
+    sourced.as(s"Parser error, ${lines.mkString(", ")}.").reFocus(PositionRange(pos, pos.next))
 
   type Position = posPackage.Position
   type Source   = Option[String]

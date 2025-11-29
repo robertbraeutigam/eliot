@@ -17,7 +17,7 @@ import parsley.token.predicate.Basic
 
 import java.io.File
 
-class TokenParser(file: File) {
+class TokenParser(sourced: Sourced[_]) {
   private val lexer = new Lexer(
     LexicalDesc(
       NameDesc(
@@ -81,5 +81,5 @@ class TokenParser(file: File) {
     t    <- markAsToken(parser)
     to   <- position
     _    <- lexer.space.whiteSpace
-  } yield Sourced(file, PositionRange(from, to), t)
+  } yield sourced.as(t).reFocus(PositionRange(from, to))
 }

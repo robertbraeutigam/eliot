@@ -31,24 +31,24 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
       .flatMap(_.traverse_(fact => processFact(name, fact)))
 
   private def processFact(moduleName: ModuleName, fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case DesugaredSourceAST(path, rootPath, ast) => process(moduleName, rootPath.resolve(path).toFile, ast).getOrUnit
-    case _                                       => IO.unit
+    case DesugaredSourceAST(path, sourcedAst) => process(moduleName, sourcedAst).getOrUnit
+    case _                                    => IO.unit
   }
 
-  private def process(moduleName: ModuleName, file: File, ast: AST)(using
+  private def process(moduleName: ModuleName, sourcedAst: Sourced[AST])(using
       CompilationProcess
   ): OptionT[IO, Unit] =
     for {
-      _ <- process(file, moduleName, ast).liftOptionT
+      _ <- processImpl(moduleName, sourcedAst).liftOptionT
     } yield ()
 
-  private def process(file: File, moduleName: ModuleName, ast: AST)(using
+  private def processImpl(moduleName: ModuleName, sourcedAst: Sourced[AST])(using
       process: CompilationProcess
   ): IO[Unit] = for {
-    localFunctions    <- extractLocalFunctions(ast.functionDefinitions)
-    localTypes        <- extractLocalTypes(ast.typeDefinitions)
+    localFunctions    <- extractLocalFunctions(sourcedAst.value.functionDefinitions)
+    localTypes        <- extractLocalTypes(sourcedAst.value.typeDefinitions)
     _                 <- process.registerFact(ModuleNames(moduleName, localFunctions.keySet, localTypes.keySet))
-    importedModules   <- extractImportedModules(file, moduleName, ast.importStatements).pure[IO]
+    importedModules   <- extractImportedModules(moduleName, sourcedAst.as(sourcedAst.value.importStatements)).pure[IO]
     importedFunctions <- extractImportedFunctions(importedModules, localFunctions.keySet)
     importedTypes     <- extractImportedTypes(importedModules, localTypes.keySet)
     _                 <- debug(s"for ${moduleName.show} read function names: ${localFunctions.keySet
@@ -78,14 +78,13 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
   } yield ()
 
   private def extractImportedModules(
-      file: File,
       moduleName: ModuleName,
-      imports: Seq[ImportStatement]
+      sourcedImports: Sourced[Seq[ImportStatement]]
   ): Seq[Sourced[ModuleName]] =
-    imports
+    sourcedImports.value
       .map(importStatement => importStatement.outline.as(ModuleName.fromImportStatement(importStatement)))
       .prependedAll(
-        systemModules.filter(_ =!= moduleName).map(sm => Sourced(file, PositionRange.zero, sm))
+        systemModules.filter(_ =!= moduleName).map(sourcedImports.as(_))
       )
 
   private def extractImportedFunctions(

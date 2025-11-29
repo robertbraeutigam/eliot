@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.source.content
 
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
 import java.io.File
@@ -17,8 +18,11 @@ class SourceContentReader extends CompilerProcessor {
   private def generateContentFor(file: File)(using process: CompilationProcess): IO[Unit] = {
     Resource.make(IO(Source.fromFile(file)))(source => IO(source.close())).use { source =>
       for {
-        content <- IO.blocking(source.getLines().mkString("\n"))
-        _       <- process.registerFact(SourceContent(file, content))
+        contentLines <- IO.blocking(source.getLines())
+        _            <-
+          process.registerFact(
+            SourceContent(file, Sourced(file, PositionRange.zero, contentLines.mkString("\n")))
+          )
       } yield ()
     }
   }

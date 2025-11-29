@@ -21,29 +21,28 @@ class ASTParser extends CompilerProcessor with Logging {
     case SourceAST.Key(path) =>
       compilation
         .getFact(SourceTokens.Key(path))
-        .flatMap(_.traverse_(tokens => parseAST(tokens.path, tokens.rootPath, tokens.tokens)))
+        .flatMap(_.traverse_(tokens => parseAST(tokens.path, tokens.tokens)))
     case _                   => IO.unit
   }
 
-  private def parseAST(path: Path, rootPath: Path, tokens: Seq[Sourced[Token]])(using
+  private def parseAST(path: Path, sourcedTokens: Sourced[Seq[Sourced[Token]]])(using
       process: CompilationProcess
   ): IO[Unit] = {
+    val tokens    = sourcedTokens.value
     val astResult = component[AST].fully().parse(tokens)
-    val file      = rootPath.resolve(path).toFile
 
     for {
       _ <- astResult.allErrors.map {
              case ParserError(pos, expected) if pos >= tokens.size =>
                tokens match {
-                 case Nil => registerCompilerError(file, s"Expected ${expectedMessage(expected)}, but input was empty.")
+                 case Nil =>
+                   registerCompilerError(
+                     sourcedTokens.as(s"Expected ${expectedMessage(expected)}, but input was empty.")
+                   )
                  case _   =>
                    val pos = tokens.last.range.to
                    registerCompilerError(
-                     Sourced(
-                       file,
-                       PositionRange(pos, pos.next),
-                       s"Expected ${expectedMessage(expected)}, but end of input reached."
-                     )
+                     sourcedTokens.as(s"Expected ${expectedMessage(expected)}, but end of input reached.")
                    )
                }
              case ParserError(pos, expected)                       =>
@@ -54,7 +53,7 @@ class ASTParser extends CompilerProcessor with Logging {
            }.sequence_
       _ <- astResult.value match
              case Some(ast) =>
-               debug(s"generated AST for $file: ${ast.show}") >> process.registerFact(SourceAST(path, rootPath, ast))
+               debug(s"Generated AST for $path: ${ast.show}.") >> process.registerFact(SourceAST(path, sourcedTokens.as(ast)))
              case None      => IO.unit
     } yield ()
   }
