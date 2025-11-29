@@ -5,7 +5,7 @@ import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, TypeReference}
-import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.ShortUniqueIdentifiers.generateNextUniqueIdentifier
 
 case class UniqueGenericNames(

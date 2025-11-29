@@ -4,7 +4,7 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
-import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
 case class UsedSymbolsState(
     usedFunctions: Map[FunctionFQN, Sourced[_]] = Map.empty,

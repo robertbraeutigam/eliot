@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, Expression, FunctionDefinition, ResolvedFunction}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{FunctionApplication, FunctionLiteral, IntegerLiteral, ParameterReference, ValueReference}
 import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
-import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 

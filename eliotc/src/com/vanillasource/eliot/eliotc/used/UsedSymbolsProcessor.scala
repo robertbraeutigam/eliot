@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
-import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsState.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 

@@ -4,7 +4,7 @@ import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.ArgumentDefinition
-import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
 sealed trait Expression
 

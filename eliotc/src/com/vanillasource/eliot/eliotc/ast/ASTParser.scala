@@ -4,8 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
-import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.token.{SourceTokens, Token}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.parser.Parser.*
@@ -13,6 +12,7 @@ import com.vanillasource.parser.ParserError
 
 import java.io.File
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
 
 import java.nio.file.Path
 

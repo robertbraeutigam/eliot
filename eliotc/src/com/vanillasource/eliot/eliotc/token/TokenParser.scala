@@ -4,6 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.source.*
+import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
 import parsley.{Parsley, character}
 import parsley.errors.combinator.*

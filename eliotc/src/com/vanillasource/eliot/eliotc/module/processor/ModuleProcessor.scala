@@ -8,8 +8,8 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemModules
 import com.vanillasource.eliot.eliotc.module.fact.*
-import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
-import com.vanillasource.eliot.eliotc.source.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
+import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.util.CatsOps.*

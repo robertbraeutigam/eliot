@@ -1,7 +1,8 @@
-package com.vanillasource.eliot.eliotc.source
+package com.vanillasource.eliot.eliotc.source.pos
 
 import cats.implicits.*
 import cats.{Functor, Show}
+import com.vanillasource.eliot.eliotc.source.pos.PositionRange
 
 import java.io.File
 

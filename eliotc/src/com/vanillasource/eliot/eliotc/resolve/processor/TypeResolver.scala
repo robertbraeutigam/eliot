@@ -9,8 +9,8 @@ import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGen
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, DataDefinition, ResolvedData, TypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
-import com.vanillasource.eliot.eliotc.source.CompilationIO.*
-import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
 class TypeResolver extends CompilerProcessor with Logging {
   override def process(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match

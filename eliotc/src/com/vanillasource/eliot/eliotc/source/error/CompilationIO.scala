@@ -1,13 +1,14 @@
-package com.vanillasource.eliot.eliotc.source
+package com.vanillasource.eliot.eliotc.source.error
 
 import cats.data.{IndexedStateT, OptionT, StateT}
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
-import com.vanillasource.eliot.eliotc.source.SourcedError.registerCompilerError
+import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
+import com.vanillasource.util.CatsOps.*
 
 import java.io.File
-import com.vanillasource.util.CatsOps.*
 
 object CompilationIO {
   private type OptionIOT[T] = OptionT[IO, T]

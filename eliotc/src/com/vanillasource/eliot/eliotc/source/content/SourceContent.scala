@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.source
+package com.vanillasource.eliot.eliotc.source.content
 
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 

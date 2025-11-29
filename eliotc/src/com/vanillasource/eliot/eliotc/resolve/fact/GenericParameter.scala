@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.resolve.fact
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
 sealed trait GenericParameter {
   val name: Sourced[String]

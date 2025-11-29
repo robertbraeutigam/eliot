@@ -12,8 +12,8 @@ import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, Type
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedData, ResolvedFunction, TypeReference}
-import com.vanillasource.eliot.eliotc.source.CompilationIO.*
-import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import org.objectweb.asm.Opcodes

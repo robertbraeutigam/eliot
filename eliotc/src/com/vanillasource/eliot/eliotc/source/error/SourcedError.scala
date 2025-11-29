@@ -1,11 +1,13 @@
-package com.vanillasource.eliot.eliotc.source
+package com.vanillasource.eliot.eliotc.source.error
 
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.User
-import com.vanillasource.util.CatsOps.*
-import com.vanillasource.eliot.eliotc.source.Position.{Column, Line}
+import com.vanillasource.eliot.eliotc.source.content.SourceContent
+import com.vanillasource.eliot.eliotc.source.pos.Position.{Column, Line}
+import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerSignal}
+import com.vanillasource.util.CatsOps.*
 
 import java.io.File
 import scala.io.AnsiColor.{BOLD, MAGENTA, RED, RESET}

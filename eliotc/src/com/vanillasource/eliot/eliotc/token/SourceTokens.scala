@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.token
 
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.source.Sourced
 
 import java.nio.file.Path
 

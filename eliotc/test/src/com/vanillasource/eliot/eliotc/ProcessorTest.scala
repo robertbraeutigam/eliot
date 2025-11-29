@@ -3,7 +3,9 @@ package com.vanillasource.eliot.eliotc
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.main.CompilerEngine
-import com.vanillasource.eliot.eliotc.source.{SourceContent, Sourced, SourcedError}
+import com.vanillasource.eliot.eliotc.source.content.SourceContent
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.error.SourcedError
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 

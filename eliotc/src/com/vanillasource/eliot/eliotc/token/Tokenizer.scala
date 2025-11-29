@@ -3,7 +3,8 @@ package com.vanillasource.eliot.eliotc.token
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
-import com.vanillasource.eliot.eliotc.source.{SourceContent, SourcedError}
+import com.vanillasource.eliot.eliotc.source.content.SourceContent
+import com.vanillasource.eliot.eliotc.source.error.SourcedError
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import parsley.token.descriptions.{numeric, text}
 

@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.{JvmClassGenerator, JvmProgramGenerator}
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
-import com.vanillasource.eliot.eliotc.source.SourceContentReader
+import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckProcessor

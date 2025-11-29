@@ -9,8 +9,8 @@ import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, Type
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
 import com.vanillasource.eliot.eliotc.resolve.fact.*
-import com.vanillasource.eliot.eliotc.source.CompilationIO.*
-import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.*
 import com.vanillasource.eliot.eliotc.typesystem.UniqueGenericNames.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}

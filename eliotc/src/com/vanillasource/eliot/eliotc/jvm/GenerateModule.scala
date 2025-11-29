@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm
 
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.source.Sourced
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
 case class GenerateModule(
     moduleName: ModuleName,

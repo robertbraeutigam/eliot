@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.source
+package com.vanillasource.eliot.eliotc.source.content
 
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
