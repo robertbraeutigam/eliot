@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.jvm.{JvmClassGenerator, JvmProgramGenerato
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
+import com.vanillasource.eliot.eliotc.source.resolve.ResolvedSourceContentReader
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckProcessor
@@ -16,7 +17,8 @@ import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey, CompilerPr
 
 case class Compiler(cmdLineArguments: CommandLineArguments) extends Logging {
   private val processors: Seq[CompilerProcessor] = Seq(
-    SourceContentReader(cmdLineArguments.paths.map(_.toPath)),
+    SourceContentReader(),
+    ResolvedSourceContentReader(cmdLineArguments.paths.map(_.toPath)),
     Tokenizer(),
     ASTParser(),
     DesugarProcessor(),
