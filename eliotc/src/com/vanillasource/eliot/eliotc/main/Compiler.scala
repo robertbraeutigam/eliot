@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.main
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ast.ASTParser
-import com.vanillasource.eliot.eliotc.engine.FactGenerator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.{JvmClassGenerator, JvmProgramGenerator}
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
