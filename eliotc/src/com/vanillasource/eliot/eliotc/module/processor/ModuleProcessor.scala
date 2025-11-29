@@ -30,7 +30,7 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
   private def generateModule(name: ModuleName)(using process: CompilationProcess): IO[Unit] =
     process
       .getFact(DesugaredSourceAST.Key((name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ resolve _)))
-      .map(_.traverse_(fact => processFact(name, fact)))
+      .flatMap(_.traverse_(fact => processFact(name, fact)))
 
   private def processFact(moduleName: ModuleName, fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
     case DesugaredSourceAST(path, rootPath, ast) => process(moduleName, rootPath.resolve(path).toFile, ast).getOrUnit
