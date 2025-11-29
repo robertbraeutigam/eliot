@@ -18,7 +18,10 @@ final class FactGenerator(
                         .whenA(modifyResult._2)
                         .start // Only if we are first
       result       <- modifyResult._1.get
-      _            <- debug(s"${if (result.isDefined) "Returning" else "Failing"} (${key.getClass.getName}) $key")
+      _            <-
+        debug(
+          s"${if (!modifyResult._2) "Cached" else (if (result.isDefined) "Returning" else "Failing")} (${key.getClass.getName}) $key"
+        )
     } yield result.map(_.asInstanceOf[key.FactType])
   }
 
