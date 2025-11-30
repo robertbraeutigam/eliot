@@ -6,11 +6,9 @@ import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
 case class UsedSymbols(usedFunctions: Seq[Sourced[FunctionFQN]], usedTypes: Seq[Sourced[TypeFQN]])
     extends CompilerFact {
-  override def key(): CompilerFactKey = UsedSymbols.Key()
+  override def key(): CompilerFactKey[UsedSymbols] = UsedSymbols.Key()
 }
 
 object UsedSymbols {
-  case class Key() extends CompilerFactKey {
-    override type FactType = UsedSymbols
-  }
+  case class Key() extends CompilerFactKey[UsedSymbols]
 }

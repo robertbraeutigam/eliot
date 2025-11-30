@@ -15,7 +15,7 @@ trait CompilationProcess {
     * Important note: A processor is only allowed to wait on a single fact at any given time. That is, it is not allowed
     * to parallel wait on multiple calls.
     */
-  def getFact[K <: CompilerFactKey](key: K): IO[Option[key.FactType]]
+  def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]]
 
   def registerFact(value: CompilerFact): IO[Unit]
 

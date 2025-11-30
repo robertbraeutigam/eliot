@@ -7,10 +7,10 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 
 final class FactGenerator(
     generator: CompilerProcessor,
-    facts: Ref[IO, Map[CompilerFactKey, Deferred[IO, Option[CompilerFact]]]]
+    facts: Ref[IO, Map[CompilerFactKey[_], Deferred[IO, Option[CompilerFact]]]]
 ) extends CompilationProcess
     with Logging {
-  override def getFact[K <: CompilerFactKey](key: K): IO[Option[key.FactType]] = {
+  override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] = {
     for {
       _            <- debug(s"Getting (${key.getClass.getName}) $key")
       modifyResult <- modifyAtomicallyFor(key)
@@ -22,7 +22,7 @@ final class FactGenerator(
         debug(
           s"${if (!modifyResult._2) "Cached" else (if (result.isDefined) "Returning" else "Failing")} (${key.getClass.getName}) $key"
         )
-    } yield result.map(_.asInstanceOf[key.FactType])
+    } yield result.map(_.asInstanceOf[V])
   }
 
   override def registerFact(fact: CompilerFact): IO[Unit] = {
@@ -30,7 +30,7 @@ final class FactGenerator(
       modifyAtomicallyFor(fact.key()).flatMap(_._1.complete(Some(fact)).void)
   }
 
-  private def modifyAtomicallyFor(key: CompilerFactKey): IO[(Deferred[IO, Option[CompilerFact]], Boolean)] =
+  private def modifyAtomicallyFor(key: CompilerFactKey[_]): IO[(Deferred[IO, Option[CompilerFact]], Boolean)] =
     for {
       newValue <- Deferred[IO, Option[CompilerFact]]
       result   <- facts.modify { internalMap =>
@@ -43,7 +43,7 @@ final class FactGenerator(
 
 object FactGenerator {
   def apply(generator: CompilerProcessor): IO[FactGenerator] =
-    Ref.of[IO, Map[CompilerFactKey, Deferred[IO, Option[CompilerFact]]]](Map.empty).map { ref =>
+    Ref.of[IO, Map[CompilerFactKey[_], Deferred[IO, Option[CompilerFact]]]](Map.empty).map { ref =>
       new FactGenerator(generator, ref)
     }
 }

@@ -9,16 +9,15 @@ import com.vanillasource.eliot.eliotc.module.*
 import com.vanillasource.eliot.eliotc.module.fact.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemModules
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
-import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.util.CatsOps.*
 
-import java.io.File
 import java.nio.file.Paths
 
 class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey)(using CompilationProcess): IO[Unit] = factKey match {
+  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
     case ModuleNames.Key(moduleName)                               => generateModule(moduleName)
     case ModuleFunction.Key(FunctionFQN(moduleName, functionName)) => generateModule(moduleName)
     case ModuleData.Key(TypeFQN(moduleName, typeName))             => generateModule(moduleName)

@@ -9,11 +9,9 @@ case class ModuleFunction(
     typeDictionary: Map[String, TypeFQN],
     functionDefinition: FunctionDefinition
 ) extends CompilerFact {
-  override def key(): CompilerFactKey = ModuleFunction.Key(ffqn)
+  override def key(): CompilerFactKey[ModuleFunction] = ModuleFunction.Key(ffqn)
 }
 
 object ModuleFunction {
-  case class Key(ffqn: FunctionFQN) extends CompilerFactKey {
-    override type FactType = ModuleFunction
-  }
+  case class Key(ffqn: FunctionFQN) extends CompilerFactKey[ModuleFunction]
 }

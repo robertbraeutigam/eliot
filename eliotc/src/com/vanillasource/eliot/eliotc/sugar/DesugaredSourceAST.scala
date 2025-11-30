@@ -7,11 +7,9 @@ import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 import java.nio.file.Path
 
 case class DesugaredSourceAST(path: Path, sourcedAst: Sourced[AST]) extends CompilerFact {
-  override def key(): CompilerFactKey = DesugaredSourceAST.Key(path)
+  override def key(): CompilerFactKey[DesugaredSourceAST] = DesugaredSourceAST.Key(path)
 }
 
 object DesugaredSourceAST {
-  case class Key(path: Path) extends CompilerFactKey {
-    override type FactType = DesugaredSourceAST
-  }
+  case class Key(path: Path) extends CompilerFactKey[DesugaredSourceAST]
 }

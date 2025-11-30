@@ -6,11 +6,9 @@ import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 import java.nio.file.Path
 
 case class ResolvedSourceContent(path: Path, content: Sourced[String]) extends CompilerFact {
-  override def key(): ResolvedSourceContent.Key = ResolvedSourceContent.Key(path)
+  override def key(): CompilerFactKey[ResolvedSourceContent] = ResolvedSourceContent.Key(path)
 }
 
 object ResolvedSourceContent {
-  case class Key(path: Path) extends CompilerFactKey {
-    override type FactType = ResolvedSourceContent
-  }
+  case class Key(path: Path) extends CompilerFactKey[ResolvedSourceContent]
 }

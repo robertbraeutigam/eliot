@@ -7,13 +7,11 @@ import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 import java.nio.file.Path
 
 case class GeneratedModule(moduleName: ModuleName, classFiles: Seq[ClassFile]) extends CompilerFact {
-  override def key(): CompilerFactKey = GeneratedModule.Key(moduleName)
+  override def key(): CompilerFactKey[GeneratedModule] = GeneratedModule.Key(moduleName)
 }
 
 object GeneratedModule {
-  case class Key(moduleName: ModuleName) extends CompilerFactKey {
-    override type FactType = GeneratedModule
-  }
+  case class Key(moduleName: ModuleName) extends CompilerFactKey[GeneratedModule]
 
   case class ClassFile(fileName: String, bytecode: Array[Byte])
 }

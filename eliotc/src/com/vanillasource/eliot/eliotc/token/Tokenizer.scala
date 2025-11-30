@@ -14,12 +14,12 @@ import java.nio.file.Path
   * comments.
   */
 class Tokenizer extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
+  override def generate(factKey: CompilerFactKey[_])(using process: CompilationProcess): IO[Unit] = factKey match {
     case SourceTokens.Key(path) =>
       process.getFact(ResolvedSourceContent.Key(path)).flatMap(_.traverse_(processFact))
     case _                      => IO.unit
   }
-  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit]              = fact match {
+  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit]                 = fact match {
     case ResolvedSourceContent(path, sourcedContent) => tokenize(path, sourcedContent)
     case _                                           => IO.unit
   }

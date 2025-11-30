@@ -10,7 +10,7 @@ import java.nio.file.Path
 import scala.io.Source
 
 class SourceContentReader extends CompilerProcessor {
-  override def generate(factKey: CompilerFactKey)(using CompilationProcess): IO[Unit] = factKey match {
+  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
     case SourceContent.Key(file) => generateContentFor(file)
     case _                       => IO.unit
   }

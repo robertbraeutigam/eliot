@@ -9,5 +9,5 @@ trait CompilerProcessor {
 
   /** Generate the fact with the given key, if able. Otherwise, do nothing.
     */
-  def generate(factKey: CompilerFactKey)(using CompilationProcess): IO[Unit]
+  def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit]
 }

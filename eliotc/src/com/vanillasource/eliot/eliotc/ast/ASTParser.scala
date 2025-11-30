@@ -5,19 +5,16 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
+import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.token.{SourceTokens, Token}
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
-
-import java.io.File
-import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
 
 import java.nio.file.Path
 
 class ASTParser extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey)(using compilation: CompilationProcess): IO[Unit] = factKey match {
+  override def generate(factKey: CompilerFactKey[_])(using compilation: CompilationProcess): IO[Unit] = factKey match {
     case SourceAST.Key(path) =>
       compilation
         .getFact(SourceTokens.Key(path))
@@ -53,7 +50,9 @@ class ASTParser extends CompilerProcessor with Logging {
            }.sequence_
       _ <- astResult.value match
              case Some(ast) =>
-               debug(s"Generated AST for $path: ${ast.show}.") >> process.registerFact(SourceAST(path, sourcedTokens.as(ast)))
+               debug(s"Generated AST for $path: ${ast.show}.") >> process.registerFact(
+                 SourceAST(path, sourcedTokens.as(ast))
+               )
              case None      => IO.unit
     } yield ()
   }

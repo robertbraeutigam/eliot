@@ -9,11 +9,9 @@ case class GenerateModule(
     usedFunctions: Seq[Sourced[FunctionFQN]],
     usedTypes: Seq[Sourced[TypeFQN]]
 ) extends CompilerFact {
-  override def key(): CompilerFactKey = GenerateModule.Key(moduleName)
+  override def key(): CompilerFactKey[GenerateModule] = GenerateModule.Key(moduleName)
 }
 
 object GenerateModule {
-  case class Key(moduleName: ModuleName) extends CompilerFactKey {
-    override type FactType = GenerateModule
-  }
+  case class Key(moduleName: ModuleName) extends CompilerFactKey[GenerateModule]
 }

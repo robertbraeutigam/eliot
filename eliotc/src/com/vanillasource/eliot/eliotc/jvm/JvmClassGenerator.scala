@@ -21,7 +21,7 @@ import org.objectweb.asm.Opcodes
 import scala.annotation.tailrec
 
 class JvmClassGenerator extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
+  override def generate(factKey: CompilerFactKey[_])(using process: CompilationProcess): IO[Unit] = factKey match {
     case GeneratedModule.Key(moduleName) =>
       process.getFact(GenerateModule.Key(moduleName)).flatMap(_.traverse_(processFact))
     case _                               => IO.unit

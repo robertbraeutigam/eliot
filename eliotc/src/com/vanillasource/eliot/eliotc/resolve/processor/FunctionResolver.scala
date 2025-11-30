@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor, ast}
 
 class FunctionResolver extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey)(using process: CompilationProcess): IO[Unit] = factKey match {
+  override def generate(factKey: CompilerFactKey[_])(using process: CompilationProcess): IO[Unit] = factKey match {
     case ResolvedFunction.Key(ffqn) =>
       process.getFact(ModuleFunction.Key(ffqn)).flatMap(_.traverse_(processFact))
     case _                          => IO.unit

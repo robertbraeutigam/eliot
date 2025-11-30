@@ -10,7 +10,5 @@ case class SourceTokens(path: Path, tokens: Sourced[Seq[Sourced[Token]]]) extend
 }
 
 object SourceTokens {
-  case class Key(path: Path) extends CompilerFactKey {
-    override type FactType = SourceTokens
-  }
+  case class Key(path: Path) extends CompilerFactKey[SourceTokens]
 }

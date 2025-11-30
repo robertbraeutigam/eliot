@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, Comp
 import java.nio.file.Path
 
 class ResolvedSourceContentReader(rootPaths: Seq[Path]) extends CompilerProcessor {
-  override def generate(factKey: CompilerFactKey)(using CompilationProcess): IO[Unit] = factKey match {
+  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
     case ResolvedSourceContent.Key(path) => generateContentFor(path)
     case _                               => IO.unit
   }

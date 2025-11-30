@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.feedback.User.*
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.pos.Position.{Column, Line}
 import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerSignal}
+import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.util.CatsOps.*
 
 import java.io.File

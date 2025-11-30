@@ -8,11 +8,9 @@ case class ModuleData(
     typeDictionary: Map[String, TypeFQN],
     dataDefinition: DataDefinition
 ) extends CompilerFact {
-  override def key(): CompilerFactKey = ModuleData.Key(tfqn)
+  override def key(): CompilerFactKey[ModuleData] = ModuleData.Key(tfqn)
 }
 
 object ModuleData {
-  case class Key(tfqn: TypeFQN) extends CompilerFactKey {
-    override type FactType = ModuleData
-  }
+  case class Key(tfqn: TypeFQN) extends CompilerFactKey[ModuleData]
 }

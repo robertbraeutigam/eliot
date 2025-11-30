@@ -8,11 +8,9 @@ import java.io.File
 /** The contents of a source file.
   */
 case class SourceContent(file: File, content: Sourced[String]) extends CompilerFact {
-  override def key(): SourceContent.Key = SourceContent.Key(file)
+  override def key(): CompilerFactKey[SourceContent] = SourceContent.Key(file)
 }
 
 object SourceContent {
-  case class Key(file: File) extends CompilerFactKey {
-    override type FactType = SourceContent
-  }
+  case class Key(file: File) extends CompilerFactKey[SourceContent]
 }
