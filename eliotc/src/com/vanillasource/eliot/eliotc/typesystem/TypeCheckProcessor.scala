@@ -3,9 +3,11 @@ package com.vanillasource.eliot.eliotc.typesystem
 import cats.data.StateT
 import cats.effect.IO
 import cats.implicits.*
+import cats.syntax.all.*
 import cats.kernel.Monoid
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
+import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
 import com.vanillasource.eliot.eliotc.resolve.fact.*
@@ -15,37 +17,28 @@ import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.*
 import com.vanillasource.eliot.eliotc.typesystem.UniqueGenericNames.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
-class TypeCheckProcessor extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey[_])(using process: CompilationProcess): IO[Unit] = factKey match {
-    case TypeCheckedFunction.Key(ffqn) =>
-      process.getFact(ResolvedFunction.Key(ffqn)).flatMap(_.traverse_(processFact))
-    case _                             => IO.unit
-  }
+class TypeCheckProcessor
+    extends OneToOneProcessor((key: TypeCheckedFunction.Key) => ResolvedFunction.Key(key.ffqn))
+    with Logging {
 
-  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
-    case ResolvedFunction(
-          ffqn,
-          functionDefinition @ FunctionDefinition(_, _, _, Some(body))
-        ) =>
-      process(ffqn, functionDefinition, body).runCompilation_()
-    case _ => IO.unit
+  override def generateFromFact(
+      resolvedFunction: ResolvedFunction
+  )(using process: CompilationProcess): IO[Unit] = {
+    val functionDefinition = resolvedFunction.definition
+    val bodyMaybe          = functionDefinition.body
+    val typeGraph          = genericParameters(functionDefinition.genericParameters)
 
-  private def process(
-      ffqn: FunctionFQN,
-      functionDefinition: FunctionDefinition,
-      body: Sourced[Expression]
-  )(using process: CompilationProcess): CompilationIO[Unit] = {
-    val typeGraph = genericParameters(functionDefinition.genericParameters)
-
-    for {
+    val program = for {
       constructedTypeGraph <-
-        constructTypeGraph(functionDefinition.valueType, body.value)
+        constructTypeGraph(functionDefinition.valueType, bodyMaybe.get.value)
           .runA(UniqueGenericNames())
       fullTypeGraph         = typeGraph combine constructedTypeGraph
       _                    <- debug(s"solving ${fullTypeGraph.show}").liftToCompilationIO
       _                    <- fullTypeGraph.solve()
-      _                    <- process.registerFact(TypeCheckedFunction(ffqn, functionDefinition)).liftIfNoErrors
+      _                    <- process.registerFact(TypeCheckedFunction(resolvedFunction.ffqn, functionDefinition)).liftIfNoErrors
     } yield ()
+
+    program.whenA(bodyMaybe.isDefined).runCompilation_()
   }
 
   private type TypeGraphIO[T] = StateT[CompilationIO, UniqueGenericNames, T]
