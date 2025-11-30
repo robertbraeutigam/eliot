@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor, ast}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleData, ModuleFunction, TypeFQN}
+import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, DataDefinition, ResolvedData, TypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
@@ -12,32 +13,15 @@ import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
-class TypeResolver extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey[_])(using process: CompilationProcess): IO[Unit] = factKey match {
-    case ResolvedData.Key(tfqn) =>
-      process.getFact(ModuleData.Key(tfqn)).flatMap(_.traverse_(processFact))
-    case _                      => IO.unit
-  }
+class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => ModuleData.Key(key.tfqn)) with Logging {
+  override def generateFromFact(moduleData: ModuleData)(using process: CompilationProcess): IO[Unit] = {
+    val genericParameters = moduleData.dataDefinition.genericParameters
+    val args              = moduleData.dataDefinition.arguments
+    val name              = moduleData.dataDefinition.name
 
-  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match
-    case ModuleData(
-          tfqn,
-          typeDictionary,
-          ast.DataDefinition(name, genericParameters, args)
-        ) =>
-      process(tfqn, typeDictionary, name, genericParameters, args).runCompilation_()
-    case _ => IO.unit
-
-  private def process(
-      tfqn: TypeFQN,
-      typeDictionary: Map[String, TypeFQN],
-      name: Sourced[String],
-      genericParameters: Seq[ast.GenericParameter],
-      args: Seq[ast.ArgumentDefinition]
-  )(using process: CompilationProcess): CompilationIO[Unit] = {
     val scope = ResolverScope(
       Map.empty,
-      typeDictionary,
+      moduleData.typeDictionary,
       genericParameters.map(gp => gp.name.value -> gp).toMap,
       args.map(arg => arg.name.value -> arg).toMap
     )
@@ -59,7 +43,7 @@ class TypeResolver extends CompilerProcessor with Logging {
         process
           .registerFact(
             ResolvedData(
-              tfqn,
+              moduleData.tfqn,
               DataDefinition(
                 name,
                 resolvedGenericParameters,
@@ -72,7 +56,7 @@ class TypeResolver extends CompilerProcessor with Logging {
 
     } yield ()
 
-    resolveProgram.runS(scope).void
+    resolveProgram.runS(scope).void.runCompilation_()
   }
 }
 
