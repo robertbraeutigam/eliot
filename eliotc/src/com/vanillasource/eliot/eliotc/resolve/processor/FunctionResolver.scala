@@ -4,7 +4,8 @@ import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleData, ModuleFunction, TypeFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleFunction, TypeFQN}
+import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.FunctionLiteral
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
@@ -12,46 +13,21 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor, ast}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
 
-class FunctionResolver extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey[_])(using process: CompilationProcess): IO[Unit] = factKey match {
-    case ResolvedFunction.Key(ffqn) =>
-      process.getFact(ModuleFunction.Key(ffqn)).flatMap(_.traverse_(processFact))
-    case _                          => IO.unit
-  }
-  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit]              = fact match
-    case ModuleFunction(
-          ffqn,
-          functionDictionary,
-          typeDictionary,
-          ast.FunctionDefinition(name, genericParameters, args, typeDefinition, body)
-        ) =>
-      process(
-        ffqn,
-        functionDictionary,
-        typeDictionary,
-        name,
-        genericParameters,
-        args,
-        typeDefinition,
-        body
-      ).runCompilation_()
-    case _ => IO.unit
+class FunctionResolver
+    extends OneToOneProcessor((key: ResolvedFunction.Key) => ModuleFunction.Key(key.ffqn))
+    with Logging {
+  override def generateFromFact(moduleFunction: ModuleFunction)(using process: CompilationProcess): IO[Unit] = {
+    val args              = moduleFunction.functionDefinition.args
+    val body              = moduleFunction.functionDefinition.body
+    val genericParameters = moduleFunction.functionDefinition.genericParameters
+    val typeReference     = moduleFunction.functionDefinition.typeDefinition
+    val name              = moduleFunction.functionDefinition.name
 
-  private def process(
-      ffqn: FunctionFQN,
-      functionDictionary: Map[String, FunctionFQN],
-      typeDictionary: Map[String, TypeFQN],
-      name: Sourced[String],
-      genericParameters: Seq[ast.GenericParameter],
-      args: Seq[ast.ArgumentDefinition],
-      typeReference: ast.TypeReference,
-      body: Option[Sourced[ast.Expression]]
-  )(using process: CompilationProcess): CompilationIO[Unit] = {
     val scope = ResolverScope(
-      functionDictionary,
-      typeDictionary,
+      moduleFunction.functionDictionary,
+      moduleFunction.typeDictionary,
       genericParameters.map(gp => gp.name.value -> gp).toMap,
       args.map(arg => arg.name.value -> arg).toMap
     )
@@ -71,7 +47,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
         process
           .registerFact(
             ResolvedFunction(
-              ffqn,
+              moduleFunction.ffqn,
               FunctionDefinition(
                 name,
                 resolvedGenericParameters,
@@ -93,7 +69,7 @@ class FunctionResolver extends CompilerProcessor with Logging {
           .liftToScoped
     } yield ()
 
-    resolveProgram.runS(scope).void
+    resolveProgram.runS(scope).void.runCompilation_()
   }
 
   private def resolveExpression(
