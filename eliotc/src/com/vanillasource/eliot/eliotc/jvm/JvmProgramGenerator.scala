@@ -3,10 +3,10 @@ package com.vanillasource.eliot.eliotc.jvm
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
+import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
+import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor, Init}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Init}
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
 import java.nio.charset.StandardCharsets
@@ -14,24 +14,13 @@ import java.nio.file.StandardOpenOption.*
 import java.nio.file.{Files, Path, StandardOpenOption}
 import java.util.jar.{JarEntry, JarOutputStream}
 
-class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey[_])(using process: CompilationProcess): IO[Unit] = factKey match {
-    case Init.Key() =>
-      process.getFact(UsedSymbols.Key()).flatMap(_.traverse_(processFact))
-    case _          => IO.unit
-  }
+class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path)
+    extends OneToOneProcessor((key: Init.Key) => UsedSymbols.Key())
+    with Logging {
 
-  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
-    fact match
-      case UsedSymbols(usedFunctions, usedTypes) => generateAllClasses(usedFunctions, usedTypes)
-      case _                                     => IO.unit
-
-  private def generateAllClasses(
-      usedFunctions: Seq[Sourced[FunctionFQN]],
-      usedTypes: Seq[Sourced[TypeFQN]]
-  )(using process: CompilationProcess): IO[Unit] = {
-    val groupedFunctions = usedFunctions.groupBy(_.value.moduleName)
-    val groupedTypes     = usedTypes.groupBy(_.value.moduleName)
+  override def generateFromFact(usedSymbols: UsedSymbols)(using process: CompilationProcess): IO[Unit] = {
+    val groupedFunctions = usedSymbols.usedFunctions.groupBy(_.value.moduleName)
+    val groupedTypes     = usedSymbols.usedTypes.groupBy(_.value.moduleName)
     val facts            = (groupedFunctions.keys ++ groupedTypes.keys)
       .map(moduleName =>
         GenerateModule(

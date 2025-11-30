@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm
 
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.CatsAsm.*
 import com.vanillasource.eliot.eliotc.jvm.GeneratedModule.ClassFile
@@ -9,51 +10,41 @@ import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.NativeType.{javaSignatureName, types}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType, systemUnitType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
+import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedData, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import org.objectweb.asm.Opcodes
 
 import scala.annotation.tailrec
 
-class JvmClassGenerator extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey[_])(using process: CompilationProcess): IO[Unit] = factKey match {
-    case GeneratedModule.Key(moduleName) =>
-      process.getFact(GenerateModule.Key(moduleName)).flatMap(_.traverse_(processFact))
-    case _                               => IO.unit
-  }
+class JvmClassGenerator
+    extends OneToOneProcessor((key: GeneratedModule.Key) => GenerateModule.Key(key.moduleName))
+    with Logging {
 
-  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
-    fact match
-      case GenerateModule(moduleName, usedFunctions, usedTypes) => generateModule(moduleName, usedFunctions, usedTypes)
-      case _                                                    => IO.unit
-
-  private def generateModule(
-      moduleName: ModuleName,
-      usedFunctions: Seq[Sourced[FunctionFQN]],
-      usedTypes: Seq[Sourced[TypeFQN]]
-  )(using
-      process: CompilationProcess
-  ): IO[Unit] = {
-    (for {
-      mainClassGenerator     <- createClassGenerator(moduleName).liftToCompilationIO
-      typeFiles              <- usedTypes
+  override def generateFromFact(generateModule: GenerateModule)(using process: CompilationProcess): IO[Unit] = {
+    val program = for {
+      mainClassGenerator     <- createClassGenerator(generateModule.moduleName).liftToCompilationIO
+      typeFiles              <- generateModule.usedTypes
                                   .filter(stfqn => !types.contains(stfqn.value))
                                   .flatTraverse(sourcedTfqn => createData(mainClassGenerator, sourcedTfqn))
-      typeGeneratedFunctions <- usedTypes.flatTraverse(collectTypeGeneratedFunctions).map(_.toSet)
-      functionFiles          <- usedFunctions
+      typeGeneratedFunctions <- generateModule.usedTypes.flatTraverse(collectTypeGeneratedFunctions).map(_.toSet)
+      functionFiles          <- generateModule.usedFunctions
                                   .filter(sffqn => !typeGeneratedFunctions.contains(sffqn.value.functionName))
                                   .flatTraverse(sourcedFfqn => createModuleMethod(mainClassGenerator, sourcedFfqn))
       mainClass              <- mainClassGenerator.generate().liftToCompilationIO
-      _                      <- (debug(s"Generated ${moduleName.show}, with type files: ${typeFiles
+      _                      <- (debug(s"Generated ${generateModule.moduleName.show}, with type files: ${typeFiles
                                     .map(_.fileName)
                                     .mkString(", ")}, with function files: ${functionFiles.map(_.fileName).mkString(", ")}") >> process
-                                  .registerFact(GeneratedModule(moduleName, typeFiles ++ functionFiles ++ Seq(mainClass)))).liftIfNoErrors
-    } yield ()).runCompilation_()
+                                  .registerFact(
+                                    GeneratedModule(generateModule.moduleName, typeFiles ++ functionFiles ++ Seq(mainClass))
+                                  )).liftIfNoErrors
+    } yield ()
+
+    program.runCompilation_()
   }
 
   private def createModuleMethod(mainClassGenerator: ClassGenerator, sourcedFfqn: Sourced[FunctionFQN])(using

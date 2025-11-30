@@ -2,33 +2,23 @@ package com.vanillasource.eliot.eliotc.used
 
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
+import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsState.*
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
-class UsedSymbolsProcessor(mainFunction: FunctionFQN) extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey[_])(using process: CompilationProcess): IO[Unit] = factKey match {
-    case UsedSymbols.Key() =>
-      process.getFact(ResolvedFunction.Key(mainFunction)).flatMap(_.traverse_(processFact))
-    case _                 => IO.unit
-  }
+class UsedSymbolsProcessor(mainFunction: FunctionFQN)
+    extends OneToOneProcessor((key: UsedSymbols.Key) => ResolvedFunction.Key(mainFunction))
+    with Logging {
 
-  private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
-    fact match
-      case ResolvedFunction(ffqn, definition) if ffqn === mainFunction =>
-        processMain(ffqn, definition)
-      case _                                                           => IO.unit
-
-  private def processMain(ffqn: FunctionFQN, definition: FunctionDefinition)(using
-      process: CompilationProcess
-  ): IO[Unit] =
+  override def generateFromFact(resolvedMainFunction: ResolvedFunction)(using process: CompilationProcess): IO[Unit] =
     for {
       usedSymbols <-
-        (processDefinition(definition) >> addFunctionUsed(definition.name.as(ffqn))).runS(UsedSymbolsState())
+        (processDefinition(resolvedMainFunction.definition) >> addFunctionUsed(resolvedMainFunction.definition.name.as(resolvedMainFunction.ffqn))).runS(UsedSymbolsState())
       _           <- debug(s"Used functions: ${usedSymbols.usedFunctions.keys.map(_.show).mkString(", ")}")
       _           <- debug(s"Used types: ${usedSymbols.usedTypes.keys.map(TypeFQN.fullyQualified.show(_)).mkString(", ")}")
       _           <- process.registerFact(getUsedSymbols(usedSymbols))
