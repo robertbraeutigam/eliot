@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.source.error
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.feedback.User
+import com.vanillasource.eliot.eliotc.feedback.User.*
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.pos.Position.{Column, Line}
 import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
@@ -12,7 +12,7 @@ import com.vanillasource.util.CatsOps.*
 import java.io.File
 import scala.io.AnsiColor.{BOLD, MAGENTA, RED, RESET}
 
-object SourcedError extends User {
+object SourcedError {
   def registerCompilerError(message: Sourced[String], description: Seq[String] = Seq.empty)(using
       process: CompilationProcess
   ): IO[Unit] =
