@@ -16,9 +16,9 @@ import java.util.jar.{JarEntry, JarOutputStream}
 
 class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path) extends CompilerProcessor with Logging {
   override def generate(factKey: CompilerFactKey[_])(using process: CompilationProcess): IO[Unit] = factKey match {
-    case Init() =>
+    case Init.Key() =>
       process.getFact(UsedSymbols.Key()).flatMap(_.traverse_(processFact))
-    case _      => IO.unit
+    case _          => IO.unit
   }
 
   private def processFact(fact: CompilerFact)(using CompilationProcess): IO[Unit] =
