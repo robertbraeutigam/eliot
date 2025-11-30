@@ -1,7 +1,5 @@
 main: Unit = println(message(greeting))
 
-f = d
-
 data Greeting(message: String)
 
 greeting: Greeting = Greeting("Hello World!")
