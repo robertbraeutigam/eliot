@@ -15,7 +15,7 @@ import java.nio.file.{Files, Path, StandardOpenOption}
 import java.util.jar.{JarEntry, JarOutputStream}
 
 class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path)
-    extends OneToOneProcessor((key: Init.Key) => UsedSymbols.Key())
+    extends OneToOneProcessor((key: Init.Key) => UsedSymbols.Key(mainFunction))
     with Logging {
 
   override def generateFromFact(usedSymbols: UsedSymbols)(using process: CompilationProcess): IO[Unit] = {
