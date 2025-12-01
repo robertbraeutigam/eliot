@@ -15,6 +15,11 @@ object `package` extends RootModule {
      )
    }
 
+   object compiler extends DefaultScalaModule {
+     def moduleDeps = Seq(eliotc, jvm)
+     def mainClass = T { Some("com.vanillasource.eliot.eliotc.main.Main") }
+   }
+
    trait DefaultScalaModule extends ScalaModule {
      def scalaVersion = "3.3.1"
 
