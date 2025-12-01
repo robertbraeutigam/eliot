@@ -34,11 +34,11 @@ object Main extends IOApp with Logging {
                                                        }
                                                      )
                                                    )
-                                  _             <- info("Compiler starting...")
+                                  _             <- debug("Compiler starting...")
                                   processors    <- processorsRef.get
                                   generator     <- FactGenerator(SequentialCompilerProcessors(processors))
                                   _             <- generator.getFact(Init.Key())
-                                  _             <- info("Compiler exiting normally.")
+                                  _             <- debug("Compiler exiting normally.")
                                 } yield ()
                               case None                => IO.unit
     } yield ExitCode.Success
