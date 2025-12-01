@@ -63,6 +63,19 @@ object Main extends IOApp with Logging {
       args: Seq[String],
       options: Seq[OParser[_, Configuration]]
   ): IO[Option[Configuration]] = IO {
-    OParser.parse(OParser.sequence(baseOptions(), options: _*), args, Configuration())
+    val (result, effects) = OParser.runParser(OParser.sequence(baseOptions(), options: _*), args, Configuration())
+
+    var terminateState: Option[Unit] = Some(())
+
+    OParser.runEffects(
+      effects,
+      new DefaultOEffectSetup {
+        override def terminate(exitState: Either[String, Unit]): Unit = {
+          terminateState = None
+        }
+      }
+    )
+
+    terminateState.flatMap(_ => result)
   }
 }
