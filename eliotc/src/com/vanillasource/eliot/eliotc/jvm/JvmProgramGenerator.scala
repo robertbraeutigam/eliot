@@ -45,7 +45,7 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path)
         generateClasses(jos, allClasses)
         generateMain(jos)
       }
-    }
+    } >> info(s"Generated executable jar: $jarFilePath.")
 
   private def generateClasses(jos: JarOutputStream, allClasses: Seq[GeneratedModule]): Unit = {
     allClasses.foreach { case GeneratedModule(moduleName, classFiles) =>
