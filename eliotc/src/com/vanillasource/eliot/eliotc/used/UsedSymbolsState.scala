@@ -18,8 +18,9 @@ object UsedSymbolsState {
     def liftToUsedSymbols: UsedSymbolsIO[T] = StateT.liftF(io)
   }
 
-  def getUsedSymbols(state: UsedSymbolsState): UsedSymbols =
+  def getUsedSymbols(ffqn: FunctionFQN, state: UsedSymbolsState): UsedSymbols =
     UsedSymbols(
+      ffqn,
       usedFunctions = state.usedFunctions.map(t => t._2.as(t._1)).toSeq,
       usedTypes = state.usedTypes.map(t => t._2.as(t._1)).toSeq
     )

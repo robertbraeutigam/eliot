@@ -4,11 +4,11 @@ import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
-case class UsedSymbols(usedFunctions: Seq[Sourced[FunctionFQN]], usedTypes: Seq[Sourced[TypeFQN]])
+case class UsedSymbols(ffqn: FunctionFQN, usedFunctions: Seq[Sourced[FunctionFQN]], usedTypes: Seq[Sourced[TypeFQN]])
     extends CompilerFact {
-  override def key(): CompilerFactKey[UsedSymbols] = UsedSymbols.Key()
+  override def key(): CompilerFactKey[UsedSymbols] = UsedSymbols.Key(ffqn)
 }
 
 object UsedSymbols {
-  case class Key() extends CompilerFactKey[UsedSymbols]
+  case class Key(ffqn: FunctionFQN) extends CompilerFactKey[UsedSymbols]
 }

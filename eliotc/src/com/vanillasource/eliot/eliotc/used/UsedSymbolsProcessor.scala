@@ -11,17 +11,19 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefiniti
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsState.*
 
-class UsedSymbolsProcessor(mainFunction: FunctionFQN)
-    extends OneToOneProcessor((key: UsedSymbols.Key) => ResolvedFunction.Key(mainFunction))
+class UsedSymbolsProcessor
+    extends OneToOneProcessor((key: UsedSymbols.Key) => ResolvedFunction.Key(key.ffqn))
     with Logging {
 
   override def generateFromFact(resolvedMainFunction: ResolvedFunction)(using process: CompilationProcess): IO[Unit] =
     for {
       usedSymbols <-
-        (processDefinition(resolvedMainFunction.definition) >> addFunctionUsed(resolvedMainFunction.definition.name.as(resolvedMainFunction.ffqn))).runS(UsedSymbolsState())
+        (processDefinition(resolvedMainFunction.definition) >> addFunctionUsed(
+          resolvedMainFunction.definition.name.as(resolvedMainFunction.ffqn)
+        )).runS(UsedSymbolsState())
       _           <- debug(s"Used functions: ${usedSymbols.usedFunctions.keys.map(_.show).mkString(", ")}")
       _           <- debug(s"Used types: ${usedSymbols.usedTypes.keys.map(TypeFQN.fullyQualified.show(_)).mkString(", ")}")
-      _           <- process.registerFact(getUsedSymbols(usedSymbols))
+      _           <- process.registerFact(getUsedSymbols(resolvedMainFunction.ffqn, usedSymbols))
     } yield ()
 
   private def processDefinition(definition: FunctionDefinition)(using
