@@ -2,14 +2,12 @@ package com.vanillasource.eliot.eliotc.main
 
 import cats.effect.{ExitCode, IO, IOApp, Ref}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.{CompilerProcessor, Init}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.layer.{CompilerSystem, Configuration, Layer}
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
+import com.vanillasource.eliot.eliotc.{CompilerProcessor, Init}
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
 
-import java.io.File
 import java.util.ServiceLoader
 import scala.jdk.CollectionConverters.*
 
@@ -36,6 +34,7 @@ object Main extends IOApp with Logging {
                                   processors    <- processorsRef.get
                                   generator     <- FactGenerator(SequentialCompilerProcessors(processors))
                                   _             <- generator.getFact(Init.Key())
+                                  _             <- info("Compiler exiting normally.")
                                 } yield ()
                               case None                => IO.unit
     } yield ExitCode.Success
@@ -51,7 +50,7 @@ object Main extends IOApp with Logging {
 
   private def baseOptions() = {
     val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
-    import cmdLineBuilder._
+    import cmdLineBuilder.*
 
     OParser.sequence(
       programName("eliotc"),
