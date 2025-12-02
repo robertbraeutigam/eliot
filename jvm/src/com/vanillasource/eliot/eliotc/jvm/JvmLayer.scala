@@ -23,9 +23,6 @@ class JvmLayer extends Layer {
       .action((moduleName, config) => config.set(mainKey, FunctionFQN(ModuleName.parse(moduleName), "main")))
   )
 
-  override def activate(): StateT[IO, Configuration, Seq[Class[_ <: Layer]]] =
-    StateT.pure(Seq(classOf[BaseLayer]))
-
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
     configuration.get(mainKey) match {
       case Some(mainFfqn) =>

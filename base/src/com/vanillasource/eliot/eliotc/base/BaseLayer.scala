@@ -35,8 +35,6 @@ class BaseLayer extends Layer {
       .text("paths of either directories or files to compile")
   )
 
-  override def activate(): StateT[IO, Configuration, Seq[Class[_ <: Layer]]] = StateT.empty
-
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] = {
     StateT
       .modify(superProcessor =>
