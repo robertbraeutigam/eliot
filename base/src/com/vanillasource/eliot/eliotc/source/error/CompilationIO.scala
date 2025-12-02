@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.util.CatsOps.*
+import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 import java.io.File
 

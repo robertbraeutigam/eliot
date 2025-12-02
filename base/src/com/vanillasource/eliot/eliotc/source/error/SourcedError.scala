@@ -7,10 +7,10 @@ import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.pos.Position.{Column, Line}
 import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.CompilationProcess
-import com.vanillasource.util.CatsOps.*
 
 import java.io.File
 import scala.io.AnsiColor.{BOLD, MAGENTA, RED, RESET}
+import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 object SourcedError {
   def registerCompilerError(message: Sourced[String], description: Seq[String] = Seq.empty)(using

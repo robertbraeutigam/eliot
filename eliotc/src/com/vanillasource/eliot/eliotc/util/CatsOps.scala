@@ -1,4 +1,4 @@
-package com.vanillasource.util
+package com.vanillasource.eliot.eliotc.util
 
 import cats.Functor
 import cats.Monad

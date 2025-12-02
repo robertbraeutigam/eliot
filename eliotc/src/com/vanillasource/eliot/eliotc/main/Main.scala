@@ -1,12 +1,14 @@
 package com.vanillasource.eliot.eliotc.main
 
-import cats.effect.{ExitCode, IO, IOApp, Ref}
+import cats.data.OptionT
+import cats.effect.{ExitCode, IO, IOApp}
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.Init
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.layer.Configuration.namedKey
+import com.vanillasource.eliot.eliotc.layer.Configuration.{namedKey, stringKey}
 import com.vanillasource.eliot.eliotc.layer.{Configuration, Layer}
-import com.vanillasource.eliot.eliotc.processor.{NullProcessor, SequentialCompilerProcessors}
-import com.vanillasource.eliot.eliotc.{CompilerProcessor, Init}
+import com.vanillasource.eliot.eliotc.processor.NullProcessor
+import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
 
 import java.nio.file.Path
@@ -14,26 +16,27 @@ import java.util.ServiceLoader
 import scala.jdk.CollectionConverters.*
 
 object Main extends IOApp with Logging {
-  val targetPathKey: Configuration.Key[Path] = namedKey[Path]("targetPath")
+  val targetPathKey: Configuration.Key[Path]     = namedKey[Path]("targetPath")
+  val targetPluginKey: Configuration.Key[String] = stringKey("targetPlugin")
 
   override def run(args: List[String]): IO[ExitCode] = {
-    for {
-      layers             <- allLayers()
-      configurationMaybe <- parserCommandLine(args, layers.map(_.commandLineParser()))
-      _                  <- configurationMaybe match
-                              case Some(configuration) =>
-                                for {
-                                  processor <- layers.traverse_(_.initialize(configuration)).runS(NullProcessor())
-                                  _         <- debug("Compiler starting...")
-                                  generator <- FactGenerator(processor)
-                                  _         <- generator.getFact(Init.Key())
-                                  _         <- debug("Compiler exiting normally.")
-                                } yield ()
-                              case None                => IO.unit
-    } yield ExitCode.Success
+    val program = for {
+      layers        <- allLayers().liftOptionT
+      // Run command line parsing with all options from all layers
+      configuration <- parserCommandLine(args, layers.map(_.commandLineParser()))
+      // Collect all processors
+      processor     <- layers.traverse_(_.initialize(configuration)).runS(NullProcessor()).liftOptionT
+      // Run fact generator / compiler
+      _             <- debug("Compiler starting...").liftOptionT
+      generator     <- FactGenerator(processor).liftOptionT
+      _             <- generator.getFact(Init.Key()).liftOptionT
+      _             <- debug("Compiler exiting normally.").liftOptionT
+    } yield ()
+
+    program.value.as(ExitCode.Success)
   }
 
-  private def allLayers(): IO[Seq[Layer]] = IO.blocking {
+  private def allLayers(): IO[Seq[Layer]] = IO {
     ServiceLoader
       .load(classOf[Layer])
       .iterator()
@@ -57,7 +60,7 @@ object Main extends IOApp with Logging {
   private def parserCommandLine(
       args: Seq[String],
       options: Seq[OParser[_, Configuration]]
-  ): IO[Option[Configuration]] = IO {
+  ): OptionT[IO, Configuration] = IO {
     val (result, effects) = OParser.runParser(
       OParser.sequence(baseOptions(), options: _*),
       args,
@@ -76,5 +79,5 @@ object Main extends IOApp with Logging {
     )
 
     terminateState.flatMap(_ => result)
-  }
+  }.toOptionT
 }

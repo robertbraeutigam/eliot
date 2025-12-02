@@ -12,9 +12,9 @@ import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompiler
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
-import com.vanillasource.util.CatsOps.*
 
 import java.nio.file.Paths
+import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) extends CompilerProcessor with Logging {
   override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
