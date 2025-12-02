@@ -4,13 +4,13 @@ import cats.data.StateT
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.CompilerProcessor
 import com.vanillasource.eliot.eliotc.layer.Configuration.namedKey
-import com.vanillasource.eliot.eliotc.layer.{Configuration, Layer}
+import com.vanillasource.eliot.eliotc.layer.{Configuration, CompilerPlugin}
 import com.vanillasource.eliot.eliotc.main.Main
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
 import scopt.{OParser, OParserBuilder}
 
-class JvmLayer extends Layer {
+class JvmPlugin extends CompilerPlugin {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
   import cmdLineBuilder.*
 

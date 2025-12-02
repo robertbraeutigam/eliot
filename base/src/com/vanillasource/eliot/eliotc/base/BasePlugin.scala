@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilerProcessor
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.layer.Configuration.namedKey
-import com.vanillasource.eliot.eliotc.layer.{Configuration, Layer}
+import com.vanillasource.eliot.eliotc.layer.{Configuration, CompilerPlugin}
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
@@ -20,7 +20,7 @@ import scopt.{OParser, OParserBuilder}
 
 import java.io.File
 
-class BaseLayer extends Layer {
+class BasePlugin extends CompilerPlugin {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
 
   import cmdLineBuilder.*

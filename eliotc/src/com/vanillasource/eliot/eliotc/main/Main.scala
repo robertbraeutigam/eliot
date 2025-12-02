@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.Init
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.layer.Configuration.{namedKey, stringKey}
-import com.vanillasource.eliot.eliotc.layer.{Configuration, Layer}
+import com.vanillasource.eliot.eliotc.layer.{Configuration, CompilerPlugin}
 import com.vanillasource.eliot.eliotc.processor.NullProcessor
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
@@ -35,9 +35,9 @@ object Main extends IOApp with Logging {
     program.value.as(ExitCode.Success)
   }
 
-  private def allLayers(): IO[Seq[Layer]] = IO {
+  private def allLayers(): IO[Seq[CompilerPlugin]] = IO {
     ServiceLoader
-      .load(classOf[Layer])
+      .load(classOf[CompilerPlugin])
       .iterator()
       .asScala
       .toSeq

@@ -5,7 +5,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.CompilerProcessor
 import scopt.OParser
 
-trait Layer {
+trait CompilerPlugin {
   def commandLineParser(): OParser[_, Configuration]
 
   def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit]
