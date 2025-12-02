@@ -5,8 +5,8 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilerProcessor
 import com.vanillasource.eliot.eliotc.ast.ASTParser
-import com.vanillasource.eliot.eliotc.layer.Configuration.namedKey
-import com.vanillasource.eliot.eliotc.layer.{Configuration, CompilerPlugin}
+import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
+import com.vanillasource.eliot.eliotc.plugin.{Configuration, CompilerPlugin}
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}

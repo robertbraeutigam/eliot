@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.layer
+package com.vanillasource.eliot.eliotc.plugin
 
 import cats.data.StateT
 import cats.effect.IO

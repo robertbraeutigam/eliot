@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.layer
+package com.vanillasource.eliot.eliotc.plugin
 
 case class Configuration(map: Map[Configuration.Key[_], Any] = Map.empty) {
   def set[T](key: Configuration.Key[T], value: T) =

@@ -5,8 +5,8 @@ import cats.effect.{ExitCode, IO, IOApp}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.Init
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.layer.Configuration.{namedKey, stringKey}
-import com.vanillasource.eliot.eliotc.layer.{Configuration, CompilerPlugin}
+import com.vanillasource.eliot.eliotc.plugin.Configuration.{namedKey, stringKey}
+import com.vanillasource.eliot.eliotc.plugin.{Configuration, CompilerPlugin}
 import com.vanillasource.eliot.eliotc.processor.NullProcessor
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}

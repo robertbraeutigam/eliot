@@ -3,8 +3,8 @@ package com.vanillasource.eliot.eliotc.jvm
 import cats.data.StateT
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.CompilerProcessor
-import com.vanillasource.eliot.eliotc.layer.Configuration.namedKey
-import com.vanillasource.eliot.eliotc.layer.{Configuration, CompilerPlugin}
+import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
+import com.vanillasource.eliot.eliotc.plugin.{Configuration, CompilerPlugin}
 import com.vanillasource.eliot.eliotc.main.Main
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
