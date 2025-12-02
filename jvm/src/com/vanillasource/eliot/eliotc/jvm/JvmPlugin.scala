@@ -46,4 +46,6 @@ class JvmPlugin extends CompilerPlugin {
           )
       case None           => StateT.empty
     }
+
+  override def isSelectedBy(configuration: Configuration): Boolean = configuration.contains(mainKey)
 }

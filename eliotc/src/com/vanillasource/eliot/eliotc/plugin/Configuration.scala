@@ -4,6 +4,8 @@ case class Configuration(map: Map[Configuration.Key[_], Any] = Map.empty) {
   def set[T](key: Configuration.Key[T], value: T) =
     Configuration(map + ((key, value)))
 
+  def contains(key: Configuration.Key[_]): Boolean = get(key).isDefined
+
   def get[T](key: Configuration.Key[T]): Option[T] =
     map.get(key).map(_.asInstanceOf[T])
 

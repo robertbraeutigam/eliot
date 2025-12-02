@@ -8,5 +8,9 @@ import scopt.OParser
 trait CompilerPlugin {
   def commandLineParser(): OParser[_, Configuration]
 
+  def isSelectedBy(configuration: Configuration): Boolean = false
+
+  def pluginDependencies(): Seq[Class[_ <: CompilerPlugin]] = Seq.empty
+
   def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit]
 }
