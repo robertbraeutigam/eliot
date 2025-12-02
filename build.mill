@@ -20,7 +20,7 @@ object `package` extends RootModule {
      )
    }
 
-   object compiler extends DefaultScalaModule {
+   object examples extends DefaultScalaModule {
      def moduleDeps = Seq(eliotc, jvm)
      def mainClass = T { Some("com.vanillasource.eliot.eliotc.main.Main") }
    }
