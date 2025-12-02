@@ -1,11 +1,12 @@
 package com.vanillasource.eliot.eliotc.base
 
+import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilerProcessor
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.layer.Configuration.namedKey
-import com.vanillasource.eliot.eliotc.layer.{CompilerSystem, Configuration, Layer}
+import com.vanillasource.eliot.eliotc.layer.{Configuration, Layer}
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
@@ -21,6 +22,7 @@ import java.io.File
 
 class BaseLayer extends Layer {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
+
   import cmdLineBuilder.*
 
   private val pathKey = namedKey[Seq[File]]("paths")
@@ -33,21 +35,24 @@ class BaseLayer extends Layer {
       .text("paths of either directories or files to compile")
   )
 
-  override def initialize(configuration: Configuration, system: CompilerSystem): IO[Unit] =
-    system.registerProcessor(
-      SequentialCompilerProcessors(
-        Seq(
-          SourceContentReader(),
-          ResolvedSourceContentReader(configuration.getOrElse(pathKey, Seq.empty).map(_.toPath)),
-          Tokenizer(),
-          ASTParser(),
-          DesugarProcessor(),
-          ModuleProcessor(),
-          FunctionResolver(),
-          TypeResolver(),
-          TypeCheckProcessor(),
-          UsedSymbolsProcessor()
+  override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] = {
+    StateT
+      .modify(superProcessor =>
+        SequentialCompilerProcessors(
+          Seq(
+            superProcessor,
+            SourceContentReader(),
+            ResolvedSourceContentReader(configuration.getOrElse(pathKey, Seq.empty).map(_.toPath)),
+            Tokenizer(),
+            ASTParser(),
+            DesugarProcessor(),
+            ModuleProcessor(),
+            FunctionResolver(),
+            TypeResolver(),
+            TypeCheckProcessor(),
+            UsedSymbolsProcessor()
+          )
         )
       )
-    )
+  }
 }

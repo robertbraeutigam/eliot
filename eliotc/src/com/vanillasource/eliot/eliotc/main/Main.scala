@@ -4,8 +4,8 @@ import cats.effect.{ExitCode, IO, IOApp, Ref}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.layer.Configuration.namedKey
-import com.vanillasource.eliot.eliotc.layer.{CompilerSystem, Configuration, Layer}
-import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
+import com.vanillasource.eliot.eliotc.layer.{Configuration, Layer}
+import com.vanillasource.eliot.eliotc.processor.{NullProcessor, SequentialCompilerProcessors}
 import com.vanillasource.eliot.eliotc.{CompilerProcessor, Init}
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
 
@@ -23,22 +23,11 @@ object Main extends IOApp with Logging {
       _                  <- configurationMaybe match
                               case Some(configuration) =>
                                 for {
-                                  // Assemble all processors
-                                  processorsRef <- Ref[IO].of(Seq.empty[CompilerProcessor])
-                                  _             <- layers.traverse_(
-                                                     _.initialize(
-                                                       configuration,
-                                                       new CompilerSystem() {
-                                                         override def registerProcessor(compilerProcessor: CompilerProcessor): IO[Unit] =
-                                                           processorsRef.update(_.appended(compilerProcessor))
-                                                       }
-                                                     )
-                                                   )
-                                  _             <- debug("Compiler starting...")
-                                  processors    <- processorsRef.get
-                                  generator     <- FactGenerator(SequentialCompilerProcessors(processors))
-                                  _             <- generator.getFact(Init.Key())
-                                  _             <- debug("Compiler exiting normally.")
+                                  processor <- layers.traverse_(_.initialize(configuration)).runS(NullProcessor())
+                                  _         <- debug("Compiler starting...")
+                                  generator <- FactGenerator(processor)
+                                  _         <- generator.getFact(Init.Key())
+                                  _         <- debug("Compiler exiting normally.")
                                 } yield ()
                               case None                => IO.unit
     } yield ExitCode.Success

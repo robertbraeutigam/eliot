@@ -1,9 +1,11 @@
 package com.vanillasource.eliot.eliotc.jvm
 
+import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.CompilerProcessor
 import com.vanillasource.eliot.eliotc.layer.Configuration.namedKey
-import com.vanillasource.eliot.eliotc.layer.{CompilerSystem, Configuration, Layer}
+import com.vanillasource.eliot.eliotc.layer.{Configuration, Layer}
 import com.vanillasource.eliot.eliotc.main.Main
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
@@ -23,17 +25,19 @@ class JvmLayer extends Layer {
       .action((moduleName, config) => config.set(mainKey, FunctionFQN(ModuleName.parse(moduleName), "main")))
   )
 
-  override def initialize(configuration: Configuration, system: CompilerSystem): IO[Unit] =
+  override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
     configuration.get(mainKey) match {
       case Some(mainFfqn) =>
-        system.registerProcessor(
-          SequentialCompilerProcessors(
-            Seq(
-              JvmClassGenerator(),
-              JvmProgramGenerator(mainFfqn, configuration.get(Main.targetPathKey).get)
+        StateT
+          .modify(superProcessor =>
+            SequentialCompilerProcessors(
+              Seq(
+                superProcessor,
+                JvmClassGenerator(),
+                JvmProgramGenerator(mainFfqn, configuration.get(Main.targetPathKey).get)
+              )
             )
           )
-        )
-      case None           => ???
+      case None           => StateT.empty
     }
 }

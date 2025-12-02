@@ -1,10 +1,12 @@
 package com.vanillasource.eliot.eliotc.layer
 
+import cats.data.StateT
 import cats.effect.IO
+import com.vanillasource.eliot.eliotc.CompilerProcessor
 import scopt.OParser
 
 trait Layer {
   def commandLineParser(): OParser[_, Configuration]
 
-  def initialize(configuration: Configuration, system: CompilerSystem): IO[Unit]
+  def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit]
 }
