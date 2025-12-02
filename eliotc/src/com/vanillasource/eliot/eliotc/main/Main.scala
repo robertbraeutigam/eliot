@@ -20,21 +20,21 @@ object Main extends IOApp with Logging {
 
   override def run(args: List[String]): IO[ExitCode] = {
     val program = for {
-      layers         <- allLayers().liftOptionT
+      layers        <- allLayers().liftOptionT
       // Run command line parsing with all options from all layers
-      configuration  <- parserCommandLine(args, layers.map(_.commandLineParser()))
+      configuration <- parserCommandLine(args, layers.map(_.commandLineParser()))
       // Select active plugins
-      selectedPlugin <- layers
-                          .find(_.isSelectedBy(configuration))
-                          .pure[IO]
-                          .onNone(User.compilerGlobalError("No target plugin selected."))
+      targetPlugin  <- layers
+                         .find(_.isSelectedBy(configuration))
+                         .pure[IO]
+                         .onNone(User.compilerGlobalError("No target plugin selected."))
       // Collect all processors
-      processor      <- layers.traverse_(_.initialize(configuration)).runS(NullProcessor()).liftOptionT
+      processor     <- layers.traverse_(_.initialize(configuration)).runS(NullProcessor()).liftOptionT
       // Run fact generator / compiler
-      _              <- debug("Compiler starting...").liftOptionT
-      generator      <- FactGenerator(processor).liftOptionT
-      _              <- generator.getFact(Init.Key()).liftOptionT
-      _              <- debug("Compiler exiting normally.").liftOptionT
+      _             <- debug("Compiler starting...").liftOptionT
+      generator     <- FactGenerator(processor).liftOptionT
+      _             <- generator.getFact(Init.Key()).liftOptionT
+      _             <- debug("Compiler exiting normally.").liftOptionT
     } yield ()
 
     program.value.as(ExitCode.Success)
