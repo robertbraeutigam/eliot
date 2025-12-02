@@ -2,13 +2,18 @@ import mill._, scalalib._
 
 object `package` extends RootModule {
    object `eliotc` extends DefaultScalaModule {
+   }
+
+   object `base` extends DefaultScalaModule {
+     def moduleDeps = Seq(eliotc)
+
      def extraDeps = Agg(
        ivy"com.github.j-mie6::parsley-cats:1.3.0",
      )
    }
 
    object jvm extends DefaultScalaModule {
-     def moduleDeps = Seq(eliotc)
+     def moduleDeps = Seq(base)
 
      def extraDeps = Agg(
        ivy"org.ow2.asm:asm:9.9",
