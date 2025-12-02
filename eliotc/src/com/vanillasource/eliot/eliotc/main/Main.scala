@@ -17,7 +17,6 @@ import scala.jdk.CollectionConverters.*
 
 object Main extends IOApp with Logging {
   val targetPathKey: Configuration.Key[Path]     = namedKey[Path]("targetPath")
-  val targetPluginKey: Configuration.Key[String] = stringKey("targetPlugin")
 
   override def run(args: List[String]): IO[ExitCode] = {
     val program = for {
