@@ -34,7 +34,7 @@ object Main extends IOApp with Logging {
                            s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}"
                          ).liftOptionT
       // Collect all processors
-      processor       <- plugins.traverse_(_.initialize(configuration)).runS(NullProcessor()).liftOptionT
+      processor       <- activatedPlugins.traverse_(_.initialize(configuration)).runS(NullProcessor()).liftOptionT
       // Run fact generator / compiler
       _               <- debug("Compiler starting...").liftOptionT
       generator       <- FactGenerator(processor).liftOptionT
