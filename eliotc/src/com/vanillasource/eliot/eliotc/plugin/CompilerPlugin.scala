@@ -12,6 +12,8 @@ trait CompilerPlugin {
 
   def pluginDependencies(configuration: Configuration): Seq[Class[_ <: CompilerPlugin]] = Seq.empty
 
+  def configure(): StateT[IO, Configuration, Unit] = StateT.empty
+
   def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit]
 
   def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] = IO.unit

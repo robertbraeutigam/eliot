@@ -19,26 +19,28 @@ object Main extends IOApp with Logging {
 
   override def run(args: List[String]): IO[ExitCode] = {
     val program = for {
-      plugins         <- allLayers().liftOptionT
+      plugins          <- allLayers().liftOptionT
       // Run command line parsing with all options from all layers
-      configuration   <- parserCommandLine(args, plugins.map(_.commandLineParser()))
+      configuration    <- parserCommandLine(args, plugins.map(_.commandLineParser()))
       // Select active plugins
-      targetPlugin    <- plugins
-                           .find(_.isSelectedBy(configuration))
-                           .pure[IO]
-                           .onNone(User.compilerGlobalError("No target plugin selected."))
-      _               <- debug(s"Selected target plugin: ${targetPlugin.getClass.getSimpleName}").liftOptionT
-      activatedPlugins = collectActivatedPlugins(targetPlugin, configuration, plugins)
-      _               <- debug(
-                           s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}"
-                         ).liftOptionT
+      targetPlugin     <- plugins
+                            .find(_.isSelectedBy(configuration))
+                            .pure[IO]
+                            .onNone(User.compilerGlobalError("No target plugin selected."))
+      _                <- debug(s"Selected target plugin: ${targetPlugin.getClass.getSimpleName}").liftOptionT
+      activatedPlugins  = collectActivatedPlugins(targetPlugin, configuration, plugins)
+      _                <- debug(
+                            s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}"
+                          ).liftOptionT
+      // Give plugins a chance to configure each other
+      newConfiguration <- activatedPlugins.traverse_(_.configure()).runS(configuration).liftOptionT
       // Collect all processors
-      processor       <- activatedPlugins.traverse_(_.initialize(configuration)).runS(NullProcessor()).liftOptionT
+      processor        <- activatedPlugins.traverse_(_.initialize(newConfiguration)).runS(NullProcessor()).liftOptionT
       // Run fact generator / compiler
-      _               <- debug("Compiler starting...").liftOptionT
-      generator       <- FactGenerator(processor).liftOptionT
-      _               <- targetPlugin.run(configuration, generator).liftOptionT
-      _               <- debug("Compiler exiting normally.").liftOptionT
+      _                <- debug("Compiler starting...").liftOptionT
+      generator        <- FactGenerator(processor).liftOptionT
+      _                <- targetPlugin.run(newConfiguration, generator).liftOptionT
+      _                <- debug("Compiler exiting normally.").liftOptionT
     } yield ()
 
     program.value.as(ExitCode.Success)
