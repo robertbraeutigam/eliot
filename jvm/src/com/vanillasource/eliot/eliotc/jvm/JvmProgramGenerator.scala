@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Init}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact}
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
 import java.nio.charset.StandardCharsets
@@ -14,8 +14,8 @@ import java.nio.file.StandardOpenOption.*
 import java.nio.file.{Files, Path, StandardOpenOption}
 import java.util.jar.{JarEntry, JarOutputStream}
 
-class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path)
-    extends OneToOneProcessor((key: Init.Key) => UsedSymbols.Key(mainFunction))
+class JvmProgramGenerator(targetDir: Path)
+    extends OneToOneProcessor((key: GenerateExecutableJar.Key) => UsedSymbols.Key(key.ffqn))
     with Logging {
 
   override def generateFromFact(usedSymbols: UsedSymbols)(using process: CompilationProcess): IO[Unit] = {
@@ -34,18 +34,20 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path)
     for {
       _            <- facts.traverse_(process.registerFact)
       classesMaybe <- facts.map(_.moduleName).traverse(moduleName => process.getFact(GeneratedModule.Key(moduleName)))
-      _            <- classesMaybe.sequence.traverse_(generateJarFile) // Skips jar if not all modules got bytecode
+      _            <- classesMaybe.sequence.traverse_(cs =>
+                        generateJarFile(usedSymbols.ffqn, cs)
+                      ) // Skips jar if not all modules got bytecode
     } yield ()
   }
 
-  private def generateJarFile(allClasses: Seq[GeneratedModule]): IO[Unit] =
-    jarOutputStream.use { jos =>
+  private def generateJarFile(mainFunction: FunctionFQN, allClasses: Seq[GeneratedModule]): IO[Unit] =
+    jarOutputStream(mainFunction).use { jos =>
       IO.blocking {
         generateManifest(jos)
         generateClasses(jos, allClasses)
-        generateMain(jos)
+        generateMain(mainFunction, jos)
       }
-    } >> info(s"Generated executable jar: $jarFilePath.")
+    } >> info(s"Generated executable jar: ${jarFilePath(mainFunction)}.")
 
   private def generateClasses(jos: JarOutputStream, allClasses: Seq[GeneratedModule]): Unit = {
     allClasses.foreach { case GeneratedModule(moduleName, classFiles) =>
@@ -57,24 +59,26 @@ class JvmProgramGenerator(mainFunction: FunctionFQN, targetDir: Path)
     }
   }
 
-  private def jarOutputStream: Resource[IO, JarOutputStream] =
+  private def jarOutputStream(mainFunction: FunctionFQN): Resource[IO, JarOutputStream] =
     for {
       _   <- Resource.eval(IO.blocking(Files.createDirectories(targetDir)))
-      os  <- Resource.fromAutoCloseable(IO.blocking(Files.newOutputStream(jarFilePath, CREATE, TRUNCATE_EXISTING)))
+      os  <- Resource.fromAutoCloseable(
+               IO.blocking(Files.newOutputStream(jarFilePath(mainFunction), CREATE, TRUNCATE_EXISTING))
+             )
       jos <- Resource.fromAutoCloseable(IO.blocking(new JarOutputStream(os)))
     } yield jos
 
-  private def jarFilePath: Path = targetDir.resolve(jarFileName)
+  private def jarFilePath(mainFunction: FunctionFQN): Path = targetDir.resolve(jarFileName(mainFunction))
 
-  private def jarFileName: String = mainFunction.moduleName.name + ".jar"
+  private def jarFileName(mainFunction: FunctionFQN): String = mainFunction.moduleName.name + ".jar"
 
-  private def generateMain(jos: JarOutputStream): Unit = {
+  private def generateMain(mainFunction: FunctionFQN, jos: JarOutputStream): Unit = {
     jos.putNextEntry(new JarEntry("main.class"))
-    jos.write(generateMainClassBytes)
+    jos.write(generateMainClassBytes(mainFunction))
     jos.closeEntry()
   }
 
-  private def generateMainClassBytes: Array[Byte] = {
+  private def generateMainClassBytes(mainFunction: FunctionFQN): Array[Byte] = {
     val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
 
     classWriter.visit(

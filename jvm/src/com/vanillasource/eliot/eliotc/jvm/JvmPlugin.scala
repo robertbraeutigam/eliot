@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm
 
 import cats.data.StateT
 import cats.effect.IO
-import com.vanillasource.eliot.eliotc.CompilerProcessor
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.base.BasePlugin
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
@@ -33,24 +33,23 @@ class JvmPlugin extends CompilerPlugin {
   )
 
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
-    configuration.get(mainKey) match {
-      case Some(mainFfqn) =>
-        StateT
-          .modify(superProcessor =>
-            SequentialCompilerProcessors(
-              Seq(
-                superProcessor,
-                JvmClassGenerator(),
-                JvmProgramGenerator(mainFfqn, configuration.get(Main.targetPathKey).get)
-              )
-            )
+    StateT
+      .modify(superProcessor =>
+        SequentialCompilerProcessors(
+          Seq(
+            superProcessor,
+            JvmClassGenerator(),
+            JvmProgramGenerator(configuration.get(Main.targetPathKey).get)
           )
-      case None           => StateT.empty
-    }
+        )
+      )
 
   override def isSelectedBy(configuration: Configuration): Boolean = configuration.contains(mainKey)
 
   override def pluginDependencies(configuration: Configuration): Seq[Class[_ <: CompilerPlugin]] = Seq(
     classOf[BasePlugin]
   )
+
+  override def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =
+    compilation.getFact(GenerateExecutableJar.Key(configuration.get(mainKey).get)).void
 }

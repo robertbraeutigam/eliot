@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.main
 import cats.data.OptionT
 import cats.effect.{ExitCode, IO, IOApp}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.Init
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.{namedKey, stringKey}
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
@@ -38,7 +37,7 @@ object Main extends IOApp with Logging {
       // Run fact generator / compiler
       _               <- debug("Compiler starting...").liftOptionT
       generator       <- FactGenerator(processor).liftOptionT
-      _               <- generator.getFact(Init.Key()).liftOptionT
+      _               <- targetPlugin.run(configuration, generator).liftOptionT
       _               <- debug("Compiler exiting normally.").liftOptionT
     } yield ()
 
