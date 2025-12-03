@@ -3,8 +3,9 @@ package com.vanillasource.eliot.eliotc.jvm
 import cats.data.StateT
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.CompilerProcessor
+import com.vanillasource.eliot.eliotc.base.BasePlugin
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
-import com.vanillasource.eliot.eliotc.plugin.{Configuration, CompilerPlugin}
+import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.main.Main
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
@@ -48,4 +49,6 @@ class JvmPlugin extends CompilerPlugin {
     }
 
   override def isSelectedBy(configuration: Configuration): Boolean = configuration.contains(mainKey)
+
+  override def pluginDependencies(): Seq[Class[_ <: CompilerPlugin]] = Seq(classOf[BasePlugin])
 }
