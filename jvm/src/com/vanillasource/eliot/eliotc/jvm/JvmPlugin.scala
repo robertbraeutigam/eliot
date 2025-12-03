@@ -50,5 +50,7 @@ class JvmPlugin extends CompilerPlugin {
 
   override def isSelectedBy(configuration: Configuration): Boolean = configuration.contains(mainKey)
 
-  override def pluginDependencies(): Seq[Class[_ <: CompilerPlugin]] = Seq(classOf[BasePlugin])
+  override def pluginDependencies(configuration: Configuration): Seq[Class[_ <: CompilerPlugin]] = Seq(
+    classOf[BasePlugin]
+  )
 }

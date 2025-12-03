@@ -29,7 +29,7 @@ object Main extends IOApp with Logging {
                            .pure[IO]
                            .onNone(User.compilerGlobalError("No target plugin selected."))
       _               <- debug(s"Selected target plugin: ${targetPlugin.getClass.getSimpleName}").liftOptionT
-      activatedPlugins = collectActivatedPlugins(targetPlugin, plugins)
+      activatedPlugins = collectActivatedPlugins(targetPlugin, configuration, plugins)
       _               <- debug(
                            s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}"
                          ).liftOptionT
@@ -45,9 +45,13 @@ object Main extends IOApp with Logging {
     program.value.as(ExitCode.Success)
   }
 
-  private def collectActivatedPlugins(initialPlugin: CompilerPlugin, all: Seq[CompilerPlugin]): Seq[CompilerPlugin] =
+  private def collectActivatedPlugins(
+      initialPlugin: CompilerPlugin,
+      configuration: Configuration,
+      all: Seq[CompilerPlugin]
+  ): Seq[CompilerPlugin] =
     LazyList.unfold(Seq(initialPlugin))(ps =>
-      ps.headOption.map(plugin => plugin -> (ps.tail ++ resolvePlugins(plugin.pluginDependencies(), all)))
+      ps.headOption.map(plugin => plugin -> (ps.tail ++ resolvePlugins(plugin.pluginDependencies(configuration), all)))
     )
 
   private def resolvePlugins(classes: Seq[Class[_ <: CompilerPlugin]], all: Seq[CompilerPlugin]): Seq[CompilerPlugin] =
