@@ -30,8 +30,9 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
       .flatMap(_.traverse_(fact => processFact(name, fact)))
 
   private def processFact(moduleName: ModuleName, fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case DesugaredSourceAST(path, sourcedAst) => process(moduleName, sourcedAst).getOrUnit
-    case _                                    => IO.unit
+    case DesugaredSourceAST(path, sourcedAsts) =>
+      process(moduleName, sourcedAsts.head).getOrUnit // FIXME: dropping multi-ast
+    case _                                     => IO.unit
   }
 
   private def process(moduleName: ModuleName, sourcedAst: Sourced[AST])(using
