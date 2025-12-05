@@ -7,18 +7,19 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.*
 import com.vanillasource.eliot.eliotc.module.fact.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemModules
-import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.{extractLocalFunctions, extractLocalTypes}
+import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.{
+  extractLocalFunctions,
+  extractLocalTypes,
+  pathName
+}
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
-import java.nio.file.Paths
-
 class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) extends CompilerProcessor with Logging {
   override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
-    case ModuleNames.Key(moduleName)                               => generateModule(moduleName)
     case ModuleFunction.Key(FunctionFQN(moduleName, functionName)) => generateModule(moduleName)
     case ModuleData.Key(TypeFQN(moduleName, typeName))             => generateModule(moduleName)
     case _                                                         => IO.unit
@@ -26,7 +27,7 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
 
   private def generateModule(name: ModuleName)(using process: CompilationProcess): IO[Unit] =
     process
-      .getFact(DesugaredSourceAST.Key((name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ resolve _)))
+      .getFact(DesugaredSourceAST.Key(pathName(name)))
       .flatMap(_.traverse_(fact => processFact(name, fact)))
 
   private def processFact(moduleName: ModuleName, fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
@@ -39,7 +40,6 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
   ): IO[Unit] = for {
     localFunctions    <- extractLocalFunctions(sourcedAst.value.functionDefinitions)
     localTypes        <- extractLocalTypes(sourcedAst.value.typeDefinitions)
-    _                 <- process.registerFact(ModuleNames(moduleName, localFunctions.keySet, localTypes.keySet))
     importedModules   <- extractImportedModules(moduleName, sourcedAst.as(sourcedAst.value.importStatements)).pure[IO]
     importedFunctions <- extractImportedFunctions(importedModules, localFunctions.keySet)
     importedTypes     <- extractImportedTypes(importedModules, localTypes.keySet)

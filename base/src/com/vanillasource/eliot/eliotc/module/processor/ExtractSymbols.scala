@@ -4,7 +4,10 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.ast.{DataDefinition, FunctionDefinition}
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
+
+import java.nio.file.{Path, Paths}
 
 object ExtractSymbols {
   def extractLocalFunctions(
@@ -16,6 +19,9 @@ object ExtractSymbols {
       process: CompilationProcess
   ): IO[Map[String, DataDefinition]] =
     definitions.foldM(Map.empty[String, DataDefinition])((acc, d) => extractLocalType(acc, d))
+
+  def pathName(name: ModuleName): Path =
+    (name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ resolve _)
 
   private def extractLocalType(
       previousTypes: Map[String, DataDefinition],

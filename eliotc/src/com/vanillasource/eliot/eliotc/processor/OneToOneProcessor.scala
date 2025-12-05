@@ -14,9 +14,12 @@ abstract class OneToOneProcessor[V <: CompilerFact, I <: CompilerFactKey[V], O <
     factKey match {
       case requestedKey: O =>
         val key = keyTransition(requestedKey)
-        process.getFact(key).flatMap(_.traverse_(fact => generateFromFact(fact)))
+        process.getFact(key).flatMap(_.traverse_(fact => generateFromKeyAndFact(requestedKey, fact)))
       case _               => IO.unit
     }
 
-  def generateFromFact(fact: V)(using CompilationProcess): IO[Unit]
+  def generateFromFact(fact: V)(using CompilationProcess): IO[Unit] = ???
+
+  def generateFromKeyAndFact(key: O, fact: V)(using CompilationProcess): IO[Unit] =
+    generateFromFact(fact)
 }

@@ -2,20 +2,11 @@ package com.vanillasource.eliot.eliotc.sugar
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.{
-  AST,
-  ArgumentDefinition,
-  DataDefinition,
-  FunctionDefinition,
-  SourceAST,
-  TypeReference
-}
+import com.vanillasource.eliot.eliotc.CompilationProcess
+import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
-
-import java.nio.file.Path
 
 class DesugarProcessor
     extends OneToOneProcessor((key: DesugaredSourceAST.Key) => SourceAST.Key(key.path))
