@@ -1,0 +1,6 @@
+data String
+
+println(s: String): IO[Unit] = IO((unit: Unit) -> printlnInternal(s))
+
+printlnInternal(s: String): Unit
+

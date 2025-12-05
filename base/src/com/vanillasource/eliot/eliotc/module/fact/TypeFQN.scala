@@ -21,4 +21,6 @@ object TypeFQN {
   val systemAnyType: TypeFQN = systemLangType("Any")
 
   val systemUnitType: TypeFQN = systemLangType("Unit")
+
+  val systemIOType: TypeFQN = systemLangType("IO")
 }

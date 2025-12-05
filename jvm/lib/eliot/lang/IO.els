@@ -1,0 +1,1 @@
+data IO[A](block: Function[Unit, A])

@@ -3,7 +3,9 @@ package com.vanillasource.eliot.eliotc.jvm
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.jvm.NativeType.javaSignatureName
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
+import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemIOType
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact}
@@ -104,7 +106,7 @@ class JvmProgramGenerator(targetDir: Path)
       Opcodes.INVOKESTATIC,
       mainFunction.moduleName.packages.appended(mainFunction.moduleName.name).mkString("/"),
       "main",
-      "()V",
+      s"()${javaSignatureName(systemIOType)}",
       false
     )
 
