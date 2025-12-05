@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.sugar
 
 import com.vanillasource.eliot.eliotc.ast.AST
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.unify.UnifiedSourceAST
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
 import java.nio.file.Path
