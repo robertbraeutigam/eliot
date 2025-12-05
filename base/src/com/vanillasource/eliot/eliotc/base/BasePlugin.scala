@@ -15,6 +15,7 @@ import com.vanillasource.eliot.eliotc.source.resolve.ResolvedSourceContentReader
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckProcessor
+import com.vanillasource.eliot.eliotc.unify.UnifyingProcessor
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsProcessor
 import scopt.{OParser, OParserBuilder}
 
@@ -45,6 +46,7 @@ class BasePlugin extends CompilerPlugin {
             ResolvedSourceContentReader(configuration.getOrElse(pathKey, Seq.empty).map(_.toPath)),
             Tokenizer(),
             ASTParser(),
+            UnifyingProcessor(),
             DesugarProcessor(),
             ModuleProcessor(),
             FunctionResolver(),
