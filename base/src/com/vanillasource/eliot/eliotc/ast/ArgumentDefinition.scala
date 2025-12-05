@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.ast
 
-import cats.Show
+import cats.{Eq, Show}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.Primitives.{isIdentifier, symbol}
@@ -12,6 +12,9 @@ import com.vanillasource.parser.Parser.acceptIf
 case class ArgumentDefinition(name: Sourced[String], typeReference: TypeReference)
 
 object ArgumentDefinition {
+  val signatureEquality: Eq[ArgumentDefinition] = (x: ArgumentDefinition, y: ArgumentDefinition) =>
+    x.name.value === y.name.value && TypeReference.signatureEquality.eqv(x.typeReference, y.typeReference)
+
   given Show[ArgumentDefinition] = _.name.show
 
   given ASTComponent[ArgumentDefinition] = new ASTComponent[ArgumentDefinition] {

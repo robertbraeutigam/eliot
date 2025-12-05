@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.ast
 
-import cats.Show
+import cats.{Eq, Show}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.Primitives.*
@@ -16,6 +16,12 @@ case class DataDefinition(
 )
 
 object DataDefinition {
+  val signatureEquality: Eq[DataDefinition] = (x: DataDefinition, y: DataDefinition) =>
+    x.genericParameters.length === y.genericParameters.length &&
+      x.arguments.length === y.arguments.length &&
+      (x.genericParameters zip y.genericParameters).forall(GenericParameter.signatureEquality.eqv) &&
+      (x.arguments zip y.arguments).forall(ArgumentDefinition.signatureEquality.eqv)
+
   given Show[DataDefinition] = (fd: DataDefinition) => s"${fd.name.show}"
 
   given ASTComponent[DataDefinition] = new ASTComponent[DataDefinition] {

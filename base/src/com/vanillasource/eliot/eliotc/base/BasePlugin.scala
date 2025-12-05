@@ -7,7 +7,12 @@ import com.vanillasource.eliot.eliotc.CompilerProcessor
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
-import com.vanillasource.eliot.eliotc.module.processor.{ModuleNamesProcessor, ModuleProcessor}
+import com.vanillasource.eliot.eliotc.module.processor.{
+  ModuleNamesProcessor,
+  ModuleProcessor,
+  UnifiedModuleDataProcessor,
+  UnifiedModuleFunctionProcessor
+}
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
@@ -48,6 +53,8 @@ class BasePlugin extends CompilerPlugin {
             DesugarProcessor(),
             ModuleProcessor(),
             ModuleNamesProcessor(),
+            UnifiedModuleDataProcessor(),
+            UnifiedModuleFunctionProcessor(),
             FunctionResolver(),
             TypeResolver(),
             TypeCheckProcessor(),

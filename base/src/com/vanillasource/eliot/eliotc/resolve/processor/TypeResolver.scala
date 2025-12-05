@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor, ast}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleData, ModuleFunction, TypeFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN, UnifiedModuleData}
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, DataDefinition, ResolvedData, TypeReference}
@@ -13,8 +13,8 @@ import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
-class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => ModuleData.Key(key.tfqn)) with Logging {
-  override def generateFromFact(moduleData: ModuleData)(using process: CompilationProcess): IO[Unit] = {
+class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn)) with Logging {
+  override def generateFromFact(moduleData: UnifiedModuleData)(using process: CompilationProcess): IO[Unit] = {
     val genericParameters = moduleData.dataDefinition.genericParameters
     val args              = moduleData.dataDefinition.arguments
     val name              = moduleData.dataDefinition.name
@@ -79,7 +79,7 @@ object TypeResolver {
                                          case Some(typeFqn) =>
                                            for {
                                              dataDefinition <-
-                                               process.getFact(ModuleData.Key(typeFqn)).liftOptionToCompilationIO.liftToScoped
+                                               process.getFact(UnifiedModuleData.Key(typeFqn)).liftOptionToCompilationIO.liftToScoped
                                              _              <-
                                                compilerAbort(
                                                  reference.typeName.as("Incorrect number of generic parameters for type.")

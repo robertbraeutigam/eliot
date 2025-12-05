@@ -4,7 +4,7 @@ import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleFunction, TypeFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN, UnifiedModuleFunction}
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.FunctionLiteral
@@ -16,9 +16,9 @@ import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
 
 class FunctionResolver
-    extends OneToOneProcessor((key: ResolvedFunction.Key) => ModuleFunction.Key(key.ffqn))
+    extends OneToOneProcessor((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))
     with Logging {
-  override def generateFromFact(moduleFunction: ModuleFunction)(using process: CompilationProcess): IO[Unit] = {
+  override def generateFromFact(moduleFunction: UnifiedModuleFunction)(using process: CompilationProcess): IO[Unit] = {
     val args              = moduleFunction.functionDefinition.args
     val body              = moduleFunction.functionDefinition.body
     val genericParameters = moduleFunction.functionDefinition.genericParameters

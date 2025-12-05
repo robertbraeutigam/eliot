@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.ast
 
-import cats.Show
+import cats.{Eq, Show}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.Primitives.*
@@ -18,6 +18,13 @@ case class FunctionDefinition(
 )
 
 object FunctionDefinition {
+  val signatureEquality: Eq[FunctionDefinition] = (x: FunctionDefinition, y: FunctionDefinition) =>
+    x.genericParameters.length === y.genericParameters.length &&
+      x.args.length === y.args.length &&
+      (x.genericParameters zip y.genericParameters).forall(GenericParameter.signatureEquality.eqv) &&
+      (x.args zip y.args).forall(ArgumentDefinition.signatureEquality.eqv) &&
+      TypeReference.signatureEquality.eqv(x.typeDefinition, y.typeDefinition)
+
   given Show[FunctionDefinition] = (fd: FunctionDefinition) =>
     s"${fd.name.show}(${fd.args.map(_.show).mkString(", ")}): ${fd.body.show}"
 
