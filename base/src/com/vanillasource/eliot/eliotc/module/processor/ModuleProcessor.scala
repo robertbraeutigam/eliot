@@ -31,18 +31,11 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
 
   private def processFact(moduleName: ModuleName, fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
     case DesugaredSourceAST(path, sourcedAsts) =>
-      process(moduleName, sourcedAsts.head).getOrUnit // FIXME: dropping multi-ast
+      processModule(moduleName, sourcedAsts.head) // FIXME: dropping multi-ast
     case _                                     => IO.unit
   }
 
-  private def process(moduleName: ModuleName, sourcedAst: Sourced[AST])(using
-      CompilationProcess
-  ): OptionT[IO, Unit] =
-    for {
-      _ <- processImpl(moduleName, sourcedAst).liftOptionT
-    } yield ()
-
-  private def processImpl(moduleName: ModuleName, sourcedAst: Sourced[AST])(using
+  private def processModule(moduleName: ModuleName, sourcedAst: Sourced[AST])(using
       process: CompilationProcess
   ): IO[Unit] = for {
     localFunctions    <- extractLocalFunctions(sourcedAst.value.functionDefinitions)
