@@ -13,5 +13,5 @@ import java.nio.file.Path
 class UnifyingProcessor extends OneToOneProcessor((key: UnifiedSourceAST.Key) => SourceAST.Key(key.path)) with Logging {
 
   override def generateFromFact(sourceAst: SourceAST)(using process: CompilationProcess): IO[Unit] =
-    process.registerFact(UnifiedSourceAST(sourceAst.path, sourceAst.asts.head)) // TODO
+    process.registerFact(UnifiedSourceAST(sourceAst.path, sourceAst.ast)) // TODO
 }

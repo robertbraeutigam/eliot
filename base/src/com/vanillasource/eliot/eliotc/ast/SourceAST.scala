@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
 import java.nio.file.Path
 
-case class SourceAST(path: Path, asts: Seq[Sourced[AST]]) extends CompilerFact {
+case class SourceAST(path: Path, ast: Sourced[AST]) extends CompilerFact {
   override def key(): CompilerFactKey[SourceAST] = SourceAST.Key(path)
 }
 

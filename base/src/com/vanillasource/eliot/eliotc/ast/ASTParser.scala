@@ -8,43 +8,43 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.token.{SourceTokens, Token}
+import com.vanillasource.eliot.eliotc.token.SourceTokens
 import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
 
 class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.Key(key.path)) with Logging {
-  override def generateFromFact(sourceTokens: SourceTokens)(using process: CompilationProcess): IO[Unit] =
-    for {
-      asts <- sourceTokens.tokens.traverse(generateFromTokens).map(_.flatten)
-      _    <- process.registerFact(SourceAST(sourceTokens.path, asts)).whenA(asts.nonEmpty)
-    } yield ()
-
-  private def generateFromTokens(
-      sourcedTokens: Sourced[Seq[Sourced[Token]]]
-  )(using CompilationProcess): IO[Option[Sourced[AST]]] = {
-    val astResult = component[AST].fully().parse(sourcedTokens.value)
+  override def generateFromFact(sourceTokens: SourceTokens)(using process: CompilationProcess): IO[Unit] = {
+    val tokens    = sourceTokens.tokens.value
+    val path      = sourceTokens.path
+    val astResult = component[AST].fully().parse(tokens)
 
     for {
       _ <- astResult.allErrors.map {
-             case ParserError(pos, expected) if pos >= sourcedTokens.value.size =>
-               sourcedTokens.value match {
+             case ParserError(pos, expected) if pos >= tokens.size =>
+               tokens match {
                  case Nil =>
                    registerCompilerError(
-                     sourcedTokens.as(s"Expected ${expectedMessage(expected)}, but input was empty.")
+                     sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but input was empty.")
                    )
                  case _   =>
-                   val pos = sourcedTokens.value.last.range.to
+                   val pos = tokens.last.range.to
                    registerCompilerError(
-                     sourcedTokens.as(s"Expected ${expectedMessage(expected)}, but end of input reached.")
+                     sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but end of input reached.")
                    )
                }
-             case ParserError(pos, expected)                                    =>
-               val token = sourcedTokens.value.get(pos).get
+             case ParserError(pos, expected)                       =>
+               val token = tokens.get(pos).get
                registerCompilerError(
                  token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
                )
            }.sequence_
-    } yield astResult.value.map(sourcedTokens.as(_))
+      _ <- astResult.value match
+             case Some(ast) =>
+               debug(s"Generated AST for $path: ${ast.show}.") >> process.registerFact(
+                 SourceAST(path, sourceTokens.tokens.as(ast))
+               )
+             case None      => IO.unit
+    } yield ()
   }
 
   private def expectedMessage(expected: Set[String]): String = expected.toSeq match
