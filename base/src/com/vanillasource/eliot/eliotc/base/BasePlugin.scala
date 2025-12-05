@@ -11,7 +11,8 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   ModuleNamesProcessor,
   ModuleProcessor,
   UnifiedModuleDataProcessor,
-  UnifiedModuleFunctionProcessor
+  UnifiedModuleFunctionProcessor,
+  UnifiedModuleNamesProcessor
 }
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
@@ -53,6 +54,7 @@ class BasePlugin extends CompilerPlugin {
             DesugarProcessor(),
             ModuleProcessor(),
             ModuleNamesProcessor(),
+            UnifiedModuleNamesProcessor(),
             UnifiedModuleDataProcessor(),
             UnifiedModuleFunctionProcessor(),
             FunctionResolver(),
