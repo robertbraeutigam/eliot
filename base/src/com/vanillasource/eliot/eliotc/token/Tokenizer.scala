@@ -18,23 +18,16 @@ class Tokenizer extends OneToOneProcessor((key: SourceTokens.Key) => ResolvedSou
   override def generateFromFact(
       resolvedSourceContent: ResolvedSourceContent
   )(using process: CompilationProcess): IO[Unit] = {
-    val path = resolvedSourceContent.path
+    val path           = resolvedSourceContent.path
+    val sourcedContent = resolvedSourceContent.content
 
-    for {
-      tokenizedContents <- resolvedSourceContent.contents.traverse(tokenize).map(_.flatten)
-      _                 <- process
-                             .registerFact(SourceTokens(path, tokenizedContents))
-                             .whenA(tokenizedContents.nonEmpty)
-    } yield ()
-  }
-
-  private def tokenize(
-      sourcedContent: Sourced[String]
-  )(using process: CompilationProcess): IO[Option[Sourced[Seq[Sourced[Token]]]]] =
     TokenParser(sourcedContent).fullParser
       .parse(sourcedContent.value)(using new TokenErrorBuilder(sourcedContent))
       .fold(
-        errorMessage => SourcedError.registerCompilerError(errorMessage).as(None),
-        tokens => Some(sourcedContent.as(tokens)).pure
+        errorMessage => SourcedError.registerCompilerError(errorMessage),
+        tokens =>
+          debug(s"Tokenized $path into: ${tokens.map(_.show).mkString(", ")}.") >>
+            process.registerFact(SourceTokens(path, sourcedContent.as(tokens)))
       )
+  }
 }
