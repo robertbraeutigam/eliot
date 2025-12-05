@@ -9,11 +9,11 @@ import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
 class DesugarProcessor
-    extends OneToOneProcessor((key: DesugaredSourceAST.Key) => SourceAST.Key(key.path))
+    extends OneToOneProcessor((key: DesugaredSourceAST.Key) => SourceAST.Key(key.file))
     with Logging {
 
   override def generateFromFact(sourceAst: SourceAST)(using process: CompilationProcess): IO[Unit] =
-    process.registerFact(DesugaredSourceAST(sourceAst.path, sourceAst.ast.as(desugar(sourceAst.ast.value))))
+    process.registerFact(DesugaredSourceAST(sourceAst.file, sourceAst.ast.as(desugar(sourceAst.ast.value))))
 
   private def desugar(ast: AST): AST = AST(
     ast.importStatements,

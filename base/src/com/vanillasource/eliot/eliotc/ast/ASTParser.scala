@@ -12,10 +12,10 @@ import com.vanillasource.eliot.eliotc.token.SourceTokens
 import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
 
-class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.Key(key.path)) with Logging {
+class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.Key(key.file)) with Logging {
   override def generateFromFact(sourceTokens: SourceTokens)(using process: CompilationProcess): IO[Unit] = {
     val tokens    = sourceTokens.tokens.value
-    val path      = sourceTokens.path
+    val file      = sourceTokens.file
     val astResult = component[AST].fully().parse(tokens)
 
     for {
@@ -40,8 +40,8 @@ class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.K
            }.sequence_
       _ <- astResult.value match
              case Some(ast) =>
-               debug(s"Generated AST for $path: ${ast.show}.") >> process.registerFact(
-                 SourceAST(path, sourceTokens.tokens.as(ast))
+               debug(s"Generated AST for $file: ${ast.show}.") >> process.registerFact(
+                 SourceAST(file, sourceTokens.tokens.as(ast))
                )
              case None      => IO.unit
     } yield ()

@@ -7,14 +7,13 @@ import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.*
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
 
-class ModuleNamesProcessor
-    extends OneToOneProcessor((key: ModuleNames.Key) => DesugaredSourceAST.Key(pathName(key.moduleName))) {
+class ModuleNamesProcessor extends OneToOneProcessor((key: ModuleNames.Key) => DesugaredSourceAST.Key(key.file)) {
   override def generateFromKeyAndFact(key: ModuleNames.Key, fact: DesugaredSourceAST)(using
       process: CompilationProcess
   ): IO[Unit] =
     for {
       localFunctions <- extractLocalFunctions(fact.sourcedAst.value.functionDefinitions)
       localTypes     <- extractLocalTypes(fact.sourcedAst.value.typeDefinitions)
-      _              <- process.registerFact(ModuleNames(key.moduleName, localFunctions.keySet, localTypes.keySet))
+      _              <- process.registerFact(ModuleNames(key.file, localFunctions.keySet, localTypes.keySet))
     } yield ()
 }

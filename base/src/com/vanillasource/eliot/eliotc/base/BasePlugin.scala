@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{ModuleNamesProcessor, Mo
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
-import com.vanillasource.eliot.eliotc.source.resolve.ResolvedSourceContentReader
+import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckProcessor
@@ -42,7 +42,7 @@ class BasePlugin extends CompilerPlugin {
           Seq(
             superProcessor,
             SourceContentReader(),
-            ResolvedSourceContentReader(configuration.getOrElse(pathKey, Seq.empty).map(_.toPath)),
+            PathScanner(configuration.getOrElse(pathKey, Seq.empty).map(_.toPath)),
             Tokenizer(),
             ASTParser(),
             DesugarProcessor(),

@@ -18,24 +18,26 @@ import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
+import java.io.File
+
 class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) extends CompilerProcessor with Logging {
   override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
-    case ModuleFunction.Key(FunctionFQN(moduleName, functionName)) => generateModule(moduleName)
-    case ModuleData.Key(TypeFQN(moduleName, typeName))             => generateModule(moduleName)
-    case _                                                         => IO.unit
+    case ModuleFunction.Key(file, FunctionFQN(moduleName, functionName)) => generateModule(file, moduleName)
+    case ModuleData.Key(file, TypeFQN(moduleName, typeName))             => generateModule(file, moduleName)
+    case _                                                               => IO.unit
   }
 
-  private def generateModule(name: ModuleName)(using process: CompilationProcess): IO[Unit] =
+  private def generateModule(file: File, name: ModuleName)(using process: CompilationProcess): IO[Unit] =
     process
-      .getFact(DesugaredSourceAST.Key(pathName(name)))
+      .getFact(DesugaredSourceAST.Key(file))
       .flatMap(_.traverse_(fact => processFact(name, fact)))
 
   private def processFact(moduleName: ModuleName, fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
-    case DesugaredSourceAST(path, sourcedAst) => processImpl(moduleName, sourcedAst)
+    case DesugaredSourceAST(file, sourcedAst) => processImpl(file, moduleName, sourcedAst)
     case _                                    => IO.unit
   }
 
-  private def processImpl(moduleName: ModuleName, sourcedAst: Sourced[AST])(using
+  private def processImpl(file: File, moduleName: ModuleName, sourcedAst: Sourced[AST])(using
       process: CompilationProcess
   ): IO[Unit] = for {
     localFunctions    <- extractLocalFunctions(sourcedAst.value.functionDefinitions)
@@ -54,7 +56,7 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
     _                 <- localFunctions
                            .map { (name, definition) =>
                              process.registerFact(
-                               ModuleFunction(FunctionFQN(moduleName, name), functionDictionary, typeDictionary, definition)
+                               ModuleFunction(file, FunctionFQN(moduleName, name), functionDictionary, typeDictionary, definition)
                              )
                            }
                            .toSeq
@@ -62,7 +64,7 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
     _                 <- localTypes
                            .map { (name, definition) =>
                              process.registerFact(
-                               ModuleData(TypeFQN(moduleName, name), typeDictionary, definition)
+                               ModuleData(file, TypeFQN(moduleName, name), typeDictionary, definition)
                              )
                            }
                            .toSeq
@@ -91,7 +93,7 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
       module: Sourced[ModuleName]
   )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] = {
     val extractedImport = for {
-      moduleFunctions <- process.getFact(ModuleNames.Key(module.value)).toOptionT
+      moduleFunctions <- process.getFact(UnifiedModuleNames.Key(module.value)).toOptionT
       result          <-
         if (moduleFunctions.functionNames.intersect(localFunctionNames).nonEmpty) {
           registerCompilerError(
@@ -131,7 +133,7 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
       module: Sourced[ModuleName]
   )(using process: CompilationProcess): IO[Map[String, TypeFQN]] = {
     val extractedImport = for {
-      moduleFunctions <- process.getFact(ModuleNames.Key(module.value)).toOptionT
+      moduleFunctions <- process.getFact(UnifiedModuleNames.Key(module.value)).toOptionT
       result          <-
         if (moduleFunctions.typeNames.intersect(localTypeNames).nonEmpty) {
           registerCompilerError(
