@@ -23,7 +23,8 @@ object ModuleName {
   val defaultSystemModules                 = Seq(
     "Function",
     "Unit",
-    "String"
+    "String",
+    "IO"
   ).map(ModuleName(defaultSystemPackage, _))
 
 }

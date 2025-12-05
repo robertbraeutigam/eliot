@@ -165,7 +165,7 @@ class JvmClassGenerator
       _                   <- typeDefinitionMaybe match {
                                case Some(typeDefinition) =>
                                  for {
-                                   _ <- compilerError(sourcedTfqn.as("Type not fully defined."))
+                                   _ <- compilerAbort(sourcedTfqn.as("Type not fully defined."))
                                           .unlessA(typeDefinition.definition.fields.isDefined)
                                    // Define the inner data fields
                                    _ <- typeDefinition.definition.fields.get.traverse_ { argumentDefinition =>

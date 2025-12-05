@@ -1,5 +1,1 @@
-main: Unit = println(message(greeting))
-
-data Greeting(message: String)
-
-greeting: Greeting = Greeting("Hello World!")
+main: IO[Unit] = println("Hello World!")
