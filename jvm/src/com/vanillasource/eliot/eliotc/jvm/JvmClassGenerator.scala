@@ -149,7 +149,10 @@ class JvmClassGenerator
                                                 )
                                          } yield ()
                                        case None                     =>
-                                         compilerError(sourcedCalledFfqn.as(s"Could not find resolved ${calledFfqn.show}"))
+                                         compilerError(
+                                           sourcedCalledFfqn.as("Could not find resolved function."),
+                                           Seq(s"Looking for type: ${calledFfqn.show}")
+                                         )
         } yield ()
       case FunctionLiteral(parameter, body)                                    => ???
     }
@@ -277,11 +280,7 @@ class JvmClassGenerator
                                         }
                                  } yield ()
                                case None                 =>
-                                 compilerError(
-                                   sourcedTfqn.as(
-                                     s"Could not find type resolved ${TypeFQN.fullyQualified.show(sourcedTfqn.value)}"
-                                   )
-                                 )
+                                 compilerError(sourcedTfqn.as("Could not find resolved type."))
                              }
       classFile           <- innerClassWriter.generate().liftToCompilationIO
     } yield Seq(classFile)
