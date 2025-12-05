@@ -32,17 +32,14 @@ class UnifiedModuleDataProcessor extends CompilerProcessor {
     } else if (!hasSameSignatures(data)) {
       registerCompilerError(data.head.dataDefinition.name.as("Has multiple different definitions.")).liftOptionTNone
     } else {
-      // FIXME: arguments not given is not supported yet
-      val implementedData = data.find(_.dataDefinition.arguments.nonEmpty).getOrElse(data.head)
+      val implementedData = data.find(_.dataDefinition.fields.isDefined).getOrElse(data.head)
       UnifiedModuleData(implementedData.tfqn, implementedData.typeDictionary, implementedData.dataDefinition)
         .pure[IO]
         .liftOptionT
     }
 
-  private def hasMoreImplementations(datas: Seq[ModuleData]): Boolean = {
-    // FIXME: this too relies on count, it should be an Option
-    datas.count(_.dataDefinition.arguments.nonEmpty) > 1
-  }
+  private def hasMoreImplementations(datas: Seq[ModuleData]): Boolean =
+    datas.count(_.dataDefinition.fields.isDefined) > 1
 
   private def hasSameSignatures(datas: Seq[ModuleData]): Boolean = {
     val first = datas.head

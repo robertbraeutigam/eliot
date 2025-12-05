@@ -22,35 +22,37 @@ class DesugarProcessor
   )
 
   private def generateTypeFunctions(dataDefinitions: Seq[DataDefinition]): Seq[FunctionDefinition] =
-    dataDefinitions.flatMap { dataDefinition =>
-      // Constructor
-      Seq(
-        FunctionDefinition(
-          dataDefinition.name,
-          dataDefinition.genericParameters,
-          dataDefinition.arguments,
-          TypeReference(
+    dataDefinitions
+      .filter(_.fields.isDefined)
+      .flatMap { dataDefinition =>
+        // Constructor
+        Seq(
+          FunctionDefinition(
             dataDefinition.name,
-            dataDefinition.genericParameters.map(gp => TypeReference(gp.name, gp.genericParameters))
-          ),
-          None
-        )
-      ) ++ dataDefinition.arguments.map { field =>
-        FunctionDefinition(
-          field.name,
-          dataDefinition.genericParameters,
-          Seq(
-            ArgumentDefinition(
-              dataDefinition.name.as("obj"),
-              TypeReference(
-                dataDefinition.name,
-                dataDefinition.genericParameters.map(gp => TypeReference(gp.name, gp.genericParameters))
+            dataDefinition.genericParameters,
+            dataDefinition.fields.get,
+            TypeReference(
+              dataDefinition.name,
+              dataDefinition.genericParameters.map(gp => TypeReference(gp.name, gp.genericParameters))
+            ),
+            None
+          )
+        ) ++ dataDefinition.fields.get.map { field =>
+          FunctionDefinition(
+            field.name,
+            dataDefinition.genericParameters,
+            Seq(
+              ArgumentDefinition(
+                dataDefinition.name.as("obj"),
+                TypeReference(
+                  dataDefinition.name,
+                  dataDefinition.genericParameters.map(gp => TypeReference(gp.name, gp.genericParameters))
+                )
               )
-            )
-          ),
-          field.typeReference,
-          None
-        )
+            ),
+            field.typeReference,
+            None
+          )
+        }
       }
-    }
 }

@@ -2,28 +2,28 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor, ast}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN, UnifiedModuleData}
+import com.vanillasource.eliot.eliotc.module.fact.{TypeFQN, UnifiedModuleData}
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
-import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, DataDefinition, ResolvedData, TypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, DataDefinition, ResolvedData, TypeReference}
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
+import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
 
 class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn)) with Logging {
   override def generateFromFact(moduleData: UnifiedModuleData)(using process: CompilationProcess): IO[Unit] = {
     val genericParameters = moduleData.dataDefinition.genericParameters
-    val args              = moduleData.dataDefinition.arguments
+    val fields            = moduleData.dataDefinition.fields
     val name              = moduleData.dataDefinition.name
 
     val scope = ResolverScope(
       Map.empty,
       moduleData.typeDictionary,
       genericParameters.map(gp => gp.name.value -> gp).toMap,
-      args.map(arg => arg.name.value -> arg).toMap
+      fields.getOrElse(Seq.empty).map(arg => arg.name.value -> arg).toMap
     )
 
     val resolveProgram = for {
@@ -33,12 +33,17 @@ class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedM
             .traverse(TypeResolver.resolveType)
             .map(resolvedGenericTypes => UniversalGenericParameter(genericParameter.name, resolvedGenericTypes))
         )
-      resolvedArguments         <-
-        args.traverse { argumentDefinition =>
-          TypeResolver
-            .resolveType(argumentDefinition.typeReference)
-            .map(resolvedTypeReference => ArgumentDefinition(argumentDefinition.name, resolvedTypeReference))
-        }
+      resolvedFields            <- fields match {
+                                     case Some(fs) =>
+                                       fs.traverse { argumentDefinition =>
+                                         TypeResolver
+                                           .resolveType(argumentDefinition.typeReference)
+                                           .map(resolvedTypeReference =>
+                                             ArgumentDefinition(argumentDefinition.name, resolvedTypeReference)
+                                           )
+                                       }.map(Some(_))
+                                     case None     => None.pure[IO].liftToCompilationIO.liftToScoped
+                                   }
       _                         <-
         process
           .registerFact(
@@ -47,7 +52,7 @@ class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedM
               DataDefinition(
                 name,
                 resolvedGenericParameters,
-                resolvedArguments
+                resolvedFields
               )
             )
           )

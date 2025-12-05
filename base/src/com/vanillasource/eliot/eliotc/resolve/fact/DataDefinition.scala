@@ -5,5 +5,5 @@ import com.vanillasource.eliot.eliotc.source.pos.Sourced
 case class DataDefinition(
     name: Sourced[String],
     genericParameters: Seq[GenericParameter],
-    fields: Seq[ArgumentDefinition]
+    fields: Option[Seq[ArgumentDefinition]]
 )
