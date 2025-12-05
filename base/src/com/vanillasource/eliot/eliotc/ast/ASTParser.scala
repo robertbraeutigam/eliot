@@ -16,9 +16,7 @@ class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.K
   override def generateFromFact(sourceTokens: SourceTokens)(using process: CompilationProcess): IO[Unit] =
     for {
       asts <- sourceTokens.tokens.traverse(generateFromTokens).map(_.flatten)
-      _    <- process
-                .registerFact(SourceAST(sourceTokens.path, asts))
-                .whenA(asts.length === sourceTokens.tokens.length)
+      _    <- process.registerFact(SourceAST(sourceTokens.path, asts)).whenA(asts.nonEmpty)
     } yield ()
 
   private def generateFromTokens(
@@ -46,13 +44,7 @@ class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.K
                  token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
                )
            }.sequence_
-    } yield {
-      if (astResult.allErrors.nonEmpty) {
-        None
-      } else {
-        astResult.value.map(sourcedTokens.as(_))
-      }
-    }
+    } yield astResult.value.map(sourcedTokens.as(_))
   }
 
   private def expectedMessage(expected: Set[String]): String = expected.toSeq match

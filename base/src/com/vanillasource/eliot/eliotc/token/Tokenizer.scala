@@ -24,7 +24,7 @@ class Tokenizer extends OneToOneProcessor((key: SourceTokens.Key) => ResolvedSou
       tokenizedContents <- resolvedSourceContent.contents.traverse(tokenize).map(_.flatten)
       _                 <- process
                              .registerFact(SourceTokens(path, tokenizedContents))
-                             .whenA(tokenizedContents.length === resolvedSourceContent.contents.length)
+                             .whenA(tokenizedContents.nonEmpty)
     } yield ()
   }
 
