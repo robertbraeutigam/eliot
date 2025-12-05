@@ -22,6 +22,10 @@ class UnifiedModuleNamesProcessor extends CompilerProcessor with Logging {
       files    <- process.getFact(PathScan.Key(pathName(name))).toOptionT.map(_.files)
       allNames <- files.traverse(file => process.getFact(ModuleNames.Key(file))).map(_.sequence).toOptionT
       _        <-
+        debug(
+          s"Unified ${name.show} has functions: ${allNames.map(_.functionNames).flatten.toSet.mkString(", ")}, data: ${allNames.map(_.typeNames).flatten.toSet.mkString(", ")}"
+        ).liftOptionT
+      _        <-
         process
           .registerFact(
             UnifiedModuleNames(
