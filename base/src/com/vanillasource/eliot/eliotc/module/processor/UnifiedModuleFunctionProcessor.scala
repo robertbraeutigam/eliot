@@ -21,13 +21,17 @@ class UnifiedModuleFunctionProcessor extends CompilerProcessor {
   private def unify(ffqn: FunctionFQN)(using process: CompilationProcess): OptionT[IO, Unit] =
     for {
       files           <- process.getFact(PathScan.Key(pathName(ffqn.moduleName))).toOptionT.map(_.files)
-      allFunctions    <- files.traverse(file => process.getFact(ModuleFunction.Key(file, ffqn))).map(_.sequence).toOptionT
-      unifiedFunction <- unifyData(allFunctions)
+      allFunctions    <- files.traverse(file => process.getFact(ModuleFunction.Key(file, ffqn))).map(_.flatten).liftOptionT
+      unifiedFunction <- unifyFunctions(allFunctions)
       _               <- process.registerFact(unifiedFunction).liftOptionT
     } yield ()
 
-  private def unifyData(functions: Seq[ModuleFunction])(using CompilationProcess): OptionT[IO, UnifiedModuleFunction] =
-    if (hasMoreImplementations(functions)) {
+  private def unifyFunctions(
+      functions: Seq[ModuleFunction]
+  )(using CompilationProcess): OptionT[IO, UnifiedModuleFunction] = {
+    if (functions.isEmpty) {
+      OptionT.none
+    } else if (hasMoreImplementations(functions)) {
       registerCompilerError(functions.head.functionDefinition.name.as("Has multiple implementations.")).liftOptionTNone
     } else if (!hasSameSignatures(functions)) {
       registerCompilerError(
@@ -45,6 +49,7 @@ class UnifiedModuleFunctionProcessor extends CompilerProcessor {
         .pure[IO]
         .liftOptionT
     }
+  }
 
   private def hasMoreImplementations(functions: Seq[ModuleFunction]): Boolean =
     functions.count(_.functionDefinition.body.isDefined) > 1

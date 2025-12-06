@@ -21,13 +21,15 @@ class UnifiedModuleDataProcessor extends CompilerProcessor {
   private def unify(tfqn: TypeFQN)(using process: CompilationProcess): OptionT[IO, Unit] =
     for {
       files       <- process.getFact(PathScan.Key(pathName(tfqn.moduleName))).toOptionT.map(_.files)
-      allData     <- files.traverse(file => process.getFact(ModuleData.Key(file, tfqn))).map(_.sequence).toOptionT
+      allData     <- files.traverse(file => process.getFact(ModuleData.Key(file, tfqn))).map(_.flatten).liftOptionT
       unifiedData <- unifyData(allData)
       _           <- process.registerFact(unifiedData).liftOptionT
     } yield ()
 
   private def unifyData(data: Seq[ModuleData])(using CompilationProcess): OptionT[IO, UnifiedModuleData] =
-    if (hasMoreImplementations(data)) {
+    if (data.isEmpty) {
+      OptionT.none
+    } else if (hasMoreImplementations(data)) {
       registerCompilerError(data.head.dataDefinition.name.as("Has multiple implementations.")).liftOptionTNone
     } else if (!hasSameSignatures(data)) {
       registerCompilerError(data.head.dataDefinition.name.as("Has multiple different definitions.")).liftOptionTNone
