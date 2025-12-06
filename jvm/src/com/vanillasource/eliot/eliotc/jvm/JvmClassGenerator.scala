@@ -151,7 +151,7 @@ class JvmClassGenerator
                                        case None                     =>
                                          compilerError(
                                            sourcedCalledFfqn.as("Could not find resolved function."),
-                                           Seq(s"Looking for type: ${calledFfqn.show}")
+                                           Seq(s"Looking for function: ${calledFfqn.show}")
                                          )
         } yield ()
       case FunctionLiteral(parameter, body)                                    => ???

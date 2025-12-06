@@ -43,6 +43,7 @@ class FunctionResolver
             .traverse(TypeResolver.resolveType)
             .map(resolvedGenericTypes => UniversalGenericParameter(genericParameter.name, resolvedGenericTypes))
         )
+      _                         <- debug(s"Resolved ${moduleFunction.ffqn.show}").liftToCompilationIO.liftToScoped
       _                         <-
         process
           .registerFact(
