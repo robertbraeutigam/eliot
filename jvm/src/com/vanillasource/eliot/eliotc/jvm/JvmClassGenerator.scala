@@ -21,7 +21,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{
   ResolvedFunction,
   TypeReference
 }
-import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
+import com.vanillasource.eliot.eliotc.source.error.CompilationIO.{compilerError, *}
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import org.objectweb.asm.Opcodes
@@ -177,7 +177,12 @@ class JvmClassGenerator
       }
       .filter(_ =!= definition.name.value)
 
-    ??? // TODO: I need the types for all closed arguments
+    for {
+      // TODO: add inner class
+      _ <- StateT.modify[CompilationIO, Map[String, TypeReference]](
+             _.updated(definition.name.value, definition.typeReference)
+           )
+    } yield Seq.empty // TODO
   }
 
   private def createData(
@@ -185,64 +190,20 @@ class JvmClassGenerator
       sourcedTfqn: Sourced[TypeFQN]
   )(using process: CompilationProcess): CompilationIO[Seq[ClassFile]] =
     for {
-      // Define the data object
-      innerClassWriter    <- outerClassGenerator.createInnerClassGenerator(sourcedTfqn.value.typeName).liftToCompilationIO
       typeDefinitionMaybe <- process.getFact(ResolvedData.Key(sourcedTfqn.value)).liftToCompilationIO
-      _                   <- typeDefinitionMaybe match {
+      classes             <- typeDefinitionMaybe match {
                                case Some(typeDefinition) =>
                                  for {
-                                   _ <- compilerAbort(sourcedTfqn.as("Type not fully defined."))
-                                          .unlessA(typeDefinition.definition.fields.isDefined)
-                                   // Define the inner data fields
-                                   _ <- typeDefinition.definition.fields.get.traverse_ { argumentDefinition =>
-                                          argumentDefinition.typeReference match {
-                                            case DirectTypeReference(dataType, genericParameters) =>
-                                              innerClassWriter.createField[CompilationIO](argumentDefinition.name.value, dataType.value)
-                                            case GenericTypeReference(name, genericParameters)    =>
-                                              innerClassWriter.createField[CompilationIO](argumentDefinition.name.value, systemAnyType)
-                                          }
-                                        }
-                                   // Define constructor
-                                   _ <-
-                                     innerClassWriter
-                                       .createMethod[CompilationIO](
-                                         "<init>",
-                                         typeDefinition.definition.fields.get.map(_.typeReference).map(simpleType) ++ Seq(systemUnitType)
-                                       )
-                                       .use { methodGenerator =>
-                                         for {
-                                           // Call super.<init>
-                                           _ <- methodGenerator.runNative[CompilationIO] { methodVisitor =>
-                                                  methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
-                                                  methodVisitor.visitMethodInsn(
-                                                    Opcodes.INVOKESPECIAL,
-                                                    "java/lang/Object",
-                                                    "<init>",
-                                                    "()V",
-                                                    false
-                                                  )
-                                                }
-                                           // Set all this.field = field
-                                           _ <- typeDefinition.definition.fields.get.zipWithIndex.traverse_ { (fieldDefinition, index) =>
-                                                  methodGenerator.runNative[CompilationIO] { methodVisitor =>
-                                                    methodVisitor.visitVarInsn(Opcodes.ALOAD, 0) // this
-                                                    methodVisitor.visitVarInsn(
-                                                      Opcodes.ALOAD,
-                                                      index + 1
-                                                    )                                            // TODO: doesn't support primitives
-                                                    methodVisitor.visitFieldInsn(
-                                                      Opcodes.PUTFIELD,
-                                                      outerClassGenerator.name.name + "$" + sourcedTfqn.value.typeName,
-                                                      fieldDefinition.name.value,
-                                                      javaSignatureName(simpleType(fieldDefinition.typeReference))
-                                                    )
-                                                  }
-                                                }
-
-                                         } yield ()
-                                       }
+                                   _  <- compilerAbort(sourcedTfqn.as("Type not fully defined."))
+                                           .unlessA(typeDefinition.definition.fields.isDefined)
+                                   cs <-
+                                     createData(
+                                       outerClassGenerator,
+                                       sourcedTfqn.value.typeName,
+                                       typeDefinition.definition.fields.get
+                                     )
                                    // Define data function
-                                   _ <-
+                                   _  <-
                                      outerClassGenerator
                                        .createMethod[CompilationIO](
                                          sourcedTfqn.value.typeName, // TODO: is name legal?
@@ -261,10 +222,11 @@ class JvmClassGenerator
                                                   methodVisitor.visitInsn(Opcodes.DUP)
                                                 }
                                            // Load constructor arguments
-                                           _ <- typeDefinition.definition.fields.zipWithIndex.traverse_ { (fieldDefinition, index) =>
-                                                  methodGenerator.runNative[CompilationIO] { methodVisitor =>
-                                                    methodVisitor.visitVarInsn(Opcodes.ALOAD, index) // TODO: Fix type
-                                                  }
+                                           _ <- typeDefinition.definition.fields.get.zipWithIndex.traverse_ {
+                                                  (fieldDefinition, index) =>
+                                                    methodGenerator.runNative[CompilationIO] { methodVisitor =>
+                                                      methodVisitor.visitVarInsn(Opcodes.ALOAD, index) // TODO: Fix type
+                                                    }
                                                 }
                                            // Call constructor
                                            _ <- methodGenerator.runNative[CompilationIO] { methodVisitor =>
@@ -273,7 +235,9 @@ class JvmClassGenerator
                                                     outerClassGenerator.name.name + "$" + sourcedTfqn.value.typeName,
                                                     "<init>",
                                                     calculateSignatureString(
-                                                      typeDefinition.definition.fields.get.map(_.typeReference).map(simpleType) ++ Seq(
+                                                      typeDefinition.definition.fields.get
+                                                        .map(_.typeReference)
+                                                        .map(simpleType) ++ Seq(
                                                         systemUnitType
                                                       )
                                                     ),
@@ -283,29 +247,87 @@ class JvmClassGenerator
                                          } yield ()
                                        }
                                    // Define accessors
-                                   _ <- typeDefinition.definition.fields.get.traverse_ { argumentDefinition =>
-                                          outerClassGenerator
-                                            .createMethod[CompilationIO](
-                                              argumentDefinition.name.value,
-                                              Seq(sourcedTfqn.value, simpleType(argumentDefinition.typeReference))
-                                            )
-                                            .use { accessorGenerator =>
-                                              accessorGenerator.runNative[CompilationIO] { methodVisitor =>
-                                                methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
-                                                methodVisitor.visitFieldInsn(
-                                                  Opcodes.GETFIELD,
-                                                  outerClassGenerator.name.name + "$" + sourcedTfqn.value.typeName,
-                                                  argumentDefinition.name.value,
-                                                  javaSignatureName(simpleType(argumentDefinition.typeReference))
-                                                )
-                                              }
-                                            }
-                                        }
-                                 } yield ()
-                               case None                 =>
-                                 compilerError(sourcedTfqn.as("Could not find resolved type."))
+                                   _  <- typeDefinition.definition.fields.get.traverse_ { argumentDefinition =>
+                                           outerClassGenerator
+                                             .createMethod[CompilationIO](
+                                               argumentDefinition.name.value,
+                                               Seq(sourcedTfqn.value, simpleType(argumentDefinition.typeReference))
+                                             )
+                                             .use { accessorGenerator =>
+                                               accessorGenerator.runNative[CompilationIO] { methodVisitor =>
+                                                 methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
+                                                 methodVisitor.visitFieldInsn(
+                                                   Opcodes.GETFIELD,
+                                                   outerClassGenerator.name.name + "$" + sourcedTfqn.value.typeName,
+                                                   argumentDefinition.name.value,
+                                                   javaSignatureName(simpleType(argumentDefinition.typeReference))
+                                                 )
+                                               }
+                                             }
+                                         }
+
+                                 } yield cs
+                               case None                 => compilerError(sourcedTfqn.as("Could not find resolved type.")).as(Seq.empty)
                              }
-      classFile           <- innerClassWriter.generate().liftToCompilationIO
+    } yield classes
+
+  private def createData(
+      outerClassGenerator: ClassGenerator,
+      innerClassName: String,
+      fields: Seq[ArgumentDefinition]
+  )(using process: CompilationProcess): CompilationIO[Seq[ClassFile]] =
+    for {
+      // Define the data object
+      innerClassWriter <- outerClassGenerator.createInnerClassGenerator(innerClassName).liftToCompilationIO
+      // Define the inner data fields
+      _                <- fields.traverse_ { argumentDefinition =>
+                            argumentDefinition.typeReference match {
+                              case DirectTypeReference(dataType, genericParameters) =>
+                                innerClassWriter.createField[CompilationIO](argumentDefinition.name.value, dataType.value)
+                              case GenericTypeReference(name, genericParameters)    =>
+                                innerClassWriter.createField[CompilationIO](argumentDefinition.name.value, systemAnyType)
+                            }
+                          }
+      // Define constructor
+      _                <-
+        innerClassWriter
+          .createMethod[CompilationIO](
+            "<init>",
+            fields.map(_.typeReference).map(simpleType) ++ Seq(systemUnitType)
+          )
+          .use { methodGenerator =>
+            for {
+              // Call super.<init>
+              _ <- methodGenerator.runNative[CompilationIO] { methodVisitor =>
+                     methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
+                     methodVisitor.visitMethodInsn(
+                       Opcodes.INVOKESPECIAL,
+                       "java/lang/Object",
+                       "<init>",
+                       "()V",
+                       false
+                     )
+                   }
+              // Set all this.field = field
+              _ <- fields.zipWithIndex.traverse_ { (fieldDefinition, index) =>
+                     methodGenerator.runNative[CompilationIO] { methodVisitor =>
+                       methodVisitor.visitVarInsn(Opcodes.ALOAD, 0) // this
+                       methodVisitor.visitVarInsn(
+                         Opcodes.ALOAD,
+                         index + 1
+                       )                                            // TODO: doesn't support primitives
+                       methodVisitor.visitFieldInsn(
+                         Opcodes.PUTFIELD,
+                         outerClassGenerator.name.name + "$" + innerClassName,
+                         fieldDefinition.name.value,
+                         javaSignatureName(simpleType(fieldDefinition.typeReference))
+                       )
+                     }
+                   }
+
+            } yield ()
+          }
+      classFile        <- innerClassWriter.generate().liftToCompilationIO
     } yield Seq(classFile)
 
   private def simpleType(typeReference: TypeReference): TypeFQN =
