@@ -164,9 +164,20 @@ class JvmClassGenerator
       case FunctionLiteral(parameter, body)                                    => ???
     }
 
-  private def generateLambda(definition: ArgumentDefinition, value: Sourced[Expression])(using
+  private def generateLambda(
+      definition: ArgumentDefinition,
+      body: Sourced[Expression],
+  )(using
       process: CompilationProcess
-  ): CompilationIO[Seq[ClassFile]] = ???
+  ): CompilationIO[Seq[ClassFile]] = {
+    val closedOverArguments = body.value.toSeq
+      .collect { case ParameterReference(parameterName) =>
+        parameterName.value
+      }
+      .filter(_ =!= definition.name.value)
+
+    ??? // TODO: I need the types for all closed arguments
+  }
 
   private def createData(
       outerClassGenerator: ClassGenerator,
