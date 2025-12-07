@@ -78,6 +78,7 @@ class JvmClassGenerator
     classGenerator.createMethod[CompilationIO](functionDefinition.ffqn.functionName, signatureTypes).use {
       methodGenerator =>
         createExpressionCode(
+          classGenerator,
           methodGenerator,
           extractMethodBody(functionDefinition.definition.body.get.value, signatureTypes.length)
         ).runA(Map.empty)
@@ -113,25 +114,32 @@ class JvmClassGenerator
       }
     }
 
-  private def createExpressionCode(methodGenerator: MethodGenerator, expression: Expression)(using
+  private def createExpressionCode(
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      expression: Expression
+  )(using
       CompilationProcess
   ): CompilationTypesIO[Seq[ClassFile]] =
     expression match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
-        generateFunctionApplication(methodGenerator, target, Seq(argument)).as(Seq.empty) // One-argument call
+        generateFunctionApplication(outerClassGenerator, methodGenerator, target, Seq(argument)).as(
+          Seq.empty
+        ) // One-argument call
       case IntegerLiteral(integerLiteral)                                      => ???
       case StringLiteral(stringLiteral)                                        =>
         methodGenerator.addLdcInsn[CompilationTypesIO](stringLiteral.value).as(Seq.empty)
       case ParameterReference(parameterName)                                   => ???
       case ValueReference(Sourced(_, _, ffqn))                                 =>
         // No-argument call
-        generateFunctionApplication(methodGenerator, expression, Seq.empty).as(Seq.empty)
+        generateFunctionApplication(outerClassGenerator, methodGenerator, expression, Seq.empty).as(Seq.empty)
       case FunctionLiteral(parameter, body)                                    =>
-        generateLambda(parameter, body)
+        generateLambda(outerClassGenerator, parameter, body)
     }
 
   @tailrec
   private def generateFunctionApplication(
+      outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
       target: Expression,
       arguments: Seq[Expression]
@@ -139,7 +147,7 @@ class JvmClassGenerator
     target match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         // Means this is another argument, so just recurse
-        generateFunctionApplication(methodGenerator, target, arguments.appended(argument))
+        generateFunctionApplication(outerClassGenerator, methodGenerator, target, arguments.appended(argument))
       case IntegerLiteral(integerLiteral)                                      => ???
       case StringLiteral(stringLiteral)                                        => ???
       case ParameterReference(parameterName)                                   => ???
@@ -150,7 +158,9 @@ class JvmClassGenerator
           _                       <- functionDefinitionMaybe match
                                        case Some(functionDefinition) =>
                                          for {
-                                           _ <- arguments.traverse_(expression => createExpressionCode(methodGenerator, expression))
+                                           _ <- arguments.traverse_(expression =>
+                                                  createExpressionCode(outerClassGenerator, methodGenerator, expression)
+                                                )
                                            _ <- methodGenerator.addCallTo[CompilationTypesIO](
                                                   calledFfqn,
                                                   calculateMethodSignature(functionDefinition.definition.valueType)
@@ -166,23 +176,30 @@ class JvmClassGenerator
     }
 
   private def generateLambda(
+      outerClassGenerator: ClassGenerator,
       definition: ArgumentDefinition,
       body: Sourced[Expression]
   )(using
       process: CompilationProcess
   ): CompilationTypesIO[Seq[ClassFile]] = {
-    val closedOverArguments = body.value.toSeq
+    val closedOverNames = body.value.toSeq
       .collect { case ParameterReference(parameterName) =>
         parameterName.value
       }
       .filter(_ =!= definition.name.value)
 
     for {
-      // TODO: add inner class
-      _ <- StateT.modify[CompilationIO, Map[String, TypeReference]](
-             _.updated(definition.name.value, definition.typeReference)
-           )
-    } yield Seq.empty // TODO
+      _             <- StateT.modify[CompilationIO, Map[String, ArgumentDefinition]](
+                         _.updated(definition.name.value, definition)
+                       )
+      typeMap       <- StateT.get[CompilationIO, Map[String, ArgumentDefinition]]
+      closedOverArgs = closedOverNames.map(typeMap.get).sequence
+      _             <- compilerAbort(body.as("Could not find all types for closed over arguments."))
+                         .whenA(closedOverArgs.isEmpty)
+                         .liftToTypes
+      cls           <- createDataClass(outerClassGenerator, "TODO", closedOverArgs.get).liftToTypes
+      // FIXME: add logic to inner class
+    } yield cls
   }
 
   private def createData(
@@ -197,7 +214,7 @@ class JvmClassGenerator
                                    _  <- compilerAbort(sourcedTfqn.as("Type not fully defined."))
                                            .unlessA(typeDefinition.definition.fields.isDefined)
                                    cs <-
-                                     createData(
+                                     createDataClass(
                                        outerClassGenerator,
                                        sourcedTfqn.value.typeName,
                                        typeDefinition.definition.fields.get
@@ -271,7 +288,7 @@ class JvmClassGenerator
                              }
     } yield classes
 
-  private def createData(
+  private def createDataClass(
       outerClassGenerator: ClassGenerator,
       innerClassName: String,
       fields: Seq[ArgumentDefinition]
@@ -345,7 +362,7 @@ class JvmClassGenerator
       case None               => Seq(sourcedTfqn.value.typeName)
     }
 
-  type CompilationTypesIO[T] = StateT[CompilationIO, Map[String, TypeReference], T]
+  type CompilationTypesIO[T] = StateT[CompilationIO, Map[String, ArgumentDefinition], T]
 
   extension [T](cio: CompilationIO[T]) {
     def liftToTypes: CompilationTypesIO[T] = StateT.liftF(cio)
