@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm
 
+import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
@@ -79,7 +80,7 @@ class JvmClassGenerator
         createExpressionCode(
           methodGenerator,
           extractMethodBody(functionDefinition.definition.body.get.value, signatureTypes.length)
-        )
+        ).runA(Map.empty)
     }
   }
 
@@ -114,13 +115,13 @@ class JvmClassGenerator
 
   private def createExpressionCode(methodGenerator: MethodGenerator, expression: Expression)(using
       CompilationProcess
-  ): CompilationIO[Seq[ClassFile]] =
+  ): CompilationTypesIO[Seq[ClassFile]] =
     expression match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         generateFunctionApplication(methodGenerator, target, Seq(argument)).as(Seq.empty) // One-argument call
       case IntegerLiteral(integerLiteral)                                      => ???
       case StringLiteral(stringLiteral)                                        =>
-        methodGenerator.addLdcInsn[CompilationIO](stringLiteral.value).as(Seq.empty)
+        methodGenerator.addLdcInsn[CompilationTypesIO](stringLiteral.value).as(Seq.empty)
       case ParameterReference(parameterName)                                   => ???
       case ValueReference(Sourced(_, _, ffqn))                                 =>
         // No-argument call
@@ -134,7 +135,7 @@ class JvmClassGenerator
       methodGenerator: MethodGenerator,
       target: Expression,
       arguments: Seq[Expression]
-  )(using process: CompilationProcess): CompilationIO[Unit] =
+  )(using process: CompilationProcess): CompilationTypesIO[Unit] =
     target match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         // Means this is another argument, so just recurse
@@ -145,12 +146,12 @@ class JvmClassGenerator
       case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn))       =>
         // Calling a function with exactly one argument
         for {
-          functionDefinitionMaybe <- process.getFact(ResolvedFunction.Key(calledFfqn)).liftToCompilationIO
+          functionDefinitionMaybe <- process.getFact(ResolvedFunction.Key(calledFfqn)).liftToCompilationIO.liftToTypes
           _                       <- functionDefinitionMaybe match
                                        case Some(functionDefinition) =>
                                          for {
                                            _ <- arguments.traverse_(expression => createExpressionCode(methodGenerator, expression))
-                                           _ <- methodGenerator.addCallTo[CompilationIO](
+                                           _ <- methodGenerator.addCallTo[CompilationTypesIO](
                                                   calledFfqn,
                                                   calculateMethodSignature(functionDefinition.definition.valueType)
                                                 )
@@ -159,17 +160,17 @@ class JvmClassGenerator
                                          compilerError(
                                            sourcedCalledFfqn.as("Could not find resolved function."),
                                            Seq(s"Looking for function: ${calledFfqn.show}")
-                                         )
+                                         ).liftToTypes
         } yield ()
       case FunctionLiteral(parameter, body)                                    => ???
     }
 
   private def generateLambda(
       definition: ArgumentDefinition,
-      body: Sourced[Expression],
+      body: Sourced[Expression]
   )(using
       process: CompilationProcess
-  ): CompilationIO[Seq[ClassFile]] = {
+  ): CompilationTypesIO[Seq[ClassFile]] = {
     val closedOverArguments = body.value.toSeq
       .collect { case ParameterReference(parameterName) =>
         parameterName.value
@@ -321,4 +322,10 @@ class JvmClassGenerator
         resolvedData.definition.fields.getOrElse(Seq.empty).map(_.name.value) ++ Seq(sourcedTfqn.value.typeName)
       case None               => Seq(sourcedTfqn.value.typeName)
     }
+
+  type CompilationTypesIO[T] = StateT[CompilationIO, Map[String, TypeReference], T]
+
+  extension [T](cio: CompilationIO[T]) {
+    def liftToTypes: CompilationTypesIO[T] = StateT.liftF(cio)
+  }
 }
