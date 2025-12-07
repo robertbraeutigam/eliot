@@ -13,7 +13,13 @@ import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, Type
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedData, ResolvedFunction, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.{
+  ArgumentDefinition,
+  Expression,
+  ResolvedData,
+  ResolvedFunction,
+  TypeReference
+}
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
@@ -56,16 +62,16 @@ class JvmClassGenerator
       case None                       =>
         for {
           functionDefinitionMaybe <- process.getFact(TypeCheckedFunction.Key(sourcedFfqn.value)).liftToCompilationIO
-          _                       <- functionDefinitionMaybe match
+          classFiles              <- functionDefinitionMaybe match
                                        case Some(functionDefinition) => createModuleMethod(mainClassGenerator, functionDefinition)
-                                       case None                     => compilerError(sourcedFfqn.as(s"Could not find implementation."))
-        } yield Seq.empty
+                                       case None                     => compilerError(sourcedFfqn.as(s"Could not find implementation.")).as(Seq.empty)
+        } yield classFiles
     }
   }
 
   private def createModuleMethod(classGenerator: ClassGenerator, functionDefinition: TypeCheckedFunction)(using
       CompilationProcess
-  ): CompilationIO[Unit] = {
+  ): CompilationIO[Seq[ClassFile]] = {
     val signatureTypes = calculateMethodSignature(functionDefinition.definition.valueType)
 
     classGenerator.createMethod[CompilationIO](functionDefinition.ffqn.functionName, signatureTypes).use {
@@ -108,18 +114,19 @@ class JvmClassGenerator
 
   private def createExpressionCode(methodGenerator: MethodGenerator, expression: Expression)(using
       CompilationProcess
-  ): CompilationIO[Unit] =
+  ): CompilationIO[Seq[ClassFile]] =
     expression match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
-        generateFunctionApplication(methodGenerator, target, Seq(argument)) // One-argument call
+        generateFunctionApplication(methodGenerator, target, Seq(argument)).as(Seq.empty) // One-argument call
       case IntegerLiteral(integerLiteral)                                      => ???
       case StringLiteral(stringLiteral)                                        =>
-        methodGenerator.addLdcInsn(stringLiteral.value)
+        methodGenerator.addLdcInsn[CompilationIO](stringLiteral.value).as(Seq.empty)
       case ParameterReference(parameterName)                                   => ???
       case ValueReference(Sourced(_, _, ffqn))                                 =>
         // No-argument call
-        generateFunctionApplication(methodGenerator, expression, Seq.empty)
-      case FunctionLiteral(parameter, body)                                    => ???
+        generateFunctionApplication(methodGenerator, expression, Seq.empty).as(Seq.empty)
+      case FunctionLiteral(parameter, body)                                    =>
+        generateLambda(parameter, body)
     }
 
   @tailrec
@@ -156,6 +163,10 @@ class JvmClassGenerator
         } yield ()
       case FunctionLiteral(parameter, body)                                    => ???
     }
+
+  private def generateLambda(definition: ArgumentDefinition, value: Sourced[Expression])(using
+      process: CompilationProcess
+  ): CompilationIO[Seq[ClassFile]] = ???
 
   private def createData(
       outerClassGenerator: ClassGenerator,
