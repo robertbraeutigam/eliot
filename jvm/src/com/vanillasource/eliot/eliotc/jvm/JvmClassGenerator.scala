@@ -378,6 +378,6 @@ class JvmClassGenerator
       _.updated(definition.name.value, definition)
     )
 
-  private def getParameterTypeMap(): CompilationTypesIO[Map[String, ArgumentDefinition]] =
+  private def getParameterTypeMap: CompilationTypesIO[Map[String, ArgumentDefinition]] =
     StateT.get[CompilationIO, Map[String, ArgumentDefinition]]
 }
