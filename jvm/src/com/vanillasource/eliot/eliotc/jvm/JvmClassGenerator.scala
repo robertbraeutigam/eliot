@@ -197,7 +197,7 @@ class JvmClassGenerator
 
     for {
       _             <- addParameterDefinition(definition)
-      typeMap       <- getParameterTypeMap()
+      typeMap       <- getParameterTypeMap
       closedOverArgs = closedOverNames.map(typeMap.get).sequence
       _             <- compilerAbort(body.as("Could not find all types for closed over arguments."))
                          .whenA(closedOverArgs.isEmpty)
