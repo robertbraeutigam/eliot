@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm
 
-import cats.data.StateT
+import cats.data.{IndexedStateT, StateT}
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
@@ -197,7 +197,7 @@ class JvmClassGenerator
 
     for {
       _             <- addParameterDefinition(definition)
-      typeMap       <- StateT.get[CompilationIO, Map[String, ArgumentDefinition]]
+      typeMap       <- getParameterTypeMap()
       closedOverArgs = closedOverNames.map(typeMap.get).sequence
       _             <- compilerAbort(body.as("Could not find all types for closed over arguments."))
                          .whenA(closedOverArgs.isEmpty)
@@ -206,11 +206,6 @@ class JvmClassGenerator
       // FIXME: add logic to inner class + add instantiation to main class
     } yield cls
   }
-
-  private def addParameterDefinition(definition: ArgumentDefinition): CompilationTypesIO[Unit] =
-    StateT.modify[CompilationIO, Map[String, ArgumentDefinition]](
-      _.updated(definition.name.value, definition)
-    )
 
   private def createData(
       outerClassGenerator: ClassGenerator,
@@ -377,4 +372,12 @@ class JvmClassGenerator
   extension [T](cio: CompilationIO[T]) {
     def liftToTypes: CompilationTypesIO[T] = StateT.liftF(cio)
   }
+
+  private def addParameterDefinition(definition: ArgumentDefinition): CompilationTypesIO[Unit] =
+    StateT.modify[CompilationIO, Map[String, ArgumentDefinition]](
+      _.updated(definition.name.value, definition)
+    )
+
+  private def getParameterTypeMap(): CompilationTypesIO[Map[String, ArgumentDefinition]] =
+    StateT.get[CompilationIO, Map[String, ArgumentDefinition]]
 }
