@@ -77,11 +77,16 @@ class JvmClassGenerator
 
     classGenerator.createMethod[CompilationIO](functionDefinition.ffqn.functionName, signatureTypes).use {
       methodGenerator =>
-        createExpressionCode(
-          classGenerator,
-          methodGenerator,
-          extractMethodBody(functionDefinition.definition.body.get.value, signatureTypes.length)
-        ).runA(Map.empty)
+        val program = for {
+          extractedBody <- extractMethodBody(
+                             functionDefinition.definition.name,
+                             functionDefinition.definition.body.get.value,
+                             signatureTypes.length
+                           )
+          classes       <- createExpressionCode(classGenerator, methodGenerator, extractedBody)
+        } yield classes
+
+        program.runA(Map.empty)
     }
   }
 
@@ -99,18 +104,19 @@ class JvmClassGenerator
 
   /** Extract method body, expecting the given amount of embedded lambdas.
     */
-  @tailrec
-  private def extractMethodBody(expression: Expression, depth: Int): Expression =
+  private def extractMethodBody(
+      sourced: Sourced[_],
+      expression: Expression,
+      depth: Int
+  )(using CompilationProcess): CompilationTypesIO[Expression] =
     if (depth <= 1) {
-      expression
+      expression.pure[CompilationTypesIO]
     } else {
       expression match {
-        case FunctionApplication(target, argument)           => throw new IllegalStateException("Can not extract method body.")
-        case IntegerLiteral(integerLiteral)                  => throw new IllegalStateException("Can not extract method body.")
-        case StringLiteral(stringLiteral)                    => throw new IllegalStateException("Can not extract method body.")
-        case ParameterReference(parameterName)               => throw new IllegalStateException("Can not extract method body.")
-        case ValueReference(valueName)                       => throw new IllegalStateException("Can not extract method body.")
-        case FunctionLiteral(parameter, Sourced(_, _, body)) => extractMethodBody(body, depth - 1)
+        case FunctionLiteral(parameter, Sourced(_, _, body)) =>
+          addParameterDefinition(parameter) >>
+            extractMethodBody(sourced, body, depth - 1)
+        case _                                               => compilerAbort(sourced.as("Can not extract method body.")).liftToTypes
       }
     }
 
@@ -189,9 +195,7 @@ class JvmClassGenerator
       .filter(_ =!= definition.name.value)
 
     for {
-      _             <- StateT.modify[CompilationIO, Map[String, ArgumentDefinition]](
-                         _.updated(definition.name.value, definition)
-                       )
+      _             <- addParameterDefinition(definition)
       typeMap       <- StateT.get[CompilationIO, Map[String, ArgumentDefinition]]
       closedOverArgs = closedOverNames.map(typeMap.get).sequence
       _             <- compilerAbort(body.as("Could not find all types for closed over arguments."))
@@ -201,6 +205,11 @@ class JvmClassGenerator
       // FIXME: add logic to inner class
     } yield cls
   }
+
+  private def addParameterDefinition(definition: ArgumentDefinition): CompilationTypesIO[Unit] =
+    StateT.modify[CompilationIO, Map[String, ArgumentDefinition]](
+      _.updated(definition.name.value, definition)
+    )
 
   private def createData(
       outerClassGenerator: ClassGenerator,
