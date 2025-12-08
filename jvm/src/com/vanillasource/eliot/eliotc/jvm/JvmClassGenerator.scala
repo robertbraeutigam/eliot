@@ -89,7 +89,7 @@ class JvmClassGenerator
                            ).liftToCompilationIO.liftToTypes
         } yield classes
 
-        program.runA(Map.empty)
+        program.runA(TypeState())
     }
   }
 
@@ -367,17 +367,19 @@ class JvmClassGenerator
       case None               => Seq(sourcedTfqn.value.typeName)
     }
 
-  type CompilationTypesIO[T] = StateT[CompilationIO, Map[String, ArgumentDefinition], T]
+  case class TypeState(typeMap: Map[String, ArgumentDefinition] = Map.empty, lambdaCount: Int = 0)
+
+  type CompilationTypesIO[T] = StateT[CompilationIO, TypeState, T]
 
   extension [T](cio: CompilationIO[T]) {
     def liftToTypes: CompilationTypesIO[T] = StateT.liftF(cio)
   }
 
   private def addParameterDefinition(definition: ArgumentDefinition): CompilationTypesIO[Unit] =
-    StateT.modify[CompilationIO, Map[String, ArgumentDefinition]](
-      _.updated(definition.name.value, definition)
-    )
+    StateT.modify[CompilationIO, TypeState] { state =>
+      state.copy(typeMap = state.typeMap.updated(definition.name.value, definition))
+    }
 
   private def getParameterTypeMap: CompilationTypesIO[Map[String, ArgumentDefinition]] =
-    StateT.get[CompilationIO, Map[String, ArgumentDefinition]]
+    StateT.get[CompilationIO, TypeState].map(_.typeMap)
 }
