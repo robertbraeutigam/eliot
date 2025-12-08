@@ -202,7 +202,8 @@ class JvmClassGenerator
       _             <- compilerAbort(body.as("Could not find all types for closed over arguments."))
                          .whenA(closedOverArgs.isEmpty)
                          .liftToTypes
-      cls           <- createDataClass(outerClassGenerator, "TODO", closedOverArgs.get).liftToTypes
+      lambdaIndex   <- incLambdaCount
+      cls           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
       // FIXME: add logic to inner class + add instantiation to main class
     } yield cls
   }
@@ -380,6 +381,12 @@ class JvmClassGenerator
       state.copy(typeMap = state.typeMap.updated(definition.name.value, definition))
     }
 
+  private def incLambdaCount: CompilationTypesIO[Int] =
+    StateT.modify[CompilationIO, TypeState] { state =>
+      state.copy(lambdaCount = state.lambdaCount + 1)
+    } >> StateT.get[CompilationIO, TypeState].map(_.lambdaCount)
+
   private def getParameterTypeMap: CompilationTypesIO[Map[String, ArgumentDefinition]] =
     StateT.get[CompilationIO, TypeState].map(_.typeMap)
+
 }
