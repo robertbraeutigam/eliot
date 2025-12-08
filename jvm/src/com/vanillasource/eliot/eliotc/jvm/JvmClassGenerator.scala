@@ -84,6 +84,9 @@ class JvmClassGenerator
                              signatureTypes.length
                            )
           classes       <- createExpressionCode(classGenerator, methodGenerator, extractedBody)
+          _             <- debug(
+                             s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
+                           ).liftToCompilationIO.liftToTypes
         } yield classes
 
         program.runA(Map.empty)
@@ -129,16 +132,14 @@ class JvmClassGenerator
   ): CompilationTypesIO[Seq[ClassFile]] =
     expression match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
-        generateFunctionApplication(outerClassGenerator, methodGenerator, target, Seq(argument)).as(
-          Seq.empty
-        ) // One-argument call
+        generateFunctionApplication(outerClassGenerator, methodGenerator, target, Seq(argument)) // One-argument call
       case IntegerLiteral(integerLiteral)                                      => ???
       case StringLiteral(stringLiteral)                                        =>
         methodGenerator.addLdcInsn[CompilationTypesIO](stringLiteral.value).as(Seq.empty)
       case ParameterReference(parameterName)                                   => ???
       case ValueReference(Sourced(_, _, ffqn))                                 =>
         // No-argument call
-        generateFunctionApplication(outerClassGenerator, methodGenerator, expression, Seq.empty).as(Seq.empty)
+        generateFunctionApplication(outerClassGenerator, methodGenerator, expression, Seq.empty)
       case FunctionLiteral(parameter, body)                                    =>
         generateLambda(outerClassGenerator, parameter, body)
     }
@@ -149,7 +150,7 @@ class JvmClassGenerator
       methodGenerator: MethodGenerator,
       target: Expression,
       arguments: Seq[Expression]
-  )(using process: CompilationProcess): CompilationTypesIO[Unit] =
+  )(using process: CompilationProcess): CompilationTypesIO[Seq[ClassFile]] =
     target match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         // Means this is another argument, so just recurse
@@ -161,23 +162,23 @@ class JvmClassGenerator
         // Calling a function with exactly one argument
         for {
           functionDefinitionMaybe <- process.getFact(ResolvedFunction.Key(calledFfqn)).liftToCompilationIO.liftToTypes
-          _                       <- functionDefinitionMaybe match
+          resultClasses           <- functionDefinitionMaybe match
                                        case Some(functionDefinition) =>
                                          for {
-                                           _ <- arguments.traverse_(expression =>
-                                                  createExpressionCode(outerClassGenerator, methodGenerator, expression)
-                                                )
-                                           _ <- methodGenerator.addCallTo[CompilationTypesIO](
-                                                  calledFfqn,
-                                                  calculateMethodSignature(functionDefinition.definition.valueType)
-                                                )
-                                         } yield ()
+                                           classes <- arguments.flatTraverse(expression =>
+                                                        createExpressionCode(outerClassGenerator, methodGenerator, expression)
+                                                      )
+                                           _       <- methodGenerator.addCallTo[CompilationTypesIO](
+                                                        calledFfqn,
+                                                        calculateMethodSignature(functionDefinition.definition.valueType)
+                                                      )
+                                         } yield classes
                                        case None                     =>
                                          compilerError(
                                            sourcedCalledFfqn.as("Could not find resolved function."),
                                            Seq(s"Looking for function: ${calledFfqn.show}")
-                                         ).liftToTypes
-        } yield ()
+                                         ).liftToTypes.as(Seq.empty)
+        } yield resultClasses
       case FunctionLiteral(parameter, body)                                    => ???
     }
 
@@ -202,7 +203,7 @@ class JvmClassGenerator
                          .whenA(closedOverArgs.isEmpty)
                          .liftToTypes
       cls           <- createDataClass(outerClassGenerator, "TODO", closedOverArgs.get).liftToTypes
-      // FIXME: add logic to inner class
+      // FIXME: add logic to inner class + add instantiation to main class
     } yield cls
   }
 
