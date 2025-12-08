@@ -96,6 +96,7 @@ class JvmClassGenerator
   /** Extracts parameter arity from curried form.
     */
   private def calculateMethodSignature(typeReference: TypeReference): Seq[TypeFQN] =
+    // FIXME: does this handle a -> (b -> c) -> d -- needs test
     typeReference match {
       case DirectTypeReference(Sourced(_, _, dataType), genericParameters) if dataType === systemFunctionType =>
         calculateMethodSignature(genericParameters.head) ++ calculateMethodSignature(genericParameters.last)
