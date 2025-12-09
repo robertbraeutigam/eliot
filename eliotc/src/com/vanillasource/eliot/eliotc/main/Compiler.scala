@@ -23,7 +23,7 @@ object Compiler extends Logging {
     type OPTF[T] = OptionT[F, T]
 
     for {
-      plugins          <- OptionT.liftF(allLayers())
+      plugins          <- allLayers[OPTF]()
       // Run command line parsing with all options from all layers
       configuration    <- parserCommandLine(args, plugins.map(_.commandLineParser()))
       // Select active plugins
