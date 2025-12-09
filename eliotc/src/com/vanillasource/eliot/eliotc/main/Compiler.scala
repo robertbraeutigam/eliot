@@ -1,9 +1,8 @@
 package com.vanillasource.eliot.eliotc.main
 
-import cats.{Functor, Monad}
 import cats.data.OptionT
-import cats.effect.{Async, Sync}
 import cats.effect.std.Console
+import cats.effect.{Async, Sync}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
