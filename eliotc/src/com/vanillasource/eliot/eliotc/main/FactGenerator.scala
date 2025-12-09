@@ -5,9 +5,10 @@ import cats.{Applicative, Monad}
 import cats.effect.{Async, Concurrent, Deferred, Ref, Spawn, Sync}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.feedback.Logging.Log
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
-final class FactGenerator[F[_]: Async](
+final class FactGenerator[F[_]: Async: Log](
     generator: CompilerProcessor[F],
     facts: Ref[F, Map[CompilerFactKey[_], Deferred[F, Option[CompilerFact]]]]
 ) extends CompilationProcess[F]
