@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.processor
 
 import cats.Applicative
-import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 

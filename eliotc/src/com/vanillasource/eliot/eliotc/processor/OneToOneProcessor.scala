@@ -1,8 +1,7 @@
 package com.vanillasource.eliot.eliotc.processor
 
-import cats.{Applicative, Monad}
-import cats.effect.IO
 import cats.syntax.all.*
+import cats.{Applicative, Monad}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
 import scala.reflect.ClassTag
