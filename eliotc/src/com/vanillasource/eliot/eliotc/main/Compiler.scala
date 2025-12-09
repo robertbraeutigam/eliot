@@ -19,11 +19,9 @@ import scala.jdk.CollectionConverters.*
 object Compiler extends Logging {
   val targetPathKey: Configuration.Key[Path] = namedKey[Path]("targetPath")
 
-  def runCompiler[F[_]: Async: Console](args: List[String]): OptionT[F, Unit] = {
-    type OPTF[T] = OptionT[F, T]
-
+  def runCompiler[F[_]: Async: Console](args: List[String]): OptionT[F, Unit] =
     for {
-      plugins          <- allLayers[OPTF]()
+      plugins          <- allLayers().liftOptionT
       // Run command line parsing with all options from all layers
       configuration    <- parserCommandLine(args, plugins.map(_.commandLineParser()))
       // Select active plugins
@@ -43,7 +41,6 @@ object Compiler extends Logging {
       _                <- targetPlugin.run[F](newConfiguration, generator).liftOptionT
       _                <- debug("Compiler exiting normally.")
     } yield ()
-  }
 
   private def collectActivatedPlugins(
       initialPlugin: CompilerPlugin,
