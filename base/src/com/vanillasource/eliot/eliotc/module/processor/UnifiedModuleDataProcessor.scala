@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.Monad
 import cats.data.OptionT
+import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.DataDefinition
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleData, TypeFQN, UnifiedModuleData}
@@ -11,7 +12,7 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
-class UnifiedModuleDataProcessor[F[_]: Monad] extends CompilerProcessor[F] {
+class UnifiedModuleDataProcessor[F[_]: {Monad, Console}] extends CompilerProcessor[F] {
   override def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit] =
     factKey match {
       case UnifiedModuleData.Key(tfqn) => unify(tfqn).getOrUnit

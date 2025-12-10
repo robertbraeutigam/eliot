@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.Monad
+import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.ast.{DataDefinition, FunctionDefinition}
@@ -10,12 +11,12 @@ import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompiler
 import java.nio.file.{Path, Paths}
 
 object ExtractSymbols {
-  def extractLocalFunctions[F[_]: Monad](
+  def extractLocalFunctions[F[_]: {Monad, Console}](
       functionDefinitions: Seq[FunctionDefinition]
   )(using process: CompilationProcess[F]): F[Map[String, FunctionDefinition]] =
     functionDefinitions.foldM(Map.empty[String, FunctionDefinition])((acc, d) => extractLocalFunction(acc, d))
 
-  def extractLocalTypes[F[_]: Monad](definitions: Seq[DataDefinition])(using
+  def extractLocalTypes[F[_]: {Monad, Console}](definitions: Seq[DataDefinition])(using
       process: CompilationProcess[F]
   ): F[Map[String, DataDefinition]] =
     definitions.foldM(Map.empty[String, DataDefinition])((acc, d) => extractLocalType(acc, d))
@@ -23,7 +24,7 @@ object ExtractSymbols {
   def pathName(name: ModuleName): Path =
     (name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ `resolve` _)
 
-  private def extractLocalType[F[_]: Monad](
+  private def extractLocalType[F[_]: {Monad, Console}](
       previousTypes: Map[String, DataDefinition],
       current: DataDefinition
   )(using process: CompilationProcess[F]): F[Map[String, DataDefinition]] = current.name.value match
@@ -34,7 +35,7 @@ object ExtractSymbols {
         .as(previousTypes)
     case ty                               => (previousTypes ++ Map((ty, current))).pure
 
-  private def extractLocalFunction[F[_]: Monad](
+  private def extractLocalFunction[F[_]: {Monad, Console}](
       previousFunctions: Map[String, FunctionDefinition],
       current: FunctionDefinition
   )(using process: CompilationProcess[F]): F[Map[String, FunctionDefinition]] = current.name.value match

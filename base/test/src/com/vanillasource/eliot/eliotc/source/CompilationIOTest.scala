@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.source
 
 import cats.effect.Ref
 import cats.effect.testing.scalatest.AsyncIOSpec
-import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
+import com.vanillasource.eliot.eliotc.source.error.CompilationF.*
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 

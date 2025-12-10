@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.used
 
 import cats.Monad
+import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -11,7 +12,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefiniti
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsState.*
 
-class UsedSymbolsProcessor[F[_]: Monad]
+class UsedSymbolsProcessor[F[_]: {Monad, Console}]
     extends OneToOneProcessor((key: UsedSymbols.Key) => ResolvedFunction.Key(key.ffqn))
     with Logging {
 

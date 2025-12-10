@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.source.error
 
+import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.User.*
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
@@ -12,7 +13,7 @@ import scala.io.AnsiColor.{BOLD, MAGENTA, RED, RESET}
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 object SourcedError {
-  def registerCompilerError[F[_]: CompilationProcess](
+  def registerCompilerError[F[_]: {CompilationProcess, Console}](
       message: Sourced[String],
       description: Seq[String] = Seq.empty
   ): F[Unit] =
@@ -29,7 +30,7 @@ object SourcedError {
   def registerCompilerError[F[_]: CompilationProcess](file: File, message: String): F[Unit] =
     registerCompilerError(Sourced(file, PositionRange(Position(1, 1), Position(1, 1)), message))
 
-  private def printError[F[_]: CompilationProcess](
+  private def printError[F[_]: {Monad, Console}](using process: CompilationProcess[F])(
       file: File,
       fromLine: Line,
       fromCol: Column,
@@ -54,7 +55,7 @@ object SourcedError {
     } yield ()).getOrElseF(compilerGlobalError(s"File contents for $file are not available."))
   }
 
-  private def compilerSourcedError[F[_]: Console](
+  private def compilerSourcedError[F[_]: {Console, Monad}](
       file: File,
       content: String,
       fromLine: Int,
@@ -93,7 +94,7 @@ object SourcedError {
         }
       }
       .map(f = lines => compilerGenericError(lines.mkString("\n")))
-      .getOrElse(IO.unit)
+      .getOrElse(Monad[F].void)
   }
 
   private def safeSubstring(line: String, from: Int, to: Int): String =

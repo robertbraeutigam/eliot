@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.base
 
 import cats.data.StateT
 import cats.effect.Sync
+import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilerProcessor
 import com.vanillasource.eliot.eliotc.ast.ASTParser
@@ -35,7 +36,7 @@ class BasePlugin extends CompilerPlugin {
       .text("paths of either directories or files to compile")
   )
 
-  override def initialize[F[_]: Sync](configuration: Configuration): StateT[F, CompilerProcessor[F], Unit] = {
+  override def initialize[F[_]: {Sync, Console}](configuration: Configuration): StateT[F, CompilerProcessor[F], Unit] = {
     StateT
       .modify(superProcessor =>
         SequentialCompilerProcessors(

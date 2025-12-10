@@ -21,7 +21,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{
   ResolvedFunction,
   TypeReference
 }
-import com.vanillasource.eliot.eliotc.source.error.CompilationIO.{compilerError, *}
+import com.vanillasource.eliot.eliotc.source.error.CompilationF.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import org.objectweb.asm.Opcodes

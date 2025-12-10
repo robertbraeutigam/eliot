@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.{GenericParameter, TypeReference}
-import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
+import com.vanillasource.eliot.eliotc.source.error.CompilationF.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.Assignment
 
