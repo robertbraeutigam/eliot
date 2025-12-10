@@ -1,8 +1,8 @@
 package com.vanillasource.eliot.eliotc.main
 
 import cats.effect.implicits.genSpawnOps
-import cats.{Applicative, Monad}
-import cats.effect.{Async, Concurrent, Deferred, Ref, Spawn, Sync}
+
+import cats.effect.{Async, Deferred, Ref}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.feedback.Logging.Log
@@ -42,7 +42,7 @@ final class FactGenerator[F[_]: Async: Log](
       result   <- facts.modify { internalMap =>
                     internalMap.get(key) match
                       case Some(alreadyPresentValue) => (internalMap, (alreadyPresentValue, false))
-                      case None                      => (internalMap + ((key, newValue)), (newValue, true))
+                      case None                      => (internalMap.updated(key, newValue), (newValue, true))
                   }
     } yield result
 }
