@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
+import cats.Monad
 import cats.data.OptionT
-import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.DataDefinition
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleData, TypeFQN, UnifiedModuleData}
@@ -11,14 +11,14 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
-class UnifiedModuleDataProcessor extends CompilerProcessor {
-  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] =
+class UnifiedModuleDataProcessor[F[_]: Monad] extends CompilerProcessor[F] {
+  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess[F]): F[Unit] =
     factKey match {
       case UnifiedModuleData.Key(tfqn) => unify(tfqn).getOrUnit
-      case _                           => IO.unit
+      case _                           => Monad[F].unit
     }
 
-  private def unify(tfqn: TypeFQN)(using process: CompilationProcess): OptionT[IO, Unit] =
+  private def unify(tfqn: TypeFQN)(using process: CompilationProcess[F]): OptionT[F, Unit] =
     for {
       files       <- process.getFact(PathScan.Key(pathName(tfqn.moduleName))).toOptionT.map(_.files)
       allData     <- files.traverse(file => process.getFact(ModuleData.Key(file, tfqn))).map(_.flatten).liftOptionT
@@ -26,7 +26,7 @@ class UnifiedModuleDataProcessor extends CompilerProcessor {
       _           <- process.registerFact(unifiedData).liftOptionT
     } yield ()
 
-  private def unifyData(data: Seq[ModuleData])(using CompilationProcess): OptionT[IO, UnifiedModuleData] =
+  private def unifyData(data: Seq[ModuleData])(using CompilationProcess): OptionT[F, UnifiedModuleData] =
     if (data.isEmpty) {
       OptionT.none
     } else if (hasMoreImplementations(data)) {
@@ -36,7 +36,7 @@ class UnifiedModuleDataProcessor extends CompilerProcessor {
     } else {
       val implementedData = data.find(_.dataDefinition.fields.isDefined).getOrElse(data.head)
       UnifiedModuleData(implementedData.tfqn, implementedData.typeDictionary, implementedData.dataDefinition)
-        .pure[IO]
+        .pure[F]
         .liftOptionT
     }
 

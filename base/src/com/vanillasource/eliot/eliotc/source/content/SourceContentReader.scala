@@ -9,16 +9,16 @@ import java.io.File
 import java.nio.file.Path
 import scala.io.Source
 
-class SourceContentReader extends CompilerProcessor {
-  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
+class SourceContentReader[F[_]: Sync] extends CompilerProcessor[F] {
+  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit] = factKey match {
     case SourceContent.Key(file) => generateContentFor(file)
-    case _                       => IO.unit
+    case _                       => Monad[F].unit
   }
 
-  private def generateContentFor(file: File)(using process: CompilationProcess): IO[Unit] = {
-    Resource.make(IO(Source.fromFile(file)))(source => IO(source.close())).use { source =>
+  private def generateContentFor(file: File)(using process: CompilationProcess): F[Unit] = {
+    Resource.make(Monad[F].delay(Source.fromFile(file)))(source => Sync[F].blocking(source.close())).use { source =>
       for {
-        contentLines <- IO.blocking(source.getLines())
+        contentLines <- Sync[F].blocking(source.getLines())
         _            <-
           process.registerFact(
             SourceContent(file, Sourced(file, PositionRange.zero, contentLines.mkString("\n")))

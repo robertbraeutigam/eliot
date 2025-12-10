@@ -163,7 +163,7 @@ object Parser {
     /** Returns the result of the first parser if it succeeds, or the second one if the first one fails without
       * consuming any input.
       */
-    def or(p2: Parser[I, O]): Parser[I, O] =
+    infix def or(p2: Parser[I, O]): Parser[I, O] =
       p.optional().flatMap {
         case Some(a) => a.pure
         case None    => p2
@@ -172,7 +172,7 @@ object Parser {
     /** Parses either this or the given parser if this fails. This is like "or", but the two parsers may differ in type,
       * therefore, a pair is returned.
       */
-    def xor[P](p2: Parser[I, P]): Parser[I, Either[O, P]] = p.map(Left(_)) or p2.map(Right(_))
+    infix def xor[P](p2: Parser[I, P]): Parser[I, Either[O, P]] = p.map(Left(_)) or p2.map(Right(_))
   }
 
   /** Accept if the given predicate holds.

@@ -1,19 +1,13 @@
 package com.vanillasource.eliot.eliotc.base
 
 import cats.data.StateT
-import cats.effect.IO
+import cats.effect.Sync
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilerProcessor
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
-import com.vanillasource.eliot.eliotc.module.processor.{
-  ModuleNamesProcessor,
-  ModuleProcessor,
-  UnifiedModuleDataProcessor,
-  UnifiedModuleFunctionProcessor,
-  UnifiedModuleNamesProcessor
-}
+import com.vanillasource.eliot.eliotc.module.processor.{ModuleNamesProcessor, ModuleProcessor, UnifiedModuleDataProcessor, UnifiedModuleFunctionProcessor, UnifiedModuleNamesProcessor}
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
@@ -33,7 +27,7 @@ class BasePlugin extends CompilerPlugin {
 
   private val pathKey = namedKey[Seq[File]]("paths")
 
-  override def commandLineParser(): OParser[_, Configuration] = OParser.sequence(
+  override def commandLineParser(): OParser[?, Configuration] = OParser.sequence(
     arg[File]("<path>...")
       .unbounded()
       .required()
@@ -41,7 +35,7 @@ class BasePlugin extends CompilerPlugin {
       .text("paths of either directories or files to compile")
   )
 
-  override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] = {
+  override def initialize[F[_]: Sync](configuration: Configuration): StateT[F, CompilerProcessor[F], Unit] = {
     StateT
       .modify(superProcessor =>
         SequentialCompilerProcessors(

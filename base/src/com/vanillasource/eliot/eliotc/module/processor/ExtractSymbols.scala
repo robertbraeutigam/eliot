@@ -10,18 +10,18 @@ import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompiler
 import java.nio.file.{Path, Paths}
 
 object ExtractSymbols {
-  def extractLocalFunctions(
+  def extractLocalFunctions[F[_]](
       functionDefinitions: Seq[FunctionDefinition]
-  )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] =
+  )(using process: CompilationProcess[F]): F[Map[String, FunctionDefinition]] =
     functionDefinitions.foldM(Map.empty[String, FunctionDefinition])((acc, d) => extractLocalFunction(acc, d))
 
-  def extractLocalTypes(definitions: Seq[DataDefinition])(using
-      process: CompilationProcess
-  ): IO[Map[String, DataDefinition]] =
+  def extractLocalTypes[F[_]](definitions: Seq[DataDefinition])(using
+      process: CompilationProcess[F]
+  ): F[Map[String, DataDefinition]] =
     definitions.foldM(Map.empty[String, DataDefinition])((acc, d) => extractLocalType(acc, d))
 
   def pathName(name: ModuleName): Path =
-    (name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ resolve _)
+    (name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ `resolve` _)
 
   private def extractLocalType(
       previousTypes: Map[String, DataDefinition],
