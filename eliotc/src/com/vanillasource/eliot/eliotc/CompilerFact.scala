@@ -7,5 +7,5 @@ trait CompilerFact {
 
   /** A key of a fact is the handle by which a fact can be accessed in the running engine.
     */
-  def key(): CompilerFactKey[_]
+  def key(): CompilerFactKey[?]
 }

@@ -4,5 +4,5 @@ import cats.Applicative
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
 class NullProcessor[F[_]: Applicative] extends CompilerProcessor[F] {
-  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess[F]): F[Unit] = Applicative[F].unit
+  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit] = Applicative[F].unit
 }

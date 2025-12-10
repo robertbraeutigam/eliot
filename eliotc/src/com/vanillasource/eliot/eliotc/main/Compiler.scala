@@ -18,7 +18,7 @@ import scala.jdk.CollectionConverters.*
 object Compiler extends Logging {
   val targetPathKey: Configuration.Key[Path] = namedKey[Path]("targetPath")
 
-  def runCompiler[F[_]: Async: Console](args: List[String]): OptionT[F, Unit] =
+  def runCompiler[F[_]: {Async, Console}](args: List[String]): OptionT[F, Unit] =
     for {
       plugins          <- allLayers().liftOptionT
       // Run command line parsing with all options from all layers
@@ -50,7 +50,7 @@ object Compiler extends Logging {
       ps.headOption.map(plugin => plugin -> (ps.tail ++ resolvePlugins(plugin.pluginDependencies(configuration), all)))
     )
 
-  private def resolvePlugins(classes: Seq[Class[_ <: CompilerPlugin]], all: Seq[CompilerPlugin]): Seq[CompilerPlugin] =
+  private def resolvePlugins(classes: Seq[Class[? <: CompilerPlugin]], all: Seq[CompilerPlugin]): Seq[CompilerPlugin] =
     all.filter(p => classes.contains(p.getClass))
 
   private def allLayers[F[_]: Sync](): F[Seq[CompilerPlugin]] = Sync[F].blocking {
@@ -76,10 +76,10 @@ object Compiler extends Logging {
 
   private def parserCommandLine[F[_]: Sync](
       args: Seq[String],
-      options: Seq[OParser[_, Configuration]]
+      options: Seq[OParser[?, Configuration]]
   ): OptionT[F, Configuration] = Sync[F].blocking {
     val (result, effects) = OParser.runParser(
-      OParser.sequence(baseOptions(), options: _*),
+      OParser.sequence(baseOptions(), options*),
       args,
       Configuration().set(targetPathKey, Path.of("target"))
     )

@@ -7,5 +7,5 @@ trait CompilerProcessor[F[_]] {
 
   /** Generate the fact with the given key, if able. Otherwise, do nothing.
     */
-  def generate(factKey: CompilerFactKey[_])(using CompilationProcess[F]): F[Unit]
+  def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit]
 }

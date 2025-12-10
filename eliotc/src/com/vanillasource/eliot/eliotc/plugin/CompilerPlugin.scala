@@ -6,11 +6,11 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerProcessor}
 import scopt.OParser
 
 trait CompilerPlugin {
-  def commandLineParser(): OParser[_, Configuration]
+  def commandLineParser(): OParser[?, Configuration]
 
   def isSelectedBy(configuration: Configuration): Boolean = false
 
-  def pluginDependencies(configuration: Configuration): Seq[Class[_ <: CompilerPlugin]] = Seq.empty
+  def pluginDependencies(configuration: Configuration): Seq[Class[? <: CompilerPlugin]] = Seq.empty
 
   def configure[F[_]: Applicative](): StateT[F, Configuration, Unit] = StateT.empty
 

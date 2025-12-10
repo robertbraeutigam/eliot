@@ -8,9 +8,9 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.feedback.Logging.Log
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
-final class FactGenerator[F[_]: Async: Log](
+final class FactGenerator[F[_]: {Async, Log}](
     generator: CompilerProcessor[F],
-    facts: Ref[F, Map[CompilerFactKey[_], Deferred[F, Option[CompilerFact]]]]
+    facts: Ref[F, Map[CompilerFactKey[?], Deferred[F, Option[CompilerFact]]]]
 ) extends CompilationProcess[F]
     with Logging {
   override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): F[Option[V]] = {
@@ -35,7 +35,7 @@ final class FactGenerator[F[_]: Async: Log](
   }
 
   private def modifyAtomicallyFor(
-      key: CompilerFactKey[_]
+      key: CompilerFactKey[?]
   ): F[(Deferred[F, Option[CompilerFact]], Boolean)] =
     for {
       newValue <- Deferred[F, Option[CompilerFact]]
@@ -49,7 +49,7 @@ final class FactGenerator[F[_]: Async: Log](
 
 object FactGenerator {
   def create[F[_]: Async](generator: CompilerProcessor[F]): F[FactGenerator[F]] =
-    Ref.of[F, Map[CompilerFactKey[_], Deferred[F, Option[CompilerFact]]]](Map.empty).map { ref =>
+    Ref.of[F, Map[CompilerFactKey[?], Deferred[F, Option[CompilerFact]]]](Map.empty).map { ref =>
       new FactGenerator(generator, ref)
     }
 }

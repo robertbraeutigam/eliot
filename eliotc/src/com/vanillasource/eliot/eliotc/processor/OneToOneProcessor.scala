@@ -6,11 +6,11 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 
 import scala.reflect.ClassTag
 
-abstract class OneToOneProcessor[F[_]: Monad, V <: CompilerFact, I <: CompilerFactKey[V], O <: CompilerFactKey[_]](
+abstract class OneToOneProcessor[F[_]: Monad, V <: CompilerFact, I <: CompilerFactKey[V], O <: CompilerFactKey[?]](
     keyTransition: O => I
 )(using ct: ClassTag[O])
     extends CompilerProcessor[F] {
-  override def generate(factKey: CompilerFactKey[_])(using process: CompilationProcess[F]): F[Unit] =
+  override def generate(factKey: CompilerFactKey[?])(using process: CompilationProcess[F]): F[Unit] =
     factKey match {
       case requestedKey: O =>
         val key = keyTransition(requestedKey)

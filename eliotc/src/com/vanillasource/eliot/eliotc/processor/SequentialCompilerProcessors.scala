@@ -6,6 +6,6 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, Comp
 
 class SequentialCompilerProcessors[F[_]: Applicative](processors: Seq[CompilerProcessor[F]])
     extends CompilerProcessor[F] {
-  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess[F]): F[Unit] =
+  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit] =
     processors.traverse_(_.generate(factKey))
 }
