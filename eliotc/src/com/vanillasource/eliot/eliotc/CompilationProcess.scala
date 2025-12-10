@@ -7,7 +7,7 @@ import cats.syntax.all.*
   * and are only allowed to interact with the current compilation process by consuming or producing facts that are
   * shared with other processors.
   */
-trait CompilationProcess[F[_]: Applicative] {
+trait CompilationProcess[F[_]] {
 
   /** Get a fact from the currently running compilation process. If the fact is available, it is returned immediately.
     * If the fact is not available, this call will block until the fact for the given key becomes available. If the fact
@@ -19,6 +19,6 @@ trait CompilationProcess[F[_]: Applicative] {
 
   def registerFact(value: CompilerFact): F[Unit]
 
-  def registerFacts(values: Seq[CompilerFact]): F[Unit] =
+  def registerFacts(values: Seq[CompilerFact])(using Applicative[F]): F[Unit] =
     values.map(registerFact).sequence_
 }
