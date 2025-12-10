@@ -32,7 +32,7 @@ object Logging {
     override def log(logger: Logger, level: Level, msg: String, t: Throwable): F[Unit] =
       Sync[F].blocking(logger.log(level, msg, t))
 
-  given logFromOptionT[F[_]: Functor: Log]: Log[[A] =>> OptionT[F, A]] with
+  given logFromOptionT[F[_]: {Functor, Log}]: Log[[A] =>> OptionT[F, A]] with
     override def log(logger: Logger, level: Level, msg: String, t: Throwable): OptionT[F, Unit] =
       OptionT.liftF(Log[F].log(logger, level, msg, t))
 }
