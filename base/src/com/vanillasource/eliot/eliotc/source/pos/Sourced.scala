@@ -19,7 +19,7 @@ object Sourced {
 
   given [T]: Show[Sourced[T]] = (t: Sourced[T]) => s"${t.value.toString} (${t.range.show})"
 
-  def outline(ss: Seq[Sourced[_]]): Sourced[Unit] = ss match
+  def outline(ss: Seq[Sourced[?]]): Sourced[Unit] = ss match
     case head :: _ => Sourced(head.file, PositionRange(ss.map(_.range.from).min, ss.map(_.range.to).max), ())
     case _         => throw IllegalArgumentException("can't produce an outline of empty sourced values")
 }

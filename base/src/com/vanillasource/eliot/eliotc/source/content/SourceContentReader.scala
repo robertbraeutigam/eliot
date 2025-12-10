@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.source.content
 
-import cats.effect.{IO, Resource}
+import cats.effect.{IO, Resource, Sync}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}

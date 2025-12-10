@@ -17,7 +17,7 @@ import parsley.token.predicate.Basic
 
 import java.io.File
 
-class TokenParser(sourced: Sourced[_]) {
+class TokenParser(sourced: Sourced[?]) {
   private val lexer = new Lexer(
     LexicalDesc(
       NameDesc(
