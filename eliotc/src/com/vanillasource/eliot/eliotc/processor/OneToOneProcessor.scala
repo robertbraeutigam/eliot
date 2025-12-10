@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import cats.{Applicative, Monad}
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
+import scala.annotation.unused
 import scala.reflect.ClassTag
 
 abstract class OneToOneProcessor[F[_]: Monad, V <: CompilerFact, I <: CompilerFactKey[V], O <: CompilerFactKey[?]](
@@ -20,6 +21,6 @@ abstract class OneToOneProcessor[F[_]: Monad, V <: CompilerFact, I <: CompilerFa
 
   def generateFromFact(fact: V)(using CompilationProcess[F]): F[Unit] = ???
 
-  def generateFromKeyAndFact(key: O, fact: V)(using CompilationProcess[F]): F[Unit] =
+  def generateFromKeyAndFact(@unused key: O, fact: V)(using CompilationProcess[F]): F[Unit] =
     generateFromFact(fact)
 }

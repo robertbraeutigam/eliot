@@ -7,10 +7,10 @@ import cats.syntax.all.*
 
 object CatsOps {
 
-  extension [F[_]: Monad, A](value: F[Option[A]]) {
+  extension [F[_], A](value: F[Option[A]]) {
     def toOptionT: OptionT[F, A] = OptionT(value)
 
-    def onNone(action: F[Unit]): OptionT[F, A] =
+    def onNone(action: F[Unit])(using Monad[F]): OptionT[F, A] =
       OptionT {
         value.flatMap {
           case Some(a) => value
