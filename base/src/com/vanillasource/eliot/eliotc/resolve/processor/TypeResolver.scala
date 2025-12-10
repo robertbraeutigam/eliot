@@ -71,7 +71,7 @@ class TypeResolver[F[_]: {Monad, Console}]
 }
 
 object TypeResolver {
-  def resolveType[F[_]](
+  def resolveType[F[_]: {Monad, Console}](
       reference: ast.TypeReference
   )(using process: CompilationProcess[F], me: MonadError[F, Throwable]): ScopedF[F, TypeReference] =
     for {

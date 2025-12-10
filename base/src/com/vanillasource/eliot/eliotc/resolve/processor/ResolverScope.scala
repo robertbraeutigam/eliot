@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.{Applicative, MonadError}
 import cats.data.StateT
+import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerProcessor, ast}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
@@ -23,7 +24,7 @@ object ResolverScope {
     def liftToScoped: ScopedF[F, T] = StateT.liftF[[X] =>> CompilationF[F, X], ResolverScope, T](io)
   }
 
-  def addVisibleValue[F[_]](
+  def addVisibleValue[F[_]: Console](
       arg: ast.ArgumentDefinition
   )(using CompilationProcess[F], MonadError[F, Throwable]): ScopedF[F, Unit] =
     for {
