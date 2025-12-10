@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.feedback
 
-import cats.effect.IO
 import cats.effect.std.Console
 
 object User {
