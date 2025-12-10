@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.source.error
 
 import cats.effect.std.Console
+import cats.Monad
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.User.*
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
