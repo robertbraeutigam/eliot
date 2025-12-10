@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
-import cats.effect.IO
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.module.fact.ModuleNames
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.*
@@ -12,7 +12,7 @@ class ModuleNamesProcessor[F[_]: Monad]
     extends OneToOneProcessor((key: ModuleNames.Key) => DesugaredSourceAST.Key(key.file)) {
   override def generateFromKeyAndFact(key: ModuleNames.Key, fact: DesugaredSourceAST)(using
       process: CompilationProcess[F]
-  ): IO[Unit] =
+  ): F[Unit] =
     for {
       localFunctions <- extractLocalFunctions(fact.sourcedAst.value.functionDefinitions)
       localTypes     <- extractLocalTypes(fact.sourcedAst.value.typeDefinitions)

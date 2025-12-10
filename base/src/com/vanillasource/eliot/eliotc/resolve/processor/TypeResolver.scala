@@ -68,7 +68,7 @@ class TypeResolver[F[_]: Monad]
 }
 
 object TypeResolver {
-  def resolveType(reference: ast.TypeReference)(using process: CompilationProcess): ScopedIO[TypeReference] =
+  def resolveType(reference: ast.TypeReference)(using process: CompilationProcess[F]): ScopedIO[TypeReference] =
     for {
       resolvedGenericParameters <- reference.genericParameters.traverse(resolveType)
       resolvedType              <- getGenericParameter(reference.typeName.value).flatMap {

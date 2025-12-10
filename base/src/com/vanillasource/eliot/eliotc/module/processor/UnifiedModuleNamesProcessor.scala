@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.Monad
+import cats.effect.Sync
 import cats.data.OptionT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -10,8 +11,8 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
-class UnifiedModuleNamesProcessor[F[_]: Monad] extends CompilerProcessor[F] with Logging {
-  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess[F]): F[Unit] =
+class UnifiedModuleNamesProcessor[F[_]: Sync] extends CompilerProcessor[F] with Logging {
+  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit] =
     factKey match {
       case UnifiedModuleNames.Key(moduleName) => unifyModules(moduleName).getOrUnit
       case _                                  => Monad[F].unit
@@ -24,7 +25,7 @@ class UnifiedModuleNamesProcessor[F[_]: Monad] extends CompilerProcessor[F] with
       _        <-
         debug(
           s"Unified ${name.show} has functions: ${allNames.map(_.functionNames).flatten.toSet.mkString(", ")}, data: ${allNames.map(_.typeNames).flatten.toSet.mkString(", ")}"
-        ).liftOptionT
+        )
       _        <-
         process
           .registerFact(
