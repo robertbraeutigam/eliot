@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.used
 
-import cats.effect.IO
+import cats.Monad
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -11,11 +11,11 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefiniti
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsState.*
 
-class UsedSymbolsProcessor
+class UsedSymbolsProcessor[F[_]: Monad]
     extends OneToOneProcessor((key: UsedSymbols.Key) => ResolvedFunction.Key(key.ffqn))
     with Logging {
 
-  override def generateFromFact(resolvedMainFunction: ResolvedFunction)(using process: CompilationProcess): IO[Unit] =
+  override def generateFromFact(resolvedMainFunction: ResolvedFunction)(using process: CompilationProcess[F]): F[Unit] =
     for {
       usedSymbols <-
         (processDefinition(resolvedMainFunction.definition) >> addFunctionUsed(
@@ -27,7 +27,7 @@ class UsedSymbolsProcessor
     } yield ()
 
   private def processDefinition(definition: FunctionDefinition)(using
-      CompilationProcess
+      CompilationProcess[F]
   ): UsedSymbolsIO[Unit] =
     for {
       _ <- processTypeReference(definition.valueType)
@@ -42,14 +42,14 @@ class UsedSymbolsProcessor
       case Expression.FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         processExpression(target) >> processExpression(argument)
       case Expression.IntegerLiteral(integerLiteral)                                      =>
-        IO.unit.liftToUsedSymbols
+        Monad[F].unit.liftToUsedSymbols
       case Expression.StringLiteral(stringLiteral)                                        =>
-        IO.unit.liftToUsedSymbols
+        Monad[F].unit.liftToUsedSymbols
       case Expression.ParameterReference(parameterName)                                   =>
-        IO.unit.liftToUsedSymbols
+        Monad[F].unit.liftToUsedSymbols
       case Expression.ValueReference(sourcedFfqn @ Sourced(_, _, ffqn))                   =>
         isFunctionUsed(ffqn).ifM(
-          IO.unit.liftToUsedSymbols,
+          Monad[F].unit.liftToUsedSymbols,
           // Only recurse if not already used
           for {
             loadedFunctionMaybe <- process.getFact(ResolvedFunction.Key(ffqn)).liftToUsedSymbols

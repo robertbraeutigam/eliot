@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.sugar
 
+import cats.Monad
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
@@ -8,11 +9,11 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
-class DesugarProcessor
+class DesugarProcessor[F[_]: Monad]
     extends OneToOneProcessor((key: DesugaredSourceAST.Key) => SourceAST.Key(key.file))
     with Logging {
 
-  override def generateFromFact(sourceAst: SourceAST)(using process: CompilationProcess): IO[Unit] =
+  override def generateFromFact(sourceAst: SourceAST)(using process: CompilationProcess[F]): IO[Unit] =
     process.registerFact(DesugaredSourceAST(sourceAst.file, sourceAst.ast.as(desugar(sourceAst.ast.value))))
 
   private def desugar(ast: AST): AST = AST(

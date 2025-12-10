@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.data.OptionT
-import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN, UnifiedModuleFunction}
@@ -14,11 +13,12 @@ import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
+import cats.Monad
 
-class FunctionResolver
+class FunctionResolver[F[_]: Monad]
     extends OneToOneProcessor((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))
     with Logging {
-  override def generateFromFact(moduleFunction: UnifiedModuleFunction)(using process: CompilationProcess): IO[Unit] = {
+  override def generateFromFact(moduleFunction: UnifiedModuleFunction)(using process: CompilationProcess[F]): F[Unit] = {
     val args              = moduleFunction.functionDefinition.args
     val body              = moduleFunction.functionDefinition.body
     val genericParameters = moduleFunction.functionDefinition.genericParameters

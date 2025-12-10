@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.typesystem
 
 import cats.data.StateT
-import cats.effect.IO
+import cats.Monad
 import cats.implicits.*
 import cats.kernel.Monoid
 import com.vanillasource.eliot.eliotc.CompilationProcess
@@ -16,13 +16,13 @@ import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.*
 import com.vanillasource.eliot.eliotc.typesystem.UniqueGenericNames.*
 
-class TypeCheckProcessor
+class TypeCheckProcessor[F[_]: Monad]
     extends OneToOneProcessor((key: TypeCheckedFunction.Key) => ResolvedFunction.Key(key.ffqn))
     with Logging {
 
   override def generateFromFact(
       resolvedFunction: ResolvedFunction
-  )(using process: CompilationProcess): IO[Unit] = {
+  )(using process: CompilationProcess): F[Unit] = {
     val functionDefinition = resolvedFunction.definition
     val bodyMaybe          = functionDefinition.body
     val typeGraph          = genericParameters(functionDefinition.genericParameters)

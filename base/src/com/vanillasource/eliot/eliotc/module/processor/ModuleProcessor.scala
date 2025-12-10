@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
-import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -20,7 +19,9 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 
 import java.io.File
 
-class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) extends CompilerProcessor with Logging {
+class ModuleProcessor[F[_]](systemModules: Seq[ModuleName] = defaultSystemModules)
+    extends CompilerProcessor[F]
+    with Logging {
   override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
     case ModuleFunction.Key(file, FunctionFQN(moduleName, functionName)) => generateModule(file, moduleName)
     case ModuleData.Key(file, TypeFQN(moduleName, typeName))             => generateModule(file, moduleName)
@@ -84,14 +85,14 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
   private def extractImportedFunctions(
       importedModules: Seq[Sourced[ModuleName]],
       localFunctionNames: Set[String]
-  )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] =
+  )(using process: CompilationProcess): F[Map[String, FunctionFQN]] =
     importedModules.foldM(Map.empty[String, FunctionFQN])((acc, i) => importModuleFunctions(localFunctionNames, acc, i))
 
   private def importModuleFunctions(
       localFunctionNames: Set[String],
       importedFunctions: Map[String, FunctionFQN],
       module: Sourced[ModuleName]
-  )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] = {
+  )(using process: CompilationProcess): F[Map[String, FunctionFQN]] = {
     val extractedImport = for {
       moduleFunctions <- process.getFact(UnifiedModuleNames.Key(module.value)).toOptionT
       result          <-
@@ -108,11 +109,13 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
             )
           ).liftOptionTNone
         } else {
-          IO.pure(
-            importedFunctions ++ moduleFunctions.functionNames
-              .map(name => (name, FunctionFQN(moduleFunctions.moduleName, name)))
-              .toMap
-          ).liftOptionT
+          Monad[F]
+            .pure(
+              importedFunctions ++ moduleFunctions.functionNames
+                .map(name => (name, FunctionFQN(moduleFunctions.moduleName, name)))
+                .toMap
+            )
+            .liftOptionT
         }
     } yield result
 
@@ -124,14 +127,14 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
   private def extractImportedTypes(
       importedModules: Seq[Sourced[ModuleName]],
       localTypeNames: Set[String]
-  )(using process: CompilationProcess): IO[Map[String, TypeFQN]] =
+  )(using process: CompilationProcess): F[Map[String, TypeFQN]] =
     importedModules.foldM(Map.empty[String, TypeFQN])((acc, i) => importModuleTypes(localTypeNames, acc, i))
 
   private def importModuleTypes(
       localTypeNames: Set[String],
       importedTypes: Map[String, TypeFQN],
       module: Sourced[ModuleName]
-  )(using process: CompilationProcess): IO[Map[String, TypeFQN]] = {
+  )(using process: CompilationProcess): F[Map[String, TypeFQN]] = {
     val extractedImport = for {
       moduleFunctions <- process.getFact(UnifiedModuleNames.Key(module.value)).toOptionT
       result          <-
@@ -148,11 +151,13 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
             )
           ).liftOptionTNone
         } else {
-          IO.pure(
-            importedTypes ++ moduleFunctions.typeNames
-              .map(name => (name, TypeFQN(moduleFunctions.moduleName, name)))
-              .toMap
-          ).liftOptionT
+          Monad[F]
+            .pure(
+              importedTypes ++ moduleFunctions.typeNames
+                .map(name => (name, TypeFQN(moduleFunctions.moduleName, name)))
+                .toMap
+            )
+            .liftOptionT
         }
     } yield result
 

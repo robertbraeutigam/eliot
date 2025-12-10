@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.ast
 
-import cats.effect.IO
+import cats.Monad
+import cats.effect.{IO, Sync}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
@@ -12,8 +13,10 @@ import com.vanillasource.eliot.eliotc.token.SourceTokens
 import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
 
-class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.Key(key.file)) with Logging {
-  override def generateFromFact(sourceTokens: SourceTokens)(using process: CompilationProcess): IO[Unit] = {
+class ASTParser[F[_]: {Monad, Sync}]
+    extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.Key(key.file))
+    with Logging {
+  override def generateFromFact(sourceTokens: SourceTokens)(using process: CompilationProcess[F]): IO[Unit] = {
     val tokens    = sourceTokens.tokens.value
     val file      = sourceTokens.file
     val astResult = component[AST].fully().parse(tokens)
