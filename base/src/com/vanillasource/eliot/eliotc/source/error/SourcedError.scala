@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.source.error
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.User.*
+import com.vanillasource.eliot.eliotc.CompilationProcess.getFact
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.pos.Position.{Column, Line}
 import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
@@ -14,7 +15,7 @@ import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 object SourcedError {
   def registerCompilerError(message: Sourced[String], description: Seq[String] = Seq.empty)(using
-      process: CompilationProcess
+      CompilationProcess
   ): IO[Unit] =
     printError(
       message.file,
@@ -26,7 +27,7 @@ object SourcedError {
       description
     )
 
-  def registerCompilerError(file: File, message: String)(using process: CompilationProcess): IO[Unit] =
+  def registerCompilerError(file: File, message: String)(using CompilationProcess): IO[Unit] =
     registerCompilerError(Sourced(file, PositionRange(Position(1, 1), Position(1, 1)), message))
 
   private def printError(
@@ -37,11 +38,9 @@ object SourcedError {
       toCol: Column,
       message: String,
       description: Seq[String]
-  )(using
-      process: CompilationProcess
-  ): IO[Unit] = {
+  )(using CompilationProcess): IO[Unit] = {
     (for {
-      content <- process.getFact(SourceContent.Key(file)).toOptionT
+      content <- getFact(SourceContent.Key(file)).toOptionT
       _       <-
         compilerSourcedError(
           file,

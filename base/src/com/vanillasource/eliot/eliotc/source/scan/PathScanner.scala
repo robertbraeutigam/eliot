@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.source.scan
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.CompilationProcess.registerFact
 import com.vanillasource.eliot.eliotc.feedback.User.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
@@ -13,7 +14,7 @@ class PathScanner(rootPaths: Seq[Path]) extends CompilerProcessor with Logging {
     case _                  => IO.unit
   }
 
-  private def scan(path: Path)(using process: CompilationProcess): IO[Unit] =
+  private def scan(path: Path)(using CompilationProcess): IO[Unit] =
     for {
       files <- IO.blocking(
                  rootPaths
@@ -23,8 +24,7 @@ class PathScanner(rootPaths: Seq[Path]) extends CompilerProcessor with Logging {
       _     <- if (files.isEmpty) {
                  compilerGlobalError(s"Could not find path $path at given roots: ${rootPaths.mkString(", ")}")
                } else {
-                 debug[IO](s"Scanned $path into: ${files.mkString(", ")}") >>
-                   process.registerFact(PathScan(path, files))
+                 debug[IO](s"Scanned $path into: ${files.mkString(", ")}") >> registerFact(PathScan(path, files))
                }
     } yield ()
 }

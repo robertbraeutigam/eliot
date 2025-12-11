@@ -36,16 +36,16 @@ object CompilationIO {
   }
 
   def compilerError(message: Sourced[String], description: Seq[String] = Seq.empty)(using
-      process: CompilationProcess
+      CompilationProcess
   ): CompilationIO[Unit] =
     registerCompilerError(message, description).liftToCompilationIO >> compilationError
 
-  def compilerError(file: File, message: String)(using process: CompilationProcess): CompilationIO[Unit] =
+  def compilerError(file: File, message: String)(using CompilationProcess): CompilationIO[Unit] =
     registerCompilerError(file, message).liftToCompilationIO >> compilationError
 
-  def compilerAbort[T](message: Sourced[String])(using process: CompilationProcess): CompilationIO[T] =
+  def compilerAbort[T](message: Sourced[String])(using CompilationProcess): CompilationIO[T] =
     compilerError(message) >> compilationAbort
 
-  def compilerAbort[T](file: File, message: String)(using process: CompilationProcess): CompilationIO[T] =
+  def compilerAbort[T](file: File, message: String)(using CompilationProcess): CompilationIO[T] =
     compilerError(file, message) >> compilationAbort
 }

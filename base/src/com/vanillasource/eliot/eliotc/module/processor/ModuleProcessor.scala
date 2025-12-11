@@ -2,16 +2,13 @@ package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.*
 import com.vanillasource.eliot.eliotc.module.fact.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemModules
-import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.{
-  extractLocalFunctions,
-  extractLocalTypes,
-  pathName
-}
+import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.{extractLocalFunctions, extractLocalTypes, pathName}
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
@@ -27,9 +24,8 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
     case _                                                               => IO.unit
   }
 
-  private def generateModule(file: File, name: ModuleName)(using process: CompilationProcess): IO[Unit] =
-    process
-      .getFact(DesugaredSourceAST.Key(file))
+  private def generateModule(file: File, name: ModuleName)(using CompilationProcess): IO[Unit] =
+    getFact(DesugaredSourceAST.Key(file))
       .flatMap(_.traverse_(fact => processFact(name, fact)))
 
   private def processFact(moduleName: ModuleName, fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
@@ -38,38 +34,39 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
   }
 
   private def processImpl(file: File, moduleName: ModuleName, sourcedAst: Sourced[AST])(using
-      process: CompilationProcess
-  ): IO[Unit] = for {
-    localFunctions    <- extractLocalFunctions(sourcedAst.value.functionDefinitions)
-    localTypes        <- extractLocalTypes(sourcedAst.value.typeDefinitions)
-    importedModules   <- extractImportedModules(moduleName, sourcedAst.as(sourcedAst.value.importStatements)).pure[IO]
-    importedFunctions <- extractImportedFunctions(importedModules, localFunctions.keySet)
-    importedTypes     <- extractImportedTypes(importedModules, localTypes.keySet)
-    _                 <- debug[IO](s"for ${moduleName.show} read function names: ${localFunctions.keySet
-                             .mkString(", ")}, type names: ${localTypes.keySet
-                             .mkString(", ")}, imported functions: ${importedFunctions.keySet
-                             .mkString(", ")}, imported types: ${importedTypes.keySet.mkString(", ")}")
-    functionDictionary =
-      importedFunctions ++ localFunctions.keySet.map(name => (name, FunctionFQN(moduleName, name))).toMap
-    typeDictionary     =
-      importedTypes ++ localTypes.keySet.map(name => (name, TypeFQN(moduleName, name))).toMap
-    _                 <- localFunctions
-                           .map { (name, definition) =>
-                             process.registerFact(
-                               ModuleFunction(file, FunctionFQN(moduleName, name), functionDictionary, typeDictionary, definition)
-                             )
-                           }
-                           .toSeq
-                           .sequence_
-    _                 <- localTypes
-                           .map { (name, definition) =>
-                             process.registerFact(
-                               ModuleData(file, TypeFQN(moduleName, name), typeDictionary, definition)
-                             )
-                           }
-                           .toSeq
-                           .sequence_
-  } yield ()
+      CompilationProcess
+  ): IO[Unit] =
+    for {
+      localFunctions    <- extractLocalFunctions(sourcedAst.value.functionDefinitions)
+      localTypes        <- extractLocalTypes(sourcedAst.value.typeDefinitions)
+      importedModules   <- extractImportedModules(moduleName, sourcedAst.as(sourcedAst.value.importStatements)).pure[IO]
+      importedFunctions <- extractImportedFunctions(importedModules, localFunctions.keySet)
+      importedTypes     <- extractImportedTypes(importedModules, localTypes.keySet)
+      _                 <- debug[IO](s"for ${moduleName.show} read function names: ${localFunctions.keySet
+                               .mkString(", ")}, type names: ${localTypes.keySet
+                               .mkString(", ")}, imported functions: ${importedFunctions.keySet
+                               .mkString(", ")}, imported types: ${importedTypes.keySet.mkString(", ")}")
+      functionDictionary =
+        importedFunctions ++ localFunctions.keySet.map(name => (name, FunctionFQN(moduleName, name))).toMap
+      typeDictionary     =
+        importedTypes ++ localTypes.keySet.map(name => (name, TypeFQN(moduleName, name))).toMap
+      _                 <- localFunctions
+                             .map { (name, definition) =>
+                               registerFact(
+                                 ModuleFunction(file, FunctionFQN(moduleName, name), functionDictionary, typeDictionary, definition)
+                               )
+                             }
+                             .toSeq
+                             .sequence_
+      _                 <- localTypes
+                             .map { (name, definition) =>
+                               registerFact(
+                                 ModuleData(file, TypeFQN(moduleName, name), typeDictionary, definition)
+                               )
+                             }
+                             .toSeq
+                             .sequence_
+    } yield ()
 
   private def extractImportedModules(
       moduleName: ModuleName,
@@ -84,16 +81,16 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
   private def extractImportedFunctions(
       importedModules: Seq[Sourced[ModuleName]],
       localFunctionNames: Set[String]
-  )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] =
+  )(using CompilationProcess): IO[Map[String, FunctionFQN]] =
     importedModules.foldM(Map.empty[String, FunctionFQN])((acc, i) => importModuleFunctions(localFunctionNames, acc, i))
 
   private def importModuleFunctions(
       localFunctionNames: Set[String],
       importedFunctions: Map[String, FunctionFQN],
       module: Sourced[ModuleName]
-  )(using process: CompilationProcess): IO[Map[String, FunctionFQN]] = {
+  )(using CompilationProcess): IO[Map[String, FunctionFQN]] = {
     val extractedImport = for {
-      moduleFunctions <- process.getFact(UnifiedModuleNames.Key(module.value)).toOptionT
+      moduleFunctions <- getFact(UnifiedModuleNames.Key(module.value)).toOptionT
       result          <-
         if (moduleFunctions.functionNames.intersect(localFunctionNames).nonEmpty) {
           registerCompilerError(
@@ -124,16 +121,16 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
   private def extractImportedTypes(
       importedModules: Seq[Sourced[ModuleName]],
       localTypeNames: Set[String]
-  )(using process: CompilationProcess): IO[Map[String, TypeFQN]] =
+  )(using CompilationProcess): IO[Map[String, TypeFQN]] =
     importedModules.foldM(Map.empty[String, TypeFQN])((acc, i) => importModuleTypes(localTypeNames, acc, i))
 
   private def importModuleTypes(
       localTypeNames: Set[String],
       importedTypes: Map[String, TypeFQN],
       module: Sourced[ModuleName]
-  )(using process: CompilationProcess): IO[Map[String, TypeFQN]] = {
+  )(using CompilationProcess): IO[Map[String, TypeFQN]] = {
     val extractedImport = for {
-      moduleFunctions <- process.getFact(UnifiedModuleNames.Key(module.value)).toOptionT
+      moduleFunctions <- getFact(UnifiedModuleNames.Key(module.value)).toOptionT
       result          <-
         if (moduleFunctions.typeNames.intersect(localTypeNames).nonEmpty) {
           registerCompilerError(

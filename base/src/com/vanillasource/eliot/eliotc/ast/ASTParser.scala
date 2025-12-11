@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.ast
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
+import com.vanillasource.eliot.eliotc.CompilationProcess.registerFact
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
@@ -13,7 +14,7 @@ import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
 
 class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.Key(key.file)) with Logging {
-  override def generateFromFact(sourceTokens: SourceTokens)(using process: CompilationProcess): IO[Unit] = {
+  override def generateFromFact(sourceTokens: SourceTokens)(using CompilationProcess): IO[Unit] = {
     val tokens    = sourceTokens.tokens.value
     val file      = sourceTokens.file
     val astResult = component[AST].fully().parse(tokens)
@@ -40,7 +41,7 @@ class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.K
            }.sequence_
       _ <- astResult.value match
              case Some(ast) =>
-               debug[IO](s"Generated AST for $file: ${ast.show}.") >> process.registerFact(
+               debug[IO](s"Generated AST for $file: ${ast.show}.") >> registerFact(
                  SourceAST(file, sourceTokens.tokens.as(ast))
                )
              case None      => IO.unit

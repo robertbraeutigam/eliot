@@ -6,6 +6,7 @@ import cats.implicits.*
 import cats.kernel.Monoid
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.*
@@ -22,7 +23,7 @@ class TypeCheckProcessor
 
   override def generateFromFact(
       resolvedFunction: ResolvedFunction
-  )(using process: CompilationProcess): IO[Unit] = {
+  )(using CompilationProcess): IO[Unit] = {
     val functionDefinition = resolvedFunction.definition
     val bodyMaybe          = functionDefinition.body
     val typeGraph          = genericParameters(functionDefinition.genericParameters)
@@ -34,7 +35,7 @@ class TypeCheckProcessor
       fullTypeGraph         = typeGraph `combine` constructedTypeGraph
       _                    <- debug[CompilationIO](s"solving ${fullTypeGraph.show}")
       _                    <- fullTypeGraph.solve()
-      _                    <- process.registerFact(TypeCheckedFunction(resolvedFunction.ffqn, functionDefinition)).liftIfNoErrors
+      _                    <- registerFact(TypeCheckedFunction(resolvedFunction.ffqn, functionDefinition)).liftIfNoErrors
     } yield ()
 
     program.whenA(bodyMaybe.isDefined).runCompilation_()
@@ -46,7 +47,7 @@ class TypeCheckProcessor
       parentTypeReference: TypeReference,
       expression: Expression,
       errorMessage: String = "Type mismatch."
-  )(using process: CompilationProcess): TypeGraphIO[TypeUnification] =
+  )(using CompilationProcess): TypeGraphIO[TypeUnification] =
     (constructTypeGraphForParameterReference(parentTypeReference, errorMessage) orElse
       constructTypeGraphForIntegerLiteral(parentTypeReference, errorMessage) orElse
       constructTypeGraphForStringLiteral(parentTypeReference, errorMessage) orElse
@@ -64,12 +65,12 @@ class TypeCheckProcessor
   }
 
   private def constructTypeGraphForValueReference(parentTypeReference: TypeReference, errorMessage: String)(using
-      process: CompilationProcess
+      CompilationProcess
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case ValueReference(functionName) =>
     for {
       calledDefinitionMaybe <-
         StateT.liftF(
-          process.getFact(ResolvedFunction.Key(functionName.value)).map(_.map(_.definition)).liftToCompilationIO
+          getFact(ResolvedFunction.Key(functionName.value)).map(_.map(_.definition)).liftToCompilationIO
         )
       result                <- calledDefinitionMaybe match {
                                  case None             => Monoid[TypeUnification].empty.pure[TypeGraphIO]
@@ -114,7 +115,7 @@ class TypeCheckProcessor
   }
 
   private def constructTypeGraphForFunctionApplication(parentTypeReference: TypeReference, errorMessage: String)(using
-      process: CompilationProcess
+      CompilationProcess
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case FunctionApplication(target, argument) =>
     for {
       argumentType        <- generateUniqueGeneric[CompilationIO](argument)
@@ -134,7 +135,7 @@ class TypeCheckProcessor
   }
 
   private def constructTypeGraphForFunctionLiteral(parentTypeReference: TypeReference, errorMessage: String)(using
-      process: CompilationProcess
+      CompilationProcess
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case FunctionLiteral(parameter, body) =>
     for {
       returnType      <- generateUniqueGeneric[CompilationIO](parameter.name)
