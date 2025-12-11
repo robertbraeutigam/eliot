@@ -16,8 +16,9 @@ final class FactGenerator(
       modifyResult <- modifyAtomicallyFor(key)
       _            <- generator.generate(key)(using this) >> modifyResult._1
                         .complete(None)
-                        .whenA(modifyResult._2)
-                        .start // Only if we are first
+                        .onError(t => error[IO](s"Getting (${key.getClass.getName}) $key failed.", t))
+                        .start
+                        .whenA(modifyResult._2) // Only if we are first
       result       <- modifyResult._1.get
       _            <-
         debug[IO](
