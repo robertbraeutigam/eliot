@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
-import cats.Monad
+import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{TypeFQN, UnifiedModuleData}
@@ -13,10 +13,8 @@ import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
 
-class TypeResolver[F[_]: Monad]
-    extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn))
-    with Logging {
-  override def generateFromFact(moduleData: UnifiedModuleData)(using process: CompilationProcess[F]): F[Unit] = {
+class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn)) with Logging {
+  override def generateFromFact(moduleData: UnifiedModuleData)(using process: CompilationProcess): IO[Unit] = {
     val genericParameters = moduleData.dataDefinition.genericParameters
     val fields            = moduleData.dataDefinition.fields
     val name              = moduleData.dataDefinition.name
@@ -44,7 +42,7 @@ class TypeResolver[F[_]: Monad]
                                              ArgumentDefinition(argumentDefinition.name, resolvedTypeReference)
                                            )
                                        }.map(Some(_))
-                                     case None     => None.pure[F].liftToCompilationIO.liftToScoped
+                                     case None     => None.pure[IO].liftToCompilationIO.liftToScoped
                                    }
       _                         <-
         process

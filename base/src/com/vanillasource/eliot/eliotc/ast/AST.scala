@@ -27,12 +27,12 @@ object AST {
     override def parser: Parser[Sourced[Token], AST] = for {
       importStatements <-
         component[ImportStatement]
-          .attemptPhraseTo(topLevel.void `or` endOfInput())
+          .attemptPhraseTo(topLevel.void or endOfInput())
           .anyTimesWhile(topLevelKeyword("import").find())
           .map(_.flatten)
       definitions      <-
-        (component[FunctionDefinition] `xor` component[DataDefinition])
-          .attemptPhraseTo(topLevel.void `or` endOfInput())
+        (component[FunctionDefinition] xor component[DataDefinition])
+          .attemptPhraseTo(topLevel.void or endOfInput())
           .anyTimesWhile(any())
           .map(_.flatten)
     } yield AST(importStatements, definitions.flatMap(_.left.toSeq), definitions.flatMap(_.toSeq))

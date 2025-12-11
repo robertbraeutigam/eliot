@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.token
 
-import cats.Monad
+import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -14,10 +14,8 @@ import java.nio.file.Path
 /** Tokenizes source content into basic building blocks: identifier, operator, literals. It gets rid of whitespace and
   * comments.
   */
-class Tokenizer[F[_]: Monad]
-    extends OneToOneProcessor((key: SourceTokens.Key) => SourceContent.Key(key.file))
-    with Logging {
-  override def generateFromFact(sourceContent: SourceContent)(using process: CompilationProcess[F]): F[Unit] = {
+class Tokenizer extends OneToOneProcessor((key: SourceTokens.Key) => SourceContent.Key(key.file)) with Logging {
+  override def generateFromFact(sourceContent: SourceContent)(using process: CompilationProcess): IO[Unit] = {
     val file           = sourceContent.file
     val sourcedContent = sourceContent.content
 

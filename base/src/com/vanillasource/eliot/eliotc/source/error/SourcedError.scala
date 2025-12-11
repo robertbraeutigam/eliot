@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.source.error
 
+import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.User.*
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
@@ -12,10 +13,9 @@ import scala.io.AnsiColor.{BOLD, MAGENTA, RED, RESET}
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 object SourcedError {
-  def registerCompilerError[F[_]: CompilationProcess](
-      message: Sourced[String],
-      description: Seq[String] = Seq.empty
-  ): F[Unit] =
+  def registerCompilerError(message: Sourced[String], description: Seq[String] = Seq.empty)(using
+      process: CompilationProcess
+  ): IO[Unit] =
     printError(
       message.file,
       message.range.from.line,
@@ -26,10 +26,10 @@ object SourcedError {
       description
     )
 
-  def registerCompilerError[F[_]: CompilationProcess](file: File, message: String): F[Unit] =
+  def registerCompilerError(file: File, message: String)(using process: CompilationProcess): IO[Unit] =
     registerCompilerError(Sourced(file, PositionRange(Position(1, 1), Position(1, 1)), message))
 
-  private def printError[F[_]: CompilationProcess](
+  private def printError(
       file: File,
       fromLine: Line,
       fromCol: Column,
@@ -37,7 +37,9 @@ object SourcedError {
       toCol: Column,
       message: String,
       description: Seq[String]
-  ): F[Unit] = {
+  )(using
+      process: CompilationProcess
+  ): IO[Unit] = {
     (for {
       content <- process.getFact(SourceContent.Key(file)).toOptionT
       _       <-
@@ -54,7 +56,7 @@ object SourcedError {
     } yield ()).getOrElseF(compilerGlobalError(s"File contents for $file are not available."))
   }
 
-  private def compilerSourcedError[F[_]: Console](
+  private def compilerSourcedError(
       file: File,
       content: String,
       fromLine: Int,
@@ -63,7 +65,7 @@ object SourcedError {
       toCol: Int,
       message: String,
       description: Seq[String]
-  ): F[Unit] = {
+  ): IO[Unit] = {
     val lineMarker      = fromLine.toString
     val markerSpaces    = " ".repeat(lineMarker.length)
     val multiLinePoints = if (fromLine === toLine) "" else "..."
