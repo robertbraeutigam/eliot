@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
-import cats.Monad
 import cats.data.OptionT
+import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.{DataDefinition, FunctionDefinition}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleFunction, UnifiedModuleFunction}
@@ -11,14 +11,14 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
-class UnifiedModuleFunctionProcessor[F[_]: Monad] extends CompilerProcessor[F] {
-  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess[F]): F[Unit] =
+class UnifiedModuleFunctionProcessor extends CompilerProcessor {
+  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] =
     factKey match {
       case UnifiedModuleFunction.Key(ffqn) => unify(ffqn).getOrUnit
-      case _                               => Monad[F].unit
+      case _                               => IO.unit
     }
 
-  private def unify(ffqn: FunctionFQN)(using process: CompilationProcess[F]): OptionT[F, Unit] =
+  private def unify(ffqn: FunctionFQN)(using process: CompilationProcess): OptionT[IO, Unit] =
     for {
       files           <- process.getFact(PathScan.Key(pathName(ffqn.moduleName))).toOptionT.map(_.files)
       allFunctions    <- files.traverse(file => process.getFact(ModuleFunction.Key(file, ffqn))).map(_.flatten).liftOptionT
@@ -28,7 +28,7 @@ class UnifiedModuleFunctionProcessor[F[_]: Monad] extends CompilerProcessor[F] {
 
   private def unifyFunctions(
       functions: Seq[ModuleFunction]
-  )(using CompilationProcess[F]): OptionT[F, UnifiedModuleFunction] = {
+  )(using CompilationProcess): OptionT[IO, UnifiedModuleFunction] = {
     if (functions.isEmpty) {
       OptionT.none
     } else if (hasMoreImplementations(functions)) {
@@ -46,7 +46,7 @@ class UnifiedModuleFunctionProcessor[F[_]: Monad] extends CompilerProcessor[F] {
         implementedFunction.typeDictionary,
         implementedFunction.functionDefinition
       )
-        .pure[F]
+        .pure[IO]
         .liftOptionT
     }
   }
