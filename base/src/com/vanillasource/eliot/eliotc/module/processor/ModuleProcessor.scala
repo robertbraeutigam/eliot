@@ -21,7 +21,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 import java.io.File
 
 class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
+  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] = factKey match {
     case ModuleFunction.Key(file, FunctionFQN(moduleName, functionName)) => generateModule(file, moduleName)
     case ModuleData.Key(file, TypeFQN(moduleName, typeName))             => generateModule(file, moduleName)
     case _                                                               => IO.unit
@@ -45,7 +45,7 @@ class ModuleProcessor(systemModules: Seq[ModuleName] = defaultSystemModules) ext
     importedModules   <- extractImportedModules(moduleName, sourcedAst.as(sourcedAst.value.importStatements)).pure[IO]
     importedFunctions <- extractImportedFunctions(importedModules, localFunctions.keySet)
     importedTypes     <- extractImportedTypes(importedModules, localTypes.keySet)
-    _                 <- debug(s"for ${moduleName.show} read function names: ${localFunctions.keySet
+    _                 <- debug[IO](s"for ${moduleName.show} read function names: ${localFunctions.keySet
                              .mkString(", ")}, type names: ${localTypes.keySet
                              .mkString(", ")}, imported functions: ${importedFunctions.keySet
                              .mkString(", ")}, imported types: ${importedTypes.keySet.mkString(", ")}")

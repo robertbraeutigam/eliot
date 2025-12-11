@@ -24,7 +24,7 @@ class Tokenizer extends OneToOneProcessor((key: SourceTokens.Key) => SourceConte
       .fold(
         errorMessage => SourcedError.registerCompilerError(errorMessage),
         tokens =>
-          debug(s"Tokenized $file into: ${tokens.map(_.show).mkString(", ")}.") >>
+          debug[IO](s"Tokenized $file into: ${tokens.map(_.show).mkString(", ")}.") >>
             process.registerFact(SourceTokens(file, sourcedContent.as(tokens)))
       )
   }

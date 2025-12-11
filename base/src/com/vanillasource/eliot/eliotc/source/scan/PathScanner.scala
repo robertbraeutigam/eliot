@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, Comp
 import java.nio.file.Path
 
 class PathScanner(rootPaths: Seq[Path]) extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
+  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] = factKey match {
     case PathScan.Key(path) => scan(path)
     case _                  => IO.unit
   }
@@ -25,7 +25,7 @@ class PathScanner(rootPaths: Seq[Path]) extends CompilerProcessor with Logging {
       _     <- if (files.isEmpty) {
                  compilerGlobalError(s"Could not find path $path at given roots: ${rootPaths.mkString(", ")}")
                } else {
-                 debug(s"Scanned $path into: ${files.mkString(", ")}") >>
+                 debug[IO](s"Scanned $path into: ${files.mkString(", ")}") >>
                    process.registerFact(PathScan(path, files))
                }
     } yield ()

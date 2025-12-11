@@ -40,7 +40,7 @@ class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.K
            }.sequence_
       _ <- astResult.value match
              case Some(ast) =>
-               debug(s"Generated AST for $file: ${ast.show}.") >> process.registerFact(
+               debug[IO](s"Generated AST for $file: ${ast.show}.") >> process.registerFact(
                  SourceAST(file, sourceTokens.tokens.as(ast))
                )
              case None      => IO.unit

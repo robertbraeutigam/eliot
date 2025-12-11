@@ -31,8 +31,8 @@ class TypeCheckProcessor
       constructedTypeGraph <-
         constructTypeGraph(functionDefinition.valueType, bodyMaybe.get.value)
           .runA(UniqueGenericNames())
-      fullTypeGraph         = typeGraph combine constructedTypeGraph
-      _                    <- debug(s"solving ${fullTypeGraph.show}").liftToCompilationIO
+      fullTypeGraph         = typeGraph `combine` constructedTypeGraph
+      _                    <- debug[CompilationIO](s"solving ${fullTypeGraph.show}")
       _                    <- fullTypeGraph.solve()
       _                    <- process.registerFact(TypeCheckedFunction(resolvedFunction.ffqn, functionDefinition)).liftIfNoErrors
     } yield ()

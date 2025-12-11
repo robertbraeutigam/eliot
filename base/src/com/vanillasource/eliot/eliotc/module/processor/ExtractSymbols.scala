@@ -21,7 +21,7 @@ object ExtractSymbols {
     definitions.foldM(Map.empty[String, DataDefinition])((acc, d) => extractLocalType(acc, d))
 
   def pathName(name: ModuleName): Path =
-    (name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ resolve _)
+    (name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ `resolve` _)
 
   private def extractLocalType(
       previousTypes: Map[String, DataDefinition],

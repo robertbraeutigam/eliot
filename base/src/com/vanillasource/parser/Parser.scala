@@ -83,7 +83,7 @@ object Parser {
       * @param n
       *   The parser that should match before applying this parser.
       */
-    def anyTimesWhile(n: Parser[I, _]): Parser[I, Seq[O]] =
+    def anyTimesWhile(n: Parser[I, ?]): Parser[I, Seq[O]] =
       Seq.empty[O].tailRecM { acc =>
         (n.lookahead() *> p).optional().map {
           case Some(value) => Left(acc.appended(value))
@@ -99,14 +99,14 @@ object Parser {
     /** Accept this parser at least once separated by another parser. If this parser only matches once, the separator is
       * not used. Otherwise, it is.
       */
-    def atLeastOnceSeparatedBy(sep: Parser[I, _]): Parser[I, Seq[O]] = for {
+    def atLeastOnceSeparatedBy(sep: Parser[I, ?]): Parser[I, Seq[O]] = for {
       head <- p
       tail <- (sep *> p).anyTimes()
     } yield head +: tail
 
     /** Accept this parser when between the given parsers.
       */
-    def between(begin: Parser[I, _], end: Parser[I, _]): Parser[I, O] = for {
+    def between(begin: Parser[I, ?], end: Parser[I, ?]): Parser[I, O] = for {
       _      <- begin
       result <- p
       _      <- end
@@ -114,7 +114,7 @@ object Parser {
 
     /** Parses if this parser is followed by the given parser. No input is consumed on the given parser.
       */
-    def followedBy(n: Parser[I, _]): Parser[I, O] = p <* n.lookahead()
+    def followedBy(n: Parser[I, ?]): Parser[I, O] = p <* n.lookahead()
 
     /** Make the whole parser a single transaction. Which means that if it fails, it will always fail without consuming
       * any input.
@@ -142,7 +142,7 @@ object Parser {
 
     /** Find this input which matches this parser, but only in positions where the "at" parser matches.
       */
-    def findAt(at: Parser[I, _]): Parser[I, O] =
+    def findAt(at: Parser[I, ?]): Parser[I, O] =
       recoverWith(at.skipTo())
         .iterateUntil(_.nonEmpty)
         .map(_.get)
@@ -152,7 +152,7 @@ object Parser {
     def skipTo(): Parser[I, O] =
       (p.lookahead().map(Some.apply) or any().as(None)).iterateUntil(_.isDefined).map(_.get)
 
-    def recoverWith(skip: Parser[I, _]): Parser[I, Option[O]] = p.atomic().map(Some.apply) or (any() >> skip.as(None))
+    def recoverWith(skip: Parser[I, ?]): Parser[I, Option[O]] = p.atomic().map(Some.apply) or (any() >> skip.as(None))
 
     /** Will match if this parser matches the input, but will not consume any input regardless of success or failure.
       */
@@ -163,7 +163,7 @@ object Parser {
     /** Returns the result of the first parser if it succeeds, or the second one if the first one fails without
       * consuming any input.
       */
-    def or(p2: Parser[I, O]): Parser[I, O] =
+    infix def or(p2: Parser[I, O]): Parser[I, O] =
       p.optional().flatMap {
         case Some(a) => a.pure
         case None    => p2
@@ -172,7 +172,7 @@ object Parser {
     /** Parses either this or the given parser if this fails. This is like "or", but the two parsers may differ in type,
       * therefore, a pair is returned.
       */
-    def xor[P](p2: Parser[I, P]): Parser[I, Either[O, P]] = p.map(Left(_)) or p2.map(Right(_))
+    infix def xor[P](p2: Parser[I, P]): Parser[I, Either[O, P]] = p.map(Left(_)) or p2.map(Right(_))
   }
 
   /** Accept if the given predicate holds.

@@ -21,8 +21,8 @@ class UsedSymbolsProcessor
         (processDefinition(resolvedMainFunction.definition) >> addFunctionUsed(
           resolvedMainFunction.definition.name.as(resolvedMainFunction.ffqn)
         )).runS(UsedSymbolsState())
-      _           <- debug(s"Used functions: ${usedSymbols.usedFunctions.keys.map(_.show).mkString(", ")}")
-      _           <- debug(s"Used types: ${usedSymbols.usedTypes.keys.map(TypeFQN.fullyQualified.show(_)).mkString(", ")}")
+      _           <- debug[IO](s"Used functions: ${usedSymbols.usedFunctions.keys.map(_.show).mkString(", ")}")
+      _           <- debug[IO](s"Used types: ${usedSymbols.usedTypes.keys.map(TypeFQN.fullyQualified.show(_)).mkString(", ")}")
       _           <- process.registerFact(getUsedSymbols(resolvedMainFunction.ffqn, usedSymbols))
     } yield ()
 

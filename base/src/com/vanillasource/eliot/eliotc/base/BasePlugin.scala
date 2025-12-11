@@ -33,7 +33,7 @@ class BasePlugin extends CompilerPlugin {
 
   private val pathKey = namedKey[Seq[File]]("paths")
 
-  override def commandLineParser(): OParser[_, Configuration] = OParser.sequence(
+  override def commandLineParser(): OParser[?, Configuration] = OParser.sequence(
     arg[File]("<path>...")
       .unbounded()
       .required()
