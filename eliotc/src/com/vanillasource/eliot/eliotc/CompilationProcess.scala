@@ -1,13 +1,13 @@
 package com.vanillasource.eliot.eliotc
 
-import cats.Applicative
+import cats.effect.IO
 import cats.syntax.all.*
 
 /** Passed into processors to access the currently running compilation process. Note, that processors can not have state
   * and are only allowed to interact with the current compilation process by consuming or producing facts that are
   * shared with other processors.
   */
-trait CompilationProcess[F[_]: Applicative] {
+trait CompilationProcess {
 
   /** Get a fact from the currently running compilation process. If the fact is available, it is returned immediately.
     * If the fact is not available, this call will block until the fact for the given key becomes available. If the fact
@@ -15,10 +15,10 @@ trait CompilationProcess[F[_]: Applicative] {
     * Important note: A processor is only allowed to wait on a single fact at any given time. That is, it is not allowed
     * to parallel wait on multiple calls.
     */
-  def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): F[Option[V]]
+  def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]]
 
-  def registerFact(value: CompilerFact): F[Unit]
+  def registerFact(value: CompilerFact): IO[Unit]
 
-  def registerFacts(values: Seq[CompilerFact]): F[Unit] =
+  def registerFacts(values: Seq[CompilerFact]): IO[Unit] =
     values.map(registerFact).sequence_
 }

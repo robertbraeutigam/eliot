@@ -5,5 +5,5 @@ import com.vanillasource.eliot.eliotc.main.Compiler.runCompiler
 import com.vanillasource.eliot.eliotc.feedback.Logging
 
 object Main extends IOApp with Logging {
-  override def run(args: List[String]): IO[ExitCode] = runCompiler[IO](args).value.as(ExitCode.Success)
+  override def run(args: List[String]): IO[ExitCode] = runCompiler(args).value.as(ExitCode.Success)
 }

@@ -1,11 +1,10 @@
 package com.vanillasource.eliot.eliotc.processor
 
-import cats.Applicative
+import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
-class SequentialCompilerProcessors[F[_]: Applicative](processors: Seq[CompilerProcessor[F]])
-    extends CompilerProcessor[F] {
-  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit] =
+class SequentialCompilerProcessors(processors: Seq[CompilerProcessor]) extends CompilerProcessor {
+  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =
     processors.traverse_(_.generate(factKey))
 }
