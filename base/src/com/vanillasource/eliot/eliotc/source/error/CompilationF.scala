@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.source.error
 
 import cats.data.{IndexedStateT, OptionT, StateT}
 import cats.{Applicative, Monad}
-import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
@@ -35,22 +34,22 @@ object CompilationF {
       StateT.get.ifM(value.as(()), StateT[[X] =>> OptionT[F, X], Boolean, Unit].void)
   }
 
-  def compilerError[F[_]: {Monad, Console}](message: Sourced[String], description: Seq[String] = Seq.empty)(using
+  def compilerError[F[_]: Monad](message: Sourced[String], description: Seq[String] = Seq.empty)(using
       process: CompilationProcess[F]
   ): CompilationF[F, Unit] =
     registerCompilerError(message, description).liftToCompilation >> compilationError
 
-  def compilerError[F[_]: {Monad, Console}](file: File, message: String)(using
+  def compilerError[F[_]: Monad](file: File, message: String)(using
       process: CompilationProcess[F]
   ): CompilationF[F, Unit] =
     registerCompilerError(file, message).liftToCompilation >> compilationError
 
-  def compilerAbort[F[_]: {Monad, Console}, T](message: Sourced[String])(using
+  def compilerAbort[F[_]: Monad, T](message: Sourced[String])(using
       process: CompilationProcess[F]
   ): CompilationF[F, T] =
     compilerError(message) >> compilationAbort
 
-  def compilerAbort[F[_]: {Monad, Console}, T](file: File, message: String)(using
+  def compilerAbort[F[_]: Monad, T](file: File, message: String)(using
       process: CompilationProcess[F]
   ): CompilationF[F, T] =
     compilerError(file, message) >> compilationAbort

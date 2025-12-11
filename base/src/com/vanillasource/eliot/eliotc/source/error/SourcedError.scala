@@ -28,7 +28,7 @@ object SourcedError {
       description
     )
 
-  def registerCompilerError[F[_]: {CompilationProcess, Console}](file: File, message: String): F[Unit] =
+  def registerCompilerError[F[_]: CompilationProcess](file: File, message: String): F[Unit] =
     registerCompilerError(Sourced(file, PositionRange(Position(1, 1), Position(1, 1)), message))
 
   private def printError[F[_]: {Monad, Console}](using process: CompilationProcess[F])(
@@ -95,7 +95,7 @@ object SourcedError {
         }
       }
       .map(f = lines => compilerGenericError(lines.mkString("\n")))
-      .getOrElse(Monad[F].unit)
+      .getOrElse(Monad[F].void)
   }
 
   private def safeSubstring(line: String, from: Int, to: Int): String =
