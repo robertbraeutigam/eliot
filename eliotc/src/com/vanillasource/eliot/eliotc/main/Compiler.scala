@@ -26,20 +26,19 @@ object Compiler extends Logging {
       targetPlugin     <- OptionT
                             .fromOption[IO](plugins.find(_.isSelectedBy(configuration)))
                             .orElseF(User.compilerGlobalError("No target plugin selected.").as(None))
-      _                <- debug[IO](s"Selected target plugin: ${targetPlugin.getClass.getSimpleName}").liftOptionT
+      _                <- debug[OptionTIO](s"Selected target plugin: ${targetPlugin.getClass.getSimpleName}")
       activatedPlugins  = collectActivatedPlugins(targetPlugin, configuration, plugins)
-      _                <- debug[IO](
-                            s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}"
-                          ).liftOptionT
+      _                <-
+        debug[OptionTIO](s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}")
       // Give plugins a chance to configure each other
       newConfiguration <- activatedPlugins.traverse_(_.configure()).runS(configuration).liftOptionT
       // Collect all processors
       processor        <- activatedPlugins.traverse_(_.initialize(newConfiguration)).runS(NullProcessor()).liftOptionT
       // Run fact generator / compiler
-      _                <- debug[IO]("Compiler starting...").liftOptionT
+      _                <- debug[OptionTIO]("Compiler starting...")
       generator        <- FactGenerator.create(processor).liftOptionT
       _                <- targetPlugin.run(newConfiguration, generator).liftOptionT
-      _                <- debug[IO]("Compiler exiting normally.").liftOptionT
+      _                <- debug[OptionTIO]("Compiler exiting normally.")
     } yield ()
 
   private def collectActivatedPlugins(
