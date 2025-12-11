@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.base.BasePlugin
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
-import com.vanillasource.eliot.eliotc.main.Main
+import com.vanillasource.eliot.eliotc.main.Compiler
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
 import scopt.{OParser, OParserBuilder}
@@ -17,7 +17,7 @@ class JvmPlugin extends CompilerPlugin {
 
   private val mainKey = namedKey[FunctionFQN]("mainFunction")
 
-  override def commandLineParser(): OParser[_, Configuration] = OParser.sequence(
+  override def commandLineParser(): OParser[?, Configuration] = OParser.sequence(
     cmd("jvm")
       .text("target the jvm backend")
       .children(
@@ -39,14 +39,14 @@ class JvmPlugin extends CompilerPlugin {
           Seq(
             superProcessor,
             JvmClassGenerator(),
-            JvmProgramGenerator(configuration.get(Main.targetPathKey).get)
+            JvmProgramGenerator(configuration.get(Compiler.targetPathKey).get)
           )
         )
       )
 
   override def isSelectedBy(configuration: Configuration): Boolean = configuration.contains(mainKey)
 
-  override def pluginDependencies(configuration: Configuration): Seq[Class[_ <: CompilerPlugin]] = Seq(
+  override def pluginDependencies(configuration: Configuration): Seq[Class[? <: CompilerPlugin]] = Seq(
     classOf[BasePlugin]
   )
 

@@ -43,7 +43,7 @@ class JvmClassGenerator
                                   .filter(sffqn => !typeGeneratedFunctions.contains(sffqn.value.functionName))
                                   .flatTraverse(sourcedFfqn => createModuleMethod(mainClassGenerator, sourcedFfqn))
       mainClass              <- mainClassGenerator.generate().liftToCompilationIO
-      _                      <- (debug(s"Generated ${generateModule.moduleName.show}, with type files: ${typeFiles
+      _                      <- (debug[IO](s"Generated ${generateModule.moduleName.show}, with type files: ${typeFiles
                                     .map(_.fileName)
                                     .mkString(", ")}, with function files: ${functionFiles.map(_.fileName).mkString(", ")}") >> process
                                   .registerFact(
@@ -84,9 +84,9 @@ class JvmClassGenerator
                              signatureTypes.length
                            )
           classes       <- createExpressionCode(classGenerator, methodGenerator, extractedBody)
-          _             <- debug(
+          _             <- debug[CompilationTypesIO](
                              s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
-                           ).liftToCompilationIO.liftToTypes
+                           )
         } yield classes
 
         program.runA(TypeState())
@@ -109,7 +109,7 @@ class JvmClassGenerator
   /** Extract method body, expecting the given amount of embedded lambdas.
     */
   private def extractMethodBody(
-      sourced: Sourced[_],
+      sourced: Sourced[?],
       expression: Expression,
       depth: Int
   )(using CompilationProcess): CompilationTypesIO[Expression] =
