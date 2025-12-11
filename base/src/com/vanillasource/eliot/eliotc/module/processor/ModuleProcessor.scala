@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.Monad
 import cats.effect.Sync
-import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -22,7 +21,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 
 import java.io.File
 
-class ModuleProcessor[F[_]: {Sync, Console}](systemModules: Seq[ModuleName] = defaultSystemModules)
+class ModuleProcessor[F[_]: Sync](systemModules: Seq[ModuleName] = defaultSystemModules)
     extends CompilerProcessor[F]
     with Logging {
   override def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit] = factKey match {

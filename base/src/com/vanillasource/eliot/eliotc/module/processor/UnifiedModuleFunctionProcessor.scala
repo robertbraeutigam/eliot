@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.Monad
-import cats.effect.std.Console
 import cats.data.OptionT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.{DataDefinition, FunctionDefinition}
@@ -12,7 +11,7 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
-class UnifiedModuleFunctionProcessor[F[_]: {Monad, Console}] extends CompilerProcessor[F] {
+class UnifiedModuleFunctionProcessor[F[_]: Monad] extends CompilerProcessor[F] {
   override def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit] =
     factKey match {
       case UnifiedModuleFunction.Key(ffqn) => unify(ffqn).getOrUnit

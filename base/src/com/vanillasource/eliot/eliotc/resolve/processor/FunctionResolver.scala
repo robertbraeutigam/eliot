@@ -10,19 +10,15 @@ import com.vanillasource.eliot.eliotc.resolve.fact.Expression.FunctionLiteral
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
-import com.vanillasource.eliot.eliotc.source.error.CompilationF.*
+import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
 import cats.Monad
-import cats.effect.Sync
-import cats.effect.std.Console
 
-class FunctionResolver[F[_]: {Sync, Console}]
+class FunctionResolver[F[_]: Monad]
     extends OneToOneProcessor((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))
     with Logging {
-  override def generateFromFact(
-      moduleFunction: UnifiedModuleFunction
-  )(using process: CompilationProcess[F]): F[Unit] = {
+  override def generateFromFact(moduleFunction: UnifiedModuleFunction)(using process: CompilationProcess[F]): F[Unit] = {
     val args              = moduleFunction.functionDefinition.args
     val body              = moduleFunction.functionDefinition.body
     val genericParameters = moduleFunction.functionDefinition.genericParameters
@@ -47,7 +43,7 @@ class FunctionResolver[F[_]: {Sync, Console}]
             .traverse(TypeResolver.resolveType)
             .map(resolvedGenericTypes => UniversalGenericParameter(genericParameter.name, resolvedGenericTypes))
         )
-      _                         <- debug[F](s"Resolved ${moduleFunction.ffqn.show}").liftToCompilation.liftToScoped
+      _                         <- debug(s"Resolved ${moduleFunction.ffqn.show}").liftToCompilationIO.liftToScoped
       _                         <-
         process
           .registerFact(
@@ -70,7 +66,7 @@ class FunctionResolver[F[_]: {Sync, Console}]
               )
             )
           )
-          .liftToCompilation
+          .liftToCompilationIO
           .liftToScoped
     } yield ()
 
@@ -79,7 +75,7 @@ class FunctionResolver[F[_]: {Sync, Console}]
 
   private def resolveExpression(
       expr: Sourced[ast.Expression]
-  )(using process: CompilationProcess[F]): ScopedF[F, Sourced[Expression]] =
+  )(using process: CompilationProcess): ScopedIO[Sourced[Expression]] =
     expr.value match {
       case ast.Expression.FunctionApplication(s @ Sourced(_, _, name), args) =>
         isValueVisible(name).ifM(

@@ -1,8 +1,6 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.Monad
-import cats.MonadError
-import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{TypeFQN, UnifiedModuleData}
@@ -11,16 +9,14 @@ import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGen
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, DataDefinition, ResolvedData, TypeReference}
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
-import com.vanillasource.eliot.eliotc.source.error.CompilationF.*
+import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
 
-class TypeResolver[F[_]: {Monad, Console}]
+class TypeResolver[F[_]: Monad]
     extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn))
     with Logging {
-  override def generateFromFact(
-      moduleData: UnifiedModuleData
-  )(using process: CompilationProcess[F], me: MonadError[F, Throwable]): F[Unit] = {
+  override def generateFromFact(moduleData: UnifiedModuleData)(using process: CompilationProcess[F]): F[Unit] = {
     val genericParameters = moduleData.dataDefinition.genericParameters
     val fields            = moduleData.dataDefinition.fields
     val name              = moduleData.dataDefinition.name
@@ -48,7 +44,7 @@ class TypeResolver[F[_]: {Monad, Console}]
                                              ArgumentDefinition(argumentDefinition.name, resolvedTypeReference)
                                            )
                                        }.map(Some(_))
-                                     case None     => None.pure[F].liftToCompilation.liftToScoped
+                                     case None     => None.pure[F].liftToCompilationIO.liftToScoped
                                    }
       _                         <-
         process
@@ -62,8 +58,9 @@ class TypeResolver[F[_]: {Monad, Console}]
               )
             )
           )
-          .liftToCompilation
+          .liftToCompilationIO
           .liftToScoped
+
     } yield ()
 
     resolveProgram.runS(scope).void.runCompilation_()
@@ -71,9 +68,7 @@ class TypeResolver[F[_]: {Monad, Console}]
 }
 
 object TypeResolver {
-  def resolveType[F[_]](
-      reference: ast.TypeReference
-  )(using process: CompilationProcess[F], me: MonadError[F, Throwable]): ScopedF[F, TypeReference] =
+  def resolveType(reference: ast.TypeReference)(using process: CompilationProcess[F]): ScopedIO[TypeReference] =
     for {
       resolvedGenericParameters <- reference.genericParameters.traverse(resolveType)
       resolvedType              <- getGenericParameter(reference.typeName.value).flatMap {
@@ -84,16 +79,14 @@ object TypeResolver {
                                          ).liftToScoped
                                        } else {
                                          GenericTypeReference(genericParameter.name, resolvedGenericParameters)
-                                           .pure[F]
-                                           .liftToCompilation
-                                           .liftToScoped
+                                           .pure[ScopedIO]
                                        }
                                      case None                   =>
                                        getType(reference.typeName.value).flatMap {
                                          case Some(typeFqn) =>
                                            for {
                                              dataDefinition <-
-                                               process.getFact(UnifiedModuleData.Key(typeFqn)).liftOptionToCompilation.liftToScoped
+                                               process.getFact(UnifiedModuleData.Key(typeFqn)).liftOptionToCompilationIO.liftToScoped
                                              _              <-
                                                compilerAbort(
                                                  reference.typeName.as("Incorrect number of generic parameters for type.")

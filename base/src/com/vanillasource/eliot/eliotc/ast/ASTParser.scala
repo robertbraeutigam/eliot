@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.ast
 
 import cats.Monad
 import cats.effect.Sync
-import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
@@ -14,7 +13,7 @@ import com.vanillasource.eliot.eliotc.token.SourceTokens
 import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
 
-class ASTParser[F[_]: {Monad, Sync, Console}]
+class ASTParser[F[_]: {Monad, Sync}]
     extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.Key(key.file))
     with Logging {
   override def generateFromFact(sourceTokens: SourceTokens)(using process: CompilationProcess[F]): F[Unit] = {
