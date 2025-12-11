@@ -6,6 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.{DataDefinition, FunctionDefinition}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleFunction, UnifiedModuleFunction}
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
+import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
@@ -18,12 +19,12 @@ class UnifiedModuleFunctionProcessor extends CompilerProcessor {
       case _                               => IO.unit
     }
 
-  private def unify(ffqn: FunctionFQN)(using process: CompilationProcess): OptionT[IO, Unit] =
+  private def unify(ffqn: FunctionFQN)(using CompilationProcess): OptionT[IO, Unit] =
     for {
-      files           <- process.getFact(PathScan.Key(pathName(ffqn.moduleName))).toOptionT.map(_.files)
-      allFunctions    <- files.traverse(file => process.getFact(ModuleFunction.Key(file, ffqn))).map(_.flatten).liftOptionT
+      files           <- getFact(PathScan.Key(pathName(ffqn.moduleName))).toOptionT.map(_.files)
+      allFunctions    <- files.traverse(file => getFact(ModuleFunction.Key(file, ffqn))).map(_.flatten).liftOptionT
       unifiedFunction <- unifyFunctions(allFunctions)
-      _               <- process.registerFact(unifiedFunction).liftOptionT
+      _               <- registerFact(unifiedFunction).liftOptionT
     } yield ()
 
   private def unifyFunctions(

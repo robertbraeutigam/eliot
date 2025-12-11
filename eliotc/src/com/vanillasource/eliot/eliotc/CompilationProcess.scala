@@ -10,10 +10,9 @@ import cats.syntax.all.*
 trait CompilationProcess {
 
   /** Get a fact from the currently running compilation process. If the fact is available, it is returned immediately.
-    * If the fact is not available, this call will block until the fact for the given key becomes available. If the fact
-    * will not become available ever, because there are no more actively running processors, this will return None.
-    * Important note: A processor is only allowed to wait on a single fact at any given time. That is, it is not allowed
-    * to parallel wait on multiple calls.
+    * If the generation of the fact previously failed, this call will return with None. Otherwise, the processors will
+    * be asked to generate this fact and this call will block until that process ends. If this call returns with None,
+    * that means this fact will never be produced.
     */
   def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]]
 
@@ -21,4 +20,13 @@ trait CompilationProcess {
 
   def registerFacts(values: Seq[CompilerFact]): IO[Unit] =
     values.map(registerFact).sequence_
+}
+
+/** Convenience functions that use implicit compilation process. */
+object CompilationProcess {
+  def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K)(using process: CompilationProcess): IO[Option[V]] =
+    process.getFact(key)
+
+  def registerFact(value: CompilerFact)(using process: CompilationProcess): IO[Unit] =
+    process.registerFact(value)
 }

@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.CompilationProcess.registerFact
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN, UnifiedModuleFunction}
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
@@ -18,7 +19,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
 class FunctionResolver
     extends OneToOneProcessor((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))
     with Logging {
-  override def generateFromFact(moduleFunction: UnifiedModuleFunction)(using process: CompilationProcess): IO[Unit] = {
+  override def generateFromFact(moduleFunction: UnifiedModuleFunction)(using CompilationProcess): IO[Unit] = {
     val args              = moduleFunction.functionDefinition.args
     val body              = moduleFunction.functionDefinition.body
     val genericParameters = moduleFunction.functionDefinition.genericParameters
@@ -45,29 +46,26 @@ class FunctionResolver
         )
       _                         <- debug[ScopedIO](s"Resolved ${moduleFunction.ffqn.show}")
       _                         <-
-        process
-          .registerFact(
-            ResolvedFunction(
-              moduleFunction.ffqn,
-              FunctionDefinition(
-                name,
-                resolvedGenericParameters,
-                // Unroll return type into Function[A, Function[B, ...]]
-                argumentDefinitions.foldRight(returnType)((arg, typ) =>
-                  DirectTypeReference(
-                    typeReference.typeName.as(TypeFQN.systemFunctionType),
-                    Seq(arg.typeReference, typ)
-                  )
-                ),
-                // Unroll body to use function literals: arg1 -> arg2 -> ... -> body
-                resolvedBodyMaybe.map(resolvedBody =>
-                  argumentDefinitions.foldRight(resolvedBody)((arg, expr) => expr.as(FunctionLiteral(arg, expr)))
+        registerFact(
+          ResolvedFunction(
+            moduleFunction.ffqn,
+            FunctionDefinition(
+              name,
+              resolvedGenericParameters,
+              // Unroll return type into Function[A, Function[B, ...]]
+              argumentDefinitions.foldRight(returnType)((arg, typ) =>
+                DirectTypeReference(
+                  typeReference.typeName.as(TypeFQN.systemFunctionType),
+                  Seq(arg.typeReference, typ)
                 )
+              ),
+              // Unroll body to use function literals: arg1 -> arg2 -> ... -> body
+              resolvedBodyMaybe.map(resolvedBody =>
+                argumentDefinitions.foldRight(resolvedBody)((arg, expr) => expr.as(FunctionLiteral(arg, expr)))
               )
             )
           )
-          .liftToCompilationIO
-          .liftToScoped
+        ).liftToCompilationIO.liftToScoped
     } yield ()
 
     resolveProgram.runS(scope).void.runCompilation_()
@@ -75,7 +73,7 @@ class FunctionResolver
 
   private def resolveExpression(
       expr: Sourced[ast.Expression]
-  )(using process: CompilationProcess): ScopedIO[Sourced[Expression]] =
+  )(using CompilationProcess): ScopedIO[Sourced[Expression]] =
     expr.value match {
       case ast.Expression.FunctionApplication(s @ Sourced(_, _, name), args) =>
         isValueVisible(name).ifM(

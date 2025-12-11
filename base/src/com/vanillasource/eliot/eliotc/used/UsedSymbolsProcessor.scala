@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.used
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
+import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
@@ -15,7 +16,7 @@ class UsedSymbolsProcessor
     extends OneToOneProcessor((key: UsedSymbols.Key) => ResolvedFunction.Key(key.ffqn))
     with Logging {
 
-  override def generateFromFact(resolvedMainFunction: ResolvedFunction)(using process: CompilationProcess): IO[Unit] =
+  override def generateFromFact(resolvedMainFunction: ResolvedFunction)(using CompilationProcess): IO[Unit] =
     for {
       usedSymbols <-
         (processDefinition(resolvedMainFunction.definition) >> addFunctionUsed(
@@ -23,7 +24,7 @@ class UsedSymbolsProcessor
         )).runS(UsedSymbolsState())
       _           <- debug[IO](s"Used functions: ${usedSymbols.usedFunctions.keys.map(_.show).mkString(", ")}")
       _           <- debug[IO](s"Used types: ${usedSymbols.usedTypes.keys.map(TypeFQN.fullyQualified.show(_)).mkString(", ")}")
-      _           <- process.registerFact(getUsedSymbols(resolvedMainFunction.ffqn, usedSymbols))
+      _           <- registerFact(getUsedSymbols(resolvedMainFunction.ffqn, usedSymbols))
     } yield ()
 
   private def processDefinition(definition: FunctionDefinition)(using
@@ -37,7 +38,7 @@ class UsedSymbolsProcessor
       _ <- definition.body.traverse_(sourcedBody => processExpression(sourcedBody.value))
     } yield ()
 
-  private def processExpression(expression: Expression)(using process: CompilationProcess): UsedSymbolsIO[Unit] =
+  private def processExpression(expression: Expression)(using CompilationProcess): UsedSymbolsIO[Unit] =
     expression match {
       case Expression.FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         processExpression(target) >> processExpression(argument)
@@ -52,7 +53,7 @@ class UsedSymbolsProcessor
           IO.unit.liftToUsedSymbols,
           // Only recurse if not already used
           for {
-            loadedFunctionMaybe <- process.getFact(ResolvedFunction.Key(ffqn)).liftToUsedSymbols
+            loadedFunctionMaybe <- getFact(ResolvedFunction.Key(ffqn)).liftToUsedSymbols
             _                   <- addFunctionUsed(sourcedFfqn) >> loadedFunctionMaybe.traverse_(t => processDefinition(t.definition))
           } yield ()
         )
@@ -60,7 +61,7 @@ class UsedSymbolsProcessor
         processExpression(body)
     }
 
-  private def processTypeReference(reference: TypeReference)(using process: CompilationProcess): UsedSymbolsIO[Unit] = {
+  private def processTypeReference(reference: TypeReference)(using CompilationProcess): UsedSymbolsIO[Unit] = {
     reference match {
       case DirectTypeReference(dataType, genericParameters) =>
         isTypeUsed(dataType.value).ifM(

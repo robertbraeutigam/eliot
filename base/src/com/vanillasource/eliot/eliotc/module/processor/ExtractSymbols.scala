@@ -12,12 +12,10 @@ import java.nio.file.{Path, Paths}
 object ExtractSymbols {
   def extractLocalFunctions(
       functionDefinitions: Seq[FunctionDefinition]
-  )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] =
+  )(using CompilationProcess): IO[Map[String, FunctionDefinition]] =
     functionDefinitions.foldM(Map.empty[String, FunctionDefinition])((acc, d) => extractLocalFunction(acc, d))
 
-  def extractLocalTypes(definitions: Seq[DataDefinition])(using
-      process: CompilationProcess
-  ): IO[Map[String, DataDefinition]] =
+  def extractLocalTypes(definitions: Seq[DataDefinition])(using CompilationProcess): IO[Map[String, DataDefinition]] =
     definitions.foldM(Map.empty[String, DataDefinition])((acc, d) => extractLocalType(acc, d))
 
   def pathName(name: ModuleName): Path =
@@ -26,7 +24,7 @@ object ExtractSymbols {
   private def extractLocalType(
       previousTypes: Map[String, DataDefinition],
       current: DataDefinition
-  )(using process: CompilationProcess): IO[Map[String, DataDefinition]] = current.name.value match
+  )(using CompilationProcess): IO[Map[String, DataDefinition]] = current.name.value match
     case ty if previousTypes.contains(ty) =>
       registerCompilerError(current.name.as("Type was already defined in this module.")).as(previousTypes)
     case ty if !ty.charAt(0).isUpper      =>
@@ -37,7 +35,7 @@ object ExtractSymbols {
   private def extractLocalFunction(
       previousFunctions: Map[String, FunctionDefinition],
       current: FunctionDefinition
-  )(using process: CompilationProcess): IO[Map[String, FunctionDefinition]] = current.name.value match
+  )(using CompilationProcess): IO[Map[String, FunctionDefinition]] = current.name.value match
     case fn if previousFunctions.contains(fn)                                  =>
       registerCompilerError(current.name.as("Function was already defined in this module.")).as(previousFunctions)
     case _ if current.args.map(_.name.value).toSet.size != current.args.length =>

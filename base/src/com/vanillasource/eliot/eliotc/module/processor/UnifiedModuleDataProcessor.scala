@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.module.processor
 import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.ast.DataDefinition
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleData, TypeFQN, UnifiedModuleData}
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
@@ -18,12 +19,12 @@ class UnifiedModuleDataProcessor extends CompilerProcessor {
       case _                           => IO.unit
     }
 
-  private def unify(tfqn: TypeFQN)(using process: CompilationProcess): OptionT[IO, Unit] =
+  private def unify(tfqn: TypeFQN)(using CompilationProcess): OptionT[IO, Unit] =
     for {
-      files       <- process.getFact(PathScan.Key(pathName(tfqn.moduleName))).toOptionT.map(_.files)
-      allData     <- files.traverse(file => process.getFact(ModuleData.Key(file, tfqn))).map(_.flatten).liftOptionT
+      files       <- getFact(PathScan.Key(pathName(tfqn.moduleName))).toOptionT.map(_.files)
+      allData     <- files.traverse(file => getFact(ModuleData.Key(file, tfqn))).map(_.flatten).liftOptionT
       unifiedData <- unifyData(allData)
-      _           <- process.registerFact(unifiedData).liftOptionT
+      _           <- registerFact(unifiedData).liftOptionT
     } yield ()
 
   private def unifyData(data: Seq[ModuleData])(using CompilationProcess): OptionT[IO, UnifiedModuleData] =

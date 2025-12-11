@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.processor
 
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.CompilationProcess.getFact
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
 import scala.annotation.unused
@@ -11,11 +12,11 @@ abstract class OneToOneProcessor[V <: CompilerFact, I <: CompilerFactKey[V], O <
     keyTransition: O => I
 )(using ct: ClassTag[O])
     extends CompilerProcessor {
-  override def generate(factKey: CompilerFactKey[?])(using process: CompilationProcess): IO[Unit] =
+  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =
     factKey match {
       case requestedKey: O =>
         val key = keyTransition(requestedKey)
-        process.getFact(key).flatMap(_.traverse_(fact => generateFromKeyAndFact(requestedKey, fact)))
+        getFact(key).flatMap(_.traverse_(fact => generateFromKeyAndFact(requestedKey, fact)))
       case _               => IO.unit
     }
 

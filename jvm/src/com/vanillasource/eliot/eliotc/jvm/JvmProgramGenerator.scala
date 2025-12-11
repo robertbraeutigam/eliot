@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm
 
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.NativeType.javaSignatureName
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
@@ -20,7 +21,7 @@ class JvmProgramGenerator(targetDir: Path)
     extends OneToOneProcessor((key: GenerateExecutableJar.Key) => UsedSymbols.Key(key.ffqn))
     with Logging {
 
-  override def generateFromFact(usedSymbols: UsedSymbols)(using process: CompilationProcess): IO[Unit] = {
+  override def generateFromFact(usedSymbols: UsedSymbols)(using CompilationProcess): IO[Unit] = {
     val groupedFunctions = usedSymbols.usedFunctions.groupBy(_.value.moduleName)
     val groupedTypes     = usedSymbols.usedTypes.groupBy(_.value.moduleName)
     val facts            = (groupedFunctions.keys ++ groupedTypes.keys)
@@ -34,8 +35,8 @@ class JvmProgramGenerator(targetDir: Path)
       .toSeq
 
     for {
-      _            <- facts.traverse_(process.registerFact)
-      classesMaybe <- facts.map(_.moduleName).traverse(moduleName => process.getFact(GeneratedModule.Key(moduleName)))
+      _            <- facts.traverse_(registerFact)
+      classesMaybe <- facts.map(_.moduleName).traverse(moduleName => getFact(GeneratedModule.Key(moduleName)))
       _            <- classesMaybe.sequence.traverse_(cs =>
                         generateJarFile(usedSymbols.ffqn, cs)
                       ) // Skips jar if not all modules got bytecode

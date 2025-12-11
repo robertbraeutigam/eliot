@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleData
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
@@ -14,7 +15,7 @@ import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
 
 class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn)) with Logging {
-  override def generateFromFact(moduleData: UnifiedModuleData)(using process: CompilationProcess): IO[Unit] = {
+  override def generateFromFact(moduleData: UnifiedModuleData)(using CompilationProcess): IO[Unit] = {
     val genericParameters = moduleData.dataDefinition.genericParameters
     val fields            = moduleData.dataDefinition.fields
     val name              = moduleData.dataDefinition.name
@@ -45,19 +46,16 @@ class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedM
                                      case None     => None.pure[IO].liftToCompilationIO.liftToScoped
                                    }
       _                         <-
-        process
-          .registerFact(
-            ResolvedData(
-              moduleData.tfqn,
-              DataDefinition(
-                name,
-                resolvedGenericParameters,
-                resolvedFields
-              )
+        registerFact(
+          ResolvedData(
+            moduleData.tfqn,
+            DataDefinition(
+              name,
+              resolvedGenericParameters,
+              resolvedFields
             )
           )
-          .liftToCompilationIO
-          .liftToScoped
+        ).liftToCompilationIO.liftToScoped
 
     } yield ()
 
@@ -66,7 +64,7 @@ class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedM
 }
 
 object TypeResolver {
-  def resolveType(reference: ast.TypeReference)(using process: CompilationProcess): ScopedIO[TypeReference] =
+  def resolveType(reference: ast.TypeReference)(using CompilationProcess): ScopedIO[TypeReference] =
     for {
       resolvedGenericParameters <- reference.genericParameters.traverse(resolveType)
       resolvedType              <- getGenericParameter(reference.typeName.value).flatMap {
@@ -84,7 +82,7 @@ object TypeResolver {
                                          case Some(typeFqn) =>
                                            for {
                                              dataDefinition <-
-                                               process.getFact(UnifiedModuleData.Key(typeFqn)).liftOptionToCompilationIO.liftToScoped
+                                               getFact(UnifiedModuleData.Key(typeFqn)).liftOptionToCompilationIO.liftToScoped
                                              _              <-
                                                compilerAbort(
                                                  reference.typeName.as("Incorrect number of generic parameters for type.")
