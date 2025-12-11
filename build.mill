@@ -43,6 +43,7 @@ object `package` extends Module {
      override def scalacOptions = Task {
        super.scalacOptions() ++
          ScalacOptions.defaultTokensForVersion(ScalaVersion.unsafeFromString(scalaVersion()))
+           .filterNot(_.startsWith("-Wunused"))
      }
 
      object test extends ScalaTests {

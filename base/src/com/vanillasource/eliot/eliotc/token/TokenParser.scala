@@ -12,7 +12,7 @@ import parsley.token.descriptions.text.TextDesc
 import parsley.token.predicate.Basic
 import parsley.{Parsley, character}
 
-class TokenParser(sourced: Sourced[_]) {
+class TokenParser(sourced: Sourced[?]) {
   private val lexer = new Lexer(
     LexicalDesc(
       NameDesc(

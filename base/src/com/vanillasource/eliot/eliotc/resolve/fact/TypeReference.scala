@@ -36,7 +36,7 @@ object TypeReference {
     }
 
   extension (typeReference: TypeReference) {
-    def sourcedAt(source: Sourced[_]): TypeReference = typeReference match
+    def sourcedAt(source: Sourced[?]): TypeReference = typeReference match
       case DirectTypeReference(dataType, genericParameters) =>
         DirectTypeReference(source.as(dataType.value), genericParameters)
       case GenericTypeReference(name, genericParameters)    =>
