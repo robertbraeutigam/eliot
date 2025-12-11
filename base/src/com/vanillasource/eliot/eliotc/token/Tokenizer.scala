@@ -9,8 +9,6 @@ import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.error.SourcedError
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
-import java.nio.file.Path
-
 /** Tokenizes source content into basic building blocks: identifier, operator, literals. It gets rid of whitespace and
   * comments.
   */

@@ -2,13 +2,10 @@ package com.vanillasource.eliot.eliotc.token
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.source
-import com.vanillasource.eliot.eliotc.source.{pos => posPackage}
+import com.vanillasource.eliot.eliotc.source.pos as posPackage
 import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
-import parsley.errors
-import parsley.errors.{DefaultErrorBuilder, ErrorBuilder}
 import parsley.errors.tokenextractors.SingleChar
-
-import java.io.File
+import parsley.errors.{DefaultErrorBuilder, ErrorBuilder}
 
 class TokenErrorBuilder(val sourced: Sourced[?]) extends ErrorBuilder[Sourced[String]] {
   def format(pos: Position, source: Source, lines: ErrorInfoLines): Sourced[String] =

@@ -1,12 +1,10 @@
 package com.vanillasource.eliot.eliotc.source.content
 
 import cats.effect.{IO, Resource}
-import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
 import java.io.File
-import java.nio.file.Path
 import scala.io.Source
 
 class SourceContentReader extends CompilerProcessor {

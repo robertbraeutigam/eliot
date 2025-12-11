@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{TypeFQN, UnifiedModuleData}
+import com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleData
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}

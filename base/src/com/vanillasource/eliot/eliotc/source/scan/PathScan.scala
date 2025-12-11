@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.source.scan
 
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
 import java.io.File

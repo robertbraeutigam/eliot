@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.source.pos
 
-import cats.syntax.all.*
 import cats.{Order, Show}
 
 /** A single character's position inside a source.

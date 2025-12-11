@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.module.fact
 
 import cats.syntax.all.*
 import cats.{Eq, Show}
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName.{defaultSystemPackage, systemFunctionModuleName}
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 
 case class TypeFQN(moduleName: ModuleName, typeName: String)
 

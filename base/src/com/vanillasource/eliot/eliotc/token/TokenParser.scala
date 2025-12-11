@@ -1,21 +1,16 @@
 package com.vanillasource.eliot.eliotc.token
 
-import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.source.*
 import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerProcessor}
-import parsley.{Parsley, character}
 import parsley.errors.combinator.*
 import parsley.position.pos
 import parsley.token.Lexer
+import parsley.token.descriptions.*
 import parsley.token.descriptions.numeric.NumericDesc
 import parsley.token.descriptions.text.TextDesc
-import parsley.token.descriptions.*
 import parsley.token.predicate.Basic
-
-import java.io.File
+import parsley.{Parsley, character}
 
 class TokenParser(sourced: Sourced[_]) {
   private val lexer = new Lexer(

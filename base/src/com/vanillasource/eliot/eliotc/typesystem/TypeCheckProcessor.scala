@@ -54,8 +54,9 @@ class TypeCheckProcessor
       constructTypeGraphForFunctionApplication(parentTypeReference, errorMessage) orElse
       constructTypeGraphForFunctionLiteral(parentTypeReference, errorMessage))(expression)
 
-  private def constructTypeGraphForParameterReference(parentTypeReference: TypeReference, errorMessage: String)(using
-      process: CompilationProcess
+  private def constructTypeGraphForParameterReference(
+      parentTypeReference: TypeReference,
+      errorMessage: String
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case ParameterReference(parameterName) =>
     for {
       parameterType <- getBoundType(parameterName.value)
@@ -80,8 +81,9 @@ class TypeCheckProcessor
     } yield result
   }
 
-  private def constructTypeGraphForIntegerLiteral(parentTypeReference: TypeReference, errorMessage: String)(using
-      process: CompilationProcess
+  private def constructTypeGraphForIntegerLiteral(
+      parentTypeReference: TypeReference,
+      errorMessage: String
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case IntegerLiteral(integerLiteral) =>
     assignment(
       parentTypeReference,
@@ -95,8 +97,9 @@ class TypeCheckProcessor
     ).pure[TypeGraphIO]
   }
 
-  private def constructTypeGraphForStringLiteral(parentTypeReference: TypeReference, errorMessage: String)(using
-      process: CompilationProcess
+  private def constructTypeGraphForStringLiteral(
+      parentTypeReference: TypeReference,
+      errorMessage: String
   ): PartialFunction[Expression, TypeGraphIO[TypeUnification]] = { case StringLiteral(stringLiteral) =>
     assignment(
       parentTypeReference,

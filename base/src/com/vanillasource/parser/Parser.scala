@@ -4,7 +4,6 @@ import cats.data.StateT
 import cats.syntax.all.*
 import cats.{Eq, Show}
 import com.vanillasource.parser.InputStream.LimitedInputStream
-import com.vanillasource.parser.ParserResult.*
 import com.vanillasource.parser.ParserResult.Consume.*
 
 /** A parser combinator that consumes items of type [[I]] and produces results of some type [[O]].
@@ -71,7 +70,7 @@ object Parser {
     /** Attempt this parser for the input until the given other parser. If the parser fails, the error will be saved and
       * the input will skip to the given delimiter.
       */
-    def attemptPhraseTo(delimiter: Parser[I, _]): Parser[I, Option[O]] = p
+    def attemptPhraseTo(delimiter: Parser[I, ?]): Parser[I, Option[O]] = p
       .followedBy(delimiter)
       .saveError()
       .recoverWith(delimiter.skipTo())

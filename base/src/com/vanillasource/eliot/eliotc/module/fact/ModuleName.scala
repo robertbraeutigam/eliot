@@ -14,7 +14,7 @@ object ModuleName {
   given Eq[ModuleName] = Eq.fromUniversalEquals
 
   def parse(s: String): ModuleName = s.split('.') match
-    case parts if parts.length > 0 => ModuleName(parts.take(parts.length - 1), parts.last)
+    case parts if parts.length > 0 => ModuleName(parts.toIndexedSeq.take(parts.length - 1), parts.last)
     case _                         => throw IllegalArgumentException(s"Can not parse '$s' into module name.")
 
   val defaultSystemPackage = Seq("eliot", "lang")

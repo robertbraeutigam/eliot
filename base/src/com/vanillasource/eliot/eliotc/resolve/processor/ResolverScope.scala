@@ -2,9 +2,9 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerProcessor, ast}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
-import com.vanillasource.eliot.eliotc.source.error.CompilationIO.{CompilationIO, compilationAbort, compilerAbort}
+import com.vanillasource.eliot.eliotc.source.error.CompilationIO.{CompilationIO, compilerAbort}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
 
 case class ResolverScope(
     functionDictionary: Map[String, FunctionFQN],

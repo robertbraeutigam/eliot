@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.source.pos
 
+import cats.Show
 import cats.syntax.all.*
-import cats.{Order, Show}
 
 /** Delimiting a snippet of continuous code in a source.
   *

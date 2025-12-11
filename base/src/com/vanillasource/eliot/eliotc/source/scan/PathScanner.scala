@@ -1,10 +1,8 @@
 package com.vanillasource.eliot.eliotc.source.scan
 
 import cats.effect.IO
-import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.feedback.User.*
-import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
 import java.nio.file.Path
