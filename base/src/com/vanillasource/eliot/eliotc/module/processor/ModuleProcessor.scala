@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
-import cats.Monad
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -20,32 +19,31 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 
 import java.io.File
 
-class ModuleProcessor[F[_]: Monad](systemModules: Seq[ModuleName] = defaultSystemModules)
+class ModuleProcessor[F[_]](systemModules: Seq[ModuleName] = defaultSystemModules)
     extends CompilerProcessor[F]
     with Logging {
-  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit] = factKey match {
+  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
     case ModuleFunction.Key(file, FunctionFQN(moduleName, functionName)) => generateModule(file, moduleName)
     case ModuleData.Key(file, TypeFQN(moduleName, typeName))             => generateModule(file, moduleName)
-    case _                                                               => Monad[F].unit
+    case _                                                               => IO.unit
   }
 
-  private def generateModule(file: File, name: ModuleName)(using process: CompilationProcess[F]): F[Unit] =
+  private def generateModule(file: File, name: ModuleName)(using process: CompilationProcess): IO[Unit] =
     process
       .getFact(DesugaredSourceAST.Key(file))
       .flatMap(_.traverse_(fact => processFact(name, fact)))
 
-  private def processFact(moduleName: ModuleName, fact: CompilerFact)(using CompilationProcess[F]): F[Unit] =
-    fact match {
-      case DesugaredSourceAST(file, sourcedAst) => processImpl(file, moduleName, sourcedAst)
-      case _                                    => Monad[F].unit
-    }
+  private def processFact(moduleName: ModuleName, fact: CompilerFact)(using CompilationProcess): IO[Unit] = fact match {
+    case DesugaredSourceAST(file, sourcedAst) => processImpl(file, moduleName, sourcedAst)
+    case _                                    => IO.unit
+  }
 
   private def processImpl(file: File, moduleName: ModuleName, sourcedAst: Sourced[AST])(using
-      process: CompilationProcess[F]
-  ): F[Unit] = for {
+      process: CompilationProcess
+  ): IO[Unit] = for {
     localFunctions    <- extractLocalFunctions(sourcedAst.value.functionDefinitions)
     localTypes        <- extractLocalTypes(sourcedAst.value.typeDefinitions)
-    importedModules   <- extractImportedModules(moduleName, sourcedAst.as(sourcedAst.value.importStatements)).pure[F]
+    importedModules   <- extractImportedModules(moduleName, sourcedAst.as(sourcedAst.value.importStatements)).pure[IO]
     importedFunctions <- extractImportedFunctions(importedModules, localFunctions.keySet)
     importedTypes     <- extractImportedTypes(importedModules, localTypes.keySet)
     _                 <- debug(s"for ${moduleName.show} read function names: ${localFunctions.keySet
@@ -87,14 +85,14 @@ class ModuleProcessor[F[_]: Monad](systemModules: Seq[ModuleName] = defaultSyste
   private def extractImportedFunctions(
       importedModules: Seq[Sourced[ModuleName]],
       localFunctionNames: Set[String]
-  )(using process: CompilationProcess[F]): F[Map[String, FunctionFQN]] =
+  )(using process: CompilationProcess): F[Map[String, FunctionFQN]] =
     importedModules.foldM(Map.empty[String, FunctionFQN])((acc, i) => importModuleFunctions(localFunctionNames, acc, i))
 
   private def importModuleFunctions(
       localFunctionNames: Set[String],
       importedFunctions: Map[String, FunctionFQN],
       module: Sourced[ModuleName]
-  )(using process: CompilationProcess[F]): F[Map[String, FunctionFQN]] = {
+  )(using process: CompilationProcess): F[Map[String, FunctionFQN]] = {
     val extractedImport = for {
       moduleFunctions <- process.getFact(UnifiedModuleNames.Key(module.value)).toOptionT
       result          <-
@@ -129,14 +127,14 @@ class ModuleProcessor[F[_]: Monad](systemModules: Seq[ModuleName] = defaultSyste
   private def extractImportedTypes(
       importedModules: Seq[Sourced[ModuleName]],
       localTypeNames: Set[String]
-  )(using process: CompilationProcess[F]): F[Map[String, TypeFQN]] =
+  )(using process: CompilationProcess): F[Map[String, TypeFQN]] =
     importedModules.foldM(Map.empty[String, TypeFQN])((acc, i) => importModuleTypes(localTypeNames, acc, i))
 
   private def importModuleTypes(
       localTypeNames: Set[String],
       importedTypes: Map[String, TypeFQN],
       module: Sourced[ModuleName]
-  )(using process: CompilationProcess[F]): F[Map[String, TypeFQN]] = {
+  )(using process: CompilationProcess): F[Map[String, TypeFQN]] = {
     val extractedImport = for {
       moduleFunctions <- process.getFact(UnifiedModuleNames.Key(module.value)).toOptionT
       result          <-

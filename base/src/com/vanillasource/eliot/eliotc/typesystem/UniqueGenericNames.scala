@@ -25,7 +25,7 @@ object UniqueGenericNames {
       .get(name)
       .transformS[UniqueGenericNames](_.boundNames, (ugn, cache) => ugn.copy(boundNames = cache))
 
-  def generateUniqueGeneric[F[_]](source: Sourced[?], parameters: Seq[TypeReference] = Seq.empty)(using
+  def generateUniqueGeneric[F[_]](source: Sourced[_], parameters: Seq[TypeReference] = Seq.empty)(using
       Monad[F]
   ): StateT[F, UniqueGenericNames, TypeReference] =
     generateNextUniqueIdentifier()

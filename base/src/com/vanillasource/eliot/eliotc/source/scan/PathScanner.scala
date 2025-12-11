@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.source.scan
 
-import cats.effect.Sync
+import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.feedback.User.*
@@ -9,15 +9,15 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, Comp
 
 import java.nio.file.Path
 
-class PathScanner[F[_]: Sync](rootPaths: Seq[Path]) extends CompilerProcessor[F] with Logging {
-  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): F[Unit] = factKey match {
+class PathScanner(rootPaths: Seq[Path]) extends CompilerProcessor with Logging {
+  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess): IO[Unit] = factKey match {
     case PathScan.Key(path) => scan(path)
-    case _                  => Monad[F].unit
+    case _                  => IO.unit
   }
 
-  private def scan(path: Path)(using process: CompilationProcess): F[Unit] =
+  private def scan(path: Path)(using process: CompilationProcess): IO[Unit] =
     for {
-      files <- Sync[F].blocking(
+      files <- IO.blocking(
                  rootPaths
                    .map(_.resolve(path).toFile)
                    .filter(_.isFile)

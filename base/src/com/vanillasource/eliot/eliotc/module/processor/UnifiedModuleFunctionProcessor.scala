@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
 class UnifiedModuleFunctionProcessor[F[_]: Monad] extends CompilerProcessor[F] {
-  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit] =
+  override def generate(factKey: CompilerFactKey[_])(using CompilationProcess[F]): F[Unit] =
     factKey match {
       case UnifiedModuleFunction.Key(ffqn) => unify(ffqn).getOrUnit
       case _                               => Monad[F].unit

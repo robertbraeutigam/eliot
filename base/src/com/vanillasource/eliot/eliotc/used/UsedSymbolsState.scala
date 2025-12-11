@@ -7,8 +7,8 @@ import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 
 case class UsedSymbolsState(
-    usedFunctions: Map[FunctionFQN, Sourced[?]] = Map.empty,
-    usedTypes: Map[TypeFQN, Sourced[?]] = Map.empty
+    usedFunctions: Map[FunctionFQN, Sourced[_]] = Map.empty,
+    usedTypes: Map[TypeFQN, Sourced[_]] = Map.empty
 )
 
 object UsedSymbolsState {

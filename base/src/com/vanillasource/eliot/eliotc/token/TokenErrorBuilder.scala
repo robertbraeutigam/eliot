@@ -10,7 +10,7 @@ import parsley.errors.tokenextractors.SingleChar
 
 import java.io.File
 
-class TokenErrorBuilder(val sourced: Sourced[?]) extends ErrorBuilder[Sourced[String]] {
+class TokenErrorBuilder(val sourced: Sourced[_]) extends ErrorBuilder[Sourced[String]] {
   def format(pos: Position, source: Source, lines: ErrorInfoLines): Sourced[String] =
     sourced.as(s"Parser error, ${lines.mkString(", ")}.").reFocus(PositionRange(pos, pos.next))
 

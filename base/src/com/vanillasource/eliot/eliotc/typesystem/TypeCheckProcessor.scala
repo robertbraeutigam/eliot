@@ -47,11 +47,11 @@ class TypeCheckProcessor[F[_]: Monad]
       expression: Expression,
       errorMessage: String = "Type mismatch."
   )(using process: CompilationProcess): TypeGraphIO[TypeUnification] =
-    (constructTypeGraphForParameterReference(parentTypeReference, errorMessage) `orElse`
-      constructTypeGraphForIntegerLiteral(parentTypeReference, errorMessage) `orElse`
-      constructTypeGraphForStringLiteral(parentTypeReference, errorMessage) `orElse`
-      constructTypeGraphForValueReference(parentTypeReference, errorMessage) `orElse`
-      constructTypeGraphForFunctionApplication(parentTypeReference, errorMessage) `orElse`
+    (constructTypeGraphForParameterReference(parentTypeReference, errorMessage) orElse
+      constructTypeGraphForIntegerLiteral(parentTypeReference, errorMessage) orElse
+      constructTypeGraphForStringLiteral(parentTypeReference, errorMessage) orElse
+      constructTypeGraphForValueReference(parentTypeReference, errorMessage) orElse
+      constructTypeGraphForFunctionApplication(parentTypeReference, errorMessage) orElse
       constructTypeGraphForFunctionLiteral(parentTypeReference, errorMessage))(expression)
 
   private def constructTypeGraphForParameterReference(parentTypeReference: TypeReference, errorMessage: String)(using
