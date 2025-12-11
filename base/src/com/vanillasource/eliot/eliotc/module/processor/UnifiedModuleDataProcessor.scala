@@ -26,7 +26,7 @@ class UnifiedModuleDataProcessor[F[_]: Monad] extends CompilerProcessor[F] {
       _           <- process.registerFact(unifiedData).liftOptionT
     } yield ()
 
-  private def unifyData(data: Seq[ModuleData])(using CompilationProcess[F]): OptionT[F, UnifiedModuleData] =
+  private def unifyData(data: Seq[ModuleData])(using CompilationProcess): OptionT[F, UnifiedModuleData] =
     if (data.isEmpty) {
       OptionT.none
     } else if (hasMoreImplementations(data)) {

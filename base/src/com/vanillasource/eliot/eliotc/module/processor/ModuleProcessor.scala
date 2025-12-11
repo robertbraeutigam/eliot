@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.Monad
-import cats.effect.Sync
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -21,7 +20,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, Compile
 
 import java.io.File
 
-class ModuleProcessor[F[_]: Sync](systemModules: Seq[ModuleName] = defaultSystemModules)
+class ModuleProcessor[F[_]: Monad](systemModules: Seq[ModuleName] = defaultSystemModules)
     extends CompilerProcessor[F]
     with Logging {
   override def generate(factKey: CompilerFactKey[?])(using CompilationProcess[F]): F[Unit] = factKey match {
@@ -49,7 +48,7 @@ class ModuleProcessor[F[_]: Sync](systemModules: Seq[ModuleName] = defaultSystem
     importedModules   <- extractImportedModules(moduleName, sourcedAst.as(sourcedAst.value.importStatements)).pure[F]
     importedFunctions <- extractImportedFunctions(importedModules, localFunctions.keySet)
     importedTypes     <- extractImportedTypes(importedModules, localTypes.keySet)
-    _                 <- debug[F](s"for ${moduleName.show} read function names: ${localFunctions.keySet
+    _                 <- debug(s"for ${moduleName.show} read function names: ${localFunctions.keySet
                              .mkString(", ")}, type names: ${localTypes.keySet
                              .mkString(", ")}, imported functions: ${importedFunctions.keySet
                              .mkString(", ")}, imported types: ${importedTypes.keySet.mkString(", ")}")
