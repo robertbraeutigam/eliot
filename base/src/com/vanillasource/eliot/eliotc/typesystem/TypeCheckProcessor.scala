@@ -25,20 +25,24 @@ class TypeCheckProcessor
       resolvedFunction: ResolvedFunction
   )(using CompilationProcess): IO[Unit] = {
     val functionDefinition = resolvedFunction.definition
-    val bodyMaybe          = functionDefinition.body
     val typeGraph          = genericParameters(functionDefinition.genericParameters)
 
-    val program = for {
-      constructedTypeGraph <-
-        constructTypeGraph(functionDefinition.valueType, bodyMaybe.get.value)
-          .runA(UniqueGenericNames())
-      fullTypeGraph         = typeGraph `combine` constructedTypeGraph
-      _                    <- debug[CompilationIO](s"solving ${fullTypeGraph.show}")
-      _                    <- fullTypeGraph.solve()
-      _                    <- registerFact(TypeCheckedFunction(resolvedFunction.ffqn, functionDefinition)).liftIfNoErrors
-    } yield ()
+    functionDefinition.body match {
+      case Some(body) =>
+        val program = for {
+          constructedTypeGraph <-
+            constructTypeGraph(functionDefinition.valueType, body.value)
+              .runA(UniqueGenericNames())
+          fullTypeGraph         = typeGraph `combine` constructedTypeGraph
+          _                    <- debug[CompilationIO](s"solving ${fullTypeGraph.show}")
+          _                    <- fullTypeGraph.solve()
+          _                    <- registerFact(TypeCheckedFunction(resolvedFunction.ffqn, functionDefinition)).liftIfNoErrors
+        } yield ()
 
-    program.whenA(bodyMaybe.isDefined).runCompilation_()
+        program.runCompilation_()
+      case None       => IO.unit
+    }
+
   }
 
   private type TypeGraphIO[T] = StateT[CompilationIO, UniqueGenericNames, T]

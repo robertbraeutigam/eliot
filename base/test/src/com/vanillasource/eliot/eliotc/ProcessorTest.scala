@@ -39,8 +39,9 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
       _         <- imports.traverse { imp =>
-                     val file = new File(s"eliot/lang/${imp.module}.els")
-                     generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, imp.content)))
+                     val impFile = new File(s"eliot/lang/${imp.module}.els")
+                     generator.registerFact(PathScan(Path.of(s"eliot/lang/${imp.module}.els"), Seq(impFile))) >>
+                       generator.registerFact(SourceContent(impFile, Sourced(impFile, PositionRange.zero, imp.content)))
                    }
       _         <- generator.getFact(trigger)
       facts     <- generator.currentFacts()
