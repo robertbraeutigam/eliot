@@ -2,10 +2,11 @@ package com.vanillasource.eliot.eliotc.token
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
+import com.vanillasource.eliot.eliotc.source.error.ErrorReporter
 import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, IntegerLiteral, Keyword, StringLiteral}
 
-class TokenizerTest extends ProcessorTest(new Tokenizer()) {
+class TokenizerTest extends ProcessorTest(new Tokenizer(), new ErrorReporter()) {
   "tokenizer" should "return nothing for empty content" in {
     runEngineForTokens("").asserting(_ shouldBe Seq.empty)
   }

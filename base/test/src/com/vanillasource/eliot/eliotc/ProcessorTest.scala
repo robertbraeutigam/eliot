@@ -27,7 +27,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
       imports: Seq[SystemImport] = Seq.empty
   ): IO[Seq[String]] =
     runGenerator(source, trigger, imports)
-      .map(_.values.collect { case SourcedError(Sourced(_, _, msg)) => msg }.toSeq)
+      .map(_.values.collect { case SourcedError(Sourced(_, _, msg), _) => msg }.toSeq)
 
   def runGenerator(
       source: String,
