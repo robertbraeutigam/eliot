@@ -5,12 +5,11 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleFunction}
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
-import com.vanillasource.eliot.eliotc.source.error.ErrorReporter
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class ModuleProcessorTest
-    extends ProcessorTest(Tokenizer(), ASTParser(), DesugarProcessor(), ModuleProcessor(Seq.empty), ErrorReporter()) {
+    extends ProcessorTest(Tokenizer(), ASTParser(), DesugarProcessor(), ModuleProcessor(Seq.empty)) {
   "module processor" should "issue no errors on valid function" in {
     runEngineForErrors("a: A").asserting(_ shouldBe Seq())
   }

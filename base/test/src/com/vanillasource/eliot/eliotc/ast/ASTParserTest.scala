@@ -1,12 +1,11 @@
 package com.vanillasource.eliot.eliotc.ast
 
 import cats.effect.IO
-import com.vanillasource.eliot.eliotc.source.error.ErrorReporter
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey, ProcessorTest}
 
-class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser(), new ErrorReporter()) {
+class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   "ast parser" should "successfully parse empty file" in {
     runEngineForErrors("").asserting(_ shouldBe Seq.empty)
   }
