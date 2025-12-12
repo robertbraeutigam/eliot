@@ -5,8 +5,19 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
-import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, Expression, FunctionDefinition, ResolvedFunction}
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{FunctionApplication, FunctionLiteral, IntegerLiteral, ParameterReference, ValueReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.{
+  ArgumentDefinition,
+  Expression,
+  FunctionDefinition,
+  ResolvedFunction
+}
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{
+  FunctionApplication,
+  FunctionLiteral,
+  IntegerLiteral,
+  ParameterReference,
+  ValueReference
+}
 import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
@@ -21,14 +32,14 @@ class FunctionResolverTest
       FunctionResolver()
     ) {
   "resolver" should "resolve a literal integer expression" in {
-    parseForExpressions("data A\na: A = 1").flatMap {
+    runEngineForExpressions("data A\nf: A = 1").flatMap {
       case Seq(IntegerLiteral(Sourced(_, _, value))) => IO.delay(value shouldBe BigInt(1))
       case x                                         => IO.delay(fail(s"was not an integer literal, instead: $x"))
     }
   }
 
   it should "resolve value references" in {
-    parseForExpressions("data A\na: A\nb: A = a").flatMap {
+    runEngineForExpressions("data A\na: A\nf: A = a").flatMap {
       case Seq(ValueReference(Sourced(_, _, ffqn))) =>
         IO.delay(ffqn shouldBe FunctionFQN(ModuleName(Seq(), "Test"), "a"))
       case x                                        => IO.delay(fail(s"was not a value reference, instead: $x"))
@@ -36,11 +47,11 @@ class FunctionResolverTest
   }
 
   it should "resolve function to function literal" in {
-    parseForExpressions("data A\nb(a: A): A = a").flatMap {
+    runEngineForExpressions("data A\nf(a: A): A = a").flatMap {
       case Seq(
             FunctionLiteral(_, Sourced(_, _, ParameterReference(Sourced(_, _, name))))
           ) =>
-        IO.delay(name shouldBe "a")
+        IO.delay(name shouldBe "f")
       case x => IO.delay(fail(s"was not a function literal with a parameter reference as body, instead: $x"))
     }
   }
@@ -109,8 +120,11 @@ class FunctionResolverTest
     )
   }
 
-  private def parseForExpressions(source: String): IO[Seq[Expression]] = for {
-    results <- runEngine(source)
+  private def runEngineForErrors(source: String): IO[Seq[String]] =
+    runGeneratorForErrors(source, ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
+
+  private def runEngineForExpressions(source: String): IO[Seq[Expression]] = for {
+    results <- runGenerator(source, ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
   } yield {
     results.values.collect { case ResolvedFunction(_, FunctionDefinition(_, _, _, Some(Sourced(_, _, expression)))) =>
       expression

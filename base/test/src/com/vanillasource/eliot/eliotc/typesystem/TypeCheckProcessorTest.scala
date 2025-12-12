@@ -44,12 +44,12 @@ class TypeCheckProcessorTest
   }
 
   "processor" should "produce type checked results if arities are ok" in {
-    runForTypedFunctions("data A\na: A = b\nb: A")
+    runEngineForTypedFunctions("data A\na: A = b\nb: A")
       .asserting(_.length shouldBe 1)
   }
 
   it should "not produce type checked results if arities mismatch" in {
-    runForTypedFunctions("data A\na: A = b(3)\nb: A")
+    runEngineForTypedFunctions("data A\na: A = b(3)\nb: A")
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -145,8 +145,11 @@ class TypeCheckProcessorTest
     ).asserting(_ shouldBe Seq())
   }
 
-  private def runForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
-    results <- runEngine(source)
+  private def runEngineForErrorsWithImports(source: String): IO[Seq[String]] =
+    runGeneratorForErrorsWithImports(source, TypeCheckedFunction.Key(FunctionFQN(testModuleName, "f")))
+
+  private def runEngineForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
+    results <- runGenerator(source, TypeCheckedFunction.Key(FunctionFQN(testModuleName, "f")))
   } yield {
     results.values.collect { case TypeCheckedFunction(ffqn, _) =>
       ffqn

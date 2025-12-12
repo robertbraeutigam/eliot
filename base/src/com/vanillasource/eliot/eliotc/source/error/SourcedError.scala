@@ -3,21 +3,27 @@ package com.vanillasource.eliot.eliotc.source.error
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.User.*
-import com.vanillasource.eliot.eliotc.CompilationProcess.getFact
+import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.pos.Position.{Column, Line}
 import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
-import com.vanillasource.eliot.eliotc.CompilationProcess
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey}
 
 import java.io.File
 import scala.io.AnsiColor.{BOLD, MAGENTA, RED, RESET}
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
+case class SourcedError(error: Sourced[String]) extends CompilerFact {
+  override def key(): CompilerFactKey[SourcedError] = SourcedError.Key(error)
+}
+
 object SourcedError {
+  case class Key(error: Sourced[String]) extends CompilerFactKey[SourcedError]
+
   def registerCompilerError(message: Sourced[String], description: Seq[String] = Seq.empty)(using
       CompilationProcess
-  ): IO[Unit] =
-    printError(
+  ): IO[Unit] = {
+    registerFact(SourcedError(message)) >> printError(
       message.file,
       message.range.from.line,
       message.range.from.col,
@@ -26,6 +32,7 @@ object SourcedError {
       message.value,
       description
     )
+  }
 
   def registerCompilerError(file: File, message: String)(using CompilationProcess): IO[Unit] =
     registerCompilerError(Sourced(file, PositionRange(Position(1, 1), Position(1, 1)), message))

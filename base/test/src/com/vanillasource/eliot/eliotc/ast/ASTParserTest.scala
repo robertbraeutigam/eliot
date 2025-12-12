@@ -2,8 +2,7 @@ package com.vanillasource.eliot.eliotc.ast
 
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
-import com.vanillasource.eliot.eliotc.{CompilerFact, ProcessorTest}
-import com.vanillasource.eliot.eliotc.main.CompilerEngine
+import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey, ProcessorTest}
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.source.error.SourcedError
@@ -19,11 +18,11 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   }
 
   it should "parse a correct import statement" in {
-    parseForImports("import a.b.C").asserting(_ shouldBe Seq("a.b.C"))
+    runEngineForImports("import a.b.C").asserting(_ shouldBe Seq("a.b.C"))
   }
 
   it should "parse multiple current import statements" in {
-    parseForImports("import a.b.C\nimport b.D\nimport g.g.H").asserting(_ shouldBe Seq("a.b.C", "b.D", "g.g.H"))
+    runEngineForImports("import a.b.C\nimport b.D\nimport g.g.H").asserting(_ shouldBe Seq("a.b.C", "b.D", "g.g.H"))
   }
 
   it should "not parse import with point at the end" in {
@@ -156,14 +155,21 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("f: A = (a:A) -> a").asserting(_ shouldBe Seq.empty)
   }
 
-  private def parseForImports(source: String): IO[Seq[String]] = for {
-    results <- runEngine(source)
-  } yield {
-    results.values
-      .collect { case SourceAST(_, _, AST(statements, _, _)) =>
-        statements.map(i => (i.packageNames.map(_.value) :+ i.moduleName.value).mkString("."))
-      }
-      .toSeq
-      .flatten
-  }
+  private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
+    runGenerator(source, SourceAST.Key(file))
+
+  private def runEngineForErrors(source: String): IO[Seq[String]] =
+    runGeneratorForErrors(source, SourceAST.Key(file))
+
+  private def runEngineForImports(source: String): IO[Seq[String]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(statements, _, _))) =>
+          statements.map(i => (i.packageNames.map(_.value) :+ i.moduleName.value).mkString("."))
+        }
+        .toSeq
+        .flatten
+    }
 }

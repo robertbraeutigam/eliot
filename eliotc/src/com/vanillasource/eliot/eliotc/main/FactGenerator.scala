@@ -43,6 +43,12 @@ final class FactGenerator(
                       case None                      => (internalMap.updated(key, newValue), (newValue, true))
                   }
     } yield result
+
+  def currentFacts(): IO[Map[CompilerFactKey[?], CompilerFact]] =
+    for {
+      currentMap <- facts.get
+      facts      <- currentMap.values.toSeq.traverse(_.tryGet.map(_.flatten)).map(_.flatten)
+    } yield facts.map(v => v.key() -> v).toMap
 }
 
 object FactGenerator {

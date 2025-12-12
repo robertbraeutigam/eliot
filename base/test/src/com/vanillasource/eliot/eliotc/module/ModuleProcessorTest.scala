@@ -1,7 +1,9 @@
 package com.vanillasource.eliot.eliotc.module
 
+import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.ASTParser
+import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleFunction}
 import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -23,4 +25,7 @@ class ModuleProcessorTest
   it should "issue error if import can not be found" in {
     runEngineForErrors("import A").asserting(_ shouldBe Seq("Could not find imported module."))
   }
+
+  private def runEngineForErrors(source: String): IO[Seq[String]] =
+    runGeneratorForErrors(source, ModuleFunction.Key(file, FunctionFQN(testModuleName, "a")))
 }
