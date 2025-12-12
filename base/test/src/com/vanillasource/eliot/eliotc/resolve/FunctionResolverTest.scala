@@ -4,14 +4,18 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
-import com.vanillasource.eliot.eliotc.module.processor.ModuleProcessor
+import com.vanillasource.eliot.eliotc.module.processor.{
+  ModuleProcessor,
+  UnifiedModuleDataProcessor,
+  UnifiedModuleFunctionProcessor
+}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{
   FunctionLiteral,
   IntegerLiteral,
   ParameterReference,
   ValueReference
 }
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction}
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedFunction}
 import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
@@ -23,29 +27,32 @@ class FunctionResolverTest
       ASTParser(),
       DesugarProcessor(),
       ModuleProcessor(Seq.empty),
+      UnifiedModuleFunctionProcessor(),
+      UnifiedModuleDataProcessor(),
       FunctionResolver()
     ) {
+
   "resolver" should "resolve a literal integer expression" in {
     runEngineForExpressions("data A\nf: A = 1").flatMap {
-      case Seq(IntegerLiteral(Sourced(_, _, value))) => IO.delay(value shouldBe BigInt(1))
-      case x                                         => IO.delay(fail(s"was not an integer literal, instead: $x"))
+      case Some(IntegerLiteral(Sourced(_, _, value))) => IO.delay(value shouldBe BigInt(1))
+      case x                                          => IO.delay(fail(s"was not an integer literal, instead: $x"))
     }
   }
 
   it should "resolve value references" in {
     runEngineForExpressions("data A\na: A\nf: A = a").flatMap {
-      case Seq(ValueReference(Sourced(_, _, ffqn))) =>
+      case Some(ValueReference(Sourced(_, _, ffqn))) =>
         IO.delay(ffqn shouldBe FunctionFQN(ModuleName(Seq(), "Test"), "a"))
-      case x                                        => IO.delay(fail(s"was not a value reference, instead: $x"))
+      case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
     }
   }
 
   it should "resolve function to function literal" in {
     runEngineForExpressions("data A\nf(a: A): A = a").flatMap {
-      case Seq(
+      case Some(
             FunctionLiteral(_, Sourced(_, _, ParameterReference(Sourced(_, _, name))))
           ) =>
-        IO.delay(name shouldBe "f")
+        IO.delay(name shouldBe "a")
       case x => IO.delay(fail(s"was not a function literal with a parameter reference as body, instead: $x"))
     }
   }
@@ -117,11 +124,11 @@ class FunctionResolverTest
   private def runEngineForErrors(source: String): IO[Seq[String]] =
     runGeneratorForErrors(source, ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
 
-  private def runEngineForExpressions(source: String): IO[Seq[Expression]] = for {
-    results <- runGenerator(source, ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
-  } yield {
-    results.values.collect { case ResolvedFunction(_, FunctionDefinition(_, _, _, Some(Sourced(_, _, expression)))) =>
-      expression
-    }.toSeq
-  }
+  private def runEngineForExpressions(source: String): IO[Option[Expression]] =
+    for {
+      facts <- runGenerator(source, ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
+      _     <- IO.println(s"Facts: $facts")
+    } yield facts
+      .get(ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
+      .flatMap(_.asInstanceOf[ResolvedFunction].definition.body.map(_.value))
 }

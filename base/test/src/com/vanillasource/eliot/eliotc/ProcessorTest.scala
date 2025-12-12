@@ -9,10 +9,12 @@ import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.source.error.SourcedError
+import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 import java.io.File
+import java.nio.file.Path
 
 abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   val file                  = new File("Test.els")
@@ -35,6 +37,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     for {
       generator <- FactGenerator.create(SequentialCompilerProcessors(processors))
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
+      _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
       _         <- imports.traverse { imp =>
                      val file = new File(s"eliot/lang/${imp.module}.els")
                      generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, imp.content)))
