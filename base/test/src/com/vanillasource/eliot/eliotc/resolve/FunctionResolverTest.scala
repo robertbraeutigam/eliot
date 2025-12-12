@@ -127,7 +127,6 @@ class FunctionResolverTest
   private def runEngineForExpressions(source: String): IO[Option[Expression]] =
     for {
       facts <- runGenerator(source, ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
-      _     <- IO.println(s"Facts: $facts")
     } yield facts
       .get(ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
       .flatMap(_.asInstanceOf[ResolvedFunction].definition.body.map(_.value))
