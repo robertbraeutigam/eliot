@@ -1,16 +1,9 @@
 package com.vanillasource.eliot.eliotc.ast
 
 import cats.effect.IO
-import cats.effect.testing.scalatest.AsyncIOSpec
-import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey, ProcessorTest}
-import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.source.error.SourcedError
 import com.vanillasource.eliot.eliotc.token.Tokenizer
-import org.scalatest.flatspec.AsyncFlatSpec
-import org.scalatest.matchers.should.Matchers
-
-import java.io.File
+import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey, ProcessorTest}
 
 class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   "ast parser" should "successfully parse empty file" in {
