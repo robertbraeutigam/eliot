@@ -13,7 +13,7 @@ import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, Comp
 import java.io.File
 import scala.io.AnsiColor.{BOLD, MAGENTA, RED, RESET}
 
-class ErrorReporter(using Console[IO]) extends CompilerProcessor {
+class ErrorReporter()(using Console[IO]) extends CompilerProcessor {
   override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =
     factKey match {
       case SourcedError.Key(error, description) =>

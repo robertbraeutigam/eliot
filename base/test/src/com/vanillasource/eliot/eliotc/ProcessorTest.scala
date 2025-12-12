@@ -1,6 +1,8 @@
 package com.vanillasource.eliot.eliotc
 
+import cats.Show
 import cats.effect.IO
+import cats.effect.std.Console
 import cats.syntax.all.*
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.main.FactGenerator
@@ -14,6 +16,7 @@ import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 import java.io.File
+import java.nio.charset.Charset
 import java.nio.file.Path
 
 abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFlatSpec with AsyncIOSpec with Matchers {
@@ -36,7 +39,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
   ): IO[Map[CompilerFactKey[?], CompilerFact]] =
     for {
       generator <- FactGenerator.create(
-                     SequentialCompilerProcessors(Seq(new ErrorReporter(), SequentialCompilerProcessors(processors)))
+                     SequentialCompilerProcessors(Seq(new ErrorReporter()(using NullConsole()), SequentialCompilerProcessors(processors)))
                    )
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
@@ -53,4 +56,16 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     runGeneratorForErrors(source, trigger, systemImports)
 
   case class SystemImport(module: String, content: String)
+
+  case class NullConsole() extends Console[IO] {
+    override def readLineWithCharset(charset: Charset): IO[String] = IO("")
+
+    override def print[A](a: A)(implicit S: Show[A]): IO[Unit] = IO.unit
+
+    override def println[A](a: A)(implicit S: Show[A]): IO[Unit] = IO.unit
+
+    override def error[A](a: A)(implicit S: Show[A]): IO[Unit] = IO.unit
+
+    override def errorln[A](a: A)(implicit S: Show[A]): IO[Unit] = IO.unit
+  }
 }
