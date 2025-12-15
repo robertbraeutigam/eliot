@@ -15,7 +15,7 @@ import org.objectweb.asm.{ClassWriter, Opcodes}
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.StandardOpenOption.*
-import java.nio.file.{Files, Path, StandardOpenOption}
+import java.nio.file.{Files, Path}
 import java.util.jar.{JarEntry, JarOutputStream}
 
 class JvmProgramGenerator(targetDir: Path)
