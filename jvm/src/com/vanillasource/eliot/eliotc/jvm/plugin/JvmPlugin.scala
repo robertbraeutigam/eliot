@@ -1,14 +1,15 @@
-package com.vanillasource.eliot.eliotc.jvm
+package com.vanillasource.eliot.eliotc.jvm.plugin
 
 import cats.data.StateT
 import cats.effect.IO
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.base.BasePlugin
-import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
-import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
+import com.vanillasource.eliot.eliotc.jvm.{GenerateExecutableJar, JvmClassGenerator, JvmProgramGenerator}
 import com.vanillasource.eliot.eliotc.main.Compiler
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
+import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
+import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerProcessor}
 import scopt.{OParser, OParserBuilder}
 
 class JvmPlugin extends CompilerPlugin {

@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.jvm
 
-import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemLangType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 
