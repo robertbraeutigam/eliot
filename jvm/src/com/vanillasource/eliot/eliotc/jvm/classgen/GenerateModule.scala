@@ -1,8 +1,8 @@
-package com.vanillasource.eliot.eliotc.jvm
+package com.vanillasource.eliot.eliotc.jvm.classgen
 
-import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
+import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
 
 case class GenerateModule(
     moduleName: ModuleName,

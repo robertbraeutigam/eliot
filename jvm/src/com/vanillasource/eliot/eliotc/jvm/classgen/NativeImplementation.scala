@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.jvm
+package com.vanillasource.eliot.eliotc.jvm.classgen
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.jvm.asm.CatsAsm.ClassGenerator

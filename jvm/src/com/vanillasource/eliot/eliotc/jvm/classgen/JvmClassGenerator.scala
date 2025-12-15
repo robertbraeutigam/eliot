@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.jvm
+package com.vanillasource.eliot.eliotc.jvm.classgen
 
 import cats.data.{IndexedStateT, StateT}
 import cats.effect.IO
@@ -6,16 +6,16 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import GeneratedModule.ClassFile
+import NativeImplementation.implementations
+import NativeType.{javaSignatureName, types}
 import com.vanillasource.eliot.eliotc.jvm.asm.CatsAsm.*
-import com.vanillasource.eliot.eliotc.jvm.GeneratedModule.ClassFile
-import com.vanillasource.eliot.eliotc.jvm.NativeImplementation.implementations
-import com.vanillasource.eliot.eliotc.jvm.NativeType.{javaSignatureName, types}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType, systemUnitType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
-import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, Expression, ResolvedData, ResolvedFunction, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction

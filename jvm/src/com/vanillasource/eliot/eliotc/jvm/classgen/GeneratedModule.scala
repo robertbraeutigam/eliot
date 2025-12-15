@@ -1,10 +1,8 @@
-package com.vanillasource.eliot.eliotc.jvm
+package com.vanillasource.eliot.eliotc.jvm.classgen
 
-import com.vanillasource.eliot.eliotc.jvm.GeneratedModule.ClassFile
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
+import com.vanillasource.eliot.eliotc.jvm.classgen.GeneratedModule.ClassFile
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
-
-import java.nio.file.Path
 
 case class GeneratedModule(moduleName: ModuleName, classFiles: Seq[ClassFile]) extends CompilerFact {
   override def key(): CompilerFactKey[GeneratedModule] = GeneratedModule.Key(moduleName)

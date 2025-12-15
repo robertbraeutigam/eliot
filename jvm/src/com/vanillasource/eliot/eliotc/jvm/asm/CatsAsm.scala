@@ -3,8 +3,8 @@ package com.vanillasource.eliot.eliotc.jvm.asm
 import cats.effect.kernel.Resource
 import cats.effect.{IO, Sync}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.jvm.GeneratedModule.ClassFile
-import com.vanillasource.eliot.eliotc.jvm.NativeType.{convertToMainClassName, javaSignatureName}
+import com.vanillasource.eliot.eliotc.jvm.classgen.GeneratedModule.ClassFile
+import com.vanillasource.eliot.eliotc.jvm.classgen.NativeType.{convertToMainClassName, javaSignatureName}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
