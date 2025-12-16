@@ -3,8 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.asm
 import cats.effect.kernel.Resource
 import cats.effect.{IO, Sync}
 import cats.syntax.all.*
-// FIXME: Can not refer to classgen!
-import NativeType.{convertToMainClassName, javaSignatureName}
+import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{convertToMainClassName, javaSignatureName}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
