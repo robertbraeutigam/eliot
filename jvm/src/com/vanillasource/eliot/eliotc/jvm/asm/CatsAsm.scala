@@ -3,13 +3,19 @@ package com.vanillasource.eliot.eliotc.jvm.asm
 import cats.effect.kernel.Resource
 import cats.effect.{IO, Sync}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.jvm.classgen.GeneratedModule.ClassFile
+// FIXME: Can not refer to classgen!
 import com.vanillasource.eliot.eliotc.jvm.classgen.NativeType.{convertToMainClassName, javaSignatureName}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
 
 object CatsAsm {
+
+  /** Generates an empty class for the given module. Each module has exactly one class generated for it.
+    * @param name
+    *   The module name to generate the class for.
+    * @return
+    */
   def createClassGenerator(name: ModuleName): IO[ClassGenerator] = IO {
     val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
 
@@ -25,10 +31,15 @@ object CatsAsm {
     new ClassGenerator(name, classWriter)
   }
 
+  // FIXME: This shouldn't be outside
   def calculateSignatureString(signatureTypes: Seq[TypeFQN]): String =
     s"(${signatureTypes.init.map(javaSignatureName).mkString})${javaSignatureName(signatureTypes.last)}"
 
+  // FIXME: name is referred to from the outside!
   class ClassGenerator(val name: ModuleName, val classWriter: ClassWriter) {
+
+    /** Generate the byte-code for the currently created class.
+      */
     def generate(): IO[ClassFile] = {
       val pathName  = if (name.packages.isEmpty) "" else name.packages.mkString("", "/", "/")
       val entryName = name.name + ".class" // FIXME: same javaname conversion as in class! Use the class name!
