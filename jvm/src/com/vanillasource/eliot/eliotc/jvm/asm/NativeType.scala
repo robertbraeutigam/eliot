@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.jvm.classgen
+package com.vanillasource.eliot.eliotc.jvm.asm
 
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemLangType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
