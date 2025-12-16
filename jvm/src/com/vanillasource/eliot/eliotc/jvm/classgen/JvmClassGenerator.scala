@@ -245,21 +245,12 @@ class JvmClassGenerator
                                                     }
                                                 }
                                            // Call constructor
-                                           _ <- methodGenerator.runNative[CompilationIO] { methodVisitor =>
-                                                  methodVisitor.visitMethodInsn(
-                                                    Opcodes.INVOKESPECIAL,
-                                                    outerClassGenerator.name.name + "$" + sourcedTfqn.value.typeName,
-                                                    "<init>",
-                                                    calculateSignatureString(
-                                                      typeDefinition.definition.fields.get
-                                                        .map(_.typeReference)
-                                                        .map(simpleType) ++ Seq(
-                                                        systemUnitType
-                                                      )
-                                                    ),
-                                                    false
-                                                  )
-                                                }
+                                           _ <- methodGenerator.addInstantiation[CompilationIO](
+                                                  sourcedTfqn.value,
+                                                  typeDefinition.definition.fields.get
+                                                    .map(_.typeReference)
+                                                    .map(simpleType)
+                                                )
                                          } yield ()
                                        }
                                    // Define accessors

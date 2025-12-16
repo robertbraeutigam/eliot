@@ -21,10 +21,16 @@ object NativeType {
 
   def convertToJavaName(typeFQN: TypeFQN): String =
     // All data classes are nested classes inside the class denoted by the "module"!
-    "L" + convertToMainClassName(typeFQN.moduleName) + "$" + typeFQN.typeName + ";"
+    "L" + convertToNestedClassName(typeFQN) + ";"
 
   def convertToMainClassName(moduleName: ModuleName): String =
     moduleName.packages.appended(moduleName.name).mkString("/")
+
+  def convertToNestedClassName(typeFQN: TypeFQN): String =
+    convertToMainClassName(typeFQN.moduleName) + "$" + typeFQN.typeName
+
+  def convertToSignatureString(signatureTypes: Seq[TypeFQN]): String =
+    s"(${signatureTypes.init.map(javaSignatureName).mkString})${javaSignatureName(signatureTypes.last)}"
 
   private def eliot_lang_String: NativeType = new NativeType {
     override def javaSignatureName: String = "Ljava/lang/String;"

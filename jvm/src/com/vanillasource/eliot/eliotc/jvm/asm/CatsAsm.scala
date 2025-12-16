@@ -3,7 +3,12 @@ package com.vanillasource.eliot.eliotc.jvm.asm
 import cats.effect.kernel.Resource
 import cats.effect.{IO, Sync}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{convertToMainClassName, javaSignatureName}
+import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{
+  convertToMainClassName,
+  convertToNestedClassName,
+  convertToSignatureString,
+  javaSignatureName
+}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
@@ -29,10 +34,6 @@ object CatsAsm {
 
     new ClassGenerator(name, classWriter)
   }
-
-  // FIXME: This shouldn't be outside
-  def calculateSignatureString(signatureTypes: Seq[TypeFQN]): String =
-    s"(${signatureTypes.init.map(javaSignatureName).mkString})${javaSignatureName(signatureTypes.last)}"
 
   // FIXME: name is referred to from the outside!
   class ClassGenerator(val name: ModuleName, val classWriter: ClassWriter) {
@@ -103,7 +104,7 @@ object CatsAsm {
         val methodVisitor = classWriter.visitMethod(
           if (name === "<init>") Opcodes.ACC_PUBLIC else Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
           name, // TODO: can every method name be converted to Java?
-          calculateSignatureString(signatureTypes),
+          convertToSignatureString(signatureTypes),
           null,
           null
         )
@@ -142,7 +143,19 @@ object CatsAsm {
           .appended(calledFfqn.moduleName.name)
           .mkString("/"),
         calledFfqn.functionName, // TODO: not a safe name
-        calculateSignatureString(callSignature),
+        convertToSignatureString(callSignature),
+        false
+      )
+    }
+
+    /** Instantiate a class with its constructor. It is assumed that all parameters are correctly on the stack already.
+      */
+    def addInstantiation[F[_]: Sync](target: TypeFQN, parameterTypes: Seq[TypeFQN]): F[Unit] = Sync[F].delay {
+      methodVisitor.visitMethodInsn(
+        Opcodes.INVOKESPECIAL,
+        convertToNestedClassName(target),
+        "<init>",
+        convertToSignatureString(parameterTypes.appended(systemUnitType)),
         false
       )
     }
