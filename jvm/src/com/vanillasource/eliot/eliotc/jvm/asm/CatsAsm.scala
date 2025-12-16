@@ -47,6 +47,11 @@ object CatsAsm {
       IO(classWriter.visitEnd()) >> IO.pure(ClassFile(pathName + entryName, classWriter.toByteArray))
     }
 
+    /** Create inner class with the given non-qualified name.
+      * @param innerName
+      *   The plain non-qualified and non-embedded name of the inner class.
+      * @return
+      */
     def createInnerClassGenerator(innerName: String): IO[ClassGenerator] =
       for {
         classGenerator <- createClassGenerator(ModuleName(name.packages, name.name + "$" + innerName))
@@ -68,6 +73,12 @@ object CatsAsm {
                           )
       } yield classGenerator
 
+    /** Create the given field with the given type.
+      * @param name
+      *   The name of the field.
+      * @param fieldType
+      *   The type of the field.
+      */
     def createField[F[_]: Sync](name: String, fieldType: TypeFQN): F[Unit] = Sync[F].delay {
       classWriter
         .visitField(
@@ -80,6 +91,14 @@ object CatsAsm {
         .visitEnd()
     }
 
+    /** Create the given method with the given signature.
+      * @param name
+      *   The simple non-qualified name of the method.
+      * @param signatureTypes
+      *   The signature of the method, the last type being the return type.
+      * @return
+      */
+    // FIXME: separate parameter types and return type
     def createMethod[F[_]: Sync](name: String, signatureTypes: Seq[TypeFQN]): Resource[F, MethodGenerator] =
       Resource.make(Sync[F].delay {
         val methodVisitor = classWriter.visitMethod(
@@ -109,6 +128,14 @@ object CatsAsm {
   }
 
   class MethodGenerator(val methodVisitor: MethodVisitor) {
+
+    /** Add calling the given function with the given signature.
+      * @param calledFfqn
+      *   The called function's fully qualified name.
+      * @param callSignature
+      *   The called function's signature, with the last type being the return type.
+      */
+    // FIXME: Separate signature into parameters and return type
     def addCallTo[F[_]: Sync](calledFfqn: FunctionFQN, callSignature: Seq[TypeFQN]): F[Unit] = Sync[F].delay {
       methodVisitor.visitMethodInsn(
         Opcodes.INVOKESTATIC,
@@ -121,10 +148,15 @@ object CatsAsm {
       )
     }
 
+    /** Add loading the given value onto the stack.
+      */
     def addLdcInsn[F[_]: Sync](value: Object): F[Unit] = Sync[F].delay {
       methodVisitor.visitLdcInsn(value)
     }
 
+    /** Add a native call to ASM.
+      */
+    // FIXME: Remove this and add all used features
     def runNative[F[_]: Sync](block: MethodVisitor => Unit): F[Unit] = Sync[F].delay {
       block(methodVisitor)
     }
