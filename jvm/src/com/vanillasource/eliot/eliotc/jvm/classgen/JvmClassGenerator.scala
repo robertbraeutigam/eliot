@@ -234,9 +234,8 @@ class JvmClassGenerator
                                            // Load constructor arguments
                                            _ <- typeDefinition.definition.fields.get.zipWithIndex.traverse_ {
                                                   (fieldDefinition, index) =>
-                                                    methodGenerator.runNative[CompilationIO] { methodVisitor =>
-                                                      methodVisitor.visitVarInsn(Opcodes.ALOAD, index) // TODO: Fix type ALOAD
-                                                    }
+                                                    methodGenerator
+                                                      .addLoadVar[CompilationIO](simpleType(fieldDefinition.typeReference), index)
                                                 }
                                            // Call constructor
                                            _ <- methodGenerator.addCallToCtor[CompilationIO](
@@ -255,15 +254,18 @@ class JvmClassGenerator
                                                Seq(sourcedTfqn.value, simpleType(argumentDefinition.typeReference))
                                              )
                                              .use { accessorGenerator =>
-                                               accessorGenerator.runNative[CompilationIO] { methodVisitor =>
-                                                 methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
-                                                 methodVisitor.visitFieldInsn(
-                                                   Opcodes.GETFIELD,
-                                                   outerClassGenerator.name.name + "$" + sourcedTfqn.value.typeName,
-                                                   argumentDefinition.name.value,
-                                                   javaSignatureName(simpleType(argumentDefinition.typeReference))
-                                                 )
-                                               }
+                                               for {
+                                                 _ <- accessorGenerator
+                                                        .addLoadVar[CompilationIO](
+                                                          sourcedTfqn.value,
+                                                          0 // The data object is the parameter
+                                                        )
+                                                 _ <- accessorGenerator.addGetField[CompilationIO](
+                                                        argumentDefinition.name.value,
+                                                        simpleType(argumentDefinition.typeReference),
+                                                        sourcedTfqn.value
+                                                      )
+                                               } yield ()
                                              }
                                          }
 

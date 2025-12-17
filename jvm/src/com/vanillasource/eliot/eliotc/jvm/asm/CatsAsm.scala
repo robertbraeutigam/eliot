@@ -176,6 +176,24 @@ object CatsAsm {
       methodVisitor.visitLdcInsn(value)
     }
 
+    /** Load the given "variable" of given index to the stack.
+      */
+    def addLoadVar[F[_]: Sync](varType: TypeFQN, index: Int): F[Unit] = Sync[F].delay {
+      // TODO: Fix type ALOAD based on type
+      methodVisitor.visitVarInsn(Opcodes.ALOAD, index)
+    }
+
+    /** Add getting the instance field from a data object.
+      */
+    def addGetField[F[_]: Sync](fieldName: String, fieldType: TypeFQN, target: TypeFQN): F[Unit] = Sync[F].delay {
+      methodVisitor.visitFieldInsn(
+        Opcodes.GETFIELD,
+        convertToNestedClassName(target),
+        fieldName,
+        javaSignatureName(fieldType)
+      )
+    }
+
     /** Add a native call to ASM.
       */
     // FIXME: Remove this and add all used features
