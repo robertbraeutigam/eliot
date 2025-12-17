@@ -35,8 +35,7 @@ object CatsAsm {
     new ClassGenerator(name, classWriter)
   }
 
-  // FIXME: moduleName is referred to from the outside!
-  class ClassGenerator(private val moduleName: ModuleName, val classWriter: ClassWriter) {
+  class ClassGenerator(private val moduleName: ModuleName, private val classWriter: ClassWriter) {
 
     /** Generate the byte-code for the currently created class.
       */
