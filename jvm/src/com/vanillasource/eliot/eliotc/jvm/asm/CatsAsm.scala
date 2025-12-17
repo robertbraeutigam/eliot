@@ -16,8 +16,8 @@ import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
 object CatsAsm {
 
   /** Generates an empty class for the given module. Each module has exactly one class generated for it.
-    * @param name
-    *   The module name to generate the class for.
+    * @param moduleName
+    *   The module moduleName to generate the class for.
     * @return
     */
   def createClassGenerator(name: ModuleName): IO[ClassGenerator] = IO {
@@ -35,38 +35,39 @@ object CatsAsm {
     new ClassGenerator(name, classWriter)
   }
 
-  // FIXME: name is referred to from the outside!
-  class ClassGenerator(val name: ModuleName, val classWriter: ClassWriter) {
+  // FIXME: moduleName is referred to from the outside!
+  class ClassGenerator(private val moduleName: ModuleName, val classWriter: ClassWriter) {
 
     /** Generate the byte-code for the currently created class.
       */
     def generate(): IO[ClassFile] = {
-      val pathName  = if (name.packages.isEmpty) "" else name.packages.mkString("", "/", "/")
-      val entryName = name.name + ".class" // FIXME: same javaname conversion as in class! Use the class name!
+      val pathName  = if (moduleName.packages.isEmpty) "" else moduleName.packages.mkString("", "/", "/")
+      val entryName =
+        moduleName.name + ".class" // FIXME: same javaname conversion as in class! Use the class moduleName!
 
       IO(classWriter.visitEnd()) >> IO.pure(ClassFile(pathName + entryName, classWriter.toByteArray))
     }
 
-    /** Create inner class with the given non-qualified name.
+    /** Create inner class with the given non-qualified moduleName.
       * @param innerName
-      *   The plain non-qualified and non-embedded name of the inner class.
+      *   The plain non-qualified and non-embedded moduleName of the inner class.
       * @return
       */
     def createInnerClassGenerator(innerName: String): IO[ClassGenerator] =
       for {
-        classGenerator <- createClassGenerator(ModuleName(name.packages, name.name + "$" + innerName))
+        classGenerator <- createClassGenerator(ModuleName(moduleName.packages, moduleName.name + "$" + innerName))
         _              <- IO(
                             classGenerator.classWriter.visitInnerClass(
-                              name.name + "$" + innerName,
-                              name.name,
+                              moduleName.name + "$" + innerName,
+                              moduleName.name,
                               innerName,
                               Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL
                             )
                           )
         _              <- IO(
                             classWriter.visitInnerClass(
-                              name.name + "$" + innerName,
-                              name.name,
+                              moduleName.name + "$" + innerName,
+                              moduleName.name,
                               innerName,
                               Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL
                             )
@@ -74,8 +75,8 @@ object CatsAsm {
       } yield classGenerator
 
     /** Create the given field with the given type.
-      * @param name
-      *   The name of the field.
+      * @param moduleName
+      *   The moduleName of the field.
       * @param fieldType
       *   The type of the field.
       */
@@ -83,7 +84,7 @@ object CatsAsm {
       classWriter
         .visitField(
           Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL,
-          name, // TODO: check name
+          name, // TODO: check moduleName
           javaSignatureName(fieldType),
           null,
           null
@@ -92,8 +93,8 @@ object CatsAsm {
     }
 
     /** Create the given method with the given signature.
-      * @param name
-      *   The simple non-qualified name of the method.
+      * @param moduleName
+      *   The simple non-qualified moduleName of the method.
       * @param signatureTypes
       *   The signature of the method, the last type being the return type.
       * @return
@@ -103,7 +104,7 @@ object CatsAsm {
       Resource.make(Sync[F].delay {
         val methodVisitor = classWriter.visitMethod(
           if (name === "<init>") Opcodes.ACC_PUBLIC else Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
-          name, // TODO: can every method name be converted to Java?
+          name, // TODO: can every method moduleName be converted to Java?
           convertToSignatureString(signatureTypes),
           null,
           null
@@ -111,7 +112,7 @@ object CatsAsm {
 
         methodVisitor.visitCode()
 
-        MethodGenerator(methodVisitor)
+        MethodGenerator(moduleName, methodVisitor)
       })(methodGenerator =>
         Sync[F].delay {
           // TODO: add more types (primitives)
@@ -127,11 +128,11 @@ object CatsAsm {
       )
   }
 
-  class MethodGenerator(val methodVisitor: MethodVisitor) {
+  class MethodGenerator(val moduleName: ModuleName, val methodVisitor: MethodVisitor) {
 
     /** Add calling the given function with the given signature.
       * @param calledFfqn
-      *   The called function's fully qualified name.
+      *   The called function's fully qualified moduleName.
       * @param callSignature
       *   The called function's signature, with the last type being the return type.
       */
@@ -142,7 +143,7 @@ object CatsAsm {
         calledFfqn.moduleName.packages
           .appended(calledFfqn.moduleName.name)
           .mkString("/"),
-        calledFfqn.functionName, // TODO: not a safe name
+        calledFfqn.functionName, // TODO: not a safe moduleName
         convertToSignatureString(callSignature),
         false
       )
@@ -192,6 +193,23 @@ object CatsAsm {
         fieldName,
         javaSignatureName(fieldType)
       )
+    }
+
+    /** Add putting field into local instance variable.
+      */
+    def addPutField[F[_]: Sync](fieldName: String, fieldType: TypeFQN): F[Unit] = Sync[F].delay {
+      methodVisitor.visitFieldInsn(
+        Opcodes.PUTFIELD,
+        moduleName.name,
+        fieldName,
+        javaSignatureName(fieldType)
+      )
+    }
+
+    /** Load this (variable index 0). Works only in non-static methods.
+      */
+    def addLoadThis[F[_]: Sync](): F[Unit] = Sync[F].delay {
+      methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
     }
 
     /** Add a native call to ASM.

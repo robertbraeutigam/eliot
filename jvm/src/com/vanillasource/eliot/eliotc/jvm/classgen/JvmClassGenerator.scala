@@ -301,8 +301,8 @@ class JvmClassGenerator
           .use { methodGenerator =>
             for {
               // Call super.<init>
+              _ <- methodGenerator.addLoadThis[CompilationIO]()
               _ <- methodGenerator.runNative[CompilationIO] { methodVisitor =>
-                     methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
                      methodVisitor.visitMethodInsn(
                        Opcodes.INVOKESPECIAL,
                        "java/lang/Object",
@@ -313,21 +313,16 @@ class JvmClassGenerator
                    }
               // Set all this.field = field
               _ <- fields.zipWithIndex.traverse_ { (fieldDefinition, index) =>
-                     methodGenerator.runNative[CompilationIO] { methodVisitor =>
-                       methodVisitor.visitVarInsn(Opcodes.ALOAD, 0) // this
-                       methodVisitor.visitVarInsn(
-                         Opcodes.ALOAD,
-                         index + 1
-                       )                                            // TODO: doesn't support primitives
-                       methodVisitor.visitFieldInsn(
-                         Opcodes.PUTFIELD,
-                         outerClassGenerator.name.name + "$" + innerClassName,
-                         fieldDefinition.name.value,
-                         javaSignatureName(simpleType(fieldDefinition.typeReference))
-                       )
-                     }
+                     for {
+                       _ <- methodGenerator.addLoadThis[CompilationIO]()
+                       _ <-
+                         methodGenerator.addLoadVar[CompilationIO](simpleType(fieldDefinition.typeReference), index + 1)
+                       _ <- methodGenerator.addPutField[CompilationIO](
+                              fieldDefinition.name.value,
+                              simpleType(fieldDefinition.typeReference)
+                            )
+                     } yield ()
                    }
-
             } yield ()
           }
       classFile        <- innerClassWriter.generate().liftToCompilationIO
