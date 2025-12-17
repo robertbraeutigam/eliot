@@ -163,6 +163,18 @@ object CatsAsm {
       )
     }
 
+    /** Call super's ctor. Assumed that it is loaded onto the stack.
+      */
+    def addCallToObjectCtor[F[_]: Sync](): F[Unit] = Sync[F].delay {
+      methodVisitor.visitMethodInsn(
+        Opcodes.INVOKESPECIAL,
+        "java/lang/Object",
+        "<init>",
+        "()V",
+        false
+      )
+    }
+
     /** Instantiate an object and leave it on stack.
       */
     def addNew[F[_]: Sync](target: TypeFQN): F[Unit] = Sync[F].delay {
@@ -216,7 +228,6 @@ object CatsAsm {
 
     /** Add a native call to ASM.
       */
-    // FIXME: Remove this and add all used features
     def runNative[F[_]: Sync](block: MethodVisitor => Unit): F[Unit] = Sync[F].delay {
       block(methodVisitor)
     }

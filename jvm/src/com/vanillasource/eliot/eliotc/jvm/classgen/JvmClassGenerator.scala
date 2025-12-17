@@ -307,15 +307,7 @@ class JvmClassGenerator
             for {
               // Call super.<init>
               _ <- methodGenerator.addLoadThis[CompilationIO]()
-              _ <- methodGenerator.runNative[CompilationIO] { methodVisitor =>
-                     methodVisitor.visitMethodInsn(
-                       Opcodes.INVOKESPECIAL,
-                       "java/lang/Object",
-                       "<init>",
-                       "()V",
-                       false
-                     )
-                   }
+              _ <- methodGenerator.addCallToObjectCtor[CompilationIO]()
               // Set all this.field = field
               _ <- fields.zipWithIndex.traverse_ { (fieldDefinition, index) =>
                      for {
