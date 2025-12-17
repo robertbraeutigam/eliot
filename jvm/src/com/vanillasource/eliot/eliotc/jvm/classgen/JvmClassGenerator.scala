@@ -245,7 +245,7 @@ class JvmClassGenerator
                                                     }
                                                 }
                                            // Call constructor
-                                           _ <- methodGenerator.addInstantiation[CompilationIO](
+                                           _ <- methodGenerator.addCallToCtor[CompilationIO](
                                                   sourcedTfqn.value,
                                                   typeDefinition.definition.fields.get
                                                     .map(_.typeReference)

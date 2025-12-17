@@ -150,7 +150,7 @@ object CatsAsm {
 
     /** Instantiate a class with its constructor. It is assumed that all parameters are correctly on the stack already.
       */
-    def addInstantiation[F[_]: Sync](target: TypeFQN, parameterTypes: Seq[TypeFQN]): F[Unit] = Sync[F].delay {
+    def addCallToCtor[F[_]: Sync](target: TypeFQN, parameterTypes: Seq[TypeFQN]): F[Unit] = Sync[F].delay {
       methodVisitor.visitMethodInsn(
         Opcodes.INVOKESPECIAL,
         convertToNestedClassName(target),
