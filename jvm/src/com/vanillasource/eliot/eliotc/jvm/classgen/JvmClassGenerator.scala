@@ -6,20 +6,19 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import NativeImplementation.implementations
-import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{javaSignatureName, types}
 import com.vanillasource.eliot.eliotc.jvm.asm.CatsAsm.*
 import com.vanillasource.eliot.eliotc.jvm.asm.ClassFile
+import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.types
+import com.vanillasource.eliot.eliotc.jvm.classgen.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType, systemUnitType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
-import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
-import org.objectweb.asm.Opcodes
 
 import scala.annotation.tailrec
 
