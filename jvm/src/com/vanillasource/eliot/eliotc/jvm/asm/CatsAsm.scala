@@ -127,7 +127,7 @@ object CatsAsm {
       )
   }
 
-  class MethodGenerator(private val moduleName: ModuleName, private val methodVisitor: MethodVisitor) {
+  class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: MethodVisitor) {
 
     /** Add calling the given function with the given signature.
       * @param calledFfqn
