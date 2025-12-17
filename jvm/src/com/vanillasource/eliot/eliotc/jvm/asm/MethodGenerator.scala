@@ -1,17 +1,14 @@
 package com.vanillasource.eliot.eliotc.jvm.asm
 
-import cats.effect.kernel.Resource
-import cats.effect.{IO, Sync}
-import cats.syntax.all.*
+import cats.effect.Sync
 import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{
-  convertToMainClassName,
   convertToNestedClassName,
   convertToSignatureString,
   javaSignatureName
 }
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
-import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes}
+import org.objectweb.asm.{MethodVisitor, Opcodes}
 
 class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: MethodVisitor) {
 
