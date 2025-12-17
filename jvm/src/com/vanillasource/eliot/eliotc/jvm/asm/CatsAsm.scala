@@ -160,6 +160,16 @@ object CatsAsm {
       )
     }
 
+    /** Instantiate an object and leave it on stack.
+      */
+    def addNew[F[_]: Sync](target: TypeFQN): F[Unit] = Sync[F].delay {
+      methodVisitor.visitTypeInsn(
+        Opcodes.NEW,
+        convertToNestedClassName(target)
+      )
+      methodVisitor.visitInsn(Opcodes.DUP)
+    }
+
     /** Add loading the given value onto the stack.
       */
     def addLdcInsn[F[_]: Sync](value: Object): F[Unit] = Sync[F].delay {

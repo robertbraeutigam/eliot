@@ -230,18 +230,12 @@ class JvmClassGenerator
                                        .use { methodGenerator =>
                                          for {
                                            // Allocate new data object
-                                           _ <- methodGenerator.runNative[CompilationIO] { methodVisitor =>
-                                                  methodVisitor.visitTypeInsn(
-                                                    Opcodes.NEW,
-                                                    outerClassGenerator.name.name + "$" + sourcedTfqn.value.typeName
-                                                  )
-                                                  methodVisitor.visitInsn(Opcodes.DUP)
-                                                }
+                                           _ <- methodGenerator.addNew[CompilationIO](sourcedTfqn.value)
                                            // Load constructor arguments
                                            _ <- typeDefinition.definition.fields.get.zipWithIndex.traverse_ {
                                                   (fieldDefinition, index) =>
                                                     methodGenerator.runNative[CompilationIO] { methodVisitor =>
-                                                      methodVisitor.visitVarInsn(Opcodes.ALOAD, index) // TODO: Fix type
+                                                      methodVisitor.visitVarInsn(Opcodes.ALOAD, index) // TODO: Fix type ALOAD
                                                     }
                                                 }
                                            // Call constructor
