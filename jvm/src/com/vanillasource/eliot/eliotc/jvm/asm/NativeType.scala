@@ -29,8 +29,8 @@ object NativeType {
   def convertToNestedClassName(typeFQN: TypeFQN): String =
     convertToMainClassName(typeFQN.moduleName) + "$" + typeFQN.typeName
 
-  def convertToSignatureString(signatureTypes: Seq[TypeFQN]): String =
-    s"(${signatureTypes.init.map(javaSignatureName).mkString})${javaSignatureName(signatureTypes.last)}"
+  def convertToSignatureString(parameterTypes: Seq[TypeFQN], resultType: TypeFQN): String =
+    s"(${parameterTypes.map(javaSignatureName).mkString})${javaSignatureName(resultType)}"
 
   private def eliot_lang_String: NativeType = new NativeType {
     override def javaSignatureName: String = "Ljava/lang/String;"

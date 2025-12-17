@@ -69,8 +69,9 @@ class JvmClassGenerator
   ): CompilationIO[Seq[ClassFile]] = {
     val signatureTypes = calculateMethodSignature(functionDefinition.definition.valueType)
 
-    classGenerator.createMethod[CompilationIO](functionDefinition.ffqn.functionName, signatureTypes).use {
-      methodGenerator =>
+    classGenerator
+      .createMethod[CompilationIO](functionDefinition.ffqn.functionName, signatureTypes.init, signatureTypes.last)
+      .use { methodGenerator =>
         val program = for {
           extractedBody <- extractMethodBody(
                              functionDefinition.definition.name,
@@ -84,7 +85,7 @@ class JvmClassGenerator
         } yield classes
 
         program.runA(TypeState())
-    }
+      }
   }
 
   /** Extracts parameter arity from curried form.
@@ -159,13 +160,16 @@ class JvmClassGenerator
           functionDefinitionMaybe <- getFact(ResolvedFunction.Key(calledFfqn)).liftToCompilationIO.liftToTypes
           resultClasses           <- functionDefinitionMaybe match
                                        case Some(functionDefinition) =>
+                                         val signatureTypes = calculateMethodSignature(functionDefinition.definition.valueType)
+
                                          for {
                                            classes <- arguments.flatTraverse(expression =>
                                                         createExpressionCode(outerClassGenerator, methodGenerator, expression)
                                                       )
                                            _       <- methodGenerator.addCallTo[CompilationTypesIO](
                                                         calledFfqn,
-                                                        calculateMethodSignature(functionDefinition.definition.valueType)
+                                                        signatureTypes.init,
+                                                        signatureTypes.last
                                                       )
                                          } yield classes
                                        case None                     =>
@@ -223,9 +227,8 @@ class JvmClassGenerator
                                      outerClassGenerator
                                        .createMethod[CompilationIO](
                                          sourcedTfqn.value.typeName, // TODO: is name legal?
-                                         typeDefinition.definition.fields.get.map(_.typeReference).map(simpleType) ++ Seq(
-                                           sourcedTfqn.value
-                                         )
+                                         typeDefinition.definition.fields.get.map(_.typeReference).map(simpleType),
+                                         sourcedTfqn.value
                                        )
                                        .use { methodGenerator =>
                                          for {
@@ -251,7 +254,8 @@ class JvmClassGenerator
                                            outerClassGenerator
                                              .createMethod[CompilationIO](
                                                argumentDefinition.name.value,
-                                               Seq(sourcedTfqn.value, simpleType(argumentDefinition.typeReference))
+                                               Seq(sourcedTfqn.value),
+                                               simpleType(argumentDefinition.typeReference)
                                              )
                                              .use { accessorGenerator =>
                                                for {
@@ -296,7 +300,8 @@ class JvmClassGenerator
         innerClassWriter
           .createMethod[CompilationIO](
             "<init>",
-            fields.map(_.typeReference).map(simpleType) ++ Seq(systemUnitType)
+            fields.map(_.typeReference).map(simpleType),
+            systemUnitType
           )
           .use { methodGenerator =>
             for {

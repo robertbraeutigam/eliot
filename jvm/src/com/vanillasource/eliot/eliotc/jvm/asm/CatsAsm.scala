@@ -98,13 +98,16 @@ object CatsAsm {
       *   The signature of the method, the last type being the return type.
       * @return
       */
-    // FIXME: separate parameter types and return type
-    def createMethod[F[_]: Sync](name: String, signatureTypes: Seq[TypeFQN]): Resource[F, MethodGenerator] =
+    def createMethod[F[_]: Sync](
+        name: String,
+        parameterTypes: Seq[TypeFQN],
+        resultType: TypeFQN
+    ): Resource[F, MethodGenerator] =
       Resource.make(Sync[F].delay {
         val methodVisitor = classWriter.visitMethod(
           if (name === "<init>") Opcodes.ACC_PUBLIC else Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
           name, // TODO: can every method moduleName be converted to Java?
-          convertToSignatureString(signatureTypes),
+          convertToSignatureString(parameterTypes, resultType),
           null,
           null
         )
@@ -115,7 +118,7 @@ object CatsAsm {
       })(methodGenerator =>
         Sync[F].delay {
           // TODO: add more types (primitives)
-          if (signatureTypes.last === systemUnitType) {
+          if (resultType === systemUnitType) {
             methodGenerator.methodVisitor.visitInsn(Opcodes.RETURN)
           } else {
             methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
@@ -136,17 +139,18 @@ object CatsAsm {
       *   The called function's signature, with the last type being the return type.
       */
     // FIXME: Separate signature into parameters and return type
-    def addCallTo[F[_]: Sync](calledFfqn: FunctionFQN, callSignature: Seq[TypeFQN]): F[Unit] = Sync[F].delay {
-      methodVisitor.visitMethodInsn(
-        Opcodes.INVOKESTATIC,
-        calledFfqn.moduleName.packages
-          .appended(calledFfqn.moduleName.name)
-          .mkString("/"),
-        calledFfqn.functionName, // TODO: not a safe moduleName
-        convertToSignatureString(callSignature),
-        false
-      )
-    }
+    def addCallTo[F[_]: Sync](calledFfqn: FunctionFQN, parameterTypes: Seq[TypeFQN], resultType: TypeFQN): F[Unit] =
+      Sync[F].delay {
+        methodVisitor.visitMethodInsn(
+          Opcodes.INVOKESTATIC,
+          calledFfqn.moduleName.packages
+            .appended(calledFfqn.moduleName.name)
+            .mkString("/"),
+          calledFfqn.functionName, // TODO: not a safe moduleName
+          convertToSignatureString(parameterTypes, resultType),
+          false
+        )
+      }
 
     /** Instantiate a class with its constructor. It is assumed that all parameters are correctly on the stack already.
       */
@@ -155,7 +159,7 @@ object CatsAsm {
         Opcodes.INVOKESPECIAL,
         convertToNestedClassName(target),
         "<init>",
-        convertToSignatureString(parameterTypes.appended(systemUnitType)),
+        convertToSignatureString(parameterTypes, systemUnitType),
         false
       )
     }
