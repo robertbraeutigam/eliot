@@ -138,7 +138,6 @@ object CatsAsm {
       * @param callSignature
       *   The called function's signature, with the last type being the return type.
       */
-    // FIXME: Separate signature into parameters and return type
     def addCallTo[F[_]: Sync](calledFfqn: FunctionFQN, parameterTypes: Seq[TypeFQN], resultType: TypeFQN): F[Unit] =
       Sync[F].delay {
         methodVisitor.visitMethodInsn(
