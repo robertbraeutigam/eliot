@@ -6,8 +6,8 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.jvm.asm.CatsAsm.*
-import com.vanillasource.eliot.eliotc.jvm.asm.ClassFile
+import com.vanillasource.eliot.eliotc.jvm.asm.{ClassFile, ClassGenerator, MethodGenerator}
+import com.vanillasource.eliot.eliotc.jvm.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.types
 import com.vanillasource.eliot.eliotc.jvm.classgen.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType, systemUnitType}
