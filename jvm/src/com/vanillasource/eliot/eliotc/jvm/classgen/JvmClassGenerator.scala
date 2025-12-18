@@ -201,21 +201,20 @@ class JvmClassGenerator
                          .whenA(closedOverArgs.isEmpty)
                          .liftToTypes
       lambdaIndex   <- incLambdaCount
-      _             <-
+      cls1          <-
         outerClassGenerator
           .createMethod[CompilationTypesIO](
             "lambdaFn$" + lambdaIndex,
             closedOverArgs.get.map(_.typeReference).map(simpleType),
             systemAnyType
           )
-          .use { fnGenerator => ??? }
-      cls           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
-      // FIXME: Generate logic function
+          .use { fnGenerator => createExpressionCode(outerClassGenerator, fnGenerator, body.value) }
+      cls2          <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
       // FIXME: add logic to inner class + add instantiation to main class
       // FIXME: Class needs to extend Function, needs apply(a)
       // FIXME: apply needs to call a static method here with all parameters
       // FIXME: Need to instantiate Function
-    } yield cls
+    } yield cls1 ++ cls2
   }
 
   private def createData(
