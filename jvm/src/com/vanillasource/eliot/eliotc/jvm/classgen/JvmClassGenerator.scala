@@ -93,7 +93,7 @@ class JvmClassGenerator
     // FIXME: does this handle a -> (b -> c) -> d -- needs test
     typeReference match {
       case DirectTypeReference(Sourced(_, _, dataType), genericParameters) if dataType === systemFunctionType =>
-        calculateMethodSignature(genericParameters.head) ++ calculateMethodSignature(genericParameters.last)
+        simpleType(genericParameters.head) +: calculateMethodSignature(genericParameters.last)
       case DirectTypeReference(Sourced(_, _, dataType), genericParameters)                                    =>
         Seq(dataType)
       case GenericTypeReference(name, genericParameters)                                                      =>
