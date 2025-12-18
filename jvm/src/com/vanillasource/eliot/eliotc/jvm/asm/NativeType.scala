@@ -19,7 +19,7 @@ object NativeType {
   def javaSignatureName(typeFqn: TypeFQN): String =
     types.get(typeFqn).map(_.javaSignatureName).getOrElse(convertToJavaName(typeFqn))
 
-  def convertToJavaName(typeFQN: TypeFQN): String =
+  private def convertToJavaName(typeFQN: TypeFQN): String =
     // All data classes are nested classes inside the class denoted by the "module"!
     "L" + convertToNestedClassName(typeFQN) + ";"
 

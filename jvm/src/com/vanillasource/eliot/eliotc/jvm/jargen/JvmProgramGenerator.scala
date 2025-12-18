@@ -82,6 +82,7 @@ class JvmProgramGenerator(targetDir: Path)
     jos.closeEntry()
   }
 
+  // TODO: Make this normal els source!
   private def generateMainClassBytes(mainFunction: FunctionFQN): Array[Byte] = {
     val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
 
