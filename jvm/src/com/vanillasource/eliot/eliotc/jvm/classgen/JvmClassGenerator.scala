@@ -19,6 +19,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
+import com.vanillasource.eliot.eliotc.jvm.asm.CommonPatterns._
 
 import scala.annotation.tailrec
 
@@ -286,52 +287,10 @@ class JvmClassGenerator
       fields: Seq[ArgumentDefinition]
   )(using CompilationProcess): CompilationIO[Seq[ClassFile]] =
     for {
-      // Define the data object
       innerClassWriter <- outerClassGenerator.createInnerClassGenerator(innerClassName).liftToCompilationIO
-      // Define the inner data fields
-      _                <- fields.traverse_ { argumentDefinition =>
-                            argumentDefinition.typeReference match {
-                              case DirectTypeReference(dataType, genericParameters) =>
-                                innerClassWriter.createField[CompilationIO](argumentDefinition.name.value, dataType.value)
-                              case GenericTypeReference(name, genericParameters)    =>
-                                innerClassWriter.createField[CompilationIO](argumentDefinition.name.value, systemAnyType)
-                            }
-                          }
-      // Define constructor
-      _                <-
-        innerClassWriter
-          .createMethod[CompilationIO](
-            "<init>",
-            fields.map(_.typeReference).map(simpleType),
-            systemUnitType
-          )
-          .use { methodGenerator =>
-            for {
-              // Call super.<init>
-              _ <- methodGenerator.addLoadThis[CompilationIO]()
-              _ <- methodGenerator.addCallToObjectCtor[CompilationIO]()
-              // Set all this.field = field
-              _ <- fields.zipWithIndex.traverse_ { (fieldDefinition, index) =>
-                     for {
-                       _ <- methodGenerator.addLoadThis[CompilationIO]()
-                       _ <-
-                         methodGenerator.addLoadVar[CompilationIO](simpleType(fieldDefinition.typeReference), index + 1)
-                       _ <- methodGenerator.addPutField[CompilationIO](
-                              fieldDefinition.name.value,
-                              simpleType(fieldDefinition.typeReference)
-                            )
-                     } yield ()
-                   }
-            } yield ()
-          }
+      _                <- innerClassWriter.addDataFieldsAndCtor[CompilationIO](fields)
       classFile        <- innerClassWriter.generate().liftToCompilationIO
     } yield Seq(classFile)
-
-  private def simpleType(typeReference: TypeReference): TypeFQN =
-    typeReference match {
-      case DirectTypeReference(dataType, genericParameters) => dataType.value
-      case GenericTypeReference(name, genericParameters)    => systemAnyType
-    }
 
   private def collectTypeGeneratedFunctions(
       sourcedTfqn: Sourced[TypeFQN]
