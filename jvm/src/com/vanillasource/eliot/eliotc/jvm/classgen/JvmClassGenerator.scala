@@ -38,7 +38,7 @@ class JvmClassGenerator
       functionFiles          <- generateModule.usedFunctions
                                   .filter(sffqn => !typeGeneratedFunctions.contains(sffqn.value.functionName))
                                   .flatTraverse(sourcedFfqn => createModuleMethod(mainClassGenerator, sourcedFfqn))
-      mainClass              <- mainClassGenerator.generate().liftToCompilationIO
+      mainClass              <- mainClassGenerator.generate[CompilationIO]()
       _                      <- (debug[IO](s"Generated ${generateModule.moduleName.show}, with type files: ${typeFiles
                                     .map(_.fileName)
                                     .mkString(", ")}, with function files: ${functionFiles.map(_.fileName).mkString(", ")}") >> registerFact(
@@ -290,7 +290,7 @@ class JvmClassGenerator
     for {
       innerClassWriter <- outerClassGenerator.createInnerClassGenerator(innerClassName).liftToCompilationIO
       _                <- innerClassWriter.addDataFieldsAndCtor[CompilationIO](fields)
-      classFile        <- innerClassWriter.generate().liftToCompilationIO
+      classFile        <- innerClassWriter.generate[CompilationIO]()
     } yield Seq(classFile)
 
   private def collectTypeGeneratedFunctions(

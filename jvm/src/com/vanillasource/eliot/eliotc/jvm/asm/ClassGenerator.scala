@@ -4,7 +4,11 @@ import cats.effect.{IO, Sync}
 import cats.syntax.all.*
 import cats.effect.kernel.Resource
 import com.vanillasource.eliot.eliotc.jvm.asm.ClassGenerator.createClassGenerator
-import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{convertToMainClassName, convertToSignatureString, javaSignatureName}
+import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{
+  convertToMainClassName,
+  convertToSignatureString,
+  javaSignatureName
+}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 import org.objectweb.asm.{ClassWriter, Opcodes}
@@ -13,12 +17,12 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
 
   /** Generate the byte-code for the currently created class.
     */
-  def generate(): IO[ClassFile] = {
+  def generate[F[_]: Sync](): F[ClassFile] = {
     val pathName  = if (moduleName.packages.isEmpty) "" else moduleName.packages.mkString("", "/", "/")
     val entryName =
       moduleName.name + ".class" // FIXME: same javaname conversion as in class! Use the class moduleName!
 
-    IO(classWriter.visitEnd()) >> IO.pure(ClassFile(pathName + entryName, classWriter.toByteArray))
+    Sync[F].delay(classWriter.visitEnd()) >> Sync[F].pure(ClassFile(pathName + entryName, classWriter.toByteArray))
   }
 
   /** Create inner class with the given non-qualified moduleName.
