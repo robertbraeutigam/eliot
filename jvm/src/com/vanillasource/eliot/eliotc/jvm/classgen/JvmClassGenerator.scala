@@ -20,6 +20,7 @@ import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import com.vanillasource.eliot.eliotc.jvm.asm.CommonPatterns._
+import TypeState._
 
 import scala.annotation.tailrec
 
@@ -300,26 +301,4 @@ class JvmClassGenerator
         resolvedData.definition.fields.getOrElse(Seq.empty).map(_.name.value) ++ Seq(sourcedTfqn.value.typeName)
       case None               => Seq(sourcedTfqn.value.typeName)
     }
-
-  case class TypeState(typeMap: Map[String, ArgumentDefinition] = Map.empty, lambdaCount: Int = 0)
-
-  type CompilationTypesIO[T] = StateT[CompilationIO, TypeState, T]
-
-  extension [T](cio: CompilationIO[T]) {
-    def liftToTypes: CompilationTypesIO[T] = StateT.liftF(cio)
-  }
-
-  private def addParameterDefinition(definition: ArgumentDefinition): CompilationTypesIO[Unit] =
-    StateT.modify[CompilationIO, TypeState] { state =>
-      state.copy(typeMap = state.typeMap.updated(definition.name.value, definition))
-    }
-
-  private def incLambdaCount: CompilationTypesIO[Int] =
-    StateT.modify[CompilationIO, TypeState] { state =>
-      state.copy(lambdaCount = state.lambdaCount + 1)
-    } >> StateT.get[CompilationIO, TypeState].map(_.lambdaCount)
-
-  private def getParameterTypeMap: CompilationTypesIO[Map[String, ArgumentDefinition]] =
-    StateT.get[CompilationIO, TypeState].map(_.typeMap)
-
 }
