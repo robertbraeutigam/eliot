@@ -201,7 +201,16 @@ class JvmClassGenerator
                          .whenA(closedOverArgs.isEmpty)
                          .liftToTypes
       lambdaIndex   <- incLambdaCount
+      _             <-
+        outerClassGenerator
+          .createMethod[CompilationTypesIO](
+            "lambdaFn$" + lambdaIndex,
+            closedOverArgs.get.map(_.typeReference).map(simpleType),
+            systemAnyType
+          )
+          .use { fnGenerator => ??? }
       cls           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
+      // FIXME: Generate logic function
       // FIXME: add logic to inner class + add instantiation to main class
       // FIXME: Class needs to extend Function, needs apply(a)
       // FIXME: apply needs to call a static method here with all parameters
