@@ -133,7 +133,14 @@ class JvmClassGenerator
       case IntegerLiteral(integerLiteral)                                      => ???
       case StringLiteral(stringLiteral)                                        =>
         methodGenerator.addLdcInsn[CompilationTypesIO](stringLiteral.value).as(Seq.empty)
-      case ParameterReference(parameterName)                                   => ???
+      case ParameterReference(sourcedParameterName)                            =>
+        for {
+          index         <- getParameterIndex(sourcedParameterName.value)
+          parameterType <- getParameterType(sourcedParameterName.value)
+          _             <- compilerAbort(sourcedParameterName.as("Could not find in scope.")).liftToTypes
+                             .whenA(index.isEmpty || parameterType.isEmpty)
+          _             <- methodGenerator.addLoadVar[CompilationTypesIO](simpleType(parameterType.get.typeReference), index.get)
+        } yield Seq.empty
       case ValueReference(Sourced(_, _, ffqn))                                 =>
         // No-argument call
         generateFunctionApplication(outerClassGenerator, methodGenerator, expression, Seq.empty)
@@ -194,14 +201,13 @@ class JvmClassGenerator
       .filter(_ =!= definition.name.value)
 
     for {
-      _             <- addParameterDefinition(definition)
-      typeMap       <- getParameterTypeMap
-      closedOverArgs = closedOverNames.map(typeMap.get).sequence
-      _             <- compilerAbort(body.as("Could not find all types for closed over arguments."))
-                         .whenA(closedOverArgs.isEmpty)
-                         .liftToTypes
-      lambdaIndex   <- incLambdaCount
-      cls1          <-
+      _              <- addParameterDefinition(definition)
+      closedOverArgs <- closedOverNames.traverse(getParameterType).map(_.sequence)
+      _              <- compilerAbort(body.as("Could not find all types for closed over arguments."))
+                          .whenA(closedOverArgs.isEmpty)
+                          .liftToTypes
+      lambdaIndex    <- incLambdaCount
+      cls1           <-
         outerClassGenerator
           .createMethod[CompilationTypesIO](
             "lambdaFn$" + lambdaIndex,
@@ -209,7 +215,7 @@ class JvmClassGenerator
             systemAnyType
           )
           .use { fnGenerator => createExpressionCode(outerClassGenerator, fnGenerator, body.value) }
-      cls2          <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
+      cls2           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
       // FIXME: add logic to inner class + add instantiation to main class
       // FIXME: Class needs to extend Function, needs apply(a)
       // FIXME: apply needs to call a static method here with all parameters
