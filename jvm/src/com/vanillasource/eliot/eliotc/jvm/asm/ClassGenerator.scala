@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm.asm
 
-import cats.effect.{IO, Sync}
+import cats.effect.Sync
 import cats.syntax.all.*
 import cats.effect.kernel.Resource
 import com.vanillasource.eliot.eliotc.jvm.asm.ClassGenerator.createClassGenerator
@@ -30,10 +30,10 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
     *   The plain non-qualified and non-embedded moduleName of the inner class.
     * @return
     */
-  def createInnerClassGenerator(innerName: String): IO[ClassGenerator] =
+  def createInnerClassGenerator[F[_]: Sync](innerName: String): F[ClassGenerator] =
     for {
-      classGenerator <- createClassGenerator(ModuleName(moduleName.packages, moduleName.name + "$" + innerName))
-      _              <- IO(
+      classGenerator <- createClassGenerator[F](ModuleName(moduleName.packages, moduleName.name + "$" + innerName))
+      _              <- Sync[F].delay(
                           classGenerator.classWriter.visitInnerClass(
                             moduleName.name + "$" + innerName,
                             moduleName.name,
@@ -41,7 +41,7 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
                             Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL
                           )
                         )
-      _              <- IO(
+      _              <- Sync[F].delay(
                           classWriter.visitInnerClass(
                             moduleName.name + "$" + innerName,
                             moduleName.name,
@@ -105,7 +105,7 @@ object ClassGenerator {
 
   /** Generates an empty class for the given module. Each module has exactly one class generated for it.
     */
-  def createClassGenerator(name: ModuleName): IO[ClassGenerator] = IO {
+  def createClassGenerator[F[_]: Sync](name: ModuleName): F[ClassGenerator] = Sync[F].delay {
     val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
 
     classWriter.visit(

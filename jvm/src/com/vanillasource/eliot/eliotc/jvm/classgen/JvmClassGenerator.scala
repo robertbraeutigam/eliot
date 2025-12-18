@@ -30,7 +30,7 @@ class JvmClassGenerator
 
   override def generateFromFact(generateModule: GenerateModule)(using CompilationProcess): IO[Unit] = {
     val program = for {
-      mainClassGenerator     <- createClassGenerator(generateModule.moduleName).liftToCompilationIO
+      mainClassGenerator     <- createClassGenerator[CompilationIO](generateModule.moduleName)
       typeFiles              <- generateModule.usedTypes
                                   .filter(stfqn => !types.contains(stfqn.value))
                                   .flatTraverse(sourcedTfqn => createData(mainClassGenerator, sourcedTfqn))
@@ -288,7 +288,7 @@ class JvmClassGenerator
       fields: Seq[ArgumentDefinition]
   )(using CompilationProcess): CompilationIO[Seq[ClassFile]] =
     for {
-      innerClassWriter <- outerClassGenerator.createInnerClassGenerator(innerClassName).liftToCompilationIO
+      innerClassWriter <- outerClassGenerator.createInnerClassGenerator[CompilationIO](innerClassName)
       _                <- innerClassWriter.addDataFieldsAndCtor[CompilationIO](fields)
       classFile        <- innerClassWriter.generate[CompilationIO]()
     } yield Seq(classFile)
