@@ -201,6 +201,9 @@ class JvmClassGenerator
       lambdaIndex   <- incLambdaCount
       cls           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
       // FIXME: add logic to inner class + add instantiation to main class
+      // FIXME: Class needs to extend Function, needs apply(a)
+      // FIXME: apply needs to call a static method here with all parameters
+      // FIXME: Need to instantiate Function
     } yield cls
   }
 
