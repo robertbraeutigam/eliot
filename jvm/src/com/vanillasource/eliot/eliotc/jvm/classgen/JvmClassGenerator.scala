@@ -236,7 +236,7 @@ class JvmClassGenerator
           .createMethod[CompilationTypesIO](
             "lambdaFn$" + lambdaIndex,
             closedOverArgs.get.map(_.typeReference).map(simpleType),
-            systemAnyType // FIXME: this is bad, for example when calling Void
+            simpleType(body.value.expressionType)
           )
           .use { fnGenerator => createExpressionCode(outerClassGenerator, fnGenerator, body.value.expression) }
       cls2           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
