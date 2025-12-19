@@ -13,13 +13,13 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.NativeImplementation.implemen
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType, systemUnitType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.*
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
+import com.vanillasource.eliot.eliotc.typesystem.fact.TypedExpression.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.jvm.asm.CommonPatterns._
-import TypeState._
+import com.vanillasource.eliot.eliotc.jvm.asm.CommonPatterns.*
+import TypeState.*
+import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.typesystem.fact.TypeCheckedFunction
 
 import scala.annotation.tailrec
@@ -68,7 +68,7 @@ class JvmClassGenerator
   private def createModuleMethod(classGenerator: ClassGenerator, functionDefinition: TypeCheckedFunction)(using
       CompilationProcess
   ): CompilationIO[Seq[ClassFile]] = {
-    val signatureTypes = calculateMethodSignature(functionDefinition.definition.valueType)
+    val signatureTypes = calculateMethodSignature(functionDefinition.definition.body.value.expressionType)
 
     classGenerator
       .createMethod[CompilationIO](functionDefinition.ffqn.functionName, signatureTypes.init, signatureTypes.last)
@@ -76,7 +76,7 @@ class JvmClassGenerator
         val program = for {
           extractedBody <- extractMethodBody(
                              functionDefinition.definition.name,
-                             functionDefinition.definition.body.get.value,
+                             functionDefinition.definition.body.value.expression,
                              signatureTypes.length
                            )
           classes       <- createExpressionCode(classGenerator, methodGenerator, extractedBody)
@@ -115,7 +115,7 @@ class JvmClassGenerator
       expression match {
         case FunctionLiteral(parameter, Sourced(_, _, body)) =>
           addParameterDefinition(parameter) >>
-            extractMethodBody(sourced, body, depth - 1)
+            extractMethodBody(sourced, body.expression, depth - 1)
         case _                                               => compilerAbort(sourced.as("Can not extract method body.")).liftToTypes
       }
     }
@@ -129,7 +129,7 @@ class JvmClassGenerator
   ): CompilationTypesIO[Seq[ClassFile]] =
     expression match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
-        generateFunctionApplication(outerClassGenerator, methodGenerator, target, Seq(argument)) // One-argument call
+        generateFunctionApplication(outerClassGenerator, methodGenerator, target.expression, Seq(argument.expression)) // One-argument call
       case IntegerLiteral(integerLiteral)                                      => ???
       case StringLiteral(stringLiteral)                                        =>
         methodGenerator.addLdcInsn[CompilationTypesIO](stringLiteral.value).as(Seq.empty)
@@ -145,7 +145,7 @@ class JvmClassGenerator
         // No-argument call
         generateFunctionApplication(outerClassGenerator, methodGenerator, expression, Seq.empty)
       case FunctionLiteral(parameter, body)                                    =>
-        generateLambda(outerClassGenerator, parameter, body)
+        generateLambda(outerClassGenerator, parameter, body.map(_.expression))
     }
 
   @tailrec
@@ -158,7 +158,7 @@ class JvmClassGenerator
     target match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         // Means this is another argument, so just recurse
-        generateFunctionApplication(outerClassGenerator, methodGenerator, target, arguments.appended(argument))
+        generateFunctionApplication(outerClassGenerator, methodGenerator, target.expression, arguments.appended(argument.expression))
       case IntegerLiteral(integerLiteral)                                      => ???
       case StringLiteral(stringLiteral)                                        => ???
       case ParameterReference(parameterName)                                   => ???
