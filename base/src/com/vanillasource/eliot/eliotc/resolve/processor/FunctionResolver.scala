@@ -101,9 +101,7 @@ class FunctionResolver
               )
           _                  <- parameters.traverse(addVisibleValue)
           resolvedBody       <- resolveExpression(body)
-        } yield resolvedParameters.foldRight(resolvedBody)((arg, expr) =>
-          expr.as(Expression.FunctionLiteral(arg, expr))
-        )
+        } yield resolvedParameters.foldRight(resolvedBody)((arg, e) => expr.as(Expression.FunctionLiteral(arg, e)))
       case ast.Expression.IntegerLiteral(s @ Sourced(_, _, value))           =>
         expr.as(Expression.IntegerLiteral(s.as(BigInt(value)))).pure
       case ast.Expression.StringLiteral(s @ Sourced(_, _, value))            =>
