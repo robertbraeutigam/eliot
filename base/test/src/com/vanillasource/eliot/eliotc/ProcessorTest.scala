@@ -39,7 +39,9 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
   ): IO[Map[CompilerFactKey[?], CompilerFact]] =
     for {
       generator <- FactGenerator.create(
-                     SequentialCompilerProcessors(Seq(new ErrorReporter()(using NullConsole()), SequentialCompilerProcessors(processors)))
+                     SequentialCompilerProcessors(
+                       Seq(new ErrorReporter()(using Console[IO]), SequentialCompilerProcessors(processors))
+                     )
                    )
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))

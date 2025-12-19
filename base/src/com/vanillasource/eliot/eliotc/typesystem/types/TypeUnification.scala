@@ -18,11 +18,10 @@ case class TypeUnification private (
     genericParameters: Map[String, GenericParameter],
     assignments: Seq[Assignment]
 ) {
-  def solve()(using CompilationProcess): CompilationIO[Unit] =
+  def solve()(using CompilationProcess): CompilationIO[TypeUnificationState] =
     assignments
       .traverse(solve)
       .runS(TypeUnificationState())
-      .void
 
   private def solve(assignment: Assignment)(using
       CompilationProcess

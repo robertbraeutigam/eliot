@@ -5,7 +5,13 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.systemFunctionModuleName
-import com.vanillasource.eliot.eliotc.module.processor.{ModuleNamesProcessor, ModuleProcessor, UnifiedModuleDataProcessor, UnifiedModuleFunctionProcessor, UnifiedModuleNamesProcessor}
+import com.vanillasource.eliot.eliotc.module.processor.{
+  ModuleNamesProcessor,
+  ModuleProcessor,
+  UnifiedModuleDataProcessor,
+  UnifiedModuleFunctionProcessor,
+  UnifiedModuleNamesProcessor
+}
 import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -147,7 +153,13 @@ class TypeCheckProcessorTest
 
   "top level functions" should "be assignable to function types" in {
     runEngineForErrorsWithImports(
-      "data Foo\nf(a: Foo): Foo\nv: Function[Foo, Foo] = f"
+      "data Foo\ng(a: Foo): Foo\nf: Function[Foo, Foo] = g"
+    ).asserting(_ shouldBe Seq())
+  }
+
+  "type resolve" should "store lambda type into AST" in {
+    runEngineForErrorsWithImports(
+      "data String\ndata Unit\ndata Foo(l: Function[Unit, String])\ng: String\nf: Foo = Foo((unit: Unit) -> g)"
     ).asserting(_ shouldBe Seq())
   }
 
