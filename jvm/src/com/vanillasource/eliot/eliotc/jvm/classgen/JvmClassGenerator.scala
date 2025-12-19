@@ -19,7 +19,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.typesystem.fact.TypeCheckedFunction
+import com.vanillasource.eliot.eliotc.typesystem.fact.{TypeCheckedFunction, TypedExpression}
 import com.vanillasource.eliot.eliotc.typesystem.fact.TypedExpression.*
 
 import scala.annotation.tailrec
@@ -68,16 +68,20 @@ class JvmClassGenerator
   private def createModuleMethod(classGenerator: ClassGenerator, functionDefinition: TypeCheckedFunction)(using
       CompilationProcess
   ): CompilationIO[Seq[ClassFile]] = {
-    val signatureTypes = calculateMethodSignature(functionDefinition.definition.body.value.expressionType)
+    val parameterTypes = calculateMethodSignature(functionDefinition.definition.body.value)
 
     classGenerator
-      .createMethod[CompilationIO](functionDefinition.ffqn.functionName, signatureTypes.init, signatureTypes.last)
+      .createMethod[CompilationIO](
+        functionDefinition.ffqn.functionName,
+        parameterTypes,
+        simpleType(functionDefinition.definition.body.value.expressionType)
+      )
       .use { methodGenerator =>
         val program = for {
           extractedBody <- extractMethodBody(
                              functionDefinition.definition.name,
                              functionDefinition.definition.body.value.expression,
-                             signatureTypes.length
+                             parameterTypes.length + 1
                            )
           classes       <- createExpressionCode(classGenerator, methodGenerator, extractedBody)
           _             <- debug[CompilationTypesIO](
@@ -91,15 +95,12 @@ class JvmClassGenerator
 
   /** Extracts parameter arity from curried form.
     */
-  private def calculateMethodSignature(typeReference: TypeReference): Seq[TypeFQN] =
-    // FIXME: does this handle a -> (b -> c) -> d -- needs test
-    typeReference match {
-      case DirectTypeReference(Sourced(_, _, dataType), genericParameters) if dataType === systemFunctionType =>
-        simpleType(genericParameters.head) +: calculateMethodSignature(genericParameters.last)
-      case DirectTypeReference(Sourced(_, _, dataType), genericParameters)                                    =>
-        Seq(dataType)
-      case GenericTypeReference(name, genericParameters)                                                      =>
-        Seq(systemAnyType)
+  // FIXME: does this handle a -> (b -> c) -> d -- needs test
+  private def calculateMethodSignature(typedExpression: TypedExpression): Seq[TypeFQN] =
+    typedExpression.expression match {
+      case FunctionLiteral(parameter, body) =>
+        simpleType(parameter.typeReference) +: calculateMethodSignature(body.value)
+      case _                                => Seq.empty
     }
 
   /** Extract method body, expecting the given amount of embedded lambdas.
@@ -153,6 +154,17 @@ class JvmClassGenerator
         generateLambda(outerClassGenerator, parameter, body.map(_.expression))
     }
 
+  // FIXME: remove this method
+  private def calculateMethodSignatureDeprecated(typeReference: TypeReference): Seq[TypeFQN] =
+    typeReference match {
+      case DirectTypeReference(Sourced(_, _, dataType), genericParameters) if dataType === systemFunctionType =>
+        simpleType(genericParameters.head) +: calculateMethodSignatureDeprecated(genericParameters.last)
+      case DirectTypeReference(Sourced(_, _, dataType), genericParameters)                                    =>
+        Seq(dataType)
+      case GenericTypeReference(name, genericParameters)                                                      =>
+        Seq(systemAnyType)
+    }
+
   @tailrec
   private def generateFunctionApplication(
       outerClassGenerator: ClassGenerator,
@@ -178,7 +190,9 @@ class JvmClassGenerator
           functionDefinitionMaybe <- getFact(ResolvedFunction.Key(calledFfqn)).liftToCompilationIO.liftToTypes
           resultClasses           <- functionDefinitionMaybe match
                                        case Some(functionDefinition) =>
-                                         val signatureTypes = calculateMethodSignature(functionDefinition.definition.valueType)
+                                         val signatureTypes = calculateMethodSignatureDeprecated(
+                                           functionDefinition.definition.valueType
+                                         )
 
                                          for {
                                            classes <- arguments.flatTraverse(expression =>
