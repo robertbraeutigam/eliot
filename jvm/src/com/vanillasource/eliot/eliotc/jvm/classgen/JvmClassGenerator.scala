@@ -251,6 +251,14 @@ class JvmClassGenerator
           }
       cls2           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
       _              <- methodGenerator.addNew[CompilationTypesIO](TypeFQN(moduleName, "lambda$" + lambdaIndex))
+      _              <- closedOverArgs.get.traverse_ { argument =>
+                          for {
+                            argIndex <- getParameterIndex(argument.name.value)
+                            argType  <- getParameterType(argument.name.value)
+                            _        <- methodGenerator
+                                          .addLoadVar[CompilationTypesIO](simpleType(argType.get.typeReference), argIndex.get)
+                          } yield ()
+                        }
       // FIXME: put ctor parameters onto the stack!
       _              <- methodGenerator.addCallToCtor[CompilationTypesIO]( // Call constructor
                           TypeFQN(moduleName, "lambda$" + lambdaIndex),
