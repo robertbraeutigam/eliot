@@ -3,10 +3,20 @@ package com.vanillasource.eliot.eliotc.typesystem.types
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference
 import TypeUnificationState.UnifiedType
 import cats.Show
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 
 case class TypeUnificationState(states: Map[String, UnifiedType] = Map.empty) {
   def getCurrentType(typeReference: TypeReference): TypeReference =
     unifiedTypeOf(typeReference).current
+
+  def getSolvedType(typeReference: TypeReference): TypeReference =
+    unifiedTypeOf(typeReference).current match {
+      case DirectTypeReference(dataType, genericParameters) =>
+        DirectTypeReference(dataType, genericParameters.map(getSolvedType))
+      case GenericTypeReference(name, genericParameters) =>
+        GenericTypeReference(name, genericParameters.map(getSolvedType))
+    }
+
 
   def unifyTo(
       target: TypeReference,

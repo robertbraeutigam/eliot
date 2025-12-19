@@ -38,7 +38,7 @@ class TypeCheckProcessor
           fullTypeGraph         = typeGraph `combine` constructedTypeGraph
           _                    <- debug[CompilationIO](s"Solving ${fullTypeGraph.show}")
           solution             <- fullTypeGraph.solve()
-          _                    <- fullTypeGraph.printTypes();
+          _                    <- fullTypeGraph.printTypes(solution)
           _                    <-
             registerFact(
               TypeCheckedFunction(resolvedFunction.ffqn, enhanceWithTypes(functionDefinition, fullTypeGraph, solution))
