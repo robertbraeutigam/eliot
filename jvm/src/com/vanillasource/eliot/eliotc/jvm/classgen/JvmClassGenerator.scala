@@ -83,7 +83,8 @@ class JvmClassGenerator
                              functionDefinition.definition.body.value.expression,
                              parameterTypes.length + 1
                            )
-          classes       <- createExpressionCode(classGenerator, methodGenerator, extractedBody)
+          classes       <-
+            createExpressionCode(functionDefinition.ffqn.moduleName, classGenerator, methodGenerator, extractedBody)
           _             <- debug[CompilationTypesIO](
                              s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
                            )
@@ -122,6 +123,7 @@ class JvmClassGenerator
     }
 
   private def createExpressionCode(
+      moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
       expression: Expression
@@ -131,6 +133,7 @@ class JvmClassGenerator
     expression match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         generateFunctionApplication(
+          moduleName,
           outerClassGenerator,
           methodGenerator,
           target.expression,
@@ -149,9 +152,9 @@ class JvmClassGenerator
         } yield Seq.empty
       case ValueReference(Sourced(_, _, ffqn))                                 =>
         // No-argument call
-        generateFunctionApplication(outerClassGenerator, methodGenerator, expression, Seq.empty)
+        generateFunctionApplication(moduleName, outerClassGenerator, methodGenerator, expression, Seq.empty)
       case FunctionLiteral(parameter, body)                                    =>
-        generateLambda(outerClassGenerator, parameter, body)
+        generateLambda(moduleName, outerClassGenerator, methodGenerator, parameter, body)
     }
 
   // FIXME: remove this method
@@ -167,6 +170,7 @@ class JvmClassGenerator
 
   @tailrec
   private def generateFunctionApplication(
+      moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
       target: Expression,
@@ -176,6 +180,7 @@ class JvmClassGenerator
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         // Means this is another argument, so just recurse
         generateFunctionApplication(
+          moduleName,
           outerClassGenerator,
           methodGenerator,
           target.expression,
@@ -195,9 +200,10 @@ class JvmClassGenerator
                                          )
 
                                          for {
-                                           classes <- arguments.flatTraverse(expression =>
-                                                        createExpressionCode(outerClassGenerator, methodGenerator, expression)
-                                                      )
+                                           classes <-
+                                             arguments.flatTraverse(expression =>
+                                               createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                             )
                                            _       <- methodGenerator.addCallTo[CompilationTypesIO](
                                                         calledFfqn,
                                                         signatureTypes.init,
@@ -214,7 +220,9 @@ class JvmClassGenerator
     }
 
   private def generateLambda(
+      moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
       definition: ArgumentDefinition,
       body: Sourced[TypedExpression]
   )(using CompilationProcess): CompilationTypesIO[Seq[ClassFile]] = {
@@ -238,8 +246,11 @@ class JvmClassGenerator
             closedOverArgs.get.map(_.typeReference).map(simpleType),
             simpleType(body.value.expressionType)
           )
-          .use { fnGenerator => createExpressionCode(outerClassGenerator, fnGenerator, body.value.expression) }
+          .use { fnGenerator =>
+            createExpressionCode(moduleName, outerClassGenerator, fnGenerator, body.value.expression)
+          }
       cls2           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
+      _              <- methodGenerator.addNew[CompilationTypesIO](TypeFQN(moduleName, "lambda$" + lambdaIndex))
       // FIXME: add logic to inner class + add instantiation to main class
       // FIXME: Class needs to extend Function, needs apply(a)
       // FIXME: apply needs to call a static method here with all parameters
