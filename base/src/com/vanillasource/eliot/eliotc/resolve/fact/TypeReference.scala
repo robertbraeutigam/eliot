@@ -55,7 +55,7 @@ object TypeReference {
       case DirectTypeReference(_, genericParameters)  => genericParameters
       case GenericTypeReference(_, genericParameters) => genericParameters
 
-    private def source = typeReference match
+    def source = typeReference match
       case DirectTypeReference(dataType, _) => dataType
       case GenericTypeReference(name, _)    => name
   }

@@ -121,6 +121,13 @@ case class TypeUnification private (
 
   private def isUniversal(genericTypeName: String) =
     genericParameters.get(genericTypeName).exists(_.isInstanceOf[UniversalGenericParameter])
+
+  def printTypes()(using CompilationProcess): CompilationIO[Unit] =
+    assignments.traverse_ { assignment =>
+      compilerError(
+        assignment.source.as(s"Source: ${TypeReference.unqualified.show(assignment.source.value)}")
+      )
+    }
 }
 
 object TypeUnification {
