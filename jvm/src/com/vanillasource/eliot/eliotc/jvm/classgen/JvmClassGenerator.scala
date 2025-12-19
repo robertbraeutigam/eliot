@@ -129,7 +129,12 @@ class JvmClassGenerator
   ): CompilationTypesIO[Seq[ClassFile]] =
     expression match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
-        generateFunctionApplication(outerClassGenerator, methodGenerator, target.expression, Seq(argument.expression)) // One-argument call
+        generateFunctionApplication(
+          outerClassGenerator,
+          methodGenerator,
+          target.expression,
+          Seq(argument.expression)
+        ) // One-argument call
       case IntegerLiteral(integerLiteral)                                      => ???
       case StringLiteral(stringLiteral)                                        =>
         methodGenerator.addLdcInsn[CompilationTypesIO](stringLiteral.value).as(Seq.empty)
@@ -158,7 +163,12 @@ class JvmClassGenerator
     target match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         // Means this is another argument, so just recurse
-        generateFunctionApplication(outerClassGenerator, methodGenerator, target.expression, arguments.appended(argument.expression))
+        generateFunctionApplication(
+          outerClassGenerator,
+          methodGenerator,
+          target.expression,
+          arguments.appended(argument.expression)
+        )
       case IntegerLiteral(integerLiteral)                                      => ???
       case StringLiteral(stringLiteral)                                        => ???
       case ParameterReference(parameterName)                                   => ???
