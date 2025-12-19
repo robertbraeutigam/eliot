@@ -38,7 +38,6 @@ class TypeCheckProcessor
           fullTypeGraph         = typeGraph `combine` constructedTypeGraph
           _                    <- debug[CompilationIO](s"Solving ${fullTypeGraph.show}")
           solution             <- fullTypeGraph.solve()
-          _                    <- fullTypeGraph.printTypes(solution)
           _                    <-
             registerFact(
               TypeCheckedFunction(resolvedFunction.ffqn, enhanceWithTypes(functionDefinition, fullTypeGraph, solution))
@@ -65,7 +64,36 @@ class TypeCheckProcessor
       expression: Sourced[Expression],
       fullGraph: TypeUnification,
       solution: TypeUnificationState
-  ): Sourced[TypedExpression] = ???
+  ): Sourced[TypedExpression] =
+    expression.as(
+      TypedExpression(
+        solution.getSolvedType(fullGraph.getSourceType(expression)),
+        convertExpression(expression.value, fullGraph, solution)
+      )
+    )
+
+  private def convertExpression(
+      expression: Expression,
+      fullGraph: TypeUnification,
+      solution: TypeUnificationState
+  ): TypedExpression.Expression =
+    expression match {
+      case FunctionApplication(target, argument) =>
+        TypedExpression.FunctionApplication(
+          enhanceWithTypes(target, fullGraph, solution),
+          enhanceWithTypes(argument, fullGraph, solution)
+        )
+      case IntegerLiteral(integerLiteral)        =>
+        TypedExpression.IntegerLiteral(integerLiteral)
+      case StringLiteral(stringLiteral)          =>
+        TypedExpression.StringLiteral(stringLiteral)
+      case ParameterReference(parameterName)     =>
+        TypedExpression.ParameterReference(parameterName)
+      case ValueReference(valueName)             =>
+        TypedExpression.ValueReference(valueName)
+      case FunctionLiteral(parameter, body)      =>
+        TypedExpression.FunctionLiteral(parameter, enhanceWithTypes(body, fullGraph, solution))
+    }
 
   private type TypeGraphIO[T] = StateT[CompilationIO, UniqueGenericNames, T]
 

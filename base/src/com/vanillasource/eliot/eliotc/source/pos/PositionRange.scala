@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.source.pos
 
-import cats.Show
+import cats.{Eq, Show}
 import cats.syntax.all.*
 
 /** Delimiting a snippet of continuous code in a source.
@@ -15,5 +15,7 @@ case class PositionRange(from: Position, to: Position)
 object PositionRange {
   val zero = PositionRange(Position.zero, Position.zero)
 
+  given Eq[PositionRange] = Eq.fromUniversalEquals
+  
   given Show[PositionRange] = (r: PositionRange) => s"${r.from.show}->${r.to.show}"
 }

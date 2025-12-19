@@ -4,6 +4,7 @@ import cats.Show
 import cats.data.StateT
 import cats.effect.IO
 import cats.implicits.*
+import cats.syntax.all.*
 import cats.kernel.Monoid
 import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
@@ -122,7 +123,7 @@ case class TypeUnification private (
   private def isUniversal(genericTypeName: String) =
     genericParameters.get(genericTypeName).exists(_.isInstanceOf[UniversalGenericParameter])
 
-  def printTypes(solution: TypeUnificationState)(using CompilationProcess): CompilationIO[Unit] =
+  def printTypes(solution: TypeUnificationState)(using CompilationProcess): CompilationIO[Unit] = {
     assignments.traverse_ { assignment =>
       compilerError(
         assignment.source.as("Type debug"),
@@ -132,6 +133,11 @@ case class TypeUnification private (
         )
       )
     }
+  }
+
+  // TODO: Fix .get() here
+  def getSourceType(source: Sourced[?]): TypeReference =
+    assignments.find(_.source.range === source.range).get.source.value
 }
 
 object TypeUnification {
