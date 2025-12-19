@@ -251,14 +251,13 @@ class JvmClassGenerator
           }
       cls2           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
       _              <- methodGenerator.addNew[CompilationTypesIO](TypeFQN(moduleName, "lambda$" + lambdaIndex))
+      // FIXME: put ctor parameters onto the stack!
       _              <- methodGenerator.addCallToCtor[CompilationTypesIO]( // Call constructor
                           TypeFQN(moduleName, "lambda$" + lambdaIndex),
                           closedOverArgs.get.map(_.typeReference).map(simpleType)
                         )
-      // FIXME: add logic to inner class + add instantiation to main class
       // FIXME: Class needs to extend Function, needs apply(a)
-      // FIXME: apply needs to call a static method here with all parameters
-      // FIXME: Need to instantiate Function
+      // FIXME: add logic to apply: calling the static method
     } yield cls1 ++ cls2
   }
 
