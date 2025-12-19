@@ -160,7 +160,7 @@ class TypeCheckProcessor
         argumentUnification <- constructTypeGraph(argumentType, argument)
       } yield targetUnification |+| argumentUnification |+| assignment(
         parentTypeReference,
-        target.as(returnType),
+        s.as(returnType),
         errorMessage
       )
   }
