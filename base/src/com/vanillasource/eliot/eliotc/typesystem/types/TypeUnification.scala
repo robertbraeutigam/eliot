@@ -129,7 +129,7 @@ case class TypeUnification private (
         assignment.source.as("Type debug"),
         Seq(
           s"Original type: ${TypeReference.unqualified.show(assignment.source.value)}",
-          s"  Solved type: ${TypeReference.unqualified.show(solution.getSolvedType(assignment.source.value))}"
+          s"  Solved type: ${TypeReference.unqualified.show(solution.getCurrentType(assignment.source.value))}"
         )
       )
     }

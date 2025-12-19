@@ -67,7 +67,8 @@ class TypeCheckProcessor
   ): Sourced[TypedExpression] =
     expression.as(
       TypedExpression(
-        solution.getSolvedType(fullGraph.getSourceType(expression)),
+        // TODO: This is not always the "fully" solved type
+        solution.getCurrentType(fullGraph.getSourceType(expression)),
         convertExpression(expression.value, fullGraph, solution)
       )
     )

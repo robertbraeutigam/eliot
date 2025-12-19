@@ -157,6 +157,7 @@ class TypeCheckProcessorTest
     ).asserting(_ shouldBe Seq())
   }
 
+  // TODO: check returns typed function
   "type resolve" should "store lambda type into AST" in {
     runEngineForErrorsWithImports(
       "data String\ndata Unit\ndata Foo(l: Function[Unit, String])\ng: String\nf: Foo = Foo((unit: Unit) -> g)"
