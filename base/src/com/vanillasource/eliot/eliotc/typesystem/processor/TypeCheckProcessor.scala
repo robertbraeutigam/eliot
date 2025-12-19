@@ -147,10 +147,10 @@ class TypeCheckProcessor
   private def constructTypeGraphForFunctionApplication(parentTypeReference: TypeReference, errorMessage: String)(using
       CompilationProcess
   ): PartialFunction[Sourced[Expression], TypeGraphIO[TypeUnification]] = {
-    case Sourced(_, _, FunctionApplication(target, argument)) =>
+    case s @ Sourced(_, _, FunctionApplication(target, argument)) =>
       for {
         argumentType        <- generateUniqueGeneric[CompilationIO](argument)
-        returnType          <- generateUniqueGeneric[CompilationIO](target)
+        returnType          <- generateUniqueGeneric[CompilationIO](s)
         targetUnification   <-
           constructTypeGraph(
             DirectTypeReference(target.as(TypeFQN.systemFunctionType), Seq(argumentType, returnType)),
@@ -168,17 +168,17 @@ class TypeCheckProcessor
   private def constructTypeGraphForFunctionLiteral(parentTypeReference: TypeReference, errorMessage: String)(using
       CompilationProcess
   ): PartialFunction[Sourced[Expression], TypeGraphIO[TypeUnification]] = {
-    case Sourced(_, _, FunctionLiteral(parameter, body)) =>
+    case s @ Sourced(_, _, FunctionLiteral(parameter, body)) =>
       for {
-        returnType      <- generateUniqueGeneric[CompilationIO](parameter.name)
+        returnType      <- generateUniqueGeneric[CompilationIO](s)
         _               <- boundType(parameter)
         bodyUnification <- constructTypeGraph(returnType, body)
       } yield bodyUnification |+|
         assignment(
           parentTypeReference,
-          body.as(
+          s.as(
             DirectTypeReference(
-              parameter.name.as(TypeFQN.systemFunctionType),
+              s.as(TypeFQN.systemFunctionType),
               Seq(parameter.typeReference, returnType)
             )
           ),
