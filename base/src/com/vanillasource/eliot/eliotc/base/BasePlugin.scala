@@ -20,7 +20,7 @@ import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.typesystem.TypeCheckProcessor
+import com.vanillasource.eliot.eliotc.typesystem.processor.TypeCheckProcessor
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsProcessor
 import scopt.{OParser, OParserBuilder}
 

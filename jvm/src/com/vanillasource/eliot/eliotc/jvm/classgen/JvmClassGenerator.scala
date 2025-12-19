@@ -18,9 +18,9 @@ import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.typesystem.TypeCheckedFunction
 import com.vanillasource.eliot.eliotc.jvm.asm.CommonPatterns._
 import TypeState._
+import com.vanillasource.eliot.eliotc.typesystem.fact.TypeCheckedFunction
 
 import scala.annotation.tailrec
 
@@ -212,7 +212,7 @@ class JvmClassGenerator
           .createMethod[CompilationTypesIO](
             "lambdaFn$" + lambdaIndex,
             closedOverArgs.get.map(_.typeReference).map(simpleType),
-            systemAnyType
+            systemAnyType // FIXME: this is bad, for example when calling Void
           )
           .use { fnGenerator => createExpressionCode(outerClassGenerator, fnGenerator, body.value) }
       cls2           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes

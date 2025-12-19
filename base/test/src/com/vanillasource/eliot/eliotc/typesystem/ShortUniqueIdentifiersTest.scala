@@ -2,7 +2,8 @@ package com.vanillasource.eliot.eliotc.typesystem
 
 import cats.Eval
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.typesystem.ShortUniqueIdentifiers.generateNextUniqueIdentifier
+import com.vanillasource.eliot.eliotc.typesystem.processor.ShortUniqueIdentifiers
+import com.vanillasource.eliot.eliotc.typesystem.processor.ShortUniqueIdentifiers.generateNextUniqueIdentifier
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 

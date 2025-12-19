@@ -1,7 +1,7 @@
-package com.vanillasource.eliot.eliotc.typesystem
+package com.vanillasource.eliot.eliotc.typesystem.types
 
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference
-import com.vanillasource.eliot.eliotc.typesystem.TypeUnificationState.UnifiedType
+import TypeUnificationState.UnifiedType
 
 case class TypeUnificationState(states: Map[String, UnifiedType] = Map.empty) {
   def getCurrentType(typeReference: TypeReference): TypeReference =

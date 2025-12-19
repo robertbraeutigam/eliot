@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.typesystem
+package com.vanillasource.eliot.eliotc.typesystem.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.FunctionDefinition

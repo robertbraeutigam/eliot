@@ -5,16 +5,12 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.systemFunctionModuleName
-import com.vanillasource.eliot.eliotc.module.processor.{
-  ModuleNamesProcessor,
-  ModuleProcessor,
-  UnifiedModuleDataProcessor,
-  UnifiedModuleFunctionProcessor,
-  UnifiedModuleNamesProcessor
-}
+import com.vanillasource.eliot.eliotc.module.processor.{ModuleNamesProcessor, ModuleProcessor, UnifiedModuleDataProcessor, UnifiedModuleFunctionProcessor, UnifiedModuleNamesProcessor}
 import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
+import com.vanillasource.eliot.eliotc.typesystem.fact.TypeCheckedFunction
+import com.vanillasource.eliot.eliotc.typesystem.processor.TypeCheckProcessor
 
 class TypeCheckProcessorTest
     extends ProcessorTest(

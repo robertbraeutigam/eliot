@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.typesystem
+package com.vanillasource.eliot.eliotc.typesystem.processor
 
 import cats.Monad
 import cats.data.StateT

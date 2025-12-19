@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.typesystem
+package com.vanillasource.eliot.eliotc.typesystem.types
 
 import cats.Monad
 import cats.data.StateT
@@ -6,7 +6,8 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, TypeReference}
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.typesystem.ShortUniqueIdentifiers.generateNextUniqueIdentifier
+import com.vanillasource.eliot.eliotc.typesystem.processor.ShortUniqueIdentifiers.generateNextUniqueIdentifier
+import com.vanillasource.eliot.eliotc.typesystem.processor.ShortUniqueIdentifiers
 
 case class UniqueGenericNames(
     shortUniqueIdentifiers: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),

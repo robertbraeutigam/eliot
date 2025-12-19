@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.typesystem
+package com.vanillasource.eliot.eliotc.typesystem.types
 
 import cats.Show
 import cats.data.StateT
@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeRefe
 import com.vanillasource.eliot.eliotc.resolve.fact.{GenericParameter, TypeReference}
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.typesystem.TypeUnification.Assignment
+import TypeUnification.Assignment
 
 case class TypeUnification private (
     genericParameters: Map[String, GenericParameter],
