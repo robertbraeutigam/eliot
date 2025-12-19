@@ -151,7 +151,7 @@ class JvmClassGenerator
         // No-argument call
         generateFunctionApplication(outerClassGenerator, methodGenerator, expression, Seq.empty)
       case FunctionLiteral(parameter, body)                                    =>
-        generateLambda(outerClassGenerator, parameter, body.map(_.expression))
+        generateLambda(outerClassGenerator, parameter, body)
     }
 
   // FIXME: remove this method
@@ -216,9 +216,9 @@ class JvmClassGenerator
   private def generateLambda(
       outerClassGenerator: ClassGenerator,
       definition: ArgumentDefinition,
-      body: Sourced[Expression]
+      body: Sourced[TypedExpression]
   )(using CompilationProcess): CompilationTypesIO[Seq[ClassFile]] = {
-    val closedOverNames = body.value.toSeq
+    val closedOverNames = body.value.expression.toSeq
       .collect { case ParameterReference(parameterName) =>
         parameterName.value
       }
@@ -238,7 +238,7 @@ class JvmClassGenerator
             closedOverArgs.get.map(_.typeReference).map(simpleType),
             systemAnyType // FIXME: this is bad, for example when calling Void
           )
-          .use { fnGenerator => createExpressionCode(outerClassGenerator, fnGenerator, body.value) }
+          .use { fnGenerator => createExpressionCode(outerClassGenerator, fnGenerator, body.value.expression) }
       cls2           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
       // FIXME: add logic to inner class + add instantiation to main class
       // FIXME: Class needs to extend Function, needs apply(a)
