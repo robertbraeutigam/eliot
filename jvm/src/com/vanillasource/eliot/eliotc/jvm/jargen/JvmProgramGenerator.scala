@@ -113,6 +113,15 @@ class JvmProgramGenerator(targetDir: Path)
       false
     )
 
+    methodVisitor.visitInsn(Opcodes.ACONST_NULL)
+    methodVisitor.visitMethodInsn(
+      Opcodes.INVOKEINTERFACE,
+      "java/util/function/Function",
+      "apply",
+      "(Ljava/lang/Object;)Ljava/lang/Object;",
+      true
+    )
+
     methodVisitor.visitInsn(Opcodes.RETURN)
     methodVisitor.visitMaxs(0, 0)
     methodVisitor.visitEnd()
