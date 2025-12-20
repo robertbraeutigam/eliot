@@ -4,11 +4,7 @@ import cats.effect.Sync
 import cats.syntax.all.*
 import cats.effect.kernel.Resource
 import com.vanillasource.eliot.eliotc.jvm.asm.ClassGenerator.createClassGenerator
-import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{
-  convertToMainClassName,
-  convertToSignatureString,
-  javaSignatureName
-}
+import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{convertToApplySignatureString, convertToMainClassName, convertToSignatureString, javaSignatureName}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 import org.objectweb.asm.{ClassWriter, Opcodes}
@@ -73,12 +69,11 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
   def createMethod[F[_]: Sync](
       name: String,
       parameterTypes: Seq[TypeFQN],
-      resultType: TypeFQN,
-      staticMethod: Boolean = true
+      resultType: TypeFQN
   ): Resource[F, MethodGenerator] =
     Resource.make(Sync[F].delay {
       val methodVisitor = classWriter.visitMethod(
-        if (!staticMethod || name === "<init>") Opcodes.ACC_PUBLIC
+        if (name === "<init>") Opcodes.ACC_PUBLIC
         else Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
         name, // TODO: can every method moduleName be converted to Java?
         convertToSignatureString(parameterTypes, resultType),
@@ -102,6 +97,39 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
         methodGenerator.methodVisitor.visitEnd()
       }
     )
+
+  def createApplyMethod[F[_]: Sync](
+      parameterTypes: Seq[TypeFQN],
+      resultType: TypeFQN
+  ): Resource[F, MethodGenerator] =
+    Resource.make(Sync[F].delay {
+      val methodVisitor = classWriter.visitMethod(
+        Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL,
+        "apply",
+        convertToApplySignatureString(parameterTypes, resultType),
+        null,
+        null
+      )
+
+      methodVisitor.visitCode()
+
+      MethodGenerator(moduleName, methodVisitor)
+    })(methodGenerator =>
+      Sync[F].delay {
+        // TODO: add more types (primitives)
+        if (resultType === systemUnitType) {
+          // We need to return null here, because apply needs always return
+          methodGenerator.methodVisitor.visitInsn(Opcodes.ACONST_NULL)
+          methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
+        } else {
+          methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
+        }
+
+        methodGenerator.methodVisitor.visitMaxs(0, 0)
+        methodGenerator.methodVisitor.visitEnd()
+      }
+    )
+
 }
 
 object ClassGenerator {

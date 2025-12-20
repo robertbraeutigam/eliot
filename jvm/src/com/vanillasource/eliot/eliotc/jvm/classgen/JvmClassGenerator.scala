@@ -231,6 +231,7 @@ class JvmClassGenerator
         parameterName.value
       }
       .filter(_ =!= definition.name.value)
+    val returnType      = simpleType(body.value.expressionType)
 
     for {
       _                <- addParameterDefinition(definition)
@@ -254,11 +255,9 @@ class JvmClassGenerator
           .createInnerClassGenerator[CompilationTypesIO]("lambda$" + lambdaIndex, Seq("java/util/function/Function"))
       _                <- innerClassWriter.addDataFieldsAndCtor[CompilationTypesIO](closedOverArgs.get)
       _                <- innerClassWriter
-                            .createMethod[CompilationTypesIO](
-                              "apply",
+                            .createApplyMethod[CompilationTypesIO](
                               Seq(simpleType(definition.typeReference)),
-                              simpleType(body.value.expressionType),
-                              false
+                              simpleType(body.value.expressionType)
                             )
                             .use { applyGenerator =>
                               for {
