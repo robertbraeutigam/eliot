@@ -41,6 +41,6 @@ object NativeType {
   }
 
   private def eliot_lang_Function: NativeType = new NativeType {
-    override def javaSignatureName: String = "Ljava/lang/Function;"
+    override def javaSignatureName: String = "Ljava/util/function/Function;"
   }
 }

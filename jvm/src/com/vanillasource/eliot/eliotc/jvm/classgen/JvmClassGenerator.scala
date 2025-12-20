@@ -249,7 +249,12 @@ class JvmClassGenerator
           .use { fnGenerator =>
             createExpressionCode(moduleName, outerClassGenerator, fnGenerator, body.value.expression)
           }
-      cls2           <- createDataClass(outerClassGenerator, "lambda$" + lambdaIndex, closedOverArgs.get).liftToTypes
+      cls2           <- createDataClass(
+                          outerClassGenerator,
+                          "lambda$" + lambdaIndex,
+                          closedOverArgs.get,
+                          Seq("java/util/function/Function")
+                        ).liftToTypes
       _              <- methodGenerator.addNew[CompilationTypesIO](TypeFQN(moduleName, "lambda$" + lambdaIndex))
       _              <- closedOverArgs.get.traverse_ { argument =>
                           for {
@@ -345,10 +350,11 @@ class JvmClassGenerator
   private def createDataClass(
       outerClassGenerator: ClassGenerator,
       innerClassName: String,
-      fields: Seq[ArgumentDefinition]
+      fields: Seq[ArgumentDefinition],
+      javaInterfaces: Seq[String] = Seq.empty
   )(using CompilationProcess): CompilationIO[Seq[ClassFile]] =
     for {
-      innerClassWriter <- outerClassGenerator.createInnerClassGenerator[CompilationIO](innerClassName)
+      innerClassWriter <- outerClassGenerator.createInnerClassGenerator[CompilationIO](innerClassName, javaInterfaces)
       _                <- innerClassWriter.addDataFieldsAndCtor[CompilationIO](fields)
       classFile        <- innerClassWriter.generate[CompilationIO]()
     } yield Seq(classFile)

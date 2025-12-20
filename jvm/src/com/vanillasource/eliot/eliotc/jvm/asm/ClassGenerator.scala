@@ -30,9 +30,10 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
     *   The plain non-qualified and non-embedded moduleName of the inner class.
     * @return
     */
-  def createInnerClassGenerator[F[_]: Sync](innerName: String): F[ClassGenerator] =
+  def createInnerClassGenerator[F[_]: Sync](innerName: String, interfaces: Seq[String] = Seq.empty): F[ClassGenerator] =
     for {
-      classGenerator <- createClassGenerator[F](ModuleName(moduleName.packages, moduleName.name + "$" + innerName))
+      classGenerator <-
+        createClassGenerator[F](ModuleName(moduleName.packages, moduleName.name + "$" + innerName), interfaces)
       _              <- Sync[F].delay(
                           classGenerator.classWriter.visitInnerClass(
                             moduleName.name + "$" + innerName,
@@ -105,18 +106,19 @@ object ClassGenerator {
 
   /** Generates an empty class for the given module. Each module has exactly one class generated for it.
     */
-  def createClassGenerator[F[_]: Sync](name: ModuleName): F[ClassGenerator] = Sync[F].delay {
-    val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
+  def createClassGenerator[F[_]: Sync](name: ModuleName, interfaces: Seq[String] = Seq.empty): F[ClassGenerator] =
+    Sync[F].delay {
+      val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
 
-    classWriter.visit(
-      Opcodes.V17,
-      Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
-      convertToMainClassName(name), // TODO: all class names are legal here?
-      null,
-      "java/lang/Object",
-      null
-    )
+      classWriter.visit(
+        Opcodes.V17,
+        Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
+        convertToMainClassName(name), // TODO: all class names are legal here?
+        null,
+        "java/lang/Object",
+        if (interfaces.isEmpty) null else interfaces.toArray
+      )
 
-    new ClassGenerator(name, classWriter)
-  }
+      new ClassGenerator(name, classWriter)
+    }
 }
