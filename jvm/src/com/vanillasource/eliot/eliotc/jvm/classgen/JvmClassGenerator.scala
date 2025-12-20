@@ -253,6 +253,23 @@ class JvmClassGenerator
         outerClassGenerator
           .createInnerClassGenerator[CompilationTypesIO]("lambda$" + lambdaIndex, Seq("java/util/function/Function"))
       _                <- innerClassWriter.addDataFieldsAndCtor[CompilationTypesIO](closedOverArgs.get)
+      _                <- innerClassWriter
+                            .createMethod[CompilationTypesIO](
+                              "apply",
+                              Seq(simpleType(definition.typeReference)),
+                              simpleType(body.value.expressionType)
+                            )
+                            .use { applyGenerator =>
+                              for {
+                                // TODO: put all parameters onto stack
+                                // Call the static lambdaFn
+                                _ <- applyGenerator.addCallTo[CompilationTypesIO](
+                                       FunctionFQN(moduleName, "lambdaFn$" + lambdaIndex),
+                                       closedOverArgs.get.map(_.typeReference).map(simpleType),
+                                       simpleType(body.value.expressionType)
+                                     )
+                              } yield ()
+                            }
       classFile        <- innerClassWriter.generate[CompilationTypesIO]()
       _                <- methodGenerator.addNew[CompilationTypesIO](TypeFQN(moduleName, "lambda$" + lambdaIndex))
       _                <- closedOverArgs.get.traverse_ { argument =>
