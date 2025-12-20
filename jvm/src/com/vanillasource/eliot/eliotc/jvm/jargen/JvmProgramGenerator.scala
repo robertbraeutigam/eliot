@@ -105,6 +105,7 @@ class JvmProgramGenerator(targetDir: Path)
 
     methodVisitor.visitCode()
 
+    // Invoke main
     methodVisitor.visitMethodInsn(
       Opcodes.INVOKESTATIC,
       mainFunction.moduleName.packages.appended(mainFunction.moduleName.name).mkString("/"),
@@ -113,6 +114,15 @@ class JvmProgramGenerator(targetDir: Path)
       false
     )
 
+    // Get block from IO
+    methodVisitor.visitFieldInsn(
+      Opcodes.GETFIELD,
+      "eliot/lang/IO$IO",
+      "block",
+      "Ljava/util/function/Function;"
+    )
+
+    // Invoke apply of the function in IO
     methodVisitor.visitInsn(Opcodes.ACONST_NULL)
     methodVisitor.visitMethodInsn(
       Opcodes.INVOKEINTERFACE,
