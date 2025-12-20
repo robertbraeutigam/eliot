@@ -4,7 +4,12 @@ import cats.effect.Sync
 import cats.syntax.all.*
 import cats.effect.kernel.Resource
 import com.vanillasource.eliot.eliotc.jvm.asm.ClassGenerator.createClassGenerator
-import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{convertToApplySignatureString, convertToMainClassName, convertToSignatureString, javaSignatureName}
+import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{
+  convertToApplySignatureString,
+  convertToMainClassName,
+  convertToSignatureString,
+  javaSignatureName
+}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 import org.objectweb.asm.{ClassWriter, Opcodes}
@@ -106,7 +111,7 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
       val methodVisitor = classWriter.visitMethod(
         Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL,
         "apply",
-        convertToApplySignatureString(parameterTypes, resultType),
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
         null,
         null
       )
