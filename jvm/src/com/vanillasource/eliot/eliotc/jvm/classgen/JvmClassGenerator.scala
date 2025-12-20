@@ -233,13 +233,13 @@ class JvmClassGenerator
       .filter(_ =!= definition.name.value)
 
     for {
-      _              <- addParameterDefinition(definition)
-      closedOverArgs <- closedOverNames.traverse(getParameterType).map(_.sequence)
-      _              <- compilerAbort(body.as("Could not find all types for closed over arguments."))
-                          .whenA(closedOverArgs.isEmpty)
-                          .liftToTypes
-      lambdaIndex    <- incLambdaCount
-      cls1           <-
+      _                <- addParameterDefinition(definition)
+      closedOverArgs   <- closedOverNames.traverse(getParameterType).map(_.sequence)
+      _                <- compilerAbort(body.as("Could not find all types for closed over arguments."))
+                            .whenA(closedOverArgs.isEmpty)
+                            .liftToTypes
+      lambdaIndex      <- incLambdaCount
+      cls1             <-
         outerClassGenerator
           .createMethod[CompilationTypesIO](
             "lambdaFn$" + lambdaIndex,
@@ -249,27 +249,26 @@ class JvmClassGenerator
           .use { fnGenerator =>
             createExpressionCode(moduleName, outerClassGenerator, fnGenerator, body.value.expression)
           }
-      cls2           <- createDataClass(
-                          outerClassGenerator,
-                          "lambda$" + lambdaIndex,
-                          closedOverArgs.get,
-                          Seq("java/util/function/Function")
-                        ).liftToTypes
-      _              <- methodGenerator.addNew[CompilationTypesIO](TypeFQN(moduleName, "lambda$" + lambdaIndex))
-      _              <- closedOverArgs.get.traverse_ { argument =>
-                          for {
-                            argIndex <- getParameterIndex(argument.name.value)
-                            argType  <- getParameterType(argument.name.value)
-                            _        <- methodGenerator
-                                          .addLoadVar[CompilationTypesIO](simpleType(argType.get.typeReference), argIndex.get)
-                          } yield ()
-                        }
-      _              <- methodGenerator.addCallToCtor[CompilationTypesIO]( // Call constructor
-                          TypeFQN(moduleName, "lambda$" + lambdaIndex),
-                          closedOverArgs.get.map(_.typeReference).map(simpleType)
-                        )
+      innerClassWriter <-
+        outerClassGenerator
+          .createInnerClassGenerator[CompilationTypesIO]("lambda$" + lambdaIndex, Seq("java/util/function/Function"))
+      _                <- innerClassWriter.addDataFieldsAndCtor[CompilationTypesIO](closedOverArgs.get)
+      classFile        <- innerClassWriter.generate[CompilationTypesIO]()
+      _                <- methodGenerator.addNew[CompilationTypesIO](TypeFQN(moduleName, "lambda$" + lambdaIndex))
+      _                <- closedOverArgs.get.traverse_ { argument =>
+                            for {
+                              argIndex <- getParameterIndex(argument.name.value)
+                              argType  <- getParameterType(argument.name.value)
+                              _        <- methodGenerator
+                                            .addLoadVar[CompilationTypesIO](simpleType(argType.get.typeReference), argIndex.get)
+                            } yield ()
+                          }
+      _                <- methodGenerator.addCallToCtor[CompilationTypesIO]( // Call constructor
+                            TypeFQN(moduleName, "lambda$" + lambdaIndex),
+                            closedOverArgs.get.map(_.typeReference).map(simpleType)
+                          )
       // FIXME: add apply: calling the static method
-    } yield cls1 ++ cls2
+    } yield classFile +: cls1
   }
 
   private def createData(
