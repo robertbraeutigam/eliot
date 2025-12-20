@@ -264,13 +264,11 @@ class JvmClassGenerator
                                           .addLoadVar[CompilationTypesIO](simpleType(argType.get.typeReference), argIndex.get)
                           } yield ()
                         }
-      // FIXME: put ctor parameters onto the stack!
       _              <- methodGenerator.addCallToCtor[CompilationTypesIO]( // Call constructor
                           TypeFQN(moduleName, "lambda$" + lambdaIndex),
                           closedOverArgs.get.map(_.typeReference).map(simpleType)
                         )
-      // FIXME: Class needs to extend Function, needs apply(a)
-      // FIXME: add logic to apply: calling the static method
+      // FIXME: add apply: calling the static method
     } yield cls1 ++ cls2
   }
 
