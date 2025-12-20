@@ -92,7 +92,7 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
   def addPutField[F[_]: Sync](fieldName: String, fieldType: TypeFQN): F[Unit] = Sync[F].delay {
     methodVisitor.visitFieldInsn(
       Opcodes.PUTFIELD,
-      moduleName.name,
+      moduleName.packages.appended(moduleName.name).mkString("/"), // TODO: use some existing naming method here
       fieldName,
       javaSignatureName(fieldType)
     )
