@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm.asm
 
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemLangType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 
@@ -30,7 +31,7 @@ object NativeType {
     convertToMainClassName(typeFQN.moduleName) + "$" + typeFQN.typeName
 
   def convertToSignatureString(parameterTypes: Seq[TypeFQN], resultType: TypeFQN): String =
-    s"(${parameterTypes.map(javaSignatureName).mkString})${javaSignatureName(resultType)}"
+    s"(${parameterTypes.map(javaSignatureName).map(t => if (t === "V") "Ljava/lang/Void;" else t).mkString})${javaSignatureName(resultType)}"
 
   private def eliot_lang_String: NativeType = new NativeType {
     override def javaSignatureName: String = "Ljava/lang/String;"
