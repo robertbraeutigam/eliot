@@ -73,11 +73,13 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
   def createMethod[F[_]: Sync](
       name: String,
       parameterTypes: Seq[TypeFQN],
-      resultType: TypeFQN
+      resultType: TypeFQN,
+      staticMethod: Boolean = true
   ): Resource[F, MethodGenerator] =
     Resource.make(Sync[F].delay {
       val methodVisitor = classWriter.visitMethod(
-        if (name === "<init>") Opcodes.ACC_PUBLIC else Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
+        if (!staticMethod || name === "<init>") Opcodes.ACC_PUBLIC
+        else Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
         name, // TODO: can every method moduleName be converted to Java?
         convertToSignatureString(parameterTypes, resultType),
         null,

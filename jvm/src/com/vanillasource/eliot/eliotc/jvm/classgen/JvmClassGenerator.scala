@@ -257,11 +257,25 @@ class JvmClassGenerator
                             .createMethod[CompilationTypesIO](
                               "apply",
                               Seq(simpleType(definition.typeReference)),
-                              simpleType(body.value.expressionType)
+                              simpleType(body.value.expressionType),
+                              false
                             )
                             .use { applyGenerator =>
                               for {
-                                // TODO: put all parameters onto stack
+                                _ <- closedOverArgs.get.traverse_ { argument =>
+                                       for {
+                                         _ <- applyGenerator
+                                                .addLoadVar[CompilationTypesIO](
+                                                  TypeFQN(moduleName, "lambda$" + lambdaIndex),
+                                                  0 // The data object is the parameter
+                                                )
+                                         _ <- applyGenerator.addGetField[CompilationTypesIO](
+                                                argument.name.value,
+                                                simpleType(argument.typeReference),
+                                                TypeFQN(moduleName, "lambda$" + lambdaIndex)
+                                              )
+                                       } yield ()
+                                     }
                                 // Call the static lambdaFn
                                 _ <- applyGenerator.addCallTo[CompilationTypesIO](
                                        FunctionFQN(moduleName, "lambdaFn$" + lambdaIndex),
