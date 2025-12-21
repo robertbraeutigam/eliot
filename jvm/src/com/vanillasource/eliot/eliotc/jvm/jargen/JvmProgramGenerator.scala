@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemIOType
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
 import java.nio.charset.StandardCharsets
@@ -19,10 +19,18 @@ import java.nio.file.{Files, Path}
 import java.util.jar.{JarEntry, JarOutputStream}
 
 class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
-    extends OneToOneProcessor((key: GenerateExecutableJar.Key) => UsedSymbols.Key(key.ffqn))
+    extends CompilerProcessor
+    // extends OneToOneProcessor((key: GenerateExecutableJar.Key) => UsedSymbols.Key(key.ffqn))
     with Logging {
 
-  override def generateFromFact(usedSymbols: UsedSymbols)(using CompilationProcess): IO[Unit] = {
+  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =
+    factKey match {
+      case GenerateExecutableJar.Key(ffqn) =>
+        getFact(UsedSymbols.Key(ffqn)).flatMap(_.traverse_(generateFromFact))
+      case _                               => IO.unit
+    }
+
+  private def generateFromFact(usedSymbols: UsedSymbols)(using CompilationProcess): IO[Unit] = {
     val groupedFunctions = usedSymbols.usedFunctions.groupBy(_.value.moduleName)
     val groupedTypes     = usedSymbols.usedTypes.groupBy(_.value.moduleName)
     val facts            = (groupedFunctions.keys ++ groupedTypes.keys)
@@ -36,7 +44,7 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
       .toSeq
 
     for {
-      _            <- facts.traverse_(registerFact)
+      _            <- facts.traverse_(registerFact) // FIXME: do this in a linear way, not circular way
       classesMaybe <- facts.map(_.moduleName).traverse(moduleName => getFact(GeneratedModule.Key(moduleName)))
       _            <- classesMaybe.sequence.traverse_(cs =>
                         generateJarFile(usedSymbols.ffqn, cs)
