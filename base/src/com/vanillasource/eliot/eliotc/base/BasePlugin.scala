@@ -25,16 +25,17 @@ import com.vanillasource.eliot.eliotc.used.UsedSymbolsProcessor
 import scopt.{OParser, OParserBuilder}
 
 import java.io.File
+import java.nio.file.Path
 
 class BasePlugin extends CompilerPlugin {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
 
   import cmdLineBuilder.*
 
-  private val pathKey = namedKey[Seq[File]]("paths")
+  val pathKey = namedKey[Seq[Path]]("paths")
 
   override def commandLineParser(): OParser[?, Configuration] = OParser.sequence(
-    arg[File]("<path>...")
+    arg[Path]("<path>...")
       .unbounded()
       .required()
       .action((path, config) => config.updatedWith(pathKey, _.getOrElse(Seq.empty).appended(path).some))
@@ -48,7 +49,7 @@ class BasePlugin extends CompilerPlugin {
           Seq(
             superProcessor,
             SourceContentReader(),
-            PathScanner(configuration.getOrElse(pathKey, Seq.empty).map(_.toPath)),
+            PathScanner(configuration.getOrElse(pathKey, Seq.empty)),
             Tokenizer(),
             ASTParser(),
             DesugarProcessor(),
