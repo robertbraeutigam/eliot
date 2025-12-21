@@ -18,7 +18,7 @@ import java.nio.file.StandardOpenOption.*
 import java.nio.file.{Files, Path}
 import java.util.jar.{JarEntry, JarOutputStream}
 
-class JvmProgramGenerator(targetDir: Path)
+class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
     extends OneToOneProcessor((key: GenerateExecutableJar.Key) => UsedSymbols.Key(key.ffqn))
     with Logging {
 

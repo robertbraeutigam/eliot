@@ -5,6 +5,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilerProcessor
 import com.vanillasource.eliot.eliotc.ast.ASTParser
+import com.vanillasource.eliot.eliotc.base.BasePlugin.pathKey
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.module.processor.{
@@ -31,8 +32,6 @@ class BasePlugin extends CompilerPlugin {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
 
   import cmdLineBuilder.*
-
-  val pathKey = namedKey[Seq[Path]]("paths")
 
   override def commandLineParser(): OParser[?, Configuration] = OParser.sequence(
     arg[Path]("<path>...")
@@ -66,4 +65,8 @@ class BasePlugin extends CompilerPlugin {
         )
       )
   }
+}
+
+object BasePlugin {
+  val pathKey = namedKey[Seq[Path]]("paths")
 }

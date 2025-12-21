@@ -12,6 +12,7 @@ import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerProcessor}
 import scopt.{OParser, OParserBuilder}
+import java.nio.file.Path
 
 class JvmPlugin extends CompilerPlugin {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
@@ -41,7 +42,11 @@ class JvmPlugin extends CompilerPlugin {
           Seq(
             superProcessor,
             JvmClassGenerator(),
-            JvmProgramGenerator(configuration.get(Compiler.targetPathKey).get)
+            JvmProgramGenerator(
+              configuration.get(Compiler.targetPathKey).get,
+              // TODO: This is not clean, just selecting a random path to insert main source into
+              configuration.get(BasePlugin.pathKey).flatMap(_.headOption).getOrElse(Path.of("."))
+            )
           )
         )
       )
