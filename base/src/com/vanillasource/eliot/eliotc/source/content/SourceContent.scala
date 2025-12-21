@@ -1,7 +1,9 @@
 package com.vanillasource.eliot.eliotc.source.content
 
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
+import cats.effect.IO
+import com.vanillasource.eliot.eliotc.CompilationProcess.registerFact
+import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey}
 
 import java.io.File
 
@@ -13,4 +15,7 @@ case class SourceContent(file: File, content: Sourced[String]) extends CompilerF
 
 object SourceContent {
   case class Key(file: File) extends CompilerFactKey[SourceContent]
+
+  def addSource(file: File, content: String)(using CompilationProcess): IO[Unit] =
+    registerFact(SourceContent(file, Sourced(file, PositionRange.zero, content)))
 }
