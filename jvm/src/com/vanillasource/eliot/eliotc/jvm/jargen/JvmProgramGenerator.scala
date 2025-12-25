@@ -6,9 +6,10 @@ import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.javaSignatureName
 import com.vanillasource.eliot.eliotc.jvm.classgen.{GenerateModule, GeneratedModule}
-import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
+import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemIOType
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.source.content.SourceContent.addSource
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import org.objectweb.asm.{ClassWriter, Opcodes}
@@ -18,15 +19,15 @@ import java.nio.file.StandardOpenOption.*
 import java.nio.file.{Files, Path}
 import java.util.jar.{JarEntry, JarOutputStream}
 
-class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
-    extends CompilerProcessor
-    // extends OneToOneProcessor((key: GenerateExecutableJar.Key) => UsedSymbols.Key(key.ffqn))
-    with Logging {
+class JvmProgramGenerator(targetDir: Path, sourceDir: Path) extends CompilerProcessor with Logging {
 
   override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =
     factKey match {
       case GenerateExecutableJar.Key(ffqn) =>
-        getFact(UsedSymbols.Key(ffqn)).flatMap(_.traverse_(generateFromFact))
+        addSource(sourceDir.resolve("main.els").toFile, generateMainSource(ffqn)) >> getFact(
+          UsedSymbols.Key(FunctionFQN(ModuleName(Seq(), "main"), "main"))
+        )
+          .flatMap(_.traverse_(generateFromFact))
       case _                               => IO.unit
     }
 
@@ -57,7 +58,6 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
       IO.blocking {
         generateManifest(jos)
         generateClasses(jos, allClasses)
-        generateMain(mainFunction, jos)
       }
     } >> info(s"Generated executable jar: ${jarFilePath(mainFunction)}.")
 
@@ -84,74 +84,15 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
 
   private def jarFileName(mainFunction: FunctionFQN): String = mainFunction.moduleName.name + ".jar"
 
-  private def generateMain(mainFunction: FunctionFQN, jos: JarOutputStream): Unit = {
-    jos.putNextEntry(new JarEntry("main.class"))
-    jos.write(generateMainClassBytes(mainFunction))
-    jos.closeEntry()
-  }
-
-  // TODO: Make this normal els source!
-  private def generateMainClassBytes(mainFunction: FunctionFQN): Array[Byte] = {
-    val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
-
-    classWriter.visit(
-      Opcodes.V17,
-      Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
-      "main",
-      null,
-      "java/lang/Object",
-      null
-    )
-
-    val methodVisitor = classWriter.visitMethod(
-      Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
-      "main",
-      "([Ljava/lang/String;)V",
-      null,
-      null
-    )
-
-    methodVisitor.visitCode()
-
-    // Invoke main
-    methodVisitor.visitMethodInsn(
-      Opcodes.INVOKESTATIC,
-      mainFunction.moduleName.packages.appended(mainFunction.moduleName.name).mkString("/"),
-      "main",
-      s"()${javaSignatureName(systemIOType)}",
-      false
-    )
-
-    // Get block from IO
-    methodVisitor.visitFieldInsn(
-      Opcodes.GETFIELD,
-      "eliot/lang/IO$IO",
-      "block",
-      "Ljava/util/function/Function;"
-    )
-
-    // Invoke apply of the function in IO
-    methodVisitor.visitInsn(Opcodes.ACONST_NULL)
-    methodVisitor.visitMethodInsn(
-      Opcodes.INVOKEINTERFACE,
-      "java/util/function/Function",
-      "apply",
-      "(Ljava/lang/Object;)Ljava/lang/Object;",
-      true
-    )
-
-    methodVisitor.visitInsn(Opcodes.RETURN)
-    methodVisitor.visitMaxs(0, 0)
-    methodVisitor.visitEnd()
-
-    classWriter.visitEnd()
-
-    classWriter.toByteArray
-  }
-
   private def generateManifest(jos: JarOutputStream): Unit = {
     jos.putNextEntry(new JarEntry("META-INF/MANIFEST.MF"))
     jos.write("Manifest-Version: 1.0\nMain-Class: main\n".getBytes(StandardCharsets.UTF_8))
     jos.closeEntry()
   }
+
+  private def generateMainSource(mainFfqn: FunctionFQN): String =
+    s"""
+       |import ${mainFfqn.moduleName.show}
+       |main(args: Array[String]): Unit = block(${mainFfqn.functionName}())(unit)
+       |""".stripMargin
 }
