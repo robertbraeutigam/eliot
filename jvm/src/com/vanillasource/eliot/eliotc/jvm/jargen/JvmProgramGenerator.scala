@@ -4,15 +4,11 @@ import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.javaSignatureName
 import com.vanillasource.eliot.eliotc.jvm.classgen.{GenerateModule, GeneratedModule}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemIOType
-import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.source.content.SourceContent.addSource
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
 import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
-import org.objectweb.asm.{ClassWriter, Opcodes}
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.StandardOpenOption.*
