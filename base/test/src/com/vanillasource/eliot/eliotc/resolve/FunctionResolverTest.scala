@@ -121,6 +121,55 @@ class FunctionResolverTest
     )
   }
 
+  it should "resolve qualified function application without arguments" in {
+    runEngineForExpressions("data A\nf: A = eliot.lang.String::println").flatMap {
+      case Some(ValueReference(Sourced(_, _, ffqn))) =>
+        IO.delay(ffqn shouldBe FunctionFQN(ModuleName(Seq("eliot", "lang"), "String"), "println"))
+      case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
+    }
+  }
+
+  it should "resolve qualified function application with one argument" in {
+    runEngineForExpressions("data A\na: A\nf: A = eliot.lang.String::println(a)").flatMap {
+      case Some(
+            Expression.FunctionApplication(
+              Sourced(_, _, ValueReference(Sourced(_, _, ffqn))),
+              _
+            )
+          ) =>
+        IO.delay(ffqn shouldBe FunctionFQN(ModuleName(Seq("eliot", "lang"), "String"), "println"))
+      case x => IO.delay(fail(s"was not a function application with qualified value reference, instead: $x"))
+    }
+  }
+
+  it should "resolve qualified function application with two arguments" in {
+    runEngineForExpressions("data A\na: A\nb: A\nf: A = eliot.lang.String::concat(a, b)").flatMap {
+      case Some(
+            Expression.FunctionApplication(
+              Sourced(
+                _,
+                _,
+                Expression.FunctionApplication(
+                  Sourced(_, _, ValueReference(Sourced(_, _, ffqn))),
+                  _
+                )
+              ),
+              _
+            )
+          ) =>
+        IO.delay(ffqn shouldBe FunctionFQN(ModuleName(Seq("eliot", "lang"), "String"), "concat"))
+      case x => IO.delay(fail(s"was not a nested function application with qualified value reference, instead: $x"))
+    }
+  }
+
+  it should "resolve qualified function application with simple module name" in {
+    runEngineForExpressions("data A\nf: A = HelloWorld::main").flatMap {
+      case Some(ValueReference(Sourced(_, _, ffqn))) =>
+        IO.delay(ffqn shouldBe FunctionFQN(ModuleName(Seq(), "HelloWorld"), "main"))
+      case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
+    }
+  }
+
   private def runEngineForErrors(source: String): IO[Seq[String]] =
     runGeneratorForErrors(source, ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
 

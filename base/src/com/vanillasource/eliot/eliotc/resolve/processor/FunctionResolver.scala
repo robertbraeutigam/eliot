@@ -5,7 +5,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.CompilationProcess.registerFact
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN, UnifiedModuleFunction}
+import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN, UnifiedModuleFunction}
 import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.FunctionLiteral
@@ -90,6 +90,22 @@ class FunctionResolver
             case None       => compilerAbort(s.as(s"Function not defined.")).liftToScoped
           }
         )
+      case ast.Expression.QualifiedFunctionApplication(
+            moduleNameSrc @ Sourced(_, _, moduleNameStr),
+            fnNameSrc @ Sourced(_, _, fnName),
+            args
+          ) =>
+        for {
+          newArgs <- args.traverse(resolveExpression)
+        } yield {
+          val moduleName = ModuleName.parse(moduleNameStr)
+          val ffqn       = FunctionFQN(moduleName, fnName)
+          expr.as(
+            newArgs.foldRight[Expression](Expression.ValueReference(fnNameSrc.as(ffqn)))((arg, expr) =>
+              Expression.FunctionApplication(fnNameSrc.as(expr), arg)
+            )
+          )
+        }
       case ast.Expression.FunctionLiteral(parameters, body)                  =>
         for {
           resolvedParameters <-
