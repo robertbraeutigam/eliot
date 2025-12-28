@@ -148,6 +148,26 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("f: A = (a:A) -> a").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "parse qualified function application without arguments" in {
+    runEngineForErrors("f: A = eliot.lang.String::println").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "parse qualified function application with one argument" in {
+    runEngineForErrors("f: A = eliot.lang.String::println(a)").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "parse qualified function application with two arguments" in {
+    runEngineForErrors("f: A = eliot.lang.String::println(a, b)").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "parse qualified function application with single part module name" in {
+    runEngineForErrors("f: A = HelloWorld::main").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject qualified function application with empty parameter list" in {
+    runEngineForErrors("f: A = eliot.lang.String::println()").asserting(_.size should be > 0)
+  }
+
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
     runGenerator(source, SourceAST.Key(file))
 
