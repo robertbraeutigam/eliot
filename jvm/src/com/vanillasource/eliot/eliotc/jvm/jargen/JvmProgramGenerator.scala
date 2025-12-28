@@ -93,6 +93,6 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path) extends CompilerProc
   private def generateMainSource(mainFfqn: FunctionFQN): String =
     s"""
        |import ${mainFfqn.moduleName.show}
-       |main(args: Array[String]): Unit = block(${mainFfqn.functionName}())(unit)
+       |main(args: Array[String]): Unit = apply(block(${mainFfqn.functionName}), unit)
        |""".stripMargin
 }

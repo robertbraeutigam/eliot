@@ -2,3 +2,5 @@
  * A build-in abstraction over functions, function literals.
  */
 data Function[A, B]
+
+apply[A, B](f: Function[A, B], a: A): B = f(a)
