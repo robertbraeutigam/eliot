@@ -106,9 +106,10 @@ class FunctionResolver
         } yield {
           val moduleName = ModuleName.parse(moduleNameStr)
           val ffqn       = FunctionFQN(moduleName, fnName)
+          val outline    = Sourced.outline(Seq(moduleNameSrc, fnNameSrc))
           expr.as(
-            newArgs.foldRight[Expression](Expression.ValueReference(fnNameSrc.as(ffqn)))((arg, expr) =>
-              Expression.FunctionApplication(fnNameSrc.as(expr), arg)
+            newArgs.foldRight[Expression](Expression.ValueReference(outline.as(ffqn)))((arg, expr) =>
+              Expression.FunctionApplication(outline.as(expr), arg)
             )
           )
         }
