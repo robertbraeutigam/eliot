@@ -77,7 +77,13 @@ class FunctionResolver
     expr.value match {
       case ast.Expression.FunctionApplication(s @ Sourced(_, _, name), args) =>
         isValueVisible(name).ifM(
-          expr.as(Expression.ParameterReference(s.as(name))).pure,
+          for {
+            newArgs <- args.traverse(resolveExpression)
+          } yield expr.as(
+            newArgs.foldRight[Expression](Expression.ParameterReference(s.as(name)))((arg, expr) =>
+              Expression.FunctionApplication(s.as(expr), arg)
+            )
+          ),
           getFunction(name).flatMap {
             case Some(ffqn) =>
               for {

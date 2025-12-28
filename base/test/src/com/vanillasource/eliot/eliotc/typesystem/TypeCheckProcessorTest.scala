@@ -164,6 +164,12 @@ class TypeCheckProcessorTest
     ).asserting(_ shouldBe Seq())
   }
 
+  "apply" should "type check and return B" in {
+    runEngineForErrorsWithImports(
+      "f[A, B](g: Function[A, B], a: A): B = g(a)"
+    ).asserting(_ shouldBe Seq())
+  }
+
   private def runEngineForErrorsWithImports(source: String): IO[Seq[String]] =
     runGeneratorForErrorsWithImports(source, TypeCheckedFunction.Key(FunctionFQN(testModuleName, "f")))
 
