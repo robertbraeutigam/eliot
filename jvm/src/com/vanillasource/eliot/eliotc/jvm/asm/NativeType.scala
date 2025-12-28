@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.jvm.asm
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemLangType, systemUnitType}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 
@@ -13,7 +14,8 @@ object NativeType {
     Seq(
       (systemLangType("String"), eliot_lang_String),
       (systemLangType("Function"), eliot_lang_Function),
-      (systemLangType("Unit"), eliot_lang_Unit)
+      (systemLangType("Unit"), eliot_lang_Unit),
+      (TypeFQN(ModuleName(Seq("eliot", "java", "lang"), "Array"), "Array"), eliot_java_lang_Array)
     )
   )
 
@@ -37,6 +39,10 @@ object NativeType {
     s"(${parameterTypes.map(javaSignatureName).map(t => if (t === "V") "Ljava/lang/Void;" else t).mkString})${
         if (resultType === systemUnitType) "Ljava/lang/Void;" else javaSignatureName(resultType)
       }"
+
+  private def eliot_java_lang_Array: NativeType = new NativeType {
+    override def javaSignatureName: String = "[Ljava/lang/Object;"
+  }
 
   private def eliot_lang_String: NativeType = new NativeType {
     override def javaSignatureName: String = "Ljava/lang/String;"

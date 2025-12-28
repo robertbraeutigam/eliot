@@ -88,8 +88,7 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path) extends CompilerProc
 
   private def generateMainSource(mainFfqn: FunctionFQN): String =
     s"""
-       |import ${mainFfqn.moduleName.show}
        |import eliot.java.lang.Array
-       |main(args: Array[String]): Unit = apply(block(${mainFfqn.functionName}), unit)
+       |main(args: Array[String]): Unit = apply(block(${mainFfqn.moduleName.show}::${mainFfqn.functionName}), unit)
        |""".stripMargin
 }
