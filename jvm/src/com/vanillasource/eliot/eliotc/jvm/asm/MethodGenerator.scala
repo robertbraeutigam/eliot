@@ -109,4 +109,14 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
   def runNative[F[_]: Sync](block: MethodVisitor => Unit): F[Unit] = Sync[F].delay {
     block(methodVisitor)
   }
+
+  def addCallToApply[F[_]: Sync](): F[Unit] = Sync[F].delay {
+    methodVisitor.visitMethodInsn(
+      Opcodes.INVOKEINTERFACE,
+      "java/util/function/Function",
+      "apply",
+      "(Ljava/lang/Object;)Ljava/lang/Object;",
+      true
+    )
+  }
 }

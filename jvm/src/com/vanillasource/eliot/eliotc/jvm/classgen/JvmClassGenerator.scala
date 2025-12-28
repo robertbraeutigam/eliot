@@ -188,7 +188,20 @@ class JvmClassGenerator
         )
       case IntegerLiteral(integerLiteral)                                      => ???
       case StringLiteral(stringLiteral)                                        => ???
-      case ParameterReference(parameterName)                                   => ???
+      case ParameterReference(parameterName)                                   =>
+        // Function application on a parameter reference with exactly one parameter?
+        for {
+          parameterIndex <- getParameterIndex(parameterName.value)
+          parameterType  <- getParameterType(parameterName.value)
+          _              <- compilerAbort(parameterName.as("Could not find parameter in scope.")).liftToTypes
+                              .whenA(parameterIndex.isEmpty || parameterType.isEmpty)
+          _              <- methodGenerator
+                              .addLoadVar[CompilationTypesIO](simpleType(parameterType.get.typeReference), parameterIndex.get)
+          classes        <- arguments.flatTraverse(expression =>
+                              createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                            )
+          _              <- methodGenerator.addCallToApply[CompilationTypesIO]()
+        } yield classes
       case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn))       =>
         // Calling a function with exactly one argument
         for {
