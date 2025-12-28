@@ -14,12 +14,25 @@ trait NativeImplementation {
 object NativeImplementation {
   val implementations: Map[FunctionFQN, NativeImplementation] = Map.from(
     Seq(
-      (systemLangFunction("String", "printlnInternal"), eliot_lang_String_printlnInternal)
+      (systemLangFunction("String", "printlnInternal"), eliot_lang_String_printlnInternal),
+      (systemLangFunction("Unit", "unit"), eliot_lang_Unit_unit)
     )
   )
 
   private def systemLangFunction(moduleName: String, functionName: String): FunctionFQN =
     FunctionFQN(ModuleName(defaultSystemPackage, moduleName), functionName)
+
+  private def eliot_lang_Unit_unit: NativeImplementation = new NativeImplementation {
+    override def generateMethod(classGenerator: ClassGenerator): IO[Unit] = {
+      classGenerator
+        .createMethod[IO]("unit", Seq.empty, systemLangType("Unit"))
+        .use { methodGenerator =>
+          methodGenerator.runNative { methodVisitor =>
+            methodVisitor.visitInsn(Opcodes.ACONST_NULL)
+          }
+        }
+    }
+  }
 
   private def eliot_lang_String_printlnInternal: NativeImplementation = new NativeImplementation {
     override def generateMethod(classGenerator: ClassGenerator): IO[Unit] = {
