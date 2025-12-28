@@ -23,11 +23,13 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path) extends CompilerProc
         addSource(sourceDir.resolve("main.els").toFile, generateMainSource(ffqn)) >> getFact(
           UsedSymbols.Key(FunctionFQN(ModuleName(Seq(), "main"), "main"))
         )
-          .flatMap(_.traverse_(generateFromFact))
+          .flatMap(_.traverse_(us => generateFromFact(ffqn, us)))
       case _                               => IO.unit
     }
 
-  private def generateFromFact(usedSymbols: UsedSymbols)(using CompilationProcess): IO[Unit] = {
+  private def generateFromFact(requestedFfqn: FunctionFQN, usedSymbols: UsedSymbols)(using
+      CompilationProcess
+  ): IO[Unit] = {
     val groupedFunctions = usedSymbols.usedFunctions.groupBy(_.value.moduleName)
     val groupedTypes     = usedSymbols.usedTypes.groupBy(_.value.moduleName)
     val facts            = (groupedFunctions.keys ++ groupedTypes.keys)
@@ -44,7 +46,7 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path) extends CompilerProc
       _            <- facts.traverse_(registerFact) // FIXME: do this in a linear way, not circular way
       classesMaybe <- facts.map(_.moduleName).traverse(moduleName => getFact(GeneratedModule.Key(moduleName)))
       _            <- classesMaybe.sequence.traverse_(cs =>
-                        generateJarFile(usedSymbols.ffqn, cs)
+                        generateJarFile(requestedFfqn, cs)
                       ) // Skips jar if not all modules got bytecode
     } yield ()
   }

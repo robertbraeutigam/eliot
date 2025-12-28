@@ -14,7 +14,7 @@
             <AppenderRef ref="Console"/>
          </Root>
            <!-- <Logger name="com.vanillasource.eliot.eliotc.jvm.JvmClassGenerator" level="debug"/> -->
-           <Logger name="com.vanillasource.eliot.eliotc.typesystem" level="debug"/>
+           <!-- <Logger name="com.vanillasource.eliot.eliotc.typesystem" level="debug"/> -->
     </Loggers>
 </Configuration>
 
