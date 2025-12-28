@@ -80,7 +80,7 @@ class FunctionResolver
           for {
             newArgs <- args.traverse(resolveExpression)
           } yield expr.as(
-            newArgs.foldRight[Expression](Expression.ParameterReference(s.as(name)))((arg, expr) =>
+            newArgs.foldLeft[Expression](Expression.ParameterReference(s.as(name)))((expr, arg) =>
               Expression.FunctionApplication(s.as(expr), arg)
             )
           ),
@@ -89,7 +89,7 @@ class FunctionResolver
               for {
                 newArgs <- args.traverse(resolveExpression)
               } yield expr.as(
-                newArgs.foldRight[Expression](Expression.ValueReference(s.as(ffqn)))((arg, expr) =>
+                newArgs.foldLeft[Expression](Expression.ValueReference(s.as(ffqn)))((expr, arg) =>
                   Expression.FunctionApplication(s.as(expr), arg)
                 )
               )
@@ -108,7 +108,7 @@ class FunctionResolver
           val ffqn       = FunctionFQN(moduleName, fnName)
           val outline    = Sourced.outline(Seq(moduleNameSrc, fnNameSrc))
           expr.as(
-            newArgs.foldRight[Expression](Expression.ValueReference(outline.as(ffqn)))((arg, expr) =>
+            newArgs.foldLeft[Expression](Expression.ValueReference(outline.as(ffqn)))((expr, arg) =>
               Expression.FunctionApplication(outline.as(expr), arg)
             )
           )
