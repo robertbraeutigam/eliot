@@ -135,9 +135,8 @@ case class TypeUnification private (
     }
   }
 
-  // TODO: Fix .get() here
-  def getSourceType(source: Sourced[?]): TypeReference =
-    assignments.find(_.source.range === source.range).get.source.value
+  def getSourceType(source: Sourced[?]): Option[TypeReference] =
+    assignments.find(_.source.range === source.range).map(_.source.value)
 }
 
 object TypeUnification {

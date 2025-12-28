@@ -38,9 +38,10 @@ class TypeCheckProcessor
           fullTypeGraph         = typeGraph `combine` constructedTypeGraph
           _                    <- debug[CompilationIO](s"Solving ${fullTypeGraph.show}")
           solution             <- fullTypeGraph.solve()
+          typedDefinition      <- enhanceWithTypes(functionDefinition, fullTypeGraph, solution)
           _                    <-
             registerFact(
-              TypeCheckedFunction(resolvedFunction.ffqn, enhanceWithTypes(functionDefinition, fullTypeGraph, solution))
+              TypeCheckedFunction(resolvedFunction.ffqn, typedDefinition)
             ).liftIfNoErrors
         } yield ()
 
@@ -53,47 +54,57 @@ class TypeCheckProcessor
       functionDefinition: FunctionDefinition,
       fullGraph: TypeUnification,
       solution: TypeUnificationState
-  ): TypedFunctionDefinition =
-    TypedFunctionDefinition(
-      functionDefinition.name,
-      functionDefinition.genericParameters,
-      enhanceWithTypes(functionDefinition.body.get, fullGraph, solution)
-    )
+  )(using CompilationProcess): CompilationIO[TypedFunctionDefinition] =
+    enhanceWithTypes(functionDefinition.body.get, fullGraph, solution).map { typedBody =>
+      TypedFunctionDefinition(
+        functionDefinition.name,
+        functionDefinition.genericParameters,
+        typedBody
+      )
+    }
 
   private def enhanceWithTypes(
       expression: Sourced[Expression],
       fullGraph: TypeUnification,
       solution: TypeUnificationState
-  ): Sourced[TypedExpression] =
-    expression.as(
-      TypedExpression(
-        // TODO: This is not always the "fully" solved type
-        solution.getCurrentType(fullGraph.getSourceType(expression)),
-        convertExpression(expression.value, fullGraph, solution)
-      )
-    )
+  )(using CompilationProcess): CompilationIO[Sourced[TypedExpression]] =
+    fullGraph.getSourceType(expression) match {
+      case Some(sourceType) =>
+        convertExpression(expression.value, fullGraph, solution).map { typedExpr =>
+          expression.as(
+            TypedExpression(
+              // TODO: This is not always the "fully" solved type
+              solution.getCurrentType(sourceType),
+              typedExpr
+            )
+          )
+        }
+      case None             => compilerAbort(expression.as("No type found for expression."))
+    }
 
   private def convertExpression(
       expression: Expression,
       fullGraph: TypeUnification,
       solution: TypeUnificationState
-  ): TypedExpression.Expression =
+  )(using CompilationProcess): CompilationIO[TypedExpression.Expression] =
     expression match {
       case FunctionApplication(target, argument) =>
-        TypedExpression.FunctionApplication(
-          enhanceWithTypes(target, fullGraph, solution),
-          enhanceWithTypes(argument, fullGraph, solution)
-        )
+        for {
+          typedTarget   <- enhanceWithTypes(target, fullGraph, solution)
+          typedArgument <- enhanceWithTypes(argument, fullGraph, solution)
+        } yield TypedExpression.FunctionApplication(typedTarget, typedArgument)
       case IntegerLiteral(integerLiteral)        =>
-        TypedExpression.IntegerLiteral(integerLiteral)
+        TypedExpression.IntegerLiteral(integerLiteral).pure[CompilationIO]
       case StringLiteral(stringLiteral)          =>
-        TypedExpression.StringLiteral(stringLiteral)
+        TypedExpression.StringLiteral(stringLiteral).pure[CompilationIO]
       case ParameterReference(parameterName)     =>
-        TypedExpression.ParameterReference(parameterName)
+        TypedExpression.ParameterReference(parameterName).pure[CompilationIO]
       case ValueReference(valueName)             =>
-        TypedExpression.ValueReference(valueName)
+        TypedExpression.ValueReference(valueName).pure[CompilationIO]
       case FunctionLiteral(parameter, body)      =>
-        TypedExpression.FunctionLiteral(parameter, enhanceWithTypes(body, fullGraph, solution))
+        enhanceWithTypes(body, fullGraph, solution).map { typedBody =>
+          TypedExpression.FunctionLiteral(parameter, typedBody)
+        }
     }
 
   private type TypeGraphIO[T] = StateT[CompilationIO, UniqueGenericNames, T]
