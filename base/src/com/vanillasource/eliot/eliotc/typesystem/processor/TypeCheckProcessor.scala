@@ -39,6 +39,7 @@ class TypeCheckProcessor
           _                    <- debug[CompilationIO](s"Solving ${fullTypeGraph.show}")
           solution             <- fullTypeGraph.solve()
           typedDefinition      <- enhanceWithTypes(functionDefinition, fullTypeGraph, solution)
+          _                    <- typedDefinition.debugExpressionTypes.liftToCompilationIO
           _                    <-
             registerFact(
               TypeCheckedFunction(resolvedFunction.ffqn, typedDefinition)
