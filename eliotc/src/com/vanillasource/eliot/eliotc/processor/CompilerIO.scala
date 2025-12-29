@@ -20,14 +20,16 @@ object CompilerIO {
   def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): CompilerIO[V] =
     for {
       process <- ReaderT.ask[WriterStage, CompilationProcess]
-      fact    <- WriterT.liftF[OptionStage, Chain[Error], V](OptionT(process.getFact(key)))
+      fact    <- ReaderT.liftF[WriterStage, CompilationProcess, V](WriterT.liftF(OptionT(process.getFact(key))))
     } yield fact
 
   /** Registers the fact, but only if the current compiler process is clean of errors!
     */
-  def registerFact(value: CompilerFact)(using process: CompilationProcess): CompilerIO[Unit] =
+  def registerFact(value: CompilerFact): CompilerIO[Unit] =
     for {
       process <- ReaderT.ask[WriterStage, CompilationProcess]
+      _       <-
+        ReaderT.liftF[WriterStage, CompilationProcess, Unit](WriterT.liftF(OptionT.liftF(process.registerFact(value))))
     } yield ()
 
 }
