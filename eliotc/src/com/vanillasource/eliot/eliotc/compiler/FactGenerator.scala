@@ -1,12 +1,20 @@
 package com.vanillasource.eliot.eliotc.compiler
 
+import cats.data.Chain
 import cats.effect.{Deferred, IO, Ref}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.{
+  CompilationProcess,
+  CompilerFact,
+  CompilerFactKey,
+  CompilerIO,
+  CompilerProcessor
+}
 
 final class FactGenerator(
     generator: CompilerProcessor,
+    errors: Ref[IO, Chain[CompilerIO.Error]],
     facts: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]]
 ) extends CompilationProcess
     with Logging {
@@ -18,7 +26,8 @@ final class FactGenerator(
                         .generate(key)
                         .run(this)
                         .run
-                        .value // FIXME: extract errors!
+                        .fold(identity, _._1)
+                        .flatMap(es => errors.update(_ ++ es))
                         .recoverWith(t => error[IO](s"Getting (${key.getClass.getName}) $key failed.", t)) >>
                         modifyResult._1.complete(None)).start
                         .whenA(modifyResult._2) // Only if we are first
@@ -56,7 +65,8 @@ final class FactGenerator(
 
 object FactGenerator {
   def create(generator: CompilerProcessor): IO[FactGenerator] =
-    Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]](Map.empty).map { ref =>
-      new FactGenerator(generator, ref)
-    }
+    for {
+      errors <- Ref.of[IO, Chain[CompilerIO.Error]](Chain.empty)
+      facts  <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]](Map.empty)
+    } yield new FactGenerator(generator, errors, facts)
 }
