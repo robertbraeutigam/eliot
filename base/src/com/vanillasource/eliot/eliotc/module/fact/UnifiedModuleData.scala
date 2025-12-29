@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.module.fact
 
 import com.vanillasource.eliot.eliotc.ast.{DataDefinition, FunctionDefinition}
-import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 case class UnifiedModuleData(
     tfqn: TypeFQN,

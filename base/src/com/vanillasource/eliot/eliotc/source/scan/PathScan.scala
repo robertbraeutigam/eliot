@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.source.scan
 
-import com.vanillasource.eliot.eliotc.{CompilerFact, CompilerFactKey}
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 import java.io.File
 import java.nio.file.Path

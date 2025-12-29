@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc
+package com.vanillasource.eliot.eliotc.processor
 
 /** A single piece of information produced during the compilation process. Processors don't have an own state, i.e. all
   * processors are stateless. The only way processors keep track of the process is to consume and produce facts.

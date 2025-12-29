@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.main
 import cats.effect.{Deferred, IO, Ref}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
 final class FactGenerator(
     generator: CompilerProcessor,

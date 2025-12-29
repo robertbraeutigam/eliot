@@ -2,9 +2,9 @@ package com.vanillasource.eliot.eliotc.source.content
 
 import cats.effect.{IO, Resource}
 import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
-import com.vanillasource.eliot.eliotc.CompilationProcess.registerFact
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.registerFact
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
 import java.io.File
 import scala.io.Source

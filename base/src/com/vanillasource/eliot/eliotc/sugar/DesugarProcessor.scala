@@ -2,12 +2,12 @@ package com.vanillasource.eliot.eliotc.sugar
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.CompilationProcess
-import com.vanillasource.eliot.eliotc.CompilationProcess.registerFact
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.registerFact
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
+import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
 
 class DesugarProcessor
     extends OneToOneProcessor((key: DesugaredSourceAST.Key) => SourceAST.Key(key.file))

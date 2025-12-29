@@ -6,7 +6,6 @@ import cats.effect.IO
 import cats.implicits.*
 import cats.syntax.all.*
 import cats.kernel.Monoid
-import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
@@ -14,6 +13,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{GenericParameter, TypeRefere
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import TypeUnification.Assignment
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 
 case class TypeUnification private (
     genericParameters: Map[String, GenericParameter],

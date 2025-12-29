@@ -3,10 +3,10 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.CompilationProcess.registerFact
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.registerFact
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN, UnifiedModuleFunction}
-import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.FunctionLiteral
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
@@ -14,7 +14,8 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
+import com.vanillasource.eliot.eliotc.ast
+import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
 
 class FunctionResolver
     extends OneToOneProcessor((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))

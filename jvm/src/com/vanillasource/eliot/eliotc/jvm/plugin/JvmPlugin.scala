@@ -9,9 +9,10 @@ import com.vanillasource.eliot.eliotc.main.Compiler
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
-import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.impl.SequentialCompilerProcessors
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
 import scopt.{OParser, OParserBuilder}
+
 import java.nio.file.Path
 
 class JvmPlugin extends CompilerPlugin {

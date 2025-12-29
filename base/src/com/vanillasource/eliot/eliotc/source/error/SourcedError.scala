@@ -1,9 +1,9 @@
 package com.vanillasource.eliot.eliotc.source.error
 
 import cats.effect.IO
-import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey}
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.source.pos.{Position, PositionRange, Sourced}
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey}
 
 import java.io.File
 

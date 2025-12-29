@@ -1,9 +1,9 @@
-package com.vanillasource.eliot.eliotc.processor
+package com.vanillasource.eliot.eliotc.processor.impl
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.CompilationProcess.getFact
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.getFact
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
 import scala.annotation.unused
 import scala.reflect.ClassTag

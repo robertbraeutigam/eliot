@@ -2,13 +2,13 @@ package com.vanillasource.eliot.eliotc.jvm.jargen
 
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.{GenerateModule, GeneratedModule}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.content.SourceContent.addSource
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.StandardOpenOption.*

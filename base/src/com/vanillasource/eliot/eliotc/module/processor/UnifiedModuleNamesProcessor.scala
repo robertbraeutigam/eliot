@@ -4,12 +4,12 @@ import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ModuleNames, UnifiedModuleNames}
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
 class UnifiedModuleNamesProcessor extends CompilerProcessor with Logging {
   override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =

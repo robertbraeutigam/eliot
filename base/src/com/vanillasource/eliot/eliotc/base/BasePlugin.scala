@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.base
 import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.CompilerProcessor
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.base.BasePlugin.pathKey
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
@@ -15,7 +14,8 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleFunctionProcessor,
   UnifiedModuleNamesProcessor
 }
-import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
+import com.vanillasource.eliot.eliotc.processor.impl.SequentialCompilerProcessors
+import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.error.ErrorReporter

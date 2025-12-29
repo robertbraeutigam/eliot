@@ -4,11 +4,10 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.implicits.*
 import cats.kernel.Monoid
-import com.vanillasource.eliot.eliotc.CompilationProcess
-import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
@@ -18,6 +17,7 @@ import com.vanillasource.eliot.eliotc.typesystem.fact.{TypeCheckedFunction, Type
 import com.vanillasource.eliot.eliotc.typesystem.types.TypeUnification.*
 import com.vanillasource.eliot.eliotc.typesystem.types.UniqueGenericNames.*
 import com.vanillasource.eliot.eliotc.typesystem.types.{TypeUnification, TypeUnificationState, UniqueGenericNames}
+import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
 
 class TypeCheckProcessor
     extends OneToOneProcessor((key: TypeCheckedFunction.Key) => ResolvedFunction.Key(key.ffqn))

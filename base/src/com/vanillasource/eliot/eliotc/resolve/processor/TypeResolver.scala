@@ -2,17 +2,18 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleData
-import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, DataDefinition, ResolvedData, TypeReference}
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.source.pos.Sourced
-import com.vanillasource.eliot.eliotc.{CompilationProcess, ast}
+import com.vanillasource.eliot.eliotc.ast
+import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
 
 class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn)) with Logging {
   override def generateFromFact(moduleData: UnifiedModuleData)(using CompilationProcess): IO[Unit] = {

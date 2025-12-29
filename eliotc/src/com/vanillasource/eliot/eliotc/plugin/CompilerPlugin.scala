@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.plugin
 
 import cats.data.StateT
 import cats.effect.IO
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
 import scopt.OParser
 
 import scala.annotation.unused

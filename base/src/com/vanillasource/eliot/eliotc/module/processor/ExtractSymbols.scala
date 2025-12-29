@@ -2,9 +2,9 @@ package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.CompilationProcess
 import com.vanillasource.eliot.eliotc.ast.{DataDefinition, FunctionDefinition}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
 
 import java.nio.file.{Path, Paths}

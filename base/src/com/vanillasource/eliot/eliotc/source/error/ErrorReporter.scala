@@ -3,12 +3,12 @@ package com.vanillasource.eliot.eliotc.source.error
 import cats.effect.IO
 import cats.effect.std.Console
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.User.*
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.pos.Position.{Column, Line}
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
 import java.io.File
 import scala.io.AnsiColor.{BOLD, MAGENTA, RED, RESET}

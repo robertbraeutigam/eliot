@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
-import com.vanillasource.eliot.eliotc.processor.NullProcessor
+import com.vanillasource.eliot.eliotc.processor.impl.NullProcessor
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
 

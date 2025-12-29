@@ -1,12 +1,12 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.effect.IO
-import com.vanillasource.eliot.eliotc.CompilationProcess
-import com.vanillasource.eliot.eliotc.CompilationProcess.registerFact
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.registerFact
 import com.vanillasource.eliot.eliotc.module.fact.ModuleNames
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.*
-import com.vanillasource.eliot.eliotc.processor.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
+import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
 
 class ModuleNamesProcessor extends OneToOneProcessor((key: ModuleNames.Key) => DesugaredSourceAST.Key(key.file)) {
   override def generateFromKeyAndFact(key: ModuleNames.Key, fact: DesugaredSourceAST)(using

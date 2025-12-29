@@ -7,7 +7,8 @@ import cats.syntax.all.*
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.main.FactGenerator
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
-import com.vanillasource.eliot.eliotc.processor.SequentialCompilerProcessors
+import com.vanillasource.eliot.eliotc.processor.impl.SequentialCompilerProcessors
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.pos.{PositionRange, Sourced}
 import com.vanillasource.eliot.eliotc.source.error.{ErrorReporter, SourcedError}

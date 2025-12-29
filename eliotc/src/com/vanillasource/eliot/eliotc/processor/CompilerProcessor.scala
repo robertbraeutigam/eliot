@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc
+package com.vanillasource.eliot.eliotc.processor
 
 import cats.effect.IO
 

@@ -3,14 +3,14 @@ package com.vanillasource.eliot.eliotc.module.processor
 import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.CompilationProcess.{getFact, registerFact}
+import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.ast.FunctionDefinition
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleFunction, UnifiedModuleFunction}
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
-import com.vanillasource.eliot.eliotc.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 
 class UnifiedModuleFunctionProcessor extends CompilerProcessor {
   override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =
