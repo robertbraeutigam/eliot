@@ -30,6 +30,13 @@ object CompilerIO {
         )
     } yield fact
 
+  /** Register an error.
+    */
+  def compilerError(message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[Unit] =
+    ReaderT.liftF[WriterStage, CompilationProcess, Unit](
+      WriterT.tell[EitherStage, Chain[Error]](Chain.one(Error(message, description)))
+    )
+
   /** Returns true if there are no errors accumulated in the CompilerIO.
     */
   def isClear: CompilerIO[Boolean] = currentErrors.map(_.isEmpty)
