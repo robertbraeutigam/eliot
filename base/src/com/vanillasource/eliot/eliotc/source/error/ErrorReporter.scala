@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, reg
 import com.vanillasource.eliot.eliotc.feedback.User.*
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
-import com.vanillasource.eliot.eliotc.source.pos.Position.{Column, Line}
+import com.vanillasource.eliot.eliotc.pos.Position.{Column, Line}
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 import java.io.File

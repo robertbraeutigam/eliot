@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.source.pos
+package com.vanillasource.eliot.eliotc.pos
 
 import cats.{Order, Show}
 

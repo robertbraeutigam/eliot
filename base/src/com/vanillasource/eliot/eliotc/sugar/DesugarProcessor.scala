@@ -5,8 +5,8 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess.registerFact
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
 
 class DesugarProcessor

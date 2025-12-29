@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.ast
 
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
+import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.parser.Parser
 

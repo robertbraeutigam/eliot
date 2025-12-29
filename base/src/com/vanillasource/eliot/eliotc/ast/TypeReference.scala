@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.ast
 import cats.syntax.all.*
 import cats.{Eq, Show}
 import com.vanillasource.eliot.eliotc.ast.Primitives.*
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
+import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.parser.Parser
 import com.vanillasource.parser.Parser.acceptIfAll

@@ -7,12 +7,12 @@ import cats.kernel.Monoid
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
+import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.fact.{TypeCheckedFunction, TypedExpression, TypedFunctionDefinition}
 import com.vanillasource.eliot.eliotc.typesystem.types.TypeUnification.*
 import com.vanillasource.eliot.eliotc.typesystem.types.UniqueGenericNames.*

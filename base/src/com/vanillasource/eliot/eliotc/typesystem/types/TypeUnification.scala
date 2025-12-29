@@ -11,8 +11,8 @@ import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGen
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.{GenericParameter, TypeReference}
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import TypeUnification.Assignment
+import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 
 case class TypeUnification private (

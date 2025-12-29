@@ -3,9 +3,9 @@ package com.vanillasource.eliot.eliotc.source.error
 import cats.data.{IndexedStateT, OptionT, StateT}
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 import java.io.File

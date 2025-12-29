@@ -13,11 +13,11 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.NativeImplementation.implemen
 import com.vanillasource.eliot.eliotc.jvm.classgen.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
+import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.fact.{TypeCheckedFunction, TypedExpression}
 import com.vanillasource.eliot.eliotc.typesystem.fact.TypedExpression.*
 import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor

@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleDataProcessor,
   UnifiedModuleFunctionProcessor
 }
+import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{
   FunctionLiteral,
   IntegerLiteral,
@@ -17,7 +18,6 @@ import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{
 }
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedFunction}
 import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 

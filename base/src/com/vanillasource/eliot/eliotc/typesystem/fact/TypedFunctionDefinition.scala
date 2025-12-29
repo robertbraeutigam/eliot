@@ -3,10 +3,10 @@ package com.vanillasource.eliot.eliotc.typesystem.fact
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.resolve.fact.{GenericParameter, TypeReference}
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
-import com.vanillasource.eliot.eliotc.source.pos.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.fact.TypedFunctionDefinition.*
 
 case class TypedFunctionDefinition(
