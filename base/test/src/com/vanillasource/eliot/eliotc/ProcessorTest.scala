@@ -5,7 +5,7 @@ import cats.effect.IO
 import cats.effect.std.Console
 import cats.syntax.all.*
 import cats.effect.testing.scalatest.AsyncIOSpec
-import com.vanillasource.eliot.eliotc.main.FactGenerator
+import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.processor.impl.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, CompilerProcessor}

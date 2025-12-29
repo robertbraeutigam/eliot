@@ -5,7 +5,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.base.BasePlugin
 import com.vanillasource.eliot.eliotc.jvm.classgen.JvmClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.jargen.{GenerateExecutableJar, JvmProgramGenerator}
-import com.vanillasource.eliot.eliotc.main.Compiler
+import com.vanillasource.eliot.eliotc.compiler.Compiler
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}

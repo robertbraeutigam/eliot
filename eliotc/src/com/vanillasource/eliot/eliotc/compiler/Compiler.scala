@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.main
+package com.vanillasource.eliot.eliotc.compiler
 
 import cats.data.OptionT
 import cats.effect.IO

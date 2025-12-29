@@ -24,7 +24,7 @@ object `package` extends Module {
 
    object examples extends DefaultScalaModule {
      override def moduleDeps = Seq(eliotc, jvm)
-     override def mainClass = Some("com.vanillasource.eliot.eliotc.main.Main")
+     override def mainClass = Some("com.vanillasource.eliot.eliotc.compiler.Main")
    }
 
    trait DefaultScalaModule extends ScalaModule {

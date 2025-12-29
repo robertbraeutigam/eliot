@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.main
+package com.vanillasource.eliot.eliotc.compiler
 
 import cats.effect.{Deferred, IO, Ref}
 import cats.syntax.all.*

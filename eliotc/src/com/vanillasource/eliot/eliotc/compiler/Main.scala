@@ -1,7 +1,7 @@
-package com.vanillasource.eliot.eliotc.main
+package com.vanillasource.eliot.eliotc.compiler
 
 import cats.effect.{ExitCode, IO, IOApp}
-import com.vanillasource.eliot.eliotc.main.Compiler.runCompiler
+import com.vanillasource.eliot.eliotc.compiler.Compiler.runCompiler
 import com.vanillasource.eliot.eliotc.feedback.Logging
 
 object Main extends IOApp with Logging {
