@@ -17,16 +17,4 @@ trait CompilationProcess {
   def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]]
 
   def registerFact(value: CompilerFact): IO[Unit]
-
-  def registerFacts(values: Seq[CompilerFact]): IO[Unit] =
-    values.map(registerFact).sequence_
-}
-
-/** Convenience functions that use implicit compilation process. */
-object CompilationProcess {
-  def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K)(using process: CompilationProcess): IO[Option[V]] =
-    process.getFact(key)
-
-  def registerFact(value: CompilerFact)(using process: CompilationProcess): IO[Unit] =
-    process.registerFact(value)
 }
