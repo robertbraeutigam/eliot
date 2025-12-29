@@ -20,7 +20,7 @@ object CompilerIO {
 
   /** Returns the fact from the running compiler or short circuits.
     */
-  def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): CompilerIO[V] =
+  def getFactOrAbort[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): CompilerIO[V] =
     for {
       process <- ReaderT.ask[WriterStage, CompilationProcess]
       errors  <- currentErrors
@@ -50,7 +50,7 @@ object CompilerIO {
 
   /** Registers the fact, but only if the current compiler process is clean of errors!
     */
-  def registerFact(value: CompilerFact): CompilerIO[Unit] =
+  def registerFactIfClear(value: CompilerFact): CompilerIO[Unit] =
     for {
       process <- ReaderT.ask[WriterStage, CompilationProcess]
       _       <- isClear.ifM(

@@ -84,7 +84,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     process.registerFactSync(testFact)
 
     runCompilerIOWithProcess(process) {
-      getFact(TestFactKey)
+      getFactOrAbort(TestFactKey)
     }.asserting(_ shouldBe Some(testFact))
   }
 
@@ -92,7 +92,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     val process = new TestCompilationProcess()
 
     runCompilerIOWithProcess(process) {
-      getFact(TestFactKey)
+      getFactOrAbort(TestFactKey)
     }.asserting(_ shouldBe None)
   }
 
@@ -102,7 +102,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     runCompilerIOWithProcess(process) {
       for {
         _    <- compilerError(testSourced("error"))
-        fact <- getFact(TestFactKey)
+        fact <- getFactOrAbort(TestFactKey)
       } yield fact
     }.asserting(_ shouldBe None)
   }
@@ -112,7 +112,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     val testFact = TestFact("test")
 
     runCompilerIOWithProcess(process) {
-      registerFact(testFact)
+      registerFactIfClear(testFact)
     }.asserting { result =>
       result shouldBe Some(())
       process.facts should contain(testFact)
@@ -126,7 +126,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     runCompilerIOWithProcess(process) {
       for {
         _ <- compilerError(testSourced("error"))
-        _ <- registerFact(testFact)
+        _ <- registerFactIfClear(testFact)
       } yield ()
     }.asserting { result =>
       result shouldBe Some(())

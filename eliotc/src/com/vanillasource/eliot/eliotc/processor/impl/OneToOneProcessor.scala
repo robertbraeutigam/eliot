@@ -17,7 +17,7 @@ abstract class OneToOneProcessor[V <: CompilerFact, I <: CompilerFactKey[V], O <
     factKey match {
       case requestedKey: O =>
         val key = keyTransition(requestedKey)
-        getFact(key).flatMap(fact => generateFromKeyAndFact(requestedKey, fact))
+        getFactOrAbort(key).flatMap(fact => generateFromKeyAndFact(requestedKey, fact))
       case _               => Monad[CompilerIO].unit
     }
 
