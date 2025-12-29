@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.processor
 
 import cats.Monad
-import cats.data.{Chain, EitherT, ReaderT, WriterT}
+import cats.data.{Chain, EitherT, ReaderT, StateT}
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.pos.Sourced
@@ -10,8 +10,8 @@ object CompilerIO {
   case class Error(message: Sourced[String], description: Seq[String])
 
   private type EitherStage[T] = EitherT[IO, Chain[Error], T]
-  private type WriterStage[T] = WriterT[EitherStage, Chain[Error], T]
-  private type ReaderStage[T] = ReaderT[WriterStage, CompilationProcess, T]
+  private type StateStage[T] = StateT[EitherStage, Chain[Error], T]
+  private type ReaderStage[T] = ReaderT[StateStage, CompilationProcess, T]
 
   /** The effect all compiler processors run in. It is capable of accumulating errors, short-circuiting, and has access
     * to the CompilationProcess.
@@ -22,19 +22,19 @@ object CompilerIO {
     */
   def getFactOrAbort[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): CompilerIO[V] =
     for {
-      process <- ReaderT.ask[WriterStage, CompilationProcess]
+      process <- ReaderT.ask[StateStage, CompilationProcess]
       errors  <- currentErrors
       fact    <-
-        ReaderT.liftF[WriterStage, CompilationProcess, V](
-          WriterT.liftF(EitherT(process.getFact(key).map(_.toRight(errors))))
+        ReaderT.liftF[StateStage, CompilationProcess, V](
+          StateT.liftF(EitherT(process.getFact(key).map(_.toRight(errors))))
         )
     } yield fact
 
   /** Register an error.
     */
   def compilerError(message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[Unit] =
-    ReaderT.liftF[WriterStage, CompilationProcess, Unit](
-      WriterT.tell[EitherStage, Chain[Error]](Chain.one(Error(message, description)))
+    ReaderT.liftF[StateStage, CompilationProcess, Unit](
+      StateT.modify[EitherStage, Chain[Error]](errors => errors :+ Error(message, description))
     )
 
   /** Returns true if there are no errors accumulated in the CompilerIO.
@@ -44,18 +44,18 @@ object CompilerIO {
   /** Returns the currently accumulated errors.
     */
   def currentErrors: CompilerIO[Chain[Error]] =
-    ReaderT.liftF[WriterStage, CompilationProcess, Chain[Error]](
-      WriterT.liftF(Monad[EitherStage].unit).listen.map { case (_, errors) => errors }
+    ReaderT.liftF[StateStage, CompilationProcess, Chain[Error]](
+      StateT.get[EitherStage, Chain[Error]]
     )
 
   /** Registers the fact, but only if the current compiler process is clean of errors!
     */
   def registerFactIfClear(value: CompilerFact): CompilerIO[Unit] =
     for {
-      process <- ReaderT.ask[WriterStage, CompilationProcess]
+      process <- ReaderT.ask[StateStage, CompilationProcess]
       _       <- isClear.ifM(
-                   ReaderT.liftF[WriterStage, CompilationProcess, Unit](
-                     WriterT.liftF(EitherT.liftF(process.registerFact(value)))
+                   ReaderT.liftF[StateStage, CompilationProcess, Unit](
+                     StateT.liftF(EitherT.liftF(process.registerFact(value)))
                    ),
                    Monad[CompilerIO].unit
                  )

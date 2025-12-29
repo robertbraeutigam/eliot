@@ -25,8 +25,8 @@ final class FactGenerator(
       _            <- (generator
                         .generate(key)
                         .run(this)
-                        .run
-                        .fold(identity, _._1)
+                        .runS(Chain.empty)
+                        .fold(identity, identity)
                         .flatMap(es => errors.update(_ ++ es))
                         .recoverWith(t => error[IO](s"Getting (${key.getClass.getName}) $key failed.", t)) >>
                         modifyResult._1.complete(None)).start

@@ -10,8 +10,12 @@ import org.scalatest.matchers.should.Matchers
 
 import java.io.File
 
-// FIXME: fix all of these tests
+// FIXME: go through these tests
 class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+  private val testFile                 = new File("test.el")
+  private val testRange                = PositionRange.zero
+  private def testSourced(msg: String) = Sourced(testFile, testRange, msg)
+
   "isClear" should "be true if nothing yet happened" in {
     runCompilerIO {
       isClear
@@ -35,9 +39,10 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       } yield errors
     }.asserting { result =>
       result shouldBe defined
-      result.get.size shouldBe 1
-      result.head.headOption.get.message.value shouldBe "test error"
-      result.head.headOption.get.description shouldBe Seq.empty
+      val chain = result.get
+      chain.size shouldBe 1
+      chain.toList.head.message.value shouldBe "test error"
+      chain.toList.head.description shouldBe Seq.empty
     }
   }
 
@@ -49,9 +54,10 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       } yield errors
     }.asserting { result =>
       result shouldBe defined
-      result.get.size shouldBe 1
-      result.head.headOption.get.message.value shouldBe "test error"
-      result.head.headOption.get.description shouldBe Seq("line 1", "line 2")
+      val chain = result.get
+      chain.size shouldBe 1
+      chain.toList.head.message.value shouldBe "test error"
+      chain.toList.head.description shouldBe Seq("line 1", "line 2")
     }
   }
 
@@ -73,12 +79,13 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       } yield errors
     }.asserting { result =>
       result shouldBe defined
-      result.get.size shouldBe 3
-      result.get.toList.map(_.message.value) shouldBe List("error 1", "error 2", "error 3")
+      val chain = result.get
+      chain.size shouldBe 3
+      chain.toList.map(_.message.value) shouldBe List("error 1", "error 2", "error 3")
     }
   }
 
-  "getFact" should "return fact when available" in {
+  "getFactOrAbort" should "return fact when available" in {
     val process  = new TestCompilationProcess()
     val testFact = TestFact("test")
     process.registerFactSync(testFact)
@@ -107,7 +114,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     }.asserting(_ shouldBe None)
   }
 
-  "registerFact" should "register fact when no errors" in {
+  "registerFactIfClear" should "register fact when no errors" in {
     val process  = new TestCompilationProcess()
     val testFact = TestFact("test")
 
@@ -134,16 +141,14 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     }
   }
 
-  private val testFile  = new File("test.el")
-  private val testRange = PositionRange.zero
-
-  private def testSourced(msg: String) = Sourced(testFile, testRange, msg)
-
   private def runCompilerIO[T](value: CompilerIO[T]): IO[Option[T]] =
-    value.run(null).run.fold(_ => None, t => Some(t._2))
+    runCompilerIOWithProcess(null)(value)
 
   private def runCompilerIOWithProcess[T](process: CompilationProcess)(value: CompilerIO[T]): IO[Option[T]] =
-    value.run(process).run.fold(_ => None, t => Some(t._2))
+    value.run(process).run(Chain.empty).value.map {
+      case Left(_)       => None
+      case Right((_, t)) => Some(t)
+    }
 
   // Test fixtures
   case class TestFact(value: String) extends CompilerFact {
