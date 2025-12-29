@@ -15,7 +15,10 @@ final class FactGenerator(
       _            <- debug[IO](s"Getting (${key.getClass.getName}) $key")
       modifyResult <- modifyAtomicallyFor(key)
       _            <- (generator
-                        .generate(key)(using this)
+                        .generate(key)
+                        .run(this)
+                        .run
+                        .value // FIXME: extract errors!
                         .recoverWith(t => error[IO](s"Getting (${key.getClass.getName}) $key failed.", t)) >>
                         modifyResult._1.complete(None)).start
                         .whenA(modifyResult._2) // Only if we are first
