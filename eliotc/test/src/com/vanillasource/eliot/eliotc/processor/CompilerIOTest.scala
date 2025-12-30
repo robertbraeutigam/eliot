@@ -37,13 +37,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
         _      <- compilerError(testSourced("test error"))
         errors <- currentErrors
       } yield errors
-    }.asserting { result =>
-      result shouldBe defined
-      val chain = result.get
-      chain.size shouldBe 1
-      chain.toList.head.message.value shouldBe "test error"
-      chain.toList.head.description shouldBe Seq.empty
-    }
+    }.asserting(_.map(_.toList.map(e => (e.message.value, e.description))) shouldBe Some(Seq(("test error", Seq.empty))))
   }
 
   it should "register an error with a message and description" in {
@@ -52,21 +46,13 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
         _      <- compilerError(testSourced("test error"), Seq("line 1", "line 2"))
         errors <- currentErrors
       } yield errors
-    }.asserting { result =>
-      result shouldBe defined
-      val chain = result.get
-      chain.size shouldBe 1
-      chain.toList.head.message.value shouldBe "test error"
-      chain.toList.head.description shouldBe Seq("line 1", "line 2")
-    }
+    }.asserting(_.map(_.toList.map(e => (e.message.value, e.description))) shouldBe Some(Seq(("test error", Seq("line 1", "line 2")))))
   }
 
   "currentErrors" should "return empty chain when no errors" in {
     runCompilerIO {
       currentErrors
-    }.asserting { result =>
-      result shouldBe Some(Chain.empty)
-    }
+    }.asserting(_ shouldBe Some(Chain.empty))
   }
 
   it should "accumulate multiple errors" in {
@@ -77,12 +63,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
         _      <- compilerError(testSourced("error 3"))
         errors <- currentErrors
       } yield errors
-    }.asserting { result =>
-      result shouldBe defined
-      val chain = result.get
-      chain.size shouldBe 3
-      chain.toList.map(_.message.value) shouldBe List("error 1", "error 2", "error 3")
-    }
+    }.asserting(_.map(_.toList.map(_.message.value)) shouldBe Some(Seq("error 1", "error 2", "error 3")))
   }
 
   "getFactOrAbort" should "return fact when available" in {
