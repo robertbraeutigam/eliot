@@ -112,14 +112,14 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   case class TestFactKey(value: String) extends CompilerFactKey[TestFact]
 
   class TestCompilationProcess extends CompilationProcess {
-    var facts: List[CompilerFact] = List.empty
+    var facts: Map[CompilerFactKey[?], CompilerFact] = Map.empty
 
     def registerFactSync(fact: CompilerFact): Unit = {
-      facts = facts :+ fact
+      facts = facts.updated(fact.key(), fact)
     }
 
     override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] =
-      IO.pure(facts.collectFirst { case f: V => f })
+      IO.pure(facts.get(key).map(_.asInstanceOf[V]))
 
     override def registerFact(value: CompilerFact): IO[Unit] =
       IO { registerFactSync(value) }
