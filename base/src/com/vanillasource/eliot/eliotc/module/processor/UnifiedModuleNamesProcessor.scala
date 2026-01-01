@@ -1,37 +1,32 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
-import cats.data.OptionT
+import cats.Monad
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ModuleNames, UnifiedModuleNames}
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
-import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
-import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 class UnifiedModuleNamesProcessor extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =
+  override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
     factKey match {
-      case UnifiedModuleNames.Key(moduleName) => unifyModules(moduleName).getOrUnit
-      case _                                  => IO.unit
+      case UnifiedModuleNames.Key(moduleName) => unifyModules(moduleName)
+      case _                                  => Monad[CompilerIO].unit
     }
 
-  private def unifyModules(name: ModuleName)(using CompilationProcess): OptionT[IO, Unit] =
+  private def unifyModules(name: ModuleName): CompilerIO[Unit] =
     for {
-      files    <- getFact(PathScan.Key(pathName(name))).toOptionT.map(_.files)
-      allNames <- files.traverse(file => getFact(ModuleNames.Key(file))).map(_.sequence).toOptionT
-      _        <-
-        debug[OptionTIO](
-          s"Unified ${name.show} has functions: ${allNames.map(_.functionNames).flatten.toSet.mkString(", ")}, data: ${allNames.map(_.typeNames).flatten.toSet.mkString(", ")}"
-        )
-      _        <- registerFact(
+      pathScan <- getFactOrAbort(PathScan.Key(pathName(name)))
+      allNames <- pathScan.files.traverse(file => getFactOrAbort(ModuleNames.Key(file)))
+      _        <- registerFactIfClear(
                     UnifiedModuleNames(
                       name,
                       allNames.map(_.functionNames).flatten.toSet,
                       allNames.map(_.typeNames).flatten.toSet
                     )
-                  ).liftOptionT
+                  )
     } yield ()
 }

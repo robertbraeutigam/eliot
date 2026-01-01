@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.token
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.processor.CompilationProcess.registerFact
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
   * comments.
   */
 class Tokenizer extends OneToOneProcessor((key: SourceTokens.Key) => SourceContent.Key(key.file)) with Logging {
-  override def generateFromFact(sourceContent: SourceContent)(using CompilationProcess): IO[Unit] = {
+  override def generateFromFact(sourceContent: SourceContent): CompilerIO[Unit] = {
     val file           = sourceContent.file
     val sourcedContent = sourceContent.content
 
@@ -23,7 +23,7 @@ class Tokenizer extends OneToOneProcessor((key: SourceTokens.Key) => SourceConte
       .fold(
         errorMessage => SourcedError.registerCompilerError(errorMessage),
         tokens =>
-          debug[IO](s"Tokenized $file into: ${tokens.map(_.show).mkString(", ")}.") >> registerFact(
+          debug[CompilerIO](s"Tokenized $file into: ${tokens.map(_.show).mkString(", ")}.") >> registerFactIfClear(
             SourceTokens(file, sourcedContent.as(tokens))
           )
       )

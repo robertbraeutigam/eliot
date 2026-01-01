@@ -2,32 +2,34 @@ package com.vanillasource.eliot.eliotc.source.error
 
 import cats.effect.IO
 import cats.effect.std.Console
+import cats.Monad
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.feedback.User.*
-import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.pos.Position.{Column, Line}
-import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 import java.io.File
 import scala.io.AnsiColor.{BOLD, MAGENTA, RED, RESET}
 
 class ErrorReporter()(using Console[IO]) extends CompilerProcessor {
-  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =
+  override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
     factKey match {
       case SourcedError.Key(error, description) =>
-        registerFact(SourcedError(error, description)) >>
-          printError(
-            error.file,
-            error.range.from.line,
-            error.range.from.col,
-            error.range.to.line,
-            error.range.to.col,
-            error.value,
-            description
-          )
-      case _                                    => IO.unit
+        for {
+          _ <- registerFactIfClear(SourcedError(error, description))
+          _ <- printError(
+                 error.file,
+                 error.range.from.line,
+                 error.range.from.col,
+                 error.range.to.line,
+                 error.range.to.col,
+                 error.value,
+                 description
+               )
+        } yield ()
+      case _                                    => Monad[CompilerIO].unit
     }
 
   private def printError(
@@ -38,22 +40,27 @@ class ErrorReporter()(using Console[IO]) extends CompilerProcessor {
       toCol: Column,
       message: String,
       description: Seq[String]
-  )(using CompilationProcess): IO[Unit] = {
-    (for {
-      content <- getFact(SourceContent.Key(file)).toOptionT
-      _       <-
-        compilerSourcedError(
-          file,
-          content.content.value,
-          fromLine,
-          fromCol,
-          toLine,
-          toCol,
-          message,
-          description
-        ).liftOptionT
-    } yield ()).getOrElseF(compilerGlobalError(s"File contents for $file are not available."))
-  }
+  ): CompilerIO[Unit] =
+    for {
+      maybeContent <- getFactOrAbort(SourceContent.Key(file)).attempt
+      _            <- maybeContent match {
+                        case Right(content) =>
+                          IO(()).to[CompilerIO] >>
+                          IO(compilerSourcedError(
+                            file,
+                            content.content.value,
+                            fromLine,
+                            fromCol,
+                            toLine,
+                            toCol,
+                            message,
+                            description
+                          )).to[CompilerIO]
+                        case Left(_)        =>
+                          IO(()).to[CompilerIO] >>
+                          IO(compilerGlobalError(s"File contents for $file are not available.")).to[CompilerIO]
+                      }
+    } yield ()
 
   private def compilerSourcedError(
       file: File,

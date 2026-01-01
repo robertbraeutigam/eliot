@@ -6,11 +6,11 @@ import cats.effect.IO
 import cats.implicits.*
 import cats.syntax.all.*
 import cats.kernel.Monoid
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeReference, GenericTypeReference}
 import com.vanillasource.eliot.eliotc.resolve.fact.{GenericParameter, TypeReference}
-import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import TypeUnification.Assignment
 import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
@@ -19,19 +19,19 @@ case class TypeUnification private (
     genericParameters: Map[String, GenericParameter],
     assignments: Seq[Assignment]
 ) {
-  def solve()(using CompilationProcess): CompilationIO[TypeUnificationState] =
+  def solve()(using CompilationProcess): CompilerIO[TypeUnificationState] =
     assignments
       .traverse(solve)
       .runS(TypeUnificationState())
 
   private def solve(assignment: Assignment)(using
       CompilationProcess
-  ): StateT[CompilationIO, TypeUnificationState, Unit] =
+  ): StateT[CompilerIO, TypeUnificationState, Unit] =
     for {
-      targetCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(assignment.target))
-      sourceCurrent <- StateT.get[CompilationIO, TypeUnificationState].map(_.getCurrentType(assignment.source.value))
+      targetCurrent <- StateT.get[CompilerIO, TypeUnificationState].map(_.getCurrentType(assignment.target))
+      sourceCurrent <- StateT.get[CompilerIO, TypeUnificationState].map(_.getCurrentType(assignment.source.value))
       unifiedType   <- StateT.liftF(unify(assignment.refocus(targetCurrent, sourceCurrent)))
-      _             <- StateT.modify[CompilationIO, TypeUnificationState](
+      _             <- StateT.modify[CompilerIO, TypeUnificationState](
                          _.unifyTo(assignment.target, assignment.source.value, unifiedType)
                        )
       _             <-
@@ -46,7 +46,7 @@ case class TypeUnification private (
           .whenA(targetCurrent.identifier =!= sourceCurrent.identifier)
     } yield ()
 
-  private def unify(assignment: Assignment)(using CompilationProcess): CompilationIO[TypeReference] = {
+  private def unify(assignment: Assignment)(using CompilationProcess): CompilerIO[TypeReference] = {
     given Show[TypeFQN] = TypeFQN.fullyQualified
 
     assignment.target match
@@ -54,13 +54,13 @@ case class TypeUnification private (
         assignment.source.value match
           case DirectTypeReference(incomingType, _) if currentType.value === incomingType.value =>
             // Both direct references _must_ have the correct arity per resolver
-            assignment.target.pure[CompilationIO] // Same type, so return assignment.target one
+            assignment.target.pure[CompilerIO] // Same type, so return assignment.target one
           case DirectTypeReference(_, _)                                                        =>
             assignment.issueError().as(assignment.target)
           case GenericTypeReference(incomingType, genericParameters)                            =>
             // Note: the direct type needs to have the generic parameters defined
             if (genericParameters.isEmpty || genericParameters.length === assignment.target.genericParameters.length) {
-              assignment.target.pure[CompilationIO] // Incoming more generic, so return assignment.target one
+              assignment.target.pure[CompilerIO] // Incoming more generic, so return assignment.target one
             } else {
               compilerError(
                 assignment.source.as(
@@ -88,9 +88,9 @@ case class TypeUnification private (
             ) {
               // Add generic parameter restrictions (remember the more restrictive type reference)
               if (incomingGenericParameters.isEmpty) {
-                assignment.target.pure[CompilationIO]
+                assignment.target.pure[CompilerIO]
               } else {
-                assignment.source.value.sourcedAt(assignment.target).pure[CompilationIO]
+                assignment.source.value.sourcedAt(assignment.target).pure[CompilerIO]
               }
             } else {
               assignment.issueError().as(assignment.target)
@@ -101,7 +101,7 @@ case class TypeUnification private (
             if (
               currentGenericParameters.isEmpty || currentGenericParameters.length === incomingGenericParameters.length
             ) {
-              assignment.source.value.sourcedAt(assignment.target).pure[CompilationIO] // Switch to more concrete type
+              assignment.source.value.sourcedAt(assignment.target).pure[CompilerIO] // Switch to more concrete type
             } else {
               assignment.issueError().as(assignment.target)
             }
@@ -111,9 +111,9 @@ case class TypeUnification private (
             ) {
               // If assignment.source is more restrictive (has parameters or is universal), pick that
               if (incomingGenericParameters.nonEmpty || isUniversal(incomingType.value)) {
-                assignment.source.value.sourcedAt(assignment.target).pure[CompilationIO]
+                assignment.source.value.sourcedAt(assignment.target).pure[CompilerIO]
               } else {
-                assignment.target.pure[CompilationIO]
+                assignment.target.pure[CompilerIO]
               }
             } else {
               assignment.issueError().as(assignment.target)
@@ -123,7 +123,7 @@ case class TypeUnification private (
   private def isUniversal(genericTypeName: String) =
     genericParameters.get(genericTypeName).exists(_.isInstanceOf[UniversalGenericParameter])
 
-  def printTypes(solution: TypeUnificationState)(using CompilationProcess): CompilationIO[Unit] = {
+  def printTypes(solution: TypeUnificationState)(using CompilationProcess): CompilerIO[Unit] = {
     assignments.traverse_ { assignment =>
       compilerError(
         assignment.source.as("Type debug"),
@@ -159,7 +159,7 @@ object TypeUnification {
     def makeParents(): Assignment =
       copy(targetParent = targetParent.orElse(Some(target)), sourceParent = sourceParent.orElse(Some(source.value)))
 
-    def issueError()(using CompilationProcess): CompilationIO[Unit] =
+    def issueError()(using CompilationProcess): CompilerIO[Unit] =
       compilerError(
         source.as(errorMessage),
         typeDescriptions() ++ parentDescriptions()

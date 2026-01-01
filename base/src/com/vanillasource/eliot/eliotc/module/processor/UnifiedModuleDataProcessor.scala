@@ -1,44 +1,41 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
-import cats.data.OptionT
+import cats.Monad
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.ast.DataDefinition
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleData, TypeFQN, UnifiedModuleData}
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
-import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFactKey, CompilerProcessor}
-import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
+import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
-import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 class UnifiedModuleDataProcessor extends CompilerProcessor {
-  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =
+  override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
     factKey match {
-      case UnifiedModuleData.Key(tfqn) => unify(tfqn).getOrUnit
-      case _                           => IO.unit
+      case UnifiedModuleData.Key(tfqn) => unify(tfqn)
+      case _                           => Monad[CompilerIO].unit
     }
 
-  private def unify(tfqn: TypeFQN)(using CompilationProcess): OptionT[IO, Unit] =
+  private def unify(tfqn: TypeFQN): CompilerIO[Unit] =
     for {
-      files       <- getFact(PathScan.Key(pathName(tfqn.moduleName))).toOptionT.map(_.files)
-      allData     <- files.traverse(file => getFact(ModuleData.Key(file, tfqn))).map(_.flatten).liftOptionT
-      unifiedData <- unifyData(allData)
-      _           <- registerFact(unifiedData).liftOptionT
+      pathScan    <- getFactOrAbort(PathScan.Key(pathName(tfqn.moduleName)))
+      allData     <- pathScan.files.traverse(file => getFactOrAbort(ModuleData.Key(file, tfqn)).attempt.map(_.toOption)).map(_.flatten)
+      unifiedData <- unifyData(tfqn, allData)
+      _           <- registerFactIfClear(unifiedData)
     } yield ()
 
-  private def unifyData(data: Seq[ModuleData])(using CompilationProcess): OptionT[IO, UnifiedModuleData] =
+  private def unifyData(tfqn: TypeFQN, data: Seq[ModuleData]): CompilerIO[UnifiedModuleData] =
     if (data.isEmpty) {
-      OptionT.none
+      abort[UnifiedModuleData]
     } else if (hasMoreImplementations(data)) {
-      registerCompilerError(data.head.dataDefinition.name.as("Has multiple implementations.")).liftOptionTNone
+      compilerError(data.head.dataDefinition.name.as("Has multiple implementations.")) *> abort[UnifiedModuleData]
     } else if (!hasSameSignatures(data)) {
-      registerCompilerError(data.head.dataDefinition.name.as("Has multiple different definitions.")).liftOptionTNone
+      compilerError(data.head.dataDefinition.name.as("Has multiple different definitions.")) *> abort[UnifiedModuleData]
     } else {
       val implementedData = data.find(_.dataDefinition.fields.isDefined).getOrElse(data.head)
       UnifiedModuleData(implementedData.tfqn, implementedData.typeDictionary, implementedData.dataDefinition)
-        .pure[IO]
-        .liftOptionT
+        .pure[CompilerIO]
     }
 
   private def hasMoreImplementations(datas: Seq[ModuleData]): Boolean =

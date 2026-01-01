@@ -18,6 +18,17 @@ object CompilerIO {
     */
   type CompilerIO[T] = ReaderStage[T]
 
+  /** Returns the fact from the running compiler as an Option, without aborting.
+    */
+  def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): CompilerIO[Option[V]] =
+    for {
+      process <- ReaderT.ask[StateStage, CompilationProcess]
+      fact    <-
+        ReaderT.liftF[StateStage, CompilationProcess, Option[V]](
+          StateT.liftF(EitherT.liftF(process.getFact(key)))
+        )
+    } yield fact
+
   /** Returns the fact from the running compiler or short circuits.
     */
   def getFactOrAbort[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): CompilerIO[V] =

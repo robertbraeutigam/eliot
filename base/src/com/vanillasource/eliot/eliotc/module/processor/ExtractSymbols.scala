@@ -2,21 +2,20 @@ package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.ast.{DataDefinition, FunctionDefinition}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
-import com.vanillasource.eliot.eliotc.processor.CompilationProcess
-import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
 
 import java.nio.file.{Path, Paths}
 
 object ExtractSymbols {
   def extractLocalFunctions(
       functionDefinitions: Seq[FunctionDefinition]
-  )(using CompilationProcess): IO[Map[String, FunctionDefinition]] =
-    functionDefinitions.foldM(Map.empty[String, FunctionDefinition])((acc, d) => extractLocalFunction(acc, d))
+  ): CompilerIO[Map[String, FunctionDefinition]] =
+    functionDefinitions.foldLeftM(Map.empty[String, FunctionDefinition])((acc, d) => extractLocalFunction(acc, d))
 
-  def extractLocalTypes(definitions: Seq[DataDefinition])(using CompilationProcess): IO[Map[String, DataDefinition]] =
-    definitions.foldM(Map.empty[String, DataDefinition])((acc, d) => extractLocalType(acc, d))
+  def extractLocalTypes(definitions: Seq[DataDefinition]): CompilerIO[Map[String, DataDefinition]] =
+    definitions.foldLeftM(Map.empty[String, DataDefinition])((acc, d) => extractLocalType(acc, d))
 
   def pathName(name: ModuleName): Path =
     (name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ `resolve` _)
@@ -24,26 +23,26 @@ object ExtractSymbols {
   private def extractLocalType(
       previousTypes: Map[String, DataDefinition],
       current: DataDefinition
-  )(using CompilationProcess): IO[Map[String, DataDefinition]] = current.name.value match
+  ): CompilerIO[Map[String, DataDefinition]] = current.name.value match
     case ty if previousTypes.contains(ty) =>
-      registerCompilerError(current.name.as("Type was already defined in this module.")).as(previousTypes)
+      compilerError(current.name.as("Type was already defined in this module.")).as(previousTypes)
     case ty if !ty.charAt(0).isUpper      =>
-      registerCompilerError(current.name.as("Type name must start with upper case character."))
+      compilerError(current.name.as("Type name must start with upper case character."))
         .as(previousTypes)
-    case ty                               => (previousTypes ++ Map((ty, current))).pure
+    case ty                               => (previousTypes ++ Map((ty, current))).pure[CompilerIO]
 
   private def extractLocalFunction(
       previousFunctions: Map[String, FunctionDefinition],
       current: FunctionDefinition
-  )(using CompilationProcess): IO[Map[String, FunctionDefinition]] = current.name.value match
+  ): CompilerIO[Map[String, FunctionDefinition]] = current.name.value match
     case fn if previousFunctions.contains(fn)                                  =>
-      registerCompilerError(current.name.as("Function was already defined in this module.")).as(previousFunctions)
+      compilerError(current.name.as("Function was already defined in this module.")).as(previousFunctions)
     case _ if current.args.map(_.name.value).toSet.size != current.args.length =>
       val duplicateName = current.args.groupBy(_.name.value).collectFirst {
         case (_, list) if list.length > 1 => list.head
       }
-      registerCompilerError(duplicateName.get.name.as("Duplicate parameter name."))
+      compilerError(duplicateName.get.name.as("Duplicate parameter name."))
         .as(previousFunctions)
     case fn                                                                    =>
-      (previousFunctions ++ Map((fn, current))).pure
+      (previousFunctions ++ Map((fn, current))).pure[CompilerIO]
 }

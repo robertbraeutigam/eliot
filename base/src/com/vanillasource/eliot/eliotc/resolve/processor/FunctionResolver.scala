@@ -3,16 +3,14 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.processor.CompilationProcess.registerFact
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN, UnifiedModuleFunction}
-import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.FunctionLiteral
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
-import com.vanillasource.eliot.eliotc.source.error.CompilationIO.*
 import com.vanillasource.eliot.eliotc.ast
 import com.vanillasource.eliot.eliotc.pos.Sourced
 import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
@@ -20,7 +18,7 @@ import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
 class FunctionResolver
     extends OneToOneProcessor((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))
     with Logging {
-  override def generateFromFact(moduleFunction: UnifiedModuleFunction)(using CompilationProcess): IO[Unit] = {
+  override def generateFromFact(moduleFunction: UnifiedModuleFunction): CompilerIO[Unit] = {
     val args              = moduleFunction.functionDefinition.args
     val body              = moduleFunction.functionDefinition.body
     val genericParameters = moduleFunction.functionDefinition.genericParameters
@@ -45,9 +43,8 @@ class FunctionResolver
             .traverse(TypeResolver.resolveType)
             .map(resolvedGenericTypes => UniversalGenericParameter(genericParameter.name, resolvedGenericTypes))
         )
-      _                         <- debug[ScopedIO](s"Resolved ${moduleFunction.ffqn.show}")
       _                         <-
-        registerFact(
+        registerFactIfClear(
           ResolvedFunction(
             moduleFunction.ffqn,
             FunctionDefinition(
@@ -66,15 +63,15 @@ class FunctionResolver
               )
             )
           )
-        ).liftToCompilationIO.liftToScoped
+        ).liftToScoped
     } yield ()
 
-    resolveProgram.runS(scope).void.runCompilation_()
+    resolveProgram.runS(scope).void
   }
 
   private def resolveExpression(
       expr: Sourced[ast.Expression]
-  )(using CompilationProcess): ScopedIO[Sourced[Expression]] =
+  ): ScopedIO[Sourced[Expression]] =
     expr.value match {
       case ast.Expression.FunctionApplication(s @ Sourced(_, _, name), args) =>
         isValueVisible(name).ifM(
@@ -94,7 +91,7 @@ class FunctionResolver
                   Expression.FunctionApplication(s.as(expr), arg)
                 )
               )
-            case None       => compilerAbort(s.as(s"Function not defined.")).liftToScoped
+            case None       => (compilerError(s.as(s"Function not defined.")) *> abort[Sourced[Expression]]).liftToScoped
           }
         )
       case ast.Expression.QualifiedFunctionApplication(

@@ -1,43 +1,42 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
-import cats.data.OptionT
+import cats.Monad
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.ast.FunctionDefinition
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleFunction, UnifiedModuleFunction}
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
-import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFactKey, CompilerProcessor}
-import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
+import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
-import com.vanillasource.eliot.eliotc.util.CatsOps.*
 
 class UnifiedModuleFunctionProcessor extends CompilerProcessor {
-  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =
+  override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
     factKey match {
-      case UnifiedModuleFunction.Key(ffqn) => unify(ffqn).getOrUnit
-      case _                               => IO.unit
+      case UnifiedModuleFunction.Key(ffqn) => unify(ffqn)
+      case _                               => Monad[CompilerIO].unit
     }
 
-  private def unify(ffqn: FunctionFQN)(using CompilationProcess): OptionT[IO, Unit] =
+  private def unify(ffqn: FunctionFQN): CompilerIO[Unit] =
     for {
-      files           <- getFact(PathScan.Key(pathName(ffqn.moduleName))).toOptionT.map(_.files)
-      allFunctions    <- files.traverse(file => getFact(ModuleFunction.Key(file, ffqn))).map(_.flatten).liftOptionT
-      unifiedFunction <- unifyFunctions(allFunctions)
-      _               <- registerFact(unifiedFunction).liftOptionT
+      pathScan        <- getFactOrAbort(PathScan.Key(pathName(ffqn.moduleName)))
+      allFunctions    <- pathScan.files.traverse(file => getFactOrAbort(ModuleFunction.Key(file, ffqn)).attempt.map(_.toOption)).map(_.flatten)
+      unifiedFunction <- unifyFunctions(ffqn, allFunctions)
+      _               <- registerFactIfClear(unifiedFunction)
     } yield ()
 
   private def unifyFunctions(
+      ffqn: FunctionFQN,
       functions: Seq[ModuleFunction]
-  )(using CompilationProcess): OptionT[IO, UnifiedModuleFunction] = {
+  ): CompilerIO[UnifiedModuleFunction] =
     if (functions.isEmpty) {
-      OptionT.none
+      abort[UnifiedModuleFunction]
     } else if (hasMoreImplementations(functions)) {
-      registerCompilerError(functions.head.functionDefinition.name.as("Has multiple implementations.")).liftOptionTNone
+      compilerError(functions.head.functionDefinition.name.as("Has multiple implementations.")) *> abort[UnifiedModuleFunction]
     } else if (!hasSameSignatures(functions)) {
-      registerCompilerError(
+      compilerError(
         functions.head.functionDefinition.name.as("Has multiple different definitions.")
-      ).liftOptionTNone
+      ) *> abort[UnifiedModuleFunction]
     } else {
       val implementedFunction = functions.find(_.functionDefinition.body.isDefined).getOrElse(functions.head)
 
@@ -46,11 +45,8 @@ class UnifiedModuleFunctionProcessor extends CompilerProcessor {
         implementedFunction.functionDictionary,
         implementedFunction.typeDictionary,
         implementedFunction.functionDefinition
-      )
-        .pure[IO]
-        .liftOptionT
+      ).pure[CompilerIO]
     }
-  }
 
   private def hasMoreImplementations(functions: Seq[ModuleFunction]): Boolean =
     functions.count(_.functionDefinition.body.isDefined) > 1

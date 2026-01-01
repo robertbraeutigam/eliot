@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.used
 import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
 import com.vanillasource.eliot.eliotc.pos.Sourced
 
@@ -12,9 +13,9 @@ case class UsedSymbolsState(
 )
 
 object UsedSymbolsState {
-  type UsedSymbolsIO[T] = StateT[IO, UsedSymbolsState, T]
+  type UsedSymbolsIO[T] = StateT[CompilerIO, UsedSymbolsState, T]
 
-  extension [T](io: IO[T]) {
+  extension [T](io: CompilerIO[T]) {
     def liftToUsedSymbols: UsedSymbolsIO[T] = StateT.liftF(io)
   }
 
@@ -27,21 +28,21 @@ object UsedSymbolsState {
 
   def isFunctionUsed(ffqn: FunctionFQN): UsedSymbolsIO[Boolean] =
     for {
-      state <- StateT.get[IO, UsedSymbolsState]
+      state <- StateT.get[CompilerIO, UsedSymbolsState]
     } yield state.usedFunctions.contains(ffqn)
 
   def isTypeUsed(tfqn: TypeFQN): UsedSymbolsIO[Boolean] =
     for {
-      state <- StateT.get[IO, UsedSymbolsState]
+      state <- StateT.get[CompilerIO, UsedSymbolsState]
     } yield state.usedTypes.contains(tfqn)
 
   def addFunctionUsed(ffqn: Sourced[FunctionFQN]): UsedSymbolsIO[Unit] =
-    StateT.modify[IO, UsedSymbolsState] { state =>
+    StateT.modify[CompilerIO, UsedSymbolsState] { state =>
       state.copy(usedFunctions = state.usedFunctions.updated(ffqn.value, ffqn))
     }
 
   def addTypeUsed(tfqn: Sourced[TypeFQN]): UsedSymbolsIO[Unit] =
-    StateT.modify[IO, UsedSymbolsState] { state =>
+    StateT.modify[CompilerIO, UsedSymbolsState] { state =>
       state.copy(usedTypes = state.usedTypes.updated(tfqn.value, tfqn))
     }
 }

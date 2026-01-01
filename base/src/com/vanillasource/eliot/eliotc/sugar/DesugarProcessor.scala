@@ -1,20 +1,18 @@
 package com.vanillasource.eliot.eliotc.sugar
 
-import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.processor.CompilationProcess.registerFact
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.pos.Sourced
-import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
 
 class DesugarProcessor
     extends OneToOneProcessor((key: DesugaredSourceAST.Key) => SourceAST.Key(key.file))
     with Logging {
 
-  override def generateFromFact(sourceAst: SourceAST)(using CompilationProcess): IO[Unit] =
-    registerFact(DesugaredSourceAST(sourceAst.file, sourceAst.ast.as(desugar(sourceAst.ast.value))))
+  override def generateFromFact(sourceAst: SourceAST): CompilerIO[Unit] =
+    registerFactIfClear(DesugaredSourceAST(sourceAst.file, sourceAst.ast.as(desugar(sourceAst.ast.value))))
 
   private def desugar(ast: AST): AST = AST(
     ast.importStatements,

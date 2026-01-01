@@ -4,7 +4,7 @@ import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.ArgumentDefinition
-import com.vanillasource.eliot.eliotc.source.error.CompilationIO.CompilationIO
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
 case class TypeState(
     typeMap: Map[String, ArgumentDefinition] = Map.empty,
@@ -13,17 +13,17 @@ case class TypeState(
 )
 
 object TypeState {
-  type CompilationTypesIO[T] = StateT[CompilationIO, TypeState, T]
+  type CompilationTypesIO[T] = StateT[CompilerIO, TypeState, T]
 
-  extension [T](cio: CompilationIO[T]) {
+  extension [T](cio: CompilerIO[T]) {
     def liftToTypes: CompilationTypesIO[T] = StateT.liftF(cio)
   }
 
   def getParameterIndex(name: String): CompilationTypesIO[Option[Int]] =
-    StateT.get[CompilationIO, TypeState].map(_.parameters.indexOf(name)).map(i => Option.when(i >= 0)(i))
+    StateT.get[CompilerIO, TypeState].map(_.parameters.indexOf(name)).map(i => Option.when(i >= 0)(i))
 
   def addParameterDefinition(definition: ArgumentDefinition): CompilationTypesIO[Unit] =
-    StateT.modify[CompilationIO, TypeState] { state =>
+    StateT.modify[CompilerIO, TypeState] { state =>
       state.copy(
         typeMap = state.typeMap.updated(definition.name.value, definition),
         parameters = state.parameters.appended(definition.name.value)
@@ -31,10 +31,10 @@ object TypeState {
     }
 
   def incLambdaCount: CompilationTypesIO[Int] =
-    StateT.modify[CompilationIO, TypeState] { state =>
+    StateT.modify[CompilerIO, TypeState] { state =>
       state.copy(lambdaCount = state.lambdaCount + 1)
-    } >> StateT.get[CompilationIO, TypeState].map(_.lambdaCount)
+    } >> StateT.get[CompilerIO, TypeState].map(_.lambdaCount)
 
   def getParameterType(name: String): CompilationTypesIO[Option[ArgumentDefinition]] =
-    StateT.get[CompilationIO, TypeState].map(_.typeMap.get(name))
+    StateT.get[CompilerIO, TypeState].map(_.typeMap.get(name))
 }
