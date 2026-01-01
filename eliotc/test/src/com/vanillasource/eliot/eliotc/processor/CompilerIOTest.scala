@@ -106,16 +106,16 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   }
 
   it should "move errors from state to Either left" in {
-    val computation = for {
-      _ <- compilerError(testSourced("error 1"))
-      _ <- compilerError(testSourced("error 2"))
-      _ <- abort[Unit]
-    } yield ()
-
-    computation.run(null).run(Chain.empty).value.map {
-      case Left(errors)  => errors.toList.map(_.message.value)
-      case Right(_)      => Seq.empty
-    }.asserting(_ shouldBe Seq("error 1", "error 2"))
+    runCompilerIOEither {
+      for {
+        _ <- compilerError(testSourced("error 1"))
+        _ <- compilerError(testSourced("error 2"))
+        _ <- abort[Unit]
+      } yield ()
+    }.asserting {
+      case Left(errors) => errors.toList.map(_.message.value) shouldBe Seq("error 1", "error 2")
+      case Right(_)     => fail("Expected Left but got Right")
+    }
   }
 
   it should "short circuit even when no errors present" in {
@@ -129,10 +129,16 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private def runCompilerIO[T](value: CompilerIO[T]): IO[Option[T]] =
     runCompilerIOWithProcess(null)(value)
 
+  private def runCompilerIOEither[T](value: CompilerIO[T]): IO[Either[Chain[Error], T]] =
+    runCompilerIOWithProcessEither(null)(value)
+
   private def runCompilerIOWithProcess[T](process: CompilationProcess)(value: CompilerIO[T]): IO[Option[T]] =
+    runCompilerIOWithProcessEither(process)(value).map(_.toOption)
+
+  private def runCompilerIOWithProcessEither[T](process: CompilationProcess)(value: CompilerIO[T]): IO[Either[Chain[Error], T]] =
     value.run(process).run(Chain.empty).value.map {
-      case Left(_)       => None
-      case Right((_, t)) => Some(t)
+      case Left(errors)  => Left(errors)
+      case Right((_, t)) => Right(t)
     }
 
   // Test fixtures
