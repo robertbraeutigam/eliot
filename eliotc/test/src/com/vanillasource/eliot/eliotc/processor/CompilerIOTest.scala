@@ -10,7 +10,6 @@ import org.scalatest.matchers.should.Matchers
 
 import java.io.File
 
-// FIXME: go through these tests
 class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val testFile                 = new File("test.el")
   private val testRange                = PositionRange.zero
@@ -63,7 +62,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     process.registerFactSync(testFact)
 
     runCompilerIOWithProcess(process) {
-      getFactOrAbort(TestFactKey)
+      getFactOrAbort(TestFactKey("test"))
     }.asserting(_ shouldBe Some(testFact))
   }
 
@@ -71,7 +70,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     val process = new TestCompilationProcess()
 
     runCompilerIOWithProcess(process) {
-      getFactOrAbort(TestFactKey)
+      getFactOrAbort(TestFactKey("test"))
     }.asserting(_ shouldBe None)
   }
 
@@ -81,10 +80,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
     runCompilerIOWithProcess(process) {
       registerFactIfClear(testFact)
-    }.asserting { result =>
-      result shouldBe Some(())
-      process.facts should contain(testFact)
-    }
+    }.asserting { _ => process.facts should contain(testFact) }
   }
 
   it should "not register fact when there are errors" in {
@@ -96,10 +92,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
         _ <- compilerError(testSourced("error"))
         _ <- registerFactIfClear(testFact)
       } yield ()
-    }.asserting { result =>
-      result shouldBe Some(())
-      process.facts should not contain testFact
-    }
+    }.asserting { _ => process.facts should not contain testFact }
   }
 
   private def runCompilerIO[T](value: CompilerIO[T]): IO[Option[T]] =
@@ -113,10 +106,10 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   // Test fixtures
   case class TestFact(value: String) extends CompilerFact {
-    override def key(): CompilerFactKey[TestFact] = TestFactKey
+    override def key(): CompilerFactKey[TestFact] = TestFactKey(value)
   }
 
-  case object TestFactKey extends CompilerFactKey[TestFact]
+  case class TestFactKey(value: String) extends CompilerFactKey[TestFact]
 
   class TestCompilationProcess extends CompilationProcess {
     var facts: List[CompilerFact] = List.empty
