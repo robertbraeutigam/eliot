@@ -1,10 +1,13 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+# Claude Memory
 
 ## Project Overview
 
-ELIOT is a functional, generic programming language for microcontrollers, implemented in Scala 3. The compiler uses a plugin-based architecture with a fact-based compilation system and supports multiple backends (currently JVM).
+ELIOT is a functional, generic programming language for microcontrollers, implemented in Scala 3.
+
+The project contains all parts of the compiler, the ELIOT standard library.
+
+The compiler uses a plugin-based architecture with a fact-based compilation system and supports 
+multiple backends (currently JVM).
 
 ## Build System
 
@@ -33,8 +36,9 @@ mill mill.scalalib.scalafmt.ScalafmtModule/reformatAll __
 # Clean build artifacts
 mill clean
 
-# Compile and run the compiler (examples module)
-mill examples.run -- jvm exe-jar -m <module-name> -o target <source-paths>
+# Run the compiler and generate and executable JAR file from the HelloWorld example
+# The generate jar file will be under target/HelloWorld.jar
+mill examples.run jvm exe-jar examples/src/ stdlib/src/ jvm/lib/ -m HelloWorld
 ```
 
 ### Module Structure
@@ -44,7 +48,7 @@ The project is organized into four main modules (defined in `build.mill`):
 1. **eliotc** - Core compiler infrastructure (plugins, processors, feedback, utilities)
 2. **base** - Base compiler components (parsing, AST, type system, module system, resolution)
 3. **jvm** - JVM backend (bytecode generation using ASM, JAR generation)
-4. **examples** - Entry point for running the compiler (depends on eliotc and jvm)
+4. **examples** - Example ELIOT programs
 
 **Dependency chain:** `examples` → `jvm` → `base` → `eliotc`
 
@@ -67,42 +71,10 @@ The compiler uses a **ServiceLoader-based plugin architecture**:
 
 The compiler follows a **fact-based compilation model**:
 
-1. **Facts** are pieces of compilation data (tokens, AST, resolved types, etc.)
-2. **Processors** compute facts from other facts on demand
+1. **Facts** are pieces of immutable compilation data (tokens, AST, resolved types, etc.)
+2. **Processors** (sometimes referred to as "Generators") compute facts from other facts on demand
 3. **FactGenerator** orchestrates lazy fact computation with caching
-4. Facts are identified by `CompilerFactKey` instances
-
-The base compilation pipeline (from `BasePlugin.initialize`):
-
-1. `SourceContentReader` - Read source file contents
-2. `PathScanner` - Scan directories for source files
-3. `Tokenizer` - Tokenize source into tokens
-4. `ASTParser` - Parse tokens into AST
-5. `ErrorReporter` - Report syntax errors
-6. `DesugarProcessor` - Desugar syntax
-7. `ModuleProcessor`, `ModuleNamesProcessor` - Extract module information
-8. `UnifiedModuleNamesProcessor`, `UnifiedModuleDataProcessor`, `UnifiedModuleFunctionProcessor` - Unify module data across files
-9. `FunctionResolver`, `TypeResolver` - Resolve symbol references
-10. `TypeCheckProcessor` - Type check the program
-11. `UsedSymbolsProcessor` - Track used symbols
-
-The JVM plugin adds:
-- `JvmClassGenerator` - Generate JVM bytecode using ASM
-- `JvmProgramGenerator` - Package into executable JAR
-
-### Key Packages
-
-- `com.vanillasource.eliot.eliotc.compiler` - Main compiler entry point
-- `com.vanillasource.eliot.eliotc.plugin` - Plugin system and configuration
-- `com.vanillasource.eliot.eliotc.processor` - Processor infrastructure
-- `com.vanillasource.eliot.eliotc.ast` - Abstract Syntax Tree definitions
-- `com.vanillasource.eliot.eliotc.token` - Tokenization
-- `com.vanillasource.eliot.eliotc.typesystem` - Type checking and inference
-- `com.vanillasource.eliot.eliotc.resolve` - Symbol resolution
-- `com.vanillasource.eliot.eliotc.module` - Module system
-- `com.vanillasource.eliot.eliotc.jvm.asm` - Low-level JVM bytecode generation
-- `com.vanillasource.eliot.eliotc.jvm.classgen` - Higher-level class generation
-- `com.vanillasource.parser` - Custom parser infrastructure
+4. Facts are identified by their keys, which are usually a subset of the fact's data
 
 ### Error Handling
 
@@ -113,13 +85,8 @@ The JVM plugin adds:
 ## Testing
 
 - Tests use ScalaTest with `AnyFunSuite` style
+- Tests use extend AsyncFlatSpec with AsyncIOSpec with should.Matchers
 - Test files are in `<module>/test/src/` directories
-- Key test files:
-  - `ProcessorTest.scala` - Tests processor infrastructure
-  - `ASTParserTest.scala` - Tests AST parsing
-  - `TypeCheckProcessorTest.scala` - Tests type checking
-  - `FunctionResolverTest.scala` - Tests symbol resolution
-  - `TokenizerTest.scala` - Tests tokenization
 
 ## Development Notes
 
