@@ -95,6 +95,37 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     }.asserting { _ => process.facts should not contain testFact }
   }
 
+  "abort" should "short circuit with accumulated errors" in {
+    runCompilerIO {
+      for {
+        _      <- compilerError(testSourced("error 1"))
+        _      <- compilerError(testSourced("error 2"))
+        result <- abort[String]
+      } yield result
+    }.asserting(_ shouldBe None)
+  }
+
+  it should "move errors from state to Either left" in {
+    val computation = for {
+      _ <- compilerError(testSourced("error 1"))
+      _ <- compilerError(testSourced("error 2"))
+      _ <- abort[Unit]
+    } yield ()
+
+    computation.run(null).run(Chain.empty).value.map {
+      case Left(errors)  => errors.toList.map(_.message.value)
+      case Right(_)      => Seq.empty
+    }.asserting(_ shouldBe Seq("error 1", "error 2"))
+  }
+
+  it should "short circuit even when no errors present" in {
+    runCompilerIO {
+      for {
+        result <- abort[String]
+      } yield result
+    }.asserting(_ shouldBe None)
+  }
+
   private def runCompilerIO[T](value: CompilerIO[T]): IO[Option[T]] =
     runCompilerIOWithProcess(null)(value)
 

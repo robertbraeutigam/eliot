@@ -61,4 +61,14 @@ object CompilerIO {
                  )
     } yield ()
 
+  /** Aborts the computation by copying errors from state into the Either's left side.
+    */
+  def abort[T]: CompilerIO[T] =
+    for {
+      errors <- currentErrors
+      result <- ReaderT.liftF[StateStage, CompilationProcess, T](
+                  StateT.liftF(EitherT.leftT[IO, T](errors))
+                )
+    } yield result
+
 }
