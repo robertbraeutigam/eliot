@@ -11,49 +11,45 @@ import org.scalatest.matchers.should.Matchers
 import java.io.File
 
 class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
-  private val testFile                 = new File("test.el")
-  private val testRange                = PositionRange.zero
-  private def testSourced(msg: String) = Sourced(testFile, testRange, msg)
-
   "context" should "be clear if nothing yet happened" in {
-    runCompilerIO {
+    runCompilerIO() {
       isClear
-    }.asserting(_ shouldBe Some(true))
+    }.asserting(_ shouldBe Right(true))
   }
 
   it should "not be clear after an error is registered" in {
-    runCompilerIO {
+    runCompilerIO() {
       for {
         _     <- compilerError(testSourced("error"))
         clear <- isClear
       } yield clear
-    }.asserting(_ shouldBe Some(false))
+    }.asserting(_ shouldBe Right(false))
   }
 
   "current errors" should "return the only error registered" in {
-    runCompilerIO {
+    runCompilerIO() {
       for {
         _      <- compilerError(testSourced("test error"))
         errors <- currentErrors
       } yield errors
-    }.asserting(_.map(_.toList.map(_.message.value)) shouldBe Some(Seq("test error")))
+    }.asserting(_.map(_.toList.map(_.message.value)) shouldBe Right(Seq("test error")))
   }
 
   it should "return empty chain when context is clear" in {
-    runCompilerIO {
+    runCompilerIO() {
       currentErrors
-    }.asserting(_ shouldBe Some(Chain.empty))
+    }.asserting(_ shouldBe Right(Chain.empty))
   }
 
   it should "contain all errors registered previously" in {
-    runCompilerIO {
+    runCompilerIO() {
       for {
         _      <- compilerError(testSourced("error 1"))
         _      <- compilerError(testSourced("error 2"))
         _      <- compilerError(testSourced("error 3"))
         errors <- currentErrors
       } yield errors
-    }.asserting(_.map(_.toList.map(_.message.value)) shouldBe Some(Seq("error 1", "error 2", "error 3")))
+    }.asserting(_.map(_.toList.map(_.message.value)) shouldBe Right(Seq("error 1", "error 2", "error 3")))
   }
 
   "getting a fact" should "return a fact when available" in {
@@ -61,24 +57,24 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     val testFact = TestFact("test")
     process.registerFactSync(testFact)
 
-    runCompilerIOWithProcess(process) {
+    runCompilerIO(process) {
       getFactOrAbort(TestFactKey("test"))
-    }.asserting(_ shouldBe Some(testFact))
+    }.asserting(_ shouldBe Right(testFact))
   }
 
   it should "short circuit when fact is not available" in {
     val process = new TestCompilationProcess()
 
-    runCompilerIOWithProcess(process) {
+    runCompilerIO(process) {
       getFactOrAbort(TestFactKey("test"))
-    }.asserting(_ shouldBe None)
+    }.asserting(_.isLeft shouldBe true)
   }
 
   "registering a fact when clear" should "register fact when there are no errors" in {
     val process  = new TestCompilationProcess()
     val testFact = TestFact("test")
 
-    runCompilerIOWithProcess(process) {
+    runCompilerIO(process) {
       registerFactIfClear(testFact)
     }.asserting { _ => process.facts.values should contain(testFact) }
   }
@@ -87,7 +83,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     val process  = new TestCompilationProcess()
     val testFact = TestFact("test")
 
-    runCompilerIOWithProcess(process) {
+    runCompilerIO(process) {
       for {
         _ <- compilerError(testSourced("error"))
         _ <- registerFactIfClear(testFact)
@@ -96,17 +92,17 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   }
 
   "abort" should "short circuit with accumulated errors" in {
-    runCompilerIO {
+    runCompilerIO() {
       for {
         _      <- compilerError(testSourced("error 1"))
         _      <- compilerError(testSourced("error 2"))
         result <- abort[String]
       } yield result
-    }.asserting(_ shouldBe None)
+    }.asserting(_.isLeft shouldBe true)
   }
 
   it should "move errors from state to Either left" in {
-    runCompilerIOEither {
+    runCompilerIO() {
       for {
         _ <- compilerError(testSourced("error 1"))
         _ <- compilerError(testSourced("error 2"))
@@ -119,23 +115,19 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   }
 
   it should "short circuit even when no errors present" in {
-    runCompilerIO {
+    runCompilerIO() {
       for {
         result <- abort[String]
       } yield result
-    }.asserting(_ shouldBe None)
+    }.asserting(_.isLeft shouldBe true)
   }
 
-  private def runCompilerIO[T](value: CompilerIO[T]): IO[Option[T]] =
-    runCompilerIOWithProcess(null)(value)
+  private val testFile  = new File("test.el")
+  private val testRange = PositionRange.zero
 
-  private def runCompilerIOEither[T](value: CompilerIO[T]): IO[Either[Chain[Error], T]] =
-    runCompilerIOWithProcessEither(null)(value)
+  private def testSourced(msg: String) = Sourced(testFile, testRange, msg)
 
-  private def runCompilerIOWithProcess[T](process: CompilationProcess)(value: CompilerIO[T]): IO[Option[T]] =
-    runCompilerIOWithProcessEither(process)(value).map(_.toOption)
-
-  private def runCompilerIOWithProcessEither[T](process: CompilationProcess)(value: CompilerIO[T]): IO[Either[Chain[Error], T]] =
+  private def runCompilerIO[T](process: CompilationProcess = null)(value: CompilerIO[T]): IO[Either[Chain[Error], T]] =
     value.run(process).run(Chain.empty).value.map {
       case Left(errors)  => Left(errors)
       case Right((_, t)) => Right(t)
