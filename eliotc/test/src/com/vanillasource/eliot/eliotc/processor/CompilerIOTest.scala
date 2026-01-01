@@ -80,7 +80,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
     runCompilerIOWithProcess(process) {
       registerFactIfClear(testFact)
-    }.asserting { _ => process.facts should contain(testFact) }
+    }.asserting { _ => process.facts.values should contain(testFact) }
   }
 
   it should "not register fact when there are errors" in {
