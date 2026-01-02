@@ -7,10 +7,10 @@ import cats.syntax.all.*
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
-import com.vanillasource.eliot.eliotc.pos.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.impl.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, CompilerProcessor}
-import com.vanillasource.eliot.eliotc.source.content.SourceContent
+import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import com.vanillasource.eliot.eliotc.source.error.{ErrorReporter, SourcedError}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import org.scalatest.flatspec.AsyncFlatSpec

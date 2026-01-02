@@ -2,7 +2,8 @@ package com.vanillasource.eliot.eliotc.token
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, IntegerLiteral, Keyword, StringLiteral}
 
 class TokenizerTest extends ProcessorTest(new Tokenizer()) {
