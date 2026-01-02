@@ -25,7 +25,8 @@ class PathScanner(rootPaths: Seq[Path]) extends CompilerProcessor with Logging {
                         .traverse(file => getFact(SourceContent.Key(file)))
       files         = contentFacts.flatten.map(_.file)
       _            <- if (files.isEmpty) {
-                        IO(compilerGlobalError(s"Could not find path $path at given roots: ${rootPaths.mkString(", ")}")).to[CompilerIO]
+                        compilerGlobalError(s"Could not find path $path at given roots: ${rootPaths.mkString(", ")}")
+                          .to[CompilerIO]
                       } else {
                         registerFactIfClear(PathScan(path, files))
                       }

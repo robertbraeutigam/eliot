@@ -14,10 +14,12 @@ case class TypedFunctionDefinition(
     genericParameters: Seq[GenericParameter],
     body: Sourced[TypedExpression]
 ) extends Logging {
-  def debugExpressionTypes(using CompilationProcess): IO[Unit] =
+  def debugExpressionTypes: CompilerIO[Unit] =
     for {
       sourceContent <- getFact(SourceContent.Key(body.file))
-      _             <- debug[IO](expressionTypesDebugString(name.value, body, sourceContent.map(_.content.value).getOrElse("")))
+      _             <- debug[CompilerIO](
+                         expressionTypesDebugString(name.value, body, sourceContent.map(_.content.value).getOrElse(""))
+                       )
     } yield ()
 }
 

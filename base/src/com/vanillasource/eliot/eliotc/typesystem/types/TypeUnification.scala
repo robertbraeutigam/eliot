@@ -19,14 +19,12 @@ case class TypeUnification private (
     genericParameters: Map[String, GenericParameter],
     assignments: Seq[Assignment]
 ) {
-  def solve()(using CompilationProcess): CompilerIO[TypeUnificationState] =
+  def solve(): CompilerIO[TypeUnificationState] =
     assignments
       .traverse(solve)
       .runS(TypeUnificationState())
 
-  private def solve(assignment: Assignment)(using
-      CompilationProcess
-  ): StateT[CompilerIO, TypeUnificationState, Unit] =
+  private def solve(assignment: Assignment): StateT[CompilerIO, TypeUnificationState, Unit] =
     for {
       targetCurrent <- StateT.get[CompilerIO, TypeUnificationState].map(_.getCurrentType(assignment.target))
       sourceCurrent <- StateT.get[CompilerIO, TypeUnificationState].map(_.getCurrentType(assignment.source.value))
@@ -46,7 +44,7 @@ case class TypeUnification private (
           .whenA(targetCurrent.identifier =!= sourceCurrent.identifier)
     } yield ()
 
-  private def unify(assignment: Assignment)(using CompilationProcess): CompilerIO[TypeReference] = {
+  private def unify(assignment: Assignment): CompilerIO[TypeReference] = {
     given Show[TypeFQN] = TypeFQN.fullyQualified
 
     assignment.target match
@@ -159,7 +157,7 @@ object TypeUnification {
     def makeParents(): Assignment =
       copy(targetParent = targetParent.orElse(Some(target)), sourceParent = sourceParent.orElse(Some(source.value)))
 
-    def issueError()(using CompilationProcess): CompilerIO[Unit] =
+    def issueError(): CompilerIO[Unit] =
       compilerError(
         source.as(errorMessage),
         typeDescriptions() ++ parentDescriptions()

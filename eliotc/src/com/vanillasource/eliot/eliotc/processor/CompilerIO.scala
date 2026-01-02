@@ -32,14 +32,10 @@ object CompilerIO {
   /** Returns the fact from the running compiler or short circuits.
     */
   def getFactOrAbort[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): CompilerIO[V] =
-    for {
-      process <- ReaderT.ask[StateStage, CompilationProcess]
-      errors  <- currentErrors
-      fact    <-
-        ReaderT.liftF[StateStage, CompilationProcess, V](
-          StateT.liftF(EitherT(process.getFact(key).map(_.toRight(errors))))
-        )
-    } yield fact
+    getFact(key).flatMap {
+      case Some(fact) => fact.pure[CompilerIO]
+      case None       => abort[V]
+    }
 
   /** Register an error.
     */
