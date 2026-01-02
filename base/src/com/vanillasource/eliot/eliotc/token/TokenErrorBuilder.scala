@@ -2,7 +2,8 @@ package com.vanillasource.eliot.eliotc.token
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.pos as posPackage
-import com.vanillasource.eliot.eliotc.pos.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.pos.PositionRange
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import parsley.errors.tokenextractors.SingleChar
 import parsley.errors.{DefaultErrorBuilder, ErrorBuilder}
 

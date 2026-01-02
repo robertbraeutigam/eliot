@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.parser.Parser
 import com.vanillasource.parser.Parser.acceptIfAll
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 case class GenericParameter(name: Sourced[String], genericParameters: Seq[TypeReference])
 

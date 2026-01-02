@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.source.content
 
 import cats.effect.IO
-import com.vanillasource.eliot.eliotc.pos.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 

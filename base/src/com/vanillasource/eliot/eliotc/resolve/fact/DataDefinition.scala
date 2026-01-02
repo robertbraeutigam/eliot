@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.resolve.fact
 
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 case class DataDefinition(
     name: Sourced[String],

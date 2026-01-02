@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
 import com.vanillasource.eliot.eliotc.source.error.SourcedError

@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGen
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.ast
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
 
 class FunctionResolver

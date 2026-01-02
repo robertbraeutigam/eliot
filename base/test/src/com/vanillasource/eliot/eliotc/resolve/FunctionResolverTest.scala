@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleDataProcessor,
   UnifiedModuleFunctionProcessor
 }
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{
   FunctionLiteral,
   IntegerLiteral,

@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.source.content
 import cats.implicits.*
 import cats.{Functor, Show}
 import com.vanillasource.eliot.eliotc.pos.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.{CompilerIO, getFactOrAbort}
 
 import java.io.File
 
@@ -13,6 +14,15 @@ case class Sourced[+T](file: File, range: PositionRange, value: T) {
 }
 
 object Sourced {
+
+  /** Issue a compiler error based on sourced content.
+    */
+  def compilerError(message: Sourced[String], description: Seq[String]): CompilerIO[Unit] =
+    for {
+      sourceContent <- getFactOrAbort(SourceContent.Key(message.file))
+      _             <- compilerError(Error(message.value, description, sourceContent.content, message.range))
+    } yield ()
+
   given Functor[Sourced] = new Functor[Sourced] {
     override def map[A, B](fa: Sourced[A])(f: A => B): Sourced[B] = Sourced(fa.file, fa.range, f(fa.value))
   }

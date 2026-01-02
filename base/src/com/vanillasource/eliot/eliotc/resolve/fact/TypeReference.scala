@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.resolve.fact
 import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 sealed trait TypeReference
 

@@ -4,7 +4,7 @@ import cats.effect.{IO, Resource}
 import cats.Monad
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.pos.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
 
 import java.io.File

@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.typesystem.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, TypeReference}
 import com.vanillasource.eliot.eliotc.typesystem.fact.TypedExpression.Expression
 

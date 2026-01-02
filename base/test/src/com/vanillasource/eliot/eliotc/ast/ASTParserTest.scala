@@ -4,7 +4,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   "ast parser" should "successfully parse empty file" in {

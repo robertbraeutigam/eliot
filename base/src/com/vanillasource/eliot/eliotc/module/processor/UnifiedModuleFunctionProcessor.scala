@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleFunction, 
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
 import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
+import com.vanillasource.eliot.eliotc.source.content.Sourced.*
 
 class UnifiedModuleFunctionProcessor extends CompilerProcessor {
   override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
@@ -20,7 +21,9 @@ class UnifiedModuleFunctionProcessor extends CompilerProcessor {
   private def unify(ffqn: FunctionFQN): CompilerIO[Unit] =
     for {
       pathScan        <- getFactOrAbort(PathScan.Key(pathName(ffqn.moduleName)))
-      allFunctions    <- pathScan.files.traverse(file => getFactOrAbort(ModuleFunction.Key(file, ffqn)).attempt.map(_.toOption)).map(_.flatten)
+      allFunctions    <- pathScan.files
+                           .traverse(file => getFactOrAbort(ModuleFunction.Key(file, ffqn)).attempt.map(_.toOption))
+                           .map(_.flatten)
       unifiedFunction <- unifyFunctions(ffqn, allFunctions)
       _               <- registerFactIfClear(unifiedFunction)
     } yield ()
@@ -32,7 +35,9 @@ class UnifiedModuleFunctionProcessor extends CompilerProcessor {
     if (functions.isEmpty) {
       abort[UnifiedModuleFunction]
     } else if (hasMoreImplementations(functions)) {
-      compilerError(functions.head.functionDefinition.name.as("Has multiple implementations.")) *> abort[UnifiedModuleFunction]
+      compilerError(functions.head.functionDefinition.name.as("Has multiple implementations.")) *> abort[
+        UnifiedModuleFunction
+      ]
     } else if (!hasSameSignatures(functions)) {
       compilerError(
         functions.head.functionDefinition.name.as("Has multiple different definitions.")

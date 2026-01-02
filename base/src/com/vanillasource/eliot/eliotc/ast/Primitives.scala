@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.ast
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
 import com.vanillasource.parser.Parser

@@ -8,7 +8,7 @@ import cats.Monad
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference

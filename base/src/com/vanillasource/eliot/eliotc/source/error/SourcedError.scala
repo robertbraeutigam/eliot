@@ -2,9 +2,10 @@ package com.vanillasource.eliot.eliotc.source.error
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 import java.io.File
 

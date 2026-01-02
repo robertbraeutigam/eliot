@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeRefe
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, DataDefinition, ResolvedData, TypeReference}
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.ast
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
 
 class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn)) with Logging {

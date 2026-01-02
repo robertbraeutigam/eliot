@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.sugar
 
 import com.vanillasource.eliot.eliotc.ast.AST
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 import java.io.File

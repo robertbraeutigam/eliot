@@ -5,7 +5,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 case class UsedSymbolsState(
     usedFunctions: Map[FunctionFQN, Sourced[?]] = Map.empty,
