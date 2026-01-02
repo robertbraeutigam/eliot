@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.processor
 
-import cats.effect.IO
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 
 /** All processors of the compiler must implement this trait to generate facts. When someone requests a fact from the

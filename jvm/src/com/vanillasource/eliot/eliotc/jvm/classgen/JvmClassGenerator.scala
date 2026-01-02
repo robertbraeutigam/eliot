@@ -41,8 +41,10 @@ class JvmClassGenerator
                                 )
     } yield ()
 
-  private def createModuleMethod(mainClassGenerator: ClassGenerator, sourcedFfqn: Sourced[FunctionFQN])(
-  : CompilerIO[Seq[ClassFile]] = {
+  private def createModuleMethod(
+      mainClassGenerator: ClassGenerator,
+      sourcedFfqn: Sourced[FunctionFQN]
+  ): CompilerIO[Seq[ClassFile]] = {
     implementations.get(sourcedFfqn.value) match {
       case Some(nativeImplementation) =>
         nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty)
@@ -51,13 +53,16 @@ class JvmClassGenerator
           functionDefinitionMaybe <- getFact(TypeCheckedFunction.Key(sourcedFfqn.value))
           classFiles              <- functionDefinitionMaybe match
                                        case Some(functionDefinition) => createModuleMethod(mainClassGenerator, functionDefinition)
-                                       case None                     => registerCompilerError(sourcedFfqn.as(s"Could not find implementation.")).as(Seq.empty)
+                                       case None                     =>
+                                         registerCompilerError(sourcedFfqn.as(s"Could not find implementation.")).as(Seq.empty)
         } yield classFiles
     }
   }
 
-  private def createModuleMethod(classGenerator: ClassGenerator, functionDefinition: TypeCheckedFunction)(
-  : CompilerIO[Seq[ClassFile]] = {
+  private def createModuleMethod(
+      classGenerator: ClassGenerator,
+      functionDefinition: TypeCheckedFunction
+  ): CompilerIO[Seq[ClassFile]] = {
     val parameterTypes = calculateMethodSignature(functionDefinition.definition.body.value)
 
     classGenerator

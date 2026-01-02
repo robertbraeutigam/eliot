@@ -1,14 +1,15 @@
 package com.vanillasource.eliot.eliotc.jvm.jargen
 
+import cats.Monad
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.processor.CompilationProcess.{getFact, registerFact}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.{GenerateModule, GeneratedModule}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.content.SourceContent.addSource
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.StandardOpenOption.*
@@ -17,19 +18,17 @@ import java.util.jar.{JarEntry, JarOutputStream}
 
 class JvmProgramGenerator(targetDir: Path, sourceDir: Path) extends CompilerProcessor with Logging {
 
-  override def generate(factKey: CompilerFactKey[?])(using CompilationProcess): IO[Unit] =
+  override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
     factKey match {
       case GenerateExecutableJar.Key(ffqn) =>
         addSource(sourceDir.resolve("main.els").toFile, generateMainSource(ffqn)) >> getFact(
           UsedSymbols.Key(FunctionFQN(ModuleName(Seq(), "main"), "main"))
         )
           .flatMap(_.traverse_(us => generateFromFact(ffqn, us)))
-      case _                               => IO.unit
+      case _                               => Monad[CompilerIO].unit
     }
 
-  private def generateFromFact(requestedFfqn: FunctionFQN, usedSymbols: UsedSymbols)(using
-      CompilationProcess
-  ): IO[Unit] = {
+  private def generateFromFact(requestedFfqn: FunctionFQN, usedSymbols: UsedSymbols): CompilerIO[Unit] = {
     val groupedFunctions = usedSymbols.usedFunctions.groupBy(_.value.moduleName)
     val groupedTypes     = usedSymbols.usedTypes.groupBy(_.value.moduleName)
     val facts            = (groupedFunctions.keys ++ groupedTypes.keys)
@@ -43,11 +42,11 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path) extends CompilerProc
       .toSeq
 
     for {
-      _            <- facts.traverse_(registerFact) // FIXME: do this in a linear way, not circular way
+      _            <- facts.traverse_(registerFactIfClear) // FIXME: do this in a linear way, not circular way
       classesMaybe <- facts.map(_.moduleName).traverse(moduleName => getFact(GeneratedModule.Key(moduleName)))
-      _            <- classesMaybe.sequence.traverse_(cs =>
-                        generateJarFile(requestedFfqn, cs)
-                      ) // Skips jar if not all modules got bytecode
+      _            <- classesMaybe.sequence
+                        .traverse_(cs => generateJarFile(requestedFfqn, cs))
+                        .to[CompilerIO] // Skips jar if not all modules got bytecode
     } yield ()
   }
 
