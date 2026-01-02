@@ -54,7 +54,7 @@ class JvmClassGenerator
           classFiles              <- functionDefinitionMaybe match
                                        case Some(functionDefinition) => createModuleMethod(mainClassGenerator, functionDefinition)
                                        case None                     =>
-                                         registerCompilerError(sourcedFfqn.as(s"Could not find implementation.")).as(Seq.empty)
+                                         compilerError(sourcedFfqn.as(s"Could not find implementation.")).as(Seq.empty)
         } yield classFiles
     }
   }
@@ -105,7 +105,7 @@ class JvmClassGenerator
       sourced: Sourced[?],
       expression: Expression,
       depth: Int
-  )(using CompilationProcess): CompilationTypesIO[Expression] =
+  ): CompilationTypesIO[Expression] =
     if (depth <= 1) {
       expression.pure[CompilationTypesIO]
     } else {
@@ -122,7 +122,6 @@ class JvmClassGenerator
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
       expression: Expression
-  )(
   ): CompilationTypesIO[Seq[ClassFile]] =
     expression match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
@@ -169,7 +168,7 @@ class JvmClassGenerator
       methodGenerator: MethodGenerator,
       target: Expression,
       arguments: Seq[Expression]
-  )(using CompilationProcess): CompilationTypesIO[Seq[ClassFile]] =
+  ): CompilationTypesIO[Seq[ClassFile]] =
     target match {
       case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
         // Means this is another argument, so just recurse
@@ -218,7 +217,7 @@ class JvmClassGenerator
                                                       )
                                          } yield classes
                                        case None                     =>
-                                         registerCompilerError(
+                                         compilerError(
                                            sourcedCalledFfqn.as("Could not find resolved function."),
                                            Seq(s"Looking for function: ${calledFfqn.show}")
                                          ).liftToTypes.as(Seq.empty)
@@ -232,7 +231,7 @@ class JvmClassGenerator
       methodGenerator: MethodGenerator,
       definition: ArgumentDefinition,
       body: Sourced[TypedExpression]
-  )(using CompilationProcess): CompilationTypesIO[Seq[ClassFile]] = {
+  ): CompilationTypesIO[Seq[ClassFile]] = {
     val closedOverNames = body.value.expression.toSeq
       .collect { case ParameterReference(parameterName) =>
         parameterName.value
@@ -377,7 +376,7 @@ class JvmClassGenerator
                                          }
 
                                  } yield cs
-                               case None                 => registerCompilerError(sourcedTfqn.as("Could not find resolved type.")).as(Seq.empty)
+                               case None                 => compilerError(sourcedTfqn.as("Could not find resolved type.")).as(Seq.empty)
                              }
     } yield classes
 

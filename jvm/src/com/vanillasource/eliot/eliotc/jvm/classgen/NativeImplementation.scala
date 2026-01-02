@@ -5,10 +5,11 @@ import com.vanillasource.eliot.eliotc.jvm.asm.ClassGenerator
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemLangType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import org.objectweb.asm.Opcodes
 
 trait NativeImplementation {
-  def generateMethod(mainClassGenerator: ClassGenerator): IO[Unit]
+  def generateMethod(mainClassGenerator: ClassGenerator): CompilerIO[Unit]
 }
 
 object NativeImplementation {
@@ -23,9 +24,9 @@ object NativeImplementation {
     FunctionFQN(ModuleName(defaultSystemPackage, moduleName), functionName)
 
   private def eliot_lang_Unit_unit: NativeImplementation = new NativeImplementation {
-    override def generateMethod(classGenerator: ClassGenerator): IO[Unit] = {
+    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
       classGenerator
-        .createMethod[IO]("unit", Seq.empty, systemLangType("Unit"))
+        .createMethod[CompilerIO]("unit", Seq.empty, systemLangType("Unit"))
         .use { methodGenerator =>
           methodGenerator.runNative { methodVisitor =>
             methodVisitor.visitInsn(Opcodes.ACONST_NULL)
@@ -35,9 +36,9 @@ object NativeImplementation {
   }
 
   private def eliot_lang_String_printlnInternal: NativeImplementation = new NativeImplementation {
-    override def generateMethod(classGenerator: ClassGenerator): IO[Unit] = {
+    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
       classGenerator
-        .createMethod[IO]("printlnInternal", Seq(systemLangType("String")), systemLangType("Unit"))
+        .createMethod[CompilerIO]("printlnInternal", Seq(systemLangType("String")), systemLangType("Unit"))
         .use { methodGenerator =>
           methodGenerator.runNative { methodVisitor =>
             methodVisitor.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;")
