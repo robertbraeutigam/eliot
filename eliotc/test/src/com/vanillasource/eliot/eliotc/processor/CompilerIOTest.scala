@@ -8,8 +8,6 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-import java.io.File
-
 class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   "context" should "be clear if nothing yet happened" in {
     runCompilerIO() {
@@ -20,7 +18,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "not be clear after an error is registered" in {
     runCompilerIO() {
       for {
-        _     <- compilerError(error("error"))
+        _     <- registerCompilerError(error("error"))
         clear <- isClear
       } yield clear
     }.asserting(_ shouldBe Right(false))
@@ -29,7 +27,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   "current errors" should "return the only error registered" in {
     runCompilerIO() {
       for {
-        _      <- compilerError(error("test error"))
+        _      <- registerCompilerError(error("test error"))
         errors <- currentErrors
       } yield errors
     }.asserting(_.map(_.toList.map(_.message)) shouldBe Right(Seq("test error")))
@@ -44,9 +42,9 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "contain all errors registered previously" in {
     runCompilerIO() {
       for {
-        _      <- compilerError(error("error 1"))
-        _      <- compilerError(error("error 2"))
-        _      <- compilerError(error("error 3"))
+        _      <- registerCompilerError(error("error 1"))
+        _      <- registerCompilerError(error("error 2"))
+        _      <- registerCompilerError(error("error 3"))
         errors <- currentErrors
       } yield errors
     }.asserting(_.map(_.toList.map(_.message)) shouldBe Right(Seq("error 1", "error 2", "error 3")))
@@ -85,7 +83,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
     runCompilerIO(process) {
       for {
-        _ <- compilerError(error("error"))
+        _ <- registerCompilerError(error("error"))
         _ <- registerFactIfClear(testFact)
       } yield ()
     }.asserting { _ => process.facts should not contain testFact }
@@ -94,8 +92,8 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   "abort" should "short circuit with accumulated errors" in {
     runCompilerIO() {
       for {
-        _      <- compilerError(error("error 1"))
-        _      <- compilerError(error("error 2"))
+        _      <- registerCompilerError(error("error 1"))
+        _      <- registerCompilerError(error("error 2"))
         result <- abort[String]
       } yield result
     }.asserting(_.isLeft shouldBe true)
@@ -104,8 +102,8 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "move errors from state to Either left" in {
     runCompilerIO() {
       for {
-        _ <- compilerError(error("error 1"))
-        _ <- compilerError(error("error 2"))
+        _ <- registerCompilerError(error("error 1"))
+        _ <- registerCompilerError(error("error 2"))
         _ <- abort[Unit]
       } yield ()
     }.asserting {
@@ -122,7 +120,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     }.asserting(_.isLeft shouldBe true)
   }
 
-  private def error(msg: String) = Error(msg, Seq.empty, Seq.empty, PositionRange.zero)
+  private def error(msg: String) = Error(msg, Seq.empty, "", PositionRange.zero)
 
   private def runCompilerIO[T](process: CompilationProcess = null)(value: CompilerIO[T]): IO[Either[Chain[Error], T]] =
     value.run(process).run(Chain.empty).value.map {

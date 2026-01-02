@@ -12,6 +12,7 @@ import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.ast
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn)) with Logging {
   override def generateFromFact(moduleData: UnifiedModuleData): CompilerIO[Unit] = {
@@ -89,7 +90,10 @@ object TypeResolver {
                                                  dataDefinition.dataDefinition.genericParameters.length =!= resolvedGenericParameters.length
                                                )
                                            } yield DirectTypeReference(reference.typeName.as(typeFqn), resolvedGenericParameters)
-                                         case None          => (compilerError(reference.typeName.as("Type not defined.")) *> abort[TypeReference]).liftToScoped
+                                         case None          =>
+                                           (compilerError(reference.typeName.as("Type not defined.")) *> abort[
+                                             TypeReference
+                                           ]).liftToScoped
                                        }
                                    }
     } yield resolvedType

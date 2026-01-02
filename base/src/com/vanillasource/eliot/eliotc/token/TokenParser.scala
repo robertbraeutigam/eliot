@@ -1,8 +1,9 @@
 package com.vanillasource.eliot.eliotc.token
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.source.*
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import parsley.errors.combinator.*
 import parsley.position.pos
 import parsley.token.Lexer

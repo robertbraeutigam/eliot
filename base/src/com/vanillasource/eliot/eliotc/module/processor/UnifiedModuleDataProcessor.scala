@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleData, TypeFQN, UnifiedM
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
 import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class UnifiedModuleDataProcessor extends CompilerProcessor {
   override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
@@ -20,7 +21,9 @@ class UnifiedModuleDataProcessor extends CompilerProcessor {
   private def unify(tfqn: TypeFQN): CompilerIO[Unit] =
     for {
       pathScan    <- getFactOrAbort(PathScan.Key(pathName(tfqn.moduleName)))
-      allData     <- pathScan.files.traverse(file => getFactOrAbort(ModuleData.Key(file, tfqn)).attempt.map(_.toOption)).map(_.flatten)
+      allData     <- pathScan.files
+                       .traverse(file => getFactOrAbort(ModuleData.Key(file, tfqn)).attempt.map(_.toOption))
+                       .map(_.flatten)
       unifiedData <- unifyData(tfqn, allData)
       _           <- registerFactIfClear(unifiedData)
     } yield ()
@@ -29,9 +32,13 @@ class UnifiedModuleDataProcessor extends CompilerProcessor {
     if (data.isEmpty) {
       abort[UnifiedModuleData]
     } else if (hasMoreImplementations(data)) {
-      compilerError(data.head.dataDefinition.name.as("Has multiple implementations.")) *> abort[UnifiedModuleData]
+      compilerError(data.head.dataDefinition.name.as("Has multiple implementations.")) *> abort[
+        UnifiedModuleData
+      ]
     } else if (!hasSameSignatures(data)) {
-      compilerError(data.head.dataDefinition.name.as("Has multiple different definitions.")) *> abort[UnifiedModuleData]
+      compilerError(data.head.dataDefinition.name.as("Has multiple different definitions.")) *> abort[
+        UnifiedModuleData
+      ]
     } else {
       val implementedData = data.find(_.dataDefinition.fields.isDefined).getOrElse(data.head)
       UnifiedModuleData(implementedData.tfqn, implementedData.typeDictionary, implementedData.dataDefinition)

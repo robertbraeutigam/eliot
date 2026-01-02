@@ -51,7 +51,7 @@ class JvmClassGenerator
           functionDefinitionMaybe <- getFact(TypeCheckedFunction.Key(sourcedFfqn.value))
           classFiles              <- functionDefinitionMaybe match
                                        case Some(functionDefinition) => createModuleMethod(mainClassGenerator, functionDefinition)
-                                       case None                     => compilerError(sourcedFfqn.as(s"Could not find implementation.")).as(Seq.empty)
+                                       case None                     => registerCompilerError(sourcedFfqn.as(s"Could not find implementation.")).as(Seq.empty)
         } yield classFiles
     }
   }
@@ -213,7 +213,7 @@ class JvmClassGenerator
                                                       )
                                          } yield classes
                                        case None                     =>
-                                         compilerError(
+                                         registerCompilerError(
                                            sourcedCalledFfqn.as("Could not find resolved function."),
                                            Seq(s"Looking for function: ${calledFfqn.show}")
                                          ).liftToTypes.as(Seq.empty)
@@ -372,7 +372,7 @@ class JvmClassGenerator
                                          }
 
                                  } yield cs
-                               case None                 => compilerError(sourcedTfqn.as("Could not find resolved type.")).as(Seq.empty)
+                               case None                 => registerCompilerError(sourcedTfqn.as("Could not find resolved type.")).as(Seq.empty)
                              }
     } yield classes
 

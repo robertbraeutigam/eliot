@@ -14,6 +14,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{GenericParameter, TypeRefere
 import TypeUnification.Assignment
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 case class TypeUnification private (
     genericParameters: Map[String, GenericParameter],

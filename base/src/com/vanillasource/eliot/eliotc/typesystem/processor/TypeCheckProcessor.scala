@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
@@ -129,8 +130,10 @@ class TypeCheckProcessor
       } yield assignment(parentTypeReference, parameterName.as(parameterType.get), errorMessage)
   }
 
-  private def constructTypeGraphForValueReference(parentTypeReference: TypeReference, errorMessage: String)
-  : PartialFunction[Sourced[Expression], TypeGraphIO[TypeUnification]] = {
+  private def constructTypeGraphForValueReference(
+      parentTypeReference: TypeReference,
+      errorMessage: String
+  ): PartialFunction[Sourced[Expression], TypeGraphIO[TypeUnification]] = {
     case Sourced(_, _, ValueReference(functionName)) =>
       for {
         calledDefinitionMaybe <-
@@ -181,8 +184,10 @@ class TypeCheckProcessor
       ).pure[TypeGraphIO]
   }
 
-  private def constructTypeGraphForFunctionApplication(parentTypeReference: TypeReference, errorMessage: String)
-  : PartialFunction[Sourced[Expression], TypeGraphIO[TypeUnification]] = {
+  private def constructTypeGraphForFunctionApplication(
+      parentTypeReference: TypeReference,
+      errorMessage: String
+  ): PartialFunction[Sourced[Expression], TypeGraphIO[TypeUnification]] = {
     case s @ Sourced(_, _, FunctionApplication(target, argument)) =>
       for {
         argumentType        <- generateUniqueGeneric[CompilerIO](argument)
@@ -201,8 +206,10 @@ class TypeCheckProcessor
       )
   }
 
-  private def constructTypeGraphForFunctionLiteral(parentTypeReference: TypeReference, errorMessage: String)
-  : PartialFunction[Sourced[Expression], TypeGraphIO[TypeUnification]] = {
+  private def constructTypeGraphForFunctionLiteral(
+      parentTypeReference: TypeReference,
+      errorMessage: String
+  ): PartialFunction[Sourced[Expression], TypeGraphIO[TypeUnification]] = {
     case s @ Sourced(_, _, FunctionLiteral(parameter, body)) =>
       for {
         returnType      <- generateUniqueGeneric[CompilerIO](s)

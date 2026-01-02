@@ -7,7 +7,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 
 object CompilerIO {
-  case class Error(message: String, description: Seq[String], sourceLines: Seq[String], sourceRange: PositionRange)
+  case class Error(message: String, description: Seq[String], source: String, sourceRange: PositionRange)
 
   private type EitherStage[T] = EitherT[IO, Chain[Error], T]
   private type StateStage[T]  = StateT[EitherStage, Chain[Error], T]
@@ -39,7 +39,7 @@ object CompilerIO {
 
   /** Register an error.
     */
-  def compilerError(error: Error): CompilerIO[Unit] =
+  def registerCompilerError(error: Error): CompilerIO[Unit] =
     ReaderT.liftF[StateStage, CompilationProcess, Unit](
       StateT.modify[EitherStage, Chain[Error]](errors => errors :+ error)
     )

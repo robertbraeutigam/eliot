@@ -14,6 +14,7 @@ import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.ast
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class FunctionResolver
     extends OneToOneProcessor((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))
@@ -91,7 +92,8 @@ class FunctionResolver
                   Expression.FunctionApplication(s.as(expr), arg)
                 )
               )
-            case None       => (compilerError(s.as(s"Function not defined.")) *> abort[Sourced[Expression]]).liftToScoped
+            case None       =>
+              (compilerError(s.as(s"Function not defined.")) *> abort[Sourced[Expression]]).liftToScoped
           }
         )
       case ast.Expression.QualifiedFunctionApplication(

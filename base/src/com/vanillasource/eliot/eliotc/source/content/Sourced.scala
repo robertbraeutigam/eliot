@@ -2,8 +2,8 @@ package com.vanillasource.eliot.eliotc.source.content
 
 import cats.implicits.*
 import cats.{Functor, Show}
-import com.vanillasource.eliot.eliotc.pos.{PositionRange, Sourced}
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.{CompilerIO, getFactOrAbort}
+import com.vanillasource.eliot.eliotc.pos.PositionRange
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
 import java.io.File
 
@@ -17,10 +17,10 @@ object Sourced {
 
   /** Issue a compiler error based on sourced content.
     */
-  def compilerError(message: Sourced[String], description: Seq[String]): CompilerIO[Unit] =
+  def compilerError(message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[Unit] =
     for {
       sourceContent <- getFactOrAbort(SourceContent.Key(message.file))
-      _             <- compilerError(Error(message.value, description, sourceContent.content, message.range))
+      _             <- registerCompilerError(Error(message.value, description, sourceContent.content.value, message.range))
     } yield ()
 
   given Functor[Sourced] = new Functor[Sourced] {
