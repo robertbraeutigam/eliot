@@ -23,6 +23,9 @@ object Sourced {
       _             <- registerCompilerError(Error(message.value, description, sourceContent.content.value, message.range))
     } yield ()
 
+  def compilerAbort[T](message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[T] =
+    compilerError(message, description) *> abort[T]
+
   given Functor[Sourced] = new Functor[Sourced] {
     override def map[A, B](fa: Sourced[A])(f: A => B): Sourced[B] = Sourced(fa.file, fa.range, f(fa.value))
   }

@@ -19,6 +19,8 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, Resolved
 import com.vanillasource.eliot.eliotc.typesystem.fact.{TypeCheckedFunction, TypedExpression}
 import com.vanillasource.eliot.eliotc.typesystem.fact.TypedExpression.*
 import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
+
 import scala.annotation.tailrec
 
 class JvmClassGenerator
