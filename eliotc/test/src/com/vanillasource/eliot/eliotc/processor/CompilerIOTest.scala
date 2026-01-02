@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.processor
 import cats.data.Chain
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
-import com.vanillasource.eliot.eliotc.pos.{PositionRange, Sourced}
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -20,7 +20,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "not be clear after an error is registered" in {
     runCompilerIO() {
       for {
-        _     <- compilerError(testSourced("error"))
+        _     <- compilerError(error("error"))
         clear <- isClear
       } yield clear
     }.asserting(_ shouldBe Right(false))
@@ -29,10 +29,10 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   "current errors" should "return the only error registered" in {
     runCompilerIO() {
       for {
-        _      <- compilerError(testSourced("test error"))
+        _      <- compilerError(error("test error"))
         errors <- currentErrors
       } yield errors
-    }.asserting(_.map(_.toList.map(_.message.value)) shouldBe Right(Seq("test error")))
+    }.asserting(_.map(_.toList.map(_.message)) shouldBe Right(Seq("test error")))
   }
 
   it should "return empty chain when context is clear" in {
@@ -44,12 +44,12 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "contain all errors registered previously" in {
     runCompilerIO() {
       for {
-        _      <- compilerError(testSourced("error 1"))
-        _      <- compilerError(testSourced("error 2"))
-        _      <- compilerError(testSourced("error 3"))
+        _      <- compilerError(error("error 1"))
+        _      <- compilerError(error("error 2"))
+        _      <- compilerError(error("error 3"))
         errors <- currentErrors
       } yield errors
-    }.asserting(_.map(_.toList.map(_.message.value)) shouldBe Right(Seq("error 1", "error 2", "error 3")))
+    }.asserting(_.map(_.toList.map(_.message)) shouldBe Right(Seq("error 1", "error 2", "error 3")))
   }
 
   "getting a fact" should "return a fact when available" in {
@@ -85,7 +85,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
     runCompilerIO(process) {
       for {
-        _ <- compilerError(testSourced("error"))
+        _ <- compilerError(error("error"))
         _ <- registerFactIfClear(testFact)
       } yield ()
     }.asserting { _ => process.facts should not contain testFact }
@@ -94,8 +94,8 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   "abort" should "short circuit with accumulated errors" in {
     runCompilerIO() {
       for {
-        _      <- compilerError(testSourced("error 1"))
-        _      <- compilerError(testSourced("error 2"))
+        _      <- compilerError(error("error 1"))
+        _      <- compilerError(error("error 2"))
         result <- abort[String]
       } yield result
     }.asserting(_.isLeft shouldBe true)
@@ -104,12 +104,12 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "move errors from state to Either left" in {
     runCompilerIO() {
       for {
-        _ <- compilerError(testSourced("error 1"))
-        _ <- compilerError(testSourced("error 2"))
+        _ <- compilerError(error("error 1"))
+        _ <- compilerError(error("error 2"))
         _ <- abort[Unit]
       } yield ()
     }.asserting {
-      case Left(errors) => errors.toList.map(_.message.value) shouldBe Seq("error 1", "error 2")
+      case Left(errors) => errors.toList.map(_.message) shouldBe Seq("error 1", "error 2")
       case Right(_)     => fail("Expected Left but got Right")
     }
   }
@@ -122,10 +122,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     }.asserting(_.isLeft shouldBe true)
   }
 
-  private val testFile  = new File("test.el")
-  private val testRange = PositionRange.zero
-
-  private def testSourced(msg: String) = Sourced(testFile, testRange, msg)
+  private def error(msg: String) = Error(msg, Seq.empty, Seq.empty, PositionRange.zero)
 
   private def runCompilerIO[T](process: CompilationProcess = null)(value: CompilerIO[T]): IO[Either[Chain[Error], T]] =
     value.run(process).run(Chain.empty).value.map {

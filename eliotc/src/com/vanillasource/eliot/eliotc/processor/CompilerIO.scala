@@ -4,13 +4,13 @@ import cats.Monad
 import cats.data.{Chain, EitherT, ReaderT, StateT}
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.pos.Sourced
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 
 object CompilerIO {
-  case class Error(message: Sourced[String], description: Seq[String])
+  case class Error(message: String, description: Seq[String], sourceLines: Seq[String], sourceRange: PositionRange)
 
   private type EitherStage[T] = EitherT[IO, Chain[Error], T]
-  private type StateStage[T] = StateT[EitherStage, Chain[Error], T]
+  private type StateStage[T]  = StateT[EitherStage, Chain[Error], T]
   private type ReaderStage[T] = ReaderT[StateStage, CompilationProcess, T]
 
   /** The effect all compiler processors run in. It is capable of accumulating errors, short-circuiting, and has access
@@ -39,9 +39,9 @@ object CompilerIO {
 
   /** Register an error.
     */
-  def compilerError(message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[Unit] =
+  def compilerError(error: Error): CompilerIO[Unit] =
     ReaderT.liftF[StateStage, CompilationProcess, Unit](
-      StateT.modify[EitherStage, Chain[Error]](errors => errors :+ Error(message, description))
+      StateT.modify[EitherStage, Chain[Error]](errors => errors :+ error)
     )
 
   /** Returns true if there are no errors accumulated in the CompilerIO.
