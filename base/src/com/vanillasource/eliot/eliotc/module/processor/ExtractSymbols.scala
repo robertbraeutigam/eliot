@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.ast.{DataDefinition, FunctionDefinition}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 import java.nio.file.{Path, Paths}
 

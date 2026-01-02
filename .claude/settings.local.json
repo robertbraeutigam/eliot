@@ -3,7 +3,8 @@
     "allow": [
       "Bash(cat:*)",
       "Bash(mill base.compile:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(mill __.compile:*)"
     ]
   }
 }
