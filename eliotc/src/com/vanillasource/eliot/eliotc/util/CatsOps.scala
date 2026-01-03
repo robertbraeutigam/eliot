@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.util
 
-import cats.Functor
 import cats.Monad
 import cats.data.OptionT
 import cats.effect.IO
