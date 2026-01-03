@@ -11,7 +11,6 @@ import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.impl.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
-import com.vanillasource.eliot.eliotc.source.error.{ErrorReporter, SourcedError}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -39,11 +38,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
       imports: Seq[SystemImport] = Seq.empty
   ): IO[Map[CompilerFactKey[?], CompilerFact]] =
     for {
-      generator <- FactGenerator.create(
-                     SequentialCompilerProcessors(
-                       Seq(new ErrorReporter()(using NullConsole()), SequentialCompilerProcessors(processors))
-                     )
-                   )
+      generator <- FactGenerator.create(SequentialCompilerProcessors(processors))
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
       _         <- imports.traverse { imp =>

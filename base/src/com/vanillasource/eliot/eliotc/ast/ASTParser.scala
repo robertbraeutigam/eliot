@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
-import com.vanillasource.eliot.eliotc.source.error.SourcedError.registerCompilerError
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.token.SourceTokens
 import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
@@ -25,18 +25,18 @@ class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.K
              case ParserError(pos, expected) if pos >= tokens.size =>
                tokens match {
                  case Nil =>
-                   registerCompilerError(
+                   compilerError(
                      sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but input was empty.")
                    )
                  case _   =>
                    val pos = tokens.last.range.to
-                   registerCompilerError(
+                   compilerError(
                      sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but end of input reached.")
                    )
                }
              case ParserError(pos, expected)                       =>
                val token = tokens.get(pos).get
-               registerCompilerError(
+               compilerError(
                  token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
                )
            }.sequence_

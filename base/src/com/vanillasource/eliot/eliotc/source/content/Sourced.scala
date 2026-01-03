@@ -21,7 +21,10 @@ object Sourced {
   def compilerError(message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[Unit] =
     for {
       sourceContent <- getFactOrAbort(SourceContent.Key(message.file))
-      _             <- registerCompilerError(CompilerError(message.value, description, sourceContent.content.value, message.range))
+      _             <-
+        registerCompilerError(
+          CompilerError(message.value, description, message.file.toString, sourceContent.content.value, message.range)
+        )
     } yield ()
 
   def compilerAbort[T](message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[T] =

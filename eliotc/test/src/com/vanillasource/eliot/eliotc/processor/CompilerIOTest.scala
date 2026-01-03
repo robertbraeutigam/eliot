@@ -121,7 +121,7 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     }.asserting(_.isLeft shouldBe true)
   }
 
-  private def error(msg: String) = CompilerError(msg, Seq.empty, "", PositionRange.zero)
+  private def error(msg: String) = CompilerError(msg, Seq.empty, "", "", PositionRange.zero)
 
   private def runCompilerIO[T](
       process: CompilationProcess = null
