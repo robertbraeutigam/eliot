@@ -27,5 +27,5 @@ class ModuleProcessorTest
   }
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =
-    runGeneratorForErrors(source, ModuleFunction.Key(file, FunctionFQN(testModuleName, "a")))
+    runGenerator(source, ModuleFunction.Key(file, FunctionFQN(testModuleName, "a"))).map(_._1.map(_.message))
 }

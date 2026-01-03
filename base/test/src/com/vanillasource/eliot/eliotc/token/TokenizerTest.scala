@@ -85,7 +85,7 @@ class TokenizerTest extends ProcessorTest(new Tokenizer()) {
   }
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =
-    runGeneratorForErrors(source, SourceTokens.Key(file))
+    runGenerator(source, SourceTokens.Key(file)).map(_._1.map(_.message))
 
   private def runEngineForTokens(source: String): IO[Seq[Token]] =
     runEngineForSourcedTokens(source)
@@ -93,5 +93,5 @@ class TokenizerTest extends ProcessorTest(new Tokenizer()) {
 
   private def runEngineForSourcedTokens(source: String): IO[Seq[Sourced[Token]]] =
     runGenerator(source, SourceTokens.Key(file))
-      .map(_.get(SourceTokens.Key(file)).map(_.asInstanceOf[SourceTokens].tokens.value).getOrElse(Seq.empty))
+      .map(_._2.get(SourceTokens.Key(file)).map(_.asInstanceOf[SourceTokens].tokens.value).getOrElse(Seq.empty))
 }

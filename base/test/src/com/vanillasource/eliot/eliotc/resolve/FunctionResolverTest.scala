@@ -171,11 +171,11 @@ class FunctionResolverTest
   }
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =
-    runGeneratorForErrors(source, ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
+    runGenerator(source, ResolvedFunction.Key(FunctionFQN(testModuleName, "f"))).map(_._1.map(_.message))
 
   private def runEngineForExpressions(source: String): IO[Option[Expression]] =
     for {
-      facts <- runGenerator(source, ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
+      facts <- runGenerator(source, ResolvedFunction.Key(FunctionFQN(testModuleName, "f"))).map(_._2)
     } yield facts
       .get(ResolvedFunction.Key(FunctionFQN(testModuleName, "f")))
       .flatMap(_.asInstanceOf[ResolvedFunction].definition.body.map(_.value))

@@ -4,13 +4,7 @@ import cats.data.Chain
 import cats.effect.{Deferred, IO, Ref}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
-import com.vanillasource.eliot.eliotc.processor.{
-  CompilationProcess,
-  CompilerFact,
-  CompilerFactKey,
-  CompilerIO,
-  CompilerProcessor
-}
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
 
 final class FactGenerator(
     generator: CompilerProcessor,
@@ -61,6 +55,8 @@ final class FactGenerator(
       currentMap <- facts.get
       facts      <- currentMap.values.toSeq.traverse(_.tryGet.map(_.flatten)).map(_.flatten)
     } yield facts.map(v => v.key() -> v).toMap
+
+  def currentErrors(): IO[Seq[CompilerError]] = errors.get.map(_.toList)
 }
 
 object FactGenerator {

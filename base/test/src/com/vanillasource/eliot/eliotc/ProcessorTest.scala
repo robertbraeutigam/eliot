@@ -6,6 +6,7 @@ import cats.effect.std.Console
 import cats.syntax.all.*
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
+import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.impl.SequentialCompilerProcessors
@@ -20,23 +21,15 @@ import java.nio.charset.Charset
 import java.nio.file.Path
 
 abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFlatSpec with AsyncIOSpec with Matchers {
-  val file                  = new File("Test.els")
-  val testModuleName        = ModuleName(Seq.empty, "Test")
-  private val systemImports = Seq(SystemImport("Function", "data Function[A, B]"))
-
-  def runGeneratorForErrors(
-      source: String,
-      trigger: CompilerFactKey[? <: CompilerFact],
-      imports: Seq[SystemImport] = Seq.empty
-  ): IO[Seq[String]] =
-    runGenerator(source, trigger, imports)
-      .map(_.values.collect { case SourcedError(Sourced(_, _, msg), _) => msg }.toSeq)
+  val file           = new File("Test.els")
+  val testModuleName = ModuleName(Seq.empty, "Test")
+  val systemImports  = Seq(SystemImport("Function", "data Function[A, B]"))
 
   def runGenerator(
       source: String,
       trigger: CompilerFactKey[? <: CompilerFact],
       imports: Seq[SystemImport] = Seq.empty
-  ): IO[Map[CompilerFactKey[?], CompilerFact]] =
+  ): IO[(Seq[CompilerError], Map[CompilerFactKey[?], CompilerFact])] =
     for {
       generator <- FactGenerator.create(SequentialCompilerProcessors(processors))
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
@@ -48,10 +41,8 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
                    }
       _         <- generator.getFact(trigger)
       facts     <- generator.currentFacts()
-    } yield facts
-
-  def runGeneratorForErrorsWithImports(source: String, trigger: CompilerFactKey[? <: CompilerFact]): IO[Seq[String]] =
-    runGeneratorForErrors(source, trigger, systemImports)
+      errors    <- generator.currentErrors()
+    } yield (errors, facts)
 
   case class SystemImport(module: String, content: String)
 }

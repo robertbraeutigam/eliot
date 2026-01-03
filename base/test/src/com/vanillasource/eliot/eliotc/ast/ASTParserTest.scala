@@ -170,10 +170,10 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   }
 
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
-    runGenerator(source, SourceAST.Key(file))
+    runGenerator(source, SourceAST.Key(file)).map(_._2)
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =
-    runGeneratorForErrors(source, SourceAST.Key(file))
+    runGenerator(source, SourceAST.Key(file)).map(_._1.map(_.message))
 
   private def runEngineForImports(source: String): IO[Seq[String]] =
     for {
