@@ -6,7 +6,8 @@
       "Bash(find:*)",
       "Bash(mill __.compile:*)",
       "Bash(mill eliotc.compile:*)",
-      "Bash(mill eliotc.test:*)"
+      "Bash(mill eliotc.test:*)",
+      "Bash(mill base.test:*)"
     ]
   }
 }
