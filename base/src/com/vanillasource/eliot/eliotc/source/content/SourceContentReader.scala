@@ -10,6 +10,10 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProces
 import java.io.File
 import scala.io.Source
 
+/** Generates the source code for a given File, i.e. reads it from disk. Note, that this generator does not fail if the
+  * File is missing, so it can be used to probe whether a file is present. If File is not present, or not readable, this
+  * will just silently ignore the issue and not produce a fact.
+  */
 class SourceContentReader extends CompilerProcessor with Logging {
   override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] = factKey match {
     case SourceContent.Key(file) => generateContentFor(file)
@@ -24,6 +28,10 @@ class SourceContentReader extends CompilerProcessor with Logging {
           SourceContent(file, Sourced(file, PositionRange.zero, contentLines.mkString("\n")))
         }
       }
+      .attempt
       .to[CompilerIO]
-      .flatMap(registerFactIfClear)
+      .flatMap {
+        case Right(fact) => registerFactIfClear(fact)
+        case Left(_)     => Monad[CompilerIO].unit
+      }
 }
