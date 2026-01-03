@@ -15,23 +15,23 @@ import scala.jdk.CollectionConverters.*
 object Compiler extends Logging {
   val targetPathKey: Configuration.Key[Path] = namedKey[Path]("targetPath")
 
-  def runCompiler(args: List[String]): IO[Option[Unit]] =
+  def runCompiler(args: List[String]): IO[Unit] =
     for {
-      plugins       <- allLayers()
+      plugins   <- allLayers()
       // Run command line parsing with all options from all layers
-      configOpt     <- parseCommandLine(args, plugins.map(_.commandLineParser()))
-      result        <- configOpt match {
-                         case None => IO.pure(None)
-                         case Some(configuration) =>
-                           runWithConfiguration(configuration, plugins)
-                       }
-    } yield result
+      configOpt <- parseCommandLine(args, plugins.map(_.commandLineParser()))
+      _         <- configOpt match {
+                     case None => IO.unit
+                     case Some(configuration) =>
+                       runWithConfiguration(configuration, plugins)
+                   }
+    } yield ()
 
-  private def runWithConfiguration(configuration: Configuration, plugins: Seq[CompilerPlugin]): IO[Option[Unit]] =
+  private def runWithConfiguration(configuration: Configuration, plugins: Seq[CompilerPlugin]): IO[Unit] =
     // Select active plugins
     plugins.find(_.isSelectedBy(configuration)) match {
       case None =>
-        User.compilerGlobalError("No target plugin selected.") >> IO.pure(None)
+        User.compilerGlobalError("No target plugin selected.")
       case Some(targetPlugin) =>
         for {
           _                <- debug[IO](s"Selected target plugin: ${targetPlugin.getClass.getSimpleName}")
@@ -50,7 +50,7 @@ object Compiler extends Logging {
           // Print the compiler errors
           errors           <- generator.currentErrors()
           _                <- errors.traverse_(_.print())
-        } yield Some(())
+        } yield ()
     }
 
   private def collectActivatedPlugins(
