@@ -1,13 +1,11 @@
 package com.vanillasource.eliot.eliotc.compiler
 
-import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.impl.NullProcessor
-import com.vanillasource.eliot.eliotc.util.CatsOps.*
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
 
 import java.nio.file.Path
@@ -17,32 +15,43 @@ import scala.jdk.CollectionConverters.*
 object Compiler extends Logging {
   val targetPathKey: Configuration.Key[Path] = namedKey[Path]("targetPath")
 
-  def runCompiler(args: List[String]): OptionT[IO, Unit] =
+  def runCompiler(args: List[String]): IO[Option[Unit]] =
     for {
-      plugins          <- allLayers().liftOptionT
+      plugins       <- allLayers()
       // Run command line parsing with all options from all layers
-      configuration    <- parserCommandLine(args, plugins.map(_.commandLineParser()))
-      // Select active plugins
-      targetPlugin     <- OptionT
-                            .fromOption[IO](plugins.find(_.isSelectedBy(configuration)))
-                            .orElseF(User.compilerGlobalError("No target plugin selected.").as(None))
-      _                <- debug[OptionTIO](s"Selected target plugin: ${targetPlugin.getClass.getSimpleName}")
-      activatedPlugins  = collectActivatedPlugins(targetPlugin, configuration, plugins)
-      _                <-
-        debug[OptionTIO](s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}")
-      // Give plugins a chance to configure each other
-      newConfiguration <- activatedPlugins.traverse_(_.configure()).runS(configuration).liftOptionT
-      // Collect all processors
-      processor        <- activatedPlugins.traverse_(_.initialize(newConfiguration)).runS(NullProcessor()).liftOptionT
-      // Run fact generator / compiler
-      _                <- debug[OptionTIO]("Compiler starting...")
-      generator        <- FactGenerator.create(processor).liftOptionT
-      _                <- targetPlugin.run(newConfiguration, generator).liftOptionT
-      _                <- debug[OptionTIO]("Compiler exiting normally.")
-      // Print the compiler errors
-      errors           <- generator.currentErrors().to[OptionTIO]
-      _                <- errors.traverse(_.print()).to[OptionTIO]
-    } yield ()
+      configOpt     <- parseCommandLine(args, plugins.map(_.commandLineParser()))
+      result        <- configOpt match {
+                         case None => IO.pure(None)
+                         case Some(configuration) =>
+                           runWithConfiguration(configuration, plugins)
+                       }
+    } yield result
+
+  private def runWithConfiguration(configuration: Configuration, plugins: Seq[CompilerPlugin]): IO[Option[Unit]] =
+    // Select active plugins
+    plugins.find(_.isSelectedBy(configuration)) match {
+      case None =>
+        User.compilerGlobalError("No target plugin selected.") >> IO.pure(None)
+      case Some(targetPlugin) =>
+        for {
+          _                <- debug[IO](s"Selected target plugin: ${targetPlugin.getClass.getSimpleName}")
+          activatedPlugins  = collectActivatedPlugins(targetPlugin, configuration, plugins)
+          _                <-
+            debug[IO](s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}")
+          // Give plugins a chance to configure each other
+          newConfiguration <- activatedPlugins.traverse_(_.configure()).runS(configuration)
+          // Collect all processors
+          processor        <- activatedPlugins.traverse_(_.initialize(newConfiguration)).runS(NullProcessor())
+          // Run fact generator / compiler
+          _                <- debug[IO]("Compiler starting...")
+          generator        <- FactGenerator.create(processor)
+          _                <- targetPlugin.run(newConfiguration, generator)
+          _                <- debug[IO]("Compiler exiting normally.")
+          // Print the compiler errors
+          errors           <- generator.currentErrors()
+          _                <- errors.traverse_(_.print())
+        } yield Some(())
+    }
 
   private def collectActivatedPlugins(
       initialPlugin: CompilerPlugin,
@@ -77,10 +86,10 @@ object Compiler extends Logging {
     )
   }
 
-  private def parserCommandLine(
+  private def parseCommandLine(
       args: Seq[String],
       options: Seq[OParser[?, Configuration]]
-  ): OptionT[IO, Configuration] = IO.blocking {
+  ): IO[Option[Configuration]] = IO.blocking {
     val (result, effects) = OParser.runParser(
       OParser.sequence(baseOptions(), options*),
       args,
@@ -99,6 +108,6 @@ object Compiler extends Logging {
     )
 
     terminateState.flatMap(_ => result)
-  }.toOptionT
+  }
 
 }
