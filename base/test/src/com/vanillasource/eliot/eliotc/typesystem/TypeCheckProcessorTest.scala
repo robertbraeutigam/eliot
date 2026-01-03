@@ -175,7 +175,7 @@ class TypeCheckProcessorTest
       .map(_._1.map(_.message))
 
   private def runEngineForTypedFunctions(source: String): IO[Seq[FunctionFQN]] = for {
-    results <- runGenerator(source, TypeCheckedFunction.Key(FunctionFQN(testModuleName, "f"))).map(_._2)
+    results <- runGenerator(source, TypeCheckedFunction.Key(FunctionFQN(testModuleName, "f")), systemImports).map(_._2)
   } yield {
     results.values.collect { case TypeCheckedFunction(ffqn, _) =>
       ffqn
