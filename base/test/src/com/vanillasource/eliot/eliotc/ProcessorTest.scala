@@ -54,16 +54,4 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     runGeneratorForErrors(source, trigger, systemImports)
 
   case class SystemImport(module: String, content: String)
-
-  case class NullConsole() extends Console[IO] {
-    override def readLineWithCharset(charset: Charset): IO[String] = IO("")
-
-    override def print[A](a: A)(implicit S: Show[A]): IO[Unit] = IO.unit
-
-    override def println[A](a: A)(implicit S: Show[A]): IO[Unit] = IO.unit
-
-    override def error[A](a: A)(implicit S: Show[A]): IO[Unit] = IO.unit
-
-    override def errorln[A](a: A)(implicit S: Show[A]): IO[Unit] = IO.unit
-  }
 }
