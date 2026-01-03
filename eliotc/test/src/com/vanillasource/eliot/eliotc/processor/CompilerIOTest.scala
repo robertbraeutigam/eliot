@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.processor
 import cats.data.Chain
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
+import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import org.scalatest.flatspec.AsyncFlatSpec
@@ -120,9 +121,11 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     }.asserting(_.isLeft shouldBe true)
   }
 
-  private def error(msg: String) = Error(msg, Seq.empty, "", PositionRange.zero)
+  private def error(msg: String) = CompilerError(msg, Seq.empty, "", PositionRange.zero)
 
-  private def runCompilerIO[T](process: CompilationProcess = null)(value: CompilerIO[T]): IO[Either[Chain[Error], T]] =
+  private def runCompilerIO[T](
+      process: CompilationProcess = null
+  )(value: CompilerIO[T]): IO[Either[Chain[CompilerError], T]] =
     value.run(process).run(Chain.empty).value.map {
       case Left(errors)  => Left(errors)
       case Right((_, t)) => Right(t)

@@ -4,13 +4,12 @@ import cats.Monad
 import cats.data.{Chain, EitherT, ReaderT, StateT}
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 
 object CompilerIO {
-  case class Error(message: String, description: Seq[String], source: String, sourceRange: PositionRange)
-
-  private type EitherStage[T] = EitherT[IO, Chain[Error], T]
-  private type StateStage[T]  = StateT[EitherStage, Chain[Error], T]
+  private type EitherStage[T] = EitherT[IO, Chain[CompilerError], T]
+  private type StateStage[T]  = StateT[EitherStage, Chain[CompilerError], T]
   private type ReaderStage[T] = ReaderT[StateStage, CompilationProcess, T]
 
   /** The effect all compiler processors run in. It is capable of accumulating errors, short-circuiting, and has access
@@ -39,9 +38,9 @@ object CompilerIO {
 
   /** Register an error.
     */
-  def registerCompilerError(error: Error): CompilerIO[Unit] =
+  def registerCompilerError(error: CompilerError): CompilerIO[Unit] =
     ReaderT.liftF[StateStage, CompilationProcess, Unit](
-      StateT.modify[EitherStage, Chain[Error]](errors => errors :+ error)
+      StateT.modify[EitherStage, Chain[CompilerError]](errors => errors :+ error)
     )
 
   /** Returns true if there are no errors accumulated in the CompilerIO.
@@ -50,9 +49,9 @@ object CompilerIO {
 
   /** Returns the currently accumulated errors.
     */
-  def currentErrors: CompilerIO[Chain[Error]] =
-    ReaderT.liftF[StateStage, CompilationProcess, Chain[Error]](
-      StateT.get[EitherStage, Chain[Error]]
+  def currentErrors: CompilerIO[Chain[CompilerError]] =
+    ReaderT.liftF[StateStage, CompilationProcess, Chain[CompilerError]](
+      StateT.get[EitherStage, Chain[CompilerError]]
     )
 
   /** Registers the fact, but only if the current compiler process is clean of errors!

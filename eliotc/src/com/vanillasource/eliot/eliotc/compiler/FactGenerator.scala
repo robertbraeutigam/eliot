@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.compiler
 import cats.data.Chain
 import cats.effect.{Deferred, IO, Ref}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
 import com.vanillasource.eliot.eliotc.processor.{
   CompilationProcess,
   CompilerFact,
@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.processor.{
 
 final class FactGenerator(
     generator: CompilerProcessor,
-    errors: Ref[IO, Chain[CompilerIO.Error]],
+    errors: Ref[IO, Chain[CompilerError]],
     facts: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]]
 ) extends CompilationProcess
     with Logging {
@@ -66,7 +66,7 @@ final class FactGenerator(
 object FactGenerator {
   def create(generator: CompilerProcessor): IO[FactGenerator] =
     for {
-      errors <- Ref.of[IO, Chain[CompilerIO.Error]](Chain.empty)
+      errors <- Ref.of[IO, Chain[CompilerError]](Chain.empty)
       facts  <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]](Map.empty)
     } yield new FactGenerator(generator, errors, facts)
 }

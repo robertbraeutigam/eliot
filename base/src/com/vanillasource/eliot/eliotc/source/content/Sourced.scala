@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.source.content
 
 import cats.implicits.*
 import cats.{Functor, Show}
+import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
@@ -20,7 +21,7 @@ object Sourced {
   def compilerError(message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[Unit] =
     for {
       sourceContent <- getFactOrAbort(SourceContent.Key(message.file))
-      _             <- registerCompilerError(Error(message.value, description, sourceContent.content.value, message.range))
+      _             <- registerCompilerError(CompilerError(message.value, description, sourceContent.content.value, message.range))
     } yield ()
 
   def compilerAbort[T](message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[T] =
