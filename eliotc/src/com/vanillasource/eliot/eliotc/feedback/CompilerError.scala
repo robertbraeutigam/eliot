@@ -14,7 +14,7 @@ case class CompilerError(
     content: String,
     sourceRange: PositionRange
 ) {
-  private def print(): IO[Unit] = {
+  def print(): IO[Unit] = {
     val fromLine        = sourceRange.from.line
     val fromCol         = sourceRange.from.col
     val toLine          = sourceRange.to.line

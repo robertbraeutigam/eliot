@@ -39,6 +39,9 @@ object Compiler extends Logging {
       generator        <- FactGenerator.create(processor).liftOptionT
       _                <- targetPlugin.run(newConfiguration, generator).liftOptionT
       _                <- debug[OptionTIO]("Compiler exiting normally.")
+      // Print the compiler errors
+      errors           <- generator.currentErrors().to[OptionTIO]
+      _                <- errors.traverse(_.print()).to[OptionTIO]
     } yield ()
 
   private def collectActivatedPlugins(
