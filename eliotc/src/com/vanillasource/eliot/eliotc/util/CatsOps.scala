@@ -24,10 +24,6 @@ object CatsOps {
       }
   }
 
-  extension [F[_]: Functor](opt: OptionT[F, Unit]) {
-    def getOrUnit: F[Unit] = opt.getOrElse(())
-  }
-
   extension [F[_]: Monad, A](value: F[A]) {
     def liftOptionT: OptionT[F, A] = OptionT.liftF(value)
 
