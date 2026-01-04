@@ -15,16 +15,14 @@ abstract class ProcessorTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
 
   /** Helper method to run a CompilerIO computation with a test compilation process.
     *
-    * @param process
-    *   The compilation process to use, or null to use no process
     * @param value
     *   The CompilerIO computation to run
     * @return
     *   An IO containing either errors or the result
     */
   protected def runCompilerIO[T](
-      process: CompilationProcess = null
-  )(value: CompilerIO[T]): IO[Either[Chain[CompilerError], T]] =
+      value: CompilerIO[T]
+  )(using process: CompilationProcess = new ProcessorTest.TestCompilationProcess()): IO[Either[Chain[CompilerError], T]] =
     value.run(process).run(Chain.empty).value.map {
       case Left(errors)  => Left(errors)
       case Right((_, t)) => Right(t)

@@ -7,13 +7,10 @@ import com.vanillasource.eliot.eliotc.processor.ProcessorTest.*
 class SingleFactTypeProcessorTest extends ProcessorTest {
   val processor = new TestSingleFactTypeProcessor()
 
-  def testProcess = new TestCompilationProcess()
-
   "single fact processor" should "generate fact when key type matches" in {
-    val process = testProcess
-    val key     = TestFactKey("test-value")
+    val key = TestFactKey("test-value")
 
-    runCompilerIO(process) {
+    runCompilerIO {
       for {
         _    <- processor.generate(key)
         fact <- getFactOrAbort(key)
@@ -22,18 +19,17 @@ class SingleFactTypeProcessorTest extends ProcessorTest {
   }
 
   it should "do nothing when key type does not match" in {
-    val process = testProcess
+    given process: TestCompilationProcess = new TestCompilationProcess()
 
-    runCompilerIO(process) {
+    runCompilerIO {
       processor.generate(DifferentKey("other-value"))
     }.asserting { _ => process.facts shouldBe empty }
   }
 
   it should "provide correctly typed key to generateFact method" in {
-    val process  = testProcess
     val typedKey = TestFactKey("typed-test")
 
-    runCompilerIO(process) {
+    runCompilerIO {
       for {
         _    <- processor.generate(typedKey)
         fact <- getFactOrAbort(typedKey)
@@ -42,10 +38,10 @@ class SingleFactTypeProcessorTest extends ProcessorTest {
   }
 
   it should "not register fact when errors are present" in {
-    val process = testProcess
-    val key     = TestFactKey("error-test")
+    given process: TestCompilationProcess = new TestCompilationProcess()
+    val key = TestFactKey("error-test")
 
-    runCompilerIO(process) {
+    runCompilerIO {
       for {
         _ <- registerCompilerError(error("test error"))
         _ <- processor.generate(key)
@@ -54,12 +50,11 @@ class SingleFactTypeProcessorTest extends ProcessorTest {
   }
 
   it should "handle multiple different keys correctly" in {
-    val process = testProcess
-    val key1    = TestFactKey("key1")
-    val key2    = TestFactKey("key2")
-    val key3    = DifferentKey("key3")
+    val key1 = TestFactKey("key1")
+    val key2 = TestFactKey("key2")
+    val key3 = DifferentKey("key3")
 
-    runCompilerIO(process) {
+    runCompilerIO {
       for {
         _     <- processor.generate(key1)
         _     <- processor.generate(key2)
