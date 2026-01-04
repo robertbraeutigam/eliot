@@ -7,8 +7,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, 
 
 import scala.reflect.ClassTag
 
-/** Produces at most a single type of fact. When asked to generate a fact key that matches the expected type K, it
-  * delegates to the abstract generateFact method. Otherwise, it does nothing.
+/** Produces only one type of fact. When asked to generate a fact key that matches the expected type K, it delegates to
+  * the abstract generateFact method. Otherwise, it does nothing.
   *
   * @tparam F
   *   The type of fact this processor generates
