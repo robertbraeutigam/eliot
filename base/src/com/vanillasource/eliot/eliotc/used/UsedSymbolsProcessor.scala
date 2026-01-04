@@ -10,10 +10,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsState.*
-import com.vanillasource.eliot.eliotc.processor.common.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 
 class UsedSymbolsProcessor
-    extends OneToOneProcessor((key: UsedSymbols.Key) => ResolvedFunction.Key(key.ffqn))
+    extends TransformationProcessor((key: UsedSymbols.Key) => ResolvedFunction.Key(key.ffqn))
     with Logging {
 
   override def generateFromFact(resolvedMainFunction: ResolvedFunction): CompilerIO[Unit] =

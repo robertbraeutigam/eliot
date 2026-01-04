@@ -7,13 +7,13 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
-import com.vanillasource.eliot.eliotc.processor.common.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 /** Tokenizes source content into basic building blocks: identifier, operator, literals. It gets rid of whitespace and
   * comments.
   */
-class Tokenizer extends OneToOneProcessor((key: SourceTokens.Key) => SourceContent.Key(key.file)) with Logging {
+class Tokenizer extends TransformationProcessor((key: SourceTokens.Key) => SourceContent.Key(key.file)) with Logging {
   override def generateFromFact(sourceContent: SourceContent): CompilerIO[Unit] = {
     val file           = sourceContent.file
     val sourcedContent = sourceContent.content

@@ -13,11 +13,11 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.ast
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.processor.common.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class FunctionResolver
-    extends OneToOneProcessor((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))
+    extends TransformationProcessor((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))
     with Logging {
   override def generateFromFact(moduleFunction: UnifiedModuleFunction): CompilerIO[Unit] = {
     val args              = moduleFunction.functionDefinition.args

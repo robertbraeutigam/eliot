@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, 
 import scala.annotation.unused
 import scala.reflect.ClassTag
 
-abstract class OneToOneProcessor[V <: CompilerFact, I <: CompilerFactKey[V], O <: CompilerFactKey[?]](
+abstract class TransformationProcessor[V <: CompilerFact, I <: CompilerFactKey[V], O <: CompilerFactKey[?]](
     keyTransition: O => I
 )(using ct: ClassTag[O])
     extends CompilerProcessor {

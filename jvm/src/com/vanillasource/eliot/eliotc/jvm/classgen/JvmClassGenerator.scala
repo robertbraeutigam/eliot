@@ -18,13 +18,13 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.typesystem.fact.{TypeCheckedFunction, TypedExpression}
 import com.vanillasource.eliot.eliotc.typesystem.fact.TypedExpression.*
-import com.vanillasource.eliot.eliotc.processor.common.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 
 import scala.annotation.tailrec
 
 class JvmClassGenerator
-    extends OneToOneProcessor((key: GeneratedModule.Key) => GenerateModule.Key(key.moduleName))
+    extends TransformationProcessor((key: GeneratedModule.Key) => GenerateModule.Key(key.moduleName))
     with Logging {
 
   override def generateFromFact(generateModule: GenerateModule): CompilerIO[Unit] =

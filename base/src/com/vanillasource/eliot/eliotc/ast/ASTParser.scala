@@ -8,13 +8,13 @@ import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
-import com.vanillasource.eliot.eliotc.processor.common.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.token.SourceTokens
 import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
 
-class ASTParser extends OneToOneProcessor((key: SourceAST.Key) => SourceTokens.Key(key.file)) with Logging {
+class ASTParser extends TransformationProcessor((key: SourceAST.Key) => SourceTokens.Key(key.file)) with Logging {
   override def generateFromFact(sourceTokens: SourceTokens): CompilerIO[Unit] = {
     val tokens    = sourceTokens.tokens.value
     val file      = sourceTokens.file
