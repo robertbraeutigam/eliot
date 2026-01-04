@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.pos.PositionRange
-import com.vanillasource.eliot.eliotc.processor.impl.SequentialCompilerProcessors
+import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan

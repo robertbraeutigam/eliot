@@ -17,7 +17,7 @@ import com.vanillasource.eliot.eliotc.typesystem.fact.{TypeCheckedFunction, Type
 import com.vanillasource.eliot.eliotc.typesystem.types.TypeUnification.*
 import com.vanillasource.eliot.eliotc.typesystem.types.UniqueGenericNames.*
 import com.vanillasource.eliot.eliotc.typesystem.types.{TypeUnification, TypeUnificationState, UniqueGenericNames}
-import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.common.OneToOneProcessor
 
 class TypeCheckProcessor
     extends OneToOneProcessor((key: TypeCheckedFunction.Key) => ResolvedFunction.Key(key.ffqn))

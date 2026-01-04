@@ -13,7 +13,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.ast
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.common.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class FunctionResolver

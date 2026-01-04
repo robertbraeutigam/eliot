@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.CompilationProcess
 import com.vanillasource.eliot.eliotc.source.content.SourceContent
-import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.common.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 /** Tokenizes source content into basic building blocks: identifier, operator, literals. It gets rid of whitespace and

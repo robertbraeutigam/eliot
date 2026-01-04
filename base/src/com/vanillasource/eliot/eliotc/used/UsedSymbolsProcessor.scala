@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, FunctionDefinition, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsState.*
-import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.common.OneToOneProcessor
 
 class UsedSymbolsProcessor
     extends OneToOneProcessor((key: UsedSymbols.Key) => ResolvedFunction.Key(key.ffqn))

@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, DataDefi
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.ast
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.processor.impl.OneToOneProcessor
+import com.vanillasource.eliot.eliotc.processor.common.OneToOneProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class TypeResolver extends OneToOneProcessor((key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn)) with Logging {

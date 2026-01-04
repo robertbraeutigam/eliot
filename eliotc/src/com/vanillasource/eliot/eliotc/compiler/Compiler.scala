@@ -5,7 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
-import com.vanillasource.eliot.eliotc.processor.impl.NullProcessor
+import com.vanillasource.eliot.eliotc.processor.common.NullProcessor
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
 
 import java.nio.file.Path

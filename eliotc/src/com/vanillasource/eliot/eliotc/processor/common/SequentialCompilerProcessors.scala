@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.processor.impl
+package com.vanillasource.eliot.eliotc.processor.common
 
 import cats.effect.IO
 import cats.syntax.all.*
