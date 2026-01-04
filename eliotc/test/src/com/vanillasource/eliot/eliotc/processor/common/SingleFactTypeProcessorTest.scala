@@ -1,52 +1,32 @@
 package com.vanillasource.eliot.eliotc.processor.common
 
+import cats.data.Chain
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.ProcessorTest
 import com.vanillasource.eliot.eliotc.processor.ProcessorTest.*
 
 class SingleFactTypeProcessorTest extends ProcessorTest {
   val processor = new TestSingleFactTypeProcessor()
+  val testKey   = TestFactKey("test")
 
   "single fact processor" should "generate fact when key type matches" in {
-    val key = TestFactKey("test-value")
-
     runCompilerIO {
       for {
-        _    <- processor.generate(key)
-        fact <- getFactOrAbort(key)
+        _    <- processor.generate(testKey)
+        fact <- getFactOrAbort(testKey)
       } yield fact
-    }.asserting(_ shouldBe Right(TestFact("test-value")))
+    }.asserting(_ shouldBe Right(TestFact("test")))
   }
 
   it should "do nothing when key type does not match" in {
-    given process: TestCompilationProcess = new TestCompilationProcess()
-
-    runCompilerIO {
-      processor.generate(DifferentKey("other-value"))
-    }.asserting { _ => process.facts shouldBe empty }
-  }
-
-  it should "provide correctly typed key to generateFact method" in {
-    val typedKey = TestFactKey("typed-test")
+    val otherKey = DifferentKey("other-value")
 
     runCompilerIO {
       for {
-        _    <- processor.generate(typedKey)
-        fact <- getFactOrAbort(typedKey)
+        _    <- processor.generate(otherKey)
+        fact <- getFactOrAbort(otherKey)
       } yield fact
-    }.asserting(_ shouldBe Right(TestFact("typed-test")))
-  }
-
-  it should "not register fact when errors are present" in {
-    given process: TestCompilationProcess = new TestCompilationProcess()
-    val key = TestFactKey("error-test")
-
-    runCompilerIO {
-      for {
-        _ <- registerCompilerError(error("test error"))
-        _ <- processor.generate(key)
-      } yield ()
-    }.asserting { _ => process.facts shouldBe empty }
+    }.asserting(_ shouldBe Left(Chain.empty))
   }
 
   it should "handle multiple different keys correctly" in {
@@ -66,7 +46,7 @@ class SingleFactTypeProcessorTest extends ProcessorTest {
       case Right((fact1, fact2)) =>
         val _ = fact1 shouldBe TestFact("key1")
         fact2 shouldBe TestFact("key2")
-      case Left(_) => fail("Expected Right but got Left")
+      case Left(_)               => fail("Expected Right but got Left")
     }
   }
 

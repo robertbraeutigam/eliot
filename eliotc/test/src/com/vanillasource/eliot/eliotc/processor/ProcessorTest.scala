@@ -20,10 +20,8 @@ abstract class ProcessorTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
     * @return
     *   An IO containing either errors or the result
     */
-  protected def runCompilerIO[T](
-      value: CompilerIO[T]
-  )(using process: CompilationProcess = new ProcessorTest.TestCompilationProcess()): IO[Either[Chain[CompilerError], T]] =
-    value.run(process).run(Chain.empty).value.map {
+  protected def runCompilerIO[T](value: CompilerIO[T]): IO[Either[Chain[CompilerError], T]] =
+    value.run(new ProcessorTest.TestCompilationProcess()).run(Chain.empty).value.map {
       case Left(errors)  => Left(errors)
       case Right((_, t)) => Right(t)
     }

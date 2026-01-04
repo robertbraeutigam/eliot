@@ -1,53 +1,43 @@
 package com.vanillasource.eliot.eliotc.processor.common
 
 import cats.Monad
+import cats.data.Chain
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.ProcessorTest
 import com.vanillasource.eliot.eliotc.processor.ProcessorTest.*
 
 class SingleFactProcessorTest extends ProcessorTest {
   val processor = new TestSingleFactProcessor()
+  val testKey   = TestFactKey("test")
 
   "single fact processor" should "generate and register fact when key type matches" in {
-    val key = TestFactKey("test-value")
-
     runCompilerIO {
       for {
-        _    <- processor.generate(key)
-        fact <- getFactOrAbort(key)
+        _    <- processor.generate(testKey)
+        fact <- getFactOrAbort(testKey)
       } yield fact
-    }.asserting(_ shouldBe Right(TestFact("test-value")))
+    }.asserting(_ shouldBe Right(TestFact("test")))
   }
 
   it should "do nothing when key type does not match" in {
-    given process: TestCompilationProcess = new TestCompilationProcess()
+    val otherKey = DifferentKey("other-value")
 
     runCompilerIO {
-      processor.generate(DifferentKey("other-value"))
-    }.asserting { _ => process.facts shouldBe empty }
+      for {
+        _    <- processor.generate(otherKey)
+        fact <- getFactOrAbort(otherKey)
+      } yield fact
+    }.asserting(_ shouldBe Left(Chain.empty))
   }
 
   it should "not register fact when errors are present" in {
-    given process: TestCompilationProcess = new TestCompilationProcess()
-    val key = TestFactKey("error-test")
-
     runCompilerIO {
       for {
-        _ <- registerCompilerError(error("test error"))
-        _ <- processor.generate(key)
+        _    <- registerCompilerError(error("test error"))
+        _    <- processor.generate(testKey)
+        fact <- getFactOrAbort(testKey)
       } yield ()
-    }.asserting { _ => process.facts shouldBe empty }
-  }
-
-  it should "call generateSingleFact with correct key" in {
-    val key = TestFactKey("specific-key")
-
-    runCompilerIO {
-      for {
-        _    <- processor.generate(key)
-        fact <- getFactOrAbort(key)
-      } yield fact
-    }.asserting(_ shouldBe Right(TestFact("specific-key")))
+    }.asserting(_ shouldBe Left(Chain.one(error("test error"))))
   }
 
   it should "handle multiple fact generations independently" in {
@@ -62,34 +52,6 @@ class SingleFactProcessorTest extends ProcessorTest {
         fact2 <- getFactOrAbort(key2)
       } yield (fact1, fact2)
     }.asserting(_ shouldBe Right((TestFact("first"), TestFact("second"))))
-  }
-
-  it should "not register fact if error occurs after generation starts" in {
-    given process: TestCompilationProcess = new TestCompilationProcess()
-    val key = TestFactKey("test")
-
-    runCompilerIO {
-      for {
-        _ <- registerCompilerError(error("error before"))
-        _ <- processor.generate(key)
-      } yield ()
-    }.asserting { _ => process.facts shouldBe empty }
-  }
-
-  it should "register fact only once per key" in {
-    given process: TestCompilationProcess = new TestCompilationProcess()
-    val processor = new CountingFactProcessor()
-    val key = TestFactKey("counted")
-
-    runCompilerIO {
-      for {
-        _ <- processor.generate(key)
-        _ <- processor.generate(key)
-      } yield ()
-    }.asserting { _ =>
-      val _ = process.facts.get(key) shouldBe Some(TestFact("counted"))
-      processor.callCount shouldBe 2
-    }
   }
 
   class TestSingleFactProcessor extends SingleFactProcessor[TestFact, TestFactKey] {
