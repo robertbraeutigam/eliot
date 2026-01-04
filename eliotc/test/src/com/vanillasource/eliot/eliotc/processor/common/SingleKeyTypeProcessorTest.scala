@@ -5,8 +5,8 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.ProcessorTest
 import com.vanillasource.eliot.eliotc.processor.ProcessorTest.*
 
-class SingleFactTypeProcessorTest extends ProcessorTest {
-  val processor = new TestSingleFactTypeProcessor()
+class SingleKeyTypeProcessorTest extends ProcessorTest {
+  val processor = new TestSingleKeyTypeProcessor()
   val testKey   = TestFactKey("test")
 
   "single fact processor" should "generate fact when key type matches" in {
@@ -50,7 +50,7 @@ class SingleFactTypeProcessorTest extends ProcessorTest {
     }
   }
 
-  class TestSingleFactTypeProcessor extends SingleFactTypeProcessor[TestFact, TestFactKey] {
+  class TestSingleKeyTypeProcessor extends SingleKeyTypeProcessor[TestFactKey] {
     override protected def generateFact(key: TestFactKey): CompilerIO[Unit] =
       registerFactIfClear(TestFact(key.value))
   }

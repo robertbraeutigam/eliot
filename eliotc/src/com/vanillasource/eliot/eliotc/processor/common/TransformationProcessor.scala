@@ -11,7 +11,7 @@ abstract class TransformationProcessor[V <: CompilerFact, I <: CompilerFactKey[V
 )(using ct: ClassTag[O])
     extends SingleKeyTypeProcessor[O] {
 
-  protected def processKey(requestedKey: O): CompilerIO[Unit] = {
+  protected def generateFact(requestedKey: O): CompilerIO[Unit] = {
     import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
     val key = keyTransition(requestedKey)
     getFactOrAbort(key).flatMap(fact => generateFromKeyAndFact(requestedKey, fact))

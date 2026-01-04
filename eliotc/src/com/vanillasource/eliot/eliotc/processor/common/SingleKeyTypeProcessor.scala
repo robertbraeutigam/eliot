@@ -15,7 +15,7 @@ import scala.reflect.ClassTag
 abstract class SingleKeyTypeProcessor[K <: CompilerFactKey[?]](using ct: ClassTag[K]) extends CompilerProcessor {
   override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
     factKey match {
-      case key: K => processKey(key)
+      case key: K => generateFact(key)
       case _      => Monad[CompilerIO].unit
     }
 
@@ -26,5 +26,5 @@ abstract class SingleKeyTypeProcessor[K <: CompilerFactKey[?]](using ct: ClassTa
     * @return
     *   A CompilerIO that performs the processing
     */
-  protected def processKey(key: K): CompilerIO[Unit]
+  protected def generateFact(key: K): CompilerIO[Unit]
 }
