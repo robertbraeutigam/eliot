@@ -1,8 +1,6 @@
 package com.vanillasource.eliot.eliotc.processor
 
 import cats.data.Chain
-import com.vanillasource.eliot.eliotc.feedback.CompilerError
-import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.ProcessorTest.*
 
@@ -117,6 +115,4 @@ class CompilerIOTest extends ProcessorTest {
       } yield result
     }.asserting(_.isLeft shouldBe true)
   }
-
-  private def error(msg: String) = CompilerError(msg, Seq.empty, "", "", PositionRange.zero)
 }

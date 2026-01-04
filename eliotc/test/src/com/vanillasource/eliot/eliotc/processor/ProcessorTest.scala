@@ -4,6 +4,7 @@ import cats.data.Chain
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -41,6 +42,20 @@ object ProcessorTest {
   /** Test fact key for TestFact.
     */
   case class TestFactKey(value: String) extends CompilerFactKey[TestFact]
+
+  /** Different fact type for testing type-specific processors.
+    */
+  case class DifferentFact(value: String) extends CompilerFact {
+    override def key(): CompilerFactKey[DifferentFact] = DifferentKey(value)
+  }
+
+  /** Key for DifferentFact.
+    */
+  case class DifferentKey(value: String) extends CompilerFactKey[DifferentFact]
+
+  /** Helper to create a test compiler error.
+    */
+  def error(msg: String): CompilerError = CompilerError(msg, Seq.empty, "", "", PositionRange.zero)
 
   /** Test implementation of CompilationProcess that stores facts in memory.
     */

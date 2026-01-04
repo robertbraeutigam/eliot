@@ -1,80 +1,79 @@
 package com.vanillasource.eliot.eliotc.processor.common
 
-import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.processor.ProcessorTest
 import com.vanillasource.eliot.eliotc.processor.ProcessorTest.*
-import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, ProcessorTest}
 
 class SingleFactTypeProcessorTest extends ProcessorTest {
+  val processor = new TestSingleFactTypeProcessor()
+
+  def testProcess = new TestCompilationProcess()
+
   "single fact processor" should "generate fact when key type matches" in {
-    val process   = new TestCompilationProcess()
-    val processor = new TestSingleFactTypeProcessor()
-    val key       = TestFactKey("test-value")
+    val process = testProcess
+    val key     = TestFactKey("test-value")
 
     runCompilerIO(process) {
-      processor.generate(key)
-    }.asserting { _ => process.facts.values should contain(TestFact("test-value")) }
+      for {
+        _    <- processor.generate(key)
+        fact <- getFactOrAbort(key)
+      } yield fact
+    }.asserting(_ shouldBe Right(TestFact("test-value")))
   }
 
   it should "do nothing when key type does not match" in {
-    val process      = new TestCompilationProcess()
-    val processor    = new TestSingleFactTypeProcessor()
-    val differentKey = DifferentKey("other-value")
+    val process = testProcess
 
     runCompilerIO(process) {
-      processor.generate(differentKey)
+      processor.generate(DifferentKey("other-value"))
     }.asserting { _ => process.facts shouldBe empty }
   }
 
   it should "provide correctly typed key to generateFact method" in {
-    val process   = new TestCompilationProcess()
-    val processor = new TestSingleFactTypeProcessor()
-    val key       = TestFactKey("typed-test")
-
-    runCompilerIO(process) {
-      processor.generate(key)
-    }.asserting { _ => process.facts.get(key) shouldBe Some(TestFact("typed-test")) }
-  }
-
-  it should "not register fact when errors are present" in {
-    val process   = new TestCompilationProcess()
-    val processor = new TestSingleFactTypeProcessor()
-    val key       = TestFactKey("error-test")
+    val process  = testProcess
+    val typedKey = TestFactKey("typed-test")
 
     runCompilerIO(process) {
       for {
-        _ <- registerCompilerError(CompilerError("test error", Seq.empty, "", "", null))
+        _    <- processor.generate(typedKey)
+        fact <- getFactOrAbort(typedKey)
+      } yield fact
+    }.asserting(_ shouldBe Right(TestFact("typed-test")))
+  }
+
+  it should "not register fact when errors are present" in {
+    val process = testProcess
+    val key     = TestFactKey("error-test")
+
+    runCompilerIO(process) {
+      for {
+        _ <- registerCompilerError(error("test error"))
         _ <- processor.generate(key)
       } yield ()
     }.asserting { _ => process.facts shouldBe empty }
   }
 
   it should "handle multiple different keys correctly" in {
-    val process   = new TestCompilationProcess()
-    val processor = new TestSingleFactTypeProcessor()
-    val key1      = TestFactKey("key1")
-    val key2      = TestFactKey("key2")
-    val key3      = DifferentKey("key3")
+    val process = testProcess
+    val key1    = TestFactKey("key1")
+    val key2    = TestFactKey("key2")
+    val key3    = DifferentKey("key3")
 
     runCompilerIO(process) {
       for {
-        _ <- processor.generate(key1)
-        _ <- processor.generate(key2)
-        _ <- processor.generate(key3)
-      } yield ()
-    }.asserting { _ =>
-      val _ = process.facts.values should contain(TestFact("key1"))
-      val _ = process.facts.values should contain(TestFact("key2"))
-      process.facts.values should not contain DifferentFact("key3")
+        _     <- processor.generate(key1)
+        _     <- processor.generate(key2)
+        _     <- processor.generate(key3)
+        fact1 <- getFactOrAbort(key1)
+        fact2 <- getFactOrAbort(key2)
+      } yield (fact1, fact2)
+    }.asserting {
+      case Right((fact1, fact2)) =>
+        val _ = fact1 shouldBe TestFact("key1")
+        fact2 shouldBe TestFact("key2")
+      case Left(_) => fail("Expected Right but got Left")
     }
   }
-
-  // Test-specific fixtures
-  case class DifferentFact(value: String) extends CompilerFact {
-    override def key(): CompilerFactKey[DifferentFact] = DifferentKey(value)
-  }
-
-  case class DifferentKey(value: String) extends CompilerFactKey[DifferentFact]
 
   class TestSingleFactTypeProcessor extends SingleFactTypeProcessor[TestFact, TestFactKey] {
     override protected def generateFact(key: TestFactKey): CompilerIO[Unit] =

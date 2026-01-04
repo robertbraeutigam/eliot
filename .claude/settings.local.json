@@ -8,7 +8,8 @@
       "Bash(mill eliotc.compile:*)",
       "Bash(mill eliotc.test:*)",
       "Bash(mill base.test:*)",
-      "Bash(mill clean:*)"
+      "Bash(mill clean:*)",
+      "Bash(mill eliotc.test.compile:*)"
     ]
   }
 }
