@@ -1,19 +1,14 @@
 package com.vanillasource.eliot.eliotc.processor.common
 
-import cats.data.Chain
-import cats.effect.IO
-import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey}
-import org.scalatest.flatspec.AsyncFlatSpec
-import org.scalatest.matchers.should.Matchers
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, CompilerIOTestBase, TestCompilationProcess, TestFact, TestFactKey}
 
-class SingleFactProcessorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+class SingleFactProcessorTest extends CompilerIOTestBase {
   "SingleFactProcessor" should "generate fact when key type matches" in {
     val process   = new TestCompilationProcess()
     val processor = new TestSingleFactProcessor()
-    val key       = TestKey("test-value")
+    val key       = TestFactKey("test-value")
 
     runCompilerIO(process) {
       processor.generate(key)
@@ -33,7 +28,7 @@ class SingleFactProcessorTest extends AsyncFlatSpec with AsyncIOSpec with Matche
   it should "provide correctly typed key to generateFact method" in {
     val process   = new TestCompilationProcess()
     val processor = new TestSingleFactProcessor()
-    val key       = TestKey("typed-test")
+    val key       = TestFactKey("typed-test")
 
     runCompilerIO(process) {
       processor.generate(key)
@@ -43,7 +38,7 @@ class SingleFactProcessorTest extends AsyncFlatSpec with AsyncIOSpec with Matche
   it should "not register fact when errors are present" in {
     val process   = new TestCompilationProcess()
     val processor = new TestSingleFactProcessor()
-    val key       = TestKey("error-test")
+    val key       = TestFactKey("error-test")
 
     runCompilerIO(process) {
       for {
@@ -56,8 +51,8 @@ class SingleFactProcessorTest extends AsyncFlatSpec with AsyncIOSpec with Matche
   it should "handle multiple different keys correctly" in {
     val process   = new TestCompilationProcess()
     val processor = new TestSingleFactProcessor()
-    val key1      = TestKey("key1")
-    val key2      = TestKey("key2")
+    val key1      = TestFactKey("key1")
+    val key2      = TestFactKey("key2")
     val key3      = DifferentKey("key3")
 
     runCompilerIO(process) {
@@ -67,49 +62,21 @@ class SingleFactProcessorTest extends AsyncFlatSpec with AsyncIOSpec with Matche
         _ <- processor.generate(key3)
       } yield ()
     }.asserting { _ =>
-      process.facts.values should contain(TestFact("key1"))
-      process.facts.values should contain(TestFact("key2"))
+      val _ = process.facts.values should contain(TestFact("key1"))
+      val _ = process.facts.values should contain(TestFact("key2"))
       process.facts.values should not contain DifferentFact("key3")
     }
   }
 
-  private def runCompilerIO[T](
-      process: CompilationProcess
-  )(value: CompilerIO[T]): IO[Either[Chain[CompilerError], T]] =
-    value.run(process).run(Chain.empty).value.map {
-      case Left(errors)  => Left(errors)
-      case Right((_, t)) => Right(t)
-    }
-
-  // Test fixtures
-  case class TestFact(value: String) extends CompilerFact {
-    override def key(): CompilerFactKey[TestFact] = TestKey(value)
-  }
-
-  case class TestKey(value: String) extends CompilerFactKey[TestFact]
-
+  // Test-specific fixtures
   case class DifferentFact(value: String) extends CompilerFact {
     override def key(): CompilerFactKey[DifferentFact] = DifferentKey(value)
   }
 
   case class DifferentKey(value: String) extends CompilerFactKey[DifferentFact]
 
-  class TestSingleFactProcessor extends SingleFactProcessor[TestFact, TestKey] {
-    override protected def generateFact(key: TestKey): CompilerIO[Unit] =
+  class TestSingleFactProcessor extends SingleFactProcessor[TestFact, TestFactKey] {
+    override protected def generateFact(key: TestFactKey): CompilerIO[Unit] =
       registerFactIfClear(TestFact(key.value))
-  }
-
-  class TestCompilationProcess extends CompilationProcess {
-    var facts: Map[CompilerFactKey[?], CompilerFact] = Map.empty
-
-    def registerFactSync(fact: CompilerFact): Unit = {
-      facts = facts.updated(fact.key(), fact)
-    }
-
-    override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] =
-      IO.pure(facts.get(key).map(_.asInstanceOf[V]))
-
-    override def registerFact(value: CompilerFact): IO[Unit] =
-      IO { registerFactSync(value) }
   }
 }

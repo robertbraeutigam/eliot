@@ -1,15 +1,11 @@
 package com.vanillasource.eliot.eliotc.processor
 
 import cats.data.Chain
-import cats.effect.IO
-import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import org.scalatest.flatspec.AsyncFlatSpec
-import org.scalatest.matchers.should.Matchers
 
-class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+class CompilerIOTest extends CompilerIOTestBase {
   "context" should "be clear if nothing yet happened" in {
     runCompilerIO() {
       isClear
@@ -122,33 +118,4 @@ class CompilerIOTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   }
 
   private def error(msg: String) = CompilerError(msg, Seq.empty, "", "", PositionRange.zero)
-
-  private def runCompilerIO[T](
-      process: CompilationProcess = null
-  )(value: CompilerIO[T]): IO[Either[Chain[CompilerError], T]] =
-    value.run(process).run(Chain.empty).value.map {
-      case Left(errors)  => Left(errors)
-      case Right((_, t)) => Right(t)
-    }
-
-  // Test fixtures
-  case class TestFact(value: String) extends CompilerFact {
-    override def key(): CompilerFactKey[TestFact] = TestFactKey(value)
-  }
-
-  case class TestFactKey(value: String) extends CompilerFactKey[TestFact]
-
-  class TestCompilationProcess extends CompilationProcess {
-    var facts: Map[CompilerFactKey[?], CompilerFact] = Map.empty
-
-    def registerFactSync(fact: CompilerFact): Unit = {
-      facts = facts.updated(fact.key(), fact)
-    }
-
-    override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] =
-      IO.pure(facts.get(key).map(_.asInstanceOf[V]))
-
-    override def registerFact(value: CompilerFact): IO[Unit] =
-      IO { registerFactSync(value) }
-  }
 }
