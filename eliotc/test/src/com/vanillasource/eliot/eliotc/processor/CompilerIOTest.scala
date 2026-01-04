@@ -5,6 +5,9 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.ProcessorTest.*
 
 class CompilerIOTest extends ProcessorTest {
+  val testKey  = TestFactKey("test")
+  val testFact = TestFact("test")
+
   "context" should "be clear if nothing yet happened" in {
     runCompilerIO {
       isClear
@@ -47,12 +50,11 @@ class CompilerIOTest extends ProcessorTest {
   }
 
   "getting a fact" should "return a fact when available" in {
-    given process: TestCompilationProcess = new TestCompilationProcess()
-    val testFact = TestFact("test")
-    process.registerFactSync(testFact)
-
     runCompilerIO {
-      getFactOrAbort(TestFactKey("test"))
+      for {
+        _    <- registerFactIfClear(testFact)
+        fact <- getFactOrAbort(testKey)
+      } yield fact
     }.asserting(_ shouldBe Right(testFact))
   }
 
@@ -60,27 +62,6 @@ class CompilerIOTest extends ProcessorTest {
     runCompilerIO {
       getFactOrAbort(TestFactKey("test"))
     }.asserting(_.isLeft shouldBe true)
-  }
-
-  "registering a fact when clear" should "register fact when there are no errors" in {
-    given process: TestCompilationProcess = new TestCompilationProcess()
-    val testFact = TestFact("test")
-
-    runCompilerIO {
-      registerFactIfClear(testFact)
-    }.asserting { _ => process.facts.values should contain(testFact) }
-  }
-
-  it should "not register fact when there are errors" in {
-    given process: TestCompilationProcess = new TestCompilationProcess()
-    val testFact = TestFact("test")
-
-    runCompilerIO {
-      for {
-        _ <- registerCompilerError(error("error"))
-        _ <- registerFactIfClear(testFact)
-      } yield ()
-    }.asserting { _ => process.facts should not contain testFact }
   }
 
   "abort" should "short circuit with accumulated errors" in {

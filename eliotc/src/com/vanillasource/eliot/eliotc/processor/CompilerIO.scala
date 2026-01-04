@@ -5,7 +5,6 @@ import cats.data.{Chain, EitherT, ReaderT, StateT}
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
-import com.vanillasource.eliot.eliotc.pos.PositionRange
 
 object CompilerIO {
   private type EitherStage[T] = EitherT[IO, Chain[CompilerError], T]
