@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.processor.ProcessorTest.*
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, ProcessorTest}
 
 class SingleFactProcessorTest extends ProcessorTest {
-  "SingleFactProcessor" should "generate fact when key type matches" in {
+  "single fact processor" should "generate fact when key type matches" in {
     val process   = new TestCompilationProcess()
     val processor = new TestSingleFactProcessor()
     val key       = TestFactKey("test-value")
