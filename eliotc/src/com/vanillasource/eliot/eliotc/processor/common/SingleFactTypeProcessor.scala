@@ -1,9 +1,7 @@
 package com.vanillasource.eliot.eliotc.processor.common
 
-import cats.Monad
-import cats.effect.IO
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
-import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 import scala.reflect.ClassTag
 
@@ -16,12 +14,9 @@ import scala.reflect.ClassTag
   *   The type of key for the fact
   */
 abstract class SingleFactTypeProcessor[F <: CompilerFact, K <: CompilerFactKey[F]](using ct: ClassTag[K])
-    extends CompilerProcessor {
-  override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
-    factKey match {
-      case key: K => generateFact(key)
-      case _      => Monad[CompilerIO].unit
-    }
+    extends SingleKeyTypeProcessor[K] {
+
+  override protected def processKey(key: K): CompilerIO[Unit] = generateFact(key)
 
   /** Generate the fact for the given key. Subclasses must implement this method to provide the actual fact generation
     * logic.
