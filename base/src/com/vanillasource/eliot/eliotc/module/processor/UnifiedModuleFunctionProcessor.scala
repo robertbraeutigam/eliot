@@ -1,32 +1,23 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
-import cats.Monad
-import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.ast.FunctionDefinition
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleFunction, UnifiedModuleFunction}
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
-import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.source.content.Sourced.*
 
-class UnifiedModuleFunctionProcessor extends CompilerProcessor {
-  override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
-    factKey match {
-      case UnifiedModuleFunction.Key(ffqn) => unify(ffqn)
-      case _                               => Monad[CompilerIO].unit
-    }
-
-  private def unify(ffqn: FunctionFQN): CompilerIO[Unit] =
+class UnifiedModuleFunctionProcessor extends SingleFactProcessor[UnifiedModuleFunction, UnifiedModuleFunction.Key] {
+  override protected def generateSingleFact(key: UnifiedModuleFunction.Key): CompilerIO[UnifiedModuleFunction] =
     for {
-      pathScan        <- getFactOrAbort(PathScan.Key(pathName(ffqn.moduleName)))
+      pathScan        <- getFactOrAbort(PathScan.Key(pathName(key.ffqn.moduleName)))
       allFunctions    <- pathScan.files
-                           .traverse(file => getFactOrAbort(ModuleFunction.Key(file, ffqn)).attempt.map(_.toOption))
+                           .traverse(file => getFactOrAbort(ModuleFunction.Key(file, key.ffqn)).attempt.map(_.toOption))
                            .map(_.flatten)
-      unifiedFunction <- unifyFunctions(ffqn, allFunctions)
-      _               <- registerFactIfClear(unifiedFunction)
-    } yield ()
+      unifiedFunction <- unifyFunctions(key.ffqn, allFunctions)
+    } yield unifiedFunction
 
   private def unifyFunctions(
       ffqn: FunctionFQN,

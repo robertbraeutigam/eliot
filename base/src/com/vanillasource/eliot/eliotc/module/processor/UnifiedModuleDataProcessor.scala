@@ -1,32 +1,23 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
-import cats.Monad
-import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.ast.DataDefinition
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleData, TypeFQN, UnifiedModuleData}
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
-import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
-class UnifiedModuleDataProcessor extends CompilerProcessor {
-  override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
-    factKey match {
-      case UnifiedModuleData.Key(tfqn) => unify(tfqn)
-      case _                           => Monad[CompilerIO].unit
-    }
-
-  private def unify(tfqn: TypeFQN): CompilerIO[Unit] =
+class UnifiedModuleDataProcessor extends SingleFactProcessor[UnifiedModuleData, UnifiedModuleData.Key] {
+  override protected def generateSingleFact(key: UnifiedModuleData.Key): CompilerIO[UnifiedModuleData] =
     for {
-      pathScan    <- getFactOrAbort(PathScan.Key(pathName(tfqn.moduleName)))
+      pathScan    <- getFactOrAbort(PathScan.Key(pathName(key.tfqn.moduleName)))
       allData     <- pathScan.files
-                       .traverse(file => getFactOrAbort(ModuleData.Key(file, tfqn)).attempt.map(_.toOption))
+                       .traverse(file => getFactOrAbort(ModuleData.Key(file, key.tfqn)).attempt.map(_.toOption))
                        .map(_.flatten)
-      unifiedData <- unifyData(tfqn, allData)
-      _           <- registerFactIfClear(unifiedData)
-    } yield ()
+      unifiedData <- unifyData(key.tfqn, allData)
+    } yield unifiedData
 
   private def unifyData(tfqn: TypeFQN, data: Seq[ModuleData]): CompilerIO[UnifiedModuleData] =
     if (data.isEmpty) {
