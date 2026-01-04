@@ -14,8 +14,12 @@ import com.vanillasource.eliot.eliotc.token.SourceTokens
 import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
 
-class ASTParser extends TransformationProcessor((key: SourceAST.Key) => SourceTokens.Key(key.file)) with Logging {
-  override def generateFromFact(sourceTokens: SourceTokens): CompilerIO[Unit] = {
+class ASTParser
+    extends TransformationProcessor[SourceAST, SourceTokens, SourceTokens.Key, SourceAST.Key](
+      (key: SourceAST.Key) => SourceTokens.Key(key.file)
+    )
+    with Logging {
+  override def generateFromFact(sourceTokens: SourceTokens): CompilerIO[SourceAST] = {
     val tokens    = sourceTokens.tokens.value
     val file      = sourceTokens.file
     val astResult = component[AST].fully().parse(tokens)
@@ -40,13 +44,11 @@ class ASTParser extends TransformationProcessor((key: SourceAST.Key) => SourceTo
                  token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
                )
            }.sequence_
-      _ <- astResult.value match
-             case Some(ast) =>
-               debug[CompilerIO](s"Generated AST for $file: ${ast.show}.") >> registerFactIfClear(
-                 SourceAST(file, sourceTokens.tokens.as(ast))
-               )
-             case None      => Monad[CompilerIO].unit
-    } yield ()
+      ast <- astResult.value match
+               case Some(ast) =>
+                 debug[CompilerIO](s"Generated AST for $file: ${ast.show}.").as(ast)
+               case None      => abort[AST]
+    } yield SourceAST(file, sourceTokens.tokens.as(ast))
   }
 
   private def expectedMessage(expected: Set[String]): String = expected.toSeq match

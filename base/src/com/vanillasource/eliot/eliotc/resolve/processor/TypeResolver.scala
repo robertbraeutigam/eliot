@@ -14,8 +14,12 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
-class TypeResolver extends TransformationProcessor((key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn)) with Logging {
-  override def generateFromFact(moduleData: UnifiedModuleData): CompilerIO[Unit] = {
+class TypeResolver
+    extends TransformationProcessor[ResolvedData, UnifiedModuleData, UnifiedModuleData.Key, ResolvedData.Key](
+      (key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn)
+    )
+    with Logging {
+  override def generateFromFact(moduleData: UnifiedModuleData): CompilerIO[ResolvedData] = {
     val genericParameters = moduleData.dataDefinition.genericParameters
     val fields            = moduleData.dataDefinition.fields
     val name              = moduleData.dataDefinition.name
@@ -45,21 +49,16 @@ class TypeResolver extends TransformationProcessor((key: ResolvedData.Key) => Un
                                        }.map(Some(_))
                                      case None     => None.pure[ScopedIO]
                                    }
-      _                         <-
-        registerFactIfClear(
-          ResolvedData(
-            moduleData.tfqn,
-            DataDefinition(
-              name,
-              resolvedGenericParameters,
-              resolvedFields
-            )
-          )
-        ).liftToScoped
+    } yield ResolvedData(
+      moduleData.tfqn,
+      DataDefinition(
+        name,
+        resolvedGenericParameters,
+        resolvedFields
+      )
+    )
 
-    } yield ()
-
-    resolveProgram.runS(scope).void
+    resolveProgram.runA(scope)
   }
 }
 

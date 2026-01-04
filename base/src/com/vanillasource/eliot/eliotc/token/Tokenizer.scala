@@ -13,17 +13,21 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 /** Tokenizes source content into basic building blocks: identifier, operator, literals. It gets rid of whitespace and
   * comments.
   */
-class Tokenizer extends TransformationProcessor((key: SourceTokens.Key) => SourceContent.Key(key.file)) with Logging {
-  override def generateFromFact(sourceContent: SourceContent): CompilerIO[Unit] = {
+class Tokenizer
+    extends TransformationProcessor[SourceTokens, SourceContent, SourceContent.Key, SourceTokens.Key](
+      (key: SourceTokens.Key) => SourceContent.Key(key.file)
+    )
+    with Logging {
+  override def generateFromFact(sourceContent: SourceContent): CompilerIO[SourceTokens] = {
     val file           = sourceContent.file
     val sourcedContent = sourceContent.content
 
     TokenParser(sourcedContent).fullParser
       .parse(sourcedContent.value)(using new TokenErrorBuilder(sourcedContent))
       .fold(
-        compilerError(_),
+        err => compilerError(err) >> abort[SourceTokens],
         tokens =>
-          debug[CompilerIO](s"Tokenized $file into: ${tokens.map(_.show).mkString(", ")}.") >> registerFactIfClear(
+          debug[CompilerIO](s"Tokenized $file into: ${tokens.map(_.show).mkString(", ")}.").as(
             SourceTokens(file, sourcedContent.as(tokens))
           )
       )

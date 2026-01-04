@@ -6,16 +6,23 @@ import scala.annotation.unused
 import scala.reflect.ClassTag
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
-abstract class TransformationProcessor[V <: CompilerFact, I <: CompilerFactKey[V], O <: CompilerFactKey[?]](
-    keyTransition: O => I
-)(using ct: ClassTag[O])
-    extends SingleKeyTypeProcessor[O] {
+/** When asked to generate a certain key type, it gets another fact based on that key and transforms that fact to
+  * generate the new one. Transformation processors must only generate one fact, but may get more facts to supplement
+  * the transformation of the "main" fact being transformed.
+  */
+abstract class TransformationProcessor[
+    OutputFact <: CompilerFact,
+    InputFact <: CompilerFact,
+    InputKey <: CompilerFactKey[InputFact],
+    OutputKey <: CompilerFactKey[OutputFact]
+](keyTransition: OutputKey => InputKey)(using ct: ClassTag[OutputKey])
+    extends SingleFactProcessor[OutputFact, OutputKey] {
 
-  protected def generateFact(requestedKey: O): CompilerIO[Unit] =
+  protected def generateSingleFact(requestedKey: OutputKey): CompilerIO[OutputFact] =
     getFactOrAbort(keyTransition(requestedKey)).flatMap(fact => generateFromKeyAndFact(requestedKey, fact))
 
-  def generateFromFact(@unused fact: V): CompilerIO[Unit] = ???
+  def generateFromFact(@unused fact: InputFact): CompilerIO[OutputFact] = ???
 
-  def generateFromKeyAndFact(@unused key: O, fact: V): CompilerIO[Unit] =
+  def generateFromKeyAndFact(@unused key: OutputKey, fact: InputFact): CompilerIO[OutputFact] =
     generateFromFact(fact)
 }

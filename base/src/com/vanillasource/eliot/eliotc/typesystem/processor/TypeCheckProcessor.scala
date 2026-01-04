@@ -20,18 +20,23 @@ import com.vanillasource.eliot.eliotc.typesystem.types.{TypeUnification, TypeUni
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 
 class TypeCheckProcessor
-    extends TransformationProcessor((key: TypeCheckedFunction.Key) => ResolvedFunction.Key(key.ffqn))
+    extends TransformationProcessor[
+      TypeCheckedFunction,
+      ResolvedFunction,
+      ResolvedFunction.Key,
+      TypeCheckedFunction.Key
+    ]((key: TypeCheckedFunction.Key) => ResolvedFunction.Key(key.ffqn))
     with Logging {
 
   override def generateFromFact(
       resolvedFunction: ResolvedFunction
-  ): CompilerIO[Unit] = {
+  ): CompilerIO[TypeCheckedFunction] = {
     val functionDefinition = resolvedFunction.definition
     val typeGraph          = genericParameters(functionDefinition.genericParameters)
 
     functionDefinition.body match {
       case Some(body) =>
-        val program = for {
+        for {
           constructedTypeGraph <-
             constructTypeGraph(functionDefinition.valueType, body)
               .runA(UniqueGenericNames())
@@ -39,13 +44,8 @@ class TypeCheckProcessor
           solution             <- fullTypeGraph.solve()
           typedDefinition      <- enhanceWithTypes(functionDefinition, fullTypeGraph, solution)
           _                    <- IO(typedDefinition.debugExpressionTypes).to[CompilerIO]
-          _                    <- registerFactIfClear(
-                                    TypeCheckedFunction(resolvedFunction.ffqn, typedDefinition)
-                                  )
-        } yield ()
-
-        program
-      case None       => Monad[CompilerIO].unit
+        } yield TypeCheckedFunction(resolvedFunction.ffqn, typedDefinition)
+      case None       => abort[TypeCheckedFunction]
     }
   }
 

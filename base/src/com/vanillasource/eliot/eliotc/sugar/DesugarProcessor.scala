@@ -8,11 +8,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 
 class DesugarProcessor
-    extends TransformationProcessor((key: DesugaredSourceAST.Key) => SourceAST.Key(key.file))
+    extends TransformationProcessor[DesugaredSourceAST, SourceAST, SourceAST.Key, DesugaredSourceAST.Key](
+      (key: DesugaredSourceAST.Key) => SourceAST.Key(key.file)
+    )
     with Logging {
 
-  override def generateFromFact(sourceAst: SourceAST): CompilerIO[Unit] =
-    registerFactIfClear(DesugaredSourceAST(sourceAst.file, sourceAst.ast.as(desugar(sourceAst.ast.value))))
+  override def generateFromFact(sourceAst: SourceAST): CompilerIO[DesugaredSourceAST] =
+    DesugaredSourceAST(sourceAst.file, sourceAst.ast.as(desugar(sourceAst.ast.value))).pure[CompilerIO]
 
   private def desugar(ast: AST): AST = AST(
     ast.importStatements,

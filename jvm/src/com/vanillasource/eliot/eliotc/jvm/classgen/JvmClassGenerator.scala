@@ -24,10 +24,12 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, com
 import scala.annotation.tailrec
 
 class JvmClassGenerator
-    extends TransformationProcessor((key: GeneratedModule.Key) => GenerateModule.Key(key.moduleName))
+    extends TransformationProcessor[GeneratedModule, GenerateModule, GenerateModule.Key, GeneratedModule.Key](
+      (key: GeneratedModule.Key) => GenerateModule.Key(key.moduleName)
+    )
     with Logging {
 
-  override def generateFromFact(generateModule: GenerateModule): CompilerIO[Unit] =
+  override def generateFromFact(generateModule: GenerateModule): CompilerIO[GeneratedModule] =
     for {
       mainClassGenerator     <- createClassGenerator[CompilerIO](generateModule.moduleName)
       typeFiles              <- generateModule.usedTypes
@@ -38,10 +40,7 @@ class JvmClassGenerator
                                   .filter(sffqn => !typeGeneratedFunctions.contains(sffqn.value.functionName))
                                   .flatTraverse(sourcedFfqn => createModuleMethod(mainClassGenerator, sourcedFfqn))
       mainClass              <- mainClassGenerator.generate[CompilerIO]()
-      _                      <- registerFactIfClear(
-                                  GeneratedModule(generateModule.moduleName, typeFiles ++ functionFiles ++ Seq(mainClass))
-                                )
-    } yield ()
+    } yield GeneratedModule(generateModule.moduleName, typeFiles ++ functionFiles ++ Seq(mainClass))
 
   private def createModuleMethod(
       mainClassGenerator: ClassGenerator,

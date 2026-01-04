@@ -17,9 +17,14 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class FunctionResolver
-    extends TransformationProcessor((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))
+    extends TransformationProcessor[
+      ResolvedFunction,
+      UnifiedModuleFunction,
+      UnifiedModuleFunction.Key,
+      ResolvedFunction.Key
+    ]((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))
     with Logging {
-  override def generateFromFact(moduleFunction: UnifiedModuleFunction): CompilerIO[Unit] = {
+  override def generateFromFact(moduleFunction: UnifiedModuleFunction): CompilerIO[ResolvedFunction] = {
     val args              = moduleFunction.functionDefinition.args
     val body              = moduleFunction.functionDefinition.body
     val genericParameters = moduleFunction.functionDefinition.genericParameters
@@ -44,30 +49,26 @@ class FunctionResolver
             .traverse(TypeResolver.resolveType)
             .map(resolvedGenericTypes => UniversalGenericParameter(genericParameter.name, resolvedGenericTypes))
         )
-      _                         <-
-        registerFactIfClear(
-          ResolvedFunction(
-            moduleFunction.ffqn,
-            FunctionDefinition(
-              name,
-              resolvedGenericParameters,
-              // Unroll return type into Function[A, Function[B, ...]]
-              argumentDefinitions.foldRight(returnType)((arg, typ) =>
-                DirectTypeReference(
-                  typeReference.typeName.as(TypeFQN.systemFunctionType),
-                  Seq(arg.typeReference, typ)
-                )
-              ),
-              // Unroll body to use function literals: arg1 -> arg2 -> ... -> body
-              resolvedBodyMaybe.map(resolvedBody =>
-                argumentDefinitions.foldRight(resolvedBody)((arg, expr) => expr.as(FunctionLiteral(arg, expr)))
-              )
-            )
+    } yield ResolvedFunction(
+      moduleFunction.ffqn,
+      FunctionDefinition(
+        name,
+        resolvedGenericParameters,
+        // Unroll return type into Function[A, Function[B, ...]]
+        argumentDefinitions.foldRight(returnType)((arg, typ) =>
+          DirectTypeReference(
+            typeReference.typeName.as(TypeFQN.systemFunctionType),
+            Seq(arg.typeReference, typ)
           )
-        ).liftToScoped
-    } yield ()
+        ),
+        // Unroll body to use function literals: arg1 -> arg2 -> ... -> body
+        resolvedBodyMaybe.map(resolvedBody =>
+          argumentDefinitions.foldRight(resolvedBody)((arg, expr) => expr.as(FunctionLiteral(arg, expr)))
+        )
+      )
+    )
 
-    resolveProgram.runS(scope).void
+    resolveProgram.runA(scope)
   }
 
   private def resolveExpression(
