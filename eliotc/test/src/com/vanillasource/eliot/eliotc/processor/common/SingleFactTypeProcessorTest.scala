@@ -5,10 +5,10 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.ProcessorTest.*
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, ProcessorTest}
 
-class SingleFactProcessorTest extends ProcessorTest {
+class SingleFactTypeProcessorTest extends ProcessorTest {
   "single fact processor" should "generate fact when key type matches" in {
     val process   = new TestCompilationProcess()
-    val processor = new TestSingleFactProcessor()
+    val processor = new TestSingleFactTypeProcessor()
     val key       = TestFactKey("test-value")
 
     runCompilerIO(process) {
@@ -18,7 +18,7 @@ class SingleFactProcessorTest extends ProcessorTest {
 
   it should "do nothing when key type does not match" in {
     val process      = new TestCompilationProcess()
-    val processor    = new TestSingleFactProcessor()
+    val processor    = new TestSingleFactTypeProcessor()
     val differentKey = DifferentKey("other-value")
 
     runCompilerIO(process) {
@@ -28,7 +28,7 @@ class SingleFactProcessorTest extends ProcessorTest {
 
   it should "provide correctly typed key to generateFact method" in {
     val process   = new TestCompilationProcess()
-    val processor = new TestSingleFactProcessor()
+    val processor = new TestSingleFactTypeProcessor()
     val key       = TestFactKey("typed-test")
 
     runCompilerIO(process) {
@@ -38,7 +38,7 @@ class SingleFactProcessorTest extends ProcessorTest {
 
   it should "not register fact when errors are present" in {
     val process   = new TestCompilationProcess()
-    val processor = new TestSingleFactProcessor()
+    val processor = new TestSingleFactTypeProcessor()
     val key       = TestFactKey("error-test")
 
     runCompilerIO(process) {
@@ -51,7 +51,7 @@ class SingleFactProcessorTest extends ProcessorTest {
 
   it should "handle multiple different keys correctly" in {
     val process   = new TestCompilationProcess()
-    val processor = new TestSingleFactProcessor()
+    val processor = new TestSingleFactTypeProcessor()
     val key1      = TestFactKey("key1")
     val key2      = TestFactKey("key2")
     val key3      = DifferentKey("key3")
@@ -76,7 +76,7 @@ class SingleFactProcessorTest extends ProcessorTest {
 
   case class DifferentKey(value: String) extends CompilerFactKey[DifferentFact]
 
-  class TestSingleFactProcessor extends SingleFactProcessor[TestFact, TestFactKey] {
+  class TestSingleFactTypeProcessor extends SingleFactTypeProcessor[TestFact, TestFactKey] {
     override protected def generateFact(key: TestFactKey): CompilerIO[Unit] =
       registerFactIfClear(TestFact(key.value))
   }

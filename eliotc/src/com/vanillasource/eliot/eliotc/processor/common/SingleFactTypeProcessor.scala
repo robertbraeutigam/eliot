@@ -15,7 +15,7 @@ import scala.reflect.ClassTag
   * @tparam K
   *   The type of key for the fact
   */
-abstract class SingleFactProcessor[F <: CompilerFact, K <: CompilerFactKey[F]](using ct: ClassTag[K])
+abstract class SingleFactTypeProcessor[F <: CompilerFact, K <: CompilerFactKey[F]](using ct: ClassTag[K])
     extends CompilerProcessor {
   override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
     factKey match {
