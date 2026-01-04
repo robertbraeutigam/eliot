@@ -8,35 +8,9 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-/** Test fact implementation for testing purposes.
-  */
-case class TestFact(value: String) extends CompilerFact {
-  override def key(): CompilerFactKey[TestFact] = TestFactKey(value)
-}
-
-/** Test fact key for TestFact.
-  */
-case class TestFactKey(value: String) extends CompilerFactKey[TestFact]
-
-/** Test implementation of CompilationProcess that stores facts in memory.
-  */
-class TestCompilationProcess extends CompilationProcess {
-  var facts: Map[CompilerFactKey[?], CompilerFact] = Map.empty
-
-  def registerFactSync(fact: CompilerFact): Unit = {
-    facts = facts.updated(fact.key(), fact)
-  }
-
-  override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] =
-    IO.pure(facts.get(key).map(_.asInstanceOf[V]))
-
-  override def registerFact(value: CompilerFact): IO[Unit] =
-    IO { registerFactSync(value) }
-}
-
 /** Base class for tests that use CompilerIO and need test fixtures for facts and compilation process.
   */
-trait CompilerIOTestBase extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+abstract class CompilerIOTestBase extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   /** Helper method to run a CompilerIO computation with a test compilation process.
     *
@@ -54,4 +28,35 @@ trait CompilerIOTestBase extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       case Left(errors)  => Left(errors)
       case Right((_, t)) => Right(t)
     }
+}
+
+object CompilerIOTestBase {
+
+  /** Test fact implementation for testing purposes.
+    */
+  case class TestFact(value: String) extends CompilerFact {
+    override def key(): CompilerFactKey[TestFact] = TestFactKey(value)
+  }
+
+  /** Test fact key for TestFact.
+    */
+  case class TestFactKey(value: String) extends CompilerFactKey[TestFact]
+
+  /** Test implementation of CompilationProcess that stores facts in memory.
+    */
+  class TestCompilationProcess extends CompilationProcess {
+    var facts: Map[CompilerFactKey[?], CompilerFact] = Map.empty
+
+    def registerFactSync(fact: CompilerFact): Unit = {
+      facts = facts.updated(fact.key(), fact)
+    }
+
+    override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] =
+      IO.pure(facts.get(key).map(_.asInstanceOf[V]))
+
+    override def registerFact(value: CompilerFact): IO[Unit] =
+      IO {
+        registerFactSync(value)
+      }
+  }
 }

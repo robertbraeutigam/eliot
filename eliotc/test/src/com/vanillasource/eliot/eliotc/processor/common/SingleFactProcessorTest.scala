@@ -2,7 +2,8 @@ package com.vanillasource.eliot.eliotc.processor.common
 
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, CompilerIOTestBase, TestCompilationProcess, TestFact, TestFactKey}
+import com.vanillasource.eliot.eliotc.processor.CompilerIOTestBase.*
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, CompilerIOTestBase}
 
 class SingleFactProcessorTest extends CompilerIOTestBase {
   "SingleFactProcessor" should "generate fact when key type matches" in {

@@ -1,10 +1,8 @@
 package com.vanillasource.eliot.eliotc
 
-import cats.Show
 import cats.effect.IO
-import cats.effect.std.Console
-import cats.syntax.all.*
 import cats.effect.testing.scalatest.AsyncIOSpec
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
@@ -17,7 +15,6 @@ import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 import java.io.File
-import java.nio.charset.Charset
 import java.nio.file.Path
 
 abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFlatSpec with AsyncIOSpec with Matchers {
