@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.processor.common
 
-import cats.Monad
 import cats.data.Chain
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
@@ -38,11 +37,7 @@ class SingleFactProcessorTest extends AsyncFlatSpec with AsyncIOSpec with Matche
 
     runCompilerIO(process) {
       processor.generate(key)
-    }.asserting { _ =>
-      val fact = process.facts.get(key)
-      fact shouldBe defined
-      fact.get shouldBe TestFact("typed-test")
-    }
+    }.asserting { _ => process.facts.get(key) shouldBe Some(TestFact("typed-test")) }
   }
 
   it should "not register fact when errors are present" in {
