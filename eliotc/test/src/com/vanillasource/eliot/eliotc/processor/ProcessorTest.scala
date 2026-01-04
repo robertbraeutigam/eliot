@@ -10,7 +10,7 @@ import org.scalatest.matchers.should.Matchers
 
 /** Base class for tests that use CompilerIO and need test fixtures for facts and compilation process.
   */
-abstract class CompilerIOTestBase extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+abstract class ProcessorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   /** Helper method to run a CompilerIO computation with a test compilation process.
     *
@@ -30,7 +30,7 @@ abstract class CompilerIOTestBase extends AsyncFlatSpec with AsyncIOSpec with Ma
     }
 }
 
-object CompilerIOTestBase {
+object ProcessorTest {
 
   /** Test fact implementation for testing purposes.
     */

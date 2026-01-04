@@ -4,9 +4,9 @@ import cats.data.Chain
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.CompilerIOTestBase.*
+import com.vanillasource.eliot.eliotc.processor.ProcessorTest.*
 
-class CompilerIOTest extends CompilerIOTestBase {
+class CompilerIOTest extends ProcessorTest {
   "context" should "be clear if nothing yet happened" in {
     runCompilerIO() {
       isClear
