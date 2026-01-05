@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.jargen
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.jvm.classgen.{GenerateModule, GeneratedModule}
+import com.vanillasource.eliot.eliotc.jvm.classgen.GeneratedModule
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -39,26 +39,15 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
   private def generateModulesFrom(ffqn: FunctionFQN): CompilerIO[Option[Seq[GeneratedModule]]] =
     for {
       usedSymbols  <- getFactOrAbort(UsedSymbols.Key(ffqn))
-      modulesMaybe <- generateModules(usedSymbols)
+      modulesMaybe <- generateModules(ffqn, usedSymbols)
     } yield modulesMaybe
 
-  private def generateModules(usedSymbols: UsedSymbols): CompilerIO[Option[Seq[GeneratedModule]]] = {
+  private def generateModules(ffqn: FunctionFQN, usedSymbols: UsedSymbols): CompilerIO[Option[Seq[GeneratedModule]]] = {
     val groupedFunctions = usedSymbols.usedFunctions.groupBy(_.value.moduleName)
     val groupedTypes     = usedSymbols.usedTypes.groupBy(_.value.moduleName)
-    val facts            = (groupedFunctions.keys ++ groupedTypes.keys)
-      .map(moduleName =>
-        GenerateModule(
-          moduleName,
-          groupedFunctions.getOrElse(moduleName, Seq.empty),
-          groupedTypes.getOrElse(moduleName, Seq.empty)
-        )
-      )
-      .toSeq
+    val moduleNames      = (groupedFunctions.keys ++ groupedTypes.keys).toSeq
 
-    for {
-      _            <- facts.traverse_(registerFactIfClear) // FIXME: do this in a linear way, not circular way
-      modulesMaybe <- facts.map(_.moduleName).traverse(moduleName => getFact(GeneratedModule.Key(moduleName)))
-    } yield modulesMaybe.sequence
+    moduleNames.traverse(moduleName => getFact(GeneratedModule.Key(moduleName, ffqn))).map(_.sequence)
   }
 
   private def generateJarFile(mainFunction: FunctionFQN, allClasses: Seq[GeneratedModule]): IO[Unit] =
@@ -70,7 +59,7 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
     } >> info(s"Generated executable jar: ${jarFilePath(mainFunction)}.")
 
   private def generateClasses(jos: JarOutputStream, allClasses: Seq[GeneratedModule]): Unit = {
-    allClasses.foreach { case GeneratedModule(moduleName, classFiles) =>
+    allClasses.foreach { case GeneratedModule(moduleName, ffqn, classFiles) =>
       classFiles.foreach { classFile =>
         jos.putNextEntry(new JarEntry(classFile.fileName))
         jos.write(classFile.bytecode)

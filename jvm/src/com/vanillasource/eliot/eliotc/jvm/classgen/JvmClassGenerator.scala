@@ -18,27 +18,32 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.typesystem.fact.{TypeCheckedFunction, TypedExpression}
 import com.vanillasource.eliot.eliotc.typesystem.fact.TypedExpression.*
-import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
+import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
+import com.vanillasource.eliot.eliotc.used.UsedSymbols
 
 import scala.annotation.tailrec
 
 class JvmClassGenerator
-    extends TransformationProcessor[GenerateModule.Key, GeneratedModule.Key](key => GenerateModule.Key(key.moduleName))
+    extends SingleKeyTypeProcessor[GeneratedModule.Key]
     with Logging {
 
-  override protected def generateFromKeyAndFact(key: GeneratedModule.Key, generateModule: GenerateModule): CompilerIO[GeneratedModule] =
+  override protected def generateFact(key: GeneratedModule.Key): CompilerIO[Unit] =
     for {
-      mainClassGenerator     <- createClassGenerator[CompilerIO](generateModule.moduleName)
-      typeFiles              <- generateModule.usedTypes
+      usedSymbols            <- getFactOrAbort(UsedSymbols.Key(key.ffqn))
+      usedFunctions          = usedSymbols.usedFunctions.filter(_.value.moduleName == key.moduleName)
+      usedTypes              = usedSymbols.usedTypes.filter(_.value.moduleName == key.moduleName)
+      mainClassGenerator     <- createClassGenerator[CompilerIO](key.moduleName)
+      typeFiles              <- usedTypes
                                   .filter(stfqn => !types.contains(stfqn.value))
                                   .flatTraverse(sourcedTfqn => createData(mainClassGenerator, sourcedTfqn))
-      typeGeneratedFunctions <- generateModule.usedTypes.flatTraverse(collectTypeGeneratedFunctions).map(_.toSet)
-      functionFiles          <- generateModule.usedFunctions
+      typeGeneratedFunctions <- usedTypes.flatTraverse(collectTypeGeneratedFunctions).map(_.toSet)
+      functionFiles          <- usedFunctions
                                   .filter(sffqn => !typeGeneratedFunctions.contains(sffqn.value.functionName))
                                   .flatTraverse(sourcedFfqn => createModuleMethod(mainClassGenerator, sourcedFfqn))
       mainClass              <- mainClassGenerator.generate[CompilerIO]()
-    } yield GeneratedModule(generateModule.moduleName, typeFiles ++ functionFiles ++ Seq(mainClass))
+      _                      <- registerFactIfClear(GeneratedModule(key.moduleName, key.ffqn, typeFiles ++ functionFiles ++ Seq(mainClass)))
+    } yield ()
 
   private def createModuleMethod(
       mainClassGenerator: ClassGenerator,
