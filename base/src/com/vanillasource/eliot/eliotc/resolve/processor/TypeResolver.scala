@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class TypeResolver
-    extends TransformationProcessor[ResolvedData, UnifiedModuleData, UnifiedModuleData.Key, ResolvedData.Key]
+    extends TransformationProcessor[UnifiedModuleData.Key, ResolvedData.Key]
     with Logging {
 
   override protected def getInputKey(outputKey: ResolvedData.Key): UnifiedModuleData.Key =

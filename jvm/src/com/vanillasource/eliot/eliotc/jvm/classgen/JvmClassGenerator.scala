@@ -24,7 +24,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, com
 import scala.annotation.tailrec
 
 class JvmClassGenerator
-    extends TransformationProcessor[GeneratedModule, GenerateModule, GenerateModule.Key, GeneratedModule.Key]
+    extends TransformationProcessor[GenerateModule.Key, GeneratedModule.Key]
     with Logging {
 
   override protected def getInputKey(outputKey: GeneratedModule.Key): GenerateModule.Key =

@@ -1,26 +1,39 @@
 package com.vanillasource.eliot.eliotc.processor.common
 
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
-import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, FactOf}
 import scala.reflect.ClassTag
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
 /** When asked to generate a certain key type, it gets another fact based on that key and transforms that fact to
   * generate the new one. Transformation processors must only generate one fact, but may get more facts to supplement
   * the transformation of the "main" fact being transformed.
+  *
+  * Type parameters have been reduced from 4 to 2 by inferring fact types from key types using the FactOf match type.
+  * InputFact = FactOf[InputKey] and OutputFact = FactOf[OutputKey] are computed at compile time.
+  *
+  * @tparam InputKey
+  *   The key type for the input fact being transformed
+  * @tparam OutputKey
+  *   The key type for the output fact being generated
   */
 abstract class TransformationProcessor[
-    OutputFact <: CompilerFact,
-    InputFact <: CompilerFact,
-    InputKey <: CompilerFactKey[InputFact],
-    OutputKey <: CompilerFactKey[OutputFact]
+    InputKey <: CompilerFactKey[?],
+    OutputKey <: CompilerFactKey[?]
 ](using ct: ClassTag[OutputKey])
-    extends SingleFactProcessor[OutputFact, OutputKey] {
+    extends SingleKeyTypeProcessor[OutputKey] {
+
+  type InputFact  = FactOf[InputKey]
+  type OutputFact = FactOf[OutputKey]
 
   protected def getInputKey(outputKey: OutputKey): InputKey
 
-  protected def generateSingleFact(requestedKey: OutputKey): CompilerIO[OutputFact] =
-    getFactOrAbort(getInputKey(requestedKey)).flatMap(fact => generateFromKeyAndFact(requestedKey, fact))
+  override protected def generateFact(requestedKey: OutputKey): CompilerIO[Unit] =
+    for {
+      inputFact  <- getFactOrAbort(getInputKey(requestedKey).asInstanceOf[CompilerFactKey[CompilerFact]])
+      outputFact <- generateFromKeyAndFact(requestedKey, inputFact.asInstanceOf[InputFact])
+      _          <- registerFactIfClear(outputFact.asInstanceOf[CompilerFact])
+    } yield ()
 
   protected def generateFromKeyAndFact(key: OutputKey, fact: InputFact): CompilerIO[OutputFact]
 }

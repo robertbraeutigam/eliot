@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 
 class DesugarProcessor
-    extends TransformationProcessor[DesugaredSourceAST, SourceAST, SourceAST.Key, DesugaredSourceAST.Key]
+    extends TransformationProcessor[SourceAST.Key, DesugaredSourceAST.Key]
     with Logging {
 
   override protected def getInputKey(outputKey: DesugaredSourceAST.Key): SourceAST.Key =

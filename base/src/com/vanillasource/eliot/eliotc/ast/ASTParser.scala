@@ -13,7 +13,7 @@ import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
 
 class ASTParser
-    extends TransformationProcessor[SourceAST, SourceTokens, SourceTokens.Key, SourceAST.Key]
+    extends TransformationProcessor[SourceTokens.Key, SourceAST.Key]
     with Logging {
 
   override protected def getInputKey(outputKey: SourceAST.Key): SourceTokens.Key =

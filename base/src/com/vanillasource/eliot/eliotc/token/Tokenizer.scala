@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * comments.
   */
 class Tokenizer
-    extends TransformationProcessor[SourceTokens, SourceContent, SourceContent.Key, SourceTokens.Key]
+    extends TransformationProcessor[SourceContent.Key, SourceTokens.Key]
     with Logging {
 
   override protected def getInputKey(outputKey: SourceTokens.Key): SourceContent.Key =

@@ -20,12 +20,7 @@ import com.vanillasource.eliot.eliotc.typesystem.types.{TypeUnification, TypeUni
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 
 class TypeCheckProcessor
-    extends TransformationProcessor[
-      TypeCheckedFunction,
-      ResolvedFunction,
-      ResolvedFunction.Key,
-      TypeCheckedFunction.Key
-    ]
+    extends TransformationProcessor[ResolvedFunction.Key, TypeCheckedFunction.Key]
     with Logging {
 
   override protected def getInputKey(outputKey: TypeCheckedFunction.Key): ResolvedFunction.Key =
