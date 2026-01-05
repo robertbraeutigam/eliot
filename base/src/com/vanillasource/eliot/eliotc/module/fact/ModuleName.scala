@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.module.fact
 
 import cats.{Eq, Show}
-import com.vanillasource.eliot.eliotc.ast.ImportStatement
+import com.vanillasource.eliot.eliotc.ast.fact.ImportStatement
 
 case class ModuleName(packages: Seq[String], name: String)
 

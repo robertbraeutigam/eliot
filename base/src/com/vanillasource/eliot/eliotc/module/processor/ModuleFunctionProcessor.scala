@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.AST
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.*
@@ -21,7 +22,7 @@ class ModuleFunctionProcessor(systemModules: Seq[ModuleName] = defaultSystemModu
       processImpl(key.file, key.ffqn.moduleName, fact.sourcedAst)
     }
 
-  private def processImpl(file: File, moduleName: ModuleName, sourcedAst: com.vanillasource.eliot.eliotc.source.content.Sourced[com.vanillasource.eliot.eliotc.ast.AST]): CompilerIO[Unit] =
+  private def processImpl(file: File, moduleName: ModuleName, sourcedAst: com.vanillasource.eliot.eliotc.source.content.Sourced[AST]): CompilerIO[Unit] =
     for {
       localFunctions    <- extractLocalFunctions(sourcedAst.value.functionDefinitions)
       localTypes        <- extractLocalTypes(sourcedAst.value.typeDefinitions)

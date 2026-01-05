@@ -1,8 +1,9 @@
-package com.vanillasource.eliot.eliotc.ast
+package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.syntax.all.*
 import cats.{Eq, Show}
-import com.vanillasource.eliot.eliotc.ast.Primitives.*
+import Primitives.*
+import com.vanillasource.eliot.eliotc.ast.fact.{ASTComponent, TypeReference}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.parser.Parser

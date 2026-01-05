@@ -12,6 +12,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGen
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.ast
+import com.vanillasource.eliot.eliotc.ast.fact
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -68,10 +69,10 @@ class FunctionResolver
   }
 
   private def resolveExpression(
-      expr: Sourced[ast.Expression]
+      expr: Sourced[fact.Expression]
   ): ScopedIO[Sourced[Expression]] =
     expr.value match {
-      case ast.Expression.FunctionApplication(s @ Sourced(_, _, name), args) =>
+      case fact.Expression.FunctionApplication(s @ Sourced(_, _, name), args) =>
         isValueVisible(name).ifM(
           for {
             newArgs <- args.traverse(resolveExpression)
@@ -93,7 +94,7 @@ class FunctionResolver
               (compilerError(s.as(s"Function not defined.")) *> abort[Sourced[Expression]]).liftToScoped
           }
         )
-      case ast.Expression.QualifiedFunctionApplication(
+      case fact.Expression.QualifiedFunctionApplication(
             moduleNameSrc @ Sourced(_, _, moduleNameStr),
             fnNameSrc @ Sourced(_, _, fnName),
             args
@@ -110,7 +111,7 @@ class FunctionResolver
             )
           )
         }
-      case ast.Expression.FunctionLiteral(parameters, body)                  =>
+      case fact.Expression.FunctionLiteral(parameters, body)                  =>
         for {
           resolvedParameters <-
             parameters
@@ -122,9 +123,9 @@ class FunctionResolver
           _                  <- parameters.traverse(addVisibleValue)
           resolvedBody       <- resolveExpression(body)
         } yield resolvedParameters.foldRight(resolvedBody)((arg, e) => expr.as(Expression.FunctionLiteral(arg, e)))
-      case ast.Expression.IntegerLiteral(s @ Sourced(_, _, value))           =>
+      case fact.Expression.IntegerLiteral(s @ Sourced(_, _, value))           =>
         expr.as(Expression.IntegerLiteral(s.as(BigInt(value)))).pure
-      case ast.Expression.StringLiteral(s @ Sourced(_, _, value))            =>
+      case fact.Expression.StringLiteral(s @ Sourced(_, _, value))            =>
         expr.as(Expression.StringLiteral(s.as(value))).pure
     }
 }

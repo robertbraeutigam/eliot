@@ -1,9 +1,10 @@
-package com.vanillasource.eliot.eliotc.ast
+package com.vanillasource.eliot.eliotc.ast.fact
 
-import cats.{Eq, Show}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
-import com.vanillasource.eliot.eliotc.ast.Primitives.*
+import cats.{Eq, Show}
+import ASTComponent.component
+import Primitives.*
+import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.parser.Parser

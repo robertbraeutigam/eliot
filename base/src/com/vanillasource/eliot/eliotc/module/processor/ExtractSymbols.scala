@@ -2,8 +2,8 @@ package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.{DataDefinition, FunctionDefinition, ImportStatement}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.ast.{DataDefinition, FunctionDefinition, ImportStatement}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN, UnifiedModuleNames}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError

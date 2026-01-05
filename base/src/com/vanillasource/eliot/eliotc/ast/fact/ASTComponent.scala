@@ -1,5 +1,6 @@
-package com.vanillasource.eliot.eliotc.ast
+package com.vanillasource.eliot.eliotc.ast.fact
 
+import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.parser.Parser

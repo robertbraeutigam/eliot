@@ -1,13 +1,14 @@
-package com.vanillasource.eliot.eliotc.ast
+package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.Eq
-import com.vanillasource.eliot.eliotc.ast.ASTComponent.component
-import com.vanillasource.eliot.eliotc.ast.Primitives.*
+import cats.syntax.all.*
+import ASTComponent.component
+import Primitives.*
+import com.vanillasource.eliot.eliotc.ast.fact.{ASTComponent, GenericParameter, TypeReference}
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.parser.Parser
 import com.vanillasource.parser.Parser.acceptIfAll
-import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 case class GenericParameter(name: Sourced[String], genericParameters: Seq[TypeReference])
 

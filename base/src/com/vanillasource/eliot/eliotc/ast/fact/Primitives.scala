@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.ast
+package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced

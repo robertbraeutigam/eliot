@@ -1,8 +1,8 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.DataDefinition
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.ast.DataDefinition
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleData, TypeFQN, UnifiedModuleData}
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor

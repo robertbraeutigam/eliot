@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.{DirectTypeRefe
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, DataDefinition, ResolvedData, TypeReference}
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
 import com.vanillasource.eliot.eliotc.ast
+import com.vanillasource.eliot.eliotc.ast.fact
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -62,7 +63,7 @@ class TypeResolver
 }
 
 object TypeResolver {
-  def resolveType(reference: ast.TypeReference): ScopedIO[TypeReference] =
+  def resolveType(reference: fact.TypeReference): ScopedIO[TypeReference] =
     for {
       resolvedGenericParameters <- reference.genericParameters.traverse(resolveType)
       resolvedType              <- getGenericParameter(reference.typeName.value).flatMap {

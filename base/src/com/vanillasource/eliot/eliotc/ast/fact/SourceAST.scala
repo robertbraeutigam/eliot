@@ -1,7 +1,8 @@
-package com.vanillasource.eliot.eliotc.ast
+package com.vanillasource.eliot.eliotc.ast.fact
 
-import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 import java.io.File
 import java.nio.file.Path
