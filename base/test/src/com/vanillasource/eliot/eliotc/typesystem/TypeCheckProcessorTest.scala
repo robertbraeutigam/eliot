@@ -6,8 +6,9 @@ import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.systemFunctionModuleName
 import com.vanillasource.eliot.eliotc.module.processor.{
+  ModuleDataProcessor,
+  ModuleFunctionProcessor,
   ModuleNamesProcessor,
-  ModuleProcessor,
   UnifiedModuleDataProcessor,
   UnifiedModuleFunctionProcessor,
   UnifiedModuleNamesProcessor
@@ -23,7 +24,8 @@ class TypeCheckProcessorTest
       Tokenizer(),
       ASTParser(),
       DesugarProcessor(),
-      ModuleProcessor(Seq(systemFunctionModuleName)),
+      ModuleFunctionProcessor(Seq(systemFunctionModuleName)),
+      ModuleDataProcessor(Seq(systemFunctionModuleName)),
       ModuleNamesProcessor(),
       UnifiedModuleFunctionProcessor(),
       UnifiedModuleDataProcessor(),

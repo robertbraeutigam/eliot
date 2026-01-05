@@ -8,8 +8,9 @@ import com.vanillasource.eliot.eliotc.base.BasePlugin.pathKey
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.module.processor.{
+  ModuleDataProcessor,
+  ModuleFunctionProcessor,
   ModuleNamesProcessor,
-  ModuleProcessor,
   UnifiedModuleDataProcessor,
   UnifiedModuleFunctionProcessor,
   UnifiedModuleNamesProcessor
@@ -52,7 +53,8 @@ class BasePlugin extends CompilerPlugin {
             Tokenizer(),
             ASTParser(),
             DesugarProcessor(),
-            ModuleProcessor(),
+            ModuleFunctionProcessor(),
+            ModuleDataProcessor(),
             ModuleNamesProcessor(),
             UnifiedModuleNamesProcessor(),
             UnifiedModuleDataProcessor(),

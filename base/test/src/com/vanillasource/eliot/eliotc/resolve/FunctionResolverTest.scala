@@ -5,7 +5,8 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.module.processor.{
-  ModuleProcessor,
+  ModuleDataProcessor,
+  ModuleFunctionProcessor,
   UnifiedModuleDataProcessor,
   UnifiedModuleFunctionProcessor
 }
@@ -26,7 +27,8 @@ class FunctionResolverTest
       Tokenizer(),
       ASTParser(),
       DesugarProcessor(),
-      ModuleProcessor(Seq.empty),
+      ModuleFunctionProcessor(Seq.empty),
+      ModuleDataProcessor(Seq.empty),
       UnifiedModuleFunctionProcessor(),
       UnifiedModuleDataProcessor(),
       FunctionResolver()
