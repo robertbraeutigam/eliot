@@ -22,9 +22,13 @@ class FunctionResolver
       UnifiedModuleFunction,
       UnifiedModuleFunction.Key,
       ResolvedFunction.Key
-    ]((key: ResolvedFunction.Key) => UnifiedModuleFunction.Key(key.ffqn))
+    ]
     with Logging {
-  override def generateFromFact(moduleFunction: UnifiedModuleFunction): CompilerIO[ResolvedFunction] = {
+
+  override protected def getInputKey(outputKey: ResolvedFunction.Key): UnifiedModuleFunction.Key =
+    UnifiedModuleFunction.Key(outputKey.ffqn)
+
+  override protected def generateFromKeyAndFact(key: ResolvedFunction.Key, moduleFunction: UnifiedModuleFunction): CompilerIO[ResolvedFunction] = {
     val args              = moduleFunction.functionDefinition.args
     val body              = moduleFunction.functionDefinition.body
     val genericParameters = moduleFunction.functionDefinition.genericParameters

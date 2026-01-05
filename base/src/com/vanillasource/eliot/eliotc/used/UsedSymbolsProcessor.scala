@@ -13,12 +13,13 @@ import com.vanillasource.eliot.eliotc.used.UsedSymbolsState.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 
 class UsedSymbolsProcessor
-    extends TransformationProcessor[UsedSymbols, ResolvedFunction, ResolvedFunction.Key, UsedSymbols.Key](
-      (key: UsedSymbols.Key) => ResolvedFunction.Key(key.ffqn)
-    )
+    extends TransformationProcessor[UsedSymbols, ResolvedFunction, ResolvedFunction.Key, UsedSymbols.Key]
     with Logging {
 
-  override def generateFromFact(resolvedMainFunction: ResolvedFunction): CompilerIO[UsedSymbols] =
+  override protected def getInputKey(outputKey: UsedSymbols.Key): ResolvedFunction.Key =
+    ResolvedFunction.Key(outputKey.ffqn)
+
+  override protected def generateFromKeyAndFact(key: UsedSymbols.Key, resolvedMainFunction: ResolvedFunction): CompilerIO[UsedSymbols] =
     for {
       usedSymbols <-
         (processDefinition(resolvedMainFunction.definition) >> addFunctionUsed(

@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.processor.common
 
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import scala.annotation.unused
 import scala.reflect.ClassTag
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
@@ -15,14 +14,13 @@ abstract class TransformationProcessor[
     InputFact <: CompilerFact,
     InputKey <: CompilerFactKey[InputFact],
     OutputKey <: CompilerFactKey[OutputFact]
-](keyTransition: OutputKey => InputKey)(using ct: ClassTag[OutputKey])
+](using ct: ClassTag[OutputKey])
     extends SingleFactProcessor[OutputFact, OutputKey] {
 
+  protected def getInputKey(outputKey: OutputKey): InputKey
+
   protected def generateSingleFact(requestedKey: OutputKey): CompilerIO[OutputFact] =
-    getFactOrAbort(keyTransition(requestedKey)).flatMap(fact => generateFromKeyAndFact(requestedKey, fact))
+    getFactOrAbort(getInputKey(requestedKey)).flatMap(fact => generateFromKeyAndFact(requestedKey, fact))
 
-  def generateFromFact(@unused fact: InputFact): CompilerIO[OutputFact] = ???
-
-  def generateFromKeyAndFact(@unused key: OutputKey, fact: InputFact): CompilerIO[OutputFact] =
-    generateFromFact(fact)
+  protected def generateFromKeyAndFact(key: OutputKey, fact: InputFact): CompilerIO[OutputFact]
 }

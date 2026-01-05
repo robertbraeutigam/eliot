@@ -24,12 +24,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, com
 import scala.annotation.tailrec
 
 class JvmClassGenerator
-    extends TransformationProcessor[GeneratedModule, GenerateModule, GenerateModule.Key, GeneratedModule.Key](
-      (key: GeneratedModule.Key) => GenerateModule.Key(key.moduleName)
-    )
+    extends TransformationProcessor[GeneratedModule, GenerateModule, GenerateModule.Key, GeneratedModule.Key]
     with Logging {
 
-  override def generateFromFact(generateModule: GenerateModule): CompilerIO[GeneratedModule] =
+  override protected def getInputKey(outputKey: GeneratedModule.Key): GenerateModule.Key =
+    GenerateModule.Key(outputKey.moduleName)
+
+  override protected def generateFromKeyAndFact(key: GeneratedModule.Key, generateModule: GenerateModule): CompilerIO[GeneratedModule] =
     for {
       mainClassGenerator     <- createClassGenerator[CompilerIO](generateModule.moduleName)
       typeFiles              <- generateModule.usedTypes

@@ -25,10 +25,14 @@ class TypeCheckProcessor
       ResolvedFunction,
       ResolvedFunction.Key,
       TypeCheckedFunction.Key
-    ]((key: TypeCheckedFunction.Key) => ResolvedFunction.Key(key.ffqn))
+    ]
     with Logging {
 
-  override def generateFromFact(
+  override protected def getInputKey(outputKey: TypeCheckedFunction.Key): ResolvedFunction.Key =
+    ResolvedFunction.Key(outputKey.ffqn)
+
+  override protected def generateFromKeyAndFact(
+      key: TypeCheckedFunction.Key,
       resolvedFunction: ResolvedFunction
   ): CompilerIO[TypeCheckedFunction] = {
     val functionDefinition = resolvedFunction.definition

@@ -15,11 +15,13 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class TypeResolver
-    extends TransformationProcessor[ResolvedData, UnifiedModuleData, UnifiedModuleData.Key, ResolvedData.Key](
-      (key: ResolvedData.Key) => UnifiedModuleData.Key(key.tfqn)
-    )
+    extends TransformationProcessor[ResolvedData, UnifiedModuleData, UnifiedModuleData.Key, ResolvedData.Key]
     with Logging {
-  override def generateFromFact(moduleData: UnifiedModuleData): CompilerIO[ResolvedData] = {
+
+  override protected def getInputKey(outputKey: ResolvedData.Key): UnifiedModuleData.Key =
+    UnifiedModuleData.Key(outputKey.tfqn)
+
+  override protected def generateFromKeyAndFact(key: ResolvedData.Key, moduleData: UnifiedModuleData): CompilerIO[ResolvedData] = {
     val genericParameters = moduleData.dataDefinition.genericParameters
     val fields            = moduleData.dataDefinition.fields
     val name              = moduleData.dataDefinition.name
