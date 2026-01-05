@@ -9,10 +9,8 @@ class SequentialCompilerProcessors(processors: Seq[CompilerProcessor]) extends C
   override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
     for {
       initialErrors <- currentErrors
-      _             <- processors.traverse_(processor => runIsolated(processor.generate(factKey)))
+      _             <- processors.traverse_(processor => recover(processor.generate(factKey))(()))
       finalErrors   <- currentErrors
       _             <- if (finalErrors.size > initialErrors.size) abort[Unit] else Monad[CompilerIO].unit
     } yield ()
-  private def runIsolated(processor: CompilerIO[Unit]): CompilerIO[Unit] =
-    recover(processor)(())
 }
