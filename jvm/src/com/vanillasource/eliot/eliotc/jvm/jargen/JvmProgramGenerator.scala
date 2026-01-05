@@ -6,7 +6,8 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.{GenerateModule, GeneratedModule}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
-import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey}
+import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.SourceContent.addSource
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -16,17 +17,15 @@ import java.nio.file.StandardOpenOption.*
 import java.nio.file.{Files, Path}
 import java.util.jar.{JarEntry, JarOutputStream}
 
-class JvmProgramGenerator(targetDir: Path, sourceDir: Path) extends CompilerProcessor with Logging {
+class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
+    extends SingleKeyTypeProcessor[GenerateExecutableJar.Key]
+    with Logging {
 
-  override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
-    factKey match {
-      case GenerateExecutableJar.Key(ffqn) =>
-        addSource(sourceDir.resolve("main.els").toFile, generateMainSource(ffqn)) >> getFact(
-          UsedSymbols.Key(FunctionFQN(ModuleName(Seq(), "main"), "main"))
-        )
-          .flatMap(_.traverse_(us => generateFromFact(ffqn, us)))
-      case _                               => Monad[CompilerIO].unit
-    }
+  override protected def generateFact(key: GenerateExecutableJar.Key): CompilerIO[Unit] =
+    addSource(sourceDir.resolve("main.els").toFile, generateMainSource(key.ffqn)) >> getFact(
+      UsedSymbols.Key(FunctionFQN(ModuleName(Seq(), "main"), "main"))
+    )
+      .flatMap(_.traverse_(us => generateFromFact(key.ffqn, us)))
 
   private def generateFromFact(requestedFfqn: FunctionFQN, usedSymbols: UsedSymbols): CompilerIO[Unit] = {
     val groupedFunctions = usedSymbols.usedFunctions.groupBy(_.value.moduleName)

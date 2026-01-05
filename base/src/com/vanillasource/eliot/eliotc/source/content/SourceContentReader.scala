@@ -5,7 +5,7 @@ import cats.Monad
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.pos.PositionRange
-import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 
 import java.io.File
 import scala.io.Source
@@ -14,18 +14,13 @@ import scala.io.Source
   * File is missing, so it can be used to probe whether a file is present. If File is not present, or not readable, this
   * will just silently ignore the issue and not produce a fact.
   */
-class SourceContentReader extends CompilerProcessor with Logging {
-  override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] = factKey match {
-    case SourceContent.Key(file) => generateContentFor(file)
-    case _                       => Monad[CompilerIO].unit
-  }
-
-  private def generateContentFor(file: File): CompilerIO[Unit] =
+class SourceContentReader extends SingleKeyTypeProcessor[SourceContent.Key] with Logging {
+  override protected def generateFact(key: SourceContent.Key): CompilerIO[Unit] =
     Resource
-      .make(IO(Source.fromFile(file)))(source => IO.blocking(source.close()))
+      .make(IO(Source.fromFile(key.file)))(source => IO.blocking(source.close()))
       .use { source =>
         IO.blocking(source.getLines()).map { contentLines =>
-          SourceContent(file, Sourced(file, PositionRange.zero, contentLines.mkString("\n")))
+          SourceContent(key.file, Sourced(key.file, PositionRange.zero, contentLines.mkString("\n")))
         }
       }
       .attempt
