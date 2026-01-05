@@ -5,10 +5,10 @@ import cats.{Eq, Show}
 import ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.ArgumentDefinition
 import Primitives.{isIdentifier, symbol}
+import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
-import com.vanillasource.parser.Parser
-import com.vanillasource.parser.Parser.acceptIf
+import Parser.acceptIf
 
 case class ArgumentDefinition(name: Sourced[String], typeReference: TypeReference)
 

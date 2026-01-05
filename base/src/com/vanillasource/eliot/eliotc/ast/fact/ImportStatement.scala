@@ -4,10 +4,10 @@ import cats.Show
 import cats.syntax.all.*
 import Primitives.*
 import com.vanillasource.eliot.eliotc.ast.fact.{ASTComponent, ImportStatement}
+import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
-import com.vanillasource.parser.Parser
-import com.vanillasource.parser.Parser.*
+import Parser.*
 
 case class ImportStatement(
     keyword: Sourced[String],

@@ -1,10 +1,10 @@
-package com.vanillasource.parser
+package com.vanillasource.eliot.eliotc.ast.parser
 
 import cats.Monad
 import cats.syntax.all.*
-import com.vanillasource.parser.ParserError.given
-import com.vanillasource.parser.ParserResult.Consume
-import com.vanillasource.parser.ParserResult.Consume.{Consumed, NotConsumed}
+import ParserError.given
+import ParserResult.Consume
+import ParserResult.Consume.{Consumed, NotConsumed}
 
 import scala.util.control.TailCalls.{TailRec, done, tailcall}
 

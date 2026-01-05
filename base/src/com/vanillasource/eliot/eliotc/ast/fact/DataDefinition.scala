@@ -5,10 +5,10 @@ import cats.{Eq, Show}
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import Primitives.*
 import com.vanillasource.eliot.eliotc.ast.fact.{ASTComponent, ArgumentDefinition, DataDefinition}
+import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
-import com.vanillasource.parser.Parser
-import com.vanillasource.parser.Parser.{acceptIfAll, optional}
+import Parser.{acceptIfAll, optional}
 
 case class DataDefinition(
     name: Sourced[String],

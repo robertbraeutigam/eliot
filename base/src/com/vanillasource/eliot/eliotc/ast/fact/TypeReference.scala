@@ -4,10 +4,10 @@ import cats.syntax.all.*
 import cats.{Eq, Show}
 import Primitives.*
 import com.vanillasource.eliot.eliotc.ast.fact.{ASTComponent, TypeReference}
+import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
-import com.vanillasource.parser.Parser
-import com.vanillasource.parser.Parser.acceptIfAll
+import Parser.acceptIfAll
 
 case class TypeReference(typeName: Sourced[String], genericParameters: Seq[TypeReference])
 

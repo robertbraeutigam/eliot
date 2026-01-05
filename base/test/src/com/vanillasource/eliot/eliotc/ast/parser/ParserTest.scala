@@ -1,10 +1,11 @@
-package com.vanillasource.parser
+package com.vanillasource.eliot.eliotc.ast.parser
 
+import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.parser.Parser.*
+import com.vanillasource.eliot.eliotc.ast.parser.ParserResult.Consume.*
+import com.vanillasource.eliot.eliotc.ast.parser.{ParserError, ParserResult}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
-import com.vanillasource.parser.Parser.*
-import com.vanillasource.parser.ParserResult.Consume.*
-import cats.syntax.all.*
 
 import scala.collection.immutable.Seq
 

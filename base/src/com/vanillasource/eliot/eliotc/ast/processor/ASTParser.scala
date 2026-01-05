@@ -4,14 +4,14 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
+import com.vanillasource.eliot.eliotc.ast.parser.ParserError
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.token.SourceTokens
-import com.vanillasource.parser.Parser.*
-import com.vanillasource.parser.ParserError
+import com.vanillasource.eliot.eliotc.ast.parser.Parser.*
 
 class ASTParser
     extends TransformationProcessor[SourceTokens.Key, SourceAST.Key](key => SourceTokens.Key(key.file))

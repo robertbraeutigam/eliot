@@ -1,4 +1,4 @@
-package com.vanillasource.parser
+package com.vanillasource.eliot.eliotc.ast.parser
 
 import cats.kernel.Semigroup
 

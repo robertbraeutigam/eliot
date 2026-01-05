@@ -1,11 +1,11 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
-import com.vanillasource.parser.Parser
-import com.vanillasource.parser.Parser.*
+import Parser.*
 
 object Primitives {
   def optionalArgumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] =

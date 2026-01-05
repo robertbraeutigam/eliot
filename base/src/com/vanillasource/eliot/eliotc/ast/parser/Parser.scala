@@ -1,10 +1,10 @@
-package com.vanillasource.parser
+package com.vanillasource.eliot.eliotc.ast.parser
 
 import cats.data.StateT
 import cats.syntax.all.*
 import cats.{Eq, Show}
-import com.vanillasource.parser.InputStream.LimitedInputStream
-import com.vanillasource.parser.ParserResult.Consume.*
+import InputStream.LimitedInputStream
+import ParserResult.Consume.*
 
 /** A parser combinator that consumes items of type [[I]] and produces results of some type [[O]].
   *
