@@ -5,7 +5,6 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.GeneratedModule
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
-import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.SourceContent.addSource
@@ -23,31 +22,25 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
   override protected def generateFact(key: GenerateExecutableJar.Key): CompilerIO[Unit] =
     for {
       // First, generate all modules for user's code
-      userModulesMaybe <- generateModulesFrom(key.ffqn)
-      // Only if all user modules succeeded, add dynamic main and generate everything (cached modules won't regenerate)
-      _                <- userModulesMaybe.traverse_(_ =>
-                            for {
-                              _            <- addSource(sourceDir.resolve("main.els").toFile, generateMainSource(key.ffqn))
-                              modulesMaybe <- generateModulesFrom(FunctionFQN(ModuleName(Seq(), "main"), "main"))
-                              _            <- modulesMaybe
-                                                .traverse_(generateJarFile(key.ffqn, _))
-                                                .to[CompilerIO] // Skips jar if not all modules got bytecode
-                            } yield ()
-                          )
+      _          <- generateModulesFrom(key.ffqn)
+      // Add dynamic main and generate everything if user's code did not fail
+      _          <- addSource(sourceDir.resolve("main.els").toFile, generateMainSource(key.ffqn))
+      allModules <- generateModulesFrom(FunctionFQN(ModuleName(Seq(), "main"), "main"))
+      _          <- generateJarFile(key.ffqn, allModules).to[CompilerIO]
     } yield ()
 
-  private def generateModulesFrom(ffqn: FunctionFQN): CompilerIO[Option[Seq[GeneratedModule]]] =
+  private def generateModulesFrom(ffqn: FunctionFQN): CompilerIO[Seq[GeneratedModule]] =
     for {
-      usedSymbols  <- getFactOrAbort(UsedSymbols.Key(ffqn))
-      modulesMaybe <- generateModules(ffqn, usedSymbols)
-    } yield modulesMaybe
+      usedSymbols <- getFactOrAbort(UsedSymbols.Key(ffqn))
+      modules     <- generateModules(ffqn, usedSymbols)
+    } yield modules
 
-  private def generateModules(ffqn: FunctionFQN, usedSymbols: UsedSymbols): CompilerIO[Option[Seq[GeneratedModule]]] = {
+  private def generateModules(ffqn: FunctionFQN, usedSymbols: UsedSymbols): CompilerIO[Seq[GeneratedModule]] = {
     val groupedFunctions = usedSymbols.usedFunctions.groupBy(_.value.moduleName)
     val groupedTypes     = usedSymbols.usedTypes.groupBy(_.value.moduleName)
     val moduleNames      = (groupedFunctions.keys ++ groupedTypes.keys).toSeq
 
-    moduleNames.traverse(moduleName => getFact(GeneratedModule.Key(moduleName, ffqn))).map(_.sequence)
+    moduleNames.traverse(moduleName => getFactOrAbort(GeneratedModule.Key(moduleName, ffqn)))
   }
 
   private def generateJarFile(mainFunction: FunctionFQN, allClasses: Seq[GeneratedModule]): IO[Unit] =
