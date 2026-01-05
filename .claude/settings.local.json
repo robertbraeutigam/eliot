@@ -10,7 +10,10 @@
       "Bash(mill base.test:*)",
       "Bash(mill clean:*)",
       "Bash(mill eliotc.test.compile:*)",
-      "Bash(mill __.test:*)"
+      "Bash(mill __.test:*)",
+      "Bash(mill examples.run:*)",
+      "Bash(mill jvm.compile:*)",
+      "Bash(java:*)"
     ]
   }
 }
