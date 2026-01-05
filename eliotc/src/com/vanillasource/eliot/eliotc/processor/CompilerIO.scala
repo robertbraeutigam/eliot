@@ -76,4 +76,29 @@ object CompilerIO {
                 )
     } yield result
 
+  /** Recovers from a potentially aborted computation by moving any errors from the Either's left side back into the
+    * state. This is the opposite of abort - it ensures the computation continues (unaborted) while preserving all
+    * errors. The computation runs in an isolated error context and all errors are merged back into the current context.
+    *
+    * @param computation
+    *   The computation to run in isolation
+    * @param default
+    *   The value to return if the computation aborted
+    * @return
+    *   A computation that cannot abort (all errors are captured in state)
+    */
+  def recover[T](computation: CompilerIO[T])(default: T): CompilerIO[T] =
+    for {
+      process <- ReaderT.ask[StateStage, CompilationProcess]
+      result  <- ReaderT.liftF[StateStage, CompilationProcess, Either[Chain[CompilerError], (Chain[CompilerError], T)]](
+                   StateT.liftF(
+                     EitherT.liftF(computation.run(process).run(Chain.empty).value)
+                   )
+                 )
+      value   <- result match {
+                   case Left(errors)           => errors.traverse_(registerCompilerError).as(default)
+                   case Right((errors, value)) => errors.traverse_(registerCompilerError).as(value)
+                 }
+    } yield value
+
 }

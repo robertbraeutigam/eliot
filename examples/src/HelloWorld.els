@@ -1,1 +1,3 @@
 main: IO[Unit] = println("Hello World!")
+
+a = b
