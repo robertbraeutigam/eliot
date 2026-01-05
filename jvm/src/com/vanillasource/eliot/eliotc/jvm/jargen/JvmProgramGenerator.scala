@@ -1,16 +1,15 @@
 package com.vanillasource.eliot.eliotc.jvm.jargen
 
-import cats.Monad
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.{GenerateModule, GeneratedModule}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
-import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey}
+import com.vanillasource.eliot.eliotc.processor.CompilerFact
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.SourceContent.addSource
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.StandardOpenOption.*
