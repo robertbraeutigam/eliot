@@ -7,12 +7,10 @@ import scala.reflect.ClassTag
 
 /** Generates at most one instance of a fact of a given type for one key.
   */
-abstract class SingleFactProcessor[K <: CompilerFactKey[?]](using
-    ct: ClassTag[K],
-    ev: FactOf[K] <:< CompilerFact
-) extends SingleKeyTypeProcessor[K] {
-  override protected def generateFact(key: K): CompilerIO[Unit] =
-    generateSingleFact(key).flatMap(fact => registerFactIfClear(ev(fact)))
+abstract class SingleFactProcessor[KeyType <: CompilerFactKey[?]](using ClassTag[KeyType])
+    extends SingleKeyTypeProcessor[KeyType] {
+  override protected def generateFact(key: KeyType): CompilerIO[Unit] =
+    generateSingleFact(key).flatMap(fact => registerFactIfClear(fact.asInstanceOf[CompilerFact]))
 
-  protected def generateSingleFact(k: K): CompilerIO[FactOf[K]]
+  protected def generateSingleFact(k: KeyType): CompilerIO[FactOf[KeyType]]
 }
