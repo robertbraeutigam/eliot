@@ -1,11 +1,12 @@
-package com.vanillasource.eliot.eliotc.ast
+package com.vanillasource.eliot.eliotc.ast.processor
 
 import cats.effect.IO
-import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
+import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   "ast parser" should "successfully parse empty file" in {

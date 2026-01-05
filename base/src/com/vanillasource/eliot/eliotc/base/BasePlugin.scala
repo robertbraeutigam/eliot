@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.base
 import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.ASTParser
+import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.base.BasePlugin.pathKey
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}

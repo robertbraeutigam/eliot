@@ -1,9 +1,9 @@
-package com.vanillasource.eliot.eliotc.ast
+package com.vanillasource.eliot.eliotc.ast.processor
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
+import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor

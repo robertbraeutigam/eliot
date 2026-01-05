@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.resolve
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.ASTParser
+import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.module.processor.{
   ModuleDataProcessor,

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.typesystem
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.ASTParser
+import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.FunctionFQN
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.systemFunctionModuleName
 import com.vanillasource.eliot.eliotc.module.processor.{
