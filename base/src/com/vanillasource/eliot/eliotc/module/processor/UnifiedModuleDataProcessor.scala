@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
-class UnifiedModuleDataProcessor extends SingleFactProcessor[UnifiedModuleData, UnifiedModuleData.Key] {
+class UnifiedModuleDataProcessor extends SingleFactProcessor[UnifiedModuleData.Key] {
   override protected def generateSingleFact(key: UnifiedModuleData.Key): CompilerIO[UnifiedModuleData] =
     for {
       pathScan    <- getFactOrAbort(PathScan.Key(pathName(key.tfqn.moduleName)))

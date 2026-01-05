@@ -54,12 +54,12 @@ class SingleFactProcessorTest extends ProcessorTest {
     }.asserting(_ shouldBe Right((TestFact("first"), TestFact("second"))))
   }
 
-  class TestSingleFactProcessor extends SingleFactProcessor[TestFact, TestFactKey] {
+  class TestSingleFactProcessor extends SingleFactProcessor[TestFactKey] {
     override protected def generateSingleFact(k: TestFactKey): CompilerIO[TestFact] =
       Monad[CompilerIO].pure(TestFact(k.value))
   }
 
-  class CountingFactProcessor extends SingleFactProcessor[TestFact, TestFactKey] {
+  class CountingFactProcessor extends SingleFactProcessor[TestFactKey] {
     var callCount: Int = 0
 
     override protected def generateSingleFact(k: TestFactKey): CompilerIO[TestFact] = {

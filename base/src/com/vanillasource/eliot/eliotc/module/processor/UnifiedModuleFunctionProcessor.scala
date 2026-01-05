@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.source.content.Sourced.*
 
-class UnifiedModuleFunctionProcessor extends SingleFactProcessor[UnifiedModuleFunction, UnifiedModuleFunction.Key] {
+class UnifiedModuleFunctionProcessor extends SingleFactProcessor[UnifiedModuleFunction.Key] {
   override protected def generateSingleFact(key: UnifiedModuleFunction.Key): CompilerIO[UnifiedModuleFunction] =
     for {
       pathScan        <- getFactOrAbort(PathScan.Key(pathName(key.ffqn.moduleName)))

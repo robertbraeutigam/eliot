@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.pathName
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 
-class UnifiedModuleNamesProcessor extends SingleFactProcessor[UnifiedModuleNames, UnifiedModuleNames.Key] with Logging {
+class UnifiedModuleNamesProcessor extends SingleFactProcessor[UnifiedModuleNames.Key] with Logging {
   override protected def generateSingleFact(key: UnifiedModuleNames.Key): CompilerIO[UnifiedModuleNames] =
     for {
       pathScan <- getFactOrAbort(PathScan.Key(pathName(key.moduleName)))
