@@ -13,11 +13,8 @@ import com.vanillasource.parser.Parser.*
 import com.vanillasource.parser.ParserError
 
 class ASTParser
-    extends TransformationProcessor[SourceTokens.Key, SourceAST.Key]
+    extends TransformationProcessor[SourceTokens.Key, SourceAST.Key](key => SourceTokens.Key(key.file))
     with Logging {
-
-  override protected def getInputKey(outputKey: SourceAST.Key): SourceTokens.Key =
-    SourceTokens.Key(outputKey.file)
 
   override protected def generateFromKeyAndFact(key: SourceAST.Key, sourceTokens: SourceTokens): CompilerIO[SourceAST] = {
     val tokens    = sourceTokens.tokens.value

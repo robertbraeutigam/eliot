@@ -16,17 +16,17 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
   *   The key type for the input fact being transformed
   * @tparam OutputKey
   *   The key type for the output fact being generated
+  * @param getInputKey
+  *   Function to derive the input key from the output key (e.g., `_.file` or `outputKey => InputKey(outputKey.field)`)
   */
 abstract class TransformationProcessor[
     InputKey <: CompilerFactKey[?],
     OutputKey <: CompilerFactKey[?]
-](using ct: ClassTag[OutputKey])
+](getInputKey: OutputKey => InputKey)(using ct: ClassTag[OutputKey])
     extends SingleKeyTypeProcessor[OutputKey] {
 
   type InputFact  = FactOf[InputKey]
   type OutputFact = FactOf[OutputKey]
-
-  protected def getInputKey(outputKey: OutputKey): InputKey
 
   override protected def generateFact(requestedKey: OutputKey): CompilerIO[Unit] =
     for {

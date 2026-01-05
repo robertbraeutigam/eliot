@@ -17,11 +17,8 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class FunctionResolver
-    extends TransformationProcessor[UnifiedModuleFunction.Key, ResolvedFunction.Key]
+    extends TransformationProcessor[UnifiedModuleFunction.Key, ResolvedFunction.Key](key => UnifiedModuleFunction.Key(key.ffqn))
     with Logging {
-
-  override protected def getInputKey(outputKey: ResolvedFunction.Key): UnifiedModuleFunction.Key =
-    UnifiedModuleFunction.Key(outputKey.ffqn)
 
   override protected def generateFromKeyAndFact(key: ResolvedFunction.Key, moduleFunction: UnifiedModuleFunction): CompilerIO[ResolvedFunction] = {
     val args              = moduleFunction.functionDefinition.args

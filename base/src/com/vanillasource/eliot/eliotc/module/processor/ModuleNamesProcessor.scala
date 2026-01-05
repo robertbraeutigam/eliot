@@ -9,10 +9,7 @@ import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 
 class ModuleNamesProcessor
-    extends TransformationProcessor[DesugaredSourceAST.Key, ModuleNames.Key] {
-
-  override protected def getInputKey(outputKey: ModuleNames.Key): DesugaredSourceAST.Key =
-    DesugaredSourceAST.Key(outputKey.file)
+    extends TransformationProcessor[DesugaredSourceAST.Key, ModuleNames.Key](key => DesugaredSourceAST.Key(key.file)) {
 
   override protected def generateFromKeyAndFact(key: ModuleNames.Key, fact: DesugaredSourceAST): CompilerIO[ModuleNames] =
     for {

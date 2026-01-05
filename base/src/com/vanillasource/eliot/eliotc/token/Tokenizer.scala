@@ -14,11 +14,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * comments.
   */
 class Tokenizer
-    extends TransformationProcessor[SourceContent.Key, SourceTokens.Key]
+    extends TransformationProcessor[SourceContent.Key, SourceTokens.Key](key => SourceContent.Key(key.file))
     with Logging {
-
-  override protected def getInputKey(outputKey: SourceTokens.Key): SourceContent.Key =
-    SourceContent.Key(outputKey.file)
 
   override protected def generateFromKeyAndFact(key: SourceTokens.Key, sourceContent: SourceContent): CompilerIO[SourceTokens] = {
     val file           = sourceContent.file
