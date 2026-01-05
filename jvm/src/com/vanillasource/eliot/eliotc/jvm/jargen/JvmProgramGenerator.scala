@@ -21,12 +21,28 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
     with Logging {
 
   override protected def generateFact(key: GenerateExecutableJar.Key): CompilerIO[Unit] =
-    addSource(sourceDir.resolve("main.els").toFile, generateMainSource(key.ffqn)) >> getFact(
-      UsedSymbols.Key(FunctionFQN(ModuleName(Seq(), "main"), "main"))
-    )
-      .flatMap(_.traverse_(us => generateFromFact(key.ffqn, us)))
+    for {
+      // First, generate all modules for user's code
+      userModulesMaybe <- generateModulesFrom(key.ffqn)
+      // Only if all user modules succeeded, add dynamic main and generate everything (cached modules won't regenerate)
+      _                <- userModulesMaybe.traverse_(_ =>
+                            for {
+                              _            <- addSource(sourceDir.resolve("main.els").toFile, generateMainSource(key.ffqn))
+                              modulesMaybe <- generateModulesFrom(FunctionFQN(ModuleName(Seq(), "main"), "main"))
+                              _            <- modulesMaybe
+                                                .traverse_(generateJarFile(key.ffqn, _))
+                                                .to[CompilerIO] // Skips jar if not all modules got bytecode
+                            } yield ()
+                          )
+    } yield ()
 
-  private def generateFromFact(requestedFfqn: FunctionFQN, usedSymbols: UsedSymbols): CompilerIO[Unit] = {
+  private def generateModulesFrom(ffqn: FunctionFQN): CompilerIO[Option[Seq[GeneratedModule]]] =
+    for {
+      usedSymbols  <- getFactOrAbort(UsedSymbols.Key(ffqn))
+      modulesMaybe <- generateModules(usedSymbols)
+    } yield modulesMaybe
+
+  private def generateModules(usedSymbols: UsedSymbols): CompilerIO[Option[Seq[GeneratedModule]]] = {
     val groupedFunctions = usedSymbols.usedFunctions.groupBy(_.value.moduleName)
     val groupedTypes     = usedSymbols.usedTypes.groupBy(_.value.moduleName)
     val facts            = (groupedFunctions.keys ++ groupedTypes.keys)
@@ -41,11 +57,8 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
 
     for {
       _            <- facts.traverse_(registerFactIfClear) // FIXME: do this in a linear way, not circular way
-      classesMaybe <- facts.map(_.moduleName).traverse(moduleName => getFact(GeneratedModule.Key(moduleName)))
-      _            <- classesMaybe.sequence
-                        .traverse_(cs => generateJarFile(requestedFfqn, cs))
-                        .to[CompilerIO] // Skips jar if not all modules got bytecode
-    } yield ()
+      modulesMaybe <- facts.map(_.moduleName).traverse(moduleName => getFact(GeneratedModule.Key(moduleName)))
+    } yield modulesMaybe.sequence
   }
 
   private def generateJarFile(mainFunction: FunctionFQN, allClasses: Seq[GeneratedModule]): IO[Unit] =
