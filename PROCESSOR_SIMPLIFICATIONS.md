@@ -16,32 +16,48 @@ The processor architecture is generally well-designed but has accumulated some u
 **Priority: HIGHEST**
 
 **Current Problem:**
-- TransformationProcessor has TWO abstract methods: `generateFromFact` and `generateFromKeyAndFact`
-- Only 1 out of 9 TransformationProcessor implementations uses `generateFromKeyAndFact` (ModuleNamesProcessor)
-- All others use `generateFromFact`
-- Both methods have `@unused` annotations and default implementations (??? or calling each other)
+- TransformationProcessor has TWO methods that can be overridden: `generateFromFact` and `generateFromKeyAndFact`
+- Default implementations chain them together with `@unused` annotations
+- `generateFromFact` defaults to `???` which will explode at runtime if you override the wrong method
 - Creates confusion: "which method should I override?"
+- Only 1 out of 9 implementations uses `generateFromKeyAndFact` (ModuleNamesProcessor), rest use `generateFromFact`
 
 **Files Affected:**
 - `eliotc/src/com/vanillasource/eliot/eliotc/processor/common/TransformationProcessor.scala`
-- `base/src/com/vanillasource/eliot/eliotc/module/processor/ModuleNamesProcessor.scala` (only user of generateFromKeyAndFact)
-- All other TransformationProcessor subclasses (8 files)
+- All 9 TransformationProcessor subclasses
+
+**Current Code:**
+```scala
+protected def generateSingleFact(requestedKey: OutputKey): CompilerIO[OutputFact] =
+  getFactOrAbort(keyTransition(requestedKey)).flatMap(fact => generateFromKeyAndFact(requestedKey, fact))
+
+def generateFromFact(@unused fact: InputFact): CompilerIO[OutputFact] = ???
+
+def generateFromKeyAndFact(@unused key: OutputKey, fact: InputFact): CompilerIO[OutputFact] =
+  generateFromFact(fact)
+```
 
 **Proposed Solution:**
-1. Keep only `generateFromKeyAndFact(key: OutputKey, fact: InputFact)` as the abstract method
-2. Add a protected convenience method `protected final def factOnly(fact: InputFact): CompilerIO[OutputFact]`
-3. Provide default implementation: `def generateFromKeyAndFact(key: OutputKey, fact: InputFact) = factOnly(fact)`
-4. Update processors to override `factOnly` instead of `generateFromFact`
-5. Remove all `@unused` annotations
+Delete `generateFromFact` entirely. Make `generateFromKeyAndFact` the single abstract method:
+
+```scala
+protected def generateSingleFact(requestedKey: OutputKey): CompilerIO[OutputFact] =
+  getFactOrAbort(keyTransition(requestedKey)).flatMap(fact => generateFromKeyAndFact(requestedKey, fact))
+
+protected def generateFromKeyAndFact(key: OutputKey, fact: InputFact): CompilerIO[OutputFact]
+```
+
+Processors that don't need the key (8 out of 9) simply ignore the `key` parameter. Processors that need it use it.
 
 **Benefits:**
-- Single clear contract: processors always override one method
-- No more `@unused` annotations
-- Key is always available if needed
-- Easier to understand and teach
-- Less code (remove one method)
+- Only ONE method to override - zero confusion
+- No `@unused` annotations needed
+- No `???` runtime bombs waiting to explode
+- Key is always available when needed
+- Simpler mental model
+- Less code overall
 
-**Estimated Lines Changed:** ~30 lines across 10 files
+**Estimated Lines Changed:** ~20 lines across 10 files
 
 ---
 
