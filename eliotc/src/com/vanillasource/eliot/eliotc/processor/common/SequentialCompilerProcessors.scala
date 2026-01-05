@@ -1,16 +1,13 @@
 package com.vanillasource.eliot.eliotc.processor.common
 
-import cats.Monad
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.{CompilerIO, abort, currentErrors, recover}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.{CompilerIO, recover}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
 
+/** Runs all given processors in isolation and then returns a context that has all errors produced by all processors.
+  * The resulting CompilerIO is never in an aborted state.
+  */
 class SequentialCompilerProcessors(processors: Seq[CompilerProcessor]) extends CompilerProcessor {
   override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
-    for {
-      initialErrors <- currentErrors
-      _             <- processors.traverse_(processor => recover(processor.generate(factKey))(()))
-      finalErrors   <- currentErrors
-      _             <- if (finalErrors.size > initialErrors.size) abort[Unit] else Monad[CompilerIO].unit
-    } yield ()
+    processors.traverse_(processor => recover(processor.generate(factKey))(()))
 }

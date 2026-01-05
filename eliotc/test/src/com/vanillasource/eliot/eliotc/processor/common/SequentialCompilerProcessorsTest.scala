@@ -4,6 +4,7 @@ import cats.Monad
 import cats.data.{Chain, EitherT, ReaderT, StateT}
 import cats.effect.IO
 import cats.effect.std.AtomicCell
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.ProcessorTest
@@ -97,12 +98,8 @@ class SequentialCompilerProcessorsTest extends ProcessorTest {
     val sequential = new SequentialCompilerProcessors(Seq(processor1, processor2, processor3))
 
     runCompilerIO {
-      sequential.generate(testKey)
-    }.asserting {
-      case Left(errors) =>
-        errors.toList.map(_.message) shouldBe List("error1", "error2", "error3")
-      case Right(_) => fail("Expected Left but got Right")
-    }
+      sequential.generate(testKey) >> currentErrors
+    }.asserting(_.map(_.toList.map(_.message)) shouldBe Right(List("error1", "error2", "error3")))
   }
 
   it should "collect errors from failing processors while running successful ones" in {
@@ -112,12 +109,8 @@ class SequentialCompilerProcessorsTest extends ProcessorTest {
     val sequential = new SequentialCompilerProcessors(Seq(processor1, processor2, processor3))
 
     runCompilerIO {
-      sequential.generate(testKey)
-    }.asserting {
-      case Left(errors) =>
-        errors.toList.map(_.message) shouldBe List("error1", "error3")
-      case Right(_) => fail("Expected Left but got Right")
-    }
+      sequential.generate(testKey) >> currentErrors
+    }.asserting(_.map(_.toList.map(_.message)) shouldBe Right(List("error1", "error3")))
   }
 
   it should "succeed when all processors succeed" in {
@@ -143,29 +136,19 @@ class SequentialCompilerProcessorsTest extends ProcessorTest {
       id: Int,
       tracker: AtomicCell[IO, List[Int]],
       success: Boolean
-  ): CompilerProcessor =
-    new CompilerProcessor {
-      override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
-        for {
-          _ <- ReaderT.liftF[StateStage, CompilationProcess, Unit](
-                 StateT.liftF(EitherT.liftF(tracker.update(list => list :+ id)))
-               )
-          _ <- if (success) Monad[CompilerIO].unit
-               else registerCompilerError(error(s"Processor $id failed"))
-        } yield ()
-    }
+  ): CompilerProcessor = (factKey: CompilerFactKey[?]) =>
+    for {
+      _ <- ReaderT.liftF[StateStage, CompilationProcess, Unit](
+             StateT.liftF(EitherT.liftF(tracker.update(list => list :+ id)))
+           )
+      _ <- if (success) Monad[CompilerIO].unit
+           else registerCompilerError(error(s"Processor $id failed"))
+    } yield ()
 
-  private def failingProcessor(errorMessage: String): CompilerProcessor =
-    new CompilerProcessor {
-      override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
-        registerCompilerError(error(errorMessage))
-    }
+  private def failingProcessor(errorMessage: String): CompilerProcessor = (factKey: CompilerFactKey[?]) =>
+    registerCompilerError(error(errorMessage))
 
-  private def successfulProcessor(): CompilerProcessor =
-    new CompilerProcessor {
-      override def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit] =
-        Monad[CompilerIO].unit
-    }
+  private def successfulProcessor(): CompilerProcessor = (factKey: CompilerFactKey[?]) => Monad[CompilerIO].unit
 
   private type EitherStage[T] = EitherT[IO, Chain[CompilerError], T]
   private type StateStage[T]  = StateT[EitherStage, Chain[CompilerError], T]
