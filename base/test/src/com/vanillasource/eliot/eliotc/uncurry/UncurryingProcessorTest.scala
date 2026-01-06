@@ -59,8 +59,8 @@ class UncurryingProcessorTest
   it should "uncurry nested function applications" in {
     runEngineForUncurriedFunction("data A\ng(a: A, b: A): A\nf(x: A): A = g(x, x)")
       .asserting { func =>
-        val body = func.definition.body.value
-        body.expression match {
+        val body = func.definition.body.get
+        body.value.expression match {
           case UncurriedTypedExpression.FunctionApplication(target, arguments) =>
             arguments.length shouldBe 2
             // Both arguments should be parameter references to 'x'
@@ -90,7 +90,7 @@ class UncurryingProcessorTest
   it should "preserve value references in function body" in {
     runEngineForUncurriedFunction("data A\nf: A = g\ng: A")
       .asserting { func =>
-        func.definition.body.value.expression shouldBe a[UncurriedTypedExpression.ValueReference]
+        func.definition.body.get.value.expression shouldBe a[UncurriedTypedExpression.ValueReference]
       }
   }
 
@@ -99,6 +99,66 @@ class UncurryingProcessorTest
       .asserting { func =>
         (func.definition.parameters.map(_.name.value), TypeReference.unqualified.show(func.definition.returnType)) shouldBe
           (Seq("a"), "Function[B,C]")
+      }
+  }
+
+  "functions without body" should "uncurry signature with no parameters" in {
+    runEngineForUncurriedFunction("data A\nf: A")
+      .asserting { func =>
+        func.definition.parameters.length shouldBe 0
+        TypeReference.unqualified.show(func.definition.returnType) shouldBe "A"
+        func.definition.body shouldBe None
+      }
+  }
+
+  it should "uncurry signature with one parameter" in {
+    runEngineForUncurriedFunction("data A\ndata B\nf(a: A): B")
+      .asserting { func =>
+        func.definition.parameters.length shouldBe 1
+        func.definition.parameters(0).name.value shouldBe "a"
+        TypeReference.unqualified.show(func.definition.returnType) shouldBe "B"
+        func.definition.body shouldBe None
+      }
+  }
+
+  it should "uncurry signature with multiple parameters" in {
+    runEngineForUncurriedFunction("data A\ndata B\ndata C\nf(a: A, b: B): C")
+      .asserting { func =>
+        func.definition.parameters.length shouldBe 2
+        func.definition.parameters(0).name.value shouldBe "a"
+        func.definition.parameters(1).name.value shouldBe "b"
+        TypeReference.unqualified.show(func.definition.returnType) shouldBe "C"
+        func.definition.body shouldBe None
+      }
+  }
+
+  it should "uncurry signature with three parameters" in {
+    runEngineForUncurriedFunction("data A\ndata B\ndata C\ndata D\nf(a: A, b: B, c: C): D")
+      .asserting { func =>
+        func.definition.parameters.length shouldBe 3
+        func.definition.parameters(0).name.value shouldBe "a"
+        func.definition.parameters(1).name.value shouldBe "b"
+        func.definition.parameters(2).name.value shouldBe "c"
+        TypeReference.unqualified.show(func.definition.returnType) shouldBe "D"
+        func.definition.body shouldBe None
+      }
+  }
+
+  it should "uncurry signature with generic parameters" in {
+    runEngineForUncurriedFunction("f[A](a: A): A")
+      .asserting { func =>
+        func.definition.genericParameters.length shouldBe 1
+        func.definition.parameters.length shouldBe 1
+        func.definition.parameters(0).name.value shouldBe "a"
+        TypeReference.unqualified.show(func.definition.returnType) shouldBe "A"
+        func.definition.body shouldBe None
+      }
+  }
+
+  it should "extract correct parameter types from curried function type" in {
+    runEngineForUncurriedFunction("data A\ndata B\ndata C\nf(a: A, b: B): C")
+      .asserting { func =>
+        func.definition.parameters.map(p => TypeReference.unqualified.show(p.typeReference)) shouldBe Seq("A", "B")
       }
   }
 

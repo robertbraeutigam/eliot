@@ -41,7 +41,14 @@ class TypeCheckProcessor
           typedDefinition      <- enhanceWithTypes(functionDefinition, fullTypeGraph, solution)
           _                    <- IO(typedDefinition.debugExpressionTypes).to[CompilerIO]
         } yield TypeCheckedFunction(resolvedFunction.ffqn, typedDefinition)
-      case None       => abort[TypeCheckedFunction]
+      case None       =>
+        // Function without body - just create TypeCheckedFunction with signature checks
+        val typedDefinition = TypedFunctionDefinition(
+          functionDefinition.name,
+          functionDefinition.genericParameters,
+          None
+        )
+        TypeCheckedFunction(resolvedFunction.ffqn, typedDefinition).pure[CompilerIO]
     }
   }
 
@@ -50,12 +57,21 @@ class TypeCheckProcessor
       fullGraph: TypeUnification,
       solution: TypeUnificationState
   ): CompilerIO[TypedFunctionDefinition] =
-    enhanceWithTypes(functionDefinition.body.get, fullGraph, solution).map { typedBody =>
-      TypedFunctionDefinition(
-        functionDefinition.name,
-        functionDefinition.genericParameters,
-        typedBody
-      )
+    functionDefinition.body match {
+      case Some(body) =>
+        enhanceWithTypes(body, fullGraph, solution).map { typedBody =>
+          TypedFunctionDefinition(
+            functionDefinition.name,
+            functionDefinition.genericParameters,
+            Some(typedBody)
+          )
+        }
+      case None       =>
+        TypedFunctionDefinition(
+          functionDefinition.name,
+          functionDefinition.genericParameters,
+          None
+        ).pure[CompilerIO]
     }
 
   private def enhanceWithTypes(

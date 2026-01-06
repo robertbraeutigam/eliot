@@ -172,6 +172,39 @@ class TypeCheckProcessorTest
     ).asserting(_ shouldBe Seq())
   }
 
+  "functions without body" should "be type checked successfully with simple return type" in {
+    runEngineForErrorsWithImports("data A\nf: A")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "be type checked successfully with one parameter" in {
+    runEngineForErrorsWithImports("data A\ndata B\nf(a: A): B")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "be type checked successfully with multiple parameters" in {
+    runEngineForErrorsWithImports("data A\ndata B\ndata C\nf(a: A, b: B): C")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "be type checked successfully with generic parameters" in {
+    runEngineForErrorsWithImports("f[A](a: A): A")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "be type checked successfully with generic parameters and multiple arguments" in {
+    runEngineForErrorsWithImports("f[A, B](a: A, b: B): A")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "produce type checked function fact for function without body" in {
+    runEngineForTypedFunction("data A\nf: A")
+      .asserting { func =>
+        func.ffqn.functionName shouldBe "f"
+        func.definition.body shouldBe None
+      }
+  }
+
   private def runEngineForErrorsWithImports(source: String): IO[Seq[String]] =
     runGenerator(source, TypeCheckedFunction.Key(FunctionFQN(testModuleName, "f")), systemImports)
       .map(_._1.map(_.message))
@@ -183,5 +216,18 @@ class TypeCheckProcessorTest
       ffqn
     }.toSeq
   }
+
+  private def runEngineForTypedFunction(source: String): IO[TypeCheckedFunction] =
+    runGenerator(source, TypeCheckedFunction.Key(FunctionFQN(testModuleName, "f")), systemImports)
+      .flatMap { case (errors, facts) =>
+        if (errors.nonEmpty) {
+          IO.raiseError(new Exception(s"Compilation errors: ${errors.map(_.message).mkString(", ")}"))
+        } else {
+          facts.values.collectFirst { case f: TypeCheckedFunction if f.ffqn.functionName == "f" => f } match {
+            case Some(func) => IO.pure(func)
+            case None       => IO.raiseError(new Exception("No type checked function 'f' found in results"))
+          }
+        }
+      }
 
 }

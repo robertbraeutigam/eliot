@@ -12,15 +12,19 @@ import com.vanillasource.eliot.eliotc.typesystem.fact.TypedFunctionDefinition.*
 case class TypedFunctionDefinition(
     name: Sourced[String],
     genericParameters: Seq[GenericParameter],
-    body: Sourced[TypedExpression]
+    body: Option[Sourced[TypedExpression]]
 ) extends Logging {
   def debugExpressionTypes: CompilerIO[Unit] =
-    for {
-      sourceContent <- getFact(SourceContent.Key(body.file))
-      _             <- debug[CompilerIO](
-                         expressionTypesDebugString(name.value, body, sourceContent.map(_.content.value).getOrElse(""))
-                       )
-    } yield ()
+    body match {
+      case Some(b) =>
+        for {
+          sourceContent <- getFact(SourceContent.Key(b.file))
+          _             <- debug[CompilerIO](
+                             expressionTypesDebugString(name.value, b, sourceContent.map(_.content.value).getOrElse(""))
+                           )
+        } yield ()
+      case None    => IO.unit.to[CompilerIO]
+    }
 }
 
 object TypedFunctionDefinition {

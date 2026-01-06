@@ -59,42 +59,49 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       classGenerator: ClassGenerator,
       functionDefinition: UncurriedFunction
   ): CompilerIO[Seq[ClassFile]] = {
-    // Validate parameter count
-    if (functionDefinition.definition.parameters.length > 1) {
-      return compilerError(
-        functionDefinition.definition.name.as(
-          s"Functions with more than one parameter are not currently supported. Found ${functionDefinition.definition.parameters.length} parameters."
-        )
-      ).as(Seq.empty)
-    }
-
-    val parameterTypes = functionDefinition.definition.parameters.map(p => simpleType(p.typeReference))
-
-    classGenerator
-      .createMethod[CompilerIO](
-        functionDefinition.ffqn.functionName,
-        parameterTypes,
-        simpleType(functionDefinition.definition.returnType)
-      )
-      .use { methodGenerator =>
-        val program = for {
-          // Add parameters to state
-          _       <- functionDefinition.definition.parameters.traverse_(addParameterDefinition)
-          // Generate code for the body
-          classes <-
-            createExpressionCode(
-              functionDefinition.ffqn.moduleName,
-              classGenerator,
-              methodGenerator,
-              functionDefinition.definition.body.value.expression
+    functionDefinition.definition.body match {
+      case Some(body) =>
+        // Function with body - generate code
+        // Validate parameter count
+        if (functionDefinition.definition.parameters.length > 1) {
+          return compilerError(
+            functionDefinition.definition.name.as(
+              s"Functions with more than one parameter are not currently supported. Found ${functionDefinition.definition.parameters.length} parameters."
             )
-          _       <- debug[CompilationTypesIO](
-                       s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
-                     )
-        } yield classes
+          ).as(Seq.empty)
+        }
 
-        program.runA(TypeState())
-      }
+        val parameterTypes = functionDefinition.definition.parameters.map(p => simpleType(p.typeReference))
+
+        classGenerator
+          .createMethod[CompilerIO](
+            functionDefinition.ffqn.functionName,
+            parameterTypes,
+            simpleType(functionDefinition.definition.returnType)
+          )
+          .use { methodGenerator =>
+            val program = for {
+              // Add parameters to state
+              _       <- functionDefinition.definition.parameters.traverse_(addParameterDefinition)
+              // Generate code for the body
+              classes <-
+                createExpressionCode(
+                  functionDefinition.ffqn.moduleName,
+                  classGenerator,
+                  methodGenerator,
+                  body.value.expression
+                )
+              _       <- debug[CompilationTypesIO](
+                           s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
+                         )
+            } yield classes
+
+            program.runA(TypeState())
+          }
+      case None       =>
+        // Function without body - skip code generation (likely abstract/native)
+        Seq.empty.pure[CompilerIO]
+    }
   }
 
   private def createExpressionCode(

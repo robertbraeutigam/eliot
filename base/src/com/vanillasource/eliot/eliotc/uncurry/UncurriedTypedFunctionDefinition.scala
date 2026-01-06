@@ -14,5 +14,5 @@ case class UncurriedTypedFunctionDefinition(
     genericParameters: Seq[GenericParameter],
     parameters: Seq[ArgumentDefinition],
     returnType: TypeReference,
-    body: Sourced[UncurriedTypedExpression]
+    body: Option[Sourced[UncurriedTypedExpression]]
 )
