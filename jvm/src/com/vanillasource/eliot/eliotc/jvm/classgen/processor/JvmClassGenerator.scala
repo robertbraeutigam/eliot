@@ -11,19 +11,15 @@ import TypeState.*
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
-import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData, ResolvedFunction, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
-import com.vanillasource.eliot.eliotc.typesystem.fact.TypedExpression.*
-import com.vanillasource.eliot.eliotc.typesystem.fact.{TypeCheckedFunction, TypedExpression}
+import com.vanillasource.eliot.eliotc.uncurry.UncurriedTypedExpression.*
+import com.vanillasource.eliot.eliotc.uncurry.{UncurriedFunction, UncurriedTypedExpression}
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
-
-import scala.annotation.tailrec
 
 class JvmClassGenerator
     extends SingleKeyTypeProcessor[GeneratedModule.Key]
@@ -55,7 +51,7 @@ class JvmClassGenerator
         nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty)
       case None                       =>
         for {
-          functionDefinitionMaybe <- getFact(TypeCheckedFunction.Key(sourcedFfqn.value))
+          functionDefinitionMaybe <- getFact(UncurriedFunction.Key(sourcedFfqn.value))
           classFiles              <- functionDefinitionMaybe match
                                        case Some(functionDefinition) => createModuleMethod(mainClassGenerator, functionDefinition)
                                        case None                     =>
@@ -66,61 +62,46 @@ class JvmClassGenerator
 
   private def createModuleMethod(
       classGenerator: ClassGenerator,
-      functionDefinition: TypeCheckedFunction
+      functionDefinition: UncurriedFunction
   ): CompilerIO[Seq[ClassFile]] = {
-    val parameterTypes = calculateMethodSignature(functionDefinition.definition.body.value)
+    // Validate parameter count
+    if (functionDefinition.definition.parameters.length > 1) {
+      return compilerError(
+        functionDefinition.definition.name.as(
+          s"Functions with more than one parameter are not currently supported. Found ${functionDefinition.definition.parameters.length} parameters."
+        )
+      ).as(Seq.empty)
+    }
+
+    val parameterTypes = functionDefinition.definition.parameters.map(p => simpleType(p.typeReference))
 
     classGenerator
       .createMethod[CompilerIO](
         functionDefinition.ffqn.functionName,
         parameterTypes,
-        simpleType(functionDefinition.definition.body.value.expressionType)
+        simpleType(functionDefinition.definition.returnType)
       )
       .use { methodGenerator =>
         val program = for {
-          extractedBody <- extractMethodBody(
-                             functionDefinition.definition.name,
-                             functionDefinition.definition.body.value.expression,
-                             parameterTypes.length + 1
-                           )
-          classes       <-
-            createExpressionCode(functionDefinition.ffqn.moduleName, classGenerator, methodGenerator, extractedBody)
-          _             <- debug[CompilationTypesIO](
-                             s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
-                           )
+          // Add parameters to state
+          _ <- functionDefinition.definition.parameters.traverse_(addParameterDefinition)
+          // Generate code for the body
+          classes <-
+            createExpressionCode(
+              functionDefinition.ffqn.moduleName,
+              classGenerator,
+              methodGenerator,
+              functionDefinition.definition.body.value.expression
+            )
+          _ <- debug[CompilationTypesIO](
+                 s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
+               )
         } yield classes
 
         program.runA(TypeState())
       }
   }
 
-  /** Extracts parameter arity from curried form.
-    */
-  // FIXME: does this handle a -> (b -> c) -> d -- needs test
-  private def calculateMethodSignature(typedExpression: TypedExpression): Seq[TypeFQN] =
-    typedExpression.expression match {
-      case FunctionLiteral(parameter, body) =>
-        simpleType(parameter.typeReference) +: calculateMethodSignature(body.value)
-      case _                                => Seq.empty
-    }
-
-  /** Extract method body, expecting the given amount of embedded lambdas.
-    */
-  private def extractMethodBody(
-      sourced: Sourced[?],
-      expression: Expression,
-      depth: Int
-  ): CompilationTypesIO[Expression] =
-    if (depth <= 1) {
-      expression.pure[CompilationTypesIO]
-    } else {
-      expression match {
-        case FunctionLiteral(parameter, Sourced(_, _, body)) =>
-          addParameterDefinition(parameter) >>
-            extractMethodBody(sourced, body.expression, depth - 1)
-        case _                                               => compilerAbort(sourced.as("Can not extract method body.")).liftToTypes
-      }
-    }
 
   private def createExpressionCode(
       moduleName: ModuleName,
@@ -129,18 +110,18 @@ class JvmClassGenerator
       expression: Expression
   ): CompilationTypesIO[Seq[ClassFile]] =
     expression match {
-      case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
+      case FunctionApplication(target, arguments) =>
         generateFunctionApplication(
           moduleName,
           outerClassGenerator,
           methodGenerator,
-          target.expression,
-          Seq(argument.expression)
-        ) // One-argument call
-      case IntegerLiteral(integerLiteral)                                      => ???
-      case StringLiteral(stringLiteral)                                        =>
+          target.value.expression,
+          arguments.map(_.value.expression)
+        )
+      case IntegerLiteral(integerLiteral)         => ???
+      case StringLiteral(stringLiteral)           =>
         methodGenerator.addLdcInsn[CompilationTypesIO](stringLiteral.value).as(Seq.empty)
-      case ParameterReference(sourcedParameterName)                            =>
+      case ParameterReference(sourcedParameterName) =>
         for {
           index         <- getParameterIndex(sourcedParameterName.value)
           parameterType <- getParameterType(sourcedParameterName.value)
@@ -148,46 +129,30 @@ class JvmClassGenerator
                              .whenA(index.isEmpty || parameterType.isEmpty)
           _             <- methodGenerator.addLoadVar[CompilationTypesIO](simpleType(parameterType.get.typeReference), index.get)
         } yield Seq.empty
-      case ValueReference(Sourced(_, _, ffqn))                                 =>
+      case ValueReference(Sourced(_, _, ffqn))      =>
         // No-argument call
         generateFunctionApplication(moduleName, outerClassGenerator, methodGenerator, expression, Seq.empty)
-      case FunctionLiteral(parameter, body)                                    =>
-        generateLambda(moduleName, outerClassGenerator, methodGenerator, parameter, body)
+      case FunctionLiteral(parameters, body)        =>
+        generateLambda(moduleName, outerClassGenerator, methodGenerator, parameters, body)
     }
 
-  // FIXME: remove this method
-  private def calculateMethodSignatureDeprecated(typeReference: TypeReference): Seq[TypeFQN] =
-    typeReference match {
-      case DirectTypeReference(Sourced(_, _, dataType), genericParameters) if dataType === systemFunctionType =>
-        simpleType(genericParameters.head) +: calculateMethodSignatureDeprecated(genericParameters.last)
-      case DirectTypeReference(Sourced(_, _, dataType), genericParameters)                                    =>
-        Seq(dataType)
-      case GenericTypeReference(name, genericParameters)                                                      =>
-        Seq(systemAnyType)
-    }
-
-  @tailrec
   private def generateFunctionApplication(
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
       target: Expression,
       arguments: Seq[Expression]
-  ): CompilationTypesIO[Seq[ClassFile]] =
+  ): CompilationTypesIO[Seq[ClassFile]] = {
+    // Validate argument count - only support 0 or 1 argument
+    if (arguments.length > 1) {
+      ??? // Multi-argument function applications not currently supported
+    }
+
     target match {
-      case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
-        // Means this is another argument, so just recurse
-        generateFunctionApplication(
-          moduleName,
-          outerClassGenerator,
-          methodGenerator,
-          target.expression,
-          arguments.appended(argument.expression)
-        )
-      case IntegerLiteral(integerLiteral)                                      => ???
-      case StringLiteral(stringLiteral)                                        => ???
-      case ParameterReference(parameterName)                                   =>
-        // Function application on a parameter reference with exactly one parameter?
+      case IntegerLiteral(integerLiteral)                        => ???
+      case StringLiteral(stringLiteral)                          => ???
+      case ParameterReference(parameterName)                     =>
+        // Function application on a parameter reference
         for {
           parameterIndex <- getParameterIndex(parameterName.value)
           parameterType  <- getParameterType(parameterName.value)
@@ -200,47 +165,63 @@ class JvmClassGenerator
                             )
           _              <- methodGenerator.addCallToApply[CompilationTypesIO]()
         } yield classes
-      case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn))       =>
-        // Calling a function with exactly one argument
+      case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn)) =>
+        // Calling a function
         for {
-          functionDefinitionMaybe <- getFact(ResolvedFunction.Key(calledFfqn)).liftToTypes
-          resultClasses           <- functionDefinitionMaybe match
-                                       case Some(functionDefinition) =>
-                                         val signatureTypes = calculateMethodSignatureDeprecated(
-                                           functionDefinition.definition.valueType
-                                         )
+          uncurriedFunctionMaybe <- getFact(UncurriedFunction.Key(calledFfqn)).liftToTypes
+          resultClasses          <- uncurriedFunctionMaybe match
+                                      case Some(uncurriedFunction) =>
+                                        val parameterTypes = uncurriedFunction.definition.parameters.map(p => simpleType(p.typeReference))
+                                        val returnType     = simpleType(uncurriedFunction.definition.returnType)
 
-                                         for {
-                                           classes <-
-                                             arguments.flatTraverse(expression =>
-                                               createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
-                                             )
-                                           _       <- methodGenerator.addCallTo[CompilationTypesIO](
-                                                        calledFfqn,
-                                                        signatureTypes.init,
-                                                        signatureTypes.last
-                                                      )
-                                         } yield classes
-                                       case None                     =>
-                                         compilerError(
-                                           sourcedCalledFfqn.as("Could not find resolved function."),
-                                           Seq(s"Looking for function: ${calledFfqn.show}")
-                                         ).liftToTypes.as(Seq.empty)
+                                        for {
+                                          classes <- arguments.flatTraverse(expression =>
+                                                       createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                                     )
+                                          _       <- methodGenerator.addCallTo[CompilationTypesIO](
+                                                       calledFfqn,
+                                                       parameterTypes,
+                                                       returnType
+                                                     )
+                                        } yield classes
+                                      case None                    =>
+                                        compilerError(
+                                          sourcedCalledFfqn.as("Could not find uncurried function."),
+                                          Seq(s"Looking for function: ${calledFfqn.show}")
+                                        ).liftToTypes.as(Seq.empty)
         } yield resultClasses
-      case FunctionLiteral(parameter, body)                                    => ???
+      case FunctionLiteral(parameters, body)                     => ???
+      case FunctionApplication(target, arguments)                => ???
+    }
+  }
+
+  private def collectParameterReferences(expr: Expression): Seq[String] =
+    expr match {
+      case FunctionApplication(target, arguments) =>
+        collectParameterReferences(target.value.expression) ++
+          arguments.flatMap(arg => collectParameterReferences(arg.value.expression))
+      case FunctionLiteral(parameters, body)      =>
+        collectParameterReferences(body.value.expression)
+      case IntegerLiteral(_)                      => Seq.empty
+      case StringLiteral(_)                       => Seq.empty
+      case ParameterReference(parameterName)      => Seq(parameterName.value)
+      case ValueReference(_)                      => Seq.empty
     }
 
   private def generateLambda(
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
-      definition: ArgumentDefinition,
-      body: Sourced[TypedExpression]
+      parameters: Seq[ArgumentDefinition],
+      body: Sourced[UncurriedTypedExpression]
   ): CompilationTypesIO[Seq[ClassFile]] = {
-    val closedOverNames = body.value.expression.toSeq
-      .collect { case ParameterReference(parameterName) =>
-        parameterName.value
-      }
+    // Validate parameter count - only support 0 or 1 parameter
+    if (parameters.length > 1) {
+      ??? // Multi-parameter lambdas not currently supported
+    }
+
+    val definition = parameters.headOption.getOrElse(???) // Should have exactly 1 parameter
+    val closedOverNames = collectParameterReferences(body.value.expression)
       .filter(_ =!= definition.name.value)
     val returnType      = simpleType(body.value.expressionType)
 
