@@ -120,9 +120,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                              .whenA(index.isEmpty || parameterType.isEmpty)
           _             <- methodGenerator.addLoadVar[CompilationTypesIO](simpleType(parameterType.get.typeReference), index.get)
         } yield Seq.empty
-      case ValueReference(Sourced(_, _, ffqn))      =>
-        // No-argument call
-        generateFunctionApplication(moduleName, outerClassGenerator, methodGenerator, expression, Seq.empty)
+      case ValueReference(Sourced(_, _, ffqn))      => ??? // FIXME: what is this exactly doing after uncurrying?
       case FunctionLiteral(parameters, body)        =>
         generateLambda(moduleName, outerClassGenerator, methodGenerator, parameters, body)
     }
@@ -135,8 +133,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       arguments: Seq[Expression]
   ): CompilationTypesIO[Seq[ClassFile]] =
     target match {
-      case IntegerLiteral(integerLiteral)                                => ???
-      case StringLiteral(stringLiteral)                                  => ???
+      case IntegerLiteral(integerLiteral)                                => ??? // FIXME: we can't apply functions on this, right?
+      case StringLiteral(stringLiteral)                                  => ??? // FIXME: we can't apply functions on this, right?
       case ParameterReference(parameterName)                             =>
         // Function application on a parameter reference
         for {
@@ -146,6 +144,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                               .whenA(parameterIndex.isEmpty || parameterType.isEmpty)
           _              <- methodGenerator
                               .addLoadVar[CompilationTypesIO](simpleType(parameterType.get.typeReference), parameterIndex.get)
+          // FIXME: this does not work when currying and it fails runtime, it is not detected here
           classes        <- arguments.flatTraverse(expression =>
                               createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
                             )
@@ -160,7 +159,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                         val parameterTypes =
                                           uncurriedFunction.definition.parameters.map(p => simpleType(p.typeReference))
                                         val returnType     = simpleType(uncurriedFunction.definition.returnType)
-
+                                        // FIXME: this doens't seem to check whether arguments match either
                                         for {
                                           classes <-
                                             arguments.flatTraverse(expression =>
@@ -178,8 +177,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                           Seq(s"Looking for function: ${calledFfqn.show}")
                                         ).liftToTypes.as(Seq.empty)
         } yield resultClasses
-      case FunctionLiteral(parameters, body)                             => ???
-      case FunctionApplication(target, arguments)                        => ???
+      case FunctionLiteral(parameters, body)                             => ??? // FIXME: applying lambda immediately
+      case FunctionApplication(target, arguments)                        => ??? // FIXME: applying on a result function?
     }
 
   private def collectParameterReferences(expr: Expression): Seq[String] =
