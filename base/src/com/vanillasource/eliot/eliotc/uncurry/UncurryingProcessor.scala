@@ -2,12 +2,13 @@ package com.vanillasource.eliot.eliotc.uncurry
 
 import cats.implicits.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
+import com.vanillasource.eliot.eliotc.module.fact.{TypeFQN, UnifiedModuleFunction}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
-import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedFunction, TypeReference}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.typesystem.fact.*
 import com.vanillasource.eliot.eliotc.uncurry.{
   UncurriedFunction,
@@ -17,13 +18,17 @@ import com.vanillasource.eliot.eliotc.uncurry.{
 
 /** Processor that reverses the currying transformation applied during resolution.
   *
+  * This processor restores the original user-defined function signatures from before currying by fetching the original
+  * AST function definition and verifying it matches the curried structure.
+  *
   * Input: TypeCheckedFunction (curried, single-parameter functions) Output: UncurriedFunction (multi-parameter
-  * functions and multi-argument applications)
+  * functions with original parameter names and multi-argument applications)
   *
   * Transformations:
-  *   - Function types: Function[A, Function[B, C]] → (A, B) -> C
-  *   - Function literals: a -> b -> c -> body → (a, b, c) -> body
+  *   - Function signatures: Restored from original AST with resolved types from curried form
   *   - Function applications: ((f a) b) c → f(a, b, c)
+  *
+  * If the curried structure doesn't match the original AST (e.g., parameter counts differ), an error is issued.
   */
 class UncurryingProcessor
     extends TransformationProcessor[TypeCheckedFunction.Key, UncurriedFunction.Key](key =>
@@ -34,44 +39,84 @@ class UncurryingProcessor
   override def generateFromKeyAndFact(
       key: UncurriedFunction.Key,
       typeCheckedFunction: TypeCheckedFunction
-  ): CompilerIO[UncurriedFunction] = {
-    val definition = typeCheckedFunction.definition
+  ): CompilerIO[UncurriedFunction] =
+    for {
+      // Fetch the original function definition from before currying
+      originalFunction <- getFactOrAbort(UnifiedModuleFunction.Key(key.ffqn))
 
-    // Extract parameters and return type from the curried function type
-    val (parameters, returnType) = uncurryFunctionType(definition.body.value.expressionType)
+      // Fetch the resolved function to get the curried type (valueType)
+      resolvedFunction <- getFactOrAbort(ResolvedFunction.Key(key.ffqn))
 
-    // Extract parameter definitions and actual body from nested function literals
-    val (extractedParams, actualBody) = uncurryFunctionLiteral(definition.body)
+      // Extract the original parameter structure
+      originalParams = originalFunction.functionDefinition.args
 
-    // Use extracted params if available, otherwise derive from type
-    val finalParameters = if (extractedParams.nonEmpty) extractedParams else parameters
+      // Extract parameter types and return type from the curried function type
+      (curriedParameters, returnType) = uncurryFunctionType(resolvedFunction.definition.valueType)
 
-    // Transform the body expression to uncurry applications
-    val uncurriedBody = uncurrySourcedExpression(actualBody)
+      // Extract parameter definitions from nested function literals (these were created during currying)
+      (lambdaParams, actualBody) = uncurryFunctionLiteral(typeCheckedFunction.definition.body)
 
-    val uncurriedDefinition = UncurriedTypedFunctionDefinition(
-      name = definition.name,
-      genericParameters = definition.genericParameters,
-      parameters = finalParameters,
-      returnType = returnType,
-      body = uncurriedBody
-    )
+      // Verify that the structure matches what we expect
+      _ <- verifyStructureMatches(
+             originalParams.length,
+             curriedParameters.length,
+             lambdaParams.length,
+             typeCheckedFunction.definition.name
+           )
 
-    UncurriedFunction(typeCheckedFunction.ffqn, uncurriedDefinition).pure[CompilerIO]
-  }
+      // Restore original parameter names with resolved types from curried form
+      restoredParameters = originalParams.zip(curriedParameters).map { case (original, curried) =>
+                             ArgumentDefinition(original.name, curried.typeReference)
+                           }
 
-  /** Extracts parameters and return type from a curried function type.
+      // Transform the body expression to uncurry applications
+      uncurriedBody = uncurrySourcedExpression(actualBody)
+
+      uncurriedDefinition = UncurriedTypedFunctionDefinition(
+                              name = typeCheckedFunction.definition.name,
+                              genericParameters = typeCheckedFunction.definition.genericParameters,
+                              parameters = restoredParameters,
+                              returnType = returnType,
+                              body = uncurriedBody
+                            )
+    } yield UncurriedFunction(typeCheckedFunction.ffqn, uncurriedDefinition)
+
+  /** Verifies that the uncurried structure matches the original user-defined structure.
     *
-    * Example: Function[A, Function[B, C]] → (Seq(param_a: A, param_b: B), C)
+    * Issues an error if the parameter counts don't match, indicating the AST structure has changed in an unexpected
+    * way.
+    */
+  private def verifyStructureMatches(
+      originalCount: Int,
+      curriedCount: Int,
+      lambdaCount: Int,
+      functionName: Sourced[String]
+  ): CompilerIO[Unit] =
+    if (originalCount != curriedCount || (lambdaCount > 0 && originalCount != lambdaCount)) {
+      compilerError(
+        functionName.as(
+          s"Cannot restore original function signature: expected $originalCount parameters but found $curriedCount in type and $lambdaCount in lambdas"
+        )
+      ) *> abort[Unit]
+    } else {
+      ().pure[CompilerIO]
+    }
+
+  /** Extracts parameter types and return type from a curried function type.
+    *
+    * Example: Function[A, Function[B, C]] → (Seq(ArgumentDefinition with placeholder name and type A,
+    * ArgumentDefinition with placeholder name and type B), C)
+    *
+    * Note: Parameter names are placeholders and will be replaced with original user-defined names.
     */
   private def uncurryFunctionType(typeRef: TypeReference): (Seq[ArgumentDefinition], TypeReference) = {
     typeRef match {
       case TypeReference.DirectTypeReference(typeName, Seq(paramType, bodyType))
           if typeName.value == TypeFQN.systemFunctionType =>
         val (restParams, returnType) = uncurryFunctionType(bodyType)
-        // Create a synthetic parameter name (will be overridden by actual param if available)
+        // Create placeholder parameter (name will be replaced with original from AST)
         val param                    = ArgumentDefinition(
-          typeName.as(s"param${restParams.length}"),
+          typeName.as(s"_param${restParams.length}"),
           paramType
         )
         (param +: restParams, returnType)
