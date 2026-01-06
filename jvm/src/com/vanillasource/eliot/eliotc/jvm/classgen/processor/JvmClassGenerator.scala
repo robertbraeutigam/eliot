@@ -21,15 +21,13 @@ import com.vanillasource.eliot.eliotc.uncurry.UncurriedTypedExpression.*
 import com.vanillasource.eliot.eliotc.uncurry.{UncurriedFunction, UncurriedTypedExpression}
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
 
-class JvmClassGenerator
-    extends SingleKeyTypeProcessor[GeneratedModule.Key]
-    with Logging {
+class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with Logging {
 
   override protected def generateFact(key: GeneratedModule.Key): CompilerIO[Unit] =
     for {
       usedSymbols            <- getFactOrAbort(UsedSymbols.Key(key.ffqn))
-      usedFunctions          = usedSymbols.usedFunctions.filter(_.value.moduleName == key.moduleName)
-      usedTypes              = usedSymbols.usedTypes.filter(_.value.moduleName == key.moduleName)
+      usedFunctions           = usedSymbols.usedFunctions.filter(_.value.moduleName == key.moduleName)
+      usedTypes               = usedSymbols.usedTypes.filter(_.value.moduleName == key.moduleName)
       mainClassGenerator     <- createClassGenerator[CompilerIO](key.moduleName)
       typeFiles              <- usedTypes
                                   .filter(stfqn => !types.contains(stfqn.value))
@@ -81,7 +79,7 @@ class JvmClassGenerator
       .use { methodGenerator =>
         val program = for {
           // Add parameters to state
-          _ <- functionDefinition.definition.parameters.traverse_(addParameterDefinition)
+          _       <- functionDefinition.definition.parameters.traverse_(addParameterDefinition)
           // Generate code for the body
           classes <-
             createExpressionCode(
@@ -90,15 +88,14 @@ class JvmClassGenerator
               methodGenerator,
               functionDefinition.definition.body.value.expression
             )
-          _ <- debug[CompilationTypesIO](
-                 s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
-               )
+          _       <- debug[CompilationTypesIO](
+                       s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
+                     )
         } yield classes
 
         program.runA(TypeState())
       }
   }
-
 
   private def createExpressionCode(
       moduleName: ModuleName,
@@ -107,7 +104,7 @@ class JvmClassGenerator
       expression: Expression
   ): CompilationTypesIO[Seq[ClassFile]] =
     expression match {
-      case FunctionApplication(target, arguments) =>
+      case FunctionApplication(target, arguments)   =>
         generateFunctionApplication(
           moduleName,
           outerClassGenerator,
@@ -115,8 +112,8 @@ class JvmClassGenerator
           target.value.expression,
           arguments.map(_.value.expression)
         )
-      case IntegerLiteral(integerLiteral)         => ???
-      case StringLiteral(stringLiteral)           =>
+      case IntegerLiteral(integerLiteral)           => ???
+      case StringLiteral(stringLiteral)             =>
         methodGenerator.addLdcInsn[CompilationTypesIO](stringLiteral.value).as(Seq.empty)
       case ParameterReference(sourcedParameterName) =>
         for {
@@ -146,9 +143,9 @@ class JvmClassGenerator
     }
 
     target match {
-      case IntegerLiteral(integerLiteral)                        => ???
-      case StringLiteral(stringLiteral)                          => ???
-      case ParameterReference(parameterName)                     =>
+      case IntegerLiteral(integerLiteral)                                => ???
+      case StringLiteral(stringLiteral)                                  => ???
+      case ParameterReference(parameterName)                             =>
         // Function application on a parameter reference
         for {
           parameterIndex <- getParameterIndex(parameterName.value)
@@ -168,13 +165,15 @@ class JvmClassGenerator
           uncurriedFunctionMaybe <- getFact(UncurriedFunction.Key(calledFfqn)).liftToTypes
           resultClasses          <- uncurriedFunctionMaybe match
                                       case Some(uncurriedFunction) =>
-                                        val parameterTypes = uncurriedFunction.definition.parameters.map(p => simpleType(p.typeReference))
+                                        val parameterTypes =
+                                          uncurriedFunction.definition.parameters.map(p => simpleType(p.typeReference))
                                         val returnType     = simpleType(uncurriedFunction.definition.returnType)
 
                                         for {
-                                          classes <- arguments.flatTraverse(expression =>
-                                                       createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
-                                                     )
+                                          classes <-
+                                            arguments.flatTraverse(expression =>
+                                              createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                            )
                                           _       <- methodGenerator.addCallTo[CompilationTypesIO](
                                                        calledFfqn,
                                                        parameterTypes,
@@ -187,8 +186,8 @@ class JvmClassGenerator
                                           Seq(s"Looking for function: ${calledFfqn.show}")
                                         ).liftToTypes.as(Seq.empty)
         } yield resultClasses
-      case FunctionLiteral(parameters, body)                     => ???
-      case FunctionApplication(target, arguments)                => ???
+      case FunctionLiteral(parameters, body)                             => ???
+      case FunctionApplication(target, arguments)                        => ???
     }
   }
 
@@ -217,7 +216,7 @@ class JvmClassGenerator
       ??? // Multi-parameter lambdas not currently supported
     }
 
-    val definition = parameters.headOption.getOrElse(???) // Should have exactly 1 parameter
+    val definition      = parameters.headOption.getOrElse(???) // Should have exactly 1 parameter
     val closedOverNames = collectParameterReferences(body.value.expression)
       .filter(_ =!= definition.name.value)
     val returnType      = simpleType(body.value.expressionType)
