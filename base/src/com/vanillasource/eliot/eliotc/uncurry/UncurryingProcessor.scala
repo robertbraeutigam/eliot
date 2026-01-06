@@ -40,67 +40,42 @@ class UncurryingProcessor
       key: UncurriedFunction.Key,
       typeCheckedFunction: TypeCheckedFunction
   ): CompilerIO[UncurriedFunction] =
-    typeCheckedFunction.definition.body match {
-      case Some(body) =>
-        // Function with body - uncurry from nested lambdas
-        for {
-          // Fetch the original function definition from before currying
-          originalFunction          <- getFactOrAbort(UnifiedModuleFunction.Key(key.ffqn))
-          // Extract the original parameter structure
-          originalParams             = originalFunction.functionDefinition.args
-          // Extract parameter definitions from nested function literals (these were created during currying)
-          // The lambdaParams already contain both the names and resolved types
-          (lambdaParams, actualBody) = uncurryFunctionLiteral(body)
-          // The return type is the expression type of the actual body (after stripping lambdas)
-          returnType                 = actualBody.value.expressionType
-          // Verify that the structure matches what we expect
-          _                         <- verifyStructureMatches(
-                                         originalParams.length,
-                                         lambdaParams.length,
-                                         typeCheckedFunction.definition.name
-                                       )
-          // Restore original parameter names with resolved types from the type-checked lambdas
-          restoredParameters         = originalParams.zip(lambdaParams).map { case (original, lambda) =>
-                                         ArgumentDefinition(original.name, lambda.typeReference)
+    for {
+      // Fetch the original function definition from before currying
+      originalFunction           <- getFactOrAbort(UnifiedModuleFunction.Key(key.ffqn))
+      resolvedFunction           <- getFactOrAbort(ResolvedFunction.Key(key.ffqn))
+      originalParams              = originalFunction.functionDefinition.args
+      // Extract parameter types, return type, and uncurried body based on whether body exists
+      (paramTypes, returnType, uncurriedBody) = typeCheckedFunction.definition.body match {
+                                         case Some(body) =>
+                                           // Function with body - uncurry from nested lambdas
+                                           val (lambdaParams, actualBody) = uncurryFunctionLiteral(body)
+                                           val returnType                 = actualBody.value.expressionType
+                                           val uncurriedBody              = uncurrySourcedExpression(actualBody)
+                                           (lambdaParams.map(_.typeReference), returnType, Some(uncurriedBody))
+                                         case None       =>
+                                           // Function without body - uncurry signature from valueType
+                                           val (paramTypes, returnType) = uncurryValueType(resolvedFunction.definition.valueType)
+                                           (paramTypes, returnType, None)
                                        }
-          // Transform the body expression to uncurry applications
-          uncurriedBody              = uncurrySourcedExpression(actualBody)
-          uncurriedDefinition        = UncurriedTypedFunctionDefinition(
-                                         name = typeCheckedFunction.definition.name,
-                                         genericParameters = typeCheckedFunction.definition.genericParameters,
-                                         parameters = restoredParameters,
-                                         returnType = returnType,
-                                         body = Some(uncurriedBody)
-                                       )
-        } yield UncurriedFunction(typeCheckedFunction.ffqn, uncurriedDefinition)
-      case None       =>
-        // Function without body - uncurry signature from valueType
-        for {
-          originalFunction          <- getFactOrAbort(UnifiedModuleFunction.Key(key.ffqn))
-          resolvedFunction          <- getFactOrAbort(ResolvedFunction.Key(key.ffqn))
-          // Extract the original parameter structure
-          originalParams             = originalFunction.functionDefinition.args
-          // Extract parameter types and return type from the curried valueType
-          (paramTypes, returnType)   = uncurryValueType(resolvedFunction.definition.valueType)
-          // Verify that the structure matches
-          _                         <- verifyStructureMatches(
-                                         originalParams.length,
-                                         paramTypes.length,
-                                         typeCheckedFunction.definition.name
-                                       )
-          // Restore original parameter names with types from valueType
-          restoredParameters         = originalParams.zip(paramTypes).map { case (original, typeRef) =>
-                                         ArgumentDefinition(original.name, typeRef)
-                                       }
-          uncurriedDefinition        = UncurriedTypedFunctionDefinition(
-                                         name = typeCheckedFunction.definition.name,
-                                         genericParameters = typeCheckedFunction.definition.genericParameters,
-                                         parameters = restoredParameters,
-                                         returnType = returnType,
-                                         body = None
-                                       )
-        } yield UncurriedFunction(typeCheckedFunction.ffqn, uncurriedDefinition)
-    }
+      // Verify that the structure matches what we expect
+      _                          <- verifyStructureMatches(
+                                      originalParams.length,
+                                      paramTypes.length,
+                                      typeCheckedFunction.definition.name
+                                    )
+      // Restore original parameter names with resolved types
+      restoredParameters          = originalParams.zip(paramTypes).map { case (original, typeRef) =>
+                                      ArgumentDefinition(original.name, typeRef)
+                                    }
+      uncurriedDefinition         = UncurriedTypedFunctionDefinition(
+                                      name = typeCheckedFunction.definition.name,
+                                      genericParameters = typeCheckedFunction.definition.genericParameters,
+                                      parameters = restoredParameters,
+                                      returnType = returnType,
+                                      body = uncurriedBody
+                                    )
+    } yield UncurriedFunction(typeCheckedFunction.ffqn, uncurriedDefinition)
 
   /** Verifies that the uncurried structure matches the original user-defined structure.
     *

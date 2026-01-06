@@ -18,7 +18,8 @@
       "Bash(grep:*)",
       "Bash(scala-cli:*)",
       "Bash(tee:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(mill base.test.testOnly:*)"
     ]
   }
 }
