@@ -46,8 +46,10 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   ): CompilerIO[Seq[ClassFile]] = {
     implementations.get(sourcedFfqn.value) match {
       case Some(nativeImplementation) =>
+        // There's a native implementation for this method so get it
         nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty)
       case None                       =>
+        // Not a native method, should have a body and generate it
         for {
           functionDefinition <- getFactOrAbort(UncurriedFunction.Key(sourcedFfqn.value))
           classFiles         <- createModuleMethod(mainClassGenerator, functionDefinition)
@@ -61,22 +63,10 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   ): CompilerIO[Seq[ClassFile]] = {
     functionDefinition.definition.body match {
       case Some(body) =>
-        // Function with body - generate code
-        // Validate parameter count
-        if (functionDefinition.definition.parameters.length > 1) {
-          return compilerError(
-            functionDefinition.definition.name.as(
-              s"Functions with more than one parameter are not currently supported. Found ${functionDefinition.definition.parameters.length} parameters."
-            )
-          ).as(Seq.empty)
-        }
-
-        val parameterTypes = functionDefinition.definition.parameters.map(p => simpleType(p.typeReference))
-
         classGenerator
           .createMethod[CompilerIO](
             functionDefinition.ffqn.functionName,
-            parameterTypes,
+            functionDefinition.definition.parameters.map(p => simpleType(p.typeReference)),
             simpleType(functionDefinition.definition.returnType)
           )
           .use { methodGenerator =>
@@ -91,16 +81,16 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                   methodGenerator,
                   body.value.expression
                 )
-              _       <- debug[CompilationTypesIO](
-                           s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
-                         )
+              _       <-
+                debug[CompilationTypesIO](
+                  s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
+                )
             } yield classes
 
             program.runA(TypeState())
           }
       case None       =>
-        // Function without body - skip code generation (likely abstract/native)
-        Seq.empty.pure[CompilerIO]
+        compilerAbort(functionDefinition.definition.name.as(s"Function not implemented."))
     }
   }
 
@@ -143,12 +133,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       methodGenerator: MethodGenerator,
       target: Expression,
       arguments: Seq[Expression]
-  ): CompilationTypesIO[Seq[ClassFile]] = {
-    // Validate argument count - only support 0 or 1 argument
-    if (arguments.length > 1) {
-      ??? // Multi-argument function applications not currently supported
-    }
-
+  ): CompilationTypesIO[Seq[ClassFile]] =
     target match {
       case IntegerLiteral(integerLiteral)                                => ???
       case StringLiteral(stringLiteral)                                  => ???
@@ -196,7 +181,6 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       case FunctionLiteral(parameters, body)                             => ???
       case FunctionApplication(target, arguments)                        => ???
     }
-  }
 
   private def collectParameterReferences(expr: Expression): Seq[String] =
     expr match {
