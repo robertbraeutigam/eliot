@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.sugar
+package com.vanillasource.eliot.eliotc.datafunctions
 
 import com.vanillasource.eliot.eliotc.ast.fact.AST
 import com.vanillasource.eliot.eliotc.source.content.Sourced

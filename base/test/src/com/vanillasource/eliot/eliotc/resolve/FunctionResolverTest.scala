@@ -19,14 +19,14 @@ import com.vanillasource.eliot.eliotc.resolve.fact.Expression.{
 }
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedFunction}
 import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
-import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
+import com.vanillasource.eliot.eliotc.datafunctions.DataFunctionsProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class FunctionResolverTest
     extends ProcessorTest(
       Tokenizer(),
       ASTParser(),
-      DesugarProcessor(),
+      DataFunctionsProcessor(),
       ModuleFunctionProcessor(Seq.empty),
       ModuleDataProcessor(Seq.empty),
       UnifiedModuleFunctionProcessor(),

@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleNamesProcessor
 }
 import com.vanillasource.eliot.eliotc.resolve.processor.FunctionResolver
-import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
+import com.vanillasource.eliot.eliotc.datafunctions.DataFunctionsProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.typesystem.fact.TypeCheckedFunction
 import com.vanillasource.eliot.eliotc.typesystem.processor.TypeCheckProcessor
@@ -23,7 +23,7 @@ class TypeCheckProcessorTest
     extends ProcessorTest(
       Tokenizer(),
       ASTParser(),
-      DesugarProcessor(),
+      DataFunctionsProcessor(),
       ModuleFunctionProcessor(Seq(systemFunctionModuleName)),
       ModuleDataProcessor(Seq(systemFunctionModuleName)),
       ModuleNamesProcessor(),

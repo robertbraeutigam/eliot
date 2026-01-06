@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.module.fact.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemModules
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
-import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
+import com.vanillasource.eliot.eliotc.datafunctions.DesugaredSourceAST
 
 import java.io.File
 

@@ -5,7 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleNames
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.*
-import com.vanillasource.eliot.eliotc.sugar.DesugaredSourceAST
+import com.vanillasource.eliot.eliotc.datafunctions.DesugaredSourceAST
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 
 class ModuleNamesProcessor

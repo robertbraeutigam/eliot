@@ -1,18 +1,30 @@
-package com.vanillasource.eliot.eliotc.sugar
+package com.vanillasource.eliot.eliotc.datafunctions
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.ast.*
-import com.vanillasource.eliot.eliotc.ast.fact.{AST, ArgumentDefinition, DataDefinition, FunctionDefinition, SourceAST, TypeReference}
+import com.vanillasource.eliot.eliotc.ast.fact.{
+  AST,
+  ArgumentDefinition,
+  DataDefinition,
+  FunctionDefinition,
+  SourceAST,
+  TypeReference
+}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 
-class DesugarProcessor
+/** Adds implied constructor function and accessor functions to all data fields.
+  */
+class DataFunctionsProcessor
     extends TransformationProcessor[SourceAST.Key, DesugaredSourceAST.Key](key => SourceAST.Key(key.file))
     with Logging {
 
-  override protected def generateFromKeyAndFact(key: DesugaredSourceAST.Key, sourceAst: SourceAST): CompilerIO[DesugaredSourceAST] =
+  override protected def generateFromKeyAndFact(
+      key: DesugaredSourceAST.Key,
+      sourceAst: SourceAST
+  ): CompilerIO[DesugaredSourceAST] =
     DesugaredSourceAST(sourceAst.file, sourceAst.ast.as(desugar(sourceAst.ast.value))).pure[CompilerIO]
 
   private def desugar(ast: AST): AST = AST(

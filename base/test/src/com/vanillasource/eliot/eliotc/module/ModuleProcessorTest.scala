@@ -6,14 +6,14 @@ import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleFunction}
 import com.vanillasource.eliot.eliotc.module.processor.{ModuleDataProcessor, ModuleFunctionProcessor}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
-import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
+import com.vanillasource.eliot.eliotc.datafunctions.DataFunctionsProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class ModuleProcessorTest
     extends ProcessorTest(
       Tokenizer(),
       ASTParser(),
-      DesugarProcessor(),
+      DataFunctionsProcessor(),
       SequentialCompilerProcessors(Seq(ModuleFunctionProcessor(Seq.empty), ModuleDataProcessor(Seq.empty)))
     ) {
   "module processor" should "issue no errors on valid function" in {

@@ -20,7 +20,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
-import com.vanillasource.eliot.eliotc.sugar.DesugarProcessor
+import com.vanillasource.eliot.eliotc.datafunctions.DataFunctionsProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.typesystem.processor.TypeCheckProcessor
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsProcessor
@@ -52,7 +52,7 @@ class BasePlugin extends CompilerPlugin {
             PathScanner(configuration.getOrElse(pathKey, Seq.empty)),
             Tokenizer(),
             ASTParser(),
-            DesugarProcessor(),
+            DataFunctionsProcessor(),
             ModuleFunctionProcessor(),
             ModuleDataProcessor(),
             ModuleNamesProcessor(),
