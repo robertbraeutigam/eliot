@@ -1,7 +1,7 @@
-package com.vanillasource.eliot.eliotc.jvm.asm
+package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.Sync
-import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{
+import NativeType.{
   convertToNestedClassName,
   convertToSignatureString,
   javaSignatureName

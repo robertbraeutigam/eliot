@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.jvm.asm
+package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.Sync
 import cats.syntax.all.*

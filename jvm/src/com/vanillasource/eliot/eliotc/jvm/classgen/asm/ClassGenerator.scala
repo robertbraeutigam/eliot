@@ -1,15 +1,11 @@
-package com.vanillasource.eliot.eliotc.jvm.asm
+package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.Sync
 import cats.syntax.all.*
 import cats.effect.kernel.Resource
-import com.vanillasource.eliot.eliotc.jvm.asm.ClassGenerator.createClassGenerator
-import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.{
-  convertToApplySignatureString,
-  convertToMainClassName,
-  convertToSignatureString,
-  javaSignatureName
-}
+import ClassGenerator.createClassGenerator
+import NativeType.{convertToApplySignatureString, convertToMainClassName, convertToSignatureString, javaSignatureName}
+import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 import org.objectweb.asm.{ClassWriter, Opcodes}

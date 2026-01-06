@@ -1,10 +1,9 @@
-package com.vanillasource.eliot.eliotc.jvm.classgen
+package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
-import com.vanillasource.eliot.eliotc.resolve.fact.ArgumentDefinition
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.resolve.fact.ArgumentDefinition
 
 case class TypeState(
     typeMap: Map[String, ArgumentDefinition] = Map.empty,

@@ -1,25 +1,26 @@
-package com.vanillasource.eliot.eliotc.jvm.classgen
+package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import cats.data.IndexedStateT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.jvm.asm.ClassGenerator.createClassGenerator
-import com.vanillasource.eliot.eliotc.jvm.asm.CommonPatterns.*
-import com.vanillasource.eliot.eliotc.jvm.asm.NativeType.types
-import com.vanillasource.eliot.eliotc.jvm.asm.{ClassFile, ClassGenerator, MethodGenerator}
-import com.vanillasource.eliot.eliotc.jvm.classgen.NativeImplementation.implementations
-import com.vanillasource.eliot.eliotc.jvm.classgen.TypeState.*
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.types
+import NativeImplementation.implementations
+import TypeState.*
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
+import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData, ResolvedFunction, TypeReference}
-import com.vanillasource.eliot.eliotc.typesystem.fact.{TypeCheckedFunction, TypedExpression}
-import com.vanillasource.eliot.eliotc.typesystem.fact.TypedExpression.*
-import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
+import com.vanillasource.eliot.eliotc.typesystem.fact.TypedExpression.*
+import com.vanillasource.eliot.eliotc.typesystem.fact.{TypeCheckedFunction, TypedExpression}
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
 
 import scala.annotation.tailrec

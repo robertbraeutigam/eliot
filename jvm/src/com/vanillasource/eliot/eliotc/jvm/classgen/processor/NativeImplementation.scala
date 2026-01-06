@@ -1,7 +1,7 @@
-package com.vanillasource.eliot.eliotc.jvm.classgen
+package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import cats.effect.IO
-import com.vanillasource.eliot.eliotc.jvm.asm.ClassGenerator
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemLangType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}

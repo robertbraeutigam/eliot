@@ -1,6 +1,5 @@
-package com.vanillasource.eliot.eliotc.jvm.classgen
+package com.vanillasource.eliot.eliotc.jvm.classgen.fact
 
-import com.vanillasource.eliot.eliotc.jvm.asm.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
