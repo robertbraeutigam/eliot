@@ -14,7 +14,10 @@
       "Bash(mill examples.run:*)",
       "Bash(mill jvm.compile:*)",
       "Bash(java:*)",
-      "Bash(mill jvm.test:*)"
+      "Bash(mill jvm.test:*)",
+      "Bash(grep:*)",
+      "Bash(scala-cli:*)",
+      "Bash(tee:*)"
     ]
   }
 }
