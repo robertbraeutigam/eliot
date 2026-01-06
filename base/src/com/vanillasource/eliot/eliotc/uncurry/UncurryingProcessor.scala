@@ -54,11 +54,11 @@ class UncurryingProcessor
       returnType = actualBody.value.expressionType
 
       // Verify that the structure matches what we expect
-      _ <- verifyStructureMatches(
-             originalParams.length,
-             lambdaParams.length,
-             typeCheckedFunction.definition.name
-           )
+      _                 <- verifyStructureMatches(
+                             originalParams.length,
+                             lambdaParams.length,
+                             typeCheckedFunction.definition.name
+                           )
 
       // Restore original parameter names with resolved types from the type-checked lambdas
       restoredParameters = originalParams.zip(lambdaParams).map { case (original, lambda) =>
@@ -66,7 +66,7 @@ class UncurryingProcessor
                            }
 
       // Transform the body expression to uncurry applications
-      uncurriedBody = uncurrySourcedExpression(actualBody)
+      uncurriedBody      = uncurrySourcedExpression(actualBody)
 
       uncurriedDefinition = UncurriedTypedFunctionDefinition(
                               name = typeCheckedFunction.definition.name,
