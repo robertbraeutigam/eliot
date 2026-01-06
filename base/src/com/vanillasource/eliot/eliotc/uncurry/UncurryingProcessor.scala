@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.ArgumentDefinition
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.typesystem.fact.*
 import com.vanillasource.eliot.eliotc.uncurry.{
   UncurriedFunction,
@@ -41,40 +41,33 @@ class UncurryingProcessor
   ): CompilerIO[UncurriedFunction] =
     for {
       // Fetch the original function definition from before currying
-      originalFunction <- getFactOrAbort(UnifiedModuleFunction.Key(key.ffqn))
-
+      originalFunction          <- getFactOrAbort(UnifiedModuleFunction.Key(key.ffqn))
       // Extract the original parameter structure
-      originalParams = originalFunction.functionDefinition.args
-
+      originalParams             = originalFunction.functionDefinition.args
       // Extract parameter definitions from nested function literals (these were created during currying)
       // The lambdaParams already contain both the names and resolved types
       (lambdaParams, actualBody) = uncurryFunctionLiteral(typeCheckedFunction.definition.body)
-
       // The return type is the expression type of the actual body (after stripping lambdas)
-      returnType = actualBody.value.expressionType
-
+      returnType                 = actualBody.value.expressionType
       // Verify that the structure matches what we expect
-      _                 <- verifyStructureMatches(
-                             originalParams.length,
-                             lambdaParams.length,
-                             typeCheckedFunction.definition.name
-                           )
-
+      _                         <- verifyStructureMatches(
+                                     originalParams.length,
+                                     lambdaParams.length,
+                                     typeCheckedFunction.definition.name
+                                   )
       // Restore original parameter names with resolved types from the type-checked lambdas
-      restoredParameters = originalParams.zip(lambdaParams).map { case (original, lambda) =>
-                             ArgumentDefinition(original.name, lambda.typeReference)
-                           }
-
+      restoredParameters         = originalParams.zip(lambdaParams).map { case (original, lambda) =>
+                                     ArgumentDefinition(original.name, lambda.typeReference)
+                                   }
       // Transform the body expression to uncurry applications
-      uncurriedBody      = uncurrySourcedExpression(actualBody)
-
-      uncurriedDefinition = UncurriedTypedFunctionDefinition(
-                              name = typeCheckedFunction.definition.name,
-                              genericParameters = typeCheckedFunction.definition.genericParameters,
-                              parameters = restoredParameters,
-                              returnType = returnType,
-                              body = uncurriedBody
-                            )
+      uncurriedBody              = uncurrySourcedExpression(actualBody)
+      uncurriedDefinition        = UncurriedTypedFunctionDefinition(
+                                     name = typeCheckedFunction.definition.name,
+                                     genericParameters = typeCheckedFunction.definition.genericParameters,
+                                     parameters = restoredParameters,
+                                     returnType = returnType,
+                                     body = uncurriedBody
+                                   )
     } yield UncurriedFunction(typeCheckedFunction.ffqn, uncurriedDefinition)
 
   /** Verifies that the uncurried structure matches the original user-defined structure.
@@ -87,15 +80,11 @@ class UncurryingProcessor
       lambdaCount: Int,
       functionName: Sourced[String]
   ): CompilerIO[Unit] =
-    if (originalCount != lambdaCount) {
-      compilerError(
-        functionName.as(
-          s"Cannot restore original function signature: expected $originalCount parameters but found $lambdaCount in type-checked lambdas"
-        )
-      ) *> abort[Unit]
-    } else {
-      ().pure[CompilerIO]
-    }
+    compilerAbort(
+      functionName.as(
+        s"Cannot restore original function signature, expected $originalCount parameters but found $lambdaCount in type-checked lambdas."
+      )
+    ).whenA(originalCount != lambdaCount)
 
   /** Extracts parameters and actual body from nested function literals.
     *
