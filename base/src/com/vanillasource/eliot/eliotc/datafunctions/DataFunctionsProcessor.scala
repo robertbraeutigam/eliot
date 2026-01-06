@@ -18,14 +18,14 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 /** Adds implied constructor function and accessor functions to all data fields.
   */
 class DataFunctionsProcessor
-    extends TransformationProcessor[SourceAST.Key, DesugaredSourceAST.Key](key => SourceAST.Key(key.file))
+    extends TransformationProcessor[SourceAST.Key, DataFunctionsSourceAST.Key](key => SourceAST.Key(key.file))
     with Logging {
 
   override protected def generateFromKeyAndFact(
-      key: DesugaredSourceAST.Key,
-      sourceAst: SourceAST
-  ): CompilerIO[DesugaredSourceAST] =
-    DesugaredSourceAST(sourceAst.file, sourceAst.ast.as(desugar(sourceAst.ast.value))).pure[CompilerIO]
+                                                 key: DataFunctionsSourceAST.Key,
+                                                 sourceAst: SourceAST
+  ): CompilerIO[DataFunctionsSourceAST] =
+    DataFunctionsSourceAST(sourceAst.file, sourceAst.ast.as(desugar(sourceAst.ast.value))).pure[CompilerIO]
 
   private def desugar(ast: AST): AST = AST(
     ast.importStatements,

@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.module.fact.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemModules
 import com.vanillasource.eliot.eliotc.module.processor.ExtractSymbols.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
-import com.vanillasource.eliot.eliotc.datafunctions.DesugaredSourceAST
+import com.vanillasource.eliot.eliotc.datafunctions.DataFunctionsSourceAST
 
 import java.io.File
 
@@ -18,7 +18,7 @@ class ModuleFunctionProcessor(systemModules: Seq[ModuleName] = defaultSystemModu
     with Logging {
 
   override protected def generateFact(key: ModuleFunction.Key): CompilerIO[Unit] =
-    getFactOrAbort(DesugaredSourceAST.Key(key.file)).flatMap { fact =>
+    getFactOrAbort(DataFunctionsSourceAST.Key(key.file)).flatMap { fact =>
       processImpl(key.file, key.ffqn.moduleName, fact.sourcedAst)
     }
 

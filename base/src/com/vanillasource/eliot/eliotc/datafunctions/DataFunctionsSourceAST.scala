@@ -6,10 +6,10 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 import java.io.File
 
-case class DesugaredSourceAST(file: File, sourcedAst: Sourced[AST]) extends CompilerFact {
-  override def key(): CompilerFactKey[DesugaredSourceAST] = DesugaredSourceAST.Key(file)
+case class DataFunctionsSourceAST(file: File, sourcedAst: Sourced[AST]) extends CompilerFact {
+  override def key(): CompilerFactKey[DataFunctionsSourceAST] = DataFunctionsSourceAST.Key(file)
 }
 
-object DesugaredSourceAST {
-  case class Key(file: File) extends CompilerFactKey[DesugaredSourceAST]
+object DataFunctionsSourceAST {
+  case class Key(file: File) extends CompilerFactKey[DataFunctionsSourceAST]
 }
