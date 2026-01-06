@@ -51,11 +51,8 @@ class JvmClassGenerator
         nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty)
       case None                       =>
         for {
-          functionDefinitionMaybe <- getFact(UncurriedFunction.Key(sourcedFfqn.value))
-          classFiles              <- functionDefinitionMaybe match
-                                       case Some(functionDefinition) => createModuleMethod(mainClassGenerator, functionDefinition)
-                                       case None                     =>
-                                         compilerError(sourcedFfqn.as(s"Could not find implementation.")).as(Seq.empty)
+          functionDefinition <- getFactOrAbort(UncurriedFunction.Key(sourcedFfqn.value))
+          classFiles         <- createModuleMethod(mainClassGenerator, functionDefinition)
         } yield classFiles
     }
   }

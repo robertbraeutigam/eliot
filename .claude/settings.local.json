@@ -17,7 +17,8 @@
       "Bash(mill jvm.test:*)",
       "Bash(grep:*)",
       "Bash(scala-cli:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }
