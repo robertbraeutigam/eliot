@@ -2,11 +2,10 @@ package com.vanillasource.eliot.eliotc.uncurry
 
 import cats.implicits.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{TypeFQN, UnifiedModuleFunction}
+import com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleFunction
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
-import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedFunction, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.ArgumentDefinition
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.typesystem.fact.*
@@ -44,29 +43,26 @@ class UncurryingProcessor
       // Fetch the original function definition from before currying
       originalFunction <- getFactOrAbort(UnifiedModuleFunction.Key(key.ffqn))
 
-      // Fetch the resolved function to get the curried type (valueType)
-      resolvedFunction <- getFactOrAbort(ResolvedFunction.Key(key.ffqn))
-
       // Extract the original parameter structure
       originalParams = originalFunction.functionDefinition.args
 
-      // Extract parameter types and return type from the curried function type
-      (curriedParameters, returnType) = uncurryFunctionType(resolvedFunction.definition.valueType)
-
       // Extract parameter definitions from nested function literals (these were created during currying)
+      // The lambdaParams already contain both the names and resolved types
       (lambdaParams, actualBody) = uncurryFunctionLiteral(typeCheckedFunction.definition.body)
+
+      // The return type is the expression type of the actual body (after stripping lambdas)
+      returnType = actualBody.value.expressionType
 
       // Verify that the structure matches what we expect
       _ <- verifyStructureMatches(
              originalParams.length,
-             curriedParameters.length,
              lambdaParams.length,
              typeCheckedFunction.definition.name
            )
 
-      // Restore original parameter names with resolved types from curried form
-      restoredParameters = originalParams.zip(curriedParameters).map { case (original, curried) =>
-                             ArgumentDefinition(original.name, curried.typeReference)
+      // Restore original parameter names with resolved types from the type-checked lambdas
+      restoredParameters = originalParams.zip(lambdaParams).map { case (original, lambda) =>
+                             ArgumentDefinition(original.name, lambda.typeReference)
                            }
 
       // Transform the body expression to uncurry applications
@@ -88,42 +84,18 @@ class UncurryingProcessor
     */
   private def verifyStructureMatches(
       originalCount: Int,
-      curriedCount: Int,
       lambdaCount: Int,
       functionName: Sourced[String]
   ): CompilerIO[Unit] =
-    if (originalCount != curriedCount || (lambdaCount > 0 && originalCount != lambdaCount)) {
+    if (originalCount != lambdaCount) {
       compilerError(
         functionName.as(
-          s"Cannot restore original function signature: expected $originalCount parameters but found $curriedCount in type and $lambdaCount in lambdas"
+          s"Cannot restore original function signature: expected $originalCount parameters but found $lambdaCount in type-checked lambdas"
         )
       ) *> abort[Unit]
     } else {
       ().pure[CompilerIO]
     }
-
-  /** Extracts parameter types and return type from a curried function type.
-    *
-    * Example: Function[A, Function[B, C]] → (Seq(ArgumentDefinition with placeholder name and type A,
-    * ArgumentDefinition with placeholder name and type B), C)
-    *
-    * Note: Parameter names are placeholders and will be replaced with original user-defined names.
-    */
-  private def uncurryFunctionType(typeRef: TypeReference): (Seq[ArgumentDefinition], TypeReference) = {
-    typeRef match {
-      case TypeReference.DirectTypeReference(typeName, Seq(paramType, bodyType))
-          if typeName.value == TypeFQN.systemFunctionType =>
-        val (restParams, returnType) = uncurryFunctionType(bodyType)
-        // Create placeholder parameter (name will be replaced with original from AST)
-        val param                    = ArgumentDefinition(
-          typeName.as(s"_param${restParams.length}"),
-          paramType
-        )
-        (param +: restParams, returnType)
-      case other =>
-        (Seq.empty, other)
-    }
-  }
 
   /** Extracts parameters and actual body from nested function literals.
     *
