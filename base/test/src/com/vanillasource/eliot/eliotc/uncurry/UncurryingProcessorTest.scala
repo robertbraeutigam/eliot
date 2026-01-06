@@ -94,6 +94,14 @@ class UncurryingProcessorTest
       }
   }
 
+  it should "not uncurry a Function return type that was declared by the user" in {
+    runEngineForUncurriedFunction("data A\ndata B\ndata C\nf(a: A): Function[B, C] = g\ng: Function[B, C]")
+      .asserting { func =>
+        (func.definition.parameters.map(_.name.value), TypeReference.unqualified.show(func.definition.returnType)) shouldBe
+          (Seq("a"), "Function[B,C]")
+      }
+  }
+
   private def runEngineForUncurriedFunction(source: String): IO[UncurriedFunction] =
     runGenerator(source, UncurriedFunction.Key(FunctionFQN(testModuleName, "f")), systemImports)
       .flatMap { case (errors, facts) =>
