@@ -23,6 +23,7 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.datafunctions.DataFunctionsProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.typesystem.processor.TypeCheckProcessor
+import com.vanillasource.eliot.eliotc.uncurry.UncurryingProcessor
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsProcessor
 import scopt.{OParser, OParserBuilder}
 
@@ -62,6 +63,7 @@ class BasePlugin extends CompilerPlugin {
             FunctionResolver(),
             TypeResolver(),
             TypeCheckProcessor(),
+            UncurryingProcessor(),
             UsedSymbolsProcessor()
           )
         )
