@@ -79,7 +79,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                   functionDefinition.ffqn.moduleName,
                   classGenerator,
                   methodGenerator,
-                  body.value.expression
+                  body.value
                 )
               _       <-
                 debug[CompilationTypesIO](
@@ -98,16 +98,16 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
-      expression: Expression
+      typedExpression: UncurriedTypedExpression
   ): CompilationTypesIO[Seq[ClassFile]] =
-    expression match {
+    typedExpression.expression match {
       case FunctionApplication(target, arguments)   =>
         generateFunctionApplication(
           moduleName,
           outerClassGenerator,
           methodGenerator,
-          target.value.expression,
-          arguments.map(_.value.expression)
+          target.value,
+          arguments.map(_.value)
         )
       case IntegerLiteral(integerLiteral)           => ???
       case StringLiteral(stringLiteral)             =>
@@ -126,7 +126,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           moduleName,
           outerClassGenerator,
           methodGenerator,
-          expression,
+          typedExpression,
           Seq.empty
         )
       case FunctionLiteral(parameters, body)        =>
@@ -137,10 +137,10 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
-      target: Expression,
-      arguments: Seq[Expression]
+      typedTarget: UncurriedTypedExpression,
+      arguments: Seq[UncurriedTypedExpression]
   ): CompilationTypesIO[Seq[ClassFile]] =
-    target match {
+    typedTarget.expression match {
       case IntegerLiteral(integerLiteral)                                => ??? // FIXME: we can't apply functions on this, right?
       case StringLiteral(stringLiteral)                                  => ??? // FIXME: we can't apply functions on this, right?
       case ParameterReference(parameterName)                             =>
@@ -239,7 +239,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
             simpleType(body.value.expressionType)
           )
           .use { fnGenerator =>
-            createExpressionCode(moduleName, outerClassGenerator, fnGenerator, body.value.expression)
+            createExpressionCode(moduleName, outerClassGenerator, fnGenerator, body.value)
           }
       innerClassWriter <-
         outerClassGenerator
