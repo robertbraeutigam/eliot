@@ -185,9 +185,11 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                                        parameterTypes,
                                                        returnType
                                                      )
-                                          _       <- methodGenerator.addCastTo[CompilationTypesIO](
-                                                       simpleType(expectedResultType)
-                                                     )
+                                          _       <- methodGenerator
+                                                       .addCastTo[CompilationTypesIO](
+                                                         simpleType(expectedResultType)
+                                                       )
+                                                       .whenA(simpleType(expectedResultType) =!= returnType)
                                         } yield classes
                                       case None                    =>
                                         compilerError(
