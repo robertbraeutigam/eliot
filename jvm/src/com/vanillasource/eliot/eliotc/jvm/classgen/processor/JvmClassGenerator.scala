@@ -120,7 +120,15 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                              .whenA(index.isEmpty || parameterType.isEmpty)
           _             <- methodGenerator.addLoadVar[CompilationTypesIO](simpleType(parameterType.get.typeReference), index.get)
         } yield Seq.empty
-      case ValueReference(Sourced(_, _, ffqn))      => ??? // FIXME: what is this exactly doing after uncurrying?
+      case ValueReference(Sourced(_, _, ffqn))      =>
+        // This is practically a zero argument function call to this
+        generateFunctionApplication(
+          moduleName,
+          outerClassGenerator,
+          methodGenerator,
+          expression,
+          Seq.empty
+        )
       case FunctionLiteral(parameters, body)        =>
         generateLambda(moduleName, outerClassGenerator, methodGenerator, parameters, body)
     }
