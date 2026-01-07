@@ -20,7 +20,9 @@ import com.vanillasource.eliot.eliotc.typesystem.types.{TypeUnification, TypeUni
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 
 class TypeCheckProcessor
-    extends TransformationProcessor[ResolvedFunction.Key, TypeCheckedFunction.Key](key => ResolvedFunction.Key(key.ffqn))
+    extends TransformationProcessor[ResolvedFunction.Key, TypeCheckedFunction.Key](key =>
+      ResolvedFunction.Key(key.ffqn)
+    )
     with Logging {
 
   override protected def generateFromKeyAndFact(
@@ -39,7 +41,7 @@ class TypeCheckProcessor
           fullTypeGraph         = typeGraph `combine` constructedTypeGraph
           solution             <- fullTypeGraph.solve()
           typedDefinition      <- enhanceWithTypes(functionDefinition, fullTypeGraph, solution)
-          _                    <- IO(typedDefinition.debugExpressionTypes).to[CompilerIO]
+          _                    <- typedDefinition.debugExpressionTypes
         } yield TypeCheckedFunction(resolvedFunction.ffqn, typedDefinition)
       case None       =>
         // Function without body - just create TypeCheckedFunction with signature checks
