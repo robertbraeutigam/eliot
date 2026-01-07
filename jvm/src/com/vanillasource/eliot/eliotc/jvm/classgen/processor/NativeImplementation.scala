@@ -50,7 +50,7 @@ object NativeImplementation {
               "(Ljava/lang/String;)V",
               false
             )
-
+            methodVisitor.visitInsn(Opcodes.ACONST_NULL)
           }
         }
     }
