@@ -144,7 +144,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       case IntegerLiteral(integerLiteral)                                => ??? // FIXME: we can't apply functions on this, right?
       case StringLiteral(stringLiteral)                                  => ??? // FIXME: we can't apply functions on this, right?
       case ParameterReference(parameterName)                             =>
-        // Function application on a parameter reference
+        // Function application on a parameter reference, so this needs to be a Function
+        // FIXME: This only works with 1-arguments now, since this needs to be a java.lang.Function
         for {
           parameterIndex <- getParameterIndex(parameterName.value)
           parameterType  <- getParameterType(parameterName.value)
@@ -157,6 +158,10 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                               createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
                             )
           _              <- methodGenerator.addCallToApply[CompilationTypesIO]()
+          // Since Function has erased type, cast to type here
+          _              <- methodGenerator.addCastTo[CompilationTypesIO](
+                              simpleType(parameterType.get.typeReference.genericParameters.get(1).get)
+                            )
         } yield classes
       case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn)) =>
         // Calling a function
@@ -167,7 +172,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                         val parameterTypes =
                                           uncurriedFunction.definition.parameters.map(p => simpleType(p.typeReference))
                                         val returnType     = simpleType(uncurriedFunction.definition.returnType)
-                                        // FIXME: this doens't seem to check whether arguments match either
+                                        // FIXME: this doesn't seem to check whether arguments match either
                                         for {
                                           classes <-
                                             arguments.flatTraverse(expression =>

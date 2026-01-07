@@ -1,11 +1,7 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.Sync
-import NativeType.{
-  convertToNestedClassName,
-  convertToSignatureString,
-  javaSignatureName
-}
+import NativeType.{convertToNestedClassName, convertToSignatureString, javaSignatureName}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import org.objectweb.asm.{MethodVisitor, Opcodes}
@@ -108,6 +104,10 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
     */
   def runNative[F[_]: Sync](block: MethodVisitor => Unit): F[Unit] = Sync[F].delay {
     block(methodVisitor)
+  }
+
+  def addCastTo[F[_]: Sync](targetType: TypeFQN): F[Unit] = Sync[F].delay {
+    methodVisitor.visitTypeInsn(Opcodes.CHECKCAST, javaSignatureName(targetType));
   }
 
   def addCallToApply[F[_]: Sync](): F[Unit] = Sync[F].delay {
