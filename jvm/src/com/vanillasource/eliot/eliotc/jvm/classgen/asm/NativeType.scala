@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemLangType, syste
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 
 trait NativeType {
-  def javaSignatureName: String
+  def javaClass: Class[?]
 }
 
 object NativeType {
@@ -15,13 +15,15 @@ object NativeType {
       (systemLangType("String"), eliot_lang_String),
       (systemLangType("Function"), eliot_lang_Function),
       (systemLangType("Unit"), eliot_lang_Unit),
-      (systemLangType("Any"), eliot_lang_Any),
-      (TypeFQN(ModuleName(Seq("eliot", "java", "lang"), "Array"), "Array"), eliot_java_lang_Array)
+      (systemLangType("Any"), eliot_lang_Any)
     )
   )
 
   def javaSignatureName(typeFqn: TypeFQN): String =
-    types.get(typeFqn).map(_.javaSignatureName).getOrElse(convertToJavaName(typeFqn))
+    types.get(typeFqn).map(_.javaClass.descriptorString()).getOrElse(convertToJavaName(typeFqn))
+
+  def javaCanonicalName(typeFqn: TypeFQN): String =
+    types.get(typeFqn).map(_.javaClass.getCanonicalName).getOrElse(convertToNestedClassName(typeFqn))
 
   private def convertToJavaName(typeFQN: TypeFQN): String =
     // All data classes are nested classes inside the class denoted by the "module"!
@@ -41,27 +43,23 @@ object NativeType {
         if (resultType === systemUnitType) "Ljava/lang/Void;" else javaSignatureName(resultType)
       }"
 
-  private def eliot_java_lang_Array: NativeType = new NativeType {
-    override def javaSignatureName: String = "[Ljava/lang/Object;"
-  }
-
   private def eliot_lang_String: NativeType = new NativeType {
-    override def javaSignatureName: String = "Ljava/lang/String;"
+    override def javaClass: Class[?] = classOf[java.lang.String]
   }
 
   // We compile Unit to Void not "void", because there's just too many random exceptions
   // that we can't (don't want to) handle. We assume that previous optimizations will mostly get
   // rid of these anyway.
   private def eliot_lang_Unit: NativeType = new NativeType {
-    override def javaSignatureName: String = "Ljava/lang/Void;"
+    override def javaClass: Class[?] = classOf[java.lang.Void]
   }
 
   // TODO: This is not a "real" eliot type, just there to map to Object
   private def eliot_lang_Any: NativeType = new NativeType {
-    override def javaSignatureName: String = "Ljava/lang/Object;"
+    override def javaClass: Class[?] = classOf[java.lang.Object]
   }
 
   private def eliot_lang_Function: NativeType = new NativeType {
-    override def javaSignatureName: String = "Ljava/util/function/Function;"
+    override def javaClass: Class[?] = classOf[java.util.function.Function[?, ?]]
   }
 }
