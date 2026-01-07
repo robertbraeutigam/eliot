@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemLangType, systemUnitType}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
+import org.objectweb.asm.Type
 
 trait NativeType {
   def javaClass: Class[?]
@@ -22,8 +23,11 @@ object NativeType {
   def javaSignatureName(typeFqn: TypeFQN): String =
     types.get(typeFqn).map(_.javaClass.descriptorString()).getOrElse(convertToJavaName(typeFqn))
 
-  def javaCanonicalName(typeFqn: TypeFQN): String =
-    types.get(typeFqn).map(_.javaClass.getCanonicalName).getOrElse(convertToNestedClassName(typeFqn))
+  def javaInternalName(typeFqn: TypeFQN): String =
+    types
+      .get(typeFqn)
+      .map(cl => Type.getInternalName(cl.javaClass))
+      .getOrElse(convertToNestedClassName(typeFqn))
 
   private def convertToJavaName(typeFQN: TypeFQN): String =
     // All data classes are nested classes inside the class denoted by the "module"!
