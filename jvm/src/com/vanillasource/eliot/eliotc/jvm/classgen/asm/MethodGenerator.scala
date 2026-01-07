@@ -1,7 +1,13 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.Sync
-import NativeType.{convertToNestedClassName, convertToSignatureString, javaInternalName, javaSignatureName}
+import NativeType.{
+  convertToCtorSignatureString,
+  convertToNestedClassName,
+  convertToSignatureString,
+  javaInternalName,
+  javaSignatureName
+}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import org.objectweb.asm.{MethodVisitor, Opcodes}
@@ -32,7 +38,7 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
       Opcodes.INVOKESPECIAL,
       convertToNestedClassName(target),
       "<init>",
-      convertToSignatureString(parameterTypes, systemUnitType),
+      convertToCtorSignatureString(parameterTypes),
       false
     )
   }
