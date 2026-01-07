@@ -115,7 +115,6 @@ class UncurryingProcessorTest
     runEngineForUncurriedFunction("data A\ndata B\nf(a: A): B")
       .asserting { func =>
         func.definition.parameters.length shouldBe 1
-        func.definition.parameters(0).name.value shouldBe "a"
         TypeReference.unqualified.show(func.definition.returnType) shouldBe "B"
         func.definition.body shouldBe None
       }
@@ -125,8 +124,6 @@ class UncurryingProcessorTest
     runEngineForUncurriedFunction("data A\ndata B\ndata C\nf(a: A, b: B): C")
       .asserting { func =>
         func.definition.parameters.length shouldBe 2
-        func.definition.parameters(0).name.value shouldBe "a"
-        func.definition.parameters(1).name.value shouldBe "b"
         TypeReference.unqualified.show(func.definition.returnType) shouldBe "C"
         func.definition.body shouldBe None
       }
@@ -136,9 +133,6 @@ class UncurryingProcessorTest
     runEngineForUncurriedFunction("data A\ndata B\ndata C\ndata D\nf(a: A, b: B, c: C): D")
       .asserting { func =>
         func.definition.parameters.length shouldBe 3
-        func.definition.parameters(0).name.value shouldBe "a"
-        func.definition.parameters(1).name.value shouldBe "b"
-        func.definition.parameters(2).name.value shouldBe "c"
         TypeReference.unqualified.show(func.definition.returnType) shouldBe "D"
         func.definition.body shouldBe None
       }
@@ -149,7 +143,6 @@ class UncurryingProcessorTest
       .asserting { func =>
         func.definition.genericParameters.length shouldBe 1
         func.definition.parameters.length shouldBe 1
-        func.definition.parameters(0).name.value shouldBe "a"
         TypeReference.unqualified.show(func.definition.returnType) shouldBe "A"
         func.definition.body shouldBe None
       }

@@ -41,17 +41,16 @@ class UncurryingProcessor
       typeCheckedFunction: TypeCheckedFunction
   ): CompilerIO[UncurriedFunction] =
     for {
-      // Get the original function definition to determine arity and parameter names
+      // Get the original function definition to determine arity
       unifiedFunction          <- getFactOrAbort(UnifiedModuleFunction.Key(key.ffqn))
-      originalArity            = unifiedFunction.functionDefinition.args.length
+      originalArity             = unifiedFunction.functionDefinition.args.length
       // Restore original arity
       (args, returnType, body) <-
         restoreArity(
           typeCheckedFunction.definition.name,
           typeCheckedFunction.definition.valueType,
           typeCheckedFunction.definition.body,
-          originalArity,
-          unifiedFunction.functionDefinition.args
+          originalArity
         )
     } yield UncurriedFunction(
       typeCheckedFunction.ffqn,
@@ -68,8 +67,7 @@ class UncurryingProcessor
       functionName: Sourced[String],
       typeReference: TypeReference,
       body: Option[Sourced[TypedExpression]],
-      arity: Int,
-      originalArgs: Seq[com.vanillasource.eliot.eliotc.ast.fact.ArgumentDefinition]
+      arity: Int
   ): CompilerIO[(Seq[ArgumentDefinition], TypeReference, Option[Sourced[UncurriedTypedExpression]])] =
     if (arity === 0) {
       (Seq.empty, typeReference, body.map(_.map(convertExpression))).pure[CompilerIO]
@@ -77,28 +75,25 @@ class UncurryingProcessor
       typeReference match {
         case TypeReference.DirectTypeReference(Sourced(_, _, systemFunctionType), Seq(inputType, outputType)) =>
           // Needs to be a function to deconstruct
-          // Get the current parameter index (total args - remaining arity)
-          val paramIndex = originalArgs.length - arity
-          val originalArg = originalArgs(paramIndex)
-
           body match {
             case Some(Sourced(start, end, TypedExpression(_, TypedExpression.FunctionLiteral(parameter, innerBody)))) =>
               // Function with body - extract parameter from body
-              restoreArity(functionName, outputType, Some(innerBody), arity - 1, originalArgs).map {
+              restoreArity(functionName, outputType, Some(innerBody), arity - 1).map {
                 case (restArgs, restType, restBody) =>
                   (parameter +: restArgs, restType, restBody)
               }
-            case None =>
-              // Function without body - use parameter name from original AST with type from curried signature
-              val parameter = ArgumentDefinition(originalArg.name, inputType)
-              restoreArity(functionName, outputType, None, arity - 1, originalArgs).map { case (restArgs, restType, restBody) =>
+            case None                                                                                                 =>
+              // Function without body - generate synthetic parameter name
+              val syntheticName = functionName.as(s"_arg$arity")
+              val parameter     = ArgumentDefinition(syntheticName, inputType)
+              restoreArity(functionName, outputType, None, arity - 1).map { case (restArgs, restType, restBody) =>
                 (parameter +: restArgs, restType, restBody)
               }
-            case _ =>
+            case _                                                                                                    =>
               compilerAbort(functionName.as(s"Expected function literal in body while restoring arity."))
           }
-        case _ =>
-          compilerAbort(functionName.as(s"Could not restore arity to function."))
+        case _                                                                                                =>
+          compilerAbort(functionName.as(s"Expected function type to restore arity."))
       }
     }
 
@@ -147,7 +142,7 @@ class UncurryingProcessor
     target.value match {
       case TypedExpression(_, TypedExpression.FunctionApplication(innerTarget, innerArgument)) =>
         flattenApplication(innerTarget, innerArgument +: arguments)
-      case _ =>
+      case _                                                                                   =>
         (target, arguments)
     }
 
@@ -159,7 +154,7 @@ class UncurryingProcessor
     body.value match {
       case TypedExpression(_, TypedExpression.FunctionLiteral(parameter, innerBody)) =>
         flattenLambda(parameters :+ parameter, innerBody)
-      case _ =>
+      case _                                                                         =>
         (parameters, body)
     }
 }
