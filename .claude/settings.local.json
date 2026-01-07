@@ -19,7 +19,9 @@
       "Bash(scala-cli:*)",
       "Bash(tee:*)",
       "Bash(git checkout:*)",
-      "Bash(mill base.test.testOnly:*)"
+      "Bash(mill base.test.testOnly:*)",
+      "Bash(javap:*)",
+      "Bash(jar xf:*)"
     ]
   }
 }
