@@ -12,6 +12,7 @@ import com.vanillasource.eliot.eliotc.typesystem.fact.TypedFunctionDefinition.*
 case class TypedFunctionDefinition(
     name: Sourced[String],
     genericParameters: Seq[GenericParameter],
+    valueType: TypeReference,
     body: Option[Sourced[TypedExpression]]
 ) extends Logging {
   def debugExpressionTypes: CompilerIO[Unit] =

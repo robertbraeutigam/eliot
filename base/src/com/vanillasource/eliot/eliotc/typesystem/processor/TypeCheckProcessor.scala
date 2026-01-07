@@ -34,47 +34,36 @@ class TypeCheckProcessor
 
     functionDefinition.body match {
       case Some(body) =>
+        // Has body, so do the work
         for {
           constructedTypeGraph <-
             constructTypeGraph(functionDefinition.valueType, body)
               .runA(UniqueGenericNames())
           fullTypeGraph         = typeGraph `combine` constructedTypeGraph
           solution             <- fullTypeGraph.solve()
-          typedDefinition      <- enhanceWithTypes(functionDefinition, fullTypeGraph, solution)
-          _                    <- typedDefinition.debugExpressionTypes
-        } yield TypeCheckedFunction(resolvedFunction.ffqn, typedDefinition)
-      case None       =>
-        // Function without body - just create TypeCheckedFunction with signature checks
-        val typedDefinition = TypedFunctionDefinition(
-          functionDefinition.name,
-          functionDefinition.genericParameters,
-          None
-        )
-        TypeCheckedFunction(resolvedFunction.ffqn, typedDefinition).pure[CompilerIO]
-    }
-  }
-
-  private def enhanceWithTypes(
-      functionDefinition: FunctionDefinition,
-      fullGraph: TypeUnification,
-      solution: TypeUnificationState
-  ): CompilerIO[TypedFunctionDefinition] =
-    functionDefinition.body match {
-      case Some(body) =>
-        enhanceWithTypes(body, fullGraph, solution).map { typedBody =>
+          typedBody            <- enhanceWithTypes(body, fullTypeGraph, solution)
+        } yield TypeCheckedFunction(
+          resolvedFunction.ffqn,
           TypedFunctionDefinition(
             functionDefinition.name,
             functionDefinition.genericParameters,
+            functionDefinition.valueType,
             Some(typedBody)
           )
-        }
+        )
       case None       =>
-        TypedFunctionDefinition(
-          functionDefinition.name,
-          functionDefinition.genericParameters,
-          None
+        // Without body, we don't need to do anything for now
+        TypeCheckedFunction(
+          resolvedFunction.ffqn,
+          TypedFunctionDefinition(
+            functionDefinition.name,
+            functionDefinition.genericParameters,
+            functionDefinition.valueType,
+            None
+          )
         ).pure[CompilerIO]
     }
+  }
 
   private def enhanceWithTypes(
       expression: Sourced[Expression],
