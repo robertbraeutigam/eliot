@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedMod
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData}
+import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData, TypeReference}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 import com.vanillasource.eliot.eliotc.uncurry.UncurriedTypedExpression.*
@@ -107,7 +107,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           outerClassGenerator,
           methodGenerator,
           target.value,
-          arguments.map(_.value)
+          arguments.map(_.value),
+          typedExpression.expressionType
         )
       case IntegerLiteral(integerLiteral)           => ???
       case StringLiteral(stringLiteral)             =>
@@ -127,7 +128,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           outerClassGenerator,
           methodGenerator,
           typedExpression,
-          Seq.empty
+          Seq.empty,
+          typedExpression.expressionType
         )
       case FunctionLiteral(parameters, body)        =>
         generateLambda(moduleName, outerClassGenerator, methodGenerator, parameters, body)
@@ -138,7 +140,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
       typedTarget: UncurriedTypedExpression,
-      arguments: Seq[UncurriedTypedExpression]
+      arguments: Seq[UncurriedTypedExpression],
+      expectedResultType: TypeReference
   ): CompilationTypesIO[Seq[ClassFile]] =
     typedTarget.expression match {
       case IntegerLiteral(integerLiteral)                                => ??? // FIXME: we can't apply functions on this, right?
@@ -158,6 +161,9 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                               createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
                             )
           _              <- methodGenerator.addCallToApply[CompilationTypesIO]()
+          _              <- methodGenerator.addCastTo[CompilationTypesIO](
+                              simpleType(expectedResultType)
+                            )
         } yield classes
       case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn)) =>
         // Calling a function
@@ -179,11 +185,9 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                                        parameterTypes,
                                                        returnType
                                                      )
-                                          // FIXME: below cast does not work, we don't know what type is needed next
-                                          // _       <-
-                                          // methodGenerator.addCastTo[CompilationTypesIO](
-                                          //    simpleType(???)
-                                          //  )
+                                          _       <- methodGenerator.addCastTo[CompilationTypesIO](
+                                                       simpleType(expectedResultType)
+                                                     )
                                         } yield classes
                                       case None                    =>
                                         compilerError(
