@@ -49,8 +49,11 @@ object NativeType {
     override def javaSignatureName: String = "Ljava/lang/String;"
   }
 
+  // We compile Unit to Void not "void", because there's just too many random exceptions
+  // that we can't (don't want to) handle. We assume that previous optimizations will mostly get
+  // rid of these anyway.
   private def eliot_lang_Unit: NativeType = new NativeType {
-    override def javaSignatureName: String = "V"
+    override def javaSignatureName: String = "Ljava/lang/Void;"
   }
 
   // TODO: This is not a "real" eliot type, just there to map to Object

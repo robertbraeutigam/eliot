@@ -4,9 +4,8 @@ import cats.effect.Sync
 import cats.syntax.all.*
 import cats.effect.kernel.Resource
 import ClassGenerator.createClassGenerator
-import NativeType.{convertToApplySignatureString, convertToMainClassName, convertToSignatureString, javaSignatureName}
+import NativeType.{convertToMainClassName, convertToSignatureString, javaSignatureName}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
@@ -88,11 +87,8 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
     })(methodGenerator =>
       Sync[F].delay {
         // TODO: add more types (primitives)
-        if (resultType === systemUnitType) {
-          methodGenerator.methodVisitor.visitInsn(Opcodes.RETURN)
-        } else {
-          methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
-        }
+        // Note: we assume every method will return something (there's no void)
+        methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
 
         methodGenerator.methodVisitor.visitMaxs(0, 0)
         methodGenerator.methodVisitor.visitEnd()
@@ -118,13 +114,7 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
     })(methodGenerator =>
       Sync[F].delay {
         // TODO: add more types (primitives)
-        if (resultType === systemUnitType) {
-          // We need to return null here, because apply needs always return
-          methodGenerator.methodVisitor.visitInsn(Opcodes.ACONST_NULL)
-          methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
-        } else {
-          methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
-        }
+        methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
 
         methodGenerator.methodVisitor.visitMaxs(0, 0)
         methodGenerator.methodVisitor.visitEnd()
