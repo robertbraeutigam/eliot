@@ -42,6 +42,9 @@ object NativeType {
   def convertToSignatureString(parameterTypes: Seq[TypeFQN], resultType: TypeFQN): String =
     s"(${parameterTypes.map(javaSignatureName).mkString})${javaSignatureName(resultType)}"
 
+  def convertToCtorSignatureString(parameterTypes: Seq[TypeFQN]): String =
+    s"(${parameterTypes.map(javaSignatureName).mkString})V"
+
   def convertToApplySignatureString(parameterTypes: Seq[TypeFQN], resultType: TypeFQN): String =
     s"(${parameterTypes.map(javaSignatureName).map(t => if (t === "V") "Ljava/lang/Void;" else t).mkString})${
         if (resultType === systemUnitType) "Ljava/lang/Void;" else javaSignatureName(resultType)

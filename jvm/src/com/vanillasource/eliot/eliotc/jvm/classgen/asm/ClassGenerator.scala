@@ -4,7 +4,7 @@ import cats.effect.Sync
 import cats.syntax.all.*
 import cats.effect.kernel.Resource
 import ClassGenerator.createClassGenerator
-import NativeType.{convertToMainClassName, convertToSignatureString, javaSignatureName}
+import NativeType.{convertToCtorSignatureString, convertToMainClassName, convertToSignatureString, javaSignatureName}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
 import org.objectweb.asm.{ClassWriter, Opcodes}
@@ -73,8 +73,7 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
   ): Resource[F, MethodGenerator] =
     Resource.make(Sync[F].delay {
       val methodVisitor = classWriter.visitMethod(
-        if (name === "<init>") Opcodes.ACC_PUBLIC
-        else Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
+        Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
         name, // TODO: can every method moduleName be converted to Java?
         convertToSignatureString(parameterTypes, resultType),
         null,
@@ -90,6 +89,29 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
         // Note: we assume every method will return something (there's no void)
         methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
 
+        methodGenerator.methodVisitor.visitMaxs(0, 0)
+        methodGenerator.methodVisitor.visitEnd()
+      }
+    )
+
+  def createCtor[F[_]: Sync](
+      parameterTypes: Seq[TypeFQN]
+  ): Resource[F, MethodGenerator] =
+    Resource.make(Sync[F].delay {
+      val methodVisitor = classWriter.visitMethod(
+        Opcodes.ACC_PUBLIC,
+        "<init>",
+        convertToCtorSignatureString(parameterTypes),
+        null,
+        null
+      )
+
+      methodVisitor.visitCode()
+
+      MethodGenerator(moduleName, methodVisitor)
+    })(methodGenerator =>
+      Sync[F].delay {
+        methodGenerator.methodVisitor.visitInsn(Opcodes.RETURN)
         methodGenerator.methodVisitor.visitMaxs(0, 0)
         methodGenerator.methodVisitor.visitEnd()
       }

@@ -28,11 +28,7 @@ object CommonPatterns {
         // Define constructor
         _ <-
           classGenerator
-            .createMethod[F](
-              "<init>",
-              fields.map(_.typeReference).map(simpleType),
-              systemUnitType
-            )
+            .createCtor[F](fields.map(_.typeReference).map(simpleType))
             .use { methodGenerator =>
               for {
                 // Call super.<init>
