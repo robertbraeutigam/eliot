@@ -15,6 +15,7 @@ object NativeType {
       (systemLangType("String"), eliot_lang_String),
       (systemLangType("Function"), eliot_lang_Function),
       (systemLangType("Unit"), eliot_lang_Unit),
+      (systemLangType("Any"), eliot_lang_Any),
       (TypeFQN(ModuleName(Seq("eliot", "java", "lang"), "Array"), "Array"), eliot_java_lang_Array)
     )
   )
@@ -50,6 +51,11 @@ object NativeType {
 
   private def eliot_lang_Unit: NativeType = new NativeType {
     override def javaSignatureName: String = "V"
+  }
+
+  // TODO: This is not a "real" eliot type, just there to map to Object
+  private def eliot_lang_Any: NativeType = new NativeType {
+    override def javaSignatureName: String = "Ljava/lang/Object;"
   }
 
   private def eliot_lang_Function: NativeType = new NativeType {
