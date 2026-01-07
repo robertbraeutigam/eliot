@@ -11,14 +11,20 @@ import TypeState.*
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
+import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
+import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
 import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData, TypeReference}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 import com.vanillasource.eliot.eliotc.uncurry.UncurriedTypedExpression.*
-import com.vanillasource.eliot.eliotc.uncurry.{UncurriedFunction, UncurriedTypedExpression}
+import com.vanillasource.eliot.eliotc.uncurry.{
+  UncurriedFunction,
+  UncurriedTypedExpression,
+  UncurriedTypedFunctionDefinition
+}
 import com.vanillasource.eliot.eliotc.used.UsedSymbols
 
 class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with Logging {
@@ -53,6 +59,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
         for {
           functionDefinition <- getFactOrAbort(UncurriedFunction.Key(sourcedFfqn.value))
           classFiles         <- createModuleMethod(mainClassGenerator, functionDefinition)
+          _                  <- createApplicationMain(sourcedFfqn.value, mainClassGenerator).whenA(isMain(functionDefinition.definition))
         } yield classFiles
     }
   }
@@ -386,10 +393,30 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
 
   private def collectTypeGeneratedFunctions(
       sourcedTfqn: Sourced[TypeFQN]
-  ): CompilerIO[Seq[String]] =
+  ): CompilerIO[Seq[String]] = {
     getFact(ResolvedData.Key(sourcedTfqn.value)).map {
       case Some(resolvedData) =>
         resolvedData.definition.fields.getOrElse(Seq.empty).map(_.name.value) ++ Seq(sourcedTfqn.value.typeName)
       case None               => Seq(sourcedTfqn.value.typeName)
     }
+  }
+
+  /** Create a JVM compatible static main, if this methid is the eliot main, presumably generated from the
+    * JvmProgramGenerator.
+    */
+  private def createApplicationMain(mainFfqn: FunctionFQN, generator: ClassGenerator): CompilerIO[Unit] =
+    generator.createMainMethod[CompilerIO]().use { methodGenerator =>
+      methodGenerator.addCallTo(mainFfqn, Seq.empty, systemUnitType)
+    }
+
+  /** @return
+    *   Iff the method definition is a suitable main to run from the JVM
+    */
+  private def isMain(definition: UncurriedTypedFunctionDefinition): Boolean =
+    definition.name.value === "main" && definition.genericParameters.isEmpty &&
+      definition.parameters.isEmpty &&
+      (definition.returnType match {
+        case DirectTypeReference(Sourced(_, _, sut), gs) if gs.isEmpty && sut === systemUnitType => true
+        case _                                                                                   => false
+      })
 }

@@ -95,6 +95,27 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
       }
     )
 
+  def createMainMethod[F[_]: Sync](): Resource[F, MethodGenerator] =
+    Resource.make(Sync[F].delay {
+      val methodVisitor = classWriter.visitMethod(
+        Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
+        "main",
+        "([Ljava/lang/String;)V",
+        null,
+        null
+      )
+
+      methodVisitor.visitCode()
+
+      MethodGenerator(moduleName, methodVisitor)
+    })(methodGenerator =>
+      Sync[F].delay {
+        methodGenerator.methodVisitor.visitInsn(Opcodes.RETURN)
+        methodGenerator.methodVisitor.visitMaxs(0, 0)
+        methodGenerator.methodVisitor.visitEnd()
+      }
+    )
+
   def createApplyMethod[F[_]: Sync](
       parameterTypes: Seq[TypeFQN],
       resultType: TypeFQN
