@@ -107,7 +107,7 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
   }
 
   def addCastTo[F[_]: Sync](targetType: TypeFQN): F[Unit] = Sync[F].delay {
-    methodVisitor.visitTypeInsn(Opcodes.CHECKCAST, javaSignatureName(targetType));
+    methodVisitor.visitTypeInsn(Opcodes.CHECKCAST, convertToNestedClassName(targetType));
   }
 
   def addCallToApply[F[_]: Sync](): F[Unit] = Sync[F].delay {
