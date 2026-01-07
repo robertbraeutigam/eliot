@@ -158,10 +158,6 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                               createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
                             )
           _              <- methodGenerator.addCallToApply[CompilationTypesIO]()
-          // Since Function has erased type, cast to type here
-          _              <- methodGenerator.addCastTo[CompilationTypesIO](
-                              simpleType(parameterType.get.typeReference.genericParameters.get(1).get)
-                            )
         } yield classes
       case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn)) =>
         // Calling a function
@@ -183,6 +179,11 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                                        parameterTypes,
                                                        returnType
                                                      )
+                                          // FIXME: below cast does not work, we don't know what type is needed next
+                                          // _       <-
+                                          // methodGenerator.addCastTo[CompilationTypesIO](
+                                          //    simpleType(???)
+                                          //  )
                                         } yield classes
                                       case None                    =>
                                         compilerError(
