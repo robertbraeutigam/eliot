@@ -400,19 +400,27 @@ final class FactVisualizationTracker(
       ranks.getOrElse(source, 0) >= ranks.getOrElse(target, 0)
     }.toSet
 
-  /** Calculate the rank of each node as the shortest directed path from any source node (nodes with no incoming edges).
-    * Uses BFS to find shortest paths. Nodes in cycles unreachable from sources get rank 0.
+  /** Calculate the rank of each node as the longest directed path from any source node (nodes with no incoming edges).
+    * Uses topological sort with dynamic programming. Nodes in cycles unreachable from sources get rank 0.
     */
   private def calculateRanks(graphData: GraphData): Map[String, Int] = {
     val outgoingEdges = graphData.edges.keys.groupBy(_._1).map((k, v) => k -> v.map(_._2))
-    val incomingCount = graphData.edges.keys.groupBy(_._2).map((k, v) => k -> v.size)
+    val incomingEdges = graphData.edges.keys.groupBy(_._2).map((k, v) => k -> v.map(_._1))
 
     // Find source nodes (no incoming edges)
-    val sources = graphData.nodes.filter(node => !incomingCount.contains(node))
+    val sources = graphData.nodes.filter(node => !incomingEdges.contains(node))
 
-    // BFS for shortest path from sources
-    val ranks = mutable.Map[String, Int]()
-    val queue = mutable.Queue[String]()
+    // Topological sort with longest path calculation (Kahn's algorithm)
+    val ranks     = mutable.Map[String, Int]()
+    val queue     = mutable.Queue[String]()
+    val inDegree  = mutable.Map[String, Int]()
+    val maxInRank = mutable.Map[String, Int]()
+
+    // Initialize in-degrees and max incoming ranks
+    graphData.nodes.foreach { node =>
+      inDegree(node) = incomingEdges.getOrElse(node, Set.empty).size
+      maxInRank(node) = -1
+    }
 
     // Start from all sources at rank 0
     sources.foreach { source =>
@@ -425,8 +433,11 @@ final class FactVisualizationTracker(
       val nodeRank = ranks(node)
 
       outgoingEdges.getOrElse(node, Set.empty).foreach { target =>
-        if (!ranks.contains(target)) {
-          ranks(target) = nodeRank + 1
+        maxInRank(target) = math.max(maxInRank(target), nodeRank)
+        inDegree(target) -= 1
+
+        if (inDegree(target) == 0) {
+          ranks(target) = maxInRank(target) + 1
           queue.enqueue(target)
         }
       }
