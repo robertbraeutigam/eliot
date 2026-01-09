@@ -83,11 +83,9 @@ final class FactVisualizationTracker(
     val logMin   = math.log(minCount.toDouble)
     val logMax   = math.log(maxCount.toDouble)
 
-    // Find back-edges using DFS
-    val backEdges = findBackEdges(graphData)
-
-    // Calculate ranks for nodes (ignoring back-edges)
-    val ranks = calculateRanks(graphData, backEdges)
+    // Calculate ranks first (shortest path from sources), then derive back-edges from ranks
+    val ranks     = calculateRanks(graphData)
+    val backEdges = findBackEdges(graphData, ranks)
 
     val nodeElements = graphData.nodes.toSeq.sorted.zipWithIndex
       .map { case (name, idx) =>
@@ -316,6 +314,10 @@ final class FactVisualizationTracker(
                 // Use explicit ranks from our calculation
                 rank: function(node) {
                     return node.data('rank');
+                },
+                // Ignore back-edges for ranking by setting their minimum length to 0
+                minLen: function(edge) {
+                    return edge.data('backEdge') ? 0 : 1;
                 }
             }
         });
@@ -368,77 +370,29 @@ final class FactVisualizationTracker(
 </html>"""
   }
 
-  /** Detect back-edges using DFS. A back-edge is an edge that points to an ancestor in the DFS tree (a node currently
-    * on the recursion stack). Returns the set of edge keys that are back-edges.
+  /** Find back-edges based on node ranks. A back-edge is an edge that goes from a node to another node with the same
+    * or lower rank (i.e., not moving forward in the DAG).
     */
-  private def findBackEdges(graphData: GraphData): Set[(String, String, String)] = {
-    val outgoingEdges = graphData.edges.keys.groupBy(_._1)
+  private def findBackEdges(graphData: GraphData, ranks: Map[String, Int]): Set[(String, String, String)] =
+    graphData.edges.keys.filter { case (source, target, _) =>
+      ranks.getOrElse(source, 0) >= ranks.getOrElse(target, 0)
+    }.toSet
+
+  /** Calculate the rank of each node as the shortest directed path from any source node (nodes with no incoming
+    * edges). Uses BFS to find shortest paths. Nodes in cycles unreachable from sources get rank 0.
+    */
+  private def calculateRanks(graphData: GraphData): Map[String, Int] = {
+    val outgoingEdges = graphData.edges.keys.groupBy(_._1).map((k, v) => k -> v.map(_._2))
     val incomingCount = graphData.edges.keys.groupBy(_._2).map((k, v) => k -> v.size)
 
     // Find source nodes (no incoming edges)
     val sources = graphData.nodes.filter(node => !incomingCount.contains(node))
 
-    // DFS state: 0 = unvisited, 1 = in current path (gray), 2 = finished (black)
-    val state     = mutable.Map[String, Int]().withDefaultValue(0)
-    val backEdges = mutable.Set[(String, String, String)]()
+    // BFS for shortest path from sources
+    val ranks = mutable.Map[String, Int]()
+    val queue = mutable.Queue[String]()
 
-    def dfs(node: String): Unit = {
-      state(node) = 1 // Mark as in-progress (gray)
-
-      outgoingEdges.get(node).foreach { edges =>
-        edges.foreach { case edge @ (_, target, _) =>
-          state(target) match {
-            case 1 => backEdges += edge // Target is in current path = back edge
-            case 0 => dfs(target)       // Unvisited, recurse
-            case _ =>                   // Already finished, skip
-          }
-        }
-      }
-
-      state(node) = 2 // Mark as finished (black)
-    }
-
-    // Start DFS from all sources
-    sources.foreach { source =>
-      if (state(source) == 0) dfs(source)
-    }
-
-    // Also process any nodes not reachable from sources (isolated cycles)
-    graphData.nodes.foreach { node =>
-      if (state(node) == 0) dfs(node)
-    }
-
-    backEdges.toSet
-  }
-
-  /** Calculate the rank (depth) of each node based on the longest path from any source node. Back-edges are ignored to
-    * ensure proper DAG ranking.
-    */
-  private def calculateRanks(
-      graphData: GraphData,
-      backEdges: Set[(String, String, String)]
-  ): Map[String, Int] = {
-    // Build adjacency list excluding back-edges
-    val forwardEdges  = graphData.edges.keys.filterNot(backEdges.contains).toSet
-    val outgoingEdges = forwardEdges.groupBy(_._1).map((k, v) => k -> v.map(_._2))
-    val incomingEdges = forwardEdges.groupBy(_._2).map((k, v) => k -> v.map(_._1))
-
-    // Find source nodes (no incoming forward edges)
-    val sources = graphData.nodes.filter(node => !incomingEdges.contains(node))
-
-    // BFS-based rank calculation (longest path from any source)
-    val ranks     = mutable.Map[String, Int]()
-    val queue     = mutable.Queue[String]()
-    val inDegree  = mutable.Map[String, Int]()
-    val maxInRank = mutable.Map[String, Int]()
-
-    // Initialize in-degrees and max incoming ranks
-    graphData.nodes.foreach { node =>
-      inDegree(node) = incomingEdges.getOrElse(node, Set.empty).size
-      maxInRank(node) = -1
-    }
-
-    // Start from sources
+    // Start from all sources at rank 0
     sources.foreach { source =>
       ranks(source) = 0
       queue.enqueue(source)
@@ -449,17 +403,14 @@ final class FactVisualizationTracker(
       val nodeRank = ranks(node)
 
       outgoingEdges.getOrElse(node, Set.empty).foreach { target =>
-        maxInRank(target) = math.max(maxInRank(target), nodeRank)
-        inDegree(target) -= 1
-
-        if (inDegree(target) == 0) {
-          ranks(target) = maxInRank(target) + 1
+        if (!ranks.contains(target)) {
+          ranks(target) = nodeRank + 1
           queue.enqueue(target)
         }
       }
     }
 
-    // Handle any unranked nodes (isolated or in cycles only connected via back-edges)
+    // Handle any unranked nodes (in cycles with no path from sources)
     graphData.nodes.foreach { node =>
       if (!ranks.contains(node)) {
         ranks(node) = 0
