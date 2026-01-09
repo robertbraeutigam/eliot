@@ -243,7 +243,7 @@ final class FactVisualizationTracker(
             <span>Forward Edge (normal flow)</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background: #FF6D00; border-radius: 0; width: 30px; height: 2px; border-top: 3px dashed #FF6D00;"></div>
+            <div class="legend-color" style="background: #FF6D00; border-radius: 0; width: 30px; height: 3px;"></div>
             <span>Back Edge (cycle/dynamic)</span>
         </div>
     </div>
