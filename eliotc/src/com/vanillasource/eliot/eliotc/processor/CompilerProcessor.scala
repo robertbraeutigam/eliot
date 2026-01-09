@@ -10,4 +10,8 @@ trait CompilerProcessor {
   /** Generate the fact with the given key, if able. Otherwise, do nothing.
     */
   def generate(factKey: CompilerFactKey[?]): CompilerIO[Unit]
+
+  /** Wrap this processor with the given wrapper function. Intended to be implemented by container type processors.
+    */
+  def wrapWith(wrapper: CompilerProcessor => CompilerProcessor): CompilerProcessor = wrapper(this)
 }
