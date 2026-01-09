@@ -12,20 +12,42 @@ import scala.collection.mutable
   * processors, edges represent fact types flowing between them.
   */
 final class FactVisualizationTracker(
-    factProducers: Ref[IO, Map[String, Set[String]]],
+    factProducers: Ref[IO, Map[String, (Set[String], Set[String])]],
     factRequests: Ref[IO, List[(String, String)]],
+    factRequestedKeys: Ref[IO, Set[CompilerFactKey[?]]]
 ) extends Logging {
 
   /** Record that a processor produced a fact */
   def recordFactProduction(processorName: String, factKey: CompilerFactKey[?]): IO[Unit] = {
     val factTypeName = getFactTypeName(factKey)
-    factProducers.update(map => map + (factTypeName -> (map.getOrElse(factTypeName, Set.empty) + processorName)))
+    for {
+      requestedKeys <- factRequestedKeys.get
+      _             <- if (requestedKeys.contains(factKey)) {
+                         // This key was previously requested, so we assume this processor is fulfilling a request
+                         factProducers.update(
+                           _.updatedWith(factTypeName) { processorsMaybe =>
+                             val processors = processorsMaybe.getOrElse((Set.empty, Set.empty))
+
+                             Some((processors._1 + processorName, processors._2))
+                           }
+                         )
+                       } else {
+                         // This key was not requested, we assume this processor initiates a new workflow of sorts
+                         factProducers.update(
+                           _.updatedWith(factTypeName) { processorsMaybe =>
+                             val processors = processorsMaybe.getOrElse((Set.empty, Set.empty))
+
+                             Some((processors._1, processors._2 + processorName))
+                           }
+                         )
+                       }
+    } yield ()
   }
 
   /** Record that a processor requested a fact */
   def recordFactRequest(processorName: String, factKey: CompilerFactKey[?]): IO[Unit] = {
     val factTypeName = getFactTypeName(factKey)
-    factRequests.update(_ :+ (processorName, factTypeName))
+    factRequestedKeys.update(_ + factKey) >> factRequests.update(_ :+ (processorName, factTypeName))
   }
 
   /** Generate HTML visualization using Cytoscape.js */
@@ -40,7 +62,7 @@ final class FactVisualizationTracker(
     } yield ()
 
   private def buildGraphData(
-      producers: Map[String, Set[String]],
+      producers: Map[String, (Set[String], Set[String])],
       requests: List[(String, String)]
   ): IO[GraphData] = IO {
     val edges = mutable.Map[(String, String, String), Int]()
@@ -48,8 +70,8 @@ final class FactVisualizationTracker(
 
     // Build edges from requests: fact flows from producer to consumer
     requests.foreach { case (consumer, factType) =>
-      producers.get(factType).foreach { producerSet =>
-        producerSet.foreach { producer =>
+      producers.get(factType).foreach { producerSets =>
+        producerSets._1.foreach { producer =>
           if (producer != consumer) {
             val key = (producer, consumer, factType)
             edges(key) = edges.getOrElse(key, 0) + 1
@@ -61,7 +83,7 @@ final class FactVisualizationTracker(
     }
 
     // Add nodes that only produce facts (no consumers yet)
-    producers.values.flatten.foreach(nodes += _)
+    producers.values.map(_._1).flatten.foreach(nodes += _)
 
     GraphData(nodes.toSet, edges.toMap)
   }
@@ -370,16 +392,16 @@ final class FactVisualizationTracker(
 </html>"""
   }
 
-  /** Find back-edges based on node ranks. A back-edge is an edge that goes from a node to another node with the same
-    * or lower rank (i.e., not moving forward in the DAG).
+  /** Find back-edges based on node ranks. A back-edge is an edge that goes from a node to another node with the same or
+    * lower rank (i.e., not moving forward in the DAG).
     */
   private def findBackEdges(graphData: GraphData, ranks: Map[String, Int]): Set[(String, String, String)] =
     graphData.edges.keys.filter { case (source, target, _) =>
       ranks.getOrElse(source, 0) >= ranks.getOrElse(target, 0)
     }.toSet
 
-  /** Calculate the rank of each node as the shortest directed path from any source node (nodes with no incoming
-    * edges). Uses BFS to find shortest paths. Nodes in cycles unreachable from sources get rank 0.
+  /** Calculate the rank of each node as the shortest directed path from any source node (nodes with no incoming edges).
+    * Uses BFS to find shortest paths. Nodes in cycles unreachable from sources get rank 0.
     */
   private def calculateRanks(graphData: GraphData): Map[String, Int] = {
     val outgoingEdges = graphData.edges.keys.groupBy(_._1).map((k, v) => k -> v.map(_._2))
@@ -437,7 +459,8 @@ object FactVisualizationTracker {
 
   def create(): IO[FactVisualizationTracker] =
     for {
-      producers <- Ref.of[IO, Map[String, Set[String]]](Map.empty)
-      requests  <- Ref.of[IO, List[(String, String)]](List.empty)
-    } yield new FactVisualizationTracker(producers, requests)
+      producers         <- Ref.of[IO, Map[String, (Set[String], Set[String])]](Map.empty)
+      requests          <- Ref.of[IO, List[(String, String)]](List.empty)
+      requestedFactKeys <- Ref.of[IO, Set[CompilerFactKey[?]]](Set.empty)
+    } yield new FactVisualizationTracker(producers, requests, requestedFactKeys)
 }
