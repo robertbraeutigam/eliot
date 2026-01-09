@@ -2,12 +2,12 @@ package com.vanillasource.eliot.eliotc.compiler
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.compiler.visualization.FactVisualizationTracker
-import com.vanillasource.eliot.eliotc.compiler.visualization.TrackedCompilerProcessor.wrapProcessor
+import com.vanillasource.eliot.eliotc.visualization.TrackedCompilerProcessor.wrapProcessor
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.common.NullProcessor
+import com.vanillasource.eliot.eliotc.visualization.FactVisualizationTracker
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
 
 import java.nio.file.Path

@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.compiler.visualization
+package com.vanillasource.eliot.eliotc.visualization
 
 import cats.data.ReaderT
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO

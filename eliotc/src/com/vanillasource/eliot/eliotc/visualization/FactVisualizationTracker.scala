@@ -1,7 +1,7 @@
-package com.vanillasource.eliot.eliotc.compiler.visualization
+package com.vanillasource.eliot.eliotc.visualization
 
 import cats.effect.{IO, Ref}
-import com.vanillasource.eliot.eliotc.compiler.visualization.FactVisualizationTracker.GraphData
+import FactVisualizationTracker.GraphData
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerFactKey
 

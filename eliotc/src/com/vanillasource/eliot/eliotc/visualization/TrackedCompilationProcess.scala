@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.compiler.visualization
+package com.vanillasource.eliot.eliotc.visualization
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey}
