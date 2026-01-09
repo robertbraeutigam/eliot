@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.compiler.visualization
 import cats.effect.{IO, Ref}
 import com.vanillasource.eliot.eliotc.compiler.visualization.FactVisualizationTracker.GraphData
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.processor.{CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.CompilerFactKey
 
 import java.nio.file.{Files, Path}
 import scala.collection.mutable
@@ -14,7 +14,6 @@ import scala.collection.mutable
 final class FactVisualizationTracker(
     factProducers: Ref[IO, Map[String, Set[String]]],
     factRequests: Ref[IO, List[(String, String)]],
-    factCounts: Ref[IO, Map[(String, String, String), Int]]
 ) extends Logging {
 
   /** Record that a processor produced a fact */
@@ -422,6 +421,5 @@ object FactVisualizationTracker {
     for {
       producers <- Ref.of[IO, Map[String, Set[String]]](Map.empty)
       requests  <- Ref.of[IO, List[(String, String)]](List.empty)
-      counts    <- Ref.of[IO, Map[(String, String, String), Int]](Map.empty)
-    } yield new FactVisualizationTracker(producers, requests, counts)
+    } yield new FactVisualizationTracker(producers, requests)
 }
