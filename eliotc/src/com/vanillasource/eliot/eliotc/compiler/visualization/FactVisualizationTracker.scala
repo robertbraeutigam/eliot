@@ -86,9 +86,13 @@ final class FactVisualizationTracker(
     // Find back-edges using DFS
     val backEdges = findBackEdges(graphData)
 
+    // Calculate ranks for nodes (ignoring back-edges)
+    val ranks = calculateRanks(graphData, backEdges)
+
     val nodeElements = graphData.nodes.toSeq.sorted.zipWithIndex
       .map { case (name, idx) =>
-        s"""{ data: { id: '$name', label: '${simplifyProcessorName(name)}' } }"""
+        val rank = ranks.getOrElse(name, 0)
+        s"""{ data: { id: '$name', label: '${simplifyProcessorName(name)}', rank: $rank } }"""
       }
       .mkString(",\n            ")
 
@@ -308,7 +312,11 @@ final class FactVisualizationTracker(
                 animate: true,
                 animationDuration: 500,
                 fit: true,
-                padding: 50
+                padding: 50,
+                // Use explicit ranks from our calculation
+                rank: function(node) {
+                    return node.data('rank');
+                }
             }
         });
 
@@ -324,6 +332,7 @@ final class FactVisualizationTracker(
             var outgoingFacts = outgoing.map(e => e.data('label') + ' (' + e.data('count') + ')').join(', ') || 'None';
 
             infoPanel.innerHTML = '<h3>' + node.data('label') + '</h3>' +
+                '<p><strong>Rank:</strong> ' + node.data('rank') + '</p>' +
                 '<p><strong>Consumes:</strong> ' + incomingFacts + '</p>' +
                 '<p><strong>Produces:</strong> ' + outgoingFacts + '</p>' +
                 '<p><strong>Total In:</strong> ' + incoming.length + ' edges</p>' +
@@ -400,6 +409,64 @@ final class FactVisualizationTracker(
     }
 
     backEdges.toSet
+  }
+
+  /** Calculate the rank (depth) of each node based on the longest path from any source node. Back-edges are ignored to
+    * ensure proper DAG ranking.
+    */
+  private def calculateRanks(
+      graphData: GraphData,
+      backEdges: Set[(String, String, String)]
+  ): Map[String, Int] = {
+    // Build adjacency list excluding back-edges
+    val forwardEdges  = graphData.edges.keys.filterNot(backEdges.contains).toSet
+    val outgoingEdges = forwardEdges.groupBy(_._1).map((k, v) => k -> v.map(_._2))
+    val incomingEdges = forwardEdges.groupBy(_._2).map((k, v) => k -> v.map(_._1))
+
+    // Find source nodes (no incoming forward edges)
+    val sources = graphData.nodes.filter(node => !incomingEdges.contains(node))
+
+    // BFS-based rank calculation (longest path from any source)
+    val ranks     = mutable.Map[String, Int]()
+    val queue     = mutable.Queue[String]()
+    val inDegree  = mutable.Map[String, Int]()
+    val maxInRank = mutable.Map[String, Int]()
+
+    // Initialize in-degrees and max incoming ranks
+    graphData.nodes.foreach { node =>
+      inDegree(node) = incomingEdges.getOrElse(node, Set.empty).size
+      maxInRank(node) = -1
+    }
+
+    // Start from sources
+    sources.foreach { source =>
+      ranks(source) = 0
+      queue.enqueue(source)
+    }
+
+    while (queue.nonEmpty) {
+      val node     = queue.dequeue()
+      val nodeRank = ranks(node)
+
+      outgoingEdges.getOrElse(node, Set.empty).foreach { target =>
+        maxInRank(target) = math.max(maxInRank(target), nodeRank)
+        inDegree(target) -= 1
+
+        if (inDegree(target) == 0) {
+          ranks(target) = maxInRank(target) + 1
+          queue.enqueue(target)
+        }
+      }
+    }
+
+    // Handle any unranked nodes (isolated or in cycles only connected via back-edges)
+    graphData.nodes.foreach { node =>
+      if (!ranks.contains(node)) {
+        ranks(node) = 0
+      }
+    }
+
+    ranks.toMap
   }
 
   private def simplifyProcessorName(fullName: String): String = {
