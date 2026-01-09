@@ -21,7 +21,9 @@
       "Bash(git checkout:*)",
       "Bash(mill base.test.testOnly:*)",
       "Bash(javap:*)",
-      "Bash(jar xf:*)"
+      "Bash(jar xf:*)",
+      "Bash(mill -i examples.run:*)",
+      "Bash(timeout 30 mill:*)"
     ]
   }
 }

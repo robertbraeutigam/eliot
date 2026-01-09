@@ -84,6 +84,9 @@ final class FactVisualizationTracker(
     val logMin   = math.log(minCount.toDouble)
     val logMax   = math.log(maxCount.toDouble)
 
+    // Find back-edges using DFS
+    val backEdges = findBackEdges(graphData)
+
     val nodeElements = graphData.nodes.toSeq.sorted.zipWithIndex
       .map { case (name, idx) =>
         s"""{ data: { id: '$name', label: '${simplifyProcessorName(name)}' } }"""
@@ -99,9 +102,12 @@ final class FactVisualizationTracker(
         val logCount      = math.log(count.toDouble)
         val normalizedLog = if (logMax > logMin) (logCount - logMin) / (logMax - logMin) else 0.5
         val edgeWidth     = 1 + (normalizedLog * 9) // Scale to 1-10 range
+
+        val isBackEdge = backEdges.contains((producer, consumer, factType))
+
         s"""{ data: { id: '$edgeId', source: '$producer', target: '$consumer', label: '${simplifyFactName(
             factType
-          )}', count: $count, width: ${edgeWidth.round} } }"""
+          )}', count: $count, width: ${edgeWidth.round}, backEdge: $isBackEdge } }"""
       }
       .mkString(",\n            ")
 
@@ -211,7 +217,11 @@ final class FactVisualizationTracker(
         </div>
         <div class="legend-item">
             <div class="legend-color" style="background: #34A853; border-radius: 0; width: 30px; height: 3px;"></div>
-            <span>Fact Flow (exponential scaling)</span>
+            <span>Forward Edge (normal flow)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #FF6D00; border-radius: 0; width: 30px; height: 2px; border-top: 3px dashed #FF6D00;"></div>
+            <span>Back Edge (cycle/dynamic)</span>
         </div>
     </div>
     <script>
@@ -272,6 +282,15 @@ final class FactVisualizationTracker(
                     }
                 },
                 {
+                    selector: 'edge[?backEdge]',
+                    style: {
+                        'line-color': '#FF6D00',
+                        'target-arrow-color': '#FF6D00',
+                        'line-style': 'dashed',
+                        'line-dash-pattern': [6, 3]
+                    }
+                },
+                {
                     selector: 'edge:selected',
                     style: {
                         'line-color': '#FBBC04',
@@ -315,11 +334,15 @@ final class FactVisualizationTracker(
 
         cy.on('tap', 'edge', function(evt){
             var edge = evt.target;
+            var backEdgeInfo = edge.data('backEdge') ?
+                '<p><strong>Type:</strong> <span style="color: #FF6D00;">⚠️ Back Edge (creates cycle)</span></p>' :
+                '<p><strong>Type:</strong> Forward Edge</p>';
             infoPanel.innerHTML = '<h3>' + edge.data('label') + '</h3>' +
                 '<p><strong>From:</strong> ' + edge.source().data('label') + '</p>' +
                 '<p><strong>To:</strong> ' + edge.target().data('label') + '</p>' +
                 '<p><strong>Count:</strong> ' + edge.data('count') + ' fact(s)</p>' +
-                '<p><strong>Width:</strong> ' + edge.data('width') + ' (log-scaled)</p>';
+                '<p><strong>Width:</strong> ' + edge.data('width') + ' (log-scaled)</p>' +
+                backEdgeInfo;
             infoPanel.style.display = 'block';
         });
 
@@ -335,6 +358,49 @@ final class FactVisualizationTracker(
     </script>
 </body>
 </html>"""
+  }
+
+  /** Detect back-edges using DFS. A back-edge is an edge that points to an ancestor in the DFS tree (a node currently
+    * on the recursion stack). Returns the set of edge keys that are back-edges.
+    */
+  private def findBackEdges(graphData: GraphData): Set[(String, String, String)] = {
+    val outgoingEdges = graphData.edges.keys.groupBy(_._1)
+    val incomingCount = graphData.edges.keys.groupBy(_._2).map((k, v) => k -> v.size)
+
+    // Find source nodes (no incoming edges)
+    val sources = graphData.nodes.filter(node => !incomingCount.contains(node))
+
+    // DFS state: 0 = unvisited, 1 = in current path (gray), 2 = finished (black)
+    val state     = mutable.Map[String, Int]().withDefaultValue(0)
+    val backEdges = mutable.Set[(String, String, String)]()
+
+    def dfs(node: String): Unit = {
+      state(node) = 1 // Mark as in-progress (gray)
+
+      outgoingEdges.get(node).foreach { edges =>
+        edges.foreach { case edge @ (_, target, _) =>
+          state(target) match {
+            case 1 => backEdges += edge // Target is in current path = back edge
+            case 0 => dfs(target)       // Unvisited, recurse
+            case _ =>                   // Already finished, skip
+          }
+        }
+      }
+
+      state(node) = 2 // Mark as finished (black)
+    }
+
+    // Start DFS from all sources
+    sources.foreach { source =>
+      if (state(source) == 0) dfs(source)
+    }
+
+    // Also process any nodes not reachable from sources (isolated cycles)
+    graphData.nodes.foreach { node =>
+      if (state(node) == 0) dfs(node)
+    }
+
+    backEdges.toSet
   }
 
   private def simplifyProcessorName(fullName: String): String = {
