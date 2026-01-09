@@ -12,8 +12,11 @@ import scala.collection.mutable
   * processors, edges represent fact types flowing between them.
   */
 final class FactVisualizationTracker(
+    // Mapping: FactTypeName -> (Processors that were requested, Processors that just produced without being asked)
     factProducers: Ref[IO, Map[String, (Set[String], Set[String])]],
+    // Mapping: Processor -> FactTypeName
     factRequests: Ref[IO, List[(String, String)]],
+    // Keys that were requested up until now (for determining whether fact was asked for)
     factRequestedKeys: Ref[IO, Set[CompilerFactKey[?]]]
 ) extends Logging {
 
