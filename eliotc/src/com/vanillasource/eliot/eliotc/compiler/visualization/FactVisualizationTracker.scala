@@ -12,7 +12,7 @@ import scala.collection.mutable
   * processors, edges represent fact types flowing between them.
   */
 final class FactVisualizationTracker(
-    factProducers: Ref[IO, Map[String, String]],
+    factProducers: Ref[IO, Map[String, Set[String]]],
     factRequests: Ref[IO, List[(String, String)]],
     factCounts: Ref[IO, Map[(String, String, String), Int]]
 ) extends Logging {
@@ -20,7 +20,7 @@ final class FactVisualizationTracker(
   /** Record that a processor produced a fact */
   def recordFactProduction(processorName: String, factKey: CompilerFactKey[?]): IO[Unit] = {
     val factTypeName = getFactTypeName(factKey)
-    factProducers.update(_ + (factTypeName -> processorName))
+    factProducers.update(map => map + (factTypeName -> (map.getOrElse(factTypeName, Set.empty) + processorName)))
   }
 
   /** Record that a processor requested a fact */
@@ -41,7 +41,7 @@ final class FactVisualizationTracker(
     } yield ()
 
   private def buildGraphData(
-      producers: Map[String, String],
+      producers: Map[String, Set[String]],
       requests: List[(String, String)]
   ): IO[GraphData] = IO {
     val edges = mutable.Map[(String, String, String), Int]()
@@ -49,18 +49,20 @@ final class FactVisualizationTracker(
 
     // Build edges from requests: fact flows from producer to consumer
     requests.foreach { case (consumer, factType) =>
-      producers.get(factType).foreach { producer =>
-        if (producer != consumer) {
-          val key = (producer, consumer, factType)
-          edges(key) = edges.getOrElse(key, 0) + 1
-          nodes += producer
-          nodes += consumer
+      producers.get(factType).foreach { producerSet =>
+        producerSet.foreach { producer =>
+          if (producer != consumer) {
+            val key = (producer, consumer, factType)
+            edges(key) = edges.getOrElse(key, 0) + 1
+            nodes += producer
+            nodes += consumer
+          }
         }
       }
     }
 
     // Add nodes that only produce facts (no consumers yet)
-    producers.values.foreach(nodes += _)
+    producers.values.flatten.foreach(nodes += _)
 
     GraphData(nodes.toSet, edges.toMap)
   }
@@ -352,7 +354,7 @@ object FactVisualizationTracker {
 
   def create(): IO[FactVisualizationTracker] =
     for {
-      producers <- Ref.of[IO, Map[String, String]](Map.empty)
+      producers <- Ref.of[IO, Map[String, Set[String]]](Map.empty)
       requests  <- Ref.of[IO, List[(String, String)]](List.empty)
       counts    <- Ref.of[IO, Map[(String, String, String), Int]](Map.empty)
     } yield new FactVisualizationTracker(producers, requests, counts)
