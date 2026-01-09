@@ -356,9 +356,9 @@ final class FactVisualizationTracker(
             var outgoingFacts = outgoing.map(e => e.data('label') + ' (' + e.data('count') + ')').join(', ') || 'None';
 
             infoPanel.innerHTML = '<h3>' + node.data('label') + '</h3>' +
-                '<p><strong>Rank:</strong> ' + node.data('rank') + '</p>' +
                 '<p><strong>Consumes:</strong> ' + incomingFacts + '</p>' +
                 '<p><strong>Produces:</strong> ' + outgoingFacts + '</p>' +
+                '<p><strong>Rank:</strong> ' + node.data('rank') + '</p>' +
                 '<p><strong>Total In:</strong> ' + incoming.length + ' edges</p>' +
                 '<p><strong>Total Out:</strong> ' + outgoing.length + ' edges</p>';
             infoPanel.style.display = 'block';
@@ -373,7 +373,6 @@ final class FactVisualizationTracker(
                 '<p><strong>From:</strong> ' + edge.source().data('label') + '</p>' +
                 '<p><strong>To:</strong> ' + edge.target().data('label') + '</p>' +
                 '<p><strong>Count:</strong> ' + edge.data('count') + ' fact(s)</p>' +
-                '<p><strong>Width:</strong> ' + edge.data('width') + ' (log-scaled)</p>' +
                 backEdgeInfo;
             infoPanel.style.display = 'block';
         });
