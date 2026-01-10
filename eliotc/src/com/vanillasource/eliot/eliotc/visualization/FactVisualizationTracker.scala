@@ -147,15 +147,14 @@ final class FactVisualizationTracker(
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #EEE;
             display: flex;
             flex-direction: column;
             height: 100vh;
         }
         #header {
-            background: rgba(255, 255, 255, 0.95);
+            background: #EEE;
             padding: 20px 30px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             z-index: 1000;
         }
         #header h1 {
@@ -172,11 +171,12 @@ final class FactVisualizationTracker(
             flex: 1;
             background: white;
             margin: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            border: 2px solid #DDD;
+            border-radius: 20px;
         }
         #info-panel {
             position: absolute;
+            top: 100px;
             top: 100px;
             right: 40px;
             background: rgba(255, 255, 255, 0.95);
