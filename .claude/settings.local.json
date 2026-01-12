@@ -23,7 +23,11 @@
       "Bash(javap:*)",
       "Bash(jar xf:*)",
       "Bash(mill -i examples.run:*)",
-      "Bash(timeout 30 mill:*)"
+      "Bash(timeout 30 mill:*)",
+      "Bash(mill mill.scalalib.scalafmt.ScalafmtModule/reformatAll:*)",
+      "Bash(mill __.reformat:*)",
+      "Bash(mill resolve:*)",
+      "Bash(mill base.checkFormat:*)"
     ]
   }
 }
