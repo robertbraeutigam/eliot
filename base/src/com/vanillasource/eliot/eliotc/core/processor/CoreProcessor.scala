@@ -34,10 +34,9 @@ class CoreProcessor
       sourceAst: SourceAST
   ): CompilerIO[CoreAST] = {
     val sourceAstData = sourceAst.ast.value
-    val coreAstData = CoreASTData(
+    val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
-      transformFunctions(sourceAstData.functionDefinitions) ++
-        transformDataDefinitions(sourceAstData.typeDefinitions)
+      transformFunctions(sourceAstData.functionDefinitions) ++ transformDataDefinitions(sourceAstData.typeDefinitions)
     )
     CoreAST(sourceAst.file, sourceAst.ast.as(coreAstData)).pure[CompilerIO]
   }
@@ -68,8 +67,8 @@ class CoreProcessor
   private def buildFunctionType(argType: ExpressionStack, returnType: ExpressionStack): ExpressionStack = {
     // Function type is represented as applying two type arguments to the Function type constructor
     // Function[A, B] = (Function A) B
-    val functionRef  = Seq(NamedValueReference(Sourced(null, null, "Function"), None))
-    val withArg      = Seq(FunctionApplication(Sourced(null, null, functionRef), Sourced(null, null, argType)))
+    val functionRef = Seq(NamedValueReference(Sourced(null, null, "Function"), None))
+    val withArg     = Seq(FunctionApplication(Sourced(null, null, functionRef), Sourced(null, null, argType)))
     Seq(FunctionApplication(Sourced(null, null, withArg), Sourced(null, null, returnType)))
   }
 
@@ -79,10 +78,9 @@ class CoreProcessor
       Seq(NamedValueReference(typeRef.typeName, None))
     } else {
       // Apply type parameters one by one: T[A, B] = ((T A) B)
-      typeRef.genericParameters.foldLeft(Seq[Expression](NamedValueReference(typeRef.typeName, None))) {
-        (acc, param) =>
-          val paramStack = typeReferenceToStack(param)
-          Seq(FunctionApplication(typeRef.typeName.as(acc), typeRef.typeName.as(paramStack)))
+      typeRef.genericParameters.foldLeft(Seq[Expression](NamedValueReference(typeRef.typeName, None))) { (acc, param) =>
+        val paramStack = typeReferenceToStack(param)
+        Seq(FunctionApplication(typeRef.typeName.as(acc), typeRef.typeName.as(paramStack)))
       }
     }
 
@@ -180,15 +178,15 @@ class CoreProcessor
 
   /** Creates a constructor function: MyType(a: A, b: B) -> MyType */
   private def createConstructor(dataDef: DataDefinition, fields: Seq[SourceArgument]): NamedValue = {
-    val returnType   = buildDataTypeReference(dataDef)
-    val curriedType  = buildCurriedType(fields, returnType, dataDef.genericParameters)
+    val returnType  = buildDataTypeReference(dataDef)
+    val curriedType = buildCurriedType(fields, returnType, dataDef.genericParameters)
     // Constructor is abstract (implemented externally)
     NamedValue(dataDef.name, dataDef.name.as(curriedType), None)
   }
 
   /** Creates an accessor function: field(obj: MyType) -> FieldType */
   private def createAccessor(dataDef: DataDefinition, field: SourceArgument): NamedValue = {
-    val objArg = SourceArgument(
+    val objArg      = SourceArgument(
       dataDef.name.as("obj"),
       buildDataTypeReference(dataDef)
     )
