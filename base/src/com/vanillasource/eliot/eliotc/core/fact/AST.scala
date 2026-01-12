@@ -4,4 +4,5 @@ import com.vanillasource.eliot.eliotc.ast.fact.ImportStatement
 
 case class AST(
     importStatements: Seq[ImportStatement],
+    namedValues: Seq[NamedValue]
 )
