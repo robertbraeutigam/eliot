@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.core.fact
 
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack.ExpressionStack
+import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The core AST unifies data and functions into "names values". I.e. everything is a value, even types and functions.
@@ -14,4 +14,4 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param value
   *   The runtime value expression. This is None if the named value is abstract.
   */
-case class NamedValue(name: Sourced[String], typeStack: Sourced[ExpressionStack], value: Option[Sourced[Expression]])
+case class NamedValue(name: Sourced[String], typeStack: ExpressionStack, value: Option[Sourced[Expression]])

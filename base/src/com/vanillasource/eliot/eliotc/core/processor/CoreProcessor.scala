@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
 }
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack.ExpressionStack
+import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -44,14 +44,51 @@ class CoreProcessor
   private def transformFunctions(functions: Seq[FunctionDefinition]): Seq[NamedValue] =
     functions.map(transformFunction)
 
-  private def transformFunction(fn: FunctionDefinition): NamedValue = {
-    val curriedType  = buildCurriedType(fn.args, fn.typeDefinition, fn.genericParameters)
-    val curriedValue = fn.body.map(body => buildCurriedBody(fn.args, body))
-    NamedValue(fn.name, fn.name.as(curriedType), curriedValue)
+  private def transformFunction(function: FunctionDefinition): NamedValue = {
+    val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
+    val curriedValue = function.body.map(body => buildCurriedBody(function.args, body))
+    NamedValue(function.name, ExpressionStack.of(curriedType.value), curriedValue)
   }
 
+  /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function(D, Function(E, F)).
+    * Note: f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y -> Function(X, Y)
+    */
+  private def curriedFunctionType(
+      args: Seq[SourceArgument],
+      returnType: TypeReference,
+      genericParams: Seq[GenericParameter]
+  ): Sourced[Expression] =
+    genericParams.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (param, acc) =>
+      param.name.as(FunctionLiteral(param.name, ExpressionStack.empty, acc.map(ExpressionStack.of)))
+    }
+
+  /** Converts type references to type expressions. Type references are in the form of: A[B[C...],...], which is
+    * converted into an expression: A(B(C...),...), so function applications.
+    */
+  private def toTypeExpression(reference: TypeReference): Sourced[Expression] =
+    reference.genericParameters.foldRight[Sourced[Expression]](
+      reference.typeName.as(NamedValueReference(reference.typeName))
+    ) { (ref, acc) =>
+      ref.typeName.as(FunctionApplication(acc.map(ExpressionStack.of), toTypeExpression(ref).map(ExpressionStack.of)))
+    }
+
+  /** Converts the body into core expression and embeds it as a lambda with the "function" parameters.
+    */
+  private def buildCurriedBody(
+      args: Seq[SourceArgument],
+      value: Sourced[SourceExpression]
+  ): Sourced[Expression] =
+    args.foldRight(toBodyExpression(value)) { (arg, acc) =>
+      ???
+    }
+
+  private def toBodyExpression(value: Sourced[SourceExpression]): Sourced[Expression] = ???
+
+  private def transformDataDefinitions(definitions: Seq[DataDefinition]): Seq[NamedValue] = ???
+
+  /*
   /** Builds a curried type: (A, B) -> C becomes Function[A, Function[B, C]] */
-  private def buildCurriedType(
+  private def curriedFunctionType(
       args: Seq[SourceArgument],
       returnType: TypeReference,
       genericParams: Seq[GenericParameter]
@@ -179,9 +216,9 @@ class CoreProcessor
   /** Creates a constructor function: MyType(a: A, b: B) -> MyType */
   private def createConstructor(dataDef: DataDefinition, fields: Seq[SourceArgument]): NamedValue = {
     val returnType  = buildDataTypeReference(dataDef)
-    val curriedType = buildCurriedType(fields, returnType, dataDef.genericParameters)
+    val curriedFunctionType = curriedFunctionType(fields, returnType, dataDef.genericParameters)
     // Constructor is abstract (implemented externally)
-    NamedValue(dataDef.name, dataDef.name.as(curriedType), None)
+    NamedValue(dataDef.name, dataDef.name.as(curriedFunctionType), None)
   }
 
   /** Creates an accessor function: field(obj: MyType) -> FieldType */
@@ -190,15 +227,17 @@ class CoreProcessor
       dataDef.name.as("obj"),
       buildDataTypeReference(dataDef)
     )
-    val curriedType = buildCurriedType(Seq(objArg), field.typeReference, dataDef.genericParameters)
+    val curriedFunctionType = curriedFunctionType(Seq(objArg), field.typeReference, dataDef.genericParameters)
     // Accessor is abstract (implemented externally)
-    NamedValue(field.name, field.name.as(curriedType), None)
+    NamedValue(field.name, field.name.as(curriedFunctionType), None)
   }
 
   /** Builds a TypeReference for the data type with its generic parameters */
-  private def buildDataTypeReference(dataDef: DataDefinition): TypeReference =
+  private def buildDataTypeReference(dataDef: DataDefinition): TypeReference = {
     TypeReference(
       dataDef.name,
       dataDef.genericParameters.map(gp => TypeReference(gp.name, gp.genericParameters))
     )
+  }
+   */
 }

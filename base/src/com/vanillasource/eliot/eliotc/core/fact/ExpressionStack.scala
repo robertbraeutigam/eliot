@@ -6,6 +6,10 @@ package com.vanillasource.eliot.eliotc.core.fact
   * can be considered a "type"). Each layer can refer to any value declared on the same level syntactically "before" the
   * usage site, or to any value on layers above.
   */
+case class ExpressionStack(expressions: Seq[Expression])
+
 object ExpressionStack {
-  type ExpressionStack = Seq[Expression]
+  def of(expression: Expression) = ExpressionStack(Seq(expression))
+
+  def empty = ExpressionStack(Seq.empty)
 }
