@@ -79,10 +79,57 @@ class CoreProcessor
       value: Sourced[SourceExpression]
   ): Sourced[Expression] =
     args.foldRight(toBodyExpression(value)) { (arg, acc) =>
-      ???
+      arg.name.as(
+        FunctionLiteral(
+          arg.name,
+          ExpressionStack.of(toTypeExpression(arg.typeReference).value),
+          acc.map(ExpressionStack.of)
+        )
+      )
     }
 
-  private def toBodyExpression(value: Sourced[SourceExpression]): Sourced[Expression] = ???
+  private def toBodyExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
+    expr.value match {
+      case SourceExpression.FunctionApplication(name, args)                        =>
+        curryApplication(expr.as(NamedValueReference(name, None)), args)
+      case SourceExpression.QualifiedFunctionApplication(moduleName, fnName, args) =>
+        curryApplication(expr.as(NamedValueReference(fnName, Some(moduleName))), args)
+      case SourceExpression.FunctionLiteral(params, body)                          =>
+        curryLambda(params, toBodyExpression(body), expr)
+      case SourceExpression.IntegerLiteral(lit)                                    =>
+        expr.as(IntegerLiteral(lit))
+      case SourceExpression.StringLiteral(lit)                                     =>
+        expr.as(StringLiteral(lit))
+    }
+
+  /** Curries lambda expressions into core format. In core, lambdas have exactly one argument, so a lambda: (a,b,c) ->
+    * body, needs to be converted into: a -> b -> c -> body.
+    */
+  private def curryLambda(
+      params: Seq[SourceArgument],
+      body: Sourced[Expression],
+      sourcedContext: Sourced[?]
+  ): Sourced[Expression] =
+    params.foldRight(body) { (param, acc) =>
+      param.name.as(
+        FunctionLiteral(
+          param.name,
+          ExpressionStack.of(toTypeExpression(param.typeReference).value),
+          acc.map(ExpressionStack.of)
+        )
+      )
+    }
+
+  /** Convert function applications into core format. Applications need to be curried, so: f(a, b, c) becomes:
+    * f(a)(b)(c)
+    */
+  private def curryApplication(
+      target: Sourced[Expression],
+      args: Seq[Sourced[SourceExpression]]
+  ): Sourced[Expression] =
+    args.foldLeft(target) { (acc, arg) =>
+      arg.as(FunctionApplication(acc.map(ExpressionStack.of), toBodyExpression(arg).map(ExpressionStack.of)))
+    }
 
   private def transformDataDefinitions(definitions: Seq[DataDefinition]): Seq[NamedValue] = ???
 
@@ -129,29 +176,7 @@ class CoreProcessor
     curryLambda(args, transformExpressionToStack(body), body)
 
   /** Curries parameters into nested FunctionLiterals */
-  private def curryLambda(
-      params: Seq[SourceArgument],
-      body: Sourced[ExpressionStack],
-      sourcedContext: Sourced[?]
-  ): Sourced[Expression] =
-    params
-      .foldRight(body) { (param, accBody) =>
-        val paramTypeStack = typeReferenceToStack(param.typeReference)
-        sourcedContext.as(Seq(FunctionLiteral(param.name, param.name.as(paramTypeStack), accBody)))
-      }
-      .map(_.head)
-
   /** Curries arguments into nested FunctionApplications */
-  private def curryApplication(
-      base: Expression,
-      args: Seq[Sourced[SourceExpression]],
-      sourcedContext: Sourced[?]
-  ): Sourced[Expression] =
-    args.foldLeft(sourcedContext.as(base)) { (acc, arg) =>
-      val argStack = transformExpressionToStack(arg)
-      sourcedContext.as(FunctionApplication(acc.map(e => Seq(e)), argStack))
-    }
-
   /** Transforms source expressions to core expressions with ExpressionStacks */
   private def transformExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
     expr.value match {
