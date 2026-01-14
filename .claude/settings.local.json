@@ -27,7 +27,8 @@
       "Bash(mill mill.scalalib.scalafmt.ScalafmtModule/reformatAll:*)",
       "Bash(mill __.reformat:*)",
       "Bash(mill resolve:*)",
-      "Bash(mill base.checkFormat:*)"
+      "Bash(mill base.checkFormat:*)",
+      "Bash(mill base.test.compile:*)"
     ]
   }
 }
