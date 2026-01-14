@@ -37,6 +37,7 @@ class ValueResolver
   }
 
   // FIXME: all expressions should be resolved from the top (i.e. the most abstract) to the bottom (i.e. runtime value)
+  // Expression variables from above should be visible on below levels, but go out of scope outside of the expression stack.
   private def resolveExpressionStack(stack: Sourced[ExpressionStack]): ScopedIO[Sourced[Expression]] =
     stack.value.expressions match {
       case Seq()     =>
@@ -64,11 +65,14 @@ class ValueResolver
           }
         }
       case NamedValueReference(nameSrc, Some(qualSrc)) =>
-        // FIXME: check if name is available!
         val moduleName = ModuleName.parse(qualSrc.value)
         val vfqn       = ValueFQN(moduleName, nameSrc.value)
         val outline    = Sourced.outline(Seq(qualSrc, nameSrc))
-        expr.as(Expression.ValueReference(outline.as(vfqn))).pure[ScopedIO]
+
+        getFact(UnifiedModuleValue.Key(vfqn)).liftToScoped.flatMap {
+          case Some(_) => expr.as(Expression.ValueReference(outline.as(vfqn))).pure[ScopedIO]
+          case None    => (compilerError(nameSrc.as("Name not defined.")) *> abort[Sourced[Expression]]).liftToScoped
+        }
 
       case FunctionApplication(targetStack, argStack) =>
         for {

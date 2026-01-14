@@ -66,11 +66,16 @@ class ValueResolverTest
   }
 
   it should "resolve qualified value reference" in {
-    runEngineForValue("data T(t: T)\na: T = some.module.Mod::value").flatMap {
+    runEngineForValue("data T(t: T)\nb: T\na: T = Test::b").flatMap {
       case Some(ValueReference(Sourced(_, _, vfqn))) =>
-        IO.delay(vfqn shouldBe ValueFQN(ModuleName2(Seq("some", "module"), "Mod"), "value"))
+        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, "b"))
       case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
     }
+  }
+
+  it should "report error for undefined qualified name" in {
+    runEngineForErrors("data T(t: T)\na: T = NonExistent::value")
+      .asserting(_ shouldBe Seq("Name not defined."))
   }
 
   it should "report error for undefined name" in {
