@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName => ModuleName2, ValueFQN}
 import com.vanillasource.eliot.eliotc.module2.processor.*
-import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ExpressionStack, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -49,18 +49,18 @@ class ValueResolverTest
 
   it should "resolve lambda parameter references" in {
     runEngineForValue("data T(t: T)\na: T = x: T -> x").flatMap {
-      case Some(FunctionLiteral(_, _, Sourced(_, _, ParameterReference(Sourced(_, _, name))))) =>
+      case Some(FunctionLiteral(_, _, Sourced(_, _, ExpressionStack(Seq(ParameterReference(Sourced(_, _, name))))))) =>
         IO.delay(name shouldBe "x")
-      case x                                                                                   =>
+      case x                                                                                                         =>
         IO.delay(fail(s"was not a function literal with parameter reference, instead: $x"))
     }
   }
 
   it should "resolve function application" in {
     runEngineForValue("data T(t: T)\nf: T\nb: T\na: T = f(b)").flatMap {
-      case Some(FunctionApplication(Sourced(_, _, ValueReference(_)), _)) =>
+      case Some(FunctionApplication(Sourced(_, _, ExpressionStack(Seq(ValueReference(_)))), _)) =>
         IO.pure(succeed)
-      case x                                                              =>
+      case x                                                                                    =>
         IO.delay(fail(s"was not a function application, instead: $x"))
     }
   }
@@ -128,6 +128,8 @@ class ValueResolverTest
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
         .map(_.typeExpression.value)
         .get
+        .expressions
+        .head
     }
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =
