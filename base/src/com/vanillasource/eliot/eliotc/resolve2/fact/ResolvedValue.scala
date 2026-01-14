@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 case class ResolvedValue(
     vfqn: ValueFQN,
     name: Sourced[String],
-    typeExpression: Sourced[Expression],
+    typeExpression: Sourced[ExpressionStack],
     value: Option[Sourced[Expression]]
 ) extends CompilerFact {
   override def key(): CompilerFactKey[ResolvedValue] = ResolvedValue.Key(vfqn)

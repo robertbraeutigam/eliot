@@ -1,15 +1,15 @@
 package com.vanillasource.eliot.eliotc.resolve2.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{ExpressionStack, Expression as CoreExpression}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
+import com.vanillasource.eliot.eliotc.core.fact.{Expression as CoreExpression, ExpressionStack as CoreExpressionStack}
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ExpressionStack, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolverScope.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 class ValueResolver
     extends TransformationProcessor[UnifiedModuleValue.Key, ResolvedValue.Key](key =>
@@ -25,7 +25,7 @@ class ValueResolver
 
     val resolveProgram = for {
       resolvedType  <- resolveExpressionStack(namedValue.name.as(namedValue.typeStack))
-      resolvedValue <- namedValue.value.traverse(v => resolveExpression(v))
+      resolvedValue <- namedValue.value.traverse(v => resolveExpression(v.value).map(v.as(_)))
     } yield ResolvedValue(
       unifiedValue.vfqn,
       namedValue.name,
@@ -40,32 +40,23 @@ class ValueResolver
     * are visible on below levels, but go out of scope outside the expression stack. Returns only the bottom expression
     * as the resolved result.
     */
-  private def resolveExpressionStack(stack: Sourced[ExpressionStack]): ScopedIO[Sourced[Expression]] =
-    stack.value.expressions match {
-      case Seq()     =>
-        (compilerError(stack.as("Empty expression stack.")) *> abort[Sourced[Expression]]).liftToScoped
-      case Seq(expr) => resolveExpression(stack.as(expr))
-      case exprs     =>
-        // exprs is [bottom, ..., top], we process from top to bottom
-        val reversedExprs = exprs.reverse
-        withLocalScope {
-          reversedExprs.init.traverse_(expr => resolveExpression(stack.as(expr))) *>
-            resolveExpression(stack.as(reversedExprs.last))
-        }
+  private def resolveExpressionStack(stack: Sourced[CoreExpressionStack]): ScopedIO[Sourced[ExpressionStack]] =
+    withLocalScope {
+      stack.value.expressions.reverse.traverse(resolveExpression).map(es => stack.as(ExpressionStack(es)))
     }
 
-  private def resolveExpression(expr: Sourced[CoreExpression]): ScopedIO[Sourced[Expression]] =
-    expr.value match {
+  private def resolveExpression(expression: CoreExpression): ScopedIO[Expression] =
+    expression match {
       case NamedValueReference(nameSrc, None)          =>
         isParameter(nameSrc.value).flatMap { isParam =>
           if (isParam) {
-            expr.as(Expression.ParameterReference(nameSrc)).pure[ScopedIO]
+            Expression.ParameterReference(nameSrc).pure[ScopedIO]
           } else {
             getValue(nameSrc.value).flatMap {
               case Some(vfqn) =>
-                expr.as(Expression.ValueReference(nameSrc.as(vfqn))).pure[ScopedIO]
+                Expression.ValueReference(nameSrc.as(vfqn)).pure[ScopedIO]
               case None       =>
-                (compilerError(nameSrc.as("Name not defined.")) *> abort[Sourced[Expression]]).liftToScoped
+                compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
             }
           }
         }
@@ -75,16 +66,14 @@ class ValueResolver
         val outline    = Sourced.outline(Seq(qualSrc, nameSrc))
 
         getFact(UnifiedModuleValue.Key(vfqn)).liftToScoped.flatMap {
-          case Some(_) => expr.as(Expression.ValueReference(outline.as(vfqn))).pure[ScopedIO]
-          case None    => (compilerError(nameSrc.as("Name not defined.")) *> abort[Sourced[Expression]]).liftToScoped
+          case Some(_) => Expression.ValueReference(outline.as(vfqn)).pure[ScopedIO]
+          case None    => compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
         }
-
-      case FunctionApplication(targetStack, argStack) =>
+      case FunctionApplication(targetStack, argStack)  =>
         for {
           resolvedTarget <- resolveExpressionStack(targetStack)
           resolvedArg    <- resolveExpressionStack(argStack)
-        } yield expr.as(Expression.FunctionApplication(resolvedTarget, resolvedArg))
-
+        } yield Expression.FunctionApplication(resolvedTarget, resolvedArg)
       case FunctionLiteral(paramName, paramType, body) =>
         for {
           resolvedParamType <- resolveExpressionStack(paramName.as(paramType))
@@ -94,12 +83,10 @@ class ValueResolver
                                    body <- resolveExpressionStack(body)
                                  } yield body
                                }
-        } yield expr.as(Expression.FunctionLiteral(paramName, resolvedParamType, resolvedBody))
-
-      case IntegerLiteral(s @ Sourced(_, _, value)) =>
-        expr.as(Expression.IntegerLiteral(s.as(BigInt(value)))).pure[ScopedIO]
-
-      case StringLiteral(s @ Sourced(_, _, value)) =>
-        expr.as(Expression.StringLiteral(s.as(value))).pure[ScopedIO]
+        } yield Expression.FunctionLiteral(paramName, resolvedParamType, resolvedBody)
+      case IntegerLiteral(s @ Sourced(_, _, value))    =>
+        Expression.IntegerLiteral(s.as(BigInt(value))).pure[ScopedIO]
+      case StringLiteral(s @ Sourced(_, _, value))     =>
+        Expression.StringLiteral(s.as(value)).pure[ScopedIO]
     }
 }

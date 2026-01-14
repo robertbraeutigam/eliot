@@ -8,15 +8,16 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 sealed trait Expression
 
 object Expression {
-  case class FunctionApplication(target: Sourced[Expression], argument: Sourced[Expression]) extends Expression
-  case class IntegerLiteral(integerLiteral: Sourced[BigInt])                                  extends Expression
-  case class StringLiteral(stringLiteral: Sourced[String])                                    extends Expression
-  case class ParameterReference(parameterName: Sourced[String])                               extends Expression
-  case class ValueReference(valueName: Sourced[ValueFQN])                                     extends Expression
+  case class FunctionApplication(target: Sourced[ExpressionStack], argument: Sourced[ExpressionStack])
+      extends Expression
+  case class IntegerLiteral(integerLiteral: Sourced[BigInt])    extends Expression
+  case class StringLiteral(stringLiteral: Sourced[String])      extends Expression
+  case class ParameterReference(parameterName: Sourced[String]) extends Expression
+  case class ValueReference(valueName: Sourced[ValueFQN])       extends Expression
   case class FunctionLiteral(
       parameterName: Sourced[String],
-      parameterType: Sourced[Expression],
-      body: Sourced[Expression]
+      parameterType: Sourced[ExpressionStack],
+      body: Sourced[ExpressionStack]
   ) extends Expression
 
   given Show[Expression] = {
