@@ -21,16 +21,17 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
 
   private def processImpl(file: File, moduleName: ModuleName, coreAST: CoreAST): CompilerIO[Unit] =
     for {
-      localNames      <- extractLocalNames(coreAST.ast.value.namedValues)
-      importedModules  = extractImportedModules(moduleName, coreAST.ast.as(coreAST.ast.value.importStatements), systemModules)
-      importedNames   <- extractImportedNames(importedModules, localNames.keySet)
-      dictionary       = importedNames ++ localNames.keySet.map(name => (name, ValueFQN(moduleName, name))).toMap
-      _               <- localNames
-                           .map { (name, namedValue) =>
-                             registerFactIfClear(ModuleValue(file, ValueFQN(moduleName, name), dictionary, namedValue))
-                           }
-                           .toSeq
-                           .sequence_
+      localNames     <- extractLocalNames(coreAST.ast.value.namedValues)
+      importedModules =
+        extractImportedModules(moduleName, coreAST.ast.as(coreAST.ast.value.importStatements), systemModules)
+      importedNames  <- extractImportedNames(importedModules, localNames.keySet)
+      dictionary      = importedNames ++ localNames.keySet.map(name => (name, ValueFQN(moduleName, name))).toMap
+      _              <- localNames
+                          .map { (name, namedValue) =>
+                            registerFactIfClear(ModuleValue(file, ValueFQN(moduleName, name), dictionary, namedValue))
+                          }
+                          .toSeq
+                          .sequence_
     } yield ()
 
   private def extractLocalNames(namedValues: Seq[NamedValue]): CompilerIO[Map[String, NamedValue]] =
@@ -81,7 +82,9 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
                                   )
                                 ).as(importedNames)
                               } else {
-                                (importedNames ++ moduleNames.names.map(name => (name, ValueFQN(moduleNames.moduleName, name))).toMap)
+                                (importedNames ++ moduleNames.names
+                                  .map(name => (name, ValueFQN(moduleNames.moduleName, name)))
+                                  .toMap)
                                   .pure[CompilerIO]
                               }
                             case Left(_)            =>
