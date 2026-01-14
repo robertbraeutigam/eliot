@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.module2.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, NamedValue}
+import com.vanillasource.eliot.eliotc.core.fact.CoreAST
 import com.vanillasource.eliot.eliotc.module2.fact.*
 import com.vanillasource.eliot.eliotc.module2.fact.ModuleName.defaultSystemModules
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -9,41 +9,27 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
-import java.io.File
-
 class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules)
     extends SingleKeyTypeProcessor[ModuleValue.Key] {
 
   override protected def generateFact(key: ModuleValue.Key): CompilerIO[Unit] =
-    getFactOrAbort(CoreAST.Key(key.file)).flatMap { coreAST =>
-      processImpl(key.file, key.vfqn.moduleName, coreAST)
-    }
-
-  private def processImpl(file: File, moduleName: ModuleName, coreAST: CoreAST): CompilerIO[Unit] =
     for {
-      localNames     <- extractLocalNames(coreAST.ast.value.namedValues)
+      coreAST        <- getFactOrAbort(CoreAST.Key(key.file))
+      moduleNames    <- getFactOrAbort(ModuleNames.Key(key.file))
       importedModules =
-        extractImportedModules(moduleName, coreAST.ast.as(coreAST.ast.value.importStatements), systemModules)
-      importedNames  <- extractImportedNames(importedModules, localNames.keySet)
-      dictionary      = importedNames ++ localNames.keySet.map(name => (name, ValueFQN(moduleName, name))).toMap
-      _              <- localNames
+        extractImportedModules(key.vfqn.moduleName, coreAST.ast.as(coreAST.ast.value.importStatements), systemModules)
+      importedNames  <- extractImportedNames(importedModules, moduleNames.names)
+      dictionary      = importedNames ++ moduleNames.names.map(name => (name, ValueFQN(key.vfqn.moduleName, name))).toMap
+      namedValuesMap  = coreAST.ast.value.namedValues.map(nv => nv.name.value -> nv).toMap
+      _              <- moduleNames.names.toSeq
+                          .flatMap(name => namedValuesMap.get(name).map(nv => (name, nv)))
                           .map { (name, namedValue) =>
-                            registerFactIfClear(ModuleValue(file, ValueFQN(moduleName, name), dictionary, namedValue))
+                            registerFactIfClear(
+                              ModuleValue(key.file, ValueFQN(key.vfqn.moduleName, name), dictionary, namedValue)
+                            )
                           }
-                          .toSeq
                           .sequence_
     } yield ()
-
-  private def extractLocalNames(namedValues: Seq[NamedValue]): CompilerIO[Map[String, NamedValue]] =
-    namedValues.foldLeftM(Map.empty[String, NamedValue]) { (acc, nv) =>
-      val name = nv.name.value
-
-      if (acc.contains(name)) {
-        compilerError(nv.name.as("Name was already defined in this module.")).as(acc)
-      } else {
-        (acc + (name -> nv)).pure[CompilerIO]
-      }
-    }
 
   private def extractImportedModules(
       moduleName: ModuleName,
