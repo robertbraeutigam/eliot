@@ -2,10 +2,9 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.{ArgumentDefinition, GenericParameter}
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.ast
-import com.vanillasource.eliot.eliotc.ast.fact.{ArgumentDefinition, GenericParameter}
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 case class ResolverScope(

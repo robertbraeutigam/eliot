@@ -1,20 +1,18 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
-import cats.data.OptionT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.ast.fact
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN, UnifiedModuleFunction}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.FunctionLiteral
 import com.vanillasource.eliot.eliotc.resolve.fact.GenericParameter.UniversalGenericParameter
 import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ResolverScope.*
-import com.vanillasource.eliot.eliotc.ast
-import com.vanillasource.eliot.eliotc.ast.fact
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class FunctionResolver
