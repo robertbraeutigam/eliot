@@ -36,17 +36,22 @@ class ValueResolver
     resolveProgram.runA(scope)
   }
 
-  // FIXME: all expressions should be resolved from the top (i.e. the most abstract) to the bottom (i.e. runtime value)
-  // Expression variables from above should be visible on below levels, but go out of scope outside of the expression stack.
+  /** Resolves an expression stack from top (most abstract) to bottom (runtime value). Expression variables from above
+    * are visible on below levels, but go out of scope outside the expression stack. Returns only the bottom expression
+    * as the resolved result.
+    */
   private def resolveExpressionStack(stack: Sourced[ExpressionStack]): ScopedIO[Sourced[Expression]] =
     stack.value.expressions match {
       case Seq()     =>
         (compilerError(stack.as("Empty expression stack.")) *> abort[Sourced[Expression]]).liftToScoped
       case Seq(expr) => resolveExpression(stack.as(expr))
       case exprs     =>
-        (compilerError(stack.as(s"Expression stack with multiple expressions not supported.")) *> abort[
-          Sourced[Expression]
-        ]).liftToScoped
+        // exprs is [bottom, ..., top], we process from top to bottom
+        val reversedExprs = exprs.reverse
+        withLocalScope {
+          reversedExprs.init.traverse_(expr => resolveExpression(stack.as(expr))) *>
+            resolveExpression(stack.as(reversedExprs.last))
+        }
     }
 
   private def resolveExpression(expr: Sourced[CoreExpression]): ScopedIO[Sourced[Expression]] =
@@ -83,8 +88,12 @@ class ValueResolver
       case FunctionLiteral(paramName, paramType, body) =>
         for {
           resolvedParamType <- resolveExpressionStack(paramName.as(paramType))
-          _                 <- addParameter(paramName)
-          resolvedBody      <- resolveExpressionStack(body)
+          resolvedBody      <- withLocalScope {
+                                 for {
+                                   _    <- addParameter(paramName)
+                                   body <- resolveExpressionStack(body)
+                                 } yield body
+                               }
         } yield expr.as(Expression.FunctionLiteral(paramName, resolvedParamType, resolvedBody))
 
       case IntegerLiteral(s @ Sourced(_, _, value)) =>

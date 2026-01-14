@@ -34,4 +34,11 @@ object ValueResolverScope {
 
   def getValue(name: String): ScopedIO[Option[ValueFQN]] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.dictionary.get(name))
+
+  def withLocalScope[T](computation: ScopedIO[T]): ScopedIO[T] =
+    for {
+      originalScope <- StateT.get[CompilerIO, ValueResolverScope]
+      result        <- computation
+      _             <- StateT.set[CompilerIO, ValueResolverScope](originalScope)
+    } yield result
 }

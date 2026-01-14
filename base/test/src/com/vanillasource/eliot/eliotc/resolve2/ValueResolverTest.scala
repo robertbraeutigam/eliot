@@ -100,6 +100,21 @@ class ValueResolverTest
     }
   }
 
+  it should "allow same parameter name in sibling lambdas" in {
+    runEngineForErrors("data T(t: T)\nf: T\na: T = f(x: T -> x, x: T -> x)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "not leak lambda parameter to following argument" in {
+    runEngineForErrors("data T(t: T)\nf: T\nb: T\na: T = f(x: T -> x, b)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "not leak lambda parameter to outer scope" in {
+    runEngineForErrors("data T(t: T)\nf: T\na: T = f(x: T -> x, x)")
+      .asserting(_ shouldBe Seq("Name not defined."))
+  }
+
   private def runEngineForValue(source: String): IO[Option[Expression]] =
     runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a"))).map { case (_, facts) =>
       facts.values
