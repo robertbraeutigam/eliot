@@ -2,13 +2,14 @@ package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.{
-  ArgumentDefinition as SourceArgument,
+  ArgumentDefinition,
   DataDefinition,
-  Expression as SourceExpression,
   FunctionDefinition,
   GenericParameter,
   SourceAST,
-  TypeReference
+  TypeReference,
+  ArgumentDefinition as SourceArgument,
+  Expression as SourceExpression
 }
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
@@ -131,138 +132,69 @@ class CoreProcessor
       arg.as(FunctionApplication(acc.map(ExpressionStack.of), toBodyExpression(arg).map(ExpressionStack.of)))
     }
 
-  private def transformDataDefinitions(definitions: Seq[DataDefinition]): Seq[NamedValue] = ???
+  private def transformDataDefinitions(definitions: Seq[DataDefinition]): Seq[NamedValue] =
+    definitions.flatMap(transformDataDefinition)
 
-  /*
-  /** Builds a curried type: (A, B) -> C becomes Function[A, Function[B, C]] */
-  private def curriedFunctionType(
-      args: Seq[SourceArgument],
-      returnType: TypeReference,
-      genericParams: Seq[GenericParameter]
-  ): ExpressionStack = {
-    val returnTypeStack = typeReferenceToStack(returnType)
-    args.foldRight(returnTypeStack) { (arg, accType) =>
-      val argTypeStack = typeReferenceToStack(arg.typeReference)
-      buildFunctionType(argTypeStack, accType)
-    }
-  }
+  /** Transform data definitions into the core model. Data definitions don't have any special mechanisms in the core
+    * model, they need to be translated into "normal" named values. Specifically 3 things:
+    *   - Abstract function that returns the type of the type. Example: IO[A] will have type: A -> Type
+    *   - Abstract constructor function. So "data Person(name: String, age: Int)" type becomes: Function(String,
+    *     Function(Int, DataType))
+    *   - Abstract accessor functions for all fields. Types are Function(DataType, FieldType)
+    */
+  private def transformDataDefinition(definition: DataDefinition): Seq[NamedValue] =
+    createTypeFunction(definition) ++ createConstructor(definition) ++ createAccessors(definition)
 
-  /** Builds Function[A, B] type as an expression stack */
-  private def buildFunctionType(argType: ExpressionStack, returnType: ExpressionStack): ExpressionStack = {
-    // Function type is represented as applying two type arguments to the Function type constructor
-    // Function[A, B] = (Function A) B
-    val functionRef = Seq(NamedValueReference(Sourced(null, null, "Function"), None))
-    val withArg     = Seq(FunctionApplication(Sourced(null, null, functionRef), Sourced(null, null, argType)))
-    Seq(FunctionApplication(Sourced(null, null, withArg), Sourced(null, null, returnType)))
-  }
-
-  /** Converts a source TypeReference to an ExpressionStack */
-  private def typeReferenceToStack(typeRef: TypeReference): ExpressionStack =
-    if (typeRef.genericParameters.isEmpty) {
-      Seq(NamedValueReference(typeRef.typeName, None))
-    } else {
-      // Apply type parameters one by one: T[A, B] = ((T A) B)
-      typeRef.genericParameters.foldLeft(Seq[Expression](NamedValueReference(typeRef.typeName, None))) { (acc, param) =>
-        val paramStack = typeReferenceToStack(param)
-        Seq(FunctionApplication(typeRef.typeName.as(acc), typeRef.typeName.as(paramStack)))
-      }
-    }
-
-  /** Builds curried body: (a, b) -> body becomes a -> (b -> body) */
-  private def buildCurriedBody(
-      args: Seq[SourceArgument],
-      body: Sourced[SourceExpression]
-  ): Sourced[Expression] =
-    curryLambda(args, transformExpressionToStack(body), body)
-
-  /** Curries parameters into nested FunctionLiterals */
-  /** Curries arguments into nested FunctionApplications */
-  /** Transforms source expressions to core expressions with ExpressionStacks */
-  private def transformExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
-    expr.value match {
-      case SourceExpression.FunctionApplication(name, args) =>
-        curryApplication(NamedValueReference(name, None), args, expr)
-
-      case SourceExpression.QualifiedFunctionApplication(moduleName, fnName, args) =>
-        curryApplication(NamedValueReference(fnName, Some(moduleName)), args, expr)
-
-      case SourceExpression.FunctionLiteral(params, body) =>
-        curryLambda(params, transformExpressionToStack(body), expr)
-
-      case SourceExpression.IntegerLiteral(lit) =>
-        expr.as(IntegerLiteral(lit))
-
-      case SourceExpression.StringLiteral(lit) =>
-        expr.as(StringLiteral(lit))
-    }
-
-  /** Transforms an expression into an ExpressionStack (value at bottom, no type layers yet) */
-  private def transformExpressionToStack(expr: Sourced[SourceExpression]): Sourced[ExpressionStack] = {
-    val coreExpr = transformExpression(expr)
-    coreExpr.map(e => Seq(e))
-  }
-
-  private def transformDataDefinitions(dataDefinitions: Seq[DataDefinition]): Seq[NamedValue] =
-    dataDefinitions.flatMap(transformDataDefinition)
-
-  /** Transforms a data definition into type value, constructor, and accessors */
-  private def transformDataDefinition(dataDef: DataDefinition): Seq[NamedValue] = {
-    val typeValue = createTypeValue(dataDef)
-
-    dataDef.fields match {
-      case Some(fields) =>
-        val constructor = createConstructor(dataDef, fields)
-        val accessors   = fields.map(field => createAccessor(dataDef, field))
-        Seq(typeValue, constructor) ++ accessors
-      case None         =>
-        Seq(typeValue)
-    }
-  }
-
-  /** Creates a named value for the type itself */
-  private def createTypeValue(dataDef: DataDefinition): NamedValue = {
-    // The type's "type" is Type (or a higher-kinded type for generics)
-    // For now, represent it as a simple Type reference
-    val typeStack: ExpressionStack = if (dataDef.genericParameters.isEmpty) {
-      Seq(NamedValueReference(dataDef.name.as("Type"), None))
-    } else {
-      // For generic types like Option[A], the kind is Type -> Type
-      // Build: Type -> Type -> ... -> Type
-      dataDef.genericParameters.foldRight(Seq[Expression](NamedValueReference(dataDef.name.as("Type"), None))) {
-        (_, accType) =>
-          val typeRef = Seq(NamedValueReference(dataDef.name.as("Type"), None))
-          Seq(FunctionApplication(dataDef.name.as(typeRef), dataDef.name.as(accType)))
-      }
-    }
-    // Abstract type - no value
-    NamedValue(dataDef.name, dataDef.name.as(typeStack), None)
-  }
-
-  /** Creates a constructor function: MyType(a: A, b: B) -> MyType */
-  private def createConstructor(dataDef: DataDefinition, fields: Seq[SourceArgument]): NamedValue = {
-    val returnType  = buildDataTypeReference(dataDef)
-    val curriedFunctionType = curriedFunctionType(fields, returnType, dataDef.genericParameters)
-    // Constructor is abstract (implemented externally)
-    NamedValue(dataDef.name, dataDef.name.as(curriedFunctionType), None)
-  }
-
-  /** Creates an accessor function: field(obj: MyType) -> FieldType */
-  private def createAccessor(dataDef: DataDefinition, field: SourceArgument): NamedValue = {
-    val objArg      = SourceArgument(
-      dataDef.name.as("obj"),
-      buildDataTypeReference(dataDef)
+  private def createTypeFunction(definition: DataDefinition): Seq[NamedValue] =
+    Seq(
+      transformFunction(
+        FunctionDefinition(
+          definition.name.map(_ + "$DataType"),
+          Seq.empty,
+          definition.genericParameters.map(gp =>
+            ArgumentDefinition(gp.name, TypeReference(definition.name.as("Type"), gp.genericParameters))
+          ),
+          TypeReference(definition.name.as("Type"), Seq.empty),
+          None
+        )
+      )
     )
-    val curriedFunctionType = curriedFunctionType(Seq(objArg), field.typeReference, dataDef.genericParameters)
-    // Accessor is abstract (implemented externally)
-    NamedValue(field.name, field.name.as(curriedFunctionType), None)
+
+  /** Note: we only create a constructor if fields are present. Else the data type is abstract and we can't create it
+    * anyway.
+    */
+  private def createConstructor(definition: DataDefinition): Seq[NamedValue] = {
+    definition.fields
+      .map(fields =>
+        Seq(
+          transformFunction(
+            FunctionDefinition(
+              definition.name,
+              definition.genericParameters,
+              fields,
+              TypeReference(definition.name.map(_ + "$DataType"), Seq.empty), // The "type" name value
+              None
+            )
+          )
+        )
+      )
+      .getOrElse(Seq.empty)
   }
 
-  /** Builds a TypeReference for the data type with its generic parameters */
-  private def buildDataTypeReference(dataDef: DataDefinition): TypeReference = {
-    TypeReference(
-      dataDef.name,
-      dataDef.genericParameters.map(gp => TypeReference(gp.name, gp.genericParameters))
-    )
-  }
-   */
+  private def createAccessors(definition: DataDefinition): Seq[NamedValue] =
+    definition.fields
+      .getOrElse(Seq.empty)
+      .map { field =>
+        transformFunction(
+          FunctionDefinition(
+            field.name,
+            definition.genericParameters,
+            Seq(
+              ArgumentDefinition(field.name.as("obj"), TypeReference(definition.name.map(_ + "$DataType"), Seq.empty))
+            ),
+            field.typeReference,
+            None
+          )
+        )
+      }
 }
