@@ -32,6 +32,10 @@ class ValueResolverTest
     }
   }
 
+  it should "resolve abstract values" in {
+    runEngineForErrors("data T\na: T").asserting(_ shouldBe Seq())
+  }
+
   it should "resolve a string literal expression" in {
     runEngineForValue("data T(t: T)\na: T = \"hello\"").flatMap {
       case Some(StringLiteral(Sourced(_, _, value))) => IO.delay(value shouldBe "hello")
