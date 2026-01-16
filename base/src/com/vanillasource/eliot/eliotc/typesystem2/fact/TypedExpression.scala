@@ -1,0 +1,33 @@
+package com.vanillasource.eliot.eliotc.typesystem2.fact
+
+import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.typesystem2.fact.TypedExpression.Expression
+import com.vanillasource.eliot.eliotc.typesystem2.types.NormalizedExpression
+
+/** An expression annotated with its type (as a NormalizedExpression). */
+case class TypedExpression(
+    expressionType: NormalizedExpression,
+    expression: Expression
+)
+
+object TypedExpression {
+  sealed trait Expression
+
+  case class FunctionApplication(target: Sourced[TypedExpressionStack], argument: Sourced[TypedExpressionStack])
+      extends Expression
+
+  case class IntegerLiteral(integerLiteral: Sourced[BigInt]) extends Expression
+
+  case class StringLiteral(stringLiteral: Sourced[String]) extends Expression
+
+  case class ParameterReference(parameterName: Sourced[String]) extends Expression
+
+  case class ValueReference(valueName: Sourced[ValueFQN]) extends Expression
+
+  case class FunctionLiteral(
+      parameterName: Sourced[String],
+      parameterType: Sourced[TypedExpressionStack],
+      body: Sourced[TypedExpressionStack]
+  ) extends Expression
+}
