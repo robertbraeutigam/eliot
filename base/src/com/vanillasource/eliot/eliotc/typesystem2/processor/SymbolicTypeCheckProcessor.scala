@@ -14,6 +14,8 @@ import com.vanillasource.eliot.eliotc.typesystem2.types.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.NormalizedExpression.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
 
+import scala.annotation.tailrec
+
 class SymbolicTypeCheckProcessor
     extends TransformationProcessor[ResolvedValue.Key, TypeCheckedValue.Key](key => ResolvedValue.Key(key.vfqn))
     with Logging {
@@ -139,6 +141,7 @@ class SymbolicTypeCheckProcessor
     vfqn.moduleName === ModuleName.systemFunctionModuleName && vfqn.name === "Function"
 
   /** Get the innermost return type from a potentially curried FunctionType. */
+  @tailrec
   private def getInnermostReturnType(expr: NormalizedExpression): NormalizedExpression =
     expr match {
       case FunctionType(_, ret, _) => getInnermostReturnType(ret)
