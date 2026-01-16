@@ -3,18 +3,19 @@ package com.vanillasource.eliot.eliotc.resolve2.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.{Expression as CoreExpression, ExpressionStack as CoreExpressionStack}
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
+import com.vanillasource.eliot.eliotc.resolve2.fact.ExpressionStack.prettyPrint
 import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ExpressionStack, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolverScope.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 class ValueResolver
-    extends TransformationProcessor[UnifiedModuleValue.Key, ResolvedValue.Key](key =>
-      UnifiedModuleValue.Key(key.vfqn)
-    ) {
+    extends TransformationProcessor[UnifiedModuleValue.Key, ResolvedValue.Key](key => UnifiedModuleValue.Key(key.vfqn))
+    with Logging {
 
   override protected def generateFromKeyAndFact(
       key: ResolvedValue.Key,
@@ -25,6 +26,7 @@ class ValueResolver
 
     val resolveProgram = for {
       resolvedType  <- resolveExpressionStack(namedValue.name.as(namedValue.typeStack))
+      _             <- debug[ScopedIO](s"Type expression stack of ${key.vfqn.show}:\n${prettyPrint(resolvedType.value)}")
       resolvedValue <- namedValue.value.traverse(v => resolveExpression(v.value).map(v.as(_)))
     } yield ResolvedValue(
       unifiedValue.vfqn,
