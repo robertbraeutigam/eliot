@@ -68,7 +68,9 @@ class SymbolicTypeCheckProcessorTest
   }
 
   it should "be type checked successfully with multiple parameters" in {
-    runEngineForErrors("data TypeA(fieldA: TypeA)\ndata TypeB(fieldB: TypeB)\ndata TypeC(fieldC: TypeC)\nf(x: TypeA, y: TypeB): TypeC")
+    runEngineForErrors(
+      "data TypeA(fieldA: TypeA)\ndata TypeB(fieldB: TypeB)\ndata TypeC(fieldC: TypeC)\nf(x: TypeA, y: TypeB): TypeC"
+    )
       .asserting(_ shouldBe Seq.empty)
   }
 

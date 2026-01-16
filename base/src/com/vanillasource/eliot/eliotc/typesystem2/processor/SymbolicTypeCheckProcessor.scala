@@ -31,7 +31,9 @@ class SymbolicTypeCheckProcessor
         for {
           (state, (typeConstraints, declaredType)) <- buildTypeConstraints(resolvedValue.typeExpression)
                                                         .run(TypeCheckState())
+          _                                        <- debug[CompilerIO](s"Type constraints: ${typeConstraints.show}")
           (bodyConstraints, bodyType)              <- buildBodyConstraints(body, declaredType).runA(state)
+          _                                        <- debug[CompilerIO](s"Body constraints: ${typeConstraints.show}")
           innermostBodyType                         = getInnermostReturnType(bodyType)
           allConstraints                            = typeConstraints |+| bodyConstraints |+|
                                                         SymbolicUnification.constraint(
@@ -90,7 +92,7 @@ class SymbolicTypeCheckProcessor
         } yield (innerUnif |+| SymbolicUnification.universalVar(paramName.value), innerNorm)
 
       // Regular function literal (lambda type)
-      case Expr.FunctionLiteral(paramName, paramType, body) =>
+      case Expr.FunctionLiteral(paramName, paramType, body)                                        =>
         for {
           (paramUnif, paramNorm) <- buildTypeConstraints(paramType)
           _                      <- bindParameter[CompilerIO](paramName.value, paramNorm)
@@ -98,21 +100,21 @@ class SymbolicTypeCheckProcessor
         } yield (paramUnif |+| bodyUnif, FunctionType(paramNorm, bodyNorm, source))
 
       // Value reference - could be a type like Int, String, or a universal var
-      case Expr.ValueReference(vfqn) =>
+      case Expr.ValueReference(vfqn)                                                               =>
         StateT.inspect[CompilerIO, TypeCheckState, (SymbolicUnification, NormalizedExpression)] { state =>
           if (state.isUniversal(vfqn.value.name)) noConstraints(UniversalVar(vfqn.as(vfqn.value.name)))
           else noConstraints(ValueRef(vfqn, Seq.empty))
         }
 
       // Parameter reference - look up bound type or keep symbolic
-      case Expr.ParameterReference(name) =>
+      case Expr.ParameterReference(name)                                                           =>
         lookupParameter[CompilerIO](name.value).map {
           case Some(typ) => noConstraints(typ)
           case None      => noConstraints(ParameterRef(name))
         }
 
       // Function application in type position: A(B) means A parameterized by B
-      case Expr.FunctionApplication(target, arg) =>
+      case Expr.FunctionApplication(target, arg)                                                   =>
         for {
           (targetUnif, targetNorm) <- buildTypeConstraints(target)
           (argUnif, argNorm)       <- buildTypeConstraints(arg)
@@ -120,8 +122,8 @@ class SymbolicTypeCheckProcessor
         } yield (targetUnif |+| argUnif, result)
 
       // Literals in types
-      case Expr.IntegerLiteral(value) => noConstraints(IntLiteral(value)).pure[TypeGraphIO]
-      case Expr.StringLiteral(value)  => noConstraints(NormalizedExpression.StringLiteral(value)).pure[TypeGraphIO]
+      case Expr.IntegerLiteral(value)                                                              => noConstraints(IntLiteral(value)).pure[TypeGraphIO]
+      case Expr.StringLiteral(value)                                                               => noConstraints(NormalizedExpression.StringLiteral(value)).pure[TypeGraphIO]
     }
 
   /** Apply a type constructor to an argument. */
@@ -131,7 +133,7 @@ class SymbolicTypeCheckProcessor
       source: Sourced[?]
   ): TypeGraphIO[NormalizedExpression] =
     (target match {
-      case ValueRef(vfqn, Seq()) if isFunctionType(vfqn.value)         => ValueRef(vfqn, Seq(arg))
+      case ValueRef(vfqn, Seq()) if isFunctionType(vfqn.value)          => ValueRef(vfqn, Seq(arg))
       case ValueRef(vfqn, Seq(paramType)) if isFunctionType(vfqn.value) => FunctionType(paramType, arg, source)
       case ValueRef(vfqn, args)                                         => ValueRef(vfqn, args :+ arg)
       case _                                                            => SymbolicApplication(target, arg, source)
@@ -191,7 +193,8 @@ class SymbolicTypeCheckProcessor
           (paramUnif, paramNorm) <- buildTypeConstraints(paramType)
           _                      <- bindParameter[CompilerIO](paramName.value, paramNorm)
           (bodyUnif, bodyType)   <- buildBodyConstraints(bodyStack.map(_.expressions.head), expectedType)
-          bodyConstraint          = SymbolicUnification.constraint(expectedType, bodyStack.as(bodyType), "Lambda body type mismatch.")
+          bodyConstraint          =
+            SymbolicUnification.constraint(expectedType, bodyStack.as(bodyType), "Lambda body type mismatch.")
         } yield (paramUnif |+| bodyUnif |+| bodyConstraint, FunctionType(paramNorm, expectedType, body))
     }
 
@@ -222,7 +225,9 @@ class SymbolicTypeCheckProcessor
         for {
           typedParamType <- buildTypedStack(paramType, solution)
           typedBody      <- buildTypedStack(bodyStack, solution)
-        } yield expr.as(TypedExpression(resolvedType, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBody)))
+        } yield expr.as(
+          TypedExpression(resolvedType, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBody))
+        )
     }
   }
 
