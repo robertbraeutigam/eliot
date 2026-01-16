@@ -136,6 +136,8 @@ case class SymbolicUnification(
 }
 
 object SymbolicUnification {
+  val empty: SymbolicUnification = SymbolicUnification(Set.empty, Seq.empty)
+
   case class Constraint(
       left: NormalizedExpression,
       right: Sourced[NormalizedExpression],
@@ -156,7 +158,7 @@ object SymbolicUnification {
     SymbolicUnification(names, Seq.empty)
 
   given Monoid[SymbolicUnification] = new Monoid[SymbolicUnification] {
-    override def empty: SymbolicUnification = SymbolicUnification(Set.empty, Seq.empty)
+    override def empty: SymbolicUnification = SymbolicUnification.empty
 
     override def combine(x: SymbolicUnification, y: SymbolicUnification): SymbolicUnification =
       SymbolicUnification(x.universalVars ++ y.universalVars, x.constraints ++ y.constraints)
