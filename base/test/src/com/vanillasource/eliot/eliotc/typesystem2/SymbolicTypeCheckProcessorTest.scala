@@ -23,8 +23,6 @@ class SymbolicTypeCheckProcessorTest
       ValueResolver(),
       SymbolicTypeCheckProcessor()
     ) {
-  private val testModuleName2 = ModuleName2(Seq.empty, "Test")
-
   "function call" should "compile if same number of arguments" in {
     runEngineForErrors("data A\nf: A = b\nb: A")
       .asserting(_ shouldBe Seq.empty)
@@ -39,7 +37,7 @@ class SymbolicTypeCheckProcessorTest
 
   it should "issue error when referencing an undefined function" in {
     runEngineForErrors("data A\nf: A = c")
-      .asserting(_ shouldBe Seq("Function not defined."))
+      .asserting(_ shouldBe Seq("Name not defined."))
   }
 
   it should "not compile if call site has no arguments, but definition has one" in {
@@ -206,6 +204,9 @@ class SymbolicTypeCheckProcessorTest
     runEngineForErrors("data TypeA(fieldA: TypeA)\ndata TypeB(fieldB: TypeB)\nf(x: TypeA): TypeB = x")
       .asserting(_ shouldBe Seq("Lambda body type mismatch."))
   }
+
+  // TODO: remove this after module1 is removed
+  private val testModuleName2 = ModuleName2(Seq.empty, "Test")
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =
     runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, "f")), systemImports)
