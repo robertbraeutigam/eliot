@@ -2,11 +2,12 @@ package com.vanillasource.eliot.eliotc.typesystem2.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ExpressionStack, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression as Expr
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.typesystem2.fact.*
@@ -66,7 +67,7 @@ class SymbolicTypeCheckProcessor
     * param type) and returns the normalized "inner" type.
     */
   private def buildTypeConstraints(
-      typeExpr: Sourced[ExpressionStack]
+      typeExpr: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[(SymbolicUnification, NormalizedExpression)] =
     typeExpr.value.expressions match {
       case Seq()       =>
@@ -240,7 +241,7 @@ class SymbolicTypeCheckProcessor
 
   /** Build typed expression stack. */
   private def buildTypedStack(
-      stack: Sourced[ExpressionStack],
+      stack: Sourced[ExpressionStack[Expression]],
       solution: UnificationState
   ): CompilerIO[Sourced[TypedExpressionStack]] =
     stack.value.expressions

@@ -2,12 +2,12 @@ package com.vanillasource.eliot.eliotc.resolve2.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{Expression as CoreExpression, ExpressionStack as CoreExpressionStack}
+import com.vanillasource.eliot.eliotc.core.fact.{ExpressionStack, Expression as CoreExpression}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ExpressionStack, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolverScope.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
@@ -25,8 +25,12 @@ class ValueResolver
 
     val resolveProgram = for {
       resolvedType  <- resolveExpressionStack(namedValue.name.as(namedValue.typeStack))
-      // _             <- debug[ScopedIO](s"Type expression stack of ${key.vfqn.show}:\n${prettyPrint(resolvedType.value)}")
       resolvedValue <- namedValue.value.traverse(v => resolveExpression(v.value).map(v.as(_)))
+      _             <-
+        debug[ScopedIO](
+          s"Resolved value name: ${key.vfqn.show}\nExpression: ${resolvedValue.map(_.value.show).getOrElse("n/a")}\nType: ${ExpressionStack
+              .prettyPrint(resolvedType.value)}"
+        )
     } yield ResolvedValue(
       unifiedValue.vfqn,
       namedValue.name,
@@ -42,8 +46,8 @@ class ValueResolver
     * as the resolved result.
     */
   private def resolveExpressionStack(
-      stack: Sourced[CoreExpressionStack[CoreExpression]]
-  ): ScopedIO[Sourced[ExpressionStack]] =
+      stack: Sourced[ExpressionStack[CoreExpression]]
+  ): ScopedIO[Sourced[ExpressionStack[Expression]]] =
     withLocalScope {
       stack.value.expressions.reverse.traverse(resolveExpression).map(es => stack.as(ExpressionStack(es)))
     }

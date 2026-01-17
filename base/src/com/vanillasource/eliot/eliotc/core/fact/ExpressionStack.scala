@@ -26,5 +26,5 @@ object ExpressionStack {
   given Show[ExpressionStack[Expression]] = (stack: ExpressionStack[Expression]) =>
     stack.expressions.map(_.show).mkString(" => ")
 
-  def prettyPrint(stack: ExpressionStack[Expression]): String = TreeDisplay.prettyPrint(stack)
+  def prettyPrint[E: TreeDisplay](stack: ExpressionStack[E]): String = TreeDisplay.prettyPrint(stack)
 }
