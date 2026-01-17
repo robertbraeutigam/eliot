@@ -42,7 +42,7 @@ class ValueResolver
     * are visible on below levels, but go out of scope outside the expression stack. Returns only the bottom expression
     * as the resolved result.
     */
-  private def resolveExpressionStack(stack: Sourced[CoreExpressionStack]): ScopedIO[Sourced[ExpressionStack]] =
+  private def resolveExpressionStack(stack: Sourced[CoreExpressionStack[CoreExpression]]): ScopedIO[Sourced[ExpressionStack]] =
     withLocalScope {
       stack.value.expressions.reverse.traverse(resolveExpression).map(es => stack.as(ExpressionStack(es)))
     }

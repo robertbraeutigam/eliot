@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.core.processor
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
-import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, ExpressionStack, NamedValue, Expression as CoreExpression}
+import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, ExpressionStack, NamedValue, Expression}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -264,7 +264,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   case class StrLit(value: String)                                                extends ExprStructure
   case object Empty                                                               extends ExprStructure
 
-  extension (stack: ExpressionStack) {
+  extension (stack: ExpressionStack[Expression]) {
     def structure: ExprStructure = stack.expressions match {
       case Seq()     => Empty
       case Seq(expr) => expr.structure
@@ -272,7 +272,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  extension (expr: CoreExpression) {
+  extension (expr: Expression) {
     def structure: ExprStructure = expr match {
       case NamedValueReference(name, None)         => Ref(name.value)
       case NamedValueReference(name, Some(qual))   => QualRef(name.value, qual.value)
