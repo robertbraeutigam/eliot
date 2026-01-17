@@ -39,7 +39,11 @@ class CoreProcessor
       sourceAstData.importStatements,
       transformFunctions(sourceAstData.functionDefinitions) ++ transformDataDefinitions(sourceAstData.typeDefinitions)
     )
-    CoreAST(sourceAst.file, sourceAst.ast.as(coreAstData)).pure[CompilerIO]
+
+    debug[CompilerIO](
+      s"Core functions in ${key.file}:\n${coreAstData.namedValues.map(_.prettyPrint).mkString("\n")}"
+    ) >>
+      CoreAST(sourceAst.file, sourceAst.ast.as(coreAstData)).pure[CompilerIO]
   }
 
   private def transformFunctions(functions: Seq[FunctionDefinition]): Seq[NamedValue] =
