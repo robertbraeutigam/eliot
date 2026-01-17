@@ -29,6 +29,4 @@ object Expression {
     case ParameterReference(name)                                                      => name.value
     case ValueReference(name)                                                          => name.value.show
   }
-
-  def prettyPrint(expr: Expression): String = ExpressionStack.prettyPrint(ExpressionStack.of(expr))
 }

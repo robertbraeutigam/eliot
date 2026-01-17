@@ -1,6 +1,8 @@
 package com.vanillasource.eliot.eliotc.core.fact
 
-import cats.Eq
+import cats.syntax.all.*
+import cats.{Eq, Show}
+import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 
 /** An expression stack's "bottom" describes a runtime value (like a constant, a function, or even a type), and each
   * layer above describes the underlying layer's "type". A single constant value like: "zero: Int = 0" will have 2
@@ -20,4 +22,9 @@ object ExpressionStack {
       x.expressions.length == y.expressions.length &&
         (x.expressions zip y.expressions).forall(Eq[E].eqv)
   }
+
+  given Show[ExpressionStack[Expression]] = (stack: ExpressionStack[Expression]) =>
+    stack.expressions.map(_.show).mkString(" => ")
+
+  def prettyPrint(stack: ExpressionStack[Expression]): String = TreeDisplay.prettyPrint(stack)
 }

@@ -1,6 +1,8 @@
 package com.vanillasource.eliot.eliotc.core.fact
 
-import cats.Eq
+import cats.syntax.all.*
+import cats.{Eq, Show}
+import com.vanillasource.eliot.eliotc.core.fact
 import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -46,4 +48,29 @@ object Expression {
       case (StringLiteral(s1), StringLiteral(s2))                       => s1.value == s2.value
       case _                                                            => false
     }
+
+  given Show[Expression] = {
+    case IntegerLiteral(Sourced(_, _, value))                                          => value
+    case StringLiteral(Sourced(_, _, value))                                           => value
+    case FunctionApplication(Sourced(_, _, targetValue), Sourced(_, _, argumentValue)) =>
+      s"${targetValue.show}(${argumentValue.show})"
+    case FunctionLiteral(param, _, body)                                               => param.value + " -> " + body.value.show
+    case NamedValueReference(valueName, qualifier)                                     => valueName.value
+  }
+
+  given TreeDisplay[Expression] with {
+    def render(expr: Expression): fact.TreeDisplay.Node[Expression] = expr match {
+      case NamedValueReference(valueName, qualifier) =>
+        val qualStr = qualifier.map(q => s"${q.value}::").getOrElse("")
+        TreeDisplay.Node(s"NamedValueReference($qualStr${valueName.value})", Seq.empty)
+      case IntegerLiteral(sourced)                   =>
+        TreeDisplay.Node(s"IntegerLiteral(${sourced.value})", Seq.empty)
+      case StringLiteral(sourced)                    =>
+        TreeDisplay.Node(s"StringLiteral(\"${sourced.value}\")", Seq.empty)
+      case FunctionApplication(target, argument)     =>
+        TreeDisplay.Node("FunctionApplication", Seq("target" -> target.value, "argument" -> argument.value))
+      case FunctionLiteral(param, paramType, body)   =>
+        TreeDisplay.Node(s"FunctionLiteral(${param.value})", Seq("parameterType" -> paramType, "body" -> body.value))
+    }
+  }
 }
