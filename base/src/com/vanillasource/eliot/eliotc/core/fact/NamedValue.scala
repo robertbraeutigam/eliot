@@ -24,7 +24,7 @@ case class NamedValue(
     value: Option[Sourced[Expression]]
 ) {
   def prettyPrint: String =
-    s"Value: ${name.value}\nExpression: ${value.show}\nType: ${ExpressionStack.prettyPrint(typeStack)}"
+    s"Value name: ${name.value}\nExpression: ${value.map(_.value.show).getOrElse("n/a")}\nType: ${ExpressionStack.prettyPrint(typeStack)}"
 }
 
 object NamedValue {
