@@ -59,8 +59,11 @@ class ValueResolver
           if (isParam) {
             Expression.ParameterReference(nameSrc).pure[ScopedIO]
           } else {
-            // TODO: Hardcoded: anything that's not a parameter reference is a reference to a type. Therefore we need to add "$DataType" to the call. Fix this later.
-            getValue(nameSrc.value + "$DataType").flatMap {
+            // TODO: Hardcoded: anything that's not a parameter reference (above), AND starts with an upper-case letter,
+            //  is a reference to a type. Therefore we need to add "$DataType" to the call. This is a hack, fix this later!
+            // Note: we can't do this earlier, because we have to know, whether it's a generic parameter
+            val valueName = if (nameSrc.value.charAt(0).isUpper) nameSrc.value + "$DataType" else nameSrc.value
+            getValue(valueName).flatMap {
               case Some(vfqn) =>
                 Expression.ValueReference(nameSrc.as(vfqn)).pure[ScopedIO]
               case None       =>

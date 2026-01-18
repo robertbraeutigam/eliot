@@ -27,7 +27,7 @@ class ValueResolverTest
   private val testModuleName2 = ModuleName2(Seq.empty, "Test")
 
   "value resolver" should "resolve a literal integer expression" in {
-    runEngineForValue("data T(t: T)\na: T = 1").flatMap {
+    runEngineForValue("data T\na: T = 1").flatMap {
       case Some(IntegerLiteral(Sourced(_, _, value))) => IO.delay(value shouldBe BigInt(1))
       case x                                          => IO.delay(fail(s"was not an integer literal, instead: $x"))
     }
@@ -38,14 +38,14 @@ class ValueResolverTest
   }
 
   it should "resolve a string literal expression" in {
-    runEngineForValue("data T(t: T)\na: T = \"hello\"").flatMap {
+    runEngineForValue("data T\na: T = \"hello\"").flatMap {
       case Some(StringLiteral(Sourced(_, _, value))) => IO.delay(value shouldBe "hello")
       case x                                         => IO.delay(fail(s"was not a string literal, instead: $x"))
     }
   }
 
   it should "resolve value references" in {
-    runEngineForValue("data T(t: T)\nb: T\na: T = b").flatMap {
+    runEngineForValue("data T\nb: T\na: T = b").flatMap {
       case Some(ValueReference(Sourced(_, _, vfqn))) =>
         IO.delay(vfqn shouldBe ValueFQN(testModuleName2, "b"))
       case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
@@ -53,7 +53,7 @@ class ValueResolverTest
   }
 
   it should "resolve lambda parameter references" in {
-    runEngineForValue("data T(t: T)\na: T = x: T -> x").flatMap {
+    runEngineForValue("data T\na: T = x: T -> x").flatMap {
       case Some(FunctionLiteral(_, _, Sourced(_, _, ExpressionStack(Seq(ParameterReference(Sourced(_, _, name))))))) =>
         IO.delay(name shouldBe "x")
       case x                                                                                                         =>
@@ -62,7 +62,7 @@ class ValueResolverTest
   }
 
   it should "resolve function application" in {
-    runEngineForValue("data T(t: T)\nf: T\nb: T\na: T = f(b)").flatMap {
+    runEngineForValue("data T\nf: T\nb: T\na: T = f(b)").flatMap {
       case Some(FunctionApplication(Sourced(_, _, ExpressionStack(Seq(ValueReference(_)))), _)) =>
         IO.pure(succeed)
       case x                                                                                    =>
@@ -71,7 +71,7 @@ class ValueResolverTest
   }
 
   it should "resolve qualified value reference" in {
-    runEngineForValue("data T(t: T)\nb: T\na: T = Test::b").flatMap {
+    runEngineForValue("data T\nb: T\na: T = Test::b").flatMap {
       case Some(ValueReference(Sourced(_, _, vfqn))) =>
         IO.delay(vfqn shouldBe ValueFQN(testModuleName2, "b"))
       case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
@@ -79,28 +79,28 @@ class ValueResolverTest
   }
 
   it should "report error for undefined qualified name" in {
-    runEngineForErrors("data T(t: T)\na: T = NonExistent::value")
+    runEngineForErrors("data T\na: T = NonExistent::value")
       .asserting(_ shouldBe Seq("Name not defined."))
   }
 
   it should "report error for undefined name" in {
-    runEngineForErrors("data T(t: T)\na: T = undefined").asserting(_ shouldBe Seq("Name not defined."))
+    runEngineForErrors("data T\na: T = undefined").asserting(_ shouldBe Seq("Name not defined."))
   }
 
   it should "report error when lambda parameter shadows dictionary name" in {
-    runEngineForErrors("data T(t: T)\nb: T\na: T = b: T -> b")
+    runEngineForErrors("data T\nb: T\na: T = b: T -> b")
       .asserting(_ shouldBe Seq("Parameter shadows existing name in scope."))
   }
 
   it should "report error when nested lambda parameter shadows outer parameter" in {
-    runEngineForErrors("data T(t: T)\na: T = x: T -> x: T -> x")
+    runEngineForErrors("data T\na: T = x: T -> x: T -> x")
       .asserting(_ shouldBe Seq("Parameter shadows existing name in scope."))
   }
 
   it should "resolve type expressions" in {
     runEngineForTypeExpression("data SomeType(s: SomeType)\na: SomeType").flatMap {
       case ValueReference(Sourced(_, _, vfqn)) =>
-        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, "SomeType"))
+        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, "SomeType$DataType"))
       case x                                   => IO.delay(fail(s"type was not resolved to value reference, instead: $x"))
     }
   }
@@ -121,7 +121,7 @@ class ValueResolverTest
   }
 
   private def runEngineForValue(source: String): IO[Option[Expression]] =
-    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a"))).map { case (_, facts) =>
+    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a"))).map { case (errors, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
         .flatMap(_.value.map(_.value))
