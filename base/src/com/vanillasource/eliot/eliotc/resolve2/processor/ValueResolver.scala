@@ -59,7 +59,8 @@ class ValueResolver
           if (isParam) {
             Expression.ParameterReference(nameSrc).pure[ScopedIO]
           } else {
-            getValue(nameSrc.value).flatMap {
+            // TODO: Hardcoded: anything that's not a parameter reference is a reference to a type. Therefore we need to add "$DataType" to the call. Fix this later.
+            getValue(nameSrc.value + "$DataType").flatMap {
               case Some(vfqn) =>
                 Expression.ValueReference(nameSrc.as(vfqn)).pure[ScopedIO]
               case None       =>
