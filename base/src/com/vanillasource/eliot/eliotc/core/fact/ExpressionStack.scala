@@ -9,22 +9,22 @@ import com.vanillasource.eliot.eliotc.core.fact.Expression.*
   * layers, with the first having a "0" as literal, and the layer over it being a reference to the "Int" value (which
   * can be considered a "type"). Each layer can refer to any value declared on the same level syntactically "before" the
   * usage site, or to any value on layers above.
+  * @param expressions
+  *   The actual expression, from lower index being more "runtime" and higher indices toward more "type".
+  * @param hasRuntime
+  *   Whether stack contains runtime expression. If true, that means stack starts with a "runtime" expression, if false,
+  *   it is abstract and starts with signature.
   */
-case class ExpressionStack[E](expressions: Seq[E])
+case class ExpressionStack[E](expressions: Seq[E], hasRuntime: Boolean) {
+  def signature: Option[E] = if (hasRuntime) expressions.get(1) else expressions.get(0)
+
+  def runtime: Option[E] = if (hasRuntime) expressions.get(0) else None
+}
 
 object ExpressionStack {
-  def of[E](expression: E) = ExpressionStack(Seq(expression))
+  def ofRuntime[E](expression: E) = ExpressionStack(Seq(expression), true)
 
-  def empty[E] = ExpressionStack(Seq.empty[E])
+  def empty[E] = ExpressionStack(Seq.empty[E], true)
 
-  given expressionStackEquality[E: Eq]: Eq[ExpressionStack[E]] with {
-    def eqv(x: ExpressionStack[E], y: ExpressionStack[E]): Boolean =
-      x.expressions.length == y.expressions.length &&
-        (x.expressions zip y.expressions).forall(Eq[E].eqv)
-  }
-
-  given Show[ExpressionStack[Expression]] = (stack: ExpressionStack[Expression]) =>
-    stack.expressions.map(_.show).mkString(" => ")
-
-  def prettyPrint[E: TreeDisplay](stack: ExpressionStack[E]): String = TreeDisplay.prettyPrint(stack)
+  given Show[ExpressionStack[Expression]] = TreeDisplay.prettyPrint(_)
 }

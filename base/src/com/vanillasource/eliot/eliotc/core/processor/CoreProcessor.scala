@@ -41,7 +41,7 @@ class CoreProcessor
     )
 
     debug[CompilerIO](
-      s"Core functions in ${key.file}:\n${coreAstData.namedValues.map(_.prettyPrint).mkString("\n")}"
+      s"Core functions in ${key.file}:\n${coreAstData.namedValues.map(_.show).mkString("\n")}"
     ) >>
       CoreAST(sourceAst.file, sourceAst.ast.as(coreAstData)).pure[CompilerIO]
   }

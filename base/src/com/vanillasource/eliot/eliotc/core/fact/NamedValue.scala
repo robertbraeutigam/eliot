@@ -1,10 +1,9 @@
 package com.vanillasource.eliot.eliotc.core.fact
 
+import cats.{Eq, Show}
 import cats.syntax.all.*
-import cats.Eq
 import com.vanillasource.eliot.eliotc.core.fact
-import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack.prettyPrint
+import com.vanillasource.eliot.eliotc.core.fact.Expression.structuralEqualityOption
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The core AST unifies data and functions into "names values". I.e. everything is a value, even types and functions.
@@ -13,22 +12,19 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * split here because a named value can be "abstract" in which case it doesn't actually declare a value expression.
   * @param name
   *   The name of the value (i.e. of the function or type)
-  * @param typeStack
-  *   The expression stack representing the layers above the runtime value.
   * @param value
   *   The runtime value expression. This is None if the named value is abstract.
   */
 case class NamedValue(
     name: Sourced[String],
-    typeStack: ExpressionStack[Expression],
-    value: Option[Sourced[Expression]]
-) {
-  def prettyPrint: String =
-    s"Value name: ${name.value}\nExpression: ${value.map(_.value.show).getOrElse("n/a")}\nType: ${ExpressionStack.prettyPrint(typeStack)}"
-}
+    value: ExpressionStack[Expression]
+)
 
 object NamedValue {
   val signatureEquality: Eq[NamedValue] = (x: NamedValue, y: NamedValue) =>
-    ExpressionStack.expressionStackEquality.eqv(x.typeStack, y.typeStack)
+    structuralEqualityOption.eqv(x.value.signature, y.value.signature)
+
+  given Show[NamedValue] = (namedValue: NamedValue) =>
+    s"Value name: ${namedValue.name.value}\nValue: ${namedValue.value.show}"
 
 }

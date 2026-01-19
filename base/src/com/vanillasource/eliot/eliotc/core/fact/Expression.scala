@@ -29,25 +29,25 @@ object Expression {
   // String literal
   case class StringLiteral(stringLiteral: Sourced[String])   extends Expression
 
-  given expressionEquality: Eq[Expression] = (x: Expression, y: Expression) =>
+  /** Structural equality means that the expression contains the same building blocks in the same order / structure. No
+    * type information is used, i.e. not higher levels of expressions.
+    */
+  def structuralEquality: Eq[Expression] = (x: Expression, y: Expression) =>
     (x, y) match {
       case (NamedValueReference(n1, q1), NamedValueReference(n2, q2))   =>
         n1.value == n2.value && q1.map(_.value) == q2.map(_.value)
       case (FunctionApplication(t1, a1), FunctionApplication(t2, a2))   =>
-        ExpressionStack.expressionStackEquality
-          .eqv(t1.value, t2.value) && ExpressionStack.expressionStackEquality.eqv(a1.value, a2.value)
+        structuralEqualityOption.eqv(t1.value.runtime, t2.value.runtime)
       case (FunctionLiteral(p1, pt1, b1), FunctionLiteral(p2, pt2, b2)) =>
-        p1.value == p2.value && ExpressionStack.expressionStackEquality.eqv(
-          pt1,
-          pt2
-        ) && ExpressionStack.expressionStackEquality.eqv(
-          b1.value,
-          b2.value
-        )
+        p1.value == p2.value && structuralEqualityOption.eqv(pt1.runtime, pt2.runtime) &&
+        structuralEqualityOption.eqv(b1.value.runtime, b2.value.runtime)
       case (IntegerLiteral(i1), IntegerLiteral(i2))                     => i1.value == i2.value
       case (StringLiteral(s1), StringLiteral(s2))                       => s1.value == s2.value
       case _                                                            => false
     }
+
+  def structuralEqualityOption: Eq[Option[Expression]] = (x: Option[Expression], y: Option[Expression]) =>
+    x.isEmpty && y.isEmpty || x.isDefined && y.isDefined && structuralEquality.eqv(x.get, y.get)
 
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                                          => value
