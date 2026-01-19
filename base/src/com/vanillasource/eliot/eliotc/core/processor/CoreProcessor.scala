@@ -52,7 +52,11 @@ class CoreProcessor
   private def transformFunction(function: FunctionDefinition): NamedValue = {
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
     val curriedValue = function.body.map(body => buildCurriedBody(function.args, body))
-    NamedValue(function.name, ExpressionStack.of(curriedType.value), curriedValue)
+    val stack        = curriedValue match {
+      case Some(body) => ExpressionStack(Seq(body.value, curriedType.value), hasRuntime = true)
+      case None       => ExpressionStack(Seq(curriedType.value), hasRuntime = false)
+    }
+    NamedValue(function.name, stack)
   }
 
   /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function(D, Function(E, F)).
@@ -64,7 +68,7 @@ class CoreProcessor
       genericParams: Seq[GenericParameter]
   ): Sourced[Expression] =
     genericParams.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (param, acc) =>
-      param.name.as(FunctionLiteral(param.name, ExpressionStack.empty, acc.map(ExpressionStack.of)))
+      param.name.as(FunctionLiteral(param.name, ExpressionStack.empty, acc.map(ExpressionStack.ofRuntime)))
     }
 
   /** Converts type references to type expressions. Type references are in the form of: A[B[C...],...], which is
@@ -74,7 +78,7 @@ class CoreProcessor
     reference.genericParameters.foldRight[Sourced[Expression]](
       reference.typeName.as(NamedValueReference(reference.typeName))
     ) { (ref, acc) =>
-      ref.typeName.as(FunctionApplication(acc.map(ExpressionStack.of), toTypeExpression(ref).map(ExpressionStack.of)))
+      ref.typeName.as(FunctionApplication(acc.map(ExpressionStack.ofRuntime), toTypeExpression(ref).map(ExpressionStack.ofRuntime)))
     }
 
   /** Converts the body into core expression and embeds it as a lambda with the "function" parameters.
@@ -87,8 +91,8 @@ class CoreProcessor
       arg.name.as(
         FunctionLiteral(
           arg.name,
-          ExpressionStack.of(toTypeExpression(arg.typeReference).value),
-          acc.map(ExpressionStack.of)
+          ExpressionStack.ofRuntime(toTypeExpression(arg.typeReference).value),
+          acc.map(ExpressionStack.ofRuntime)
         )
       )
     }
@@ -119,8 +123,8 @@ class CoreProcessor
       param.name.as(
         FunctionLiteral(
           param.name,
-          ExpressionStack.of(toTypeExpression(param.typeReference).value),
-          acc.map(ExpressionStack.of)
+          ExpressionStack.ofRuntime(toTypeExpression(param.typeReference).value),
+          acc.map(ExpressionStack.ofRuntime)
         )
       )
     }
@@ -133,7 +137,7 @@ class CoreProcessor
       args: Seq[Sourced[SourceExpression]]
   ): Sourced[Expression] =
     args.foldLeft(target) { (acc, arg) =>
-      arg.as(FunctionApplication(acc.map(ExpressionStack.of), toBodyExpression(arg).map(ExpressionStack.of)))
+      arg.as(FunctionApplication(acc.map(ExpressionStack.ofRuntime), toBodyExpression(arg).map(ExpressionStack.ofRuntime)))
     }
 
   private def transformDataDefinitions(definitions: Seq[DataDefinition]): Seq[NamedValue] =

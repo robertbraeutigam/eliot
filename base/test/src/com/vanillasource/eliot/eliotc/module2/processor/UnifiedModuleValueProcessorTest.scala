@@ -24,7 +24,7 @@ class UnifiedModuleValueProcessorTest
   }
 
   it should "prefer implemented value over abstract" in {
-    runEngineForValue("a: A = b", "a").asserting(_.namedValue.value.isDefined shouldBe true)
+    runEngineForValue("a: A = b", "a").asserting(_.namedValue.value.hasRuntime shouldBe true)
   }
 
   it should "include dictionary from source module value" in {

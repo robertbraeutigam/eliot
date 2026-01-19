@@ -24,17 +24,16 @@ class ValueResolver
     val scope      = ValueResolverScope(unifiedValue.dictionary, Map.empty)
 
     val resolveProgram = for {
-      resolvedType  <- resolveExpressionStack(namedValue.name.as(namedValue.typeStack))
-      resolvedValue <- namedValue.value.traverse(v => resolveExpression(v.value).map(v.as(_)))
+      resolvedStack <- resolveExpressionStack(namedValue.name.as(namedValue.value))
+      resolvedValue  = resolvedStack.value.runtime.map(resolvedStack.as(_))
       _             <-
         debug[ScopedIO](
-          s"Resolved value name: ${key.vfqn.show}\nExpression: ${resolvedValue.map(_.value.show).getOrElse("n/a")}\nType: ${ExpressionStack
-              .prettyPrint(resolvedType.value)}"
+          s"Resolved value name: ${key.vfqn.show}\nExpression: ${resolvedValue.map(_.value.show).getOrElse("n/a")}\nType: ${resolvedStack.value}"
         )
     } yield ResolvedValue(
       unifiedValue.vfqn,
       namedValue.name,
-      resolvedType,
+      resolvedStack,
       resolvedValue
     )
 
@@ -49,7 +48,7 @@ class ValueResolver
       stack: Sourced[ExpressionStack[CoreExpression]]
   ): ScopedIO[Sourced[ExpressionStack[Expression]]] =
     withLocalScope {
-      stack.value.expressions.reverse.traverse(resolveExpression).map(es => stack.as(ExpressionStack(es)))
+      stack.value.expressions.reverse.traverse(resolveExpression).map(es => stack.as(ExpressionStack(es.reverse, stack.value.hasRuntime)))
     }
 
   private def resolveExpression(expression: CoreExpression): ScopedIO[Expression] =

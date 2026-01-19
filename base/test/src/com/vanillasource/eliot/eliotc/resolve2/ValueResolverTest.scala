@@ -54,7 +54,7 @@ class ValueResolverTest
 
   it should "resolve lambda parameter references" in {
     runEngineForValue("data T\na: T = x: T -> x").flatMap {
-      case Some(FunctionLiteral(_, _, Sourced(_, _, ExpressionStack(Seq(ParameterReference(Sourced(_, _, name))))))) =>
+      case Some(FunctionLiteral(_, _, Sourced(_, _, ExpressionStack(Seq(ParameterReference(Sourced(_, _, name))), _)))) =>
         IO.delay(name shouldBe "x")
       case x                                                                                                         =>
         IO.delay(fail(s"was not a function literal with parameter reference, instead: $x"))
@@ -63,7 +63,7 @@ class ValueResolverTest
 
   it should "resolve function application" in {
     runEngineForValue("data T\nf: T\nb: T\na: T = f(b)").flatMap {
-      case Some(FunctionApplication(Sourced(_, _, ExpressionStack(Seq(ValueReference(_)))), _)) =>
+      case Some(FunctionApplication(Sourced(_, _, ExpressionStack(Seq(ValueReference(_)), _)), _)) =>
         IO.pure(succeed)
       case x                                                                                    =>
         IO.delay(fail(s"was not a function application, instead: $x"))
