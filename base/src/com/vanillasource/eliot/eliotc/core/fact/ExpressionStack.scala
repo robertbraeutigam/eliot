@@ -19,6 +19,15 @@ case class ExpressionStack[E](expressions: Seq[E], hasRuntime: Boolean) {
   def signature: Option[E] = if (hasRuntime) expressions.get(1) else expressions.get(0)
 
   def runtime: Option[E] = if (hasRuntime) expressions.get(0) else None
+
+  def levelsWithLevel: Seq[(E, Int)] = expressions.zipWithIndex.map { (expr, idx) =>
+    if (hasRuntime)
+      (expr, idx)
+    else
+      (expr, idx + 1)
+  }
+
+  def maxLevel: Int = if (hasRuntime) expressions.length else expressions.length + 1
 }
 
 object ExpressionStack {
@@ -26,5 +35,5 @@ object ExpressionStack {
 
   def empty[E] = ExpressionStack(Seq.empty[E], true)
 
-  given Show[ExpressionStack[Expression]] = TreeDisplay.prettyPrint(_)
+  given prettyPrintShow[E: TreeDisplay]: Show[ExpressionStack[E]] = TreeDisplay.prettyPrint(_)
 }

@@ -26,9 +26,8 @@ object TreeDisplay {
   private def prettyPrintLayers[E](stack: ExpressionStack[E], prefix: String, sb: StringBuilder)(using
       printer: TreeDisplay[E]
   ): Unit = {
-    val expressions = stack.expressions
-    expressions.zipWithIndex.foreach { case (expr, idx) =>
-      val isLast   = idx == expressions.size - 1
+    stack.levelsWithLevel.foreach { case (expr, idx) =>
+      val isLast   = idx == stack.maxLevel - 1
       val branch   = if (isLast) "└── " else "├── "
       val childPfx = if (isLast) "    " else "│   "
       sb.append(s"$prefix$branch[$idx] ")
