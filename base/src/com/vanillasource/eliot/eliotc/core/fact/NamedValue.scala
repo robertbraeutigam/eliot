@@ -25,6 +25,6 @@ object NamedValue {
     structuralEqualityOption.eqv(x.value.signature, y.value.signature)
 
   given Show[NamedValue] = (namedValue: NamedValue) =>
-    s"Value name: ${namedValue.name.value}\nValue: ${namedValue.value.show}"
+    s"Value name: ${namedValue.name.value}, value: ${namedValue.value.show}"
 
 }
