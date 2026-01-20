@@ -24,7 +24,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "place curried function type in typeStack for function without generics" in {
     namedValue("f(x: X): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(App(Ref("Function$DataType"), Ref("X")), Ref("R"))
+      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("X")), Ref("R"))
     }
   }
 
@@ -37,7 +37,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   it should "place curried function type in typeStack for multi-parameter function" in {
     namedValue("f(x: X, y: Y): R").asserting { nv =>
       nv.value.signatureStructure shouldBe
-        App(App(App(Ref("Function$DataType"), Ref("X")), Ref("Y")), Ref("R"))
+        App(App(Ref("Function"), Ref("X")), App(App(Ref("Function"), Ref("Y")), Ref("R")))
     }
   }
 

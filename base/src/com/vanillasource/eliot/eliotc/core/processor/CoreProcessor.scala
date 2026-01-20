@@ -71,7 +71,7 @@ class CoreProcessor
     val withArgs = args.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (arg, acc) =>
       val argType     = toTypeExpression(arg.typeReference)
       val functionRef =
-        arg.name.as(NamedValueReference(arg.name.as("Function$DataType"))) // FIXME: hardcoded $DataType again
+        arg.name.as(NamedValueReference(arg.name.as("Function")))
       val withArgType = arg.name.as(
         FunctionApplication(
           functionRef.map(ExpressionStack.ofRuntime),
