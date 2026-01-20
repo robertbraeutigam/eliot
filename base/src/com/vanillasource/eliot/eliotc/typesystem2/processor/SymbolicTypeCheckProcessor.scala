@@ -27,10 +27,11 @@ class SymbolicTypeCheckProcessor
       key: TypeCheckedValue.Key,
       resolvedValue: ResolvedValue
   ): CompilerIO[TypeCheckedValue] =
-    resolvedValue.value match {
-      case Some(body) =>
+    resolvedValue.value.value.runtime match {
+      case Some(bodyExpr) =>
+        val body = resolvedValue.value.as(bodyExpr)
         for {
-          (state, (typeConstraints, declaredType)) <- buildTypeConstraints(resolvedValue.typeExpression)
+          (state, (typeConstraints, declaredType)) <- buildTypeConstraints(resolvedValue.value)
                                                         .run(TypeCheckState())
           _                                        <- debug[CompilerIO](s"Type constraints: ${typeConstraints.show}")
           (bodyConstraints, bodyType)              <- buildBodyConstraints(body, declaredType).runA(state)
@@ -44,7 +45,7 @@ class SymbolicTypeCheckProcessor
                                                         )
           solution                                 <- allConstraints.solve()
           typedBody                                <- buildTypedExpression(body, bodyType, solution)
-          typedType                                <- buildTypedStack(resolvedValue.typeExpression, solution)
+          typedType                                <- buildTypedStack(resolvedValue.value, solution)
         } yield TypeCheckedValue(
           resolvedValue.vfqn,
           TypedValueDefinition(resolvedValue.name, typedType, Some(typedBody))
@@ -52,8 +53,8 @@ class SymbolicTypeCheckProcessor
 
       case None =>
         for {
-          _         <- buildTypeConstraints(resolvedValue.typeExpression).runA(TypeCheckState())
-          typedType <- buildTypedStack(resolvedValue.typeExpression, UnificationState())
+          _         <- buildTypeConstraints(resolvedValue.value).runA(TypeCheckState())
+          typedType <- buildTypedStack(resolvedValue.value, UnificationState())
         } yield TypeCheckedValue(
           resolvedValue.vfqn,
           TypedValueDefinition(resolvedValue.name, typedType, None)
@@ -69,14 +70,12 @@ class SymbolicTypeCheckProcessor
   private def buildTypeConstraints(
       typeExpr: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[(SymbolicUnification, NormalizedExpression)] =
-    typeExpr.value.expressions match {
-      case Seq()       =>
+    // Use signature if available (for multi-element stacks), otherwise first expression (for wrapper stacks)
+    typeExpr.value.signature.orElse(typeExpr.value.expressions.headOption) match {
+      case None       =>
         generateUnificationVar[CompilerIO](typeExpr).map(noConstraints)
-      case Seq(single) =>
-        normalizeTypeExpression(single, typeExpr)
-      case _           =>
-        // Multi-level stack: bottom is runtime, next up is type
-        normalizeTypeExpression(typeExpr.value.expressions(1), typeExpr)
+      case Some(expr) =>
+        normalizeTypeExpression(expr, typeExpr)
     }
 
   /** Normalize a type expression, collecting universal variables along the way. */
@@ -170,7 +169,7 @@ class SymbolicTypeCheckProcessor
         for {
           maybeResolved <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)).attempt.map(_.toOption))
           result        <- maybeResolved match {
-                             case Some(resolved) => buildTypeConstraints(resolved.typeExpression)
+                             case Some(resolved) => buildTypeConstraints(resolved.value)
                              case None           => noConstraints(ValueRef(vfqn, Seq.empty)).pure[TypeGraphIO]
                            }
         } yield result

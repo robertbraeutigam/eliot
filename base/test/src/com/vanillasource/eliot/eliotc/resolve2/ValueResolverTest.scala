@@ -124,17 +124,16 @@ class ValueResolverTest
     runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a"))).map { case (errors, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
-        .flatMap(_.value.map(_.value))
+        .flatMap(_.value.value.runtime)
     }
 
   private def runEngineForTypeExpression(source: String): IO[Expression] =
     runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a"))).map { case (_, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
-        .map(_.typeExpression.value)
+        .map(_.value.value.signature)
         .get
-        .expressions
-        .head
+        .get
     }
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =
