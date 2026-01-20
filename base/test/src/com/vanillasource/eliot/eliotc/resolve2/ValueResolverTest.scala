@@ -54,9 +54,23 @@ class ValueResolverTest
 
   it should "resolve lambda parameter references" in {
     runEngineForValue("data T\na: T = x: T -> x").flatMap {
-      case Some(FunctionLiteral(_, _, Sourced(_, _, ExpressionStack(Seq(ParameterReference(Sourced(_, _, name))), _)))) =>
+      case Some(
+            FunctionLiteral(_, _, Sourced(_, _, ExpressionStack(Seq(ParameterReference(Sourced(_, _, name))), _)))
+          ) =>
         IO.delay(name shouldBe "x")
-      case x                                                                                                         =>
+      case x =>
+        IO.delay(fail(s"was not a function literal with parameter reference, instead: $x"))
+    }
+  }
+
+  it should "resolve abstract functions' signature" in {
+    runEngineForValue("data T\na(x: T): T").flatMap {
+      case Some(
+            // FIXME: this should be "x -> T", since "a" has a parameter
+            FunctionLiteral(_, _, Sourced(_, _, ExpressionStack(Seq(ParameterReference(Sourced(_, _, name))), _)))
+          ) =>
+        IO.delay(name shouldBe "x")
+      case x =>
         IO.delay(fail(s"was not a function literal with parameter reference, instead: $x"))
     }
   }
@@ -65,7 +79,7 @@ class ValueResolverTest
     runEngineForValue("data T\nf: T\nb: T\na: T = f(b)").flatMap {
       case Some(FunctionApplication(Sourced(_, _, ExpressionStack(Seq(ValueReference(_)), _)), _)) =>
         IO.pure(succeed)
-      case x                                                                                    =>
+      case x                                                                                       =>
         IO.delay(fail(s"was not a function application, instead: $x"))
     }
   }
