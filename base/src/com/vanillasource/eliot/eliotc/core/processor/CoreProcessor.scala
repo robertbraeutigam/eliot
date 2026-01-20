@@ -59,17 +59,27 @@ class CoreProcessor
     NamedValue(function.name, stack)
   }
 
-  /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function(D, Function(E, F)).
-    * Note: f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y -> Function(X, Y)
+  /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> d -> e -> F. Note: f[A, M[_]]...
+    * becomes: A -> M -> ..., where M has a type expression on it: X -> Y -> Function(X, Y)
     */
   private def curriedFunctionType(
       args: Seq[SourceArgument],
       returnType: TypeReference,
       genericParams: Seq[GenericParameter]
-  ): Sourced[Expression] =
-    genericParams.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (param, acc) =>
+  ): Sourced[Expression] = {
+    val withArgs = args.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (arg, acc) =>
+      arg.name.as(
+        FunctionLiteral(
+          arg.name,
+          ExpressionStack.ofRuntime(toTypeExpression(arg.typeReference).value),
+          acc.map(ExpressionStack.ofRuntime)
+        )
+      )
+    }
+    genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
       param.name.as(FunctionLiteral(param.name, ExpressionStack.empty, acc.map(ExpressionStack.ofRuntime)))
     }
+  }
 
   /** Converts type references to type expressions. Type references are in the form of: A[B[C...],...], which is
     * converted into an expression: A(B(C...),...), so function applications.

@@ -9,8 +9,12 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 case class ValueResolverScope(
     dictionary: Map[String, ValueFQN],
+    preAddedParameters: Set[String],
     visibleParameters: Map[String, Sourced[String]]
-)
+) {
+  def addPreAddedParam(name: String): ValueResolverScope =
+    copy(preAddedParameters = preAddedParameters + name, visibleParameters = visibleParameters + (name -> null))
+}
 
 object ValueResolverScope {
   type ScopedIO[T] = StateT[CompilerIO, ValueResolverScope, T]
@@ -22,8 +26,12 @@ object ValueResolverScope {
   def addParameter(name: Sourced[String]): ScopedIO[Unit] =
     for {
       scope <- StateT.get[CompilerIO, ValueResolverScope]
+      // Allow re-adding if it was pre-added (generic param from signature)
+      // Error if it shadows a dictionary name or a lambda-added param (nested shadowing)
+      isPreAdded = scope.preAddedParameters.contains(name.value)
+      isLambdaAdded = scope.visibleParameters.contains(name.value) && !isPreAdded
       _     <- (compilerError(name.as("Parameter shadows existing name in scope.")) *> abort[Unit]).liftToScoped
-                 .whenA(scope.visibleParameters.contains(name.value) || scope.dictionary.contains(name.value))
+                 .whenA(scope.dictionary.contains(name.value) || isLambdaAdded)
       _     <- StateT.modify[CompilerIO, ValueResolverScope](s =>
                  s.copy(visibleParameters = s.visibleParameters + (name.value -> name))
                )

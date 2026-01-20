@@ -21,7 +21,11 @@ class ValueResolver
       unifiedValue: UnifiedModuleValue
   ): CompilerIO[ResolvedValue] = {
     val namedValue = unifiedValue.namedValue
-    val scope      = ValueResolverScope(unifiedValue.dictionary, Map.empty)
+    // Pre-add generic params from signature so they're visible in runtime
+    val genericParams = collectGenericParams(namedValue.value)
+    val scope = genericParams.foldLeft(ValueResolverScope(unifiedValue.dictionary, Set.empty, Map.empty)) { (s, name) =>
+      s.addPreAddedParam(name)
+    }
 
     val resolveProgram = for {
       resolvedStack <- resolveExpressionStack(namedValue.name.as(namedValue.value))
@@ -34,6 +38,17 @@ class ValueResolver
 
     resolveProgram.runA(scope)
   }
+
+  /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with empty param type. */
+  private def collectGenericParams(stack: ExpressionStack[CoreExpression]): Seq[String] =
+    stack.signature.toSeq.flatMap(collectGenericParamsFromExpr)
+
+  private def collectGenericParamsFromExpr(expr: CoreExpression): Seq[String] =
+    expr match {
+      case FunctionLiteral(paramName, paramType, body) if paramType.expressions.isEmpty =>
+        paramName.value +: collectGenericParamsFromExpr(body.value.expressions.head)
+      case _ => Seq.empty
+    }
 
   /** Resolves an expression stack from top (most abstract) to bottom (runtime value). Expression variables from above
     * are visible on below levels, but go out of scope outside the expression stack. Returns only the bottom expression

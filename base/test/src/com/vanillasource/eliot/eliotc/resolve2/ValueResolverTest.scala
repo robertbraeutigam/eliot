@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.module2.processor.*
 import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.resolve2.ExpressionMatchers.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
@@ -64,14 +65,11 @@ class ValueResolverTest
   }
 
   it should "resolve abstract functions' signature" in {
-    runEngineForValue("data T\na(x: T): T").flatMap {
-      case Some(
-            // FIXME: this should be "x -> T", since "a" has a parameter
-            FunctionLiteral(_, _, Sourced(_, _, ExpressionStack(Seq(ParameterReference(Sourced(_, _, name))), _)))
-          ) =>
-        IO.delay(name shouldBe "x")
-      case x =>
-        IO.delay(fail(s"was not a function literal with parameter reference, instead: $x"))
+    runEngineForSignature("data T\na(x: T): T").flatMap {
+      case Some(FunLit(paramName, ValRef(vfqn))) =>
+        IO.delay((paramName, vfqn) shouldBe ("x", ValueFQN(testModuleName2, "T$DataType")))
+      case x                                     =>
+        IO.delay(fail(s"was not a function literal with value reference body, instead: $x"))
     }
   }
 
@@ -139,6 +137,13 @@ class ValueResolverTest
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
         .flatMap(_.value.value.runtime)
+    }
+
+  private def runEngineForSignature(source: String): IO[Option[Expression]] =
+    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a"))).map { case (errors, facts) =>
+      facts.values
+        .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
+        .flatMap(_.value.value.signature)
     }
 
   private def runEngineForTypeExpression(source: String): IO[Expression] =

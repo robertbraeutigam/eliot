@@ -23,9 +23,9 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "place only return type in typeStack for function without generics" in {
+  it should "place curried function type in typeStack for function without generics" in {
     namedValue("f(x: X): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Ref("R")
+      nv.value.signatureStructure shouldBe Lambda("x", Ref("X"), Ref("R"))
     }
   }
 
@@ -35,9 +35,9 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "place only return type in typeStack for multi-parameter function" in {
+  it should "place curried function type in typeStack for multi-parameter function" in {
     namedValue("f(x: X, y: Y): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Ref("R")
+      nv.value.signatureStructure shouldBe Lambda("x", Ref("X"), Lambda("y", Ref("Y"), Ref("R")))
     }
   }
 
@@ -66,9 +66,9 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "place generics in typeStack but not function args" in {
+  it should "place generics then function args in typeStack" in {
     namedValue("f[A](x: X): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, Ref("R"))
+      nv.value.signatureStructure shouldBe Lambda("A", Empty, Lambda("x", Ref("X"), Ref("R")))
     }
   }
 
@@ -80,7 +80,8 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "handle multiple generics with multiple parameters" in {
     namedValue("f[A, B](x: X, y: Y): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, Lambda("B", Empty, Ref("R")))
+      nv.value.signatureStructure shouldBe
+        Lambda("A", Empty, Lambda("B", Empty, Lambda("x", Ref("X"), Lambda("y", Ref("Y"), Ref("R")))))
     }
   }
 
@@ -192,9 +193,9 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "generate type function with return type only in typeStack" in {
+  it should "generate type function with generic param and argument in typeStack" in {
     namedValue("data Box[A]", "Box$DataType").asserting { nv =>
-      nv.value.signatureStructure shouldBe Ref("Type")
+      nv.value.signatureStructure shouldBe Lambda("A", Ref("Type"), Ref("Type"))
     }
   }
 
@@ -204,9 +205,9 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "generate constructor with only return type in typeStack" in {
+  it should "generate constructor with curried arguments in typeStack" in {
     namedValue("data Person(name: Name, age: Age)", "Person").asserting { nv =>
-      nv.value.signatureStructure shouldBe Ref("Person$DataType")
+      nv.value.signatureStructure shouldBe Lambda("name", Ref("Name"), Lambda("age", Ref("Age"), Ref("Person$DataType")))
     }
   }
 
@@ -223,15 +224,15 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "generate accessor with only return type in typeStack" in {
+  it should "generate accessor with argument in typeStack" in {
     namedValue("data Person(name: Name)", "name").asserting { nv =>
-      nv.value.signatureStructure shouldBe Ref("Name")
+      nv.value.signatureStructure shouldBe Lambda("obj", Ref("Person$DataType"), Ref("Name"))
     }
   }
 
-  it should "generate accessor with generic param in typeStack" in {
+  it should "generate accessor with generic param and argument in typeStack" in {
     namedValue("data Box[A](value: A)", "value").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, Ref("A"))
+      nv.value.signatureStructure shouldBe Lambda("A", Empty, Lambda("obj", Ref("Box$DataType"), Ref("A")))
     }
   }
 
@@ -243,7 +244,8 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "handle data with generic constructor" in {
     namedValue("data Pair[A, B](fst: A, snd: B)", "Pair").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, Lambda("B", Empty, Ref("Pair$DataType")))
+      nv.value.signatureStructure shouldBe
+        Lambda("A", Empty, Lambda("B", Empty, Lambda("fst", Ref("A"), Lambda("snd", Ref("B"), Ref("Pair$DataType")))))
     }
   }
 
