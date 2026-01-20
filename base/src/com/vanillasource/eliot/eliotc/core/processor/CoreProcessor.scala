@@ -59,8 +59,9 @@ class CoreProcessor
     NamedValue(function.name, stack)
   }
 
-  /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> d -> e -> F. Note: f[A, M[_]]...
-    * becomes: A -> M -> ..., where M has a type expression on it: X -> Y -> Function(X, Y)
+  /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function$DataType(D,
+    * Function$DataType(E, F)). Note: f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y
+    * \-> Function$DataType(X, Y)
     */
   private def curriedFunctionType(
       args: Seq[SourceArgument],
@@ -68,11 +69,20 @@ class CoreProcessor
       genericParams: Seq[GenericParameter]
   ): Sourced[Expression] = {
     val withArgs = args.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (arg, acc) =>
-      arg.name.as(
-        FunctionLiteral(
-          arg.name,
-          ExpressionStack.ofRuntime(toTypeExpression(arg.typeReference).value),
+      val argType     = toTypeExpression(arg.typeReference)
+      val functionRef = arg.name.as(NamedValueReference(arg.name.as("Function")))
+      // Apply return type (acc) first, then arg type, matching toTypeExpression's foldRight order
+      // This creates Function(returnType)(argType) which applyTypeApplication interprets as FunctionType(argType, returnType)
+      val withReturnType = arg.name.as(
+        FunctionApplication(
+          functionRef.map(ExpressionStack.ofRuntime),
           acc.map(ExpressionStack.ofRuntime)
+        )
+      )
+      arg.name.as(
+        FunctionApplication(
+          withReturnType.map(ExpressionStack.ofRuntime),
+          argType.map(ExpressionStack.ofRuntime)
         )
       )
     }

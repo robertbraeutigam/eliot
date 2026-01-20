@@ -21,11 +21,12 @@ class ValueResolverTest
       CoreProcessor(),
       ModuleNamesProcessor(),
       UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(Seq.empty),
+      ModuleValueProcessor(Seq(ModuleName2.systemFunctionModuleName)),
       UnifiedModuleValueProcessor(),
       ValueResolver()
     ) {
-  private val testModuleName2 = ModuleName2(Seq.empty, "Test")
+  private val testModuleName2   = ModuleName2(Seq.empty, "Test")
+  private val functionModuleName = ModuleName2.systemFunctionModuleName
 
   "value resolver" should "resolve a literal integer expression" in {
     runEngineForValue("data T\na: T = 1").flatMap {
@@ -66,10 +67,14 @@ class ValueResolverTest
 
   it should "resolve abstract functions' signature" in {
     runEngineForSignature("data T\na(x: T): T").flatMap {
-      case Some(FunLit(paramName, ValRef(vfqn))) =>
-        IO.delay((paramName, vfqn) shouldBe ("x", ValueFQN(testModuleName2, "T$DataType")))
-      case x                                     =>
-        IO.delay(fail(s"was not a function literal with value reference body, instead: $x"))
+      case Some(FunApp(FunApp(ValRef(fnVfqn), ValRef(argVfqn)), ValRef(retVfqn))) =>
+        IO.delay {
+          fnVfqn shouldBe ValueFQN(functionModuleName, "Function$DataType")
+          argVfqn shouldBe ValueFQN(testModuleName2, "T$DataType")
+          retVfqn shouldBe ValueFQN(testModuleName2, "T$DataType")
+        }
+      case x                                                                      =>
+        IO.delay(fail(s"was not a function application, instead: $x"))
     }
   }
 
@@ -133,21 +138,21 @@ class ValueResolverTest
   }
 
   private def runEngineForValue(source: String): IO[Option[Expression]] =
-    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a"))).map { case (errors, facts) =>
+    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map { case (errors, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
         .flatMap(_.value.value.runtime)
     }
 
   private def runEngineForSignature(source: String): IO[Option[Expression]] =
-    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a"))).map { case (errors, facts) =>
+    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map { case (errors, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
         .flatMap(_.value.value.signature)
     }
 
   private def runEngineForTypeExpression(source: String): IO[Expression] =
-    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a"))).map { case (_, facts) =>
+    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map { case (_, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
         .map(_.value.value.signature)
@@ -156,5 +161,5 @@ class ValueResolverTest
     }
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =
-    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a"))).map(_._1.map(_.message))
+    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map(_._1.map(_.message))
 }

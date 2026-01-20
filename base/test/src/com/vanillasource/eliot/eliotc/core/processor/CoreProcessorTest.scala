@@ -25,7 +25,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "place curried function type in typeStack for function without generics" in {
     namedValue("f(x: X): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("x", Ref("X"), Ref("R"))
+      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("R")), Ref("X"))
     }
   }
 
@@ -37,7 +37,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "place curried function type in typeStack for multi-parameter function" in {
     namedValue("f(x: X, y: Y): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("x", Ref("X"), Lambda("y", Ref("Y"), Ref("R")))
+      nv.value.signatureStructure shouldBe App(
+        App(Ref("Function"), App(App(Ref("Function"), Ref("R")), Ref("Y"))),
+        Ref("X")
+      )
     }
   }
 
@@ -68,7 +71,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "place generics then function args in typeStack" in {
     namedValue("f[A](x: X): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, Lambda("x", Ref("X"), Ref("R")))
+      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("R")), Ref("X")))
     }
   }
 
@@ -81,7 +84,11 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   it should "handle multiple generics with multiple parameters" in {
     namedValue("f[A, B](x: X, y: Y): R").asserting { nv =>
       nv.value.signatureStructure shouldBe
-        Lambda("A", Empty, Lambda("B", Empty, Lambda("x", Ref("X"), Lambda("y", Ref("Y"), Ref("R")))))
+        Lambda(
+          "A",
+          Empty,
+          Lambda("B", Empty, App(App(Ref("Function"), App(App(Ref("Function"), Ref("R")), Ref("Y"))), Ref("X")))
+        )
     }
   }
 
@@ -195,7 +202,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate type function with generic param and argument in typeStack" in {
     namedValue("data Box[A]", "Box$DataType").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Ref("Type"), Ref("Type"))
+      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("Type")), Ref("Type"))
     }
   }
 
@@ -207,7 +214,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate constructor with curried arguments in typeStack" in {
     namedValue("data Person(name: Name, age: Age)", "Person").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("name", Ref("Name"), Lambda("age", Ref("Age"), Ref("Person$DataType")))
+      nv.value.signatureStructure shouldBe App(
+        App(Ref("Function"), App(App(Ref("Function"), Ref("Person$DataType")), Ref("Age"))),
+        Ref("Name")
+      )
     }
   }
 
@@ -226,13 +236,13 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate accessor with argument in typeStack" in {
     namedValue("data Person(name: Name)", "name").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("obj", Ref("Person$DataType"), Ref("Name"))
+      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("Name")), Ref("Person$DataType"))
     }
   }
 
   it should "generate accessor with generic param and argument in typeStack" in {
     namedValue("data Box[A](value: A)", "value").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, Lambda("obj", Ref("Box$DataType"), Ref("A")))
+      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("A")), Ref("Box$DataType")))
     }
   }
 
@@ -245,7 +255,11 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   it should "handle data with generic constructor" in {
     namedValue("data Pair[A, B](fst: A, snd: B)", "Pair").asserting { nv =>
       nv.value.signatureStructure shouldBe
-        Lambda("A", Empty, Lambda("B", Empty, Lambda("fst", Ref("A"), Lambda("snd", Ref("B"), Ref("Pair$DataType")))))
+        Lambda(
+          "A",
+          Empty,
+          Lambda("B", Empty, App(App(Ref("Function"), App(App(Ref("Function"), Ref("Pair$DataType")), Ref("B"))), Ref("A")))
+        )
     }
   }
 

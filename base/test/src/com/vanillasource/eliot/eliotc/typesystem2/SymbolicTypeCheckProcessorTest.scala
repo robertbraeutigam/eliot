@@ -147,7 +147,7 @@ class SymbolicTypeCheckProcessorTest
   "top level functions" should "be assignable to function types" in {
     runEngineForErrors(
       "data Foo\ng(a: Foo): Foo\nf: Function[Foo, Foo] = g"
-    ).asserting(_ shouldBe Seq("Type mismatch."))
+    ).asserting(_ shouldBe Seq.empty)
   }
 
   // TODO: check returns typed function
@@ -160,7 +160,7 @@ class SymbolicTypeCheckProcessorTest
   "apply" should "type check and return B" in {
     runEngineForErrors(
       "f[A, B](g: Function[A, B], a: A): B = g(a)"
-    ).asserting(_ shouldBe Seq("Target of function application is not a Function. Possibly too many arguments."))
+    ).asserting(_ shouldBe Seq.empty)
   }
 
   "functions without body" should "be type checked successfully with simple return type" in {

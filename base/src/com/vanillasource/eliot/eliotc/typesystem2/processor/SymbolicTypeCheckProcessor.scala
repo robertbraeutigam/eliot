@@ -130,21 +130,23 @@ class SymbolicTypeCheckProcessor
       case Expr.StringLiteral(value)                                                               => noConstraints(NormalizedExpression.StringLiteral(value)).pure[TypeGraphIO]
     }
 
-  /** Apply a type constructor to an argument. */
+  /** Apply a type constructor to an argument. For Function types, the first applied arg (from toTypeExpression's
+    * foldRight) is the return type, and the second is the param type, so we create FunctionType(arg, returnType).
+    */
   private def applyTypeApplication(
       target: NormalizedExpression,
       arg: NormalizedExpression,
       source: Sourced[?]
   ): TypeGraphIO[NormalizedExpression] =
     (target match {
-      case ValueRef(vfqn, Seq()) if isFunctionType(vfqn.value)          => ValueRef(vfqn, Seq(arg))
-      case ValueRef(vfqn, Seq(paramType)) if isFunctionType(vfqn.value) => FunctionType(paramType, arg, source)
-      case ValueRef(vfqn, args)                                         => ValueRef(vfqn, args :+ arg)
-      case _                                                            => SymbolicApplication(target, arg, source)
+      case ValueRef(vfqn, Seq()) if isFunctionType(vfqn.value)           => ValueRef(vfqn, Seq(arg))
+      case ValueRef(vfqn, Seq(returnType)) if isFunctionType(vfqn.value) => FunctionType(arg, returnType, source)
+      case ValueRef(vfqn, args)                                          => ValueRef(vfqn, args :+ arg)
+      case _                                                             => SymbolicApplication(target, arg, source)
     }).pure[TypeGraphIO]
 
   private def isFunctionType(vfqn: ValueFQN): Boolean =
-    vfqn.moduleName === ModuleName.systemFunctionModuleName && vfqn.name === "Function"
+    vfqn.moduleName === ModuleName.systemFunctionModuleName && vfqn.name === "Function$DataType"
 
   /** Get the innermost return type from a potentially curried FunctionType. */
   @tailrec
