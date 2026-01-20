@@ -74,12 +74,6 @@ class SymbolicTypeCheckProcessor
   private def buildTypeConstraints(
       typeExpr: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[(SymbolicUnification, NormalizedExpression)] =
-    buildTypeConstraintsRaw(typeExpr).map { case (u, t) => (u, normalizeType(t, typeExpr)) }
-
-  /** Build constraints without final normalization - used for FunctionApplication to allow arg accumulation. */
-  private def buildTypeConstraintsRaw(
-      typeExpr: Sourced[ExpressionStack[Expression]]
-  ): TypeGraphIO[(SymbolicUnification, NormalizedExpression)] =
     // Use signature if available (for multi-element stacks), otherwise first expression (for wrapper stacks)
     typeExpr.value.signature.orElse(typeExpr.value.expressions.headOption) match {
       case None       =>
@@ -112,20 +106,14 @@ class SymbolicTypeCheckProcessor
       // Value reference - could be a type like Int, String, or a universal var
       case Expr.ValueReference(vfqn)                                                               =>
         StateT.inspect[CompilerIO, TypeCheckState, (SymbolicUnification, NormalizedExpression)] { state =>
-          // Universal vars in signature use base name (A), but resolved refs use A$DataType
-          val baseName = vfqn.value.name.stripSuffix("$DataType")
-          if (state.isUniversal(baseName)) noConstraints(UniversalVar(baseName))
+          if (state.isUniversal(vfqn.value.name)) noConstraints(UniversalVar(vfqn.as(vfqn.value.name)))
           else noConstraints(ValueRef(vfqn, Seq.empty))
         }
 
-      // Parameter reference - could be a bound parameter, universal var, or keep symbolic
+      // Parameter reference - look up bound type or keep symbolic
       case Expr.ParameterReference(name)                                                           =>
-        for {
-          boundType <- lookupParameter[CompilerIO](name.value)
-          isUniv    <- StateT.inspect[CompilerIO, TypeCheckState, Boolean](_.isUniversal(name.value))
-        } yield boundType match {
+        lookupParameter[CompilerIO](name.value).map {
           case Some(typ) => noConstraints(typ)
-          case None if isUniv => noConstraints(UniversalVar(name.value))
           case None      => noConstraints(ParameterRef(name))
         }
 
@@ -142,8 +130,8 @@ class SymbolicTypeCheckProcessor
       case Expr.StringLiteral(value)                                                               => noConstraints(NormalizedExpression.StringLiteral(value)).pure[TypeGraphIO]
     }
 
-  /** Apply a type constructor to an argument. For Function types, we accumulate args in the ValueRef. Conversion to
-    * nested FunctionType happens lazily when needed (in peelFunctionLayer, getInnermostReturnType, asFunctionType).
+  /** Apply a type constructor to an argument. For Function types, the first applied arg (from toTypeExpression's
+    * foldRight) is the return type, and the second is the param type, so we create FunctionType(arg, returnType).
     */
   private def applyTypeApplication(
       target: NormalizedExpression,
@@ -151,59 +139,21 @@ class SymbolicTypeCheckProcessor
       source: Sourced[?]
   ): TypeGraphIO[NormalizedExpression] =
     (target match {
-      case ValueRef(vfqn, args) => ValueRef(vfqn, args :+ arg)
-      case _                    => SymbolicApplication(target, arg, source)
+      case ValueRef(vfqn, Seq()) if isFunctionType(vfqn.value)           => ValueRef(vfqn, Seq(arg))
+      case ValueRef(vfqn, Seq(returnType)) if isFunctionType(vfqn.value) => FunctionType(arg, returnType, source)
+      case ValueRef(vfqn, args)                                          => ValueRef(vfqn, args :+ arg)
+      case _                                                             => SymbolicApplication(target, arg, source)
     }).pure[TypeGraphIO]
-
-  /** Convert a ValueRef to Function with accumulated args into nested FunctionType. For Function(X)(Y)(R), this
-    * produces FunctionType(X, FunctionType(Y, R)). Returns None if not a function type or has insufficient args.
-    */
-  private def asFunctionType(expr: NormalizedExpression, source: Sourced[?]): Option[NormalizedExpression] =
-    expr match {
-      case ValueRef(vfqn, args) if isFunctionType(vfqn.value) && args.length >= 2 =>
-        // args = [paramTypes..., returnType], fold from right to create nested FunctionType
-        val paramTypes = args.init
-        val returnType = args.last
-        Some(paramTypes.foldRight(returnType)((param, ret) => FunctionType(param, ret, source)))
-      case ft: FunctionType                                                       => Some(ft)
-      case _                                                                       => None
-    }
 
   private def isFunctionType(vfqn: ValueFQN): Boolean =
     vfqn.moduleName === ModuleName.systemFunctionModuleName && vfqn.name === "Function$DataType"
 
-  /** Normalize a type, converting ValueRef(Function, args) with >= 2 args to nested FunctionType. */
-  private def normalizeType(expr: NormalizedExpression, source: Sourced[?]): NormalizedExpression =
-    expr match {
-      case ValueRef(vfqn, args) if isFunctionType(vfqn.value) && args.length >= 2 =>
-        val paramTypes = args.init
-        val returnType = args.last
-        paramTypes.foldRight(normalizeType(returnType, source))((param, ret) =>
-          FunctionType(normalizeType(param, source), ret, source)
-        )
-      case _ => expr
-    }
-
-  /** Get the innermost return type from a potentially curried FunctionType or ValueRef(Function, args). */
+  /** Get the innermost return type from a potentially curried FunctionType. */
   @tailrec
   private def getInnermostReturnType(expr: NormalizedExpression): NormalizedExpression =
     expr match {
-      case FunctionType(_, ret, _)                                                    => getInnermostReturnType(ret)
-      case ValueRef(vfqn, args) if isFunctionType(vfqn.value) && args.length >= 2     => args.last
-      case other                                                                      => other
-    }
-
-  /** Peel one function layer from the type, returning the param type and return type. */
-  private def peelFunctionLayer(expr: NormalizedExpression): Option[(NormalizedExpression, NormalizedExpression)] =
-    expr match {
-      case FunctionType(param, ret, _)                                            => Some((param, ret))
-      case ValueRef(vfqn, args) if isFunctionType(vfqn.value) && args.length >= 2 =>
-        // For Function(X)(Y)(R), peel first param: X, return Function(Y)(R) or just R if only 2 args
-        val param      = args.head
-        val remaining  = args.tail
-        val returnType = if (remaining.length == 1) remaining.head else ValueRef(vfqn, remaining)
-        Some((param, returnType))
-      case _                                                                      => None
+      case FunctionType(_, ret, _) => getInnermostReturnType(ret)
+      case other                   => other
     }
 
   /** Build constraints from the body expression, inferring types. Returns (constraints, type, isLambda) where isLambda
@@ -229,10 +179,7 @@ class SymbolicTypeCheckProcessor
         for {
           maybeResolved <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)).attempt.map(_.toOption))
           result        <- maybeResolved match {
-                             case Some(resolved) =>
-                               buildTypeConstraints(resolved.value).map { case (u, t) =>
-                                 (u, normalizeType(t, resolved.value), false)
-                               }
+                             case Some(resolved) => buildTypeConstraints(resolved.value).map { case (u, t) => (u, t, false) }
                              case None           => (SymbolicUnification.empty, ValueRef(vfqn, Seq.empty), false).pure[TypeGraphIO]
                            }
         } yield result
@@ -256,7 +203,10 @@ class SymbolicTypeCheckProcessor
           (paramUnif, paramNorm)      <- buildTypeConstraints(paramType)
           _                           <- bindParameter[CompilerIO](paramName.value, paramNorm)
           // Peel one function layer from expectedType to get the expected return type
-          expectedReturnType           = peelFunctionLayer(expectedType).map(_._2).getOrElse(expectedType)
+          expectedReturnType           = expectedType match {
+                                           case FunctionType(_, ret, _) => ret
+                                           case other                   => other
+                                         }
           (bodyUnif, bodyType, _)     <- buildBodyConstraints(bodyStack.map(_.expressions.head), expectedReturnType)
           bodyConstraint               =
             SymbolicUnification.constraint(expectedReturnType, bodyStack.as(bodyType), "Lambda body type mismatch.")
