@@ -24,7 +24,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "place curried function type in typeStack for function without generics" in {
     namedValue("f(x: X): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("R")), Ref("X"))
+      nv.value.signatureStructure shouldBe App(App(Ref("Function$DataType"), Ref("X")), Ref("R"))
     }
   }
 
@@ -257,7 +257,11 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
         Lambda(
           "A",
           Empty,
-          Lambda("B", Empty, App(App(Ref("Function"), App(App(Ref("Function"), Ref("Pair$DataType")), Ref("B"))), Ref("A")))
+          Lambda(
+            "B",
+            Empty,
+            App(App(Ref("Function"), App(App(Ref("Function"), Ref("Pair$DataType")), Ref("B"))), Ref("A"))
+          )
         )
     }
   }
@@ -280,10 +284,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   case object Empty                                                               extends ExprStructure
 
   extension (stack: ExpressionStack[Expression]) {
-    def signatureStructure: ExprStructure = stack.signature.map(_.structure).getOrElse(Empty)
+    def signatureStructure: ExprStructure       = stack.signature.map(_.structure).getOrElse(Empty)
     def runtimeStructure: Option[ExprStructure] = stack.runtime.map(_.structure)
     // Gets the first expression in the stack (runtime value for ofRuntime stacks)
-    def firstStructure: ExprStructure = stack.expressions.headOption.map(_.structure).getOrElse(Empty)
+    def firstStructure: ExprStructure           = stack.expressions.headOption.map(_.structure).getOrElse(Empty)
   }
 
   extension (expr: Expression) {
@@ -291,7 +295,8 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       case NamedValueReference(name, None)         => Ref(name.value)
       case NamedValueReference(name, Some(qual))   => QualRef(name.value, qual.value)
       case FunctionApplication(target, arg)        => App(target.value.firstStructure, arg.value.firstStructure)
-      case FunctionLiteral(param, paramType, body) => Lambda(param.value, paramType.firstStructure, body.value.firstStructure)
+      case FunctionLiteral(param, paramType, body) =>
+        Lambda(param.value, paramType.firstStructure, body.value.firstStructure)
       case IntegerLiteral(lit)                     => IntLit(lit.value)
       case StringLiteral(lit)                      => StrLit(lit.value)
     }

@@ -70,19 +70,18 @@ class CoreProcessor
   ): Sourced[Expression] = {
     val withArgs = args.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (arg, acc) =>
       val argType     = toTypeExpression(arg.typeReference)
-      val functionRef = arg.name.as(NamedValueReference(arg.name.as("Function")))
-      // Apply return type (acc) first, then arg type, matching toTypeExpression's foldRight order
-      // This creates Function(returnType)(argType) which applyTypeApplication interprets as FunctionType(argType, returnType)
-      val withReturnType = arg.name.as(
+      val functionRef =
+        arg.name.as(NamedValueReference(arg.name.as("Function$DataType"))) // FIXME: hardcoded $DataType again
+      val withArgType = arg.name.as(
         FunctionApplication(
           functionRef.map(ExpressionStack.ofRuntime),
-          acc.map(ExpressionStack.ofRuntime)
+          argType.map(ExpressionStack.ofRuntime)
         )
       )
       arg.name.as(
         FunctionApplication(
-          withReturnType.map(ExpressionStack.ofRuntime),
-          argType.map(ExpressionStack.ofRuntime)
+          withArgType.map(ExpressionStack.ofRuntime),
+          acc.map(ExpressionStack.ofRuntime)
         )
       )
     }
@@ -98,7 +97,9 @@ class CoreProcessor
     reference.genericParameters.foldRight[Sourced[Expression]](
       reference.typeName.as(NamedValueReference(reference.typeName))
     ) { (ref, acc) =>
-      ref.typeName.as(FunctionApplication(acc.map(ExpressionStack.ofRuntime), toTypeExpression(ref).map(ExpressionStack.ofRuntime)))
+      ref.typeName.as(
+        FunctionApplication(acc.map(ExpressionStack.ofRuntime), toTypeExpression(ref).map(ExpressionStack.ofRuntime))
+      )
     }
 
   /** Converts the body into core expression and embeds it as a lambda with the "function" parameters.
@@ -157,7 +158,9 @@ class CoreProcessor
       args: Seq[Sourced[SourceExpression]]
   ): Sourced[Expression] =
     args.foldLeft(target) { (acc, arg) =>
-      arg.as(FunctionApplication(acc.map(ExpressionStack.ofRuntime), toBodyExpression(arg).map(ExpressionStack.ofRuntime)))
+      arg.as(
+        FunctionApplication(acc.map(ExpressionStack.ofRuntime), toBodyExpression(arg).map(ExpressionStack.ofRuntime))
+      )
     }
 
   private def transformDataDefinitions(definitions: Seq[DataDefinition]): Seq[NamedValue] =
