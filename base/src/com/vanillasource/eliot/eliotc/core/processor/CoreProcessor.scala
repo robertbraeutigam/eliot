@@ -59,44 +59,49 @@ class CoreProcessor
     NamedValue(function.name, stack)
   }
 
-  /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function$DataType(D,
-    * Function$DataType(E, F)). Note: f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y
-    * \-> Function$DataType(X, Y)
+  /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function$DataType(D)(E)(F). Note:
+    * f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y -> Function$DataType(X)(Y)
     */
   private def curriedFunctionType(
       args: Seq[SourceArgument],
       returnType: TypeReference,
       genericParams: Seq[GenericParameter]
   ): Sourced[Expression] = {
-    val withArgs = args.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (arg, acc) =>
-      val argType     = toTypeExpression(arg.typeReference)
-      val functionRef =
-        arg.name.as(NamedValueReference(arg.name.as("Function$DataType"))) // FIXME: hardcoded $DataType again
-      val withArgType = arg.name.as(
-        FunctionApplication(
-          functionRef.map(ExpressionStack.ofRuntime),
-          argType.map(ExpressionStack.ofRuntime)
+    val withArgs = if (args.isEmpty) {
+      toTypeExpression(returnType)
+    } else {
+      // Start with Function$DataType, apply all arg types in order, then return type
+      val functionRef: Sourced[Expression] =
+        args.head.name.as(NamedValueReference(args.head.name.as("Function"))) // ValueResolver adds $DataType
+      val withArgTypes = args.foldLeft(functionRef) { (acc, arg) =>
+        val argType = toTypeExpression(arg.typeReference)
+        arg.name.as(
+          FunctionApplication(
+            acc.map(ExpressionStack.ofRuntime),
+            argType.map(ExpressionStack.ofRuntime)
+          )
         )
-      )
-      arg.name.as(
+      }
+      val retType = toTypeExpression(returnType)
+      retType.as(
         FunctionApplication(
-          withArgType.map(ExpressionStack.ofRuntime),
-          acc.map(ExpressionStack.ofRuntime)
+          withArgTypes.map(ExpressionStack.ofRuntime),
+          retType.map(ExpressionStack.ofRuntime)
         )
       )
     }
-    genericParams.foldLeft[Sourced[Expression]](withArgs) { (acc, param) =>
+    genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
       param.name.as(FunctionLiteral(param.name, ExpressionStack.empty, acc.map(ExpressionStack.ofRuntime)))
     }
   }
 
   /** Converts type references to type expressions. Type references are in the form of: A[B[C...],...], which is
-    * converted into an expression: A(B(C...),...), so function applications.
+    * converted into an expression: A(B)(C)..., so curried function applications.
     */
   private def toTypeExpression(reference: TypeReference): Sourced[Expression] =
-    reference.genericParameters.foldRight[Sourced[Expression]](
+    reference.genericParameters.foldLeft[Sourced[Expression]](
       reference.typeName.as(NamedValueReference(reference.typeName))
-    ) { (ref, acc) =>
+    ) { (acc, ref) =>
       ref.typeName.as(
         FunctionApplication(acc.map(ExpressionStack.ofRuntime), toTypeExpression(ref).map(ExpressionStack.ofRuntime))
       )

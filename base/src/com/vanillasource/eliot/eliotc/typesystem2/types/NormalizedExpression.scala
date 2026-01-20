@@ -48,8 +48,10 @@ object NormalizedExpression {
   /** A unification variable (existential, to be solved during type checking). */
   case class UnificationVar(id: String, source: Sourced[?]) extends NormalizedExpression
 
-  /** A universal type variable (from explicit polymorphism, e.g., [A] in f[A]). */
-  case class UniversalVar(name: Sourced[String]) extends NormalizedExpression
+  /** A universal type variable (from explicit polymorphism, e.g., [A] in f[A]). Uses plain String for proper equality
+    * comparison since source position shouldn't affect type identity.
+    */
+  case class UniversalVar(name: String) extends NormalizedExpression
 
   given Show[NormalizedExpression] = {
     case ValueRef(vfqn, args) if args.isEmpty => vfqn.value.show
@@ -60,6 +62,6 @@ object NormalizedExpression {
     case FunctionType(param, ret, _)          => s"(${param.show}) -> ${ret.show}"
     case SymbolicApplication(target, arg, _)  => s"${target.show}(${arg.show})"
     case UnificationVar(id, _)                => s"?$id"
-    case UniversalVar(name)                   => s"${name.value}"
+    case UniversalVar(name)                   => name
   }
 }

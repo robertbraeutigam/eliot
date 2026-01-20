@@ -72,19 +72,19 @@ case class SymbolicUnification(
         } yield ()
 
       // Universal variables: must match exactly
-      case (UniversalVar(n1), UniversalVar(n2)) if n1.value === n2.value =>
+      case (UniversalVar(n1), UniversalVar(n2)) if n1 === n2 =>
         StateT.pure(())
 
-      case (UniversalVar(n1), _) if universalVars.contains(n1.value) =>
+      case (UniversalVar(n1), _) if universalVars.contains(n1) =>
         issueError(
           constraint,
-          s"Expression with type ${right.show} cannot be assigned to universal type ${n1.value}."
+          s"Expression with type ${right.show} cannot be assigned to universal type $n1."
         )
 
-      case (_, UniversalVar(n2)) if universalVars.contains(n2.value) =>
+      case (_, UniversalVar(n2)) if universalVars.contains(n2) =>
         issueError(
           constraint,
-          s"Expression with universal type ${n2.value} cannot be assigned to type ${left.show}."
+          s"Expression with universal type $n2 cannot be assigned to type ${left.show}."
         )
 
       // Parameter references: must be same parameter

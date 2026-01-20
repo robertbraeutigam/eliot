@@ -24,7 +24,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "place curried function type in typeStack for function without generics" in {
     namedValue("f(x: X): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(App(Ref("Function$DataType"), Ref("X")), Ref("R"))
+      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("X")), Ref("R"))
     }
   }
 
@@ -37,7 +37,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   it should "place curried function type in typeStack for multi-parameter function" in {
     namedValue("f(x: X, y: Y): R").asserting { nv =>
       nv.value.signatureStructure shouldBe
-        App(App(App(Ref("Function$DataType"), Ref("X")), Ref("Y")), Ref("R"))
+        App(App(App(Ref("Function"), Ref("X")), Ref("Y")), Ref("R"))
     }
   }
 
@@ -68,7 +68,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "place generics then function args in typeStack" in {
     namedValue("f[A](x: X): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("R")), Ref("X")))
+      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("X")), Ref("R")))
     }
   }
 
@@ -84,7 +84,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
         Lambda(
           "A",
           Empty,
-          Lambda("B", Empty, App(App(Ref("Function"), App(App(Ref("Function"), Ref("R")), Ref("Y"))), Ref("X")))
+          Lambda("B", Empty, App(App(App(Ref("Function"), Ref("X")), Ref("Y")), Ref("R")))
         )
     }
   }
@@ -103,7 +103,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "convert two-parameter type references to chained applications" in {
     namedValue("f: A[B, C]").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(App(Ref("A"), Ref("C")), Ref("B"))
+      nv.value.signatureStructure shouldBe App(App(Ref("A"), Ref("B")), Ref("C"))
     }
   }
 
@@ -211,10 +211,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate constructor with curried arguments in typeStack" in {
     namedValue("data Person(name: Name, age: Age)", "Person").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(
-        App(Ref("Function"), App(App(Ref("Function"), Ref("Person$DataType")), Ref("Age"))),
-        Ref("Name")
-      )
+      nv.value.signatureStructure shouldBe App(App(App(Ref("Function"), Ref("Name")), Ref("Age")), Ref("Person$DataType"))
     }
   }
 
@@ -233,13 +230,13 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate accessor with argument in typeStack" in {
     namedValue("data Person(name: Name)", "name").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("Name")), Ref("Person$DataType"))
+      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("Person$DataType")), Ref("Name"))
     }
   }
 
   it should "generate accessor with generic param and argument in typeStack" in {
     namedValue("data Box[A](value: A)", "value").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("A")), Ref("Box$DataType")))
+      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("Box$DataType")), Ref("A")))
     }
   }
 
@@ -255,11 +252,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
         Lambda(
           "A",
           Empty,
-          Lambda(
-            "B",
-            Empty,
-            App(App(Ref("Function"), App(App(Ref("Function"), Ref("Pair$DataType")), Ref("B"))), Ref("A"))
-          )
+          Lambda("B", Empty, App(App(App(Ref("Function"), Ref("A")), Ref("B")), Ref("Pair$DataType")))
         )
     }
   }
