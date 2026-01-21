@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.typesystem2.fact
 
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -9,9 +10,37 @@ import com.vanillasource.eliot.eliotc.typesystem2.fact.TypedExpression.Expressio
 case class TypedExpression(
     expressionType: NormalizedExpression,
     expression: Expression
-)
+) {
+
+  /** Transform all types in this expression tree using the given function. */
+  def transformTypes(f: NormalizedExpression => NormalizedExpression): TypedExpression =
+    TypedExpression(
+      f(expressionType),
+      expression match {
+        case TypedExpression.FunctionApplication(target, arg) =>
+          TypedExpression.FunctionApplication(
+            TypedExpression.transformStack(target, f),
+            TypedExpression.transformStack(arg, f)
+          )
+        case TypedExpression.FunctionLiteral(name, paramType, body) =>
+          TypedExpression.FunctionLiteral(
+            name,
+            TypedExpression.transformStack(paramType, f),
+            TypedExpression.transformStack(body, f)
+          )
+        case other => other
+      }
+    )
+}
 
 object TypedExpression {
+
+  def transformStack(
+      stack: Sourced[ExpressionStack[TypedExpression]],
+      f: NormalizedExpression => NormalizedExpression
+  ): Sourced[ExpressionStack[TypedExpression]] =
+    stack.map(s => ExpressionStack(s.expressions.map(_.transformTypes(f)), s.hasRuntime))
+
   sealed trait Expression
 
   case class FunctionApplication(target: Sourced[ExpressionStack[TypedExpression]], argument: Sourced[ExpressionStack[TypedExpression]])

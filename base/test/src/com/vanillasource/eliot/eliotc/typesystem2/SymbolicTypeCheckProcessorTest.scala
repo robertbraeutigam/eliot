@@ -193,7 +193,7 @@ class SymbolicTypeCheckProcessorTest
     runEngineForTypedValue("data A\nf: A")
       .asserting { func =>
         func.vfqn.name shouldBe "f"
-        func.definition.value.value.hasRuntime shouldBe false
+        func.value.value.hasRuntime shouldBe false
       }
   }
 
@@ -216,7 +216,7 @@ class SymbolicTypeCheckProcessorTest
 
   private def runEngineForTypedValues(source: String): IO[Seq[ValueFQN]] =
     runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, "f")), systemImports).map { case (_, facts) =>
-      facts.values.collect { case TypeCheckedValue(vfqn, _) =>
+      facts.values.collect { case TypeCheckedValue(vfqn, _, _) =>
         vfqn
       }.toSeq
     }
