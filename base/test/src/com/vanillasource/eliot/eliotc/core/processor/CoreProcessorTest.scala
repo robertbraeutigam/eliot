@@ -238,7 +238,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate accessor with generic param and argument in typeStack" in {
     namedValue("data Box[A](value: A)", "value").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("A")), Ref("Box$DataType")))
+      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("Box$DataType")), Ref("A")))
     }
   }
 
@@ -257,7 +257,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
           Lambda(
             "B",
             Empty,
-            App(App(Ref("Function"), App(App(Ref("Function"), Ref("Pair$DataType")), Ref("B"))), Ref("A"))
+            App(App(Ref("Function"), Ref("A")), App(App(Ref("Function"), Ref("B")), Ref("Pair$DataType")))
           )
         )
     }
