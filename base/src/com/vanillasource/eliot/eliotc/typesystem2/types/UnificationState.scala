@@ -11,17 +11,9 @@ case class UnificationState(substitutions: Map[String, NormalizedExpression] = M
 
   /** Apply all known substitutions to an expression recursively. */
   def substitute(expr: NormalizedExpression): NormalizedExpression =
-    expr match {
-      case UnificationVar(id, _)                  =>
-        substitutions.get(id).map(substitute).getOrElse(expr)
-      case ValueRef(vfqn, args)                   =>
-        ValueRef(vfqn, args.map(substitute))
-      case FunctionType(param, ret, source)       =>
-        FunctionType(substitute(param), substitute(ret), source)
-      case SymbolicApplication(target, arg, src)  =>
-        SymbolicApplication(substitute(target), substitute(arg), src)
-      case ParameterRef(_) | IntLiteral(_) | StringLiteral(_) | UniversalVar(_) =>
-        expr
+    expr.transform {
+      case uvar @ UnificationVar(id, _) => substitutions.get(id).map(substitute).getOrElse(uvar)
+      case other                        => other
     }
 
   /** Bind a unification variable to an expression. */

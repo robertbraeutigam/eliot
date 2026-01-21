@@ -116,13 +116,7 @@ case class SymbolicUnification(
   }
 
   private def isOccursCheck(varId: String, expr: NormalizedExpression): Boolean =
-    expr match {
-      case UnificationVar(id, _)               => id === varId
-      case ValueRef(_, args)                   => args.exists(isOccursCheck(varId, _))
-      case FunctionType(param, ret, _)         => isOccursCheck(varId, param) || isOccursCheck(varId, ret)
-      case SymbolicApplication(target, arg, _) => isOccursCheck(varId, target) || isOccursCheck(varId, arg)
-      case _                                   => false
-    }
+    expr.containsVar(varId)
 
   private def issueError(constraint: Constraint, message: String): StateT[CompilerIO, UnificationState, Unit] =
     StateT.liftF(

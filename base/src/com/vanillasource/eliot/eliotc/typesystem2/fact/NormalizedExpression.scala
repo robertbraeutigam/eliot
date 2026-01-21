@@ -51,6 +51,28 @@ object NormalizedExpression {
   /** A universal type variable (from explicit polymorphism, e.g., [A] in f[A]). */
   case class UniversalVar(name: Sourced[String]) extends NormalizedExpression
 
+  extension (expr: NormalizedExpression) {
+
+    /** Transform an expression by applying f to all children first, then to the result. */
+    def transform(f: NormalizedExpression => NormalizedExpression): NormalizedExpression =
+      f(expr match {
+        case ValueRef(vfqn, args)                  => ValueRef(vfqn, args.map(_.transform(f)))
+        case FunctionType(param, ret, source)      => FunctionType(param.transform(f), ret.transform(f), source)
+        case SymbolicApplication(target, arg, src) => SymbolicApplication(target.transform(f), arg.transform(f), src)
+        case leaf                                  => leaf
+      })
+
+    /** Check if this expression contains a variable with the given id. */
+    def containsVar(varId: String): Boolean =
+      expr match {
+        case UnificationVar(id, _)                 => id == varId
+        case ValueRef(_, args)                     => args.exists(_.containsVar(varId))
+        case FunctionType(param, ret, _)           => param.containsVar(varId) || ret.containsVar(varId)
+        case SymbolicApplication(target, arg, _)   => target.containsVar(varId) || arg.containsVar(varId)
+        case ParameterRef(_) | IntLiteral(_) | StringLiteral(_) | UniversalVar(_) => false
+      }
+  }
+
   given Show[NormalizedExpression] = {
     case ValueRef(vfqn, args) if args.isEmpty => vfqn.value.show
     case ValueRef(vfqn, args)                 => s"${vfqn.value.show}[${args.map(_.show).mkString(", ")}]"

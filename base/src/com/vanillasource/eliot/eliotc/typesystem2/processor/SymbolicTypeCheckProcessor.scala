@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.typesystem2.processor
 
-import cats.data.{StateT, WriterT}
+import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -14,7 +14,6 @@ import com.vanillasource.eliot.eliotc.typesystem2.fact.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.*
 import NormalizedExpression.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
-import com.vanillasource.eliot.eliotc.typesystem2.types.TypeGraphIO.*
 
 class SymbolicTypeCheckProcessor
     extends TransformationProcessor[ResolvedValue.Key, TypeCheckedValue.Key](key => ResolvedValue.Key(key.vfqn))
@@ -116,7 +115,7 @@ class SymbolicTypeCheckProcessor
       case Expr.ValueReference(vfqn)                                                               =>
         liftState(StateT.inspect[CompilerIO, TypeCheckState, (NormalizedExpression, TypedExpression)] { state =>
           val normalizedType =
-            if (state.isUniversal(vfqn.value.name)) UniversalVar(vfqn.as(vfqn.value.name))
+            if (state.universalVars.contains(vfqn.value.name)) UniversalVar(vfqn.as(vfqn.value.name))
             else ValueRef(vfqn, Seq.empty)
           (normalizedType, TypedExpression(normalizedType, TypedExpression.ValueReference(vfqn)))
         })

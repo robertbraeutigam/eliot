@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.typesystem2.types
 
-import cats.data.StateT
+import cats.data.{StateT, WriterT}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -17,54 +17,37 @@ case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
     parameterTypes: Map[String, NormalizedExpression] = Map.empty,
     universalVars: Set[String] = Set.empty
-) {
-
-  /** Generate a fresh unification variable. */
-  def generateUnificationVar(source: Sourced[?]): (TypeCheckState, UnificationVar) = {
-    val id       = shortIds.generateCurrentIdentifier()
-    val newState = copy(shortIds = shortIds.advanceIdentifierIndex())
-    (newState, UnificationVar(id, source))
-  }
-
-  /** Bind a parameter name to its type. */
-  def bindParameter(name: String, typ: NormalizedExpression): TypeCheckState =
-    copy(parameterTypes = parameterTypes + (name -> typ))
-
-  /** Add a universal variable. */
-  def addUniversalVar(name: String): TypeCheckState =
-    copy(universalVars = universalVars + name)
-
-  /** Look up the type of a bound parameter. */
-  def lookupParameter(name: String): Option[NormalizedExpression] =
-    parameterTypes.get(name)
-
-  /** Check if a name is a universal variable. */
-  def isUniversal(name: String): Boolean =
-    universalVars.contains(name)
-
-  /** Create a new scope with fresh parameter bindings (for lambda bodies). */
-  def withParameterScope(bindings: Map[String, NormalizedExpression]): TypeCheckState =
-    copy(parameterTypes = parameterTypes ++ bindings)
-}
+)
 
 object TypeCheckState {
   type TypeCheckIO[T] = StateT[CompilerIO, TypeCheckState, T]
+  type TypeGraphIO[T] = WriterT[TypeCheckIO, SymbolicUnification, T]
 
   def generateUnificationVar(source: Sourced[?]): TypeCheckIO[UnificationVar] =
     StateT { state =>
-      val (newState, uvar) = state.generateUnificationVar(source)
-      (newState, uvar).pure[CompilerIO]
+      val id       = state.shortIds.generateCurrentIdentifier()
+      val newState = state.copy(shortIds = state.shortIds.advanceIdentifierIndex())
+      (newState, UnificationVar(id, source)).pure[CompilerIO]
     }
 
   def bindParameter(name: String, typ: NormalizedExpression): TypeCheckIO[Unit] =
-    StateT.modify(_.bindParameter(name, typ))
+    StateT.modify(state => state.copy(parameterTypes = state.parameterTypes + (name -> typ)))
 
   def addUniversalVar(name: String): TypeCheckIO[Unit] =
-    StateT.modify(_.addUniversalVar(name))
+    StateT.modify(state => state.copy(universalVars = state.universalVars + name))
 
   def lookupParameter(name: String): TypeCheckIO[Option[NormalizedExpression]] =
-    StateT.inspect(_.lookupParameter(name))
+    StateT.inspect(_.parameterTypes.get(name))
 
   def isUniversal(name: String): TypeCheckIO[Boolean] =
-    StateT.inspect(_.isUniversal(name))
+    StateT.inspect(_.universalVars.contains(name))
+
+  def tellConstraint(constraint: SymbolicUnification): TypeGraphIO[Unit] =
+    WriterT.tell(constraint)
+
+  def tellUniversalVar(name: String): TypeGraphIO[Unit] =
+    tellConstraint(SymbolicUnification.universalVar(name))
+
+  def liftState[T](stateIO: TypeCheckIO[T]): TypeGraphIO[T] =
+    WriterT.liftF(stateIO)
 }
