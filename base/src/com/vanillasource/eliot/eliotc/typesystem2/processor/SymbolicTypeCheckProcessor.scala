@@ -257,11 +257,11 @@ class SymbolicTypeCheckProcessor
   private def buildTypedStack(
       stack: Sourced[ExpressionStack[Expression]],
       solution: UnificationState
-  ): CompilerIO[Sourced[TypedExpressionStack]] =
+  ): CompilerIO[Sourced[ExpressionStack[TypedExpression]]] =
     stack.value.expressions
       .traverse { expr =>
         val placeholderType = UnificationVar("stack", stack)
         buildTypedExpression(stack.as(expr), placeholderType, solution).map(_.value)
       }
-      .map(exprs => stack.as(TypedExpressionStack(exprs)))
+      .map(exprs => stack.as(ExpressionStack[TypedExpression](exprs, stack.value.hasRuntime)))
 }

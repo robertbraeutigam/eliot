@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.typesystem2.fact
 
+import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.typesystem2.fact.TypedExpression.Expression
@@ -13,7 +14,7 @@ case class TypedExpression(
 object TypedExpression {
   sealed trait Expression
 
-  case class FunctionApplication(target: Sourced[TypedExpressionStack], argument: Sourced[TypedExpressionStack])
+  case class FunctionApplication(target: Sourced[ExpressionStack[TypedExpression]], argument: Sourced[ExpressionStack[TypedExpression]])
       extends Expression
 
   case class IntegerLiteral(integerLiteral: Sourced[BigInt]) extends Expression
@@ -26,7 +27,7 @@ object TypedExpression {
 
   case class FunctionLiteral(
       parameterName: Sourced[String],
-      parameterType: Sourced[TypedExpressionStack],
-      body: Sourced[TypedExpressionStack]
+      parameterType: Sourced[ExpressionStack[TypedExpression]],
+      body: Sourced[ExpressionStack[TypedExpression]]
   ) extends Expression
 }
