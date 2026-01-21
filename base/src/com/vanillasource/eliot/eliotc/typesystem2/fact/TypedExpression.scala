@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.typesystem2.fact
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.typesystem2.fact.TypedExpression.Expression
-import com.vanillasource.eliot.eliotc.typesystem2.types.NormalizedExpression
 
 /** An expression annotated with its type (as a NormalizedExpression). */
 case class TypedExpression(

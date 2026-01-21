@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.resolve2.fact.Expression as Expr
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.typesystem2.fact.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.*
-import com.vanillasource.eliot.eliotc.typesystem2.types.NormalizedExpression.*
+import NormalizedExpression.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
 
 import scala.annotation.tailrec

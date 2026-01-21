@@ -5,7 +5,8 @@ import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.processor.ShortUniqueIdentifiers
-import com.vanillasource.eliot.eliotc.typesystem2.types.NormalizedExpression.UnificationVar
+import com.vanillasource.eliot.eliotc.typesystem2.fact.NormalizedExpression
+import com.vanillasource.eliot.eliotc.typesystem2.fact.NormalizedExpression.UnificationVar
 
 /** State maintained during type checking. Tracks:
   *   - Fresh unification variable generation

@@ -2,7 +2,8 @@ package com.vanillasource.eliot.eliotc.typesystem2.types
 
 import cats.Show
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.typesystem2.types.NormalizedExpression.*
+import com.vanillasource.eliot.eliotc.typesystem2.fact.NormalizedExpression
+import com.vanillasource.eliot.eliotc.typesystem2.fact.NormalizedExpression.*
 
 /** Tracks the current state of unification. Maps unification variable IDs to their resolved expressions.
   */

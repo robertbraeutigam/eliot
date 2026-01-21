@@ -7,7 +7,8 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
-import com.vanillasource.eliot.eliotc.typesystem2.types.NormalizedExpression.*
+import com.vanillasource.eliot.eliotc.typesystem2.fact.NormalizedExpression
+import com.vanillasource.eliot.eliotc.typesystem2.fact.NormalizedExpression.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.SymbolicUnification.Constraint
 
 /** Collects unification constraints between normalized expressions. Unlike the old TypeUnification which worked on
