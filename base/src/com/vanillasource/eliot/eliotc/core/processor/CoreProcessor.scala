@@ -85,7 +85,7 @@ class CoreProcessor
         )
       )
     }
-    genericParams.foldLeft[Sourced[Expression]](withArgs) { (acc, param) =>
+    genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
       param.name.as(FunctionLiteral(param.name, ExpressionStack.empty, acc.map(ExpressionStack.ofRuntime)))
     }
   }

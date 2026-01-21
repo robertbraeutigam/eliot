@@ -68,7 +68,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "place generics then function args in typeStack" in {
     namedValue("f[A](x: X): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("R")), Ref("X")))
+      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("X")), Ref("R")))
     }
   }
 
@@ -84,7 +84,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
         Lambda(
           "A",
           Empty,
-          Lambda("B", Empty, App(App(Ref("Function"), App(App(Ref("Function"), Ref("R")), Ref("Y"))), Ref("X")))
+          Lambda("B", Empty, App(App(Ref("Function"), Ref("X")), App(App(Ref("Function"), Ref("Y")), Ref("R"))))
         )
     }
   }
@@ -103,7 +103,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "convert two-parameter type references to chained applications" in {
     namedValue("f: A[B, C]").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(App(Ref("A"), Ref("C")), Ref("B"))
+      nv.value.signatureStructure shouldBe App(App(Ref("A"), Ref("B")), Ref("C"))
     }
   }
 
