@@ -1,8 +1,8 @@
 package com.vanillasource.eliot.eliotc.typesystem2.types
 
-import cats.Monad
 import cats.data.StateT
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.processor.ShortUniqueIdentifiers
 import com.vanillasource.eliot.eliotc.typesystem2.fact.NormalizedExpression
@@ -48,23 +48,23 @@ case class TypeCheckState(
 }
 
 object TypeCheckState {
-  type TypeCheckIO[F[_], T] = StateT[F, TypeCheckState, T]
+  type TypeCheckIO[T] = StateT[CompilerIO, TypeCheckState, T]
 
-  def generateUnificationVar[F[_]: Monad](source: Sourced[?]): TypeCheckIO[F, UnificationVar] =
+  def generateUnificationVar(source: Sourced[?]): TypeCheckIO[UnificationVar] =
     StateT { state =>
       val (newState, uvar) = state.generateUnificationVar(source)
-      (newState, uvar).pure[F]
+      (newState, uvar).pure[CompilerIO]
     }
 
-  def bindParameter[F[_]: Monad](name: String, typ: NormalizedExpression): TypeCheckIO[F, Unit] =
+  def bindParameter(name: String, typ: NormalizedExpression): TypeCheckIO[Unit] =
     StateT.modify(_.bindParameter(name, typ))
 
-  def addUniversalVar[F[_]: Monad](name: String): TypeCheckIO[F, Unit] =
+  def addUniversalVar(name: String): TypeCheckIO[Unit] =
     StateT.modify(_.addUniversalVar(name))
 
-  def lookupParameter[F[_]: Monad](name: String): TypeCheckIO[F, Option[NormalizedExpression]] =
+  def lookupParameter(name: String): TypeCheckIO[Option[NormalizedExpression]] =
     StateT.inspect(_.lookupParameter(name))
 
-  def isUniversal[F[_]: Monad](name: String): TypeCheckIO[F, Boolean] =
+  def isUniversal(name: String): TypeCheckIO[Boolean] =
     StateT.inspect(_.isUniversal(name))
 }
