@@ -94,9 +94,9 @@ class CoreProcessor
     * converted into an expression: A(B(C...),...), so function applications.
     */
   private def toTypeExpression(reference: TypeReference): Sourced[Expression] =
-    reference.genericParameters.foldRight[Sourced[Expression]](
+    reference.genericParameters.foldLeft[Sourced[Expression]](
       reference.typeName.as(NamedValueReference(reference.typeName))
-    ) { (ref, acc) =>
+    ) { (acc, ref) =>
       ref.typeName.as(
         FunctionApplication(acc.map(ExpressionStack.ofRuntime), toTypeExpression(ref).map(ExpressionStack.ofRuntime))
       )
