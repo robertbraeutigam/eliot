@@ -5,6 +5,5 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 case class TypedValueDefinition(
     name: Sourced[String],
-    typeExpression: Sourced[ExpressionStack[TypedExpression]],
-    body: Option[Sourced[TypedExpression]]
+    value: Sourced[ExpressionStack[TypedExpression]]
 )

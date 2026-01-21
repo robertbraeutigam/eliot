@@ -28,31 +28,33 @@ class SymbolicTypeCheckProcessor
       case Some(bodyExpr) =>
         val body = resolvedValue.value.as(bodyExpr)
         for {
-          (state, (typeConstraints, (declaredType, typedType))) <- buildTypeConstraints(resolvedValue.value).run
-                                                                     .run(TypeCheckState())
-          _                                                     <- debug[CompilerIO](s"Type constraints: ${typeConstraints.show}")
-          (bodyConstraints, (bodyType, bodyTyped))              <- buildBodyConstraints(body).run.runA(state)
-          _                                                     <- debug[CompilerIO](s"Body constraints: ${bodyConstraints.show}")
-          topLevelConstraint                                     = SymbolicUnification.constraint(
-                                                                     declaredType,
-                                                                     body.as(bodyType),
-                                                                     "Type mismatch."
-                                                                   )
-          allConstraints                                         = typeConstraints |+| bodyConstraints |+| topLevelConstraint
-          solution                                              <- allConstraints.solve()
-          resolvedTypedType                                      = applySubstitutionsToStack(typedType, solution)
-          resolvedTypedBody                                      = body.as(applySubstitutions(bodyTyped, solution))
+          (state, (typeConstraints, (declaredType, typedSignature))) <- buildTypeConstraints(resolvedValue.value).run
+                                                                          .run(TypeCheckState())
+          _                                                          <- debug[CompilerIO](s"Type constraints: ${typeConstraints.show}")
+          (bodyConstraints, (bodyType, typedBody))                   <- buildBodyConstraints(body).run.runA(state)
+          _                                                          <- debug[CompilerIO](s"Body constraints: ${bodyConstraints.show}")
+          topLevelConstraint                                          = SymbolicUnification.constraint(
+                                                                          declaredType,
+                                                                          body.as(bodyType),
+                                                                          "Type mismatch."
+                                                                        )
+          allConstraints                                              = typeConstraints |+| bodyConstraints |+| topLevelConstraint
+          solution                                                   <- allConstraints.solve()
+          resolvedTypedSignature                                      = typedSignature.value.expressions.map(applySubstitutions(_, solution))
+          resolvedTypedBody                                           = applySubstitutions(typedBody, solution)
+          unifiedStack                                                = ExpressionStack(resolvedTypedBody +: resolvedTypedSignature, true)
         } yield TypeCheckedValue(
           resolvedValue.vfqn,
-          TypedValueDefinition(resolvedValue.name, resolvedTypedType, Some(resolvedTypedBody))
+          TypedValueDefinition(resolvedValue.name, resolvedValue.value.as(unifiedStack))
         )
 
       case None =>
         for {
-          (_, (_, typedType)) <- buildTypeConstraints(resolvedValue.value).run.runA(TypeCheckState())
+          (_, (_, typedSignature)) <- buildTypeConstraints(resolvedValue.value).run.runA(TypeCheckState())
+          unifiedStack              = typedSignature.map(s => ExpressionStack(s.expressions, false))
         } yield TypeCheckedValue(
           resolvedValue.vfqn,
-          TypedValueDefinition(resolvedValue.name, typedType, None)
+          TypedValueDefinition(resolvedValue.name, unifiedStack)
         )
     }
 

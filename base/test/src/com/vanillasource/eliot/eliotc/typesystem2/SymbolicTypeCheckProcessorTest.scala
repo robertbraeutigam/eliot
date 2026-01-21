@@ -193,7 +193,7 @@ class SymbolicTypeCheckProcessorTest
     runEngineForTypedValue("data A\nf: A")
       .asserting { func =>
         func.vfqn.name shouldBe "f"
-        func.definition.body shouldBe None
+        func.definition.value.value.hasRuntime shouldBe false
       }
   }
 
