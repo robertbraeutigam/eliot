@@ -64,7 +64,7 @@ class SymbolicTypeCheckProcessorTest
 
   it should "fail if parameter is of wrong type" in {
     runEngineForErrors("data A\ndata B\nf(b: B): A = b")
-      .asserting(_ shouldBe Seq("Lambda body type mismatch."))
+      .asserting(_ shouldBe Seq("Return type mismatch."))
   }
 
   it should "fail if parameter is used as a wrong parameter in another function" in {
@@ -79,50 +79,50 @@ class SymbolicTypeCheckProcessorTest
 
   it should "type check when returning different, but non-constrained generic" in {
     runEngineForErrors("f[A, B](a: A, b: B): A = b")
-      .asserting(_ shouldBe Seq("Lambda body type mismatch."))
+      .asserting(_ shouldBe Seq("Return type mismatch."))
   }
 
   it should "forward unification to concrete types" in {
     runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nf(i: Int, s: String): String = id(s)")
-      .asserting(_ shouldBe Seq("Argument type mismatch.", "Lambda body type mismatch."))
+      .asserting(_ shouldBe Seq("Argument type mismatch.", "Return type mismatch."))
   }
 
   it should "forward unification to concrete types in recursive setup" in {
     runEngineForErrors(
       "id[A](a: A): A = a\ndata String\ndata Int\nf(i: Int, s: String): String = id(id(id(s)))"
     )
-      .asserting(_ shouldBe Seq("Argument type mismatch.", "Lambda body type mismatch."))
+      .asserting(_ shouldBe Seq("Argument type mismatch.", "Return type mismatch."))
   }
 
   it should "fail if forward unification to concrete types produces conflict" in {
     runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nf(i: Int, s: String): String = id(i)")
-      .asserting(_ shouldBe Seq("Argument type mismatch.", "Lambda body type mismatch."))
+      .asserting(_ shouldBe Seq("Argument type mismatch.", "Return type mismatch."))
   }
 
   it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
     runEngineForErrors(
       "id[A](a: A): A = a\ndata String\ndata Int\nf(i: Int, s: String): String = id(id(id(i)))"
     )
-      .asserting(_ shouldBe Seq("Argument type mismatch.", "Lambda body type mismatch."))
+      .asserting(_ shouldBe Seq("Argument type mismatch.", "Return type mismatch."))
   }
 
   it should "unify on multiple parameters" in {
     runEngineForErrors(
       "g[A](a: A, b: A, c: A): A = a\nsomeA[A]: A\ndata String\ndata Int\nf(i: Int, s: String): String = g(someA, someA, s)"
     )
-      .asserting(_ shouldBe Seq("Argument type mismatch.", "Lambda body type mismatch."))
+      .asserting(_ shouldBe Seq("Argument type mismatch.", "Return type mismatch."))
   }
 
   it should "fail, if unifying on multiple parameters fail at later stage" in {
     runEngineForErrors(
       "g[A](a: A, b: A, c: A): A = a\nsomeA[A]: A\ndata String\ndata Int\nf(i: Int, s: String): String = g(someA, someA, i)"
     )
-      .asserting(_ shouldBe Seq("Argument type mismatch.", "Lambda body type mismatch."))
+      .asserting(_ shouldBe Seq("Argument type mismatch.", "Return type mismatch."))
   }
 
   "higher kind generic types" should "type check through single generic placeholder" in {
     runEngineForErrors("id[A](a: A): A\nf[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
-      .asserting(_ shouldBe Seq("Argument type mismatch.", "Lambda body type mismatch."))
+      .asserting(_ shouldBe Seq("Argument type mismatch.", "Return type mismatch."))
   }
 
   // Note: Currently only detects target mismatches because universal vars with the same name
@@ -142,7 +142,7 @@ class SymbolicTypeCheckProcessorTest
     runEngineForErrors(
       "data Foo\ndata Bar\nid[A](a: A): A\nf(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)"
     )
-      .asserting(_ shouldBe Seq("Argument type mismatch.", "Lambda body type mismatch."))
+      .asserting(_ shouldBe Seq("Argument type mismatch.", "Return type mismatch."))
   }
 
   "top level functions" should "be assignable to function types" in {
@@ -155,7 +155,7 @@ class SymbolicTypeCheckProcessorTest
   "type resolve" should "store lambda type into AST" in {
     runEngineForErrors(
       "data String\ndata Unit\ndata Foo(l: Function[Unit, String])\ng: String\nf: Foo = Foo((unit: Unit) -> g)"
-    ).asserting(_ shouldBe Seq("Name not defined.", "Target of function application is not a Function. Possibly too many arguments.", "Argument type mismatch."))
+    ).asserting(_ shouldBe Seq("Name not defined.", "Target of function application is not a Function. Possibly too many arguments."))
   }
 
   "apply" should "type check and return B" in {
@@ -204,7 +204,7 @@ class SymbolicTypeCheckProcessorTest
 
   it should "fail when parameter type does not match return type" in {
     runEngineForErrors("data TypeA(fieldA: TypeA)\ndata TypeB(fieldB: TypeB)\nf(x: TypeA): TypeB = x")
-      .asserting(_ shouldBe Seq("Lambda body type mismatch."))
+      .asserting(_ shouldBe Seq("Return type mismatch."))
   }
 
   // TODO: remove this after module1 is removed

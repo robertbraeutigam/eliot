@@ -28,18 +28,14 @@ class SymbolicTypeCheckProcessor
   ): CompilerIO[TypeCheckedValue] =
     resolvedValue.value.value.runtime match {
       case Some(bodyExpr) =>
-        val body         = resolvedValue.value.as(bodyExpr)
-        val isBodyLambda = bodyExpr.isInstanceOf[Expr.FunctionLiteral]
+        val body = resolvedValue.value.as(bodyExpr)
         for {
           (state, (typeConstraints, (declaredType, typedType))) <- buildTypeConstraints(resolvedValue.value).run
                                                                      .run(TypeCheckState())
           _                                                     <- debug[CompilerIO](s"Type constraints: ${typeConstraints.show}")
-          ((bodyConstraints, (bodyType, bodyTyped)))            <- buildBodyConstraints(body, declaredType).run.runA(state)
+          ((bodyConstraints, (bodyType, bodyTyped)))            <- buildBodyConstraints(body).run.runA(state)
           _                                                     <- debug[CompilerIO](s"Body constraints: ${bodyConstraints.show}")
-          // For lambdas, type checking is done via bodyConstraint inside buildBodyConstraints.
-          // For non-lambdas, we need to compare the full declared type with the body type.
-          topLevelConstraint                                     = if (isBodyLambda) SymbolicUnification.empty
-                                                                   else SymbolicUnification.constraint(
+          topLevelConstraint                                     = SymbolicUnification.constraint(
                                                                      declaredType,
                                                                      body.as(bodyType),
                                                                      "Type mismatch."
@@ -172,8 +168,7 @@ class SymbolicTypeCheckProcessor
     * Returns both the inferred type AND the typed expression.
     */
   private def buildBodyConstraints(
-      body: Sourced[Expression],
-      expectedType: NormalizedExpression
+      body: Sourced[Expression]
   ): TypeGraphIO[(NormalizedExpression, TypedExpression)] =
     body.value match {
       case Expr.IntegerLiteral(value) =>
@@ -209,8 +204,8 @@ class SymbolicTypeCheckProcessor
         for {
           argTypeVar                   <- liftState(generateUnificationVar[CompilerIO](arg))
           retTypeVar                   <- liftState(generateUnificationVar[CompilerIO](body))
-          (targetType, targetTyped)    <- buildBodyConstraints(target.map(_.expressions.head), expectedType)
-          (argType, argTyped)          <- buildBodyConstraints(arg.map(_.expressions.head), argTypeVar)
+          (targetType, targetTyped)    <- buildBodyConstraints(target.map(_.expressions.head))
+          (argType, argTyped)          <- buildBodyConstraints(arg.map(_.expressions.head))
           _                            <- tellConstraint(
                                             SymbolicUnification.constraint(
                                               FunctionType(argTypeVar, retTypeVar, body),
@@ -227,15 +222,8 @@ class SymbolicTypeCheckProcessor
         for {
           (paramNorm, typedParamType)  <- buildTypeConstraints(paramType)
           _                            <- liftState(bindParameter[CompilerIO](paramName.value, paramNorm))
-          expectedReturnType            = expectedType match {
-                                            case FunctionType(_, ret, _) => ret
-                                            case other                   => other
-                                          }
-          (bodyType, bodyTyped)        <- buildBodyConstraints(bodyStack.map(_.expressions.head), expectedReturnType)
-          _                            <- tellConstraint(
-                                            SymbolicUnification.constraint(expectedReturnType, bodyStack.as(bodyType), "Lambda body type mismatch.")
-                                          )
-          funcType                      = FunctionType(paramNorm, expectedReturnType, body)
+          (bodyType, bodyTyped)        <- buildBodyConstraints(bodyStack.map(_.expressions.head))
+          funcType                      = FunctionType(paramNorm, bodyType, body)
           typedBodyStack                = bodyStack.as(ExpressionStack[TypedExpression](Seq(bodyTyped), bodyStack.value.hasRuntime))
         } yield (funcType, TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBodyStack)))
     }
