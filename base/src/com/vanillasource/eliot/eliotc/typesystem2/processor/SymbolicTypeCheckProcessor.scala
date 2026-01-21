@@ -14,13 +14,11 @@ import com.vanillasource.eliot.eliotc.typesystem2.fact.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.*
 import NormalizedExpression.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
+import com.vanillasource.eliot.eliotc.typesystem2.types.TypeGraphIO.*
 
 class SymbolicTypeCheckProcessor
     extends TransformationProcessor[ResolvedValue.Key, TypeCheckedValue.Key](key => ResolvedValue.Key(key.vfqn))
     with Logging {
-
-  private type TypeCheckStateIO[T] = StateT[CompilerIO, TypeCheckState, T]
-  private type TypeGraphIO[T]      = WriterT[TypeCheckStateIO, SymbolicUnification, T]
 
   override protected def generateFromKeyAndFact(
       key: TypeCheckedValue.Key,
@@ -33,7 +31,7 @@ class SymbolicTypeCheckProcessor
           (state, (typeConstraints, (declaredType, typedType))) <- buildTypeConstraints(resolvedValue.value).run
                                                                      .run(TypeCheckState())
           _                                                     <- debug[CompilerIO](s"Type constraints: ${typeConstraints.show}")
-          ((bodyConstraints, (bodyType, bodyTyped)))            <- buildBodyConstraints(body).run.runA(state)
+          (bodyConstraints, (bodyType, bodyTyped))              <- buildBodyConstraints(body).run.runA(state)
           _                                                     <- debug[CompilerIO](s"Body constraints: ${bodyConstraints.show}")
           topLevelConstraint                                     = SymbolicUnification.constraint(
                                                                      declaredType,
@@ -58,15 +56,6 @@ class SymbolicTypeCheckProcessor
         )
     }
 
-  private def tellConstraint(constraint: SymbolicUnification): TypeGraphIO[Unit] =
-    WriterT.tell(constraint)
-
-  private def tellUniversalVar(name: String): TypeGraphIO[Unit] =
-    tellConstraint(SymbolicUnification.universalVar(name))
-
-  private def liftState[T](stateIO: TypeCheckStateIO[T]): TypeGraphIO[T] =
-    WriterT.liftF(stateIO)
-
   /** Build constraints from the declared type expression. Recognizes universal variables (FunctionLiteral with empty
     * param type) and returns the normalized "inner" type AND the typed expression stack.
     */
@@ -82,11 +71,14 @@ class SymbolicTypeCheckProcessor
       case Some(expr) =>
         for {
           (normalizedType, typedExpr) <- normalizeTypeExpression(expr, typeExpr)
-        } yield (normalizedType, typeExpr.as(ExpressionStack[TypedExpression](Seq(typedExpr), typeExpr.value.hasRuntime)))
+        } yield (
+          normalizedType,
+          typeExpr.as(ExpressionStack[TypedExpression](Seq(typedExpr), typeExpr.value.hasRuntime))
+        )
     }
 
-  /** Normalize a type expression, collecting universal variables along the way.
-    * Returns both the normalized type AND the typed expression.
+  /** Normalize a type expression, collecting universal variables along the way. Returns both the normalized type AND
+    * the typed expression.
     */
   private def normalizeTypeExpression(
       expr: Expression,
@@ -96,12 +88,15 @@ class SymbolicTypeCheckProcessor
       // Universal variable introduction: A -> ... where A has empty type
       case Expr.FunctionLiteral(paramName, paramType, body) if paramType.value.expressions.isEmpty =>
         for {
-          _                           <- liftState(addUniversalVar(paramName.value))
-          _                           <- tellUniversalVar(paramName.value)
-          (innerNorm, innerTyped)     <- normalizeTypeExpression(body.value.expressions.head, body)
-          typedParamType               = paramType.as(ExpressionStack[TypedExpression](Seq.empty, paramType.value.hasRuntime))
-          typedBody                    = body.as(ExpressionStack[TypedExpression](Seq(innerTyped), body.value.hasRuntime))
-        } yield (innerNorm, TypedExpression(innerNorm, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBody)))
+          _                       <- liftState(addUniversalVar(paramName.value))
+          _                       <- tellUniversalVar(paramName.value)
+          (innerNorm, innerTyped) <- normalizeTypeExpression(body.value.expressions.head, body)
+          typedParamType           = paramType.as(ExpressionStack[TypedExpression](Seq.empty, paramType.value.hasRuntime))
+          typedBody                = body.as(ExpressionStack[TypedExpression](Seq(innerTyped), body.value.hasRuntime))
+        } yield (
+          innerNorm,
+          TypedExpression(innerNorm, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBody))
+        )
 
       // Regular function literal (lambda type)
       case Expr.FunctionLiteral(paramName, paramType, body)                                        =>
@@ -110,13 +105,17 @@ class SymbolicTypeCheckProcessor
           _                           <- liftState(bindParameter(paramName.value, paramNorm))
           (bodyNorm, typedBody)       <- buildTypeConstraints(body)
           funcType                     = FunctionType(paramNorm, bodyNorm, source)
-        } yield (funcType, TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBody)))
+        } yield (
+          funcType,
+          TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBody))
+        )
 
       // Value reference - could be a type like Int, String, or a universal var
       case Expr.ValueReference(vfqn)                                                               =>
         liftState(StateT.inspect[CompilerIO, TypeCheckState, (NormalizedExpression, TypedExpression)] { state =>
-          val normalizedType = if (state.isUniversal(vfqn.value.name)) UniversalVar(vfqn.as(vfqn.value.name))
-                               else ValueRef(vfqn, Seq.empty)
+          val normalizedType =
+            if (state.isUniversal(vfqn.value.name)) UniversalVar(vfqn.as(vfqn.value.name))
+            else ValueRef(vfqn, Seq.empty)
           (normalizedType, TypedExpression(normalizedType, TypedExpression.ValueReference(vfqn)))
         })
 
@@ -164,8 +163,8 @@ class SymbolicTypeCheckProcessor
   private def isFunctionType(vfqn: ValueFQN): Boolean =
     vfqn.moduleName === ModuleName.systemFunctionModuleName && vfqn.name === "Function$DataType"
 
-  /** Build constraints from the body expression, inferring types.
-    * Returns both the inferred type AND the typed expression.
+  /** Build constraints from the body expression, inferring types. Returns both the inferred type AND the typed
+    * expression.
     */
   private def buildBodyConstraints(
       body: Sourced[Expression]
@@ -188,7 +187,9 @@ class SymbolicTypeCheckProcessor
 
       case Expr.ValueReference(vfqn) =>
         for {
-          maybeResolved <- liftState(StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)).attempt.map(_.toOption)))
+          maybeResolved <- liftState(
+                             StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)).attempt.map(_.toOption))
+                           )
           result        <- maybeResolved match {
                              case Some(resolved) =>
                                buildTypeConstraints(resolved.value).map { case (normalizedType, _) =>
@@ -196,36 +197,40 @@ class SymbolicTypeCheckProcessor
                                }
                              case None           =>
                                val normalizedType = ValueRef(vfqn, Seq.empty)
-                               (normalizedType, TypedExpression(normalizedType, TypedExpression.ValueReference(vfqn))).pure[TypeGraphIO]
+                               (normalizedType, TypedExpression(normalizedType, TypedExpression.ValueReference(vfqn)))
+                                 .pure[TypeGraphIO]
                            }
         } yield result
 
       case Expr.FunctionApplication(target, arg) =>
         for {
-          argTypeVar                   <- liftState(generateUnificationVar(arg))
-          retTypeVar                   <- liftState(generateUnificationVar(body))
-          (targetType, targetTyped)    <- buildBodyConstraints(target.map(_.expressions.head))
-          (argType, argTyped)          <- buildBodyConstraints(arg.map(_.expressions.head))
-          _                            <- tellConstraint(
-                                            SymbolicUnification.constraint(
-                                              FunctionType(argTypeVar, retTypeVar, body),
-                                              target.as(targetType),
-                                              "Target of function application is not a Function. Possibly too many arguments."
-                                            )
-                                          )
-          _                            <- tellConstraint(SymbolicUnification.constraint(argTypeVar, arg.as(argType), "Argument type mismatch."))
-          typedTarget                   = target.as(ExpressionStack[TypedExpression](Seq(targetTyped), target.value.hasRuntime))
-          typedArg                      = arg.as(ExpressionStack[TypedExpression](Seq(argTyped), arg.value.hasRuntime))
+          argTypeVar                <- liftState(generateUnificationVar(arg))
+          retTypeVar                <- liftState(generateUnificationVar(body))
+          (targetType, targetTyped) <- buildBodyConstraints(target.map(_.expressions.head))
+          (argType, argTyped)       <- buildBodyConstraints(arg.map(_.expressions.head))
+          _                         <- tellConstraint(
+                                         SymbolicUnification.constraint(
+                                           FunctionType(argTypeVar, retTypeVar, body),
+                                           target.as(targetType),
+                                           "Target of function application is not a Function. Possibly too many arguments."
+                                         )
+                                       )
+          _                         <- tellConstraint(SymbolicUnification.constraint(argTypeVar, arg.as(argType), "Argument type mismatch."))
+          typedTarget                = target.as(ExpressionStack[TypedExpression](Seq(targetTyped), target.value.hasRuntime))
+          typedArg                   = arg.as(ExpressionStack[TypedExpression](Seq(argTyped), arg.value.hasRuntime))
         } yield (retTypeVar, TypedExpression(retTypeVar, TypedExpression.FunctionApplication(typedTarget, typedArg)))
 
       case Expr.FunctionLiteral(paramName, paramType, bodyStack) =>
         for {
-          (paramNorm, typedParamType)  <- buildTypeConstraints(paramType)
-          _                            <- liftState(bindParameter(paramName.value, paramNorm))
-          (bodyType, bodyTyped)        <- buildBodyConstraints(bodyStack.map(_.expressions.head))
-          funcType                      = FunctionType(paramNorm, bodyType, body)
-          typedBodyStack                = bodyStack.as(ExpressionStack[TypedExpression](Seq(bodyTyped), bodyStack.value.hasRuntime))
-        } yield (funcType, TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBodyStack)))
+          (paramNorm, typedParamType) <- buildTypeConstraints(paramType)
+          _                           <- liftState(bindParameter(paramName.value, paramNorm))
+          (bodyType, bodyTyped)       <- buildBodyConstraints(bodyStack.map(_.expressions.head))
+          funcType                     = FunctionType(paramNorm, bodyType, body)
+          typedBodyStack               = bodyStack.as(ExpressionStack[TypedExpression](Seq(bodyTyped), bodyStack.value.hasRuntime))
+        } yield (
+          funcType,
+          TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBodyStack))
+        )
     }
 
   private def primitiveType(moduleName: String, typeName: String, source: Sourced[?]): NormalizedExpression =
@@ -236,11 +241,11 @@ class SymbolicTypeCheckProcessor
     TypedExpression(
       solution.substitute(typed.expressionType),
       typed.expression match {
-        case TypedExpression.IntegerLiteral(v)                  => TypedExpression.IntegerLiteral(v)
-        case TypedExpression.StringLiteral(v)                   => TypedExpression.StringLiteral(v)
-        case TypedExpression.ParameterReference(n)              => TypedExpression.ParameterReference(n)
-        case TypedExpression.ValueReference(v)                  => TypedExpression.ValueReference(v)
-        case TypedExpression.FunctionApplication(target, arg)   =>
+        case TypedExpression.IntegerLiteral(v)                      => TypedExpression.IntegerLiteral(v)
+        case TypedExpression.StringLiteral(v)                       => TypedExpression.StringLiteral(v)
+        case TypedExpression.ParameterReference(n)                  => TypedExpression.ParameterReference(n)
+        case TypedExpression.ValueReference(v)                      => TypedExpression.ValueReference(v)
+        case TypedExpression.FunctionApplication(target, arg)       =>
           TypedExpression.FunctionApplication(
             applySubstitutionsToStack(target, solution),
             applySubstitutionsToStack(arg, solution)
