@@ -197,6 +197,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  // Note: don't forget "Type" will be converted to "Type$DataType"!
   it should "generate type function with generic param and argument in typeStack" in {
     namedValue("data Box[A]", "Box$DataType").asserting { nv =>
       nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("Type")), Ref("Type"))
@@ -211,10 +212,8 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate constructor with curried arguments in typeStack" in {
     namedValue("data Person(name: Name, age: Age)", "Person").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(
-        App(Ref("Function"), App(App(Ref("Function"), Ref("Person$DataType")), Ref("Age"))),
-        Ref("Name")
-      )
+      nv.value.signatureStructure shouldBe
+        App(App(Ref("Function"), Ref("Name")), App(App(Ref("Function"), Ref("Age")), Ref("Person$DataType")))
     }
   }
 
@@ -233,7 +232,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate accessor with argument in typeStack" in {
     namedValue("data Person(name: Name)", "name").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("Name")), Ref("Person$DataType"))
+      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("Person$DataType")), Ref("Name"))
     }
   }
 
