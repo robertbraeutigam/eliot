@@ -27,16 +27,6 @@ case class UnificationState(substitutions: Map[String, NormalizedExpression] = M
   /** Bind a unification variable to an expression. */
   def bind(varId: String, expr: NormalizedExpression): UnificationState =
     copy(substitutions = substitutions + (varId -> expr))
-
-  /** Check if a variable ID occurs in an expression (occurs check for unification). */
-  def occursIn(varId: String, expr: NormalizedExpression): Boolean =
-    expr match {
-      case UnificationVar(id, _)                 => id === varId
-      case ValueRef(_, args)                     => args.exists(occursIn(varId, _))
-      case FunctionType(param, ret, _)           => occursIn(varId, param) || occursIn(varId, ret)
-      case SymbolicApplication(target, arg, _)   => occursIn(varId, target) || occursIn(varId, arg)
-      case ParameterRef(_) | IntLiteral(_) | StringLiteral(_) | UniversalVar(_) => false
-    }
 }
 
 object UnificationState {
