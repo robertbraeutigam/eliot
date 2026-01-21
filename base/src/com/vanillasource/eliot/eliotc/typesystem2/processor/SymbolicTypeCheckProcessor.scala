@@ -243,10 +243,6 @@ class SymbolicTypeCheckProcessor
     TypedExpression(
       solution.substitute(typed.expressionType),
       typed.expression match {
-        case TypedExpression.IntegerLiteral(v)                      => TypedExpression.IntegerLiteral(v)
-        case TypedExpression.StringLiteral(v)                       => TypedExpression.StringLiteral(v)
-        case TypedExpression.ParameterReference(n)                  => TypedExpression.ParameterReference(n)
-        case TypedExpression.ValueReference(v)                      => TypedExpression.ValueReference(v)
         case TypedExpression.FunctionApplication(target, arg)       =>
           TypedExpression.FunctionApplication(
             applySubstitutionsToStack(target, solution),
@@ -258,6 +254,7 @@ class SymbolicTypeCheckProcessor
             applySubstitutionsToStack(paramType, solution),
             applySubstitutionsToStack(body, solution)
           )
+        case other                                                  => other
       }
     )
 
