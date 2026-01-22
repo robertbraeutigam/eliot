@@ -48,6 +48,7 @@ class SymbolicTypeCheckProcessor
             )).runA(TypeCheckState())
           _                                                                <- debug[CompilerIO](s"Constraints: ${constraints.show}")
           solution                                                         <- constraints.solve()
+          _                                                                <- debug[CompilerIO](s"Solution: ${solution.show}")
           resolvedTypedSignature                                            = typedSignature.value.expressions.map(applySubstitutions(_, solution))
           resolvedTypedBody                                                 = applySubstitutions(typedBody, solution)
           unifiedStack                                                      = ExpressionStack(resolvedTypedBody +: resolvedTypedSignature, true)
