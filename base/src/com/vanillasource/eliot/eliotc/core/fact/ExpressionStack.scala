@@ -36,5 +36,5 @@ object ExpressionStack {
 
   given [E: Show]: Show[ExpressionStack[E]] = stack =>
     if (stack.expressions.size <= 1) stack.expressions.map(_.show).mkString
-    else s"(${stack.expressions.map(_.show).mkString(" :: ")})"
+    else s"(${stack.expressions.reverse.map(_.show).mkString(" :: ")})"
 }

@@ -20,16 +20,16 @@ class ValueResolver
       key: ResolvedValue.Key,
       unifiedValue: UnifiedModuleValue
   ): CompilerIO[ResolvedValue] = {
-    val namedValue = unifiedValue.namedValue
+    val namedValue    = unifiedValue.namedValue
     // Pre-add generic params from signature so they're visible in runtime
     val genericParams = collectGenericParams(namedValue.value)
-    val scope = genericParams.foldLeft(ValueResolverScope(unifiedValue.dictionary, Set.empty, Map.empty)) { (s, name) =>
+    val scope         = genericParams.foldLeft(ValueResolverScope(unifiedValue.dictionary, Set.empty, Map.empty)) { (s, name) =>
       s.addPreAddedParam(name)
     }
 
     val resolveProgram = for {
       resolvedStack <- resolveExpressionStack(namedValue.name.as(namedValue.value))
-      _             <- debug[ScopedIO](s"Resolved value name: ${key.vfqn.show}\nValue: ${resolvedStack.value.show}")
+      _             <- debug[ScopedIO](s"Resolved ${key.vfqn.show}: ${resolvedStack.value.show}")
     } yield ResolvedValue(
       unifiedValue.vfqn,
       namedValue.name,
@@ -47,7 +47,7 @@ class ValueResolver
     expr match {
       case FunctionLiteral(paramName, paramType, body) if paramType.expressions.isEmpty =>
         paramName.value +: collectGenericParamsFromExpr(body.value.expressions.head)
-      case _ => Seq.empty
+      case _                                                                            => Seq.empty
     }
 
   /** Resolves an expression stack from top (most abstract) to bottom (runtime value). Expression variables from above
