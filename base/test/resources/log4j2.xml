@@ -15,8 +15,8 @@
          </Root>
            <!-- <Logger name="com.vanillasource.eliot.eliotc.jvm.JvmClassGenerator" level="debug"/> -->
          <Logger name="com.vanillasource.eliot.eliotc.typesystem2" level="debug"/>
-           <!-- <Logger name="com.vanillasource.eliot.eliotc.resolve2" level="debug"/> -->
-           <!-- <Logger name="com.vanillasource.eliot.eliotc.core" level="debug"/> -->
+            <Logger name="com.vanillasource.eliot.eliotc.resolve2" level="debug"/> 
+            <Logger name="com.vanillasource.eliot.eliotc.core" level="debug"/>
     </Loggers>
 </Configuration>
 
