@@ -31,7 +31,8 @@
       "Bash(mill base.test.compile:*)",
       "Bash(mill base.reformat:*)",
       "Bash(git stash:*)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(mill --no-server base.test.testOnly:*)"
     ]
   }
 }
