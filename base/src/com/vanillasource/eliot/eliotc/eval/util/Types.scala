@@ -1,33 +1,21 @@
 package com.vanillasource.eliot.eliotc.eval.util
 
 import com.vanillasource.eliot.eliotc.eval.fact.Value
-import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, SelfTypedStructure, Structure}
+import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, TypeType}
 import com.vanillasource.eliot.eliotc.module2.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 
 object Types {
   private val fqnFQN: ValueFQN = ValueFQN(ModuleName(Seq("eliot", "compile"), "FullyQualifiedName"), "FullyQualifiedName")
 
-  /** The type of "Type". This is the root of the type hierarchy - both its valueType and all field types are
-    * self-referential to break the infinite recursion. All logic must stop at this type.
-    */
-  val typeType: Value = new SelfTypedStructure(
-    Map(
-      "$typeName" -> Direct(
-        ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type"),
-        typeType
-      )
-    )
-  )
-
   /** The type of FullyQualifiedName.
     */
   val fullyQualifiedNameType: Value =
     Structure(
       Map(
-        "$typeName" -> Direct(fqnFQN, typeType)
+        "$typeName" -> Direct(fqnFQN, TypeType)
       ),
-      typeType
+      TypeType
     )
 
   /** Create the type of some simple data that has no generic type parameters. For example a `data Person(name: String)`
@@ -40,10 +28,10 @@ object Types {
       Map(
         "$typeName" -> Direct(
           dataFQN,
-          typeType
+          TypeType
         )
       ),
-      typeType
+      TypeType
     )
 
   val bigIntType: Value = dataType(ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), "BigInteger"))

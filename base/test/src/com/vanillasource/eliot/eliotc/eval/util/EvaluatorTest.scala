@@ -8,7 +8,8 @@ import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
-import com.vanillasource.eliot.eliotc.eval.util.Types.{bigIntType, stringType, typeType}
+import com.vanillasource.eliot.eliotc.eval.fact.Value.TypeType
+import com.vanillasource.eliot.eliotc.eval.util.Types.{bigIntType, stringType}
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -108,7 +109,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   it should "resolve function value reference and apply" in {
     val vfqn = ValueFQN(testModuleName, "identity")
-    val identityFn = FunctionLiteral("x", typeType, ParameterReference("x"))
+    val identityFn = FunctionLiteral("x", TypeType, ParameterReference("x"))
     val fact = NamedEvaluable(vfqn, identityFn)
     val expr = funApp(valueRef(vfqn), intLit(42))
     runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
@@ -129,7 +130,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "detect recursion through function application argument" in {
     val vfqn    = ValueFQN(testModuleName, "recursive")
     val fnVfqn  = ValueFQN(testModuleName, "fn")
-    val fnFact  = NamedEvaluable(fnVfqn, FunctionLiteral("x", typeType, ParameterReference("x")))
+    val fnFact  = NamedEvaluable(fnVfqn, FunctionLiteral("x", TypeType, ParameterReference("x")))
     val expr    = funApp(valueRef(fnVfqn), valueRef(vfqn))
     runEvaluatorWithFactsAndTracking(expr, Seq(fnFact), Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }
@@ -152,7 +153,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   it should "fail when native function receives non-concrete argument" in {
     val vfqn = ValueFQN(testModuleName, "nativeFn")
-    val nativeFn = NativeFunction(typeType, v => ConcreteValue(v))
+    val nativeFn = NativeFunction(TypeType, v => ConcreteValue(v))
     val fact = NamedEvaluable(vfqn, nativeFn)
     val outerFn = funLit("y", intLit(1), funApp(valueRef(vfqn), paramRef("y")))
     runEvaluatorWithFactsForError(outerFn, Seq(fact)).asserting(_ shouldBe "Native function requires concrete argument.")
