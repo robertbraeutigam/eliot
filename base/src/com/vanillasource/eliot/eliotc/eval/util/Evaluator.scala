@@ -53,36 +53,27 @@ object Evaluator {
     case Expression.FunctionLiteral(paramName, paramType, body) =>
       for {
         evaluatedParamType <- evaluateTypeToValue(paramType.value, evaluating)
-        evaluatedBody      <- body.value.runtime match {
-                                case Some(bodyExpr) => evaluateInternal(bodyExpr, evaluating)
-                                case None           => abort
-                              }
+        evaluatedBody      <- body.value.runtime.fold(abort)(evaluateInternal(_, evaluating))
       } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
     case Expression.FunctionApplication(target, argument)       =>
       for {
-        targetValue <- target.value.runtime match {
-                         case Some(targetExpr) => evaluateInternal(targetExpr, evaluating)
-                         case None             => abort
-                       }
-        argValue    <- argument.value.runtime match {
-                         case Some(argExpr) => evaluateInternal(argExpr, evaluating)
-                         case None          => abort
-                       }
+        targetValue <- target.value.runtime.fold(abort)(evaluateInternal(_, evaluating))
+        argValue    <- argument.value.runtime.fold(abort)(evaluateInternal(_, evaluating))
         result      <- applyFunction(targetValue, argValue, target, evaluating)
       } yield result
   }
+
+  private val emptyStructure: CompilerIO[Value] = Value.Structure(Map.empty).pure[CompilerIO]
 
   private def evaluateTypeToValue(
       typeStack: com.vanillasource.eliot.eliotc.core.fact.ExpressionStack[Expression],
       evaluating: Set[ValueFQN]
   ): CompilerIO[Value] =
-    typeStack.signature match {
-      case Some(typeExpr) =>
-        evaluateInternal(typeExpr, evaluating).flatMap {
-          case ConcreteValue(v, _) => v.pure[CompilerIO]
-          case _                   => Value.Structure(Map.empty).pure[CompilerIO]
-        }
-      case None           => Value.Structure(Map.empty).pure[CompilerIO]
+    typeStack.signature.fold(emptyStructure) { typeExpr =>
+      evaluateInternal(typeExpr, evaluating).flatMap {
+        case ConcreteValue(v, _) => v.pure[CompilerIO]
+        case _                   => emptyStructure
+      }
     }
 
   private def applyFunction(
