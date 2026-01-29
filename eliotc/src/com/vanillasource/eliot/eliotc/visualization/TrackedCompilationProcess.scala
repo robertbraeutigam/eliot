@@ -3,8 +3,8 @@ package com.vanillasource.eliot.eliotc.visualization
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey}
 
-/** Wraps a CompilationProcess to track fact requests and registrations.
-  * Records which processor is requesting/registering facts for visualization.
+/** Wraps a CompilationProcess to track fact requests and registrations. Records which processor is
+  * requesting/registering facts for visualization.
   */
 final class TrackedCompilationProcess(
     underlying: CompilationProcess,

@@ -16,6 +16,6 @@ object PositionRange {
   val zero = PositionRange(Position.zero, Position.zero)
 
   given Eq[PositionRange] = Eq.fromUniversalEquals
-  
+
   given Show[PositionRange] = (r: PositionRange) => s"${r.from.show}->${r.to.show}"
 }
