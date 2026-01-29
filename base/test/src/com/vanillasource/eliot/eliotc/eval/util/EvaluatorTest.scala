@@ -52,7 +52,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "evaluate function literal with parameter reference in body" in {
     val expr = intFunLit("x", paramRef("x"))
     runEvaluator(expr).asserting {
-      case FunctionLiteral("x", _, ParameterReference("x")) => succeed
+      case FunctionLiteral("x", _, ParameterReference("x", _)) => succeed
       case other                                            => fail(s"Unexpected result: $other")
     }
   }
@@ -60,7 +60,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "evaluate nested function literal" in {
     val expr = intFunLit("x", intFunLit("y", paramRef("x")))
     runEvaluator(expr).asserting {
-      case FunctionLiteral("x", _, FunctionLiteral("y", _, ParameterReference("x"))) => succeed
+      case FunctionLiteral("x", _, FunctionLiteral("y", _, ParameterReference("x", _))) => succeed
       case other => fail(s"Unexpected result: $other")
     }
   }
@@ -102,7 +102,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     val fn   = intFunLit("x", intFunLit("x", paramRef("x")))
     val expr = funApp(fn, intLit(42))
     runEvaluator(expr).asserting {
-      case FunctionLiteral("x", _, ParameterReference("x")) => succeed
+      case FunctionLiteral("x", _, ParameterReference("x", _)) => succeed
       case other => fail(s"Unexpected result: $other")
     }
   }
@@ -115,7 +115,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   it should "resolve function value reference and apply" in {
     val vfqn = ValueFQN(testModuleName, "identity")
-    val identityFn = FunctionLiteral("x", bigIntType, ParameterReference("x"))
+    val identityFn = FunctionLiteral("x", bigIntType, ParameterReference("x", bigIntType))
     val fact = NamedEvaluable(vfqn, identityFn)
     val expr = funApp(valueRef(vfqn), intLit(42))
     runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
@@ -136,7 +136,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "detect recursion through function application argument" in {
     val vfqn    = ValueFQN(testModuleName, "recursive")
     val fnVfqn  = ValueFQN(testModuleName, "fn")
-    val fnFact  = NamedEvaluable(fnVfqn, FunctionLiteral("x", bigIntType, ParameterReference("x")))
+    val fnFact  = NamedEvaluable(fnVfqn, FunctionLiteral("x", bigIntType, ParameterReference("x", bigIntType)))
     val expr    = funApp(valueRef(fnVfqn), valueRef(vfqn))
     runEvaluatorWithFactsAndTracking(expr, Seq(fnFact), Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }
@@ -174,7 +174,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "leave function application unreduced when target is parameter reference" in {
     val fn   = intFunLit("f", funApp(paramRef("f"), intLit(42)))
     runEvaluator(fn).asserting {
-      case FunctionLiteral("f", _, FunctionApplication(ParameterReference("f"), ConcreteValue(Value.Direct(42, _)))) =>
+      case FunctionLiteral("f", _, FunctionApplication(ParameterReference("f", _), ConcreteValue(Value.Direct(42, _)))) =>
         succeed
       case other => fail(s"Unexpected result: $other")
     }

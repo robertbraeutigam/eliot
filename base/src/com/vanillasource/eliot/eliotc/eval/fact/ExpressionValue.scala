@@ -29,7 +29,7 @@ object ExpressionValue {
   /** A reference to a function parameter. Note: that this is only allowed somewhere in a function literal's body, not
     * on top level.
     */
-  case class ParameterReference(parameterName: String) extends ExpressionValue
+  case class ParameterReference(parameterName: String, parameterType: Value) extends ExpressionValue
 
   /** An application of a function.
     */

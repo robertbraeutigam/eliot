@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
-import com.vanillasource.eliot.eliotc.eval.util.Types.{bigIntType, dataType, stringType}
+import com.vanillasource.eliot.eliotc.eval.util.Types.{bigIntType, stringType}
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
@@ -27,24 +27,29 @@ object Evaluator {
       expression: Expression,
       evaluating: Set[ValueFQN] = Set.empty
   ): CompilerIO[InitialExpressionValue] =
-    evaluateInternal(expression, evaluating).flatMap {
-      case iv: InitialExpressionValue => iv.pure[CompilerIO]
-      case ParameterReference(name)   =>
+    evaluateInternal(expression, evaluating, Map.empty).flatMap {
+      case iv: InitialExpressionValue  => iv.pure[CompilerIO]
+      case ParameterReference(name, _) =>
         abort // Unbound parameter reference at top level
-      case FunctionApplication(_, _)  =>
+      case FunctionApplication(_, _)   =>
         abort // Could not reduce function application
     }
 
   private def evaluateInternal(
       expression: Expression,
-      evaluating: Set[ValueFQN]
+      evaluating: Set[ValueFQN],
+      paramContext: Map[String, Value]
   ): CompilerIO[ExpressionValue] = expression match {
     case Expression.IntegerLiteral(sourced)                     =>
       ConcreteValue(Value.Direct(sourced.value, bigIntType)).pure[CompilerIO]
     case Expression.StringLiteral(sourced)                      =>
       ConcreteValue(Value.Direct(sourced.value, stringType)).pure[CompilerIO]
     case Expression.ParameterReference(sourced)                 =>
-      ParameterReference(sourced.value).pure[CompilerIO]
+      val name = sourced.value
+      paramContext.get(name) match {
+        case Some(paramType) => ParameterReference(name, paramType).pure[CompilerIO]
+        case None            => compilerAbort(sourced.as(s"Unknown parameter: $name"))
+      }
     case Expression.ValueReference(sourced)                     =>
       val vfqn = sourced.value
       if (evaluating.contains(vfqn)) {
@@ -54,23 +59,25 @@ object Evaluator {
       }
     case Expression.FunctionLiteral(paramName, paramType, body) =>
       for {
-        evaluatedParamType <- tryEvaluateTypeToValue(paramType.value, evaluating)
-        evaluatedBody      <- body.value.runtime.fold(abort)(evaluateInternal(_, evaluating))
+        evaluatedParamType <- tryEvaluateTypeToValue(paramType.value, evaluating, paramContext)
+        newContext          = paramContext + (paramName.value -> evaluatedParamType)
+        evaluatedBody      <- body.value.runtime.fold(abort)(evaluateInternal(_, evaluating, newContext))
       } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
     case Expression.FunctionApplication(target, argument)       =>
       for {
-        targetValue <- target.value.runtime.fold(abort)(evaluateInternal(_, evaluating))
-        argValue    <- argument.value.runtime.fold(abort)(evaluateInternal(_, evaluating))
+        targetValue <- target.value.runtime.fold(abort)(evaluateInternal(_, evaluating, paramContext))
+        argValue    <- argument.value.runtime.fold(abort)(evaluateInternal(_, evaluating, paramContext))
         result      <- applyFunction(targetValue, argValue, target, evaluating)
       } yield result
   }
 
   private def tryEvaluateTypeToValue(
       typeStack: ExpressionStack[Expression],
-      evaluating: Set[ValueFQN]
+      evaluating: Set[ValueFQN],
+      paramContext: Map[String, Value]
   ): CompilerIO[Value] =
     typeStack.signature.fold(abort) { typeExpr =>
-      evaluateInternal(typeExpr, evaluating).flatMap {
+      evaluateInternal(typeExpr, evaluating, paramContext).flatMap {
         case ConcreteValue(v) => v.pure[CompilerIO]
         case _                => abort
       }
@@ -92,7 +99,7 @@ object Evaluator {
             nativeFn(v).pure[CompilerIO]
         case _                => compilerAbort(targetSourced.as("Native function requires concrete argument."))
       }
-    case ParameterReference(_)                       =>
+    case ParameterReference(_, _)                    =>
       FunctionApplication(target, argument).pure[CompilerIO]
     case FunctionApplication(_, _)                   =>
       FunctionApplication(target, argument).pure[CompilerIO]
@@ -112,11 +119,11 @@ object Evaluator {
     }
 
   private def getArgumentType(argument: ExpressionValue): Option[Value] = argument match {
-    case ConcreteValue(v)       => Some(v.valueType)
-    case FunctionLiteral(_, _, _) => None // TODO: compute function type
-    case NativeFunction(_, _)     => None // TODO: compute function type
-    case ParameterReference(_)    => None // Type unknown at this point
-    case FunctionApplication(_, _) => None // Type unknown until reduced
+    case ConcreteValue(v)              => Some(v.valueType)
+    case FunctionLiteral(_, _, _)      => None // TODO: compute function type
+    case NativeFunction(_, _)          => None // TODO: compute function type
+    case ParameterReference(_, t)      => Some(t)
+    case FunctionApplication(_, _)     => None // Type unknown until reduced
   }
 
   private def reduceExpressionValue(
@@ -129,12 +136,12 @@ object Evaluator {
         reducedArg    <- reduceExpressionValue(arg, evaluating)
         result        <- reducedTarget match {
                            case FunctionLiteral(paramName, paramType, body) =>
-                             checkTypeOrPass(paramType, reducedArg) >>
+                             checkTypeInternal(paramType, reducedArg) >>
                                reduceExpressionValue(substitute(body, paramName, reducedArg), evaluating)
                            case NativeFunction(paramType, nativeFn)         =>
                              reducedArg match {
                                case ConcreteValue(v) =>
-                                 checkTypeOrPass(paramType, reducedArg) >>
+                                 checkTypeInternal(paramType, reducedArg) >>
                                    nativeFn(v).pure[CompilerIO]
                                case _                =>
                                  FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
@@ -150,8 +157,7 @@ object Evaluator {
     case other => other.pure[CompilerIO]
   }
 
-  /** Check type but pass silently if argument type is unknown (e.g., parameter reference). */
-  private def checkTypeOrPass(expectedType: Value, argument: ExpressionValue): CompilerIO[Unit] =
+  private def checkTypeInternal(expectedType: Value, argument: ExpressionValue): CompilerIO[Unit] =
     getArgumentType(argument) match {
       case Some(actualType) if actualType != expectedType => abort
       case _                                              => ().pure[CompilerIO]
@@ -162,8 +168,8 @@ object Evaluator {
       paramName: String,
       argValue: ExpressionValue
   ): ExpressionValue = body match {
-    case ParameterReference(name) if name == paramName                    => argValue
-    case ParameterReference(_)                                            => body
+    case ParameterReference(name, _) if name == paramName                 => argValue
+    case ParameterReference(_, _)                                         => body
     case FunctionApplication(target, arg)                                 =>
       FunctionApplication(
         substitute(target, paramName, argValue),
