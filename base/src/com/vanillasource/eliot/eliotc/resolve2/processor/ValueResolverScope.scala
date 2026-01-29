@@ -25,16 +25,16 @@ object ValueResolverScope {
 
   def addParameter(name: Sourced[String]): ScopedIO[Unit] =
     for {
-      scope <- StateT.get[CompilerIO, ValueResolverScope]
+      scope        <- StateT.get[CompilerIO, ValueResolverScope]
       // Allow re-adding if it was pre-added (generic param from signature)
       // Error if it shadows a dictionary name or a lambda-added param (nested shadowing)
-      isPreAdded = scope.preAddedParameters.contains(name.value)
+      isPreAdded    = scope.preAddedParameters.contains(name.value)
       isLambdaAdded = scope.visibleParameters.contains(name.value) && !isPreAdded
-      _     <- (compilerError(name.as("Parameter shadows existing name in scope.")) *> abort[Unit]).liftToScoped
-                 .whenA(scope.dictionary.contains(name.value) || isLambdaAdded)
-      _     <- StateT.modify[CompilerIO, ValueResolverScope](s =>
-                 s.copy(visibleParameters = s.visibleParameters + (name.value -> name))
-               )
+      _            <- (compilerError(name.as("Parameter shadows existing name in scope.")) *> abort[Unit]).liftToScoped
+                        .whenA(scope.dictionary.contains(name.value) || isLambdaAdded)
+      _            <- StateT.modify[CompilerIO, ValueResolverScope](s =>
+                        s.copy(visibleParameters = s.visibleParameters + (name.value -> name))
+                      )
     } yield ()
 
   def isParameter(name: String): ScopedIO[Boolean] =

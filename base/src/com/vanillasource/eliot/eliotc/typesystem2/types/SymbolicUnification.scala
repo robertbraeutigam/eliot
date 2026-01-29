@@ -26,10 +26,10 @@ case class SymbolicUnification(
 
   private def solveConstraint(constraint: Constraint): StateT[CompilerIO, UnificationState, Unit] =
     for {
-      state         <- StateT.get[CompilerIO, UnificationState]
-      leftResolved   = state.substitute(constraint.left)
-      rightResolved  = state.substitute(constraint.right.value)
-      _             <- unify(constraint.copy(left = leftResolved, right = constraint.right.as(rightResolved)))
+      state        <- StateT.get[CompilerIO, UnificationState]
+      leftResolved  = state.substitute(constraint.left)
+      rightResolved = state.substitute(constraint.right.value)
+      _            <- unify(constraint.copy(left = leftResolved, right = constraint.right.as(rightResolved)))
     } yield ()
 
   private def unify(constraint: Constraint): StateT[CompilerIO, UnificationState, Unit] = {
@@ -42,14 +42,14 @@ case class SymbolicUnification(
         StateT.modify[CompilerIO, UnificationState](_.bind(id, right))
 
       // Unification variable on right: bind it
-      case (_, UnificationVar(id, _)) if !isOccursCheck(id, left) =>
+      case (_, UnificationVar(id, _)) if !isOccursCheck(id, left)  =>
         StateT.modify[CompilerIO, UnificationState](_.bind(id, left))
 
       // Occurs check failure
-      case (UnificationVar(id, _), _) =>
+      case (UnificationVar(id, _), _)                              =>
         issueError(constraint, "Infinite type detected.")
 
-      case (_, UnificationVar(id, _)) =>
+      case (_, UnificationVar(id, _))                                                      =>
         issueError(constraint, "Infinite type detected.")
 
       // Value references: must have same VFQN and recursively unify arguments
@@ -62,11 +62,11 @@ case class SymbolicUnification(
           issueError(constraint, "Different number of type arguments.")
         }
 
-      case (ValueRef(_, _), ValueRef(_, _)) =>
+      case (ValueRef(_, _), ValueRef(_, _))                              =>
         issueError(constraint, constraint.errorMessage)
 
       // Function types: unify param and return types
-      case (FunctionType(p1, r1, _), FunctionType(p2, r2, _)) =>
+      case (FunctionType(p1, r1, _), FunctionType(p2, r2, _))            =>
         for {
           _ <- unify(Constraint(p1, constraint.right.as(p2), "Parameter type mismatch."))
           _ <- unify(Constraint(r1, constraint.right.as(r2), "Return type mismatch."))
@@ -82,7 +82,7 @@ case class SymbolicUnification(
           s"Expression with type ${right.show} cannot be assigned to universal type ${n1.value}."
         )
 
-      case (_, UniversalVar(n2)) if universalVars.contains(n2.value) =>
+      case (_, UniversalVar(n2)) if universalVars.contains(n2.value)     =>
         issueError(
           constraint,
           s"Expression with universal type ${n2.value} cannot be assigned to type ${left.show}."
@@ -92,14 +92,14 @@ case class SymbolicUnification(
       case (ParameterRef(n1), ParameterRef(n2)) if n1.value === n2.value =>
         StateT.pure(())
 
-      case (ParameterRef(_), _) | (_, ParameterRef(_)) =>
+      case (ParameterRef(_), _) | (_, ParameterRef(_))               =>
         issueError(constraint, constraint.errorMessage)
 
       // Literals: must be equal
       case (IntLiteral(v1), IntLiteral(v2)) if v1.value === v2.value =>
         StateT.pure(())
 
-      case (StringLiteral(v1), StringLiteral(v2)) if v1.value === v2.value =>
+      case (StringLiteral(v1), StringLiteral(v2)) if v1.value === v2.value  =>
         StateT.pure(())
 
       // Symbolic applications: structural match
@@ -110,7 +110,7 @@ case class SymbolicUnification(
         } yield ()
 
       // Anything else is a type error
-      case _ =>
+      case _                                                                =>
         issueError(constraint, constraint.errorMessage)
     }
   }

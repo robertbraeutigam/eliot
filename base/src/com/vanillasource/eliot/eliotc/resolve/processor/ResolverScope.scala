@@ -8,10 +8,10 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 case class ResolverScope(
-                          functionDictionary: Map[String, FunctionFQN],
-                          typeDictionary: Map[String, TypeFQN],
-                          visibleGenericTypes: Map[String, GenericParameter],
-                          visibleValues: Map[String, ArgumentDefinition]
+    functionDictionary: Map[String, FunctionFQN],
+    typeDictionary: Map[String, TypeFQN],
+    visibleGenericTypes: Map[String, GenericParameter],
+    visibleValues: Map[String, ArgumentDefinition]
 ) {
   def isValueVisible(name: String): Boolean = visibleValues.contains(name)
 }
