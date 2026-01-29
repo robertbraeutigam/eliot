@@ -22,11 +22,16 @@ class ModuleFunctionProcessor(systemModules: Seq[ModuleName] = defaultSystemModu
       processImpl(key.file, key.ffqn.moduleName, fact.sourcedAst)
     }
 
-  private def processImpl(file: File, moduleName: ModuleName, sourcedAst: com.vanillasource.eliot.eliotc.source.content.Sourced[AST]): CompilerIO[Unit] =
+  private def processImpl(
+      file: File,
+      moduleName: ModuleName,
+      sourcedAst: com.vanillasource.eliot.eliotc.source.content.Sourced[AST]
+  ): CompilerIO[Unit] =
     for {
       localFunctions    <- extractLocalFunctions(sourcedAst.value.functionDefinitions)
       localTypes        <- extractLocalTypes(sourcedAst.value.typeDefinitions)
-      importedModules    = extractImportedModules(moduleName, sourcedAst.as(sourcedAst.value.importStatements), systemModules)
+      importedModules    =
+        extractImportedModules(moduleName, sourcedAst.as(sourcedAst.value.importStatements), systemModules)
       importedFunctions <- extractImportedFunctions(importedModules, localFunctions.keySet)
       importedTypes     <- extractImportedTypes(importedModules, localTypes.keySet)
       functionDictionary =

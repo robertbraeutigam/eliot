@@ -63,7 +63,9 @@ object ExtractSymbols {
       importedModules: Seq[Sourced[ModuleName]],
       localFunctionNames: Set[String]
   ): CompilerIO[Map[String, FunctionFQN]] =
-    importedModules.foldLeftM(Map.empty[String, FunctionFQN])((acc, i) => importModuleFunctions(localFunctionNames, acc, i))
+    importedModules.foldLeftM(Map.empty[String, FunctionFQN])((acc, i) =>
+      importModuleFunctions(localFunctionNames, acc, i)
+    )
 
   def extractImportedTypes(
       importedModules: Seq[Sourced[ModuleName]],
