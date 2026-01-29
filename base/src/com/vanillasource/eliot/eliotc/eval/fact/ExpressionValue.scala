@@ -9,7 +9,7 @@ object ExpressionValue {
 
   /** A concrete value of some type.
     */
-  case class ConcreteValue(value: Value, valueType: Value) extends InitialExpressionValue
+  case class ConcreteValue(value: Value) extends InitialExpressionValue
 
   /** A function that "survived" the evaluation, i.e. there were no applications to evaluate it.
     */
@@ -22,7 +22,6 @@ object ExpressionValue {
   /** A native function that needs to be called with exact parameters.
     */
   case class NativeFunction(
-      parameterName: String,
       parameterType: Value,
       body: Value => ExpressionValue
   ) extends InitialExpressionValue

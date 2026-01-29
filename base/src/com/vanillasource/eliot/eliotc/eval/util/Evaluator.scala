@@ -1,9 +1,11 @@
 package com.vanillasource.eliot.eliotc.eval.util
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
+import com.vanillasource.eliot.eliotc.eval.util.Types.{bigIntType, dataType, stringType}
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
@@ -38,9 +40,9 @@ object Evaluator {
       evaluating: Set[ValueFQN]
   ): CompilerIO[ExpressionValue] = expression match {
     case Expression.IntegerLiteral(sourced)                     =>
-      ConcreteValue(Value.LiteralInteger(sourced.value), Value.Structure(Map.empty)).pure[CompilerIO]
+      ConcreteValue(Value.Direct(sourced.value, bigIntType)).pure[CompilerIO]
     case Expression.StringLiteral(sourced)                      =>
-      ConcreteValue(Value.LiteralString(sourced.value), Value.Structure(Map.empty)).pure[CompilerIO]
+      ConcreteValue(Value.Direct(sourced.value, stringType)).pure[CompilerIO]
     case Expression.ParameterReference(sourced)                 =>
       ParameterReference(sourced.value).pure[CompilerIO]
     case Expression.ValueReference(sourced)                     =>
@@ -52,7 +54,7 @@ object Evaluator {
       }
     case Expression.FunctionLiteral(paramName, paramType, body) =>
       for {
-        evaluatedParamType <- evaluateTypeToValue(paramType.value, evaluating)
+        evaluatedParamType <- tryEvaluateTypeToValue(paramType.value, evaluating)
         evaluatedBody      <- body.value.runtime.fold(abort)(evaluateInternal(_, evaluating))
       } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
     case Expression.FunctionApplication(target, argument)       =>
@@ -63,16 +65,14 @@ object Evaluator {
       } yield result
   }
 
-  private val emptyStructure: CompilerIO[Value] = Value.Structure(Map.empty).pure[CompilerIO]
-
-  private def evaluateTypeToValue(
-      typeStack: com.vanillasource.eliot.eliotc.core.fact.ExpressionStack[Expression],
+  private def tryEvaluateTypeToValue(
+      typeStack: ExpressionStack[Expression],
       evaluating: Set[ValueFQN]
   ): CompilerIO[Value] =
-    typeStack.signature.fold(emptyStructure) { typeExpr =>
+    typeStack.signature.fold(abort) { typeExpr =>
       evaluateInternal(typeExpr, evaluating).flatMap {
-        case ConcreteValue(v, _) => v.pure[CompilerIO]
-        case _                   => emptyStructure
+        case ConcreteValue(v) => v.pure[CompilerIO]
+        case _                => abort
       }
     }
 
@@ -85,16 +85,19 @@ object Evaluator {
     case FunctionLiteral(paramName, _, body) =>
       val substituted = substitute(body, paramName, argument)
       reduceExpressionValue(substituted, evaluating)
-    case NativeFunction(_, _, nativeFn)      =>
+    case NativeFunction(_, nativeFn)         =>
+      // TODO: check type here
+      // TODO: functions are also values!!! Even parameter references!
+      // TODO: what about later applications changing this
       argument match {
-        case ConcreteValue(v, _) => nativeFn(v).pure[CompilerIO]
-        case _                   => compilerAbort(targetSourced.as("Native function requires concrete argument."))
+        case ConcreteValue(v) => nativeFn(v).pure[CompilerIO]
+        case _                => compilerAbort(targetSourced.as("Native function requires concrete argument."))
       }
     case ParameterReference(_)               =>
       FunctionApplication(target, argument).pure[CompilerIO]
     case FunctionApplication(_, _)           =>
       FunctionApplication(target, argument).pure[CompilerIO]
-    case ConcreteValue(_, _)                 =>
+    case ConcreteValue(_)                    =>
       compilerAbort(targetSourced.as("Cannot apply concrete value as a function."))
   }
 
