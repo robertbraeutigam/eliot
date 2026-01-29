@@ -85,20 +85,16 @@ object Evaluator {
     case FunctionLiteral(paramName, _, body) =>
       val substituted = substitute(body, paramName, argument)
       reduceExpressionValue(substituted, evaluating)
-
-    case NativeFunction(_, _, nativeFn) =>
+    case NativeFunction(_, _, nativeFn)      =>
       argument match {
         case ConcreteValue(v, _) => nativeFn(v).pure[CompilerIO]
         case _                   => compilerAbort(targetSourced.as("Native function requires concrete argument."))
       }
-
-    case ParameterReference(_) =>
+    case ParameterReference(_)               =>
       FunctionApplication(target, argument).pure[CompilerIO]
-
-    case FunctionApplication(_, _) =>
+    case FunctionApplication(_, _)           =>
       FunctionApplication(target, argument).pure[CompilerIO]
-
-    case ConcreteValue(_, _) =>
+    case ConcreteValue(_, _)                 =>
       compilerAbort(targetSourced.as("Cannot apply concrete value as a function."))
   }
 
@@ -135,21 +131,15 @@ object Evaluator {
       paramName: String,
       argValue: ExpressionValue
   ): ExpressionValue = body match {
-    case ParameterReference(name) if name == paramName =>
-      argValue
-
-    case ParameterReference(_) =>
-      body
-
-    case FunctionApplication(target, arg) =>
+    case ParameterReference(name) if name == paramName                    => argValue
+    case ParameterReference(_)                                            => body
+    case FunctionApplication(target, arg)                                 =>
       FunctionApplication(
         substitute(target, paramName, argValue),
         substitute(arg, paramName, argValue)
       )
-
     case FunctionLiteral(name, paramType, innerBody) if name != paramName =>
       FunctionLiteral(name, paramType, substitute(innerBody, paramName, argValue))
-
-    case _ => body
+    case _                                                                => body
   }
 }
