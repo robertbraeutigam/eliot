@@ -82,23 +82,41 @@ object Evaluator {
       targetSourced: Sourced[?],
       evaluating: Set[ValueFQN]
   ): CompilerIO[ExpressionValue] = target match {
-    case FunctionLiteral(paramName, _, body) =>
-      val substituted = substitute(body, paramName, argument)
-      reduceExpressionValue(substituted, evaluating)
-    case NativeFunction(_, nativeFn)         =>
-      // TODO: check type here
-      // TODO: functions are also values!!! Even parameter references!
-      // TODO: what about later applications changing this
+    case FunctionLiteral(paramName, paramType, body) =>
+      checkType(paramType, argument, targetSourced) >>
+        reduceExpressionValue(substitute(body, paramName, argument), evaluating)
+    case NativeFunction(paramType, nativeFn)         =>
       argument match {
-        case ConcreteValue(v) => nativeFn(v).pure[CompilerIO]
+        case ConcreteValue(v) =>
+          checkType(paramType, argument, targetSourced) >>
+            nativeFn(v).pure[CompilerIO]
         case _                => compilerAbort(targetSourced.as("Native function requires concrete argument."))
       }
-    case ParameterReference(_)               =>
+    case ParameterReference(_)                       =>
       FunctionApplication(target, argument).pure[CompilerIO]
-    case FunctionApplication(_, _)           =>
+    case FunctionApplication(_, _)                   =>
       FunctionApplication(target, argument).pure[CompilerIO]
-    case ConcreteValue(_)                    =>
+    case ConcreteValue(_)                            =>
       compilerAbort(targetSourced.as("Cannot apply concrete value as a function."))
+  }
+
+  private def checkType(
+      expectedType: Value,
+      argument: ExpressionValue,
+      sourced: Sourced[?]
+  ): CompilerIO[Unit] =
+    getArgumentType(argument) match {
+      case Some(actualType) if actualType != expectedType =>
+        compilerAbort(sourced.as(s"Type mismatch: expected $expectedType but got $actualType."))
+      case _                                              => ().pure[CompilerIO]
+    }
+
+  private def getArgumentType(argument: ExpressionValue): Option[Value] = argument match {
+    case ConcreteValue(v)       => Some(v.valueType)
+    case FunctionLiteral(_, _, _) => None // TODO: compute function type
+    case NativeFunction(_, _)     => None // TODO: compute function type
+    case ParameterReference(_)    => None // Type unknown at this point
+    case FunctionApplication(_, _) => None // Type unknown until reduced
   }
 
   private def reduceExpressionValue(
@@ -110,15 +128,18 @@ object Evaluator {
         reducedTarget <- reduceExpressionValue(target, evaluating)
         reducedArg    <- reduceExpressionValue(arg, evaluating)
         result        <- reducedTarget match {
-                           case FunctionLiteral(paramName, _, body) =>
-                             val substituted = substitute(body, paramName, reducedArg)
-                             reduceExpressionValue(substituted, evaluating)
-                           case NativeFunction(_, nativeFn)         =>
+                           case FunctionLiteral(paramName, paramType, body) =>
+                             checkTypeOrPass(paramType, reducedArg) >>
+                               reduceExpressionValue(substitute(body, paramName, reducedArg), evaluating)
+                           case NativeFunction(paramType, nativeFn)         =>
                              reducedArg match {
-                               case ConcreteValue(v) => nativeFn(v).pure[CompilerIO]
-                               case _                   => FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
+                               case ConcreteValue(v) =>
+                                 checkTypeOrPass(paramType, reducedArg) >>
+                                   nativeFn(v).pure[CompilerIO]
+                               case _                =>
+                                 FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
                              }
-                           case _                                   =>
+                           case _                                           =>
                              FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
                          }
       } yield result
@@ -128,6 +149,13 @@ object Evaluator {
 
     case other => other.pure[CompilerIO]
   }
+
+  /** Check type but pass silently if argument type is unknown (e.g., parameter reference). */
+  private def checkTypeOrPass(expectedType: Value, argument: ExpressionValue): CompilerIO[Unit] =
+    getArgumentType(argument) match {
+      case Some(actualType) if actualType != expectedType => abort
+      case _                                              => ().pure[CompilerIO]
+    }
 
   private def substitute(
       body: ExpressionValue,
