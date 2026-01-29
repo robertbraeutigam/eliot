@@ -10,7 +10,7 @@ class ExistingNamedValueEvaluator
     extends TransformationProcessor[ResolvedValue.Key, NamedEvaluable.Key](key => ResolvedValue.Key(key.vfqn)) {
   override protected def generateFromKeyAndFact(key: NamedEvaluable.Key, fact: InputFact): CompilerIO[OutputFact] =
     fact.value.value.runtime match {
-      case Some(runtimeExpression) => evaluate(runtimeExpression).map(NamedEvaluable(key.vfqn, _))
+      case Some(runtimeExpression) => evaluate(runtimeExpression, Set(key.vfqn)).map(NamedEvaluable(key.vfqn, _))
       case None                    => abort
     }
 }
