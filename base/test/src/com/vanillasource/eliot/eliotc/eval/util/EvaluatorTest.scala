@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
+import com.vanillasource.eliot.eliotc.eval.util.Types.{bigIntType, stringType, typeType}
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -26,19 +27,19 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val sourceContent  = SourceContent(testFile, Sourced(testFile, PositionRange.zero, "test source"))
 
   "evaluator" should "evaluate integer literal to ConcreteValue" in {
-    runEvaluator(intLit(42)).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(42), Value.Structure(Map.empty)))
+    runEvaluator(intLit(42)).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
   }
 
   it should "evaluate string literal to ConcreteValue" in {
-    runEvaluator(strLit("hello")).asserting(_ shouldBe ConcreteValue(Value.LiteralString("hello"), Value.Structure(Map.empty)))
+    runEvaluator(strLit("hello")).asserting(_ shouldBe ConcreteValue(Value.Direct("hello", stringType)))
   }
 
   it should "evaluate negative integer literal" in {
-    runEvaluator(intLit(-123)).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(-123), Value.Structure(Map.empty)))
+    runEvaluator(intLit(-123)).asserting(_ shouldBe ConcreteValue(Value.Direct(-123, bigIntType)))
   }
 
   it should "evaluate empty string literal" in {
-    runEvaluator(strLit("")).asserting(_ shouldBe ConcreteValue(Value.LiteralString(""), Value.Structure(Map.empty)))
+    runEvaluator(strLit("")).asserting(_ shouldBe ConcreteValue(Value.Direct("", stringType)))
   }
 
   it should "evaluate function literal with parameter reference in body" in {
@@ -60,26 +61,26 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "apply function literal to argument" in {
     val fn   = funLit("x", intLit(1), paramRef("x"))
     val expr = funApp(fn, intLit(42))
-    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(42), Value.Structure(Map.empty)))
+    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
   }
 
   it should "apply nested function to multiple arguments" in {
     val fn   = funLit("x", intLit(1), funLit("y", intLit(2), paramRef("x")))
     val expr = funApp(funApp(fn, intLit(1)), intLit(2))
-    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(1), Value.Structure(Map.empty)))
+    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.Direct(1, bigIntType)))
   }
 
   it should "return inner parameter when outer is applied" in {
     val fn   = funLit("x", intLit(1), funLit("y", intLit(2), paramRef("y")))
     val expr = funApp(funApp(fn, intLit(1)), intLit(2))
-    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(2), Value.Structure(Map.empty)))
+    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.Direct(2, bigIntType)))
   }
 
   it should "handle partial application" in {
     val fn   = funLit("x", intLit(1), funLit("y", intLit(2), paramRef("x")))
     val expr = funApp(fn, intLit(42))
     runEvaluator(expr).asserting {
-      case FunctionLiteral("y", _, ConcreteValue(Value.LiteralInteger(42), _)) => succeed
+      case FunctionLiteral("y", _, ConcreteValue(Value.Direct(42, _))) => succeed
       case other => fail(s"Unexpected result: $other")
     }
   }
@@ -87,7 +88,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "handle shadowed parameters" in {
     val fn   = funLit("x", intLit(1), funLit("x", intLit(2), paramRef("x")))
     val expr = funApp(funApp(fn, intLit(1)), intLit(2))
-    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(2), Value.Structure(Map.empty)))
+    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.Direct(2, bigIntType)))
   }
 
   it should "not substitute in shadowed inner function" in {
@@ -101,16 +102,16 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   it should "resolve value reference from registered fact" in {
     val vfqn = ValueFQN(testModuleName, "testValue")
-    val fact = NamedEvaluable(vfqn, ConcreteValue(Value.LiteralInteger(100), Value.Structure(Map.empty)))
-    runEvaluatorWithFacts(valueRef(vfqn), Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(100), Value.Structure(Map.empty)))
+    val fact = NamedEvaluable(vfqn, ConcreteValue(Value.Direct(100, bigIntType)))
+    runEvaluatorWithFacts(valueRef(vfqn), Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(100, bigIntType)))
   }
 
   it should "resolve function value reference and apply" in {
     val vfqn = ValueFQN(testModuleName, "identity")
-    val identityFn = FunctionLiteral("x", Value.Structure(Map.empty), ParameterReference("x"))
+    val identityFn = FunctionLiteral("x", typeType, ParameterReference("x"))
     val fact = NamedEvaluable(vfqn, identityFn)
     val expr = funApp(valueRef(vfqn), intLit(42))
-    runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(42), Value.Structure(Map.empty)))
+    runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
   }
 
   it should "detect direct recursion" in {
@@ -128,7 +129,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "detect recursion through function application argument" in {
     val vfqn    = ValueFQN(testModuleName, "recursive")
     val fnVfqn  = ValueFQN(testModuleName, "fn")
-    val fnFact  = NamedEvaluable(fnVfqn, FunctionLiteral("x", Value.Structure(Map.empty), ParameterReference("x")))
+    val fnFact  = NamedEvaluable(fnVfqn, FunctionLiteral("x", typeType, ParameterReference("x")))
     val expr    = funApp(valueRef(fnVfqn), valueRef(vfqn))
     runEvaluatorWithFactsAndTracking(expr, Seq(fnFact), Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }
@@ -140,18 +141,18 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   it should "apply native function to concrete argument" in {
     val vfqn = ValueFQN(testModuleName, "double")
-    val nativeFn = NativeFunction("x", Value.Structure(Map.empty), {
-      case Value.LiteralInteger(n) => ConcreteValue(Value.LiteralInteger(n * 2), Value.Structure(Map.empty))
-      case v                       => ConcreteValue(v, Value.Structure(Map.empty))
+    val nativeFn = NativeFunction(bigIntType, {
+      case Value.Direct(n: BigInt, t) => ConcreteValue(Value.Direct(n * 2, t))
+      case v                          => ConcreteValue(v)
     })
     val fact = NamedEvaluable(vfqn, nativeFn)
     val expr = funApp(valueRef(vfqn), intLit(21))
-    runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(42), Value.Structure(Map.empty)))
+    runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
   }
 
   it should "fail when native function receives non-concrete argument" in {
     val vfqn = ValueFQN(testModuleName, "nativeFn")
-    val nativeFn = NativeFunction("x", Value.Structure(Map.empty), v => ConcreteValue(v, Value.Structure(Map.empty)))
+    val nativeFn = NativeFunction(typeType, v => ConcreteValue(v))
     val fact = NamedEvaluable(vfqn, nativeFn)
     val outerFn = funLit("y", intLit(1), funApp(valueRef(vfqn), paramRef("y")))
     runEvaluatorWithFactsForError(outerFn, Seq(fact)).asserting(_ shouldBe "Native function requires concrete argument.")
@@ -160,7 +161,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "leave function application unreduced when target is parameter reference" in {
     val fn   = funLit("f", intLit(1), funApp(paramRef("f"), intLit(42)))
     runEvaluator(fn).asserting {
-      case FunctionLiteral("f", _, FunctionApplication(ParameterReference("f"), ConcreteValue(Value.LiteralInteger(42), _))) =>
+      case FunctionLiteral("f", _, FunctionApplication(ParameterReference("f"), ConcreteValue(Value.Direct(42, _)))) =>
         succeed
       case other => fail(s"Unexpected result: $other")
     }
@@ -170,14 +171,14 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     val inner = funLit("x", intLit(1), paramRef("x"))
     val outer = funLit("y", intLit(1), funApp(inner, paramRef("y")))
     val expr  = funApp(outer, intLit(42))
-    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(42), Value.Structure(Map.empty)))
+    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
   }
 
   it should "reduce function application inside function body" in {
     val addOne = funLit("x", intLit(1), intLit(1))
     val fn     = funLit("y", intLit(1), funApp(addOne, paramRef("y")))
     runEvaluator(fn).asserting {
-      case FunctionLiteral("y", _, ConcreteValue(Value.LiteralInteger(1), _)) => succeed
+      case FunctionLiteral("y", _, ConcreteValue(Value.Direct(1, _))) => succeed
       case other => fail(s"Unexpected result: $other")
     }
   }
@@ -185,17 +186,17 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "evaluate complex nested expression" in {
     val const = funLit("x", intLit(1), funLit("y", intLit(1), paramRef("x")))
     val expr  = funApp(funApp(const, intLit(1)), intLit(2))
-    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(1), Value.Structure(Map.empty)))
+    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.Direct(1, bigIntType)))
   }
 
   it should "allow different values with same name in tracking set" in {
     val vfqn1 = ValueFQN(testModuleName, "a")
     val vfqn2 = ValueFQN(ModuleName(Seq("other"), "Module"), "a")
-    val fact1 = NamedEvaluable(vfqn1, ConcreteValue(Value.LiteralInteger(1), Value.Structure(Map.empty)))
-    val fact2 = NamedEvaluable(vfqn2, ConcreteValue(Value.LiteralInteger(2), Value.Structure(Map.empty)))
+    val fact1 = NamedEvaluable(vfqn1, ConcreteValue(Value.Direct(1, bigIntType)))
+    val fact2 = NamedEvaluable(vfqn2, ConcreteValue(Value.Direct(2, bigIntType)))
     val expr  = valueRef(vfqn2)
     runEvaluatorWithFactsAndTracking(expr, Seq(fact1, fact2), Set(vfqn1)).asserting {
-      case Right(ConcreteValue(Value.LiteralInteger(2), _)) => succeed
+      case Right(ConcreteValue(Value.Direct(2, _))) => succeed
       case other => fail(s"Unexpected result: $other")
     }
   }
@@ -215,23 +216,23 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     val vfqnA = ValueFQN(testModuleName, "a")
     val vfqnB = ValueFQN(testModuleName, "b")
     val vfqnC = ValueFQN(testModuleName, "c")
-    val factC = NamedEvaluable(vfqnC, ConcreteValue(Value.LiteralInteger(42), Value.Structure(Map.empty)))
+    val factC = NamedEvaluable(vfqnC, ConcreteValue(Value.Direct(42, bigIntType)))
     val factB = NamedEvaluable(vfqnB, factC.value)
     val factA = NamedEvaluable(vfqnA, factB.value)
     runEvaluatorWithFacts(valueRef(vfqnA), Seq(factA, factB, factC))
-      .asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(42), Value.Structure(Map.empty)))
+      .asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
   }
 
   it should "evaluate deeply nested function applications" in {
     val id   = funLit("x", intLit(1), paramRef("x"))
     val expr = funApp(funApp(funApp(funApp(id, id), id), id), intLit(42))
-    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(42), Value.Structure(Map.empty)))
+    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
   }
 
   it should "correctly substitute in complex body" in {
     val fn   = funLit("x", intLit(1), funApp(funLit("y", intLit(1), paramRef("x")), paramRef("x")))
     val expr = funApp(fn, intLit(99))
-    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.LiteralInteger(99), Value.Structure(Map.empty)))
+    runEvaluator(expr).asserting(_ shouldBe ConcreteValue(Value.Direct(99, bigIntType)))
   }
 
   it should "detect recursion in nested function literal body" in {
@@ -279,7 +280,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private def funLit(param: String, paramTypeExpr: Expression, body: Expression): Expression =
     Expression.FunctionLiteral(
       sourced(param),
-      sourced(ExpressionStack(Seq(paramTypeExpr), true)),
+      sourced(ExpressionStack(Seq(paramTypeExpr), false)),
       sourced(ExpressionStack(Seq(body), true))
     )
 

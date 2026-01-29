@@ -113,9 +113,9 @@ object Evaluator {
                            case FunctionLiteral(paramName, _, body) =>
                              val substituted = substitute(body, paramName, reducedArg)
                              reduceExpressionValue(substituted, evaluating)
-                           case NativeFunction(_, _, nativeFn)      =>
+                           case NativeFunction(_, nativeFn)         =>
                              reducedArg match {
-                               case ConcreteValue(v, _) => nativeFn(v).pure[CompilerIO]
+                               case ConcreteValue(v) => nativeFn(v).pure[CompilerIO]
                                case _                   => FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
                              }
                            case _                                   =>
