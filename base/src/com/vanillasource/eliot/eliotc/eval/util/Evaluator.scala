@@ -9,7 +9,6 @@ import com.vanillasource.eliot.eliotc.eval.util.Types.{bigIntType, stringType}
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
-import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 object Evaluator {
@@ -27,15 +26,17 @@ object Evaluator {
       expression: Expression,
       evaluating: Set[ValueFQN] = Set.empty
   ): CompilerIO[InitialExpressionValue] =
-    evaluateInternal(expression, evaluating, Map.empty).flatMap {
-      case iv: InitialExpressionValue  => iv.pure[CompilerIO]
-      case ParameterReference(name, _) =>
-        abort // Unbound parameter reference at top level
-      case FunctionApplication(_, _)   =>
-        abort // Could not reduce function application
-    }
+    for {
+      value   <- evaluateToValue(expression, evaluating, Map.empty)
+      reduced <- reduce(value)
+      result  <- reduced match {
+                   case iv: InitialExpressionValue  => iv.pure[CompilerIO]
+                   case ParameterReference(_, _)    => abort
+                   case FunctionApplication(_, _)   => abort
+                 }
+    } yield result
 
-  private def evaluateInternal(
+  private def evaluateToValue(
       expression: Expression,
       evaluating: Set[ValueFQN],
       paramContext: Map[String, Value]
@@ -59,124 +60,78 @@ object Evaluator {
       }
     case Expression.FunctionLiteral(paramName, paramType, body) =>
       for {
-        evaluatedParamType <- tryEvaluateTypeToValue(paramType.value, evaluating, paramContext)
+        evaluatedParamType <- evaluateTypeToValue(paramType.value, evaluating, paramContext)
         newContext          = paramContext + (paramName.value -> evaluatedParamType)
-        evaluatedBody      <- body.value.runtime.fold(abort)(evaluateInternal(_, evaluating, newContext))
+        evaluatedBody      <- body.value.runtime.fold(abort)(evaluateToValue(_, evaluating, newContext))
       } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
     case Expression.FunctionApplication(target, argument)       =>
       for {
-        targetValue <- target.value.runtime.fold(abort)(evaluateInternal(_, evaluating, paramContext))
-        argValue    <- argument.value.runtime.fold(abort)(evaluateInternal(_, evaluating, paramContext))
-        result      <- applyFunction(targetValue, argValue, target, evaluating)
-      } yield result
+        targetValue <- target.value.runtime.fold(abort)(evaluateToValue(_, evaluating, paramContext))
+        argValue    <- argument.value.runtime.fold(abort)(evaluateToValue(_, evaluating, paramContext))
+      } yield FunctionApplication(targetValue, argValue)
   }
 
-  private def tryEvaluateTypeToValue(
+  private def evaluateTypeToValue(
       typeStack: ExpressionStack[Expression],
       evaluating: Set[ValueFQN],
       paramContext: Map[String, Value]
   ): CompilerIO[Value] =
     typeStack.signature.fold(abort) { typeExpr =>
-      evaluateInternal(typeExpr, evaluating, paramContext).flatMap {
+      evaluateToValue(typeExpr, evaluating, paramContext).flatMap {
         case ConcreteValue(v) => v.pure[CompilerIO]
         case _                => abort
       }
     }
 
-  private def applyFunction(
-      target: ExpressionValue,
-      argument: ExpressionValue,
-      targetSourced: Sourced[?],
-      evaluating: Set[ValueFQN]
-  ): CompilerIO[ExpressionValue] = target match {
-    case FunctionLiteral(paramName, paramType, body) =>
-      checkType(paramType, argument, targetSourced) >>
-        reduceExpressionValue(substitute(body, paramName, argument), evaluating)
-    case NativeFunction(paramType, nativeFn)         =>
-      argument match {
-        case ConcreteValue(v) =>
-          checkType(paramType, argument, targetSourced) >>
-            nativeFn(v).pure[CompilerIO]
-        case _                => compilerAbort(targetSourced.as("Native function requires concrete argument."))
-      }
-    case ParameterReference(_, _)                    =>
-      FunctionApplication(target, argument).pure[CompilerIO]
-    case FunctionApplication(_, _)                   =>
-      FunctionApplication(target, argument).pure[CompilerIO]
-    case ConcreteValue(_)                            =>
-      compilerAbort(targetSourced.as("Cannot apply concrete value as a function."))
-  }
-
-  private def checkType(
-      expectedType: Value,
-      argument: ExpressionValue,
-      sourced: Sourced[?]
-  ): CompilerIO[Unit] =
-    getArgumentType(argument) match {
-      case Some(actualType) if actualType != expectedType =>
-        compilerAbort(sourced.as(s"Type mismatch: expected $expectedType but got $actualType."))
-      case _                                              => ().pure[CompilerIO]
-    }
-
-  private def getArgumentType(argument: ExpressionValue): Option[Value] = argument match {
-    case ConcreteValue(v)              => Some(v.valueType)
-    case FunctionLiteral(_, _, _)      => None // TODO: compute function type
-    case NativeFunction(_, _)          => None // TODO: compute function type
-    case ParameterReference(_, t)      => Some(t)
-    case FunctionApplication(_, _)     => None // Type unknown until reduced
-  }
-
-  private def reduceExpressionValue(
-      value: ExpressionValue,
-      evaluating: Set[ValueFQN]
-  ): CompilerIO[ExpressionValue] = value match {
+  private def reduce(value: ExpressionValue): CompilerIO[ExpressionValue] = value match {
     case FunctionApplication(target, arg) =>
       for {
-        reducedTarget <- reduceExpressionValue(target, evaluating)
-        reducedArg    <- reduceExpressionValue(arg, evaluating)
-        result        <- reducedTarget match {
-                           case FunctionLiteral(paramName, paramType, body) =>
-                             checkTypeInternal(paramType, reducedArg) >>
-                               reduceExpressionValue(substitute(body, paramName, reducedArg), evaluating)
-                           case NativeFunction(paramType, nativeFn)         =>
-                             reducedArg match {
-                               case ConcreteValue(v) =>
-                                 checkTypeInternal(paramType, reducedArg) >>
-                                   nativeFn(v).pure[CompilerIO]
-                               case _                =>
-                                 FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
-                             }
-                           case _                                           =>
-                             FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
-                         }
+        reducedTarget <- reduce(target)
+        reducedArg    <- reduce(arg)
+        result        <- applyOrKeep(reducedTarget, reducedArg)
       } yield result
-
     case FunctionLiteral(name, paramType, body) =>
-      reduceExpressionValue(body, evaluating).map(FunctionLiteral(name, paramType, _))
-
-    case other => other.pure[CompilerIO]
+      reduce(body).map(FunctionLiteral(name, paramType, _))
+    case other =>
+      other.pure[CompilerIO]
   }
 
-  private def checkTypeInternal(expectedType: Value, argument: ExpressionValue): CompilerIO[Unit] =
-    getArgumentType(argument) match {
+  private def applyOrKeep(target: ExpressionValue, arg: ExpressionValue): CompilerIO[ExpressionValue] =
+    target match {
+      case FunctionLiteral(paramName, paramType, body) =>
+        checkType(paramType, arg) >>
+          reduce(substitute(body, paramName, arg))
+      case NativeFunction(paramType, nativeFn)         =>
+        arg match {
+          case ConcreteValue(v) =>
+            checkType(paramType, arg) >> nativeFn(v).pure[CompilerIO]
+          case _                =>
+            FunctionApplication(target, arg).pure[CompilerIO]
+        }
+      case _ =>
+        FunctionApplication(target, arg).pure[CompilerIO]
+    }
+
+  private def checkType(expectedType: Value, argument: ExpressionValue): CompilerIO[Unit] =
+    argumentType(argument) match {
       case Some(actualType) if actualType != expectedType => abort
       case _                                              => ().pure[CompilerIO]
     }
 
-  private def substitute(
-      body: ExpressionValue,
-      paramName: String,
-      argValue: ExpressionValue
-  ): ExpressionValue = body match {
-    case ParameterReference(name, _) if name == paramName                 => argValue
-    case ParameterReference(_, _)                                         => body
-    case FunctionApplication(target, arg)                                 =>
-      FunctionApplication(
-        substitute(target, paramName, argValue),
-        substitute(arg, paramName, argValue)
-      )
-    case FunctionLiteral(name, paramType, innerBody) if name != paramName =>
-      FunctionLiteral(name, paramType, substitute(innerBody, paramName, argValue))
-    case _                                                                => body
+  private def argumentType(argument: ExpressionValue): Option[Value] = argument match {
+    case ConcreteValue(v)         => Some(v.valueType)
+    case ParameterReference(_, t) => Some(t)
+    case _                        => None
   }
+
+  private def substitute(body: ExpressionValue, paramName: String, argValue: ExpressionValue): ExpressionValue =
+    body match {
+      case ParameterReference(name, _) if name == paramName                 => argValue
+      case ParameterReference(_, _)                                         => body
+      case FunctionApplication(target, arg)                                 =>
+        FunctionApplication(substitute(target, paramName, argValue), substitute(arg, paramName, argValue))
+      case FunctionLiteral(name, paramType, innerBody) if name != paramName =>
+        FunctionLiteral(name, paramType, substitute(innerBody, paramName, argValue))
+      case _ => body
+    }
 }

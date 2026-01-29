@@ -143,13 +143,13 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   it should "fail when applying concrete value as function" in {
     val expr = funApp(intLit(42), intLit(1))
-    runEvaluatorForError(expr).asserting(_ shouldBe "Cannot apply concrete value as a function.")
+    runEvaluatorAborts(expr).asserting(_ shouldBe true)
   }
 
   it should "fail when argument type does not match parameter type" in {
     val fn   = intFunLit("x", paramRef("x"))
     val expr = funApp(fn, strLit("hello"))
-    runEvaluatorForError(expr).asserting(_.contains("Type mismatch") shouldBe true)
+    runEvaluatorAborts(expr).asserting(_ shouldBe true)
   }
 
   it should "apply native function to concrete argument" in {
@@ -163,12 +163,15 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
   }
 
-  it should "fail when native function receives non-concrete argument" in {
+  it should "leave native function application unreduced when argument is not concrete" in {
     val vfqn = ValueFQN(testModuleName, "nativeFn")
     val nativeFn = NativeFunction(bigIntType, v => ConcreteValue(v))
     val fact = NamedEvaluable(vfqn, nativeFn)
     val outerFn = intFunLit("y", funApp(valueRef(vfqn), paramRef("y")))
-    runEvaluatorWithFactsForError(outerFn, Seq(fact)).asserting(_ shouldBe "Native function requires concrete argument.")
+    runEvaluatorWithFacts(outerFn, Seq(fact)).asserting {
+      case FunctionLiteral("y", _, FunctionApplication(NativeFunction(_, _), ParameterReference("y", _))) => succeed
+      case other => fail(s"Unexpected result: $other")
+    }
   }
 
   it should "leave function application unreduced when target is parameter reference" in {
@@ -336,26 +339,6 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     } yield result match {
       case Left(_) => true
       case _       => false
-    }
-
-  private def runEvaluatorForError(expression: Expression): IO[String] =
-    runEvaluatorWithFactsForError(expression, Seq.empty)
-
-  private def runEvaluatorWithFactsForError(
-      expression: Expression,
-      facts: Seq[CompilerFact]
-  ): IO[String] =
-    for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq.empty))
-      _         <- generator.registerFact(sourceContent)
-      _         <- generator.registerFact(bigIntTypeFact)
-      _         <- generator.registerFact(stringTypeFact)
-      _         <- facts.traverse_(generator.registerFact)
-      result    <- Evaluator.evaluate(expression).run(generator).run(Chain.empty).value
-    } yield result match {
-      case Right((errors, _)) if errors.nonEmpty => errors.toList.head.message
-      case Left(errors) if errors.nonEmpty       => errors.toList.head.message
-      case _                                     => throw new Exception("Expected error but evaluation succeeded")
     }
 
   private def runEvaluatorWithTracking(
