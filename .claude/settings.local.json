@@ -30,7 +30,8 @@
       "Bash(mill base.checkFormat:*)",
       "Bash(mill base.test.compile:*)",
       "Bash(mill base.reformat:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "mcp__ide__getDiagnostics"
     ]
   }
 }
