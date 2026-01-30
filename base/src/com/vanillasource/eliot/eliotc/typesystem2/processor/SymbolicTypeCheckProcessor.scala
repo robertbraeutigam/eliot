@@ -86,7 +86,7 @@ class SymbolicTypeCheckProcessor
       _               <- tellConstraint(
                            SymbolicUnification.constraint(
                              levelsResult.signatureType,
-                             body.as(bodyResult.exprValue),
+                             body.as(bodyResult.expressionType),
                              "Type mismatch."
                            )
                          )
@@ -95,8 +95,7 @@ class SymbolicTypeCheckProcessor
     } yield TypeCheckResult(
       levelsResult.signatureType,
       levelsResult.typedLevels,
-      bodyResult.exprValue,
-      bodyResult.typed,
+      bodyResult,
       constraints,
       unificationVars
     )).runA(TypeCheckState())
@@ -156,7 +155,7 @@ class SymbolicTypeCheckProcessor
           typeResult <- TypeExpressionBuilder.build(expr, source)
           // Note: For signature level, we don't strictly check against expectedType
           // because the signature can involve unification variables (generics)
-        } yield TypeLevelsResult(typeResult.exprValue, Seq(typeResult.typed))
+        } yield TypeLevelsResult(typeResult.expressionType, Seq(typeResult))
 
       case expr :: rest =>
         // Higher level (above signature) - must evaluate to ConcreteValue
@@ -165,7 +164,7 @@ class SymbolicTypeCheckProcessor
           typeResult <- TypeExpressionBuilder.build(expr, source)
 
           // 2. Extract the concrete value for use as expected type in next level
-          evaluatedValue <- typeResult.exprValue match {
+          evaluatedValue <- typeResult.expressionType match {
                               case ConcreteValue(v) =>
                                 // 3. Check the value's type matches expected
                                 if (v.valueType == expectedType) {
@@ -191,7 +190,7 @@ class SymbolicTypeCheckProcessor
           restResult     <- processLevelsRecursive(rest, evaluatedValue, source)
         } yield TypeLevelsResult(
           restResult.signatureType,
-          typeResult.typed +: restResult.typedLevels
+          typeResult +: restResult.typedLevels
         )
     }
 
@@ -216,7 +215,6 @@ object SymbolicTypeCheckProcessor {
   private case class TypeCheckResult(
       declaredType: ExpressionValue,
       typedLevels: Seq[TypedExpression],
-      bodyType: ExpressionValue,
       typedBody: TypedExpression,
       constraints: SymbolicUnification,
       unificationVars: Set[String]
