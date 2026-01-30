@@ -38,20 +38,21 @@ object TypeExpressionBuilder {
       case Nil  =>
         for {
           uvar <- generateUnificationVar(typeExpr)
-        } yield TypeWithTyped.Stack(
-          uvar,
-          typeExpr.as(ExpressionStack[TypedExpression](Seq.empty, stack.hasRuntime))
-        )
+        } yield TypeWithTyped.Stack(uvar, Seq.empty)
       case exprs =>
         for {
           results <- exprs.traverse(expr => evaluate(expr, typeExpr))
           signatureResult = results.head
-        } yield TypeWithTyped.Stack(
-          signatureResult.exprValue,
-          typeExpr.as(ExpressionStack[TypedExpression](results.map(_.typed), stack.hasRuntime))
-        )
+        } yield TypeWithTyped.Stack(signatureResult.exprValue, results.map(_.typed))
     }
   }
+
+  /** Convert a build result to a nested stack for use in FunctionLiteral/FunctionApplication AST nodes. */
+  private def toNestedStack(
+      source: Sourced[ExpressionStack[Expression]],
+      result: TypeWithTyped.Stack
+  ): Sourced[ExpressionStack[TypedExpression]] =
+    source.as(ExpressionStack(result.typedLevels.take(1), source.value.hasRuntime))
 
   /** Evaluate a type expression, collecting universal variables along the way. */
   private def evaluate(
@@ -113,9 +114,11 @@ object TypeExpressionBuilder {
       _           <- bindParameter(paramName.value, paramResult.exprValue)
       bodyResult  <- build(body)
       funcType     = functionType(paramResult.exprValue, bodyResult.exprValue)
+      paramNested  = toNestedStack(paramType, paramResult)
+      bodyNested   = toNestedStack(body, bodyResult)
     } yield TypeWithTyped(
       funcType,
-      TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, paramResult.typed, bodyResult.typed))
+      TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, paramNested, bodyNested))
     )
 
   /** Value reference - could be a type like Int, String, or a universal var */
@@ -138,9 +141,11 @@ object TypeExpressionBuilder {
       targetResult <- build(target)
       argResult    <- build(arg)
       resultType    = applyTypeApplication(targetResult.exprValue, argResult.exprValue)
+      targetNested  = toNestedStack(target, targetResult)
+      argNested     = toNestedStack(arg, argResult)
     } yield TypeWithTyped(
       resultType,
-      TypedExpression(resultType, TypedExpression.FunctionApplication(targetResult.typed, argResult.typed))
+      TypedExpression(resultType, TypedExpression.FunctionApplication(targetNested, argNested))
     )
 
   /** Apply a type constructor to an argument. Handles Function type specially. */

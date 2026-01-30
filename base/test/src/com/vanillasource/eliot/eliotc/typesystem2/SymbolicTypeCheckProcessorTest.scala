@@ -191,10 +191,7 @@ class SymbolicTypeCheckProcessorTest
 
   it should "produce type checked function fact for function without body" in {
     runEngineForTypedValue("data A\nf: A")
-      .asserting { func =>
-        func.vfqn.name shouldBe "f"
-        func.value.value.hasRuntime shouldBe false
-      }
+      .asserting(_.runtime shouldBe None)
   }
 
   "parameter usage" should "type check when parameter type matches return type" in {
@@ -216,7 +213,7 @@ class SymbolicTypeCheckProcessorTest
 
   private def runEngineForTypedValues(source: String): IO[Seq[ValueFQN]] =
     runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, "f")), systemImports).map { case (_, facts) =>
-      facts.values.collect { case TypeCheckedValue(vfqn, _, _) =>
+      facts.values.collect { case TypeCheckedValue(vfqn, _, _, _) =>
         vfqn
       }.toSeq
     }

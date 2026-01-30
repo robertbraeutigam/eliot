@@ -1,14 +1,26 @@
 package com.vanillasource.eliot.eliotc.typesystem2.fact
 
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
+/** A type-checked value with its signature type and optional runtime body.
+  *
+  * @param vfqn
+  *   The fully qualified name of this value
+  * @param name
+  *   The sourced name
+  * @param signature
+  *   The type of this value (result of type checking)
+  * @param runtime
+  *   The optional typed runtime body expression (the signature is its type)
+  */
 case class TypeCheckedValue(
     vfqn: ValueFQN,
     name: Sourced[String],
-    value: Sourced[ExpressionStack[TypedExpression]]
+    signature: ExpressionValue,
+    runtime: Option[Sourced[TypedExpression.Expression]]
 ) extends CompilerFact {
   override def key(): CompilerFactKey[TypeCheckedValue] = TypeCheckedValue.Key(vfqn)
 }

@@ -115,11 +115,11 @@ object BodyInferenceBuilder {
       _             <- bindParameter(paramName.value, paramResult.exprValue)
       bodyResult    <- build(bodyStack.map(_.expressions.head))
       funcType       = functionType(paramResult.exprValue, bodyResult.exprValue)
-      typedBodyStack =
-        bodyStack.as(ExpressionStack[TypedExpression](Seq(bodyResult.typed), bodyStack.value.hasRuntime))
+      typedParamType = paramType.as(ExpressionStack[TypedExpression](paramResult.typedLevels.take(1), paramType.value.hasRuntime))
+      typedBodyStack = bodyStack.as(ExpressionStack[TypedExpression](Seq(bodyResult.typed), bodyStack.value.hasRuntime))
     } yield TypeWithTyped(
       funcType,
-      TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, paramResult.typed, typedBodyStack))
+      TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBodyStack))
     )
 
   private def primitiveType(moduleName: String, typeName: String): ExpressionValue =

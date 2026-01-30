@@ -1,8 +1,9 @@
 package com.vanillasource.eliot.eliotc.typesystem2.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
+import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -16,10 +17,11 @@ import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
 
 /** Type checks resolved values by building type constraints and solving them through unification.
   *
-  * This processor orchestrates:
-  *   - TypeExpressionBuilder: evaluates declared type signatures
-  *   - BodyInferenceBuilder: infers types for body expressions
-  *   - SymbolicUnification: solves the collected constraints
+  * The processor handles expression stacks where each level describes the type of the level below:
+  *   - The implicit top level is TypeType
+  *   - Each higher level (above signature) must evaluate to ConcreteValue
+  *   - Each level's value must have valueType matching the level above's value
+  *   - Signature (level 1) and runtime (level 0) become the final typed output
   */
 class SymbolicTypeCheckProcessor
     extends TransformationProcessor[ResolvedValue.Key, TypeCheckedValue.Key](key => ResolvedValue.Key(key.vfqn))
@@ -40,20 +42,20 @@ class SymbolicTypeCheckProcessor
   ): CompilerIO[TypeCheckedValue] = {
     val body = resolvedValue.value.as(bodyExpr)
     for {
-      checkResult           <- runTypeCheck(resolvedValue, body)
-      fullConstraints        = checkResult.constraints |+| SymbolicUnification.unificationVars(checkResult.unificationVars)
-      _                     <- debug[CompilerIO](s"Constraints: ${fullConstraints.show}")
-      solution              <- fullConstraints.solve()
-      _                     <- debug[CompilerIO](s"Solution: ${solution.show}")
-      resolvedTypedLevels    = checkResult.typedSignature.value.expressions.map(applySubstitutions(_, solution))
-      resolvedTypedBody      = applySubstitutions(checkResult.typedBody, solution)
-      _                     <- verifyHigherLevelsAreConcreteValue(resolvedTypedLevels.drop(1), resolvedValue.value)
-      signatureOnly          = resolvedTypedLevels.take(1)
-      unifiedStack           = ExpressionStack(resolvedTypedBody +: signatureOnly, true)
+      checkResult       <- runTypeCheck(resolvedValue, body)
+      fullConstraints    = checkResult.constraints |+| SymbolicUnification.unificationVars(checkResult.unificationVars)
+      _                 <- debug[CompilerIO](s"Constraints: ${fullConstraints.show}")
+      solution          <- fullConstraints.solve()
+      _                 <- debug[CompilerIO](s"Solution: ${solution.show}")
+      resolvedTypedLevels = checkResult.typedLevels.map(applySubstitutions(_, solution))
+      resolvedTypedBody   = applySubstitutions(checkResult.typedBody, solution)
+      _                 <- verifyHigherLevels(resolvedTypedLevels, resolvedValue.value)
+      signatureType      = resolvedTypedLevels.headOption.map(_.expressionType).getOrElse(solution.substitute(checkResult.declaredType))
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       resolvedValue.name,
-      resolvedValue.value.as(unifiedStack)
+      signatureType,
+      Some(resolvedValue.value.as(resolvedTypedBody.expression))
     )
   }
 
@@ -61,13 +63,14 @@ class SymbolicTypeCheckProcessor
       resolvedValue: ResolvedValue
   ): CompilerIO[TypeCheckedValue] =
     for {
-      typedSignature <- TypeExpressionBuilder.build(resolvedValue.value).map(_.typed).runA(TypeCheckState())
-      _              <- verifyHigherLevelsAreConcreteValue(typedSignature.value.expressions.drop(1), resolvedValue.value)
-      signatureOnly   = typedSignature.map(s => ExpressionStack(s.expressions.take(1), false))
+      buildResult  <- TypeExpressionBuilder.build(resolvedValue.value).runA(TypeCheckState())
+      _            <- verifyHigherLevels(buildResult.typedLevels, resolvedValue.value)
+      signatureType = buildResult.typedLevels.headOption.map(_.expressionType).getOrElse(buildResult.exprValue)
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       resolvedValue.name,
-      signatureOnly
+      signatureType,
+      None
     )
 
   private def runTypeCheck(
@@ -88,7 +91,7 @@ class SymbolicTypeCheckProcessor
       unificationVars <- getUnificationVars
     } yield TypeCheckResult(
       typeResult.exprValue,
-      typeResult.typed,
+      typeResult.typedLevels,
       bodyResult.exprValue,
       bodyResult.typed,
       constraints,
@@ -98,23 +101,52 @@ class SymbolicTypeCheckProcessor
   private def applySubstitutions(typed: TypedExpression, solution: UnificationState): TypedExpression =
     typed.transformTypes(solution.substitute)
 
-  private def verifyHigherLevelsAreConcreteValue(
-      higherLevels: Seq[TypedExpression],
+  /** Verify that higher levels (above signature) are ConcreteValue and have correct valueType relationships.
+    *
+    * The type hierarchy is: TypeType (implicit) -> level N -> level N-1 -> ... -> level 1 (signature) Each level's
+    * evaluated value must have valueType matching the value from the level above.
+    */
+  private def verifyHigherLevels(
+      levels: Seq[TypedExpression],
       source: Sourced[?]
-  ): CompilerIO[Unit] =
+  ): CompilerIO[Unit] = {
+    val higherLevels = levels.drop(1) // Skip signature (index 0)
+
+    // Check all higher levels are ConcreteValue
     higherLevels.find(typed => !typed.expressionType.isInstanceOf[ConcreteValue]) match {
       case Some(_) =>
         compilerError(source.as("Higher level type annotation must evaluate to a concrete type."))
       case None    =>
-        ().pure[CompilerIO]
+        // Verify type relationships: each level's valueType must match the level above
+        verifyTypeChain(higherLevels, Value.TypeType, source)
     }
+  }
+
+  /** Verify the chain of type relationships from top to bottom. */
+  private def verifyTypeChain(
+      levels: Seq[TypedExpression],
+      expectedType: Value,
+      source: Sourced[?]
+  ): CompilerIO[Unit] =
+    levels.reverse.foldLeftM(expectedType) { (expected, typed) =>
+      typed.expressionType match {
+        case ConcreteValue(value) if value.valueType == expected =>
+          value.pure[CompilerIO]
+        case ConcreteValue(value) =>
+          compilerError(source.as(s"Type level mismatch: expected type ${expected}, but got ${value.valueType}")) *>
+            value.pure[CompilerIO]
+        case other =>
+          compilerError(source.as("Higher level type annotation must evaluate to a concrete type.")) *>
+            Value.TypeType.pure[CompilerIO]
+      }
+    }.void
 }
 
 object SymbolicTypeCheckProcessor {
   private case class TypeCheckResult(
-      declaredType: com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue,
-      typedSignature: com.vanillasource.eliot.eliotc.source.content.Sourced[ExpressionStack[TypedExpression]],
-      bodyType: com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue,
+      declaredType: ExpressionValue,
+      typedLevels: Seq[TypedExpression],
+      bodyType: ExpressionValue,
       typedBody: TypedExpression,
       constraints: SymbolicUnification,
       unificationVars: Set[String]
