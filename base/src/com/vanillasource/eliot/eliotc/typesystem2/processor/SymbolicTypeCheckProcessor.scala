@@ -2,11 +2,13 @@ package com.vanillasource.eliot.eliotc.typesystem2.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.typesystem2.fact.*
 import com.vanillasource.eliot.eliotc.typesystem2.processor.SymbolicTypeCheckProcessor.TypeCheckResult
 import com.vanillasource.eliot.eliotc.typesystem2.types.*
@@ -43,9 +45,11 @@ class SymbolicTypeCheckProcessor
       _                     <- debug[CompilerIO](s"Constraints: ${fullConstraints.show}")
       solution              <- fullConstraints.solve()
       _                     <- debug[CompilerIO](s"Solution: ${solution.show}")
-      resolvedTypedSignature = checkResult.typedSignature.value.expressions.map(applySubstitutions(_, solution))
+      resolvedTypedLevels    = checkResult.typedSignature.value.expressions.map(applySubstitutions(_, solution))
       resolvedTypedBody      = applySubstitutions(checkResult.typedBody, solution)
-      unifiedStack           = ExpressionStack(resolvedTypedBody +: resolvedTypedSignature, true)
+      _                     <- verifyHigherLevelsAreConcreteValue(resolvedTypedLevels.drop(1), resolvedValue.value)
+      signatureOnly          = resolvedTypedLevels.take(1)
+      unifiedStack           = ExpressionStack(resolvedTypedBody +: signatureOnly, true)
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       resolvedValue.name,
@@ -58,11 +62,12 @@ class SymbolicTypeCheckProcessor
   ): CompilerIO[TypeCheckedValue] =
     for {
       typedSignature <- TypeExpressionBuilder.build(resolvedValue.value).map(_.typed).runA(TypeCheckState())
-      unifiedStack    = typedSignature.map(s => ExpressionStack(s.expressions, false))
+      _              <- verifyHigherLevelsAreConcreteValue(typedSignature.value.expressions.drop(1), resolvedValue.value)
+      signatureOnly   = typedSignature.map(s => ExpressionStack(s.expressions.take(1), false))
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       resolvedValue.name,
-      unifiedStack
+      signatureOnly
     )
 
   private def runTypeCheck(
@@ -92,6 +97,17 @@ class SymbolicTypeCheckProcessor
 
   private def applySubstitutions(typed: TypedExpression, solution: UnificationState): TypedExpression =
     typed.transformTypes(solution.substitute)
+
+  private def verifyHigherLevelsAreConcreteValue(
+      higherLevels: Seq[TypedExpression],
+      source: Sourced[?]
+  ): CompilerIO[Unit] =
+    higherLevels.find(typed => !typed.expressionType.isInstanceOf[ConcreteValue]) match {
+      case Some(_) =>
+        compilerError(source.as("Higher level type annotation must evaluate to a concrete type."))
+      case None    =>
+        ().pure[CompilerIO]
+    }
 }
 
 object SymbolicTypeCheckProcessor {

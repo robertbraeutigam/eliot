@@ -19,28 +19,39 @@ import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
   */
 object TypeExpressionBuilder {
 
-  /** Build type constraints from a declared type expression. Recognizes universal variables (FunctionLiteral with empty
-    * param type) and returns the type as ExpressionValue and typed expression stack.
+  /** Build type constraints from a declared type expression. Processes all levels of the expression stack, starting
+    * from the topmost (most type-like) and working down to the signature. Returns the signature type as exprValue and
+    * typed expressions for all levels.
     */
   def build(
       typeExpr: Sourced[ExpressionStack[Expression]]
-  ): TypeGraphIO[TypeWithTyped.Stack] =
-    typeExpr.value.signature.orElse(typeExpr.value.expressions.headOption) match {
-      case None       =>
+  ): TypeGraphIO[TypeWithTyped.Stack] = {
+    val stack = typeExpr.value
+    // Type levels are everything except runtime (level 0).
+    // If hasRuntime and there's more than one expression, drop the runtime.
+    // Otherwise, use all expressions (handles single-element stacks in nested contexts).
+    val typeLevelExprs =
+      if (stack.hasRuntime && stack.expressions.length > 1) stack.expressions.drop(1)
+      else stack.expressions
+
+    typeLevelExprs.toList match {
+      case Nil  =>
         for {
           uvar <- generateUnificationVar(typeExpr)
         } yield TypeWithTyped.Stack(
           uvar,
-          typeExpr.as(ExpressionStack[TypedExpression](Seq.empty, typeExpr.value.hasRuntime))
+          typeExpr.as(ExpressionStack[TypedExpression](Seq.empty, stack.hasRuntime))
         )
-      case Some(expr) =>
+      case exprs =>
         for {
-          result <- evaluate(expr, typeExpr)
+          results <- exprs.traverse(expr => evaluate(expr, typeExpr))
+          signatureResult = results.head
         } yield TypeWithTyped.Stack(
-          result.exprValue,
-          typeExpr.as(ExpressionStack[TypedExpression](Seq(result.typed), typeExpr.value.hasRuntime))
+          signatureResult.exprValue,
+          typeExpr.as(ExpressionStack[TypedExpression](results.map(_.typed), stack.hasRuntime))
         )
     }
+  }
 
   /** Evaluate a type expression, collecting universal variables along the way. */
   private def evaluate(
