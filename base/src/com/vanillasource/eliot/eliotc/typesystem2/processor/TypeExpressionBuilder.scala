@@ -20,7 +20,6 @@ object TypeExpressionBuilder {
   /** Build type constraints from a single type expression. Returns the typed AST with inferred type. */
   def build(
       expr: Expression,
-      source: Sourced[?]
   ): TypeGraphIO[TypedExpression] =
     expr match {
       case Expr.FunctionLiteral(paramName, paramType, body) if paramType.value.expressions.isEmpty =>
@@ -59,7 +58,7 @@ object TypeExpressionBuilder {
     for {
       _             <- addUniversalVar(paramName.value)
       _             <- tellUniversalVar(paramName.value)
-      inner         <- build(body.value.expressions.head, body)
+      inner         <- build(body.value.expressions.head)
       typedParamType = paramType.as(ExpressionStack[TypedExpression](Seq.empty, paramType.value.hasRuntime))
       typedBody      = body.as(ExpressionStack[TypedExpression](Seq(inner), body.value.hasRuntime))
     } yield TypedExpression(
@@ -89,7 +88,7 @@ object TypeExpressionBuilder {
       stack: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     stack.value.expressions.headOption match {
-      case Some(expr) => build(expr, stack)
+      case Some(expr) => build(expr)
       case None       =>
         for {
           uvar <- generateUnificationVar(stack)
