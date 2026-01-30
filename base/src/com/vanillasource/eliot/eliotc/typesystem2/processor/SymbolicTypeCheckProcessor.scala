@@ -12,7 +12,10 @@ import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.typesystem2.fact.*
-import com.vanillasource.eliot.eliotc.typesystem2.processor.SymbolicTypeCheckProcessor.{TypeCheckResult, TypeLevelsResult}
+import com.vanillasource.eliot.eliotc.typesystem2.processor.SymbolicTypeCheckProcessor.{
+  TypeCheckResult,
+  TypeLevelsResult
+}
 import com.vanillasource.eliot.eliotc.typesystem2.types.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
 
@@ -43,14 +46,15 @@ class SymbolicTypeCheckProcessor
   ): CompilerIO[TypeCheckedValue] = {
     val body = resolvedValue.value.as(bodyExpr)
     for {
-      checkResult       <- runTypeCheck(resolvedValue, body)
-      fullConstraints    = checkResult.constraints |+| SymbolicUnification.unificationVars(checkResult.unificationVars)
-      _                 <- debug[CompilerIO](s"Constraints: ${fullConstraints.show}")
-      solution          <- fullConstraints.solve()
-      _                 <- debug[CompilerIO](s"Solution: ${solution.show}")
+      checkResult        <- runTypeCheck(resolvedValue, body)
+      fullConstraints     = checkResult.constraints |+| SymbolicUnification.unificationVars(checkResult.unificationVars)
+      _                  <- debug[CompilerIO](s"Constraints: ${fullConstraints.show}")
+      solution           <- fullConstraints.solve()
+      _                  <- debug[CompilerIO](s"Solution: ${solution.show}")
       resolvedTypedLevels = checkResult.typedLevels.map(applySubstitutions(_, solution))
       resolvedTypedBody   = applySubstitutions(checkResult.typedBody, solution)
-      signatureType      = resolvedTypedLevels.headOption.map(_.expressionType).getOrElse(solution.substitute(checkResult.declaredType))
+      signatureType       =
+        resolvedTypedLevels.headOption.map(_.expressionType).getOrElse(solution.substitute(checkResult.declaredType))
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       resolvedValue.name,
@@ -100,10 +104,9 @@ class SymbolicTypeCheckProcessor
   /** Process type levels recursively from top to bottom.
     *
     * The implicit top level is TypeType. For each level:
-    *   1. Infer the type of the expression
-    *   2. Check it matches the expected type (TypeType for top, evaluated value from above otherwise)
-    *   3. Evaluate to get a concrete value
-    *   4. Use the evaluated value as expected type for the next level
+    *   1. Infer the type of the expression 2. Check it matches the expected type (TypeType for top, evaluated value
+    *      from above otherwise) 3. Evaluate to get a concrete value 4. Use the evaluated value as expected type for the
+    *      next level
     */
   private def processTypeLevels(
       typeExpr: Sourced[com.vanillasource.eliot.eliotc.core.fact.ExpressionStack[Expression]]
@@ -117,7 +120,7 @@ class SymbolicTypeCheckProcessor
       else expressions
 
     typeLevelExprs.toList.reverse match {
-      case Nil =>
+      case Nil    =>
         // No explicit type levels - generate unification variable for signature
         for {
           uvar <- generateUnificationVar(typeExpr)
@@ -169,17 +172,23 @@ class SymbolicTypeCheckProcessor
                                   v.pure[TypeGraphIO]
                                 } else {
                                   StateT.liftF(
-                                    compilerError(source.as(s"Type level mismatch: expected ${expectedType}, but got ${v.valueType}"))
+                                    compilerError(
+                                      source.as(
+                                        s"Type level mismatch: expected ${expectedType}, but got ${v.valueType}"
+                                      )
+                                    )
                                   ) *> v.pure[TypeGraphIO]
                                 }
-                              case other =>
+                              case other            =>
                                 StateT.liftF(
-                                  compilerError(source.as("Higher level type annotation must evaluate to a concrete type."))
+                                  compilerError(
+                                    source.as("Higher level type annotation must evaluate to a concrete type.")
+                                  )
                                 ) *> Value.TypeType.pure[TypeGraphIO]
                             }
 
           // 4. Process remaining levels with evaluated value as expected type
-          restResult <- processLevelsRecursive(rest, evaluatedValue, source)
+          restResult     <- processLevelsRecursive(rest, evaluatedValue, source)
         } yield TypeLevelsResult(
           restResult.signatureType,
           typeResult.typed +: restResult.typedLevels
