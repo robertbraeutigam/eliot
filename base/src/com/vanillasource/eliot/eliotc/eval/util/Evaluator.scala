@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.eval.util.Types.{bigIntType, stringType}
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 object Evaluator {
@@ -16,95 +17,105 @@ object Evaluator {
   /** Evaluates an expression to an InitialExpressionValue.
     *
     * @param expression
-    *   The expression to evaluate.
+    *   The sourced expression to evaluate.
     * @param evaluating
     *   Set of ValueFQNs currently being evaluated, used for recursion detection.
     * @return
     *   The evaluated value or abort if evaluation fails.
     */
   def evaluate(
-      expression: Expression,
+      expression: Sourced[Expression],
       evaluating: Set[ValueFQN] = Set.empty
   ): CompilerIO[InitialExpressionValue] =
     for {
-      value   <- evaluateToValue(expression, evaluating, Map.empty)
-      reduced <- reduce(value)
+      value   <- evaluateToValue(expression.value, evaluating, Map.empty, expression)
+      reduced <- reduce(value, expression)
       result  <- reduced match {
                    case iv: InitialExpressionValue  => iv.pure[CompilerIO]
-                   case ParameterReference(_, _)    => abort
-                   case FunctionApplication(_, _)   => abort
+                   case ParameterReference(name, _) =>
+                     compilerAbort(expression.as(s"Unbound parameter reference: $name"))
+                   case FunctionApplication(_, _)   =>
+                     compilerAbort(expression.as("Could not reduce function application."))
                  }
     } yield result
 
   private def evaluateToValue(
       expression: Expression,
       evaluating: Set[ValueFQN],
-      paramContext: Map[String, Value]
+      paramContext: Map[String, Value],
+      sourced: Sourced[?]
   ): CompilerIO[ExpressionValue] = expression match {
-    case Expression.IntegerLiteral(sourced)                     =>
-      ConcreteValue(Value.Direct(sourced.value, bigIntType)).pure[CompilerIO]
-    case Expression.StringLiteral(sourced)                      =>
-      ConcreteValue(Value.Direct(sourced.value, stringType)).pure[CompilerIO]
-    case Expression.ParameterReference(sourced)                 =>
-      val name = sourced.value
+    case Expression.IntegerLiteral(s)                           =>
+      ConcreteValue(Value.Direct(s.value, bigIntType)).pure[CompilerIO]
+    case Expression.StringLiteral(s)                            =>
+      ConcreteValue(Value.Direct(s.value, stringType)).pure[CompilerIO]
+    case Expression.ParameterReference(s)                       =>
+      val name = s.value
       paramContext.get(name) match {
         case Some(paramType) => ParameterReference(name, paramType).pure[CompilerIO]
-        case None            => compilerAbort(sourced.as(s"Unknown parameter: $name"))
+        case None            => compilerAbort(s.as(s"Unknown parameter: $name"))
       }
-    case Expression.ValueReference(sourced)                     =>
-      val vfqn = sourced.value
+    case Expression.ValueReference(s)                           =>
+      val vfqn = s.value
       if (evaluating.contains(vfqn)) {
-        compilerAbort(sourced.as("Recursive evaluation detected."))
+        compilerAbort(s.as("Recursive evaluation detected."))
       } else {
         getFactOrAbort(NamedEvaluable.Key(vfqn)).map(_.value)
       }
     case Expression.FunctionLiteral(paramName, paramType, body) =>
       for {
-        evaluatedParamType <- evaluateTypeToValue(paramType.value, evaluating, paramContext)
+        evaluatedParamType <- evaluateTypeToValue(paramType.value, evaluating, paramContext, paramType)
         newContext          = paramContext + (paramName.value -> evaluatedParamType)
-        evaluatedBody      <- body.value.runtime.fold(abort)(evaluateToValue(_, evaluating, newContext))
+        evaluatedBody      <- body.value.runtime.fold(compilerAbort(body.as("Function literal has no runtime body."))) {
+                                evaluateToValue(_, evaluating, newContext, body)
+                              }
       } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
     case Expression.FunctionApplication(target, argument)       =>
       for {
-        targetValue <- target.value.runtime.fold(abort)(evaluateToValue(_, evaluating, paramContext))
-        argValue    <- argument.value.runtime.fold(abort)(evaluateToValue(_, evaluating, paramContext))
+        targetValue <- target.value.runtime.fold(compilerAbort(target.as("Function application has no runtime target."))) {
+                         evaluateToValue(_, evaluating, paramContext, target)
+                       }
+        argValue    <- argument.value.runtime.fold(compilerAbort(argument.as("Function application has no runtime argument."))) {
+                         evaluateToValue(_, evaluating, paramContext, argument)
+                       }
       } yield FunctionApplication(targetValue, argValue)
   }
 
   private def evaluateTypeToValue(
       typeStack: ExpressionStack[Expression],
       evaluating: Set[ValueFQN],
-      paramContext: Map[String, Value]
+      paramContext: Map[String, Value],
+      sourced: Sourced[?]
   ): CompilerIO[Value] =
-    typeStack.signature.fold(abort) { typeExpr =>
-      evaluateToValue(typeExpr, evaluating, paramContext).flatMap {
+    typeStack.signature.fold(compilerAbort(sourced.as("Type expression has no signature."))) { typeExpr =>
+      evaluateToValue(typeExpr, evaluating, paramContext, sourced).flatMap {
         case ConcreteValue(v) => v.pure[CompilerIO]
-        case _                => abort
+        case _                => compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
       }
     }
 
-  private def reduce(value: ExpressionValue): CompilerIO[ExpressionValue] = value match {
+  private def reduce(value: ExpressionValue, sourced: Sourced[?]): CompilerIO[ExpressionValue] = value match {
     case FunctionApplication(target, arg) =>
       for {
-        reducedTarget <- reduce(target)
-        reducedArg    <- reduce(arg)
-        result        <- applyOrKeep(reducedTarget, reducedArg)
+        reducedTarget <- reduce(target, sourced)
+        reducedArg    <- reduce(arg, sourced)
+        result        <- applyOrKeep(reducedTarget, reducedArg, sourced)
       } yield result
     case FunctionLiteral(name, paramType, body) =>
-      reduce(body).map(FunctionLiteral(name, paramType, _))
+      reduce(body, sourced).map(FunctionLiteral(name, paramType, _))
     case other =>
       other.pure[CompilerIO]
   }
 
-  private def applyOrKeep(target: ExpressionValue, arg: ExpressionValue): CompilerIO[ExpressionValue] =
+  private def applyOrKeep(target: ExpressionValue, arg: ExpressionValue, sourced: Sourced[?]): CompilerIO[ExpressionValue] =
     target match {
       case FunctionLiteral(paramName, paramType, body) =>
-        checkType(paramType, arg) >>
-          reduce(substitute(body, paramName, arg))
+        checkType(paramType, arg, sourced) >>
+          reduce(substitute(body, paramName, arg), sourced)
       case NativeFunction(paramType, nativeFn)         =>
         arg match {
           case ConcreteValue(v) =>
-            checkType(paramType, arg) >> nativeFn(v).pure[CompilerIO]
+            checkType(paramType, arg, sourced) >> nativeFn(v).pure[CompilerIO]
           case _                =>
             FunctionApplication(target, arg).pure[CompilerIO]
         }
@@ -112,10 +123,11 @@ object Evaluator {
         FunctionApplication(target, arg).pure[CompilerIO]
     }
 
-  private def checkType(expectedType: Value, argument: ExpressionValue): CompilerIO[Unit] =
+  private def checkType(expectedType: Value, argument: ExpressionValue, sourced: Sourced[?]): CompilerIO[Unit] =
     argumentType(argument) match {
-      case Some(actualType) if actualType != expectedType => abort
-      case _                                              => ().pure[CompilerIO]
+      case Some(actualType) if actualType != expectedType =>
+        compilerAbort(sourced.as(s"Type mismatch: expected $expectedType but got $actualType."))
+      case _ => ().pure[CompilerIO]
     }
 
   private def argumentType(argument: ExpressionValue): Option[Value] = argument match {

@@ -143,13 +143,13 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   it should "fail when applying concrete value as function" in {
     val expr = funApp(intLit(42), intLit(1))
-    runEvaluatorAborts(expr).asserting(_ shouldBe true)
+    runEvaluatorForError(expr).asserting(_ shouldBe "Could not reduce function application.")
   }
 
   it should "fail when argument type does not match parameter type" in {
     val fn   = intFunLit("x", paramRef("x"))
     val expr = funApp(fn, strLit("hello"))
-    runEvaluatorAborts(expr).asserting(_ shouldBe true)
+    runEvaluatorForError(expr).asserting(_.contains("Type mismatch") shouldBe true)
   }
 
   it should "apply native function to concrete argument" in {
@@ -219,13 +219,13 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   it should "abort when top-level parameter reference is unbound" in {
     val expr = paramRef("unbound")
-    runEvaluatorAborts(expr).asserting(_ shouldBe true)
+    runEvaluatorForError(expr).asserting(_ shouldBe "Unknown parameter: unbound")
   }
 
   it should "abort when top-level function application cannot be reduced" in {
     val fn   = intFunLit("x", funApp(paramRef("f"), paramRef("x")))
     val expr = funApp(fn, intLit(1))
-    runEvaluatorAborts(expr).asserting(_ shouldBe true)
+    runEvaluatorForError(expr).asserting(_ shouldBe "Unknown parameter: f")
   }
 
   it should "chain multiple value references" in {
@@ -263,7 +263,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       sourced(ExpressionStack(Seq(valueRef(bigIntTypeVfqn)), false)),
       sourced(ExpressionStack(Seq.empty, false))
     )
-    runEvaluatorAborts(expr).asserting(_ shouldBe true)
+    runEvaluatorForError(expr).asserting(_ shouldBe "Function literal has no runtime body.")
   }
 
   it should "handle function application with no runtime target" in {
@@ -271,7 +271,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       sourced(ExpressionStack(Seq.empty, false)),
       sourced(ExpressionStack(Seq(intLit(1)), true))
     )
-    runEvaluatorAborts(expr).asserting(_ shouldBe true)
+    runEvaluatorForError(expr).asserting(_ shouldBe "Function application has no runtime target.")
   }
 
   it should "handle function application with no runtime argument" in {
@@ -280,7 +280,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       sourced(ExpressionStack(Seq(fn), true)),
       sourced(ExpressionStack(Seq.empty, false))
     )
-    runEvaluatorAborts(expr).asserting(_ shouldBe true)
+    runEvaluatorForError(expr).asserting(_ shouldBe "Function application has no runtime argument.")
   }
 
   private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
@@ -323,22 +323,30 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       _         <- generator.registerFact(bigIntTypeFact)
       _         <- generator.registerFact(stringTypeFact)
       _         <- facts.traverse_(generator.registerFact)
-      result    <- Evaluator.evaluate(expression).run(generator).run(Chain.empty).value
+      result    <- Evaluator.evaluate(sourced(expression)).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((_, value)) => value
       case Left(errors)      => throw new Exception(s"Evaluation failed: ${errors.map(_.message).toList.mkString(", ")}")
     }
 
-  private def runEvaluatorAborts(expression: Expression): IO[Boolean] =
+  private def runEvaluatorForError(expression: Expression): IO[String] =
+    runEvaluatorWithFactsForError(expression, Seq.empty)
+
+  private def runEvaluatorWithFactsForError(
+      expression: Expression,
+      facts: Seq[CompilerFact]
+  ): IO[String] =
     for {
       generator <- FactGenerator.create(SequentialCompilerProcessors(Seq.empty))
       _         <- generator.registerFact(sourceContent)
       _         <- generator.registerFact(bigIntTypeFact)
       _         <- generator.registerFact(stringTypeFact)
-      result    <- Evaluator.evaluate(expression).run(generator).run(Chain.empty).value
+      _         <- facts.traverse_(generator.registerFact)
+      result    <- Evaluator.evaluate(sourced(expression)).run(generator).run(Chain.empty).value
     } yield result match {
-      case Left(_) => true
-      case _       => false
+      case Right((errors, _)) if errors.nonEmpty => errors.toList.head.message
+      case Left(errors) if errors.nonEmpty       => errors.toList.head.message
+      case _                                     => throw new Exception("Expected error but evaluation succeeded")
     }
 
   private def runEvaluatorWithTracking(
@@ -358,7 +366,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       _         <- generator.registerFact(bigIntTypeFact)
       _         <- generator.registerFact(stringTypeFact)
       _         <- facts.traverse_(generator.registerFact)
-      result    <- Evaluator.evaluate(expression, evaluating).run(generator).run(Chain.empty).value
+      result    <- Evaluator.evaluate(sourced(expression), evaluating).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((_, value))                     => Right(value)
       case Left(errors) if errors.nonEmpty       => Left(errors.toList.head.message)
