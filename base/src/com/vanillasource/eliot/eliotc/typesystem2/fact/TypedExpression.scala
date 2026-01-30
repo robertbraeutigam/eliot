@@ -2,18 +2,19 @@ package com.vanillasource.eliot.eliotc.typesystem2.fact
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.typesystem2.fact.TypedExpression.Expression
 
-/** An expression annotated with its type (as a NormalizedExpression). */
+/** An expression annotated with its type (as an ExpressionValue). */
 case class TypedExpression(
-    expressionType: NormalizedExpression,
+    expressionType: ExpressionValue,
     expression: Expression
 ) {
 
   /** Transform all types in this expression tree using the given function. */
-  def transformTypes(f: NormalizedExpression => NormalizedExpression): TypedExpression =
+  def transformTypes(f: ExpressionValue => ExpressionValue): TypedExpression =
     TypedExpression(
       f(expressionType),
       expression match {
@@ -37,7 +38,7 @@ object TypedExpression {
 
   def transformStack(
       stack: Sourced[ExpressionStack[TypedExpression]],
-      f: NormalizedExpression => NormalizedExpression
+      f: ExpressionValue => ExpressionValue
   ): Sourced[ExpressionStack[TypedExpression]] =
     stack.map(s => ExpressionStack(s.expressions.map(_.transformTypes(f)), s.hasRuntime))
 

@@ -132,8 +132,8 @@ class SymbolicTypeCheckProcessorTest
     runEngineForErrors("id[B, A[B]](a: A[B]): A[B]\nf[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
       .asserting(
         _ shouldBe Seq(
-          "Symbolic application target mismatch.",
-          "Symbolic application target mismatch."
+          "Type constructor mismatch.",
+          "Type constructor mismatch."
         )
       )
   }
