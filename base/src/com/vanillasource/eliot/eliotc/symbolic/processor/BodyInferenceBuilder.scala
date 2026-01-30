@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.typesystem2.processor
+package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
@@ -11,9 +11,9 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression as Expr
 import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.typesystem2.fact.TypedExpression
-import com.vanillasource.eliot.eliotc.typesystem2.types.*
-import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
+import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
+import com.vanillasource.eliot.eliotc.symbolic.types.*
+import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
 
 /** Infers types for body expressions. Generates unification variables for unknowns and emits type constraints. Uses
   * TypeExpressionBuilder for parameter types in lambdas.

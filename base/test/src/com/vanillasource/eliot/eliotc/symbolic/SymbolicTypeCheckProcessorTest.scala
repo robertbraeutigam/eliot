@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.typesystem2
+package com.vanillasource.eliot.eliotc.symbolic
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
@@ -8,8 +8,8 @@ import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName => ModuleName2, V
 import com.vanillasource.eliot.eliotc.module2.processor.*
 import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.typesystem2.fact.TypeCheckedValue
-import com.vanillasource.eliot.eliotc.typesystem2.processor.SymbolicTypeCheckProcessor
+import com.vanillasource.eliot.eliotc.symbolic.fact.TypeCheckedValue
+import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 
 class SymbolicTypeCheckProcessorTest
     extends ProcessorTest(

@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.typesystem2.types
+package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.data.StateT
 import cats.syntax.all.*
@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.processor.ShortUniqueIdentifiers
-import com.vanillasource.eliot.eliotc.typesystem2.fact.TypedExpression
+import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
 
 /** Combined state for type checking, including constraint accumulation. */
 case class TypeCheckState(

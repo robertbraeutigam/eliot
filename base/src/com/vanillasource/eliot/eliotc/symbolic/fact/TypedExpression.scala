@@ -1,11 +1,11 @@
-package com.vanillasource.eliot.eliotc.typesystem2.fact
+package com.vanillasource.eliot.eliotc.symbolic.fact
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.typesystem2.fact.TypedExpression.Expression
+import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression.Expression
 
 /** An expression annotated with its type (as an ExpressionValue). */
 case class TypedExpression(

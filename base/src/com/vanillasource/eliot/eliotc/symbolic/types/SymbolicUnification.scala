@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.typesystem2.types
+package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.Show
 import cats.data.StateT
@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
-import com.vanillasource.eliot.eliotc.typesystem2.types.SymbolicUnification.Constraint
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
 
 /** Collects unification constraints between expression values. Uses external tracking of which parameter names are
   * unification variables vs universal variables.

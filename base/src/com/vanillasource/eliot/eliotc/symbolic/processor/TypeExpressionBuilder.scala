@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.typesystem2.processor
+package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
@@ -9,8 +9,8 @@ import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression as Expr
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.typesystem2.fact.TypedExpression
-import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
+import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
+import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
 
 /** Evaluates type expressions to TypedExpressions. Tracks universal variables for generic type parameters. Works on
   * single expressions; stack-level processing is handled by the processor.

@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.typesystem2.processor
+package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
@@ -11,13 +11,13 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
-import com.vanillasource.eliot.eliotc.typesystem2.fact.*
-import com.vanillasource.eliot.eliotc.typesystem2.processor.SymbolicTypeCheckProcessor.{
+import com.vanillasource.eliot.eliotc.symbolic.fact.*
+import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor.{
   TypeCheckResult,
   TypeLevelsResult
 }
-import com.vanillasource.eliot.eliotc.typesystem2.types.*
-import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
+import com.vanillasource.eliot.eliotc.symbolic.types.*
+import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
 
 /** Type checks resolved values by building type constraints and solving them through unification.
   *

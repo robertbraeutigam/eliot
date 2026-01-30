@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.typesystem2.fact
+package com.vanillasource.eliot.eliotc.symbolic.fact
 
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
