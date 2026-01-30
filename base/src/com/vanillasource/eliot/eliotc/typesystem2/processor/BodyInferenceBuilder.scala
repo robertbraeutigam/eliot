@@ -62,7 +62,7 @@ object BodyInferenceBuilder {
       maybeResolved <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)).attempt.map(_.toOption))
       result        <- maybeResolved match {
                          case Some(resolved) =>
-                           TypeExpressionBuilder.build(resolved.value).map { typeResult =>
+                           buildFromStack(resolved.value).map { typeResult =>
                              TypeWithTyped(
                                typeResult.exprValue,
                                TypedExpression(typeResult.exprValue, TypedExpression.ValueReference(vfqn))
@@ -111,16 +111,28 @@ object BodyInferenceBuilder {
       bodyStack: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[TypeWithTyped] =
     for {
-      paramResult   <- TypeExpressionBuilder.build(paramType)
+      paramResult   <- buildFromStack(paramType)
       _             <- bindParameter(paramName.value, paramResult.exprValue)
       bodyResult    <- build(bodyStack.map(_.expressions.head))
       funcType       = functionType(paramResult.exprValue, bodyResult.exprValue)
-      typedParamType = paramType.as(ExpressionStack[TypedExpression](paramResult.typedLevels.take(1), paramType.value.hasRuntime))
+      typedParamType = paramType.as(ExpressionStack[TypedExpression](Seq(paramResult.typed), paramType.value.hasRuntime))
       typedBodyStack = bodyStack.as(ExpressionStack[TypedExpression](Seq(bodyResult.typed), bodyStack.value.hasRuntime))
     } yield TypeWithTyped(
       funcType,
       TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBodyStack))
     )
+
+  /** Build from a nested stack by extracting the signature expression. */
+  private def buildFromStack(
+      stack: Sourced[ExpressionStack[Expression]]
+  ): TypeGraphIO[TypeWithTyped] =
+    stack.value.expressions.headOption match {
+      case Some(expr) => TypeExpressionBuilder.build(expr, stack)
+      case None       =>
+        for {
+          uvar <- generateUnificationVar(stack)
+        } yield TypeWithTyped(uvar, TypedExpression(uvar, TypedExpression.ParameterReference(stack.as(uvar.parameterName))))
+    }
 
   private def primitiveType(moduleName: String, typeName: String): ExpressionValue =
     ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), moduleName), typeName)))

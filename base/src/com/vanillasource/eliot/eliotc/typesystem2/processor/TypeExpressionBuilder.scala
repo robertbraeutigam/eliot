@@ -15,47 +15,12 @@ import com.vanillasource.eliot.eliotc.typesystem2.types.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
 
 /** Evaluates type expressions to ExpressionValues and TypedExpressions. Tracks universal variables for generic type
-  * parameters.
+  * parameters. Works on single expressions; stack-level processing is handled by the processor.
   */
 object TypeExpressionBuilder {
 
-  /** Build type constraints from a declared type expression. Processes all levels of the expression stack, starting
-    * from the topmost (most type-like) and working down to the signature. Returns the signature type as exprValue and
-    * typed expressions for all levels.
-    */
+  /** Build type constraints from a single type expression. Returns the inferred type as exprValue and the typed AST. */
   def build(
-      typeExpr: Sourced[ExpressionStack[Expression]]
-  ): TypeGraphIO[TypeWithTyped.Stack] = {
-    val stack = typeExpr.value
-    // Type levels are everything except runtime (level 0).
-    // If hasRuntime and there's more than one expression, drop the runtime.
-    // Otherwise, use all expressions (handles single-element stacks in nested contexts).
-    val typeLevelExprs =
-      if (stack.hasRuntime && stack.expressions.length > 1) stack.expressions.drop(1)
-      else stack.expressions
-
-    typeLevelExprs.toList match {
-      case Nil  =>
-        for {
-          uvar <- generateUnificationVar(typeExpr)
-        } yield TypeWithTyped.Stack(uvar, Seq.empty)
-      case exprs =>
-        for {
-          results <- exprs.traverse(expr => evaluate(expr, typeExpr))
-          signatureResult = results.head
-        } yield TypeWithTyped.Stack(signatureResult.exprValue, results.map(_.typed))
-    }
-  }
-
-  /** Convert a build result to a nested stack for use in FunctionLiteral/FunctionApplication AST nodes. */
-  private def toNestedStack(
-      source: Sourced[ExpressionStack[Expression]],
-      result: TypeWithTyped.Stack
-  ): Sourced[ExpressionStack[TypedExpression]] =
-    source.as(ExpressionStack(result.typedLevels.take(1), source.value.hasRuntime))
-
-  /** Evaluate a type expression, collecting universal variables along the way. */
-  private def evaluate(
       expr: Expression,
       source: Sourced[?]
   ): TypeGraphIO[TypeWithTyped] =
@@ -95,7 +60,7 @@ object TypeExpressionBuilder {
     for {
       _             <- addUniversalVar(paramName.value)
       _             <- tellUniversalVar(paramName.value)
-      inner         <- evaluate(body.value.expressions.head, body)
+      inner         <- build(body.value.expressions.head, body)
       typedParamType = paramType.as(ExpressionStack[TypedExpression](Seq.empty, paramType.value.hasRuntime))
       typedBody      = body.as(ExpressionStack[TypedExpression](Seq(inner.typed), body.value.hasRuntime))
     } yield TypeWithTyped(
@@ -110,9 +75,9 @@ object TypeExpressionBuilder {
       body: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[TypeWithTyped] =
     for {
-      paramResult <- build(paramType)
+      paramResult <- buildFromStack(paramType)
       _           <- bindParameter(paramName.value, paramResult.exprValue)
-      bodyResult  <- build(body)
+      bodyResult  <- buildFromStack(body)
       funcType     = functionType(paramResult.exprValue, bodyResult.exprValue)
       paramNested  = toNestedStack(paramType, paramResult)
       bodyNested   = toNestedStack(body, bodyResult)
@@ -120,6 +85,27 @@ object TypeExpressionBuilder {
       funcType,
       TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, paramNested, bodyNested))
     )
+
+  /** Build from a nested stack by extracting the signature expression. For nested stacks, we only need the signature
+    * level for type construction. Returns both the type and typed expression for the signature.
+    */
+  private def buildFromStack(
+      stack: Sourced[ExpressionStack[Expression]]
+  ): TypeGraphIO[TypeWithTyped] =
+    stack.value.expressions.headOption match {
+      case Some(expr) => build(expr, stack)
+      case None       =>
+        for {
+          uvar <- generateUnificationVar(stack)
+        } yield TypeWithTyped(uvar, TypedExpression(uvar, TypedExpression.ParameterReference(stack.as(uvar.parameterName))))
+    }
+
+  /** Convert a build result to a nested stack for use in FunctionLiteral/FunctionApplication AST nodes. */
+  private def toNestedStack(
+      source: Sourced[ExpressionStack[Expression]],
+      result: TypeWithTyped
+  ): Sourced[ExpressionStack[TypedExpression]] =
+    source.as(ExpressionStack(Seq(result.typed), source.value.hasRuntime))
 
   /** Value reference - could be a type like Int, String, or a universal var */
   private def evaluateValueReference(
@@ -138,8 +124,8 @@ object TypeExpressionBuilder {
       arg: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[TypeWithTyped] =
     for {
-      targetResult <- build(target)
-      argResult    <- build(arg)
+      targetResult <- buildFromStack(target)
+      argResult    <- buildFromStack(arg)
       resultType    = applyTypeApplication(targetResult.exprValue, argResult.exprValue)
       targetNested  = toNestedStack(target, targetResult)
       argNested     = toNestedStack(arg, argResult)
