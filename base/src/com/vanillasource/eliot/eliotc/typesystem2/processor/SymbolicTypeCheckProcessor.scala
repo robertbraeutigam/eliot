@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.typesystem2.fact.*
+import com.vanillasource.eliot.eliotc.typesystem2.processor.SymbolicTypeCheckProcessor.TypeCheckResult
 import com.vanillasource.eliot.eliotc.typesystem2.types.*
 import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
 
@@ -37,14 +38,14 @@ class SymbolicTypeCheckProcessor
   ): CompilerIO[TypeCheckedValue] = {
     val body = resolvedValue.value.as(bodyExpr)
     for {
-      checkResult            <- runTypeCheck(resolvedValue, body)
-      fullConstraints         = checkResult.constraints |+| SymbolicUnification.unificationVars(checkResult.unificationVars)
-      _                      <- debug[CompilerIO](s"Constraints: ${fullConstraints.show}")
-      solution               <- fullConstraints.solve()
-      _                      <- debug[CompilerIO](s"Solution: ${solution.show}")
-      resolvedTypedSignature  = checkResult.typedSignature.value.expressions.map(applySubstitutions(_, solution))
-      resolvedTypedBody       = applySubstitutions(checkResult.typedBody, solution)
-      unifiedStack            = ExpressionStack(resolvedTypedBody +: resolvedTypedSignature, true)
+      checkResult           <- runTypeCheck(resolvedValue, body)
+      fullConstraints        = checkResult.constraints |+| SymbolicUnification.unificationVars(checkResult.unificationVars)
+      _                     <- debug[CompilerIO](s"Constraints: ${fullConstraints.show}")
+      solution              <- fullConstraints.solve()
+      _                     <- debug[CompilerIO](s"Solution: ${solution.show}")
+      resolvedTypedSignature = checkResult.typedSignature.value.expressions.map(applySubstitutions(_, solution))
+      resolvedTypedBody      = applySubstitutions(checkResult.typedBody, solution)
+      unifiedStack           = ExpressionStack(resolvedTypedBody +: resolvedTypedSignature, true)
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       resolvedValue.name,
@@ -69,16 +70,16 @@ class SymbolicTypeCheckProcessor
       body: Sourced[Expression]
   ): CompilerIO[TypeCheckResult] =
     (for {
-      typeResult     <- TypeExpressionBuilder.build(resolvedValue.value)
-      bodyResult     <- BodyInferenceBuilder.build(body)
-      _              <- tellConstraint(
-                          SymbolicUnification.constraint(
-                            typeResult.exprValue,
-                            body.as(bodyResult.exprValue),
-                            "Type mismatch."
-                          )
-                        )
-      constraints    <- getConstraints
+      typeResult      <- TypeExpressionBuilder.build(resolvedValue.value)
+      bodyResult      <- BodyInferenceBuilder.build(body)
+      _               <- tellConstraint(
+                           SymbolicUnification.constraint(
+                             typeResult.exprValue,
+                             body.as(bodyResult.exprValue),
+                             "Type mismatch."
+                           )
+                         )
+      constraints     <- getConstraints
       unificationVars <- getUnificationVars
     } yield TypeCheckResult(
       typeResult.exprValue,
@@ -93,11 +94,13 @@ class SymbolicTypeCheckProcessor
     typed.transformTypes(solution.substitute)
 }
 
-private case class TypeCheckResult(
-    declaredType: com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue,
-    typedSignature: com.vanillasource.eliot.eliotc.source.content.Sourced[ExpressionStack[TypedExpression]],
-    bodyType: com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue,
-    typedBody: TypedExpression,
-    constraints: SymbolicUnification,
-    unificationVars: Set[String]
-)
+object SymbolicTypeCheckProcessor {
+  private case class TypeCheckResult(
+      declaredType: com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue,
+      typedSignature: com.vanillasource.eliot.eliotc.source.content.Sourced[ExpressionStack[TypedExpression]],
+      bodyType: com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue,
+      typedBody: TypedExpression,
+      constraints: SymbolicUnification,
+      unificationVars: Set[String]
+  )
+}
