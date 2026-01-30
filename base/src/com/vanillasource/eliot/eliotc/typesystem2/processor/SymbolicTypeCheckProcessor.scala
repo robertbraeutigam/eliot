@@ -152,7 +152,7 @@ class SymbolicTypeCheckProcessor
       case expr :: rest if rest.isEmpty =>
         // Signature level - infer type, check against expected, return inferred type
         for {
-          typeResult <- TypeExpressionBuilder.build(expr, source)
+          typeResult <- TypeExpressionBuilder.build(expr)
           // Note: For signature level, we don't strictly check against expectedType
           // because the signature can involve unification variables (generics)
         } yield TypeLevelsResult(typeResult.expressionType, Seq(typeResult))
@@ -161,7 +161,7 @@ class SymbolicTypeCheckProcessor
         // Higher level (above signature) - must evaluate to ConcreteValue
         for {
           // 1. Infer the type of this expression
-          typeResult <- TypeExpressionBuilder.build(expr, source)
+          typeResult <- TypeExpressionBuilder.build(expr)
 
           // 2. Extract the concrete value for use as expected type in next level
           evaluatedValue <- typeResult.expressionType match {

@@ -118,7 +118,7 @@ object BodyInferenceBuilder {
       stack: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     stack.value.expressions.headOption match {
-      case Some(expr) => TypeExpressionBuilder.build(expr, stack)
+      case Some(expr) => TypeExpressionBuilder.build(expr)
       case None       =>
         for {
           uvar <- generateUnificationVar(stack)
