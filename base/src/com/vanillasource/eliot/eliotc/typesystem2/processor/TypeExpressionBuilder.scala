@@ -18,10 +18,8 @@ import com.vanillasource.eliot.eliotc.typesystem2.types.TypeCheckState.*
 object TypeExpressionBuilder {
 
   /** Build type constraints from a single type expression. Returns the typed AST with inferred type. */
-  def build(
-      expr: Expression,
-  ): TypeGraphIO[TypedExpression] =
-    expr match {
+  def build(expression: Expression): TypeGraphIO[TypedExpression] =
+    expression match {
       case Expr.FunctionLiteral(paramName, paramType, body) if paramType.value.expressions.isEmpty =>
         evaluateUniversalIntro(paramName, paramType, body)
 
