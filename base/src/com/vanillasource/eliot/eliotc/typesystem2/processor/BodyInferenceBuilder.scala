@@ -52,10 +52,11 @@ object BodyInferenceBuilder {
       moduleName: String,
       typeName: String,
       typedExpr: TypedExpression.Expression
-  ): TypeGraphIO[TypedExpression] = {
-    val inferredType = primitiveType(moduleName, typeName)
-    TypedExpression(inferredType, typedExpr).pure[TypeGraphIO]
-  }
+  ): TypeGraphIO[TypedExpression] =
+    TypedExpression(
+      ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), moduleName), typeName))),
+      typedExpr
+    ).pure[TypeGraphIO]
 
   private def inferValueReference(
       vfqn: Sourced[ValueFQN]
@@ -79,23 +80,23 @@ object BodyInferenceBuilder {
       arg: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
-      argTypeVar   <- generateUnificationVar(arg)
-      retTypeVar   <- generateUnificationVar(body)
-      targetResult <- build(target.map(_.expressions.head))
-      argResult    <- build(arg.map(_.expressions.head))
+      argTypeVar      <- generateUnificationVar(arg)
+      retTypeVar      <- generateUnificationVar(body)
+      targetResult    <- build(target.map(_.expressions.head))
+      argResult       <- build(arg.map(_.expressions.head))
       expectedFuncType = functionType(argTypeVar, retTypeVar)
-      _            <- tellConstraint(
-                        SymbolicUnification.constraint(
-                          expectedFuncType,
-                          target.as(targetResult.expressionType),
-                          "Target of function application is not a Function. Possibly too many arguments."
-                        )
-                      )
-      _            <- tellConstraint(
-                        SymbolicUnification.constraint(argTypeVar, arg.as(argResult.expressionType), "Argument type mismatch.")
-                      )
-      typedTarget   = target.as(ExpressionStack[TypedExpression](Seq(targetResult), target.value.hasRuntime))
-      typedArg      = arg.as(ExpressionStack[TypedExpression](Seq(argResult), arg.value.hasRuntime))
+      _               <- tellConstraint(
+                           SymbolicUnification.constraint(
+                             expectedFuncType,
+                             target.as(targetResult.expressionType),
+                             "Target of function application is not a Function. Possibly too many arguments."
+                           )
+                         )
+      _               <- tellConstraint(
+                           SymbolicUnification.constraint(argTypeVar, arg.as(argResult.expressionType), "Argument type mismatch.")
+                         )
+      typedTarget      = target.as(ExpressionStack[TypedExpression](Seq(targetResult), target.value.hasRuntime))
+      typedArg         = arg.as(ExpressionStack[TypedExpression](Seq(argResult), arg.value.hasRuntime))
     } yield TypedExpression(retTypeVar, TypedExpression.FunctionApplication(typedTarget, typedArg))
 
   private def inferFunctionLiteral(
@@ -124,6 +125,4 @@ object BodyInferenceBuilder {
         } yield TypedExpression(uvar, TypedExpression.ParameterReference(stack.as(uvar.parameterName)))
     }
 
-  private def primitiveType(moduleName: String, typeName: String): ExpressionValue =
-    ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), moduleName), typeName)))
 }
