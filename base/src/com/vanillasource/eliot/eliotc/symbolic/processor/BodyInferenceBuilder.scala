@@ -66,7 +66,7 @@ object BodyInferenceBuilder {
       maybeResolved <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)).attempt.map(_.toOption))
       result        <- maybeResolved match {
                          case Some(resolved) =>
-                           processTypeStack(resolved.typeStack).map { case (signatureType, _) =>
+                           TypeStackBuilder.processStack(resolved.typeStack).map { case (signatureType, _) =>
                              TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
                            }
                          case None           =>
@@ -106,20 +106,12 @@ object BodyInferenceBuilder {
       bodyStack: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
-      (paramTypeValue, typedParamStack) <- processTypeStack(paramType)
+      (paramTypeValue, typedParamStack) <- TypeStackBuilder.processStack(paramType)
       _                                 <- bindParameter(paramName.value, paramTypeValue)
       bodyResult                        <- buildBodyStack(bodyStack)
       funcType                           = functionType(paramTypeValue, bodyResult.expressionType)
       typedBodyStack                     = bodyStack.as(TypeStack[TypedExpression](Seq(bodyResult)))
     } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamStack, typedBodyStack))
-
-  /** Process a TYPE stack by processing all type levels from top to bottom. Used for parameter types, signatures, etc.
-    * Delegates to TypeStackBuilder.
-    */
-  private def processTypeStack(
-      stack: Sourced[TypeStack[Expression]]
-  ): TypeGraphIO[(ExpressionValue, Sourced[TypeStack[TypedExpression]])] =
-    TypeStackBuilder.processStack(stack)
 
   /** Build from a BODY stack by extracting and processing the signature expression. Used for function bodies,
     * arguments.
