@@ -48,11 +48,11 @@ Implicit: The topmost level's type is always Type
 expressions = [
   IntegerLiteral(0),        // runtime (level 0)
   ValueReference(Int),      // signature (level 1)
-  ValueReference(Type)      // meta-level (level 2)
+  // Implicitly: ValueReference(Type)      // meta-level (level 2)
 ]
 hasRuntime = true
 
-Implicit: Type is the type of level 2
+Implicit: Type is the type of level 1
 ```
 
 ## The Fractal Nature of Stacks
