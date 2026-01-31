@@ -4,83 +4,83 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, Expression, ExpressionStack, NamedValue}
+import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, Expression, TypeStack, NamedValue}
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProcessor()) {
 
   "core processor" should "transform a simple constant reference" in {
     namedValue("a: A = b", "a").asserting { nv =>
-      (nv.name.value, nv.value.signatureStructure, nv.value.runtimeStructure) shouldBe
+      (nv.name.value, nv.typeStack.signatureStructure, nv.runtimeStructure) shouldBe
         ("a", Ref("A"), Some(Ref("b")))
     }
   }
 
   it should "transform an abstract constant without body" in {
     namedValue("a: A", "a").asserting { nv =>
-      (nv.name.value, nv.value.signatureStructure, nv.value.runtime) shouldBe ("a", Ref("A"), None)
+      (nv.name.value, nv.typeStack.signatureStructure, nv.runtime) shouldBe ("a", Ref("A"), None)
     }
   }
 
   it should "place curried function type in typeStack for function without generics" in {
     namedValue("f(x: X): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("X")), Ref("R"))
+      nv.typeStack.signatureStructure shouldBe App(App(Ref("Function"), Ref("X")), Ref("R"))
     }
   }
 
   it should "transform a single-parameter function body into lambda" in {
     namedValue("f(x: X): R = y").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(Lambda("x", Ref("X"), Ref("y")))
+      nv.runtimeStructure shouldBe Some(Lambda("x", Ref("X"), Ref("y")))
     }
   }
 
   it should "place curried function type in typeStack for multi-parameter function" in {
     namedValue("f(x: X, y: Y): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe
+      nv.typeStack.signatureStructure shouldBe
         App(App(Ref("Function"), Ref("X")), App(App(Ref("Function"), Ref("Y")), Ref("R")))
     }
   }
 
   it should "transform a two-parameter function body into nested lambdas" in {
     namedValue("f(x: X, y: Y): R = z").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(Lambda("x", Ref("X"), Lambda("y", Ref("Y"), Ref("z"))))
+      nv.runtimeStructure shouldBe Some(Lambda("x", Ref("X"), Lambda("y", Ref("Y"), Ref("z"))))
     }
   }
 
   it should "transform three-parameter function body into deeply nested lambdas" in {
     namedValue("f(a: A, b: B, c: C): R = r").asserting { nv =>
-      nv.value.runtimeStructure shouldBe
+      nv.runtimeStructure shouldBe
         Some(Lambda("a", Ref("A"), Lambda("b", Ref("B"), Lambda("c", Ref("C"), Ref("r")))))
     }
   }
 
   "generic parameters" should "become outer lambdas with empty type in typeStack" in {
     namedValue("f[A]: R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, Ref("R"))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Empty, Ref("R"))
     }
   }
 
   it should "preserve order for multiple generic parameters" in {
     namedValue("f[A, B]: R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, Lambda("B", Empty, Ref("R")))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Empty, Lambda("B", Empty, Ref("R")))
     }
   }
 
   it should "place generics then function args in typeStack" in {
     namedValue("f[A](x: X): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("X")), Ref("R")))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("X")), Ref("R")))
     }
   }
 
   it should "keep function args only in the value" in {
     namedValue("f[A](x: X): R = y").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(Lambda("x", Ref("X"), Ref("y")))
+      nv.runtimeStructure shouldBe Some(Lambda("x", Ref("X"), Ref("y")))
     }
   }
 
   it should "handle multiple generics with multiple parameters" in {
     namedValue("f[A, B](x: X, y: Y): R").asserting { nv =>
-      nv.value.signatureStructure shouldBe
+      nv.typeStack.signatureStructure shouldBe
         Lambda(
           "A",
           Empty,
@@ -91,97 +91,97 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "nest function args in value for generic functions" in {
     namedValue("f[A, B](x: X, y: Y): R = z").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(Lambda("x", Ref("X"), Lambda("y", Ref("Y"), Ref("z"))))
+      nv.runtimeStructure shouldBe Some(Lambda("x", Ref("X"), Lambda("y", Ref("Y"), Ref("z"))))
     }
   }
 
   "type references with generics" should "convert to function applications" in {
     namedValue("f: A[B]").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(Ref("A"), Ref("B"))
+      nv.typeStack.signatureStructure shouldBe App(Ref("A"), Ref("B"))
     }
   }
 
   it should "convert two-parameter type references to chained applications" in {
     namedValue("f: A[B, C]").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(App(Ref("A"), Ref("B")), Ref("C"))
+      nv.typeStack.signatureStructure shouldBe App(App(Ref("A"), Ref("B")), Ref("C"))
     }
   }
 
   it should "convert deeply nested type references" in {
     namedValue("f: A[B[C]]").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(Ref("A"), App(Ref("B"), Ref("C")))
+      nv.typeStack.signatureStructure shouldBe App(Ref("A"), App(Ref("B"), Ref("C")))
     }
   }
 
   "function applications" should "convert simple call to function application" in {
     namedValue("f: R = g(a)").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(App(Ref("g"), Ref("a")))
+      nv.runtimeStructure shouldBe Some(App(Ref("g"), Ref("a")))
     }
   }
 
   it should "curry multi-argument calls" in {
     namedValue("f: R = g(a, b)").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(App(App(Ref("g"), Ref("a")), Ref("b")))
+      nv.runtimeStructure shouldBe Some(App(App(Ref("g"), Ref("a")), Ref("b")))
     }
   }
 
   it should "curry three-argument calls" in {
     namedValue("f: R = g(a, b, c)").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(App(App(App(Ref("g"), Ref("a")), Ref("b")), Ref("c")))
+      nv.runtimeStructure shouldBe Some(App(App(App(Ref("g"), Ref("a")), Ref("b")), Ref("c")))
     }
   }
 
   it should "handle nested function calls" in {
     namedValue("f: R = g(h(a))").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(App(Ref("g"), App(Ref("h"), Ref("a"))))
+      nv.runtimeStructure shouldBe Some(App(Ref("g"), App(Ref("h"), Ref("a"))))
     }
   }
 
   "qualified function applications" should "preserve module qualifier" in {
     namedValue("f: R = mod.sub.Mod::func").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(QualRef("func", "mod.sub.Mod"))
+      nv.runtimeStructure shouldBe Some(QualRef("func", "mod.sub.Mod"))
     }
   }
 
   it should "curry qualified calls with arguments" in {
     namedValue("f: R = Mod::func(a)").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(App(QualRef("func", "Mod"), Ref("a")))
+      nv.runtimeStructure shouldBe Some(App(QualRef("func", "Mod"), Ref("a")))
     }
   }
 
   "lambda expressions" should "convert single-parameter lambda" in {
     namedValue("f: R = (a: A) -> b").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(Lambda("a", Ref("A"), Ref("b")))
+      nv.runtimeStructure shouldBe Some(Lambda("a", Ref("A"), Ref("b")))
     }
   }
 
   it should "curry multi-parameter lambda" in {
     namedValue("f: R = (a: A, b: B) -> c").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(Lambda("a", Ref("A"), Lambda("b", Ref("B"), Ref("c"))))
+      nv.runtimeStructure shouldBe Some(Lambda("a", Ref("A"), Lambda("b", Ref("B"), Ref("c"))))
     }
   }
 
   it should "handle lambda without parentheses" in {
     namedValue("f: R = a: A -> b").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(Lambda("a", Ref("A"), Ref("b")))
+      nv.runtimeStructure shouldBe Some(Lambda("a", Ref("A"), Ref("b")))
     }
   }
 
   it should "handle nested lambdas" in {
     namedValue("f: R = (a: A) -> (b: B) -> c").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(Lambda("a", Ref("A"), Lambda("b", Ref("B"), Ref("c"))))
+      nv.runtimeStructure shouldBe Some(Lambda("a", Ref("A"), Lambda("b", Ref("B"), Ref("c"))))
     }
   }
 
   "literals" should "convert integer literals" in {
     namedValue("f: R = 42").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(IntLit("42"))
+      nv.runtimeStructure shouldBe Some(IntLit("42"))
     }
   }
 
   it should "convert string literals without quotes" in {
     namedValue("f: R = \"hello\"").asserting { nv =>
-      nv.value.runtimeStructure shouldBe Some(StrLit("hello"))
+      nv.runtimeStructure shouldBe Some(StrLit("hello"))
     }
   }
 
@@ -193,14 +193,14 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate type function returning Type" in {
     namedValue("data Person", "Person$DataType").asserting { nv =>
-      nv.value.signatureStructure shouldBe Ref("Type")
+      nv.typeStack.signatureStructure shouldBe Ref("Type")
     }
   }
 
   // Note: don't forget "Type" will be converted to "Type$DataType"!
   it should "generate type function with generic param and argument in typeStack" in {
     namedValue("data Box[A]", "Box$DataType").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("Type")), Ref("Type"))
+      nv.typeStack.signatureStructure shouldBe App(App(Ref("Function"), Ref("Type")), Ref("Type"))
     }
   }
 
@@ -212,7 +212,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate constructor with curried arguments in typeStack" in {
     namedValue("data Person(name: Name, age: Age)", "Person").asserting { nv =>
-      nv.value.signatureStructure shouldBe
+      nv.typeStack.signatureStructure shouldBe
         App(App(Ref("Function"), Ref("Name")), App(App(Ref("Function"), Ref("Age")), Ref("Person$DataType")))
     }
   }
@@ -232,13 +232,13 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate accessor with argument in typeStack" in {
     namedValue("data Person(name: Name)", "name").asserting { nv =>
-      nv.value.signatureStructure shouldBe App(App(Ref("Function"), Ref("Person$DataType")), Ref("Name"))
+      nv.typeStack.signatureStructure shouldBe App(App(Ref("Function"), Ref("Person$DataType")), Ref("Name"))
     }
   }
 
   it should "generate accessor with generic param and argument in typeStack" in {
     namedValue("data Box[A](value: A)", "value").asserting { nv =>
-      nv.value.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("Box$DataType")), Ref("A")))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("Box$DataType")), Ref("A")))
     }
   }
 
@@ -250,7 +250,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "handle data with generic constructor" in {
     namedValue("data Pair[A, B](fst: A, snd: B)", "Pair").asserting { nv =>
-      nv.value.signatureStructure shouldBe
+      nv.typeStack.signatureStructure shouldBe
         Lambda(
           "A",
           Empty,
@@ -280,11 +280,14 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   case class StrLit(value: String)                                                extends ExprStructure
   case object Empty                                                               extends ExprStructure
 
-  extension (stack: ExpressionStack[Expression]) {
-    def signatureStructure: ExprStructure       = stack.signature.map(_.structure).getOrElse(Empty)
-    def runtimeStructure: Option[ExprStructure] = stack.runtime.map(_.structure)
-    // Gets the first expression in the stack (runtime value for ofRuntime stacks)
-    def firstStructure: ExprStructure           = stack.expressions.headOption.map(_.structure).getOrElse(Empty)
+  extension (nv: NamedValue) {
+    def runtimeStructure: Option[ExprStructure] = nv.runtime.map(_.structure)
+  }
+
+  extension (stack: TypeStack[Expression]) {
+    def signatureStructure: ExprStructure = stack.signature.map(_.structure).getOrElse(Empty)
+    // Gets the first expression in the stack (signature for TypeStack)
+    def firstStructure: ExprStructure     = stack.levels.headOption.map(_.structure).getOrElse(Empty)
   }
 
   extension (expr: Expression) {

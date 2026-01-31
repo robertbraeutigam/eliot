@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
@@ -66,7 +66,7 @@ object BodyInferenceBuilder {
       maybeResolved <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)).attempt.map(_.toOption))
       result        <- maybeResolved match {
                          case Some(resolved) =>
-                           processTypeStack(resolved.value).map { case (signatureType, _) =>
+                           processTypeStack(resolved.typeStack).map { case (signatureType, _) =>
                              TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
                            }
                          case None           =>
@@ -77,8 +77,8 @@ object BodyInferenceBuilder {
 
   private def inferFunctionApplication(
       body: Sourced[Expression],
-      target: Sourced[ExpressionStack[Expression]],
-      arg: Sourced[ExpressionStack[Expression]]
+      target: Sourced[TypeStack[Expression]],
+      arg: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
       argTypeVar      <- generateUnificationVar(arg)
@@ -96,37 +96,38 @@ object BodyInferenceBuilder {
       _               <- tellConstraint(
                            SymbolicUnification.constraint(argTypeVar, arg.as(argResult.expressionType), "Argument type mismatch.")
                          )
-      typedTarget      = target.as(ExpressionStack[TypedExpression](Seq(targetResult), target.value.hasRuntime))
-      typedArg         = arg.as(ExpressionStack[TypedExpression](Seq(argResult), arg.value.hasRuntime))
+      typedTarget      = target.as(TypeStack[TypedExpression](Seq(targetResult)))
+      typedArg         = arg.as(TypeStack[TypedExpression](Seq(argResult)))
     } yield TypedExpression(retTypeVar, TypedExpression.FunctionApplication(typedTarget, typedArg))
 
   private def inferFunctionLiteral(
       paramName: Sourced[String],
-      paramType: Sourced[ExpressionStack[Expression]],
-      bodyStack: Sourced[ExpressionStack[Expression]]
+      paramType: Sourced[TypeStack[Expression]],
+      bodyStack: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
       (paramTypeValue, typedParamStack) <- processTypeStack(paramType)
       _                                 <- bindParameter(paramName.value, paramTypeValue)
       bodyResult                        <- buildBodyStack(bodyStack)
       funcType                           = functionType(paramTypeValue, bodyResult.expressionType)
-      typedBodyStack                     = bodyStack.as(ExpressionStack[TypedExpression](Seq(bodyResult), bodyStack.value.hasRuntime))
+      typedBodyStack                     = bodyStack.as(TypeStack[TypedExpression](Seq(bodyResult)))
     } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamStack, typedBodyStack))
 
   /** Process a TYPE stack by processing all type levels from top to bottom. Used for parameter types, signatures, etc.
     * Delegates to TypeStackBuilder.
     */
   private def processTypeStack(
-      stack: Sourced[ExpressionStack[Expression]]
-  ): TypeGraphIO[(ExpressionValue, Sourced[ExpressionStack[TypedExpression]])] =
+      stack: Sourced[TypeStack[Expression]]
+  ): TypeGraphIO[(ExpressionValue, Sourced[TypeStack[TypedExpression]])] =
     TypeStackBuilder.processStack(stack)
 
-  /** Build from a BODY stack by extracting and processing the runtime expression. Used for function bodies, arguments.
+  /** Build from a BODY stack by extracting and processing the signature expression. Used for function bodies,
+    * arguments.
     */
   private def buildBodyStack(
-      stack: Sourced[ExpressionStack[Expression]]
+      stack: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
-    stack.value.expressions.headOption match {
+    stack.value.signature match {
       case Some(expr) => build(stack.as(expr))
       case None       =>
         for {

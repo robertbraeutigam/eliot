@@ -8,22 +8,24 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The core AST unifies data and functions into "names values". I.e. everything is a value, even types and functions.
   * Values can be "ad-hoc" (i.e. lambda expressions, i.e function literals), or named. Named values are those values
-  * that have a dedicated name, so that they can be referred to in other expression. Note, that the expression stack is
-  * split here because a named value can be "abstract" in which case it doesn't actually declare a value expression.
+  * that have a dedicated name, so that they can be referred to in other expression.
   * @param name
   *   The name of the value (i.e. of the function or type)
-  * @param value
+  * @param runtime
   *   The runtime value expression. This is None if the named value is abstract.
+  * @param typeStack
+  *   The type levels for this value. The signature is at index 0.
   */
 case class NamedValue(
     name: Sourced[String],
-    value: ExpressionStack[Expression]
+    runtime: Option[Expression],
+    typeStack: TypeStack[Expression]
 )
 
 object NamedValue {
   val signatureEquality: Eq[NamedValue] = (x: NamedValue, y: NamedValue) =>
-    structuralEqualityOption.eqv(x.value.signature, y.value.signature)
+    structuralEqualityOption.eqv(x.typeStack.signature, y.typeStack.signature)
 
-  given Show[NamedValue] = (namedValue: NamedValue) => s"${namedValue.name.value}: ${namedValue.value.show}"
+  given Show[NamedValue] = (namedValue: NamedValue) => s"${namedValue.name.value}: ${namedValue.typeStack.show}"
 
 }

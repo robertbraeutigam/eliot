@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.symbolic.fact
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -37,14 +37,14 @@ case class TypedExpression(
 object TypedExpression {
 
   def transformStack(
-      stack: Sourced[ExpressionStack[TypedExpression]],
+      stack: Sourced[TypeStack[TypedExpression]],
       f: ExpressionValue => ExpressionValue
-  ): Sourced[ExpressionStack[TypedExpression]] =
-    stack.map(s => ExpressionStack(s.expressions.map(_.transformTypes(f)), s.hasRuntime))
+  ): Sourced[TypeStack[TypedExpression]] =
+    stack.map(s => TypeStack(s.levels.map(_.transformTypes(f))))
 
   sealed trait Expression
 
-  case class FunctionApplication(target: Sourced[ExpressionStack[TypedExpression]], argument: Sourced[ExpressionStack[TypedExpression]])
+  case class FunctionApplication(target: Sourced[TypeStack[TypedExpression]], argument: Sourced[TypeStack[TypedExpression]])
       extends Expression
 
   case class IntegerLiteral(integerLiteral: Sourced[BigInt]) extends Expression
@@ -57,7 +57,7 @@ object TypedExpression {
 
   case class FunctionLiteral(
       parameterName: Sourced[String],
-      parameterType: Sourced[ExpressionStack[TypedExpression]],
-      body: Sourced[ExpressionStack[TypedExpression]]
+      parameterType: Sourced[TypeStack[TypedExpression]],
+      body: Sourced[TypeStack[TypedExpression]]
   ) extends Expression
 }

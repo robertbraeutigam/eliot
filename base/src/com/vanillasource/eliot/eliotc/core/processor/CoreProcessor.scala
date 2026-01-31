@@ -13,7 +13,6 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
 }
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -52,11 +51,8 @@ class CoreProcessor
   private def transformFunction(function: FunctionDefinition): NamedValue = {
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
     val curriedValue = function.body.map(body => buildCurriedBody(function.args, body))
-    val stack        = curriedValue match {
-      case Some(body) => ExpressionStack(Seq(body.value, curriedType.value), hasRuntime = true)
-      case None       => ExpressionStack(Seq(curriedType.value), hasRuntime = false)
-    }
-    NamedValue(function.name, stack)
+    val typeStack    = TypeStack(Seq(curriedType.value))
+    NamedValue(function.name, curriedValue.map(_.value), typeStack)
   }
 
   /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function$DataType(D,
@@ -74,19 +70,19 @@ class CoreProcessor
         arg.name.as(NamedValueReference(arg.name.as("Function")))
       val withArgType = arg.name.as(
         FunctionApplication(
-          functionRef.map(ExpressionStack.ofRuntime),
-          argType.map(ExpressionStack.ofRuntime)
+          functionRef.map(TypeStack.of),
+          argType.map(TypeStack.of)
         )
       )
       arg.name.as(
         FunctionApplication(
-          withArgType.map(ExpressionStack.ofRuntime),
-          acc.map(ExpressionStack.ofRuntime)
+          withArgType.map(TypeStack.of),
+          acc.map(TypeStack.of)
         )
       )
     }
     genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
-      param.name.as(FunctionLiteral(param.name, ExpressionStack.empty, acc.map(ExpressionStack.ofRuntime)))
+      param.name.as(FunctionLiteral(param.name, TypeStack.empty, acc.map(TypeStack.of)))
     }
   }
 
@@ -98,7 +94,7 @@ class CoreProcessor
       reference.typeName.as(NamedValueReference(reference.typeName))
     ) { (acc, ref) =>
       ref.typeName.as(
-        FunctionApplication(acc.map(ExpressionStack.ofRuntime), toTypeExpression(ref).map(ExpressionStack.ofRuntime))
+        FunctionApplication(acc.map(TypeStack.of), toTypeExpression(ref).map(TypeStack.of))
       )
     }
 
@@ -112,8 +108,8 @@ class CoreProcessor
       arg.name.as(
         FunctionLiteral(
           arg.name,
-          ExpressionStack.ofRuntime(toTypeExpression(arg.typeReference).value),
-          acc.map(ExpressionStack.ofRuntime)
+          TypeStack.of(toTypeExpression(arg.typeReference).value),
+          acc.map(TypeStack.of)
         )
       )
     }
@@ -144,8 +140,8 @@ class CoreProcessor
       param.name.as(
         FunctionLiteral(
           param.name,
-          ExpressionStack.ofRuntime(toTypeExpression(param.typeReference).value),
-          acc.map(ExpressionStack.ofRuntime)
+          TypeStack.of(toTypeExpression(param.typeReference).value),
+          acc.map(TypeStack.of)
         )
       )
     }
@@ -159,7 +155,7 @@ class CoreProcessor
   ): Sourced[Expression] =
     args.foldLeft(target) { (acc, arg) =>
       arg.as(
-        FunctionApplication(acc.map(ExpressionStack.ofRuntime), toBodyExpression(arg).map(ExpressionStack.ofRuntime))
+        FunctionApplication(acc.map(TypeStack.of), toBodyExpression(arg).map(TypeStack.of))
       )
     }
 

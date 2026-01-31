@@ -4,7 +4,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName => ModuleName2, ValueFQN}
 import com.vanillasource.eliot.eliotc.module2.processor.*
 import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
@@ -57,7 +57,7 @@ class ValueResolverTest
   it should "resolve lambda parameter references" in {
     runEngineForValue("data T\na: T = x: T -> x").flatMap {
       case Some(
-            FunctionLiteral(_, _, Sourced(_, _, ExpressionStack(Seq(ParameterReference(Sourced(_, _, name))), _)))
+            FunctionLiteral(_, _, Sourced(_, _, TypeStack(Seq(ParameterReference(Sourced(_, _, name))))))
           ) =>
         IO.delay(name shouldBe "x")
       case x =>
@@ -80,9 +80,9 @@ class ValueResolverTest
 
   it should "resolve function application" in {
     runEngineForValue("data T\nf: T\nb: T\na: T = f(b)").flatMap {
-      case Some(FunctionApplication(Sourced(_, _, ExpressionStack(Seq(ValueReference(_)), _)), _)) =>
+      case Some(FunctionApplication(Sourced(_, _, TypeStack(Seq(ValueReference(_)))), _)) =>
         IO.pure(succeed)
-      case x                                                                                       =>
+      case x                                                                              =>
         IO.delay(fail(s"was not a function application, instead: $x"))
     }
   }
@@ -141,22 +141,21 @@ class ValueResolverTest
     runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map { case (errors, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
-        .flatMap(_.value.value.runtime)
+        .flatMap(_.runtime.map(_.value))
     }
 
   private def runEngineForSignature(source: String): IO[Option[Expression]] =
     runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map { case (errors, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
-        .flatMap(_.value.value.signature)
+        .flatMap(_.typeStack.value.signature)
     }
 
   private def runEngineForTypeExpression(source: String): IO[Expression] =
     runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map { case (_, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
-        .map(_.value.value.signature)
-        .get
+        .flatMap(_.typeStack.value.signature)
         .get
     }
 

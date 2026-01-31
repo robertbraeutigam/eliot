@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Types
@@ -20,7 +20,7 @@ object TypeExpressionBuilder {
   /** Build a typed expression from a single type expression. */
   def build(expression: Expression): TypeGraphIO[TypedExpression] =
     expression match {
-      case Expr.FunctionLiteral(paramName, paramType, body) if paramType.value.expressions.isEmpty =>
+      case Expr.FunctionLiteral(paramName, paramType, body) if paramType.value.levels.isEmpty =>
         evaluateUniversalIntro(paramName, paramType, body)
 
       case Expr.FunctionLiteral(paramName, paramType, body) =>
@@ -50,13 +50,13 @@ object TypeExpressionBuilder {
   /** Universal variable introduction: A -> ... where A has empty type */
   private def evaluateUniversalIntro(
       paramName: Sourced[String],
-      paramType: Sourced[ExpressionStack[Expression]],
-      body: Sourced[ExpressionStack[Expression]]
+      paramType: Sourced[TypeStack[Expression]],
+      body: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
       _                               <- addUniversalVar(paramName.value)
       (bodyTypeValue, typedBodyStack) <- TypeStackBuilder.processStack(body)
-      typedParamType                   = paramType.as(ExpressionStack[TypedExpression](Seq.empty, paramType.value.hasRuntime))
+      typedParamType                   = paramType.as(TypeStack[TypedExpression](Seq.empty))
     } yield TypedExpression(
       bodyTypeValue,
       TypedExpression.FunctionLiteral(paramName, typedParamType, typedBodyStack)
@@ -65,8 +65,8 @@ object TypeExpressionBuilder {
   /** Regular function literal (lambda type): (a: A) -> B becomes FunctionType */
   private def evaluateFunctionType(
       paramName: Sourced[String],
-      paramType: Sourced[ExpressionStack[Expression]],
-      body: Sourced[ExpressionStack[Expression]]
+      paramType: Sourced[TypeStack[Expression]],
+      body: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
       (paramTypeValue, typedParamStack) <- TypeStackBuilder.processStack(paramType)
@@ -88,8 +88,8 @@ object TypeExpressionBuilder {
 
   /** Function application in type position: A(B) means A parameterized by B */
   private def evaluateTypeApplication(
-      target: Sourced[ExpressionStack[Expression]],
-      arg: Sourced[ExpressionStack[Expression]]
+      target: Sourced[TypeStack[Expression]],
+      arg: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
       (targetTypeValue, typedTargetStack) <- TypeStackBuilder.processStack(target)

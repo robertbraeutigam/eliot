@@ -5,7 +5,7 @@ import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
@@ -257,30 +257,30 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     runEvaluatorWithTracking(expr, Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }
 
-  it should "handle function literal with no runtime body" in {
+  it should "handle function literal with no body" in {
     val expr = Expression.FunctionLiteral(
       sourced("x"),
-      sourced(ExpressionStack(Seq(valueRef(bigIntTypeVfqn)), false)),
-      sourced(ExpressionStack(Seq.empty, false))
+      sourced(TypeStack(Seq(valueRef(bigIntTypeVfqn)))),
+      sourced(TypeStack(Seq.empty))
     )
-    runEvaluatorForError(expr).asserting(_ shouldBe "Function literal has no runtime body.")
+    runEvaluatorForError(expr).asserting(_ shouldBe "Function literal has no body.")
   }
 
-  it should "handle function application with no runtime target" in {
+  it should "handle function application with no target" in {
     val expr = Expression.FunctionApplication(
-      sourced(ExpressionStack(Seq.empty, false)),
-      sourced(ExpressionStack(Seq(intLit(1)), true))
+      sourced(TypeStack(Seq.empty)),
+      sourced(TypeStack(Seq(intLit(1))))
     )
-    runEvaluatorForError(expr).asserting(_ shouldBe "Function application has no runtime target.")
+    runEvaluatorForError(expr).asserting(_ shouldBe "Function application has no target.")
   }
 
-  it should "handle function application with no runtime argument" in {
+  it should "handle function application with no argument" in {
     val fn   = intFunLit("x", paramRef("x"))
     val expr = Expression.FunctionApplication(
-      sourced(ExpressionStack(Seq(fn), true)),
-      sourced(ExpressionStack(Seq.empty, false))
+      sourced(TypeStack(Seq(fn))),
+      sourced(TypeStack(Seq.empty))
     )
-    runEvaluatorForError(expr).asserting(_ shouldBe "Function application has no runtime argument.")
+    runEvaluatorForError(expr).asserting(_ shouldBe "Function application has no argument.")
   }
 
   private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
@@ -296,8 +296,8 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private def funLit(param: String, paramTypeExpr: Expression, body: Expression): Expression =
     Expression.FunctionLiteral(
       sourced(param),
-      sourced(ExpressionStack(Seq(paramTypeExpr), false)),
-      sourced(ExpressionStack(Seq(body), true))
+      sourced(TypeStack(Seq(paramTypeExpr))),
+      sourced(TypeStack(Seq(body)))
     )
 
   /** Function literal with BigInt parameter type */
@@ -306,8 +306,8 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   private def funApp(target: Expression, arg: Expression): Expression =
     Expression.FunctionApplication(
-      sourced(ExpressionStack(Seq(target), true)),
-      sourced(ExpressionStack(Seq(arg), true))
+      sourced(TypeStack(Seq(target))),
+      sourced(TypeStack(Seq(arg)))
     )
 
   private def runEvaluator(expression: Expression): IO[InitialExpressionValue] =

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.resolve2.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{ExpressionStack, Expression as CoreExpression}
+import com.vanillasource.eliot.eliotc.core.fact.{TypeStack, Expression as CoreExpression}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -22,17 +22,19 @@ class ValueResolver
   ): CompilerIO[ResolvedValue] = {
     val namedValue    = unifiedValue.namedValue
     // Pre-add generic params from signature so they're visible in runtime
-    val genericParams = collectGenericParams(namedValue.value)
+    val genericParams = collectGenericParams(namedValue.typeStack)
     val scope         = genericParams.foldLeft(ValueResolverScope(unifiedValue.dictionary, Set.empty, Map.empty)) { (s, name) =>
       s.addPreAddedParam(name)
     }
 
     val resolveProgram = for {
-      resolvedStack <- resolveExpressionStack(namedValue.name.as(namedValue.value))
-      _             <- debug[ScopedIO](s"Resolved ${key.vfqn.show}: ${resolvedStack.value.show}")
+      resolvedRuntime <- namedValue.runtime.traverse(expr => resolveExpression(expr).map(namedValue.name.as))
+      resolvedStack   <- resolveTypeStack(namedValue.name.as(namedValue.typeStack))
+      _               <- debug[ScopedIO](s"Resolved ${key.vfqn.show}: ${resolvedStack.value.show}")
     } yield ResolvedValue(
       unifiedValue.vfqn,
       namedValue.name,
+      resolvedRuntime,
       resolvedStack
     )
 
@@ -40,27 +42,26 @@ class ValueResolver
   }
 
   /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with empty param type. */
-  private def collectGenericParams(stack: ExpressionStack[CoreExpression]): Seq[String] =
+  private def collectGenericParams(stack: TypeStack[CoreExpression]): Seq[String] =
     stack.signature.toSeq.flatMap(collectGenericParamsFromExpr)
 
   private def collectGenericParamsFromExpr(expr: CoreExpression): Seq[String] =
     expr match {
-      case FunctionLiteral(paramName, paramType, body) if paramType.expressions.isEmpty =>
-        paramName.value +: collectGenericParamsFromExpr(body.value.expressions.head)
-      case _                                                                            => Seq.empty
+      case FunctionLiteral(paramName, paramType, body) if paramType.levels.isEmpty =>
+        paramName.value +: collectGenericParamsFromExpr(body.value.levels.head)
+      case _                                                                       => Seq.empty
     }
 
-  /** Resolves an expression stack from top (most abstract) to bottom (runtime value). Expression variables from above
-    * are visible on below levels, but go out of scope outside the expression stack. Returns only the bottom expression
-    * as the resolved result.
+  /** Resolves a type stack from top (most abstract) to bottom (signature). Expression variables from above are visible
+    * on below levels, but go out of scope outside the type stack.
     */
-  private def resolveExpressionStack(
-      stack: Sourced[ExpressionStack[CoreExpression]]
-  ): ScopedIO[Sourced[ExpressionStack[Expression]]] =
+  private def resolveTypeStack(
+      stack: Sourced[TypeStack[CoreExpression]]
+  ): ScopedIO[Sourced[TypeStack[Expression]]] =
     withLocalScope {
-      stack.value.expressions.reverse
+      stack.value.levels.reverse
         .traverse(resolveExpression)
-        .map(es => stack.as(ExpressionStack(es.reverse, stack.value.hasRuntime)))
+        .map(es => stack.as(TypeStack(es.reverse)))
     }
 
   private def resolveExpression(expression: CoreExpression): ScopedIO[Expression] =
@@ -93,16 +94,16 @@ class ValueResolver
         }
       case FunctionApplication(targetStack, argStack)  =>
         for {
-          resolvedTarget <- resolveExpressionStack(targetStack)
-          resolvedArg    <- resolveExpressionStack(argStack)
+          resolvedTarget <- resolveTypeStack(targetStack)
+          resolvedArg    <- resolveTypeStack(argStack)
         } yield Expression.FunctionApplication(resolvedTarget, resolvedArg)
       case FunctionLiteral(paramName, paramType, body) =>
         for {
-          resolvedParamType <- resolveExpressionStack(paramName.as(paramType))
+          resolvedParamType <- resolveTypeStack(paramName.as(paramType))
           resolvedBody      <- withLocalScope {
                                  for {
                                    _    <- addParameter(paramName)
-                                   body <- resolveExpressionStack(body)
+                                   body <- resolveTypeStack(body)
                                  } yield body
                                }
         } yield Expression.FunctionLiteral(paramName, resolvedParamType, resolvedBody)

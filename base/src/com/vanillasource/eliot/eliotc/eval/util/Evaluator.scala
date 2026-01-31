@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.eval.util
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
@@ -66,25 +66,25 @@ object Evaluator {
       for {
         evaluatedParamType <- evaluateTypeToValue(paramType.value, evaluating, paramContext, paramType)
         newContext          = paramContext + (paramName.value -> evaluatedParamType)
-        evaluatedBody      <- body.value.runtime.fold(compilerAbort(body.as("Function literal has no runtime body."))) {
+        evaluatedBody      <- body.value.signature.fold(compilerAbort(body.as("Function literal has no body."))) {
                                 evaluateToValue(_, evaluating, newContext, body)
                               }
       } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
     case Expression.FunctionApplication(target, argument)       =>
       for {
         targetValue <-
-          target.value.runtime.fold(compilerAbort(target.as("Function application has no runtime target."))) {
+          target.value.signature.fold(compilerAbort(target.as("Function application has no target."))) {
             evaluateToValue(_, evaluating, paramContext, target)
           }
         argValue    <-
-          argument.value.runtime.fold(compilerAbort(argument.as("Function application has no runtime argument."))) {
+          argument.value.signature.fold(compilerAbort(argument.as("Function application has no argument."))) {
             evaluateToValue(_, evaluating, paramContext, argument)
           }
       } yield FunctionApplication(targetValue, argValue)
   }
 
   private def evaluateTypeToValue(
-      typeStack: ExpressionStack[Expression],
+      typeStack: TypeStack[Expression],
       evaluating: Set[ValueFQN],
       paramContext: Map[String, Value],
       sourced: Sourced[?]

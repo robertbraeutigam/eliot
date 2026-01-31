@@ -12,9 +12,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 class ExistingNamedValueEvaluator
     extends TransformationProcessor[ResolvedValue.Key, NamedEvaluable.Key](key => ResolvedValue.Key(key.vfqn)) {
   override protected def generateFromKeyAndFact(key: NamedEvaluable.Key, fact: InputFact): CompilerIO[OutputFact] =
-    fact.value.value.runtime match {
+    fact.runtime match {
       case Some(runtimeExpression) =>
-        evaluate(fact.value.as(runtimeExpression), Set(key.vfqn)).map(NamedEvaluable(key.vfqn, _))
+        evaluate(runtimeExpression, Set(key.vfqn)).map(NamedEvaluable(key.vfqn, _))
       case None                    =>
         compilerAbort(fact.name.as("Value has no runtime expression."))
     }

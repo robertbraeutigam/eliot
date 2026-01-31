@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.resolve2
 
-import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression.*
@@ -11,9 +11,9 @@ object ExpressionMatchers {
   object FunLit {
     def unapply(expr: Expression): Option[(String, Expression)] =
       expr match {
-        case FunctionLiteral(Sourced(_, _, paramName), _, Sourced(_, _, ExpressionStack(Seq(body), _))) =>
+        case FunctionLiteral(Sourced(_, _, paramName), _, Sourced(_, _, TypeStack(Seq(body)))) =>
           Some((paramName, body))
-        case _                                                                                          => None
+        case _                                                                                 => None
       }
   }
 
@@ -53,8 +53,8 @@ object ExpressionMatchers {
     def unapply(expr: Expression): Option[(Expression, Expression)] =
       expr match {
         case FunctionApplication(
-              Sourced(_, _, ExpressionStack(Seq(target), _)),
-              Sourced(_, _, ExpressionStack(Seq(arg), _))
+              Sourced(_, _, TypeStack(Seq(target))),
+              Sourced(_, _, TypeStack(Seq(arg)))
             ) =>
           Some((target, arg))
         case _ => None

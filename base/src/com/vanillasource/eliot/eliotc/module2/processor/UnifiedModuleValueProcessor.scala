@@ -29,7 +29,7 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
     } else if (!hasSameSignatures(values)) {
       compilerError(values.head.namedValue.name.as("Has multiple different definitions.")) *> abort[UnifiedModuleValue]
     } else {
-      val implementedValue = values.find(_.namedValue.value.hasRuntime).getOrElse(values.head)
+      val implementedValue = values.find(_.namedValue.runtime.isDefined).getOrElse(values.head)
 
       UnifiedModuleValue(
         implementedValue.vfqn,
@@ -39,7 +39,7 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
     }
 
   private def hasMoreImplementations(values: Seq[ModuleValue]): Boolean =
-    values.count(_.namedValue.value.hasRuntime) > 1
+    values.count(_.namedValue.runtime.isDefined) > 1
 
   private def hasSameSignatures(values: Seq[ModuleValue]): Boolean = {
     val first = values.head
