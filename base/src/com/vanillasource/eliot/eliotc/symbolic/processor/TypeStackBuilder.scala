@@ -6,12 +6,10 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
-import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState
 import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
 
 /** Processes type stacks by validating type levels top-down. Each level's value must have valueType matching the level
@@ -26,23 +24,10 @@ object TypeStackBuilder {
     */
   def processStack(
       stack: Sourced[TypeStack[Expression]]
-  ): TypeGraphIO[(ExpressionValue, Sourced[TypeStack[TypedExpression]])] = {
-    val levels = stack.value.levels
-
-    // Process from top (last) to bottom (first/signature)
-    levels.toList.reverse match {
-      case Nil        =>
-        // No explicit type levels - generate unification variable for signature
-        for {
-          uvar <- generateUnificationVar(stack)
-        } yield (uvar, stack.as(TypeStack[TypedExpression](Seq.empty)))
-      case levelsList =>
-        // Process from top to bottom, starting with Type as expected
-        for {
-          (signatureType, typedLevels) <- processLevelsRecursive(levelsList, Value.Type, stack)
-        } yield (signatureType, stack.as(TypeStack(typedLevels.reverse)))
-    }
-  }
+  ): TypeGraphIO[(ExpressionValue, Sourced[TypeStack[TypedExpression]])] =
+    for {
+      (signatureType, typedLevels) <- processLevels(stack.value.levels.toList.reverse, Value.Type, stack)
+    } yield (signatureType, stack.as(TypeStack(typedLevels.reverse)))
 
   /** Recursively process type levels from top (highest) to bottom (signature).
     *
@@ -55,53 +40,42 @@ object TypeStackBuilder {
     * @return
     *   Tuple of (signatureType, typedLevels in reverse order)
     */
-  private def processLevelsRecursive(
+  private def processLevels(
       levels: List[Expression],
       expectedType: Value,
       source: Sourced[?]
   ): TypeGraphIO[(ExpressionValue, Seq[TypedExpression])] =
     levels match {
-      case Nil =>
-        // Base case: no more levels
-        (ConcreteValue(expectedType), Seq.empty[TypedExpression]).pure[TypeGraphIO]
+      case Nil          =>
+        generateUnificationVar(source).map((_, Seq.empty))
 
-      case expr :: rest if rest.isEmpty =>
-        // Signature level - build type expression
-        for {
-          typeResult <- TypeExpressionBuilder.build(expr)
-        } yield (typeResult.expressionType, Seq(typeResult))
+      case head :: Nil  =>
+        TypeExpressionBuilder.build(head).map(typeResult => (typeResult.expressionType, Seq(typeResult)))
 
       case expr :: rest =>
-        // Higher level (above signature) - must evaluate to ConcreteValue
         for {
-          // 1. Build the type expression
-          typeResult <- TypeExpressionBuilder.build(expr)
-
-          // 2. Extract the concrete value for use as expected type in next level
-          evaluatedValue                   <- typeResult.expressionType match {
-                                                case ConcreteValue(v) =>
-                                                  // 3. Check the value's type matches expected
-                                                  if (v.valueType == expectedType) {
-                                                    v.pure[TypeGraphIO]
-                                                  } else {
-                                                    StateT.liftF(
-                                                      compilerError(
-                                                        source.as(
-                                                          s"Type level mismatch: expected ${expectedType}, but got ${v.valueType}"
-                                                        )
-                                                      )
-                                                    ) *> v.pure[TypeGraphIO]
-                                                  }
-                                                case other            =>
-                                                  StateT.liftF(
-                                                    compilerError(
-                                                      source.as("Higher level type annotation must evaluate to a concrete type.")
-                                                    )
-                                                  ) *> Value.Type.pure[TypeGraphIO]
-                                              }
-
-          // 4. Process remaining levels with evaluated value as expected type
-          (signatureType, restTypedLevels) <- processLevelsRecursive(rest, evaluatedValue, source)
+          typeResult                       <- TypeExpressionBuilder.build(expr)
+          evaluatedValue                   <- extractConcreteValue(typeResult, expectedType, source)
+          (signatureType, restTypedLevels) <- processLevels(rest, evaluatedValue, source)
         } yield (signatureType, typeResult +: restTypedLevels)
     }
+
+  private def extractConcreteValue(
+      typeResult: TypedExpression,
+      expectedType: Value,
+      source: Sourced[?]
+  ): TypeGraphIO[Value] =
+    typeResult.expressionType match {
+      case ConcreteValue(v) if v.valueType == expectedType =>
+        v.pure[TypeGraphIO]
+      case ConcreteValue(v)                                =>
+        StateT.liftF(
+          compilerError(source.as(s"Type level mismatch: expected $expectedType, but got ${v.valueType}"))
+        ) *> v.pure[TypeGraphIO]
+      case _                                               =>
+        StateT.liftF(
+          compilerError(source.as("Higher level type annotation must evaluate to a concrete type."))
+        ) *> Value.Type.pure[TypeGraphIO]
+    }
 }
+
