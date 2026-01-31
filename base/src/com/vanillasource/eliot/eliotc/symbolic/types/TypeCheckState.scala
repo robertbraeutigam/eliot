@@ -28,7 +28,7 @@ object TypeCheckState {
         shortIds = state.shortIds.advanceIdentifierIndex(),
         unificationVars = state.unificationVars + id
       )
-      (newState, ParameterReference(id, Value.TypeType)).pure[CompilerIO]
+      (newState, ParameterReference(id, Value.Type)).pure[CompilerIO]
     }
 
   def bindParameter(name: String, typ: ExpressionValue): TypeGraphIO[Unit] =

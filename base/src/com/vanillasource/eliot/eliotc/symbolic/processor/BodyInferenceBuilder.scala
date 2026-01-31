@@ -33,7 +33,7 @@ object BodyInferenceBuilder {
 
       case Expr.ParameterReference(name) =>
         lookupParameter(name.value).map { maybeType =>
-          val exprValue = maybeType.getOrElse(ParameterReference(name.value, Value.TypeType))
+          val exprValue = maybeType.getOrElse(ParameterReference(name.value, Value.Type))
           TypedExpression(exprValue, TypedExpression.ParameterReference(name))
         }
 

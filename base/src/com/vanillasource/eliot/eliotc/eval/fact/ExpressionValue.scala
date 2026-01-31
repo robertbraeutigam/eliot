@@ -42,8 +42,8 @@ object ExpressionValue {
 
   /** Marker for function types. Function types are represented as FunctionApplication chains. */
   val FunctionTypeMarker: ExpressionValue = ConcreteValue(Value.Structure(
-    Map("$marker" -> Value.Direct("FunctionType", Value.TypeType)),
-    Value.TypeType
+    Map("$marker" -> Value.Direct("FunctionType", Value.Type)),
+    Value.Type
   ))
 
   /** Create a function type: paramType -> returnType */

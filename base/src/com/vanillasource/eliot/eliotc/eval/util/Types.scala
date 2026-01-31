@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.eval.util
 
 import com.vanillasource.eliot.eliotc.eval.fact.Value
-import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, TypeType}
+import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.module2.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 
@@ -14,9 +14,9 @@ object Types {
   val fullyQualifiedNameType: Value =
     Structure(
       Map(
-        "$typeName" -> Direct(fqnFQN, TypeType)
+        "$typeName" -> Direct(fqnFQN, Type)
       ),
-      TypeType
+      Type
     )
 
   /** Create the type of some simple data that has no generic type parameters. For example a `data Person(name: String)`
@@ -29,10 +29,10 @@ object Types {
       Map(
         "$typeName" -> Direct(
           dataFQN,
-          TypeType
+          Type
         )
       ),
-      TypeType
+      Type
     )
 
   val bigIntType: Value = dataType(ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), "BigInteger"))

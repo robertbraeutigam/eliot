@@ -12,14 +12,14 @@ object Value {
   case class Direct(value: Any, override val valueType: Value)                    extends Value
   case class Structure(fields: Map[String, Value], override val valueType: Value) extends Value
 
-  /** The type of Type itself. This is the root of the type hierarchy where the infinite recursion stops. Both its
-    * valueType and all field types reference itself.
+  /** The type of all types and Type itself. This is the root of the type hierarchy where the infinite recursion stops.
+    * Both its valueType and all field types reference itself.
     */
-  object TypeType extends Value {
+  object Type extends Value {
     lazy val fields: Map[String, Value] = Map(
       "$typeName" -> Direct(
         ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type"),
-        TypeType
+        Type
       )
     )
     override def valueType: Value       = this

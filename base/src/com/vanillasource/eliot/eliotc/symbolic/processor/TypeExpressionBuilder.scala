@@ -31,7 +31,7 @@ object TypeExpressionBuilder {
 
       case Expr.ParameterReference(name) =>
         lookupParameter(name.value).map { maybeType =>
-          val exprValue = maybeType.getOrElse(ParameterReference(name.value, Value.TypeType))
+          val exprValue = maybeType.getOrElse(ParameterReference(name.value, Value.Type))
           TypedExpression(exprValue, TypedExpression.ParameterReference(name))
         }
 
@@ -105,7 +105,7 @@ object TypeExpressionBuilder {
   ): TypeGraphIO[TypedExpression] =
     isUniversalVar(vfqn.value.name).map { isUniv =>
       val exprValue =
-        if (isUniv) ParameterReference(vfqn.value.name, Value.TypeType)
+        if (isUniv) ParameterReference(vfqn.value.name, Value.Type)
         else ConcreteValue(Types.dataType(vfqn.value))
       TypedExpression(exprValue, TypedExpression.ValueReference(vfqn))
     }

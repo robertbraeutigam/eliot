@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
-import com.vanillasource.eliot.eliotc.eval.fact.Value.TypeType
+import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
 import com.vanillasource.eliot.eliotc.eval.util.Types.{bigIntType, stringType}
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}

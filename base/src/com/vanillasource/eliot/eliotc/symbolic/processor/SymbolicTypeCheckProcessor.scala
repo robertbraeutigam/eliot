@@ -114,7 +114,7 @@ class SymbolicTypeCheckProcessor
         } yield (uvar, Seq.empty)
       case levels =>
         // Process from top to bottom, starting with TypeType as expected
-        processLevelsRecursive(levels, Value.TypeType, typeExpr)
+        processLevelsRecursive(levels, Value.Type, typeExpr)
     }
   }
 
@@ -173,7 +173,7 @@ class SymbolicTypeCheckProcessor
                                   compilerError(
                                     source.as("Higher level type annotation must evaluate to a concrete type.")
                                   )
-                                ) *> Value.TypeType.pure[TypeGraphIO]
+                                ) *> Value.Type.pure[TypeGraphIO]
                             }
 
           // 4. Process remaining levels with evaluated value as expected type
