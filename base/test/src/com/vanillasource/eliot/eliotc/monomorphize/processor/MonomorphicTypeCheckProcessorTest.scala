@@ -1,0 +1,443 @@
+package com.vanillasource.eliot.eliotc.monomorphize.processor
+
+import cats.data.Chain
+import cats.effect.IO
+import cats.effect.testing.scalatest.AsyncIOSpec
+import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.compiler.FactGenerator
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
+import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.util.Types
+import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{ConcreteType, MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.pos.PositionRange
+import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
+import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
+import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
+import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpression}
+import org.scalatest.flatspec.AsyncFlatSpec
+import org.scalatest.matchers.should.Matchers
+
+import java.io.File
+
+class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+  private val testFile       = new File("Test.els")
+  private val testModuleName = ModuleName(Seq.empty, "Test")
+  private val sourceContent  = SourceContent(testFile, Sourced(testFile, PositionRange.zero, "test source"))
+
+  private val intVfqn    = ValueFQN(testModuleName, "Int")
+  private val stringVfqn = ValueFQN(testModuleName, "String")
+  private val boolVfqn   = ValueFQN(testModuleName, "Bool")
+  private val intType    = ConcreteType.TypeRef(intVfqn)
+  private val stringType = ConcreteType.TypeRef(stringVfqn)
+  private val boolType   = ConcreteType.TypeRef(boolVfqn)
+
+  "MonomorphicTypeCheckProcessor" should "monomorphize non-generic value" in {
+    // value: Int (no type params, no body)
+    val valueVfqn     = ValueFQN(testModuleName, "value")
+    val typeChecked   = TypeCheckedValue(
+      valueVfqn,
+      sourced("value"),
+      ConcreteValue(Types.dataType(intVfqn)),
+      None
+    )
+
+    runProcessor(MonomorphicValue.Key(valueVfqn, Seq.empty), Seq(typeChecked))
+      .asserting { result =>
+        result.vfqn shouldBe valueVfqn
+        result.typeArguments shouldBe Seq.empty
+        result.signature shouldBe intType
+        result.runtime shouldBe None
+      }
+  }
+
+  it should "monomorphize identity function with Int" in {
+    // id[A](a: A): A = a
+    val idVfqn = ValueFQN(testModuleName, "id")
+
+    // Signature: [A] A -> A
+    val signature = FunctionLiteral(
+      "A",
+      Value.Type,
+      ExpressionValue.functionType(
+        ParameterReference("A", Value.Type),
+        ParameterReference("A", Value.Type)
+      )
+    )
+
+    // Body: parameter reference to "a"
+    val body = typedExpr(
+      ParameterReference("A", Value.Type),
+      TypedExpression.ParameterReference(sourced("a"))
+    )
+
+    val typeChecked = TypeCheckedValue(
+      idVfqn,
+      sourced("id"),
+      signature,
+      Some(sourced(body.expression))
+    )
+
+    runProcessor(MonomorphicValue.Key(idVfqn, Seq(intType)), Seq(typeChecked))
+      .asserting { result =>
+        result.vfqn shouldBe idVfqn
+        result.typeArguments shouldBe Seq(intType)
+        result.signature shouldBe ConcreteType.FunctionType(intType, intType)
+        result.runtime.isDefined shouldBe true
+        result.runtime.get.value match {
+          case MonomorphicExpression.ParameterReference(name) =>
+            name.value shouldBe "a"
+          case other                                          =>
+            fail(s"Expected ParameterReference, got $other")
+        }
+      }
+  }
+
+  it should "monomorphize identity function with String" in {
+    val idVfqn = ValueFQN(testModuleName, "id")
+
+    val signature = FunctionLiteral(
+      "A",
+      Value.Type,
+      ExpressionValue.functionType(
+        ParameterReference("A", Value.Type),
+        ParameterReference("A", Value.Type)
+      )
+    )
+
+    val body = typedExpr(
+      ParameterReference("A", Value.Type),
+      TypedExpression.ParameterReference(sourced("a"))
+    )
+
+    val typeChecked = TypeCheckedValue(
+      idVfqn,
+      sourced("id"),
+      signature,
+      Some(sourced(body.expression))
+    )
+
+    runProcessor(MonomorphicValue.Key(idVfqn, Seq(stringType)), Seq(typeChecked))
+      .asserting { result =>
+        result.signature shouldBe ConcreteType.FunctionType(stringType, stringType)
+      }
+  }
+
+  it should "monomorphize function with multiple type parameters" in {
+    // const[A, B](a: A, b: B): A = a
+    val constVfqn = ValueFQN(testModuleName, "const")
+
+    // Signature: [A][B] A -> B -> A
+    val signature = FunctionLiteral(
+      "A",
+      Value.Type,
+      FunctionLiteral(
+        "B",
+        Value.Type,
+        ExpressionValue.functionType(
+          ParameterReference("A", Value.Type),
+          ExpressionValue.functionType(
+            ParameterReference("B", Value.Type),
+            ParameterReference("A", Value.Type)
+          )
+        )
+      )
+    )
+
+    val body = typedExpr(
+      ParameterReference("A", Value.Type),
+      TypedExpression.ParameterReference(sourced("a"))
+    )
+
+    val typeChecked = TypeCheckedValue(
+      constVfqn,
+      sourced("const"),
+      signature,
+      Some(sourced(body.expression))
+    )
+
+    runProcessor(MonomorphicValue.Key(constVfqn, Seq(intType, stringType)), Seq(typeChecked))
+      .asserting { result =>
+        result.signature shouldBe ConcreteType.FunctionType(
+          intType,
+          ConcreteType.FunctionType(stringType, intType)
+        )
+      }
+  }
+
+  it should "fail on type argument count mismatch" in {
+    val idVfqn = ValueFQN(testModuleName, "id")
+
+    val signature = FunctionLiteral(
+      "A",
+      Value.Type,
+      ExpressionValue.functionType(
+        ParameterReference("A", Value.Type),
+        ParameterReference("A", Value.Type)
+      )
+    )
+
+    val typeChecked = TypeCheckedValue(
+      idVfqn,
+      sourced("id"),
+      signature,
+      None
+    )
+
+    // Request with 2 type args, but id only has 1
+    runProcessorForError(MonomorphicValue.Key(idVfqn, Seq(intType, stringType)), Seq(typeChecked))
+      .asserting(_ shouldBe "Type argument count mismatch: expected 1, got 2")
+  }
+
+  it should "monomorphize function literal in body" in {
+    // f: Int -> Int = (x: Int) -> x
+    val fVfqn = ValueFQN(testModuleName, "f")
+
+    val signature = ExpressionValue.functionType(
+      ConcreteValue(Types.dataType(intVfqn)),
+      ConcreteValue(Types.dataType(intVfqn))
+    )
+
+    val paramTypeStack = TypeStack(Seq(typedExpr(
+      ConcreteValue(Types.dataType(intVfqn)),
+      TypedExpression.ValueReference(sourced(intVfqn))
+    )))
+
+    val bodyStack = TypeStack(Seq(typedExpr(
+      ConcreteValue(Types.dataType(intVfqn)),
+      TypedExpression.ParameterReference(sourced("x"))
+    )))
+
+    val body = typedExpr(
+      signature,
+      TypedExpression.FunctionLiteral(
+        sourced("x"),
+        sourced(paramTypeStack),
+        sourced(bodyStack)
+      )
+    )
+
+    val typeChecked = TypeCheckedValue(
+      fVfqn,
+      sourced("f"),
+      signature,
+      Some(sourced(body.expression))
+    )
+
+    runProcessor(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(typeChecked))
+      .asserting { result =>
+        result.signature shouldBe ConcreteType.FunctionType(intType, intType)
+        result.runtime.get.value match {
+          case MonomorphicExpression.FunctionLiteral(name, paramType, _) =>
+            name.value shouldBe "x"
+            paramType shouldBe intType
+          case other                                                     =>
+            fail(s"Expected FunctionLiteral, got $other")
+        }
+      }
+  }
+
+  it should "monomorphize integer literal in body" in {
+    val fVfqn = ValueFQN(testModuleName, "f")
+
+    val signature = ConcreteValue(Types.dataType(intVfqn))
+
+    val body = typedExpr(
+      ConcreteValue(Types.dataType(intVfqn)),
+      TypedExpression.IntegerLiteral(sourced(BigInt(42)))
+    )
+
+    val typeChecked = TypeCheckedValue(
+      fVfqn,
+      sourced("f"),
+      signature,
+      Some(sourced(body.expression))
+    )
+
+    runProcessor(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(typeChecked))
+      .asserting { result =>
+        result.runtime.get.value match {
+          case MonomorphicExpression.IntegerLiteral(n) =>
+            n.value shouldBe BigInt(42)
+          case other                                   =>
+            fail(s"Expected IntegerLiteral, got $other")
+        }
+      }
+  }
+
+  it should "monomorphize string literal in body" in {
+    val fVfqn = ValueFQN(testModuleName, "f")
+
+    val signature = ConcreteValue(Types.dataType(stringVfqn))
+
+    val body = typedExpr(
+      ConcreteValue(Types.dataType(stringVfqn)),
+      TypedExpression.StringLiteral(sourced("hello"))
+    )
+
+    val typeChecked = TypeCheckedValue(
+      fVfqn,
+      sourced("f"),
+      signature,
+      Some(sourced(body.expression))
+    )
+
+    runProcessor(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(typeChecked))
+      .asserting { result =>
+        result.runtime.get.value match {
+          case MonomorphicExpression.StringLiteral(s) =>
+            s.value shouldBe "hello"
+          case other                                  =>
+            fail(s"Expected StringLiteral, got $other")
+        }
+      }
+  }
+
+  it should "monomorphize value reference to non-generic value" in {
+    val fVfqn     = ValueFQN(testModuleName, "f")
+    val constVfqn = ValueFQN(testModuleName, "constVal")
+
+    // constVal: Int (no body)
+    val constTypeChecked = TypeCheckedValue(
+      constVfqn,
+      sourced("constVal"),
+      ConcreteValue(Types.dataType(intVfqn)),
+      None
+    )
+
+    // f: Int = constVal
+    val fSignature = ConcreteValue(Types.dataType(intVfqn))
+    val fBody      = typedExpr(
+      ConcreteValue(Types.dataType(intVfqn)),
+      TypedExpression.ValueReference(sourced(constVfqn))
+    )
+
+    val fTypeChecked = TypeCheckedValue(
+      fVfqn,
+      sourced("f"),
+      fSignature,
+      Some(sourced(fBody.expression))
+    )
+
+    runProcessor(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(fTypeChecked, constTypeChecked))
+      .asserting { result =>
+        result.runtime.get.value match {
+          case MonomorphicExpression.MonomorphicValueReference(name, typeArgs) =>
+            name.value shouldBe constVfqn
+            typeArgs shouldBe Seq.empty
+          case other                                                           =>
+            fail(s"Expected MonomorphicValueReference, got $other")
+        }
+      }
+  }
+
+  it should "monomorphize function application" in {
+    val fVfqn  = ValueFQN(testModuleName, "f")
+    val idVfqn = ValueFQN(testModuleName, "id")
+
+    // id[A](a: A): A (no body for simplicity)
+    val idSignature    = FunctionLiteral(
+      "A",
+      Value.Type,
+      ExpressionValue.functionType(
+        ParameterReference("A", Value.Type),
+        ParameterReference("A", Value.Type)
+      )
+    )
+    val idTypeChecked  = TypeCheckedValue(
+      idVfqn,
+      sourced("id"),
+      idSignature,
+      None
+    )
+
+    // f: Int = id(42) - where id is instantiated with Int
+    val fSignature = ConcreteValue(Types.dataType(intVfqn))
+
+    // The application: id(42)
+    val idRef  = typedExpr(
+      // id's type at call site after unification is Int -> Int
+      ExpressionValue.functionType(
+        ConcreteValue(Types.dataType(intVfqn)),
+        ConcreteValue(Types.dataType(intVfqn))
+      ),
+      TypedExpression.ValueReference(sourced(idVfqn))
+    )
+    val argLit = typedExpr(
+      ConcreteValue(Types.dataType(intVfqn)),
+      TypedExpression.IntegerLiteral(sourced(BigInt(42)))
+    )
+
+    val fBody = typedExpr(
+      ConcreteValue(Types.dataType(intVfqn)),
+      TypedExpression.FunctionApplication(
+        sourced(TypeStack(Seq(idRef))),
+        sourced(TypeStack(Seq(argLit)))
+      )
+    )
+
+    val fTypeChecked = TypeCheckedValue(
+      fVfqn,
+      sourced("f"),
+      fSignature,
+      Some(sourced(fBody.expression))
+    )
+
+    runProcessor(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(fTypeChecked, idTypeChecked))
+      .asserting { result =>
+        result.runtime.get.value match {
+          case MonomorphicExpression.FunctionApplication(target, arg) =>
+            target.value.expression match {
+              case MonomorphicExpression.MonomorphicValueReference(name, typeArgs) =>
+                name.value shouldBe idVfqn
+                // Note: type args inference is based on substitution context
+                // In this case, id doesn't have its universals in our context
+              case other                                                           =>
+                fail(s"Expected MonomorphicValueReference in target, got $other")
+            }
+            arg.value.expression match {
+              case MonomorphicExpression.IntegerLiteral(n) =>
+                n.value shouldBe BigInt(42)
+              case other                                   =>
+                fail(s"Expected IntegerLiteral in arg, got $other")
+            }
+          case other                                                  =>
+            fail(s"Expected FunctionApplication, got $other")
+        }
+      }
+  }
+
+  private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
+
+  private def typedExpr(exprType: ExpressionValue, expr: TypedExpression.Expression): TypedExpression =
+    TypedExpression(exprType, expr)
+
+  private def runProcessor(
+      key: MonomorphicValue.Key,
+      facts: Seq[CompilerFact]
+  ): IO[MonomorphicValue] =
+    for {
+      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq(MonomorphicTypeCheckProcessor())))
+      _         <- generator.registerFact(sourceContent)
+      _         <- facts.traverse_(generator.registerFact)
+      result    <- generator.getFact(key)
+      errors    <- generator.currentErrors()
+      _         <- if (errors.nonEmpty)
+                     IO.raiseError(new Exception(s"Errors: ${errors.map(_.message).mkString(", ")}"))
+                   else IO.unit
+    } yield result.getOrElse(throw new Exception("MonomorphicValue not produced"))
+
+  private def runProcessorForError(
+      key: MonomorphicValue.Key,
+      facts: Seq[CompilerFact]
+  ): IO[String] =
+    for {
+      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq(MonomorphicTypeCheckProcessor())))
+      _         <- generator.registerFact(sourceContent)
+      _         <- facts.traverse_(generator.registerFact)
+      _         <- generator.getFact(key)
+      errors    <- generator.currentErrors()
+    } yield errors.headOption.map(_.message).getOrElse(throw new Exception("Expected error but none occurred"))
+}
