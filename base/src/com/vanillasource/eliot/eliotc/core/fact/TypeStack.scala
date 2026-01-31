@@ -15,12 +15,6 @@ import cats.Show
   */
 case class TypeStack[E](levels: Seq[E]) {
   def signature: Option[E] = levels.headOption
-
-  def levelsWithLevel: Seq[(E, Int)] = levels.zipWithIndex.map { (expr, idx) =>
-    (expr, idx + 1)
-  }
-
-  def maxLevel: Int = levels.length + 1
 }
 
 object TypeStack {
