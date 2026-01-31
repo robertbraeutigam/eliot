@@ -39,27 +39,32 @@ class SymbolicTypeCheckProcessor
   ): CompilerIO[TypeCheckedValue] = {
     val body = resolvedValue.value.as(bodyExpr)
     for {
-      result             <- (for {
-                              (declaredType, typedLevels) <- processTypeLevels(resolvedValue.value)
-                              bodyResult                  <- BodyInferenceBuilder.build(body)
-                              _                           <- tellConstraint(
-                                                               SymbolicUnification.constraint(
-                                                                 declaredType,
-                                                                 body.as(bodyResult.expressionType),
-                                                                 "Type mismatch."
-                                                               )
-                                                             )
-                              constraints                 <- getConstraints
-                              universalVars               <- getUniversalVars
-                              unificationVars             <- getUnificationVars
-                            } yield (declaredType, typedLevels, bodyResult, constraints, universalVars, unificationVars))
-                              .runA(TypeCheckState())
+      result <- (for {
+                  (declaredType, typedLevels) <-
+                    TypeStackBuilder.processStack(resolvedValue.value).map { case (signatureType, typedStack) =>
+                      (signatureType, typedStack.value.expressions)
+                    }
+                  bodyResult                  <- BodyInferenceBuilder.build(body)
+                  _                           <- tellConstraint(
+                                                   SymbolicUnification.constraint(
+                                                     declaredType,
+                                                     body.as(bodyResult.expressionType),
+                                                     "Type mismatch."
+                                                   )
+                                                 )
+                  constraints                 <- getConstraints
+                  universalVars               <- getUniversalVars
+                  unificationVars             <- getUnificationVars
+                } yield (declaredType, typedLevels, bodyResult, constraints, universalVars, unificationVars))
+                  .runA(TypeCheckState())
+
       (declaredType, typedLevels, typedBody, constraints, universalVars, unificationVars) = result
+
       _                  <- debug[CompilerIO](s"Constraints: ${constraints.show}")
       solution           <- constraints.solve(universalVars, unificationVars)
       _                  <- debug[CompilerIO](s"Solution: ${solution.show}")
-      resolvedTypedLevels = typedLevels.map(applySubstitutions(_, solution))
-      resolvedTypedBody   = applySubstitutions(typedBody, solution)
+      resolvedTypedLevels = typedLevels.map(_.transformTypes(solution.substitute))
+      resolvedTypedBody   = typedBody.transformTypes(solution.substitute)
       signatureType       =
         resolvedTypedLevels.headOption.map(_.expressionType).getOrElse(solution.substitute(declaredType))
     } yield TypeCheckedValue(
@@ -74,7 +79,12 @@ class SymbolicTypeCheckProcessor
       resolvedValue: ResolvedValue
   ): CompilerIO[TypeCheckedValue] =
     for {
-      (signatureType, _) <- processTypeLevels(resolvedValue.value).runA(TypeCheckState())
+      (signatureType, _) <- TypeStackBuilder
+                              .processStack(resolvedValue.value)
+                              .map { case (signatureType, typedStack) =>
+                                (signatureType, typedStack.value.expressions)
+                              }
+                              .runA(TypeCheckState())
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       resolvedValue.name,
@@ -82,18 +92,4 @@ class SymbolicTypeCheckProcessor
       None
     )
 
-  /** Process type levels by delegating to TypeStackBuilder.processStack.
-    *
-    * @return
-    *   Tuple of (signatureType, typedLevels)
-    */
-  private def processTypeLevels(
-      typeExpr: Sourced[ExpressionStack[Expression]]
-  ): TypeGraphIO[(ExpressionValue, Seq[TypedExpression])] =
-    TypeStackBuilder.processStack(typeExpr).map { case (signatureType, typedStack) =>
-      (signatureType, typedStack.value.expressions)
-    }
-
-  private def applySubstitutions(typed: TypedExpression, solution: UnificationState): TypedExpression =
-    typed.transformTypes(solution.substitute)
 }
