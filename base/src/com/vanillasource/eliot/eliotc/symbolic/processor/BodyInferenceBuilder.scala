@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.symbolic.processor
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.ExpressionStack
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.eval.util.Types
@@ -65,8 +66,8 @@ object BodyInferenceBuilder {
       maybeResolved <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)).attempt.map(_.toOption))
       result        <- maybeResolved match {
                          case Some(resolved) =>
-                           buildFromStack(resolved.value).map { typeResult =>
-                             TypedExpression(typeResult.expressionType, TypedExpression.ValueReference(vfqn))
+                           processTypeStack(resolved.value).map { case (signatureType, _) =>
+                             TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
                            }
                          case None           =>
                            val exprValue = ConcreteValue(Types.dataType(vfqn.value))
@@ -82,8 +83,8 @@ object BodyInferenceBuilder {
     for {
       argTypeVar      <- generateUnificationVar(arg)
       retTypeVar      <- generateUnificationVar(body)
-      targetResult    <- build(target.map(_.expressions.head))
-      argResult       <- build(arg.map(_.expressions.head))
+      targetResult    <- buildBodyStack(target)
+      argResult       <- buildBodyStack(arg)
       expectedFuncType = functionType(argTypeVar, retTypeVar)
       _               <- tellConstraint(
                            SymbolicUnification.constraint(
@@ -105,20 +106,28 @@ object BodyInferenceBuilder {
       bodyStack: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
-      paramResult   <- buildFromStack(paramType)
-      _             <- bindParameter(paramName.value, paramResult.expressionType)
-      bodyResult    <- build(bodyStack.map(_.expressions.head))
-      funcType       = functionType(paramResult.expressionType, bodyResult.expressionType)
-      typedParamType = paramType.as(ExpressionStack[TypedExpression](Seq(paramResult), paramType.value.hasRuntime))
-      typedBodyStack = bodyStack.as(ExpressionStack[TypedExpression](Seq(bodyResult), bodyStack.value.hasRuntime))
-    } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamType, typedBodyStack))
+      (paramTypeValue, typedParamStack) <- processTypeStack(paramType)
+      _                                 <- bindParameter(paramName.value, paramTypeValue)
+      bodyResult                        <- buildBodyStack(bodyStack)
+      funcType                           = functionType(paramTypeValue, bodyResult.expressionType)
+      typedBodyStack                     = bodyStack.as(ExpressionStack[TypedExpression](Seq(bodyResult), bodyStack.value.hasRuntime))
+    } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamStack, typedBodyStack))
 
-  /** Build from a nested stack by extracting the signature expression. */
-  private def buildFromStack(
+  /** Process a TYPE stack by processing all type levels from top to bottom. Used for parameter types, signatures, etc.
+    * Delegates to TypeExpressionBuilder.
+    */
+  private def processTypeStack(
+      stack: Sourced[ExpressionStack[Expression]]
+  ): TypeGraphIO[(ExpressionValue, Sourced[ExpressionStack[TypedExpression]])] =
+    TypeExpressionBuilder.processStack(stack)
+
+  /** Build from a BODY stack by extracting and processing the runtime expression. Used for function bodies, arguments.
+    */
+  private def buildBodyStack(
       stack: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     stack.value.expressions.headOption match {
-      case Some(expr) => TypeExpressionBuilder.build(expr)
+      case Some(expr) => build(stack.as(expr))
       case None       =>
         for {
           uvar <- generateUnificationVar(stack)
