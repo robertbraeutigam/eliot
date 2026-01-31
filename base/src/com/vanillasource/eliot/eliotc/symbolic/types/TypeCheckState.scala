@@ -8,7 +8,6 @@ import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.typesystem.processor.ShortUniqueIdentifiers
-import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
 
 /** Combined state for type checking, including constraint accumulation. */
 case class TypeCheckState(
@@ -55,10 +54,4 @@ object TypeCheckState {
 
   def isUniversalVar(name: String): TypeGraphIO[Boolean] =
     StateT.inspect(_.universalVars.contains(name))
-
-  def resolveParameterRef(name: Sourced[String]): TypeGraphIO[TypeWithTyped] =
-    lookupParameter(name.value).map { maybeType =>
-      val exprValue = maybeType.getOrElse(ParameterReference(name.value, Value.TypeType))
-      TypeWithTyped(exprValue, TypedExpression(exprValue, TypedExpression.ParameterReference(name)))
-    }
 }
