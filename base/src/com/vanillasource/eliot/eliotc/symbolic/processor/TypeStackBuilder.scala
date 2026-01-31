@@ -8,15 +8,18 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.eval.util.Types
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression as Expr
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification
 import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
 
-/** Processes type stacks and type-level expressions. Validates type levels top-down where each level's value must have
-  * valueType matching the level above (with implicit Type at top).
+/** Processes type stacks and expressions in both type-level and body-level contexts. For type stacks, validates levels
+  * top-down where each level's value must have valueType matching the level above (with implicit Type at top). For body
+  * expressions, infers types by generating unification variables and emitting constraints.
   */
 object TypeStackBuilder {
 
@@ -31,6 +34,108 @@ object TypeStackBuilder {
     for {
       (signatureType, typedLevels) <- processLevels(stack.value.levels.toList.reverse, Value.Type, stack)
     } yield (signatureType, stack.as(TypeStack(typedLevels.reverse)))
+
+  /** Build constraints from a body expression, inferring types. */
+  def inferBody(body: Sourced[Expression]): TypeGraphIO[TypedExpression] =
+    body.value match {
+      case Expr.IntegerLiteral(value) =>
+        inferLiteral(value, "Number", "Byte", TypedExpression.IntegerLiteral(value))
+
+      case Expr.StringLiteral(value) =>
+        inferLiteral(value, "String", "String", TypedExpression.StringLiteral(value))
+
+      case Expr.ParameterReference(name) =>
+        handleParameterReference(name)
+
+      case Expr.ValueReference(vfqn) =>
+        inferValueReference(vfqn)
+
+      case Expr.FunctionApplication(target, arg) =>
+        inferFunctionApplication(body, target, arg)
+
+      case Expr.FunctionLiteral(paramName, paramType, bodyStack) =>
+        inferFunctionLiteral(paramName, paramType, bodyStack)
+    }
+
+  private def inferLiteral[T](
+      value: Sourced[T],
+      moduleName: String,
+      typeName: String,
+      typedExpr: TypedExpression.Expression
+  ): TypeGraphIO[TypedExpression] =
+    TypedExpression(
+      ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), moduleName), typeName))),
+      typedExpr
+    ).pure[TypeGraphIO]
+
+  private def inferValueReference(vfqn: Sourced[ValueFQN]): TypeGraphIO[TypedExpression] =
+    for {
+      maybeResolved <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)).attempt.map(_.toOption))
+      result        <- maybeResolved match {
+                         case Some(resolved) =>
+                           processStack(resolved.typeStack).map { case (signatureType, _) =>
+                             TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
+                           }
+                         case None           =>
+                           val exprValue = ConcreteValue(Types.dataType(vfqn.value))
+                           TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
+                       }
+    } yield result
+
+  private def inferFunctionApplication(
+      body: Sourced[Expression],
+      target: Sourced[TypeStack[Expression]],
+      arg: Sourced[TypeStack[Expression]]
+  ): TypeGraphIO[TypedExpression] =
+    for {
+      argTypeVar      <- generateUnificationVar(arg)
+      retTypeVar      <- generateUnificationVar(body)
+      targetResult    <- inferBodyStack(target)
+      argResult       <- inferBodyStack(arg)
+      expectedFuncType = functionType(argTypeVar, retTypeVar)
+      _               <- tellConstraint(
+                           SymbolicUnification.constraint(
+                             expectedFuncType,
+                             target.as(targetResult.expressionType),
+                             "Target of function application is not a Function. Possibly too many arguments."
+                           )
+                         )
+      _               <- tellConstraint(
+                           SymbolicUnification.constraint(argTypeVar, arg.as(argResult.expressionType), "Argument type mismatch.")
+                         )
+      typedTarget      = target.as(TypeStack[TypedExpression](Seq(targetResult)))
+      typedArg         = arg.as(TypeStack[TypedExpression](Seq(argResult)))
+    } yield TypedExpression(retTypeVar, TypedExpression.FunctionApplication(typedTarget, typedArg))
+
+  private def inferFunctionLiteral(
+      paramName: Sourced[String],
+      paramType: Sourced[TypeStack[Expression]],
+      bodyStack: Sourced[TypeStack[Expression]]
+  ): TypeGraphIO[TypedExpression] =
+    for {
+      (paramTypeValue, typedParamStack) <- processStack(paramType)
+      _                                 <- bindParameter(paramName.value, paramTypeValue)
+      bodyResult                        <- inferBodyStack(bodyStack)
+      funcType                           = functionType(paramTypeValue, bodyResult.expressionType)
+      typedBodyStack                     = bodyStack.as(TypeStack[TypedExpression](Seq(bodyResult)))
+    } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamStack, typedBodyStack))
+
+  /** Build from a body stack by extracting and processing the signature expression. */
+  private def inferBodyStack(stack: Sourced[TypeStack[Expression]]): TypeGraphIO[TypedExpression] =
+    stack.value.signature match {
+      case Some(expr) => inferBody(stack.as(expr))
+      case None       =>
+        for {
+          uvar <- generateUnificationVar(stack)
+        } yield TypedExpression(uvar, TypedExpression.ParameterReference(stack.as(uvar.parameterName)))
+    }
+
+  /** Shared handling for parameter references in both type-level and body-level contexts. */
+  private def handleParameterReference(name: Sourced[String]): TypeGraphIO[TypedExpression] =
+    lookupParameter(name.value).map { maybeType =>
+      val exprValue = maybeType.getOrElse(ParameterReference(name.value, Value.Type))
+      TypedExpression(exprValue, TypedExpression.ParameterReference(name))
+    }
 
   /** Recursively process type levels from top (highest) to bottom (signature).
     *
@@ -76,10 +181,7 @@ object TypeStackBuilder {
         buildValueReference(vfqn)
 
       case Expr.ParameterReference(name) =>
-        lookupParameter(name.value).map { maybeType =>
-          val exprValue = maybeType.getOrElse(ParameterReference(name.value, Value.Type))
-          TypedExpression(exprValue, TypedExpression.ParameterReference(name))
-        }
+        handleParameterReference(name)
 
       case Expr.FunctionApplication(target, arg) =>
         buildTypeApplication(target, arg)

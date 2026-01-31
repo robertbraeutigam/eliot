@@ -1,8 +1,6 @@
 package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -43,7 +41,7 @@ class SymbolicTypeCheckProcessor
                     TypeStackBuilder.processStack(resolvedValue.typeStack).map { case (signatureType, typedStack) =>
                       (signatureType, typedStack.value.levels)
                     }
-                  bodyResult                  <- BodyInferenceBuilder.build(body)
+                  bodyResult                  <- TypeStackBuilder.inferBody(body)
                   _                           <- tellConstraint(
                                                    SymbolicUnification.constraint(
                                                      declaredType,
