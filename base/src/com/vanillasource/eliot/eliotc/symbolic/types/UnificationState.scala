@@ -11,10 +11,13 @@ case class UnificationState(substitutions: Map[String, ExpressionValue] = Map.em
 
   /** Apply all known substitutions to an expression recursively. */
   def substitute(expr: ExpressionValue): ExpressionValue =
-    ExpressionValue.transform(expr, {
-      case ref @ ParameterReference(name, _) => substitutions.get(name).map(substitute).getOrElse(ref)
-      case other                             => other
-    })
+    ExpressionValue.transform(
+      expr,
+      {
+        case ref @ ParameterReference(name, _) => substitutions.get(name).map(substitute).getOrElse(ref)
+        case other                             => other
+      }
+    )
 
   /** Bind a unification variable to an expression. */
   def bind(varName: String, expr: ExpressionValue): UnificationState =

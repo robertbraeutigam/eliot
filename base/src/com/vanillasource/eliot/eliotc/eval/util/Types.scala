@@ -6,7 +6,8 @@ import com.vanillasource.eliot.eliotc.module2.fact.ModuleName.defaultSystemPacka
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 
 object Types {
-  private val fqnFQN: ValueFQN = ValueFQN(ModuleName(Seq("eliot", "compile"), "FullyQualifiedName"), "FullyQualifiedName")
+  private val fqnFQN: ValueFQN =
+    ValueFQN(ModuleName(Seq("eliot", "compile"), "FullyQualifiedName"), "FullyQualifiedName")
 
   /** The type of FullyQualifiedName.
     */

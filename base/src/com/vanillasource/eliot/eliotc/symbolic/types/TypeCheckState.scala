@@ -43,11 +43,11 @@ object TypeCheckState {
   def tellConstraint(constraint: SymbolicUnification): TypeGraphIO[Unit] =
     StateT.modify(state => state.copy(constraints = state.constraints |+| constraint))
 
-  def tellUniversalVar(name: String): TypeGraphIO[Unit] =
-    tellConstraint(SymbolicUnification.universalVar(name))
-
   def getConstraints: TypeGraphIO[SymbolicUnification] =
     StateT.inspect(_.constraints)
+
+  def getUniversalVars: TypeGraphIO[Set[String]] =
+    StateT.inspect(_.universalVars)
 
   def getUnificationVars: TypeGraphIO[Set[String]] =
     StateT.inspect(_.unificationVars)

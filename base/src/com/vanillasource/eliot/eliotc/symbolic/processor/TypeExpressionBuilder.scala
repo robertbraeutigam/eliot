@@ -55,7 +55,6 @@ object TypeExpressionBuilder {
   ): TypeGraphIO[TypedExpression] =
     for {
       _             <- addUniversalVar(paramName.value)
-      _             <- tellUniversalVar(paramName.value)
       inner         <- build(body.value.expressions.head)
       typedParamType = paramType.as(ExpressionStack[TypedExpression](Seq.empty, paramType.value.hasRuntime))
       typedBody      = body.as(ExpressionStack[TypedExpression](Seq(inner), body.value.hasRuntime))
@@ -132,9 +131,7 @@ object TypeExpressionBuilder {
     target match {
       case FunctionApplication(ConcreteValue(v), paramType) if isFunctionType(v) =>
         functionType(paramType, arg)
-      case ConcreteValue(v) if isFunctionType(v) =>
-        FunctionApplication(target, arg)
-      case _ =>
+      case _                                                                     =>
         FunctionApplication(target, arg)
     }
 
@@ -144,8 +141,8 @@ object TypeExpressionBuilder {
         fields.get("$typeName") match {
           case Some(Value.Direct(vfqn: ValueFQN, _)) =>
             vfqn.moduleName === ModuleName.systemFunctionModuleName && vfqn.name === "Function$DataType"
-          case _ => false
+          case _                                     => false
         }
-      case _ => false
+      case _                          => false
     }
 }

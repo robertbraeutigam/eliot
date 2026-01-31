@@ -53,13 +53,13 @@ class SymbolicTypeCheckProcessor
                                                                )
                                                              )
                               constraints                 <- getConstraints
+                              universalVars               <- getUniversalVars
                               unificationVars             <- getUnificationVars
-                            } yield (declaredType, typedLevels, bodyResult, constraints, unificationVars))
+                            } yield (declaredType, typedLevels, bodyResult, constraints, universalVars, unificationVars))
                               .runA(TypeCheckState())
-      (declaredType, typedLevels, typedBody, constraints, unificationVars) = result
-      fullConstraints     = constraints |+| SymbolicUnification.unificationVars(unificationVars)
-      _                  <- debug[CompilerIO](s"Constraints: ${fullConstraints.show}")
-      solution           <- fullConstraints.solve()
+      (declaredType, typedLevels, typedBody, constraints, universalVars, unificationVars) = result
+      _                  <- debug[CompilerIO](s"Constraints: ${constraints.show}")
+      solution           <- constraints.solve(universalVars, unificationVars)
       _                  <- debug[CompilerIO](s"Solution: ${solution.show}")
       resolvedTypedLevels = typedLevels.map(applySubstitutions(_, solution))
       resolvedTypedBody   = applySubstitutions(typedBody, solution)

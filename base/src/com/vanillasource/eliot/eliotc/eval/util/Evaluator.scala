@@ -72,12 +72,14 @@ object Evaluator {
       } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
     case Expression.FunctionApplication(target, argument)       =>
       for {
-        targetValue <- target.value.runtime.fold(compilerAbort(target.as("Function application has no runtime target."))) {
-                         evaluateToValue(_, evaluating, paramContext, target)
-                       }
-        argValue    <- argument.value.runtime.fold(compilerAbort(argument.as("Function application has no runtime argument."))) {
-                         evaluateToValue(_, evaluating, paramContext, argument)
-                       }
+        targetValue <-
+          target.value.runtime.fold(compilerAbort(target.as("Function application has no runtime target."))) {
+            evaluateToValue(_, evaluating, paramContext, target)
+          }
+        argValue    <-
+          argument.value.runtime.fold(compilerAbort(argument.as("Function application has no runtime argument."))) {
+            evaluateToValue(_, evaluating, paramContext, argument)
+          }
       } yield FunctionApplication(targetValue, argValue)
   }
 
@@ -95,7 +97,7 @@ object Evaluator {
     }
 
   private def reduce(value: ExpressionValue, sourced: Sourced[?]): CompilerIO[ExpressionValue] = value match {
-    case FunctionApplication(target, arg) =>
+    case FunctionApplication(target, arg)       =>
       for {
         reducedTarget <- reduce(target, sourced)
         reducedArg    <- reduce(arg, sourced)
@@ -103,11 +105,15 @@ object Evaluator {
       } yield result
     case FunctionLiteral(name, paramType, body) =>
       reduce(body, sourced).map(FunctionLiteral(name, paramType, _))
-    case other =>
+    case other                                  =>
       other.pure[CompilerIO]
   }
 
-  private def applyOrKeep(target: ExpressionValue, arg: ExpressionValue, sourced: Sourced[?]): CompilerIO[ExpressionValue] =
+  private def applyOrKeep(
+      target: ExpressionValue,
+      arg: ExpressionValue,
+      sourced: Sourced[?]
+  ): CompilerIO[ExpressionValue] =
     target match {
       case FunctionLiteral(paramName, paramType, body) =>
         checkType(paramType, arg, sourced) >>
@@ -119,7 +125,7 @@ object Evaluator {
           case _                =>
             FunctionApplication(target, arg).pure[CompilerIO]
         }
-      case _ =>
+      case _                                           =>
         FunctionApplication(target, arg).pure[CompilerIO]
     }
 
@@ -127,7 +133,7 @@ object Evaluator {
     argumentType(argument) match {
       case Some(actualType) if actualType != expectedType =>
         compilerAbort(sourced.as(s"Type mismatch: expected $expectedType but got $actualType."))
-      case _ => ().pure[CompilerIO]
+      case _                                              => ().pure[CompilerIO]
     }
 
   private def argumentType(argument: ExpressionValue): Option[Value] = argument match {
@@ -144,6 +150,6 @@ object Evaluator {
         FunctionApplication(substitute(target, paramName, argValue), substitute(arg, paramName, argValue))
       case FunctionLiteral(name, paramType, innerBody) if name != paramName =>
         FunctionLiteral(name, paramType, substitute(innerBody, paramName, argValue))
-      case _ => body
+      case _                                                                => body
     }
 }

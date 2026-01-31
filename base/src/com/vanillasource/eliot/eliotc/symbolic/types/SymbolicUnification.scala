@@ -11,31 +11,36 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
 
-/** Collects unification constraints between expression values. Uses external tracking of which parameter names are
-  * unification variables vs universal variables.
+/** Collects unification constraints between expression values. Variable sets (universal vs unification) are passed to
+  * solve() from the caller's state.
   */
-case class SymbolicUnification(
-    universalVars: Set[String],
-    unificationVars: Set[String],
-    constraints: Seq[Constraint]
-) {
+case class SymbolicUnification(constraints: Seq[Constraint]) {
 
-  def solve(): CompilerIO[UnificationState] =
+  def solve(universalVars: Set[String], unificationVars: Set[String]): CompilerIO[UnificationState] =
     constraints
-      .traverse(solveConstraint)
+      .traverse(solveConstraint(universalVars, unificationVars))
       .runS(UnificationState())
 
-  private def solveConstraint(constraint: Constraint): StateT[CompilerIO, UnificationState, Unit] =
+  private def solveConstraint(universalVars: Set[String], unificationVars: Set[String])(
+      constraint: Constraint
+  ): StateT[CompilerIO, UnificationState, Unit] =
     for {
       state        <- StateT.get[CompilerIO, UnificationState]
       leftResolved  = state.substitute(constraint.left)
       rightResolved = state.substitute(constraint.right.value)
-      _            <- unify(constraint.copy(left = leftResolved, right = constraint.right.as(rightResolved)))
+      _            <- unify(universalVars, unificationVars)(
+                        constraint.copy(left = leftResolved, right = constraint.right.as(rightResolved))
+                      )
     } yield ()
 
-  private def unify(constraint: Constraint): StateT[CompilerIO, UnificationState, Unit] = {
+  private def unify(universalVars: Set[String], unificationVars: Set[String])(
+      constraint: Constraint
+  ): StateT[CompilerIO, UnificationState, Unit] = {
     val left  = constraint.left
     val right = constraint.right.value
+
+    def isUnificationVar(name: String): Boolean = unificationVars.contains(name)
+    def isUniversalVar(name: String): Boolean   = universalVars.contains(name)
 
     (left, right) match {
       // Unification variable on left: bind it (if occurs check passes)
@@ -43,14 +48,14 @@ case class SymbolicUnification(
         StateT.modify[CompilerIO, UnificationState](_.bind(name, right))
 
       // Unification variable on right: bind it
-      case (_, ParameterReference(name, _)) if isUnificationVar(name) && !isOccursCheck(name, left) =>
+      case (_, ParameterReference(name, _)) if isUnificationVar(name) && !isOccursCheck(name, left)  =>
         StateT.modify[CompilerIO, UnificationState](_.bind(name, left))
 
       // Occurs check failure
-      case (ParameterReference(name, _), _) if isUnificationVar(name) =>
+      case (ParameterReference(name, _), _) if isUnificationVar(name)                                =>
         issueError(constraint, "Infinite type detected.")
 
-      case (_, ParameterReference(name, _)) if isUnificationVar(name) =>
+      case (_, ParameterReference(name, _)) if isUnificationVar(name)                               =>
         issueError(constraint, "Infinite type detected.")
 
       // Universal variables: must match exactly
@@ -60,7 +65,7 @@ case class SymbolicUnification(
       case (ParameterReference(n1, _), _) if isUniversalVar(n1) =>
         issueError(constraint, constraint.errorMessage)
 
-      case (_, ParameterReference(n2, _)) if isUniversalVar(n2) =>
+      case (_, ParameterReference(n2, _)) if isUniversalVar(n2)               =>
         issueError(constraint, constraint.errorMessage)
 
       // Regular parameter references: must be same parameter
@@ -71,31 +76,38 @@ case class SymbolicUnification(
         issueError(constraint, constraint.errorMessage)
 
       // Concrete values: must be equal
-      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
+      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2            =>
         StateT.pure(())
 
-      case (ConcreteValue(_), ConcreteValue(_)) =>
+      case (ConcreteValue(_), ConcreteValue(_))                       =>
         issueError(constraint, constraint.errorMessage)
 
       // Function types: unify parameter and return types separately
-      case (FunctionType(p1, r1), FunctionType(p2, r2)) =>
+      case (FunctionType(p1, r1), FunctionType(p2, r2))               =>
         for {
-          _ <- unify(Constraint(p1, constraint.right.as(p2), "Parameter type mismatch."))
-          _ <- unify(Constraint(r1, constraint.right.as(r2), "Return type mismatch."))
+          _ <-
+            unify(universalVars, unificationVars)(Constraint(p1, constraint.right.as(p2), "Parameter type mismatch."))
+          _ <- unify(universalVars, unificationVars)(Constraint(r1, constraint.right.as(r2), "Return type mismatch."))
         } yield ()
 
       // Function literals: structural comparison (alpha-equivalence ignoring param name)
-      case (FunctionLiteral(_, t1, b1), FunctionLiteral(_, t2, b2)) =>
+      case (FunctionLiteral(_, t1, b1), FunctionLiteral(_, t2, b2))   =>
         for {
-          _ <- unify(Constraint(ConcreteValue(t1), constraint.right.as(ConcreteValue(t2)), "Parameter type mismatch."))
-          _ <- unify(Constraint(b1, constraint.right.as(b2), "Return type mismatch."))
+          _ <- unify(universalVars, unificationVars)(
+                 Constraint(ConcreteValue(t1), constraint.right.as(ConcreteValue(t2)), "Parameter type mismatch.")
+               )
+          _ <- unify(universalVars, unificationVars)(Constraint(b1, constraint.right.as(b2), "Return type mismatch."))
         } yield ()
 
       // Function applications: structural comparison
       case (FunctionApplication(t1, a1), FunctionApplication(t2, a2)) =>
         for {
-          _ <- unify(Constraint(t1, constraint.right.as(t2), "Type constructor mismatch."))
-          _ <- unify(Constraint(a1, constraint.right.as(a2), "Type argument mismatch."))
+          _ <- unify(universalVars, unificationVars)(
+                 Constraint(t1, constraint.right.as(t2), "Type constructor mismatch.")
+               )
+          _ <- unify(universalVars, unificationVars)(
+                 Constraint(a1, constraint.right.as(a2), "Type argument mismatch.")
+               )
         } yield ()
 
       // Native functions should match by their type (rare in type checking)
@@ -103,16 +115,10 @@ case class SymbolicUnification(
         StateT.pure(())
 
       // Anything else is a type error
-      case _ =>
+      case _                                                          =>
         issueError(constraint, constraint.errorMessage)
     }
   }
-
-  private def isUnificationVar(name: String): Boolean =
-    unificationVars.contains(name)
-
-  private def isUniversalVar(name: String): Boolean =
-    universalVars.contains(name)
 
   private def isOccursCheck(varName: String, expr: ExpressionValue): Boolean =
     ExpressionValue.containsVar(expr, varName)
@@ -130,7 +136,7 @@ case class SymbolicUnification(
 }
 
 object SymbolicUnification {
-  val empty: SymbolicUnification = SymbolicUnification(Set.empty, Set.empty, Seq.empty)
+  val empty: SymbolicUnification = SymbolicUnification(Seq.empty)
 
   case class Constraint(
       left: ExpressionValue,
@@ -143,32 +149,17 @@ object SymbolicUnification {
       right: Sourced[ExpressionValue],
       errorMessage: String
   ): SymbolicUnification =
-    SymbolicUnification(Set.empty, Set.empty, Seq(Constraint(left, right, errorMessage)))
-
-  def universalVar(name: String): SymbolicUnification =
-    SymbolicUnification(Set(name), Set.empty, Seq.empty)
-
-  def universalVars(names: Set[String]): SymbolicUnification =
-    SymbolicUnification(names, Set.empty, Seq.empty)
-
-  def unificationVars(names: Set[String]): SymbolicUnification =
-    SymbolicUnification(Set.empty, names, Seq.empty)
+    SymbolicUnification(Seq(Constraint(left, right, errorMessage)))
 
   given Monoid[SymbolicUnification] = new Monoid[SymbolicUnification] {
     override def empty: SymbolicUnification = SymbolicUnification.empty
 
     override def combine(x: SymbolicUnification, y: SymbolicUnification): SymbolicUnification =
-      SymbolicUnification(
-        x.universalVars ++ y.universalVars,
-        x.unificationVars ++ y.unificationVars,
-        x.constraints ++ y.constraints
-      )
+      SymbolicUnification(x.constraints ++ y.constraints)
   }
 
   given Show[SymbolicUnification] = (unification: SymbolicUnification) =>
-    (if (unification.universalVars.nonEmpty) unification.universalVars.map("∀" + _).mkString(", ") + ": "
-     else "") +
-      unification.constraints
-        .map(c => s"${c.left.show} := ${c.right.value.show}")
-        .mkString(" ∧ ")
+    unification.constraints
+      .map(c => s"${c.left.show} := ${c.right.value.show}")
+      .mkString(" ∧ ")
 }
