@@ -2,7 +2,7 @@
 
 ## Problem Statement
 
-In the ELIOT type system, expressions are organized in **stacks** where each level describes the type of the level below. The implicit top level is always `TypeType`. The current implementation has a critical flaw: both `TypeExpressionBuilder.buildFromStack()` and `BodyInferenceBuilder.buildFromStack()` take only `expressions.headOption` (the first element) and process it, completely ignoring the rest of the stack.
+In the ELIOT type system, expressions are organized in **stacks** where each level describes the type of the level below. The implicit top level is always `Type`. The current implementation has a critical flaw: both `TypeExpressionBuilder.buildFromStack()` and `BodyInferenceBuilder.buildFromStack()` take only `expressions.headOption` (the first element) and process it, completely ignoring the rest of the stack.
 
 This is incorrect because:
 1. All levels in a stack need to be checked in order, from top to bottom
@@ -40,7 +40,7 @@ Index interpretation when hasRuntime = false:
   [1] = type of the signature
   [n] = type of level [n-1]
 
-Implicit: The topmost level's type is always TypeType
+Implicit: The topmost level's type is always Type
 ```
 
 **Example**: A value `zero: Int :: Type = 0` would have:
@@ -52,7 +52,7 @@ expressions = [
 ]
 hasRuntime = true
 
-Implicit: TypeType is the type of level 2
+Implicit: Type is the type of level 2
 ```
 
 ## The Fractal Nature of Stacks
@@ -85,7 +85,7 @@ This creates a top-down, recursive algorithm:
 ```
 processStack(stack, outerExpectedType) -> (inferredType, typedExpressions):
   1. Extract type levels (exclude runtime if hasRuntime)
-  2. Process levels top-to-bottom, starting with TypeType as expected type
+  2. Process levels top-to-bottom, starting with Type as expected type
   3. For runtime level (if present), process with signature type as expected
   4. Return the signature type and all typed levels
 ```
@@ -97,7 +97,7 @@ Algorithm: processStackTopDown
 
 Input:
   - stack: ExpressionStack[Expression]
-  - outerExpectedType: Value (the type expected by the context, usually TypeType for top-level)
+  - outerExpectedType: Value (the type expected by the context, usually Type for top-level)
 
 Output:
   - (signatureType: ExpressionValue, typedStack: ExpressionStack[TypedExpression])
@@ -109,7 +109,7 @@ Steps:
    runtimeExpr = if stack.hasRuntime then Some(stack.expressions(0)) else None
 
 2. PROCESS TYPE LEVELS (top-to-bottom)
-   expectedType = TypeType  // Implicit top level
+   expectedType = Type  // Implicit top level
    typedLevels = []
 
    FOR level IN reverse(typeLevels):  // Process from top (last) to bottom (first)
@@ -129,7 +129,7 @@ Steps:
      2c. EXTRACT VALUE FOR NEXT LEVEL
          expectedType = CASE typedExpr.expressionType OF
            ConcreteValue(v) => v
-           other => TypeType  // For signature level with unification vars
+           other => Type  // For signature level with unification vars
 
      2d. ACCUMULATE
          typedLevels.prepend(typedExpr)
@@ -163,13 +163,13 @@ The key change is that buildExpression must propagate expectedType into nested s
 CASE expr OF
 
   FunctionLiteral(paramName, paramTypeStack, bodyStack):
-    // paramTypeStack describes a TYPE (whose type is TypeType)
-    (paramType, typedParamStack) = processStackTopDown(paramTypeStack, TypeType)
+    // paramTypeStack describes a TYPE (whose type is Type)
+    (paramType, typedParamStack) = processStackTopDown(paramTypeStack, Type)
 
     bindParameter(paramName, paramType)
 
     // bodyStack describes a VALUE (whose type is determined by context)
-    // For type expressions: body is a TYPE, expected = TypeType
+    // For type expressions: body is a TYPE, expected = Type
     // For runtime expressions: body has expected type from signature
     (bodyType, typedBodyStack) = processStackTopDown(bodyStack, expectedType)
 
@@ -178,8 +178,8 @@ CASE expr OF
 
   FunctionApplication(targetStack, argStack):
     // Both target and arg are expressions, process their stacks
-    (targetType, typedTargetStack) = processStackTopDown(targetStack, TypeType)
-    (argType, typedArgStack) = processStackTopDown(argStack, TypeType)
+    (targetType, typedTargetStack) = processStackTopDown(targetStack, Type)
+    (argType, typedArgStack) = processStackTopDown(argStack, Type)
 
     resultType = applyType(targetType, argType)
     RETURN TypedExpression(resultType, FunctionApplication(typedTargetStack, typedArgStack))
@@ -226,29 +226,29 @@ FunctionLiteral(
 
 ### Processing Order
 
-1. **Enter top FunctionLiteral** (expected: TypeType for type expression)
+1. **Enter top FunctionLiteral** (expected: Type for type expression)
 
 2. **Process paramType stack `[Type]`**:
-   - Expected type: TypeType (this is the type of parameter types)
+   - Expected type: Type (this is the type of parameter types)
    - Level 0: `ValueReference(Type)`
-   - Build: Results in `ConcreteValue(Type)` with type `TypeType` ✓
+   - Build: Results in `ConcreteValue(Type)` with type `Type` ✓
    - Bind: A → Type (A is a universal type variable)
 
-3. **Process body stack** (expected: still TypeType, we're in type expression land):
+3. **Process body stack** (expected: still Type, we're in type expression land):
    - Level 0: `FunctionLiteral(a, [A], [A])`
 
    3a. **Enter nested FunctionLiteral**
 
    3b. **Process paramType stack `[A]`**:
-       - Expected type: TypeType
+       - Expected type: Type
        - Level 0: `ParameterReference(A)`
        - Build: Results in `ParameterReference(A, Type)`
-       - The type OF A is Type, which has valueType TypeType ✓
+       - The type OF A is Type, which has valueType Type ✓
 
    3c. **Bind: a → A** (a has type A)
 
    3d. **Process body stack `[A]`**:
-       - Expected type: TypeType (still in type expression)
+       - Expected type: Type (still in type expression)
        - Level 0: `ParameterReference(A)`
        - Build: Results in `ParameterReference(A, Type)`
        - Return type is A
@@ -283,19 +283,19 @@ Stack([
 2. **Process type levels top-to-bottom**:
 
    2a. **Level 2**: `ValueReference(Type)`
-       - Expected: TypeType (implicit top)
-       - Build: `ConcreteValue(Type{valueType=TypeType})`
-       - Check: Type.valueType == TypeType ✓
+       - Expected: Type (implicit top)
+       - Build: `ConcreteValue(Type{valueType=Type})`
+       - Check: Type.valueType == Type ✓
        - Next expected: Type
 
    2b. **Level 1**: `ValueReference(Type)`
        - Expected: Type (from level 2)
-       - Build: `ConcreteValue(Type{valueType=TypeType})`
+       - Build: `ConcreteValue(Type{valueType=Type})`
        - Check: Type.valueType == Type?
-       - **Wait**: Type.valueType is TypeType, not Type!
-       - This would be an **error** if Type's valueType wasn't TypeType
+       - **Wait**: Type.valueType is Type, not Type!
+       - This would be an **error** if Type's valueType wasn't Type
 
-   Actually, let me reconsider. `Type` itself IS a type, and its value-type is `TypeType`. So when we have:
+   Actually, let me reconsider. `Type` itself IS a type, and its value-type is `Type`. So when we have:
    - Level 2 says "the thing at level 1 has type Type"
    - Level 1 is `Type` itself
    - We need to check that `Type` (as a value) has valueType matching what level 2 expects
@@ -305,15 +305,15 @@ Stack([
    Actually the key insight is:
    - Level N's expression evaluates to some Value V
    - V.valueType must equal the Value that level N+1 evaluated to
-   - The implicit top level evaluates to TypeType
+   - The implicit top level evaluates to Type
 
    So for `myType: Type :: Type = Int`:
    - Level 2: evaluates to Type (a concrete Value)
-     - Expected valueType: TypeType (implicit)
-     - Actual: Type.valueType = TypeType ✓
+     - Expected valueType: Type (implicit)
+     - Actual: Type.valueType = Type ✓
    - Level 1: evaluates to Type (a concrete Value)
      - Expected valueType: Type (from level 2)
-     - Actual: Type.valueType = TypeType ✗
+     - Actual: Type.valueType = Type ✗
 
    This would indeed be an error! The correct annotation would be just:
    ```eliot
@@ -322,8 +322,8 @@ Stack([
 
    Where:
    - Level 1: evaluates to Type
-     - Expected valueType: TypeType (implicit)
-     - Actual: Type.valueType = TypeType ✓
+     - Expected valueType: Type (implicit)
+     - Actual: Type.valueType = Type ✓
 
 ## Key Insight: The Type-Of-Type Chain
 
@@ -337,7 +337,7 @@ Value V_N                Value V_{N-1}
    ↓                         ↓
 V_N.valueType            V_{N-1}.valueType
    =                         =
-TypeType (implicit)      V_N
+Type (implicit)      V_N
 ```
 
 Each level validates that its value's `valueType` matches the value from the level above.
@@ -393,7 +393,7 @@ The signature level (and runtime) may contain unification variables rather than 
 - Appear in type annotation positions
 - All levels should evaluate to types
 - The overall result describes a type
-- Expected type for the whole expression is typically TypeType
+- Expected type for the whole expression is typically Type
 
 **Body Expressions** (processed by `BodyInferenceBuilder`):
 - Appear in runtime/value positions
@@ -406,7 +406,7 @@ Both share the same recursive stack structure and require the same top-down proc
 ## Summary
 
 The correct algorithm is:
-1. **Top-down processing**: Start from TypeType, work down through levels
+1. **Top-down processing**: Start from Type, work down through levels
 2. **Validate at each level**: Each level's valueType must match the value from above
 3. **Recursive on nested stacks**: FunctionLiteral and FunctionApplication contain stacks that need the same processing
 4. **Propagate expected types**: Pass down the evaluated value as the expected type for the next level
