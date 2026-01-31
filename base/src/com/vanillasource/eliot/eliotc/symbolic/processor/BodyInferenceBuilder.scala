@@ -114,12 +114,12 @@ object BodyInferenceBuilder {
     } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamStack, typedBodyStack))
 
   /** Process a TYPE stack by processing all type levels from top to bottom. Used for parameter types, signatures, etc.
-    * Delegates to TypeExpressionBuilder.
+    * Delegates to TypeStackBuilder.
     */
   private def processTypeStack(
       stack: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[(ExpressionValue, Sourced[ExpressionStack[TypedExpression]])] =
-    TypeExpressionBuilder.processStack(stack)
+    TypeStackBuilder.processStack(stack)
 
   /** Build from a BODY stack by extracting and processing the runtime expression. Used for function bodies, arguments.
     */

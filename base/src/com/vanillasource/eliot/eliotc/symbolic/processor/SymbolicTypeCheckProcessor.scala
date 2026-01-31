@@ -82,7 +82,7 @@ class SymbolicTypeCheckProcessor
       None
     )
 
-  /** Process type levels by delegating to TypeExpressionBuilder.processStack.
+  /** Process type levels by delegating to TypeStackBuilder.processStack.
     *
     * @return
     *   Tuple of (signatureType, typedLevels)
@@ -90,7 +90,7 @@ class SymbolicTypeCheckProcessor
   private def processTypeLevels(
       typeExpr: Sourced[ExpressionStack[Expression]]
   ): TypeGraphIO[(ExpressionValue, Seq[TypedExpression])] =
-    TypeExpressionBuilder.processStack(typeExpr).map { case (signatureType, typedStack) =>
+    TypeStackBuilder.processStack(typeExpr).map { case (signatureType, typedStack) =>
       (signatureType, typedStack.value.expressions)
     }
 
