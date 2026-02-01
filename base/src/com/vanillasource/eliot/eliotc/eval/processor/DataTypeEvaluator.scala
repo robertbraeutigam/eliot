@@ -18,17 +18,13 @@ import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 class DataTypeEvaluator
     extends TransformationProcessor[ResolvedValue.Key, NamedEvaluable.Key](key => ResolvedValue.Key(key.vfqn)) {
 
-  override protected def generateFact(key: NamedEvaluable.Key): CompilerIO[Unit] =
-    if (key.vfqn.name.endsWith("$DataType")) {
-      super.generateFact(key)
+  override protected def generateFromKeyAndFact(key: NamedEvaluable.Key, fact: InputFact): CompilerIO[OutputFact] =
+    if (key.vfqn.name.endsWith("$DataType") && fact.runtime.isEmpty) {
+      val typeParams = extractTypeParams(fact.typeStack.value)
+      createDataTypeEvaluable(key.vfqn, typeParams).pure[CompilerIO]
     } else {
-      ().pure[CompilerIO]
+      abort
     }
-
-  override protected def generateFromKeyAndFact(key: NamedEvaluable.Key, fact: InputFact): CompilerIO[OutputFact] = {
-    val typeParams = extractTypeParams(fact.typeStack.value)
-    createDataTypeEvaluable(key.vfqn, typeParams).pure[CompilerIO]
-  }
 
   /** Extracts type parameter names from the resolved type stack. Type parameters are represented as FunctionLiterals with
     * empty parameter types at the signature level.
