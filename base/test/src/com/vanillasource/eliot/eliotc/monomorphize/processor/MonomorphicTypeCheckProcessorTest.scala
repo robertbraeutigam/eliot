@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.eval.util.Types
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{ConcreteType, MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -30,9 +30,21 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
   private val intVfqn    = ValueFQN(testModuleName, "Int")
   private val stringVfqn = ValueFQN(testModuleName, "String")
   private val boolVfqn   = ValueFQN(testModuleName, "Bool")
-  private val intType    = ConcreteType.TypeRef(intVfqn)
-  private val stringType = ConcreteType.TypeRef(stringVfqn)
-  private val boolType   = ConcreteType.TypeRef(boolVfqn)
+  private val intType    = Types.dataType(intVfqn)
+  private val stringType = Types.dataType(stringVfqn)
+  private val boolType   = Types.dataType(boolVfqn)
+
+  private val functionDataTypeVfqn = ValueFQN(ModuleName.systemFunctionModuleName, "Function$DataType")
+
+  private def functionType(paramType: Value, returnType: Value): Value =
+    Value.Structure(
+      Map(
+        "$typeName" -> Value.Direct(functionDataTypeVfqn, Value.Type),
+        "A"         -> paramType,
+        "B"         -> returnType
+      ),
+      Value.Type
+    )
 
   "MonomorphicTypeCheckProcessor" should "monomorphize non-generic value" in {
     // value: Int (no type params, no body)
@@ -84,7 +96,7 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
       .asserting { result =>
         result.vfqn shouldBe idVfqn
         result.typeArguments shouldBe Seq(intType)
-        result.signature shouldBe ConcreteType.FunctionType(intType, intType)
+        result.signature shouldBe functionType(intType, intType)
         result.runtime.isDefined shouldBe true
         result.runtime.get.value match {
           case MonomorphicExpression.ParameterReference(name) =>
@@ -121,7 +133,7 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
 
     runProcessor(MonomorphicValue.Key(idVfqn, Seq(stringType)), Seq(typeChecked))
       .asserting { result =>
-        result.signature shouldBe ConcreteType.FunctionType(stringType, stringType)
+        result.signature shouldBe functionType(stringType, stringType)
       }
   }
 
@@ -160,9 +172,9 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
 
     runProcessor(MonomorphicValue.Key(constVfqn, Seq(intType, stringType)), Seq(typeChecked))
       .asserting { result =>
-        result.signature shouldBe ConcreteType.FunctionType(
+        result.signature shouldBe functionType(
           intType,
-          ConcreteType.FunctionType(stringType, intType)
+          functionType(stringType, intType)
         )
       }
   }
@@ -228,7 +240,7 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
 
     runProcessor(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(typeChecked))
       .asserting { result =>
-        result.signature shouldBe ConcreteType.FunctionType(intType, intType)
+        result.signature shouldBe functionType(intType, intType)
         result.runtime.get.value match {
           case MonomorphicExpression.FunctionLiteral(name, paramType, _) =>
             name.value shouldBe "x"

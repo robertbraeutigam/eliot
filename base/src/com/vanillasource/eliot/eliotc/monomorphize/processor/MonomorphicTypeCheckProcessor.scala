@@ -20,7 +20,7 @@ import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpr
   * Given a MonomorphicValue.Key(vfqn, typeArgs), it:
   *   1. Fetches the TypeCheckedValue for vfqn
   *   2. Builds substitution from universal type params to concrete args
-  *   3. Evaluates the signature type to a ConcreteType
+  *   3. Evaluates the signature type to a Value
   *   4. Transforms the runtime body, replacing types and recursively monomorphizing called functions
   */
 class MonomorphicTypeCheckProcessor
@@ -73,7 +73,7 @@ class MonomorphicTypeCheckProcessor
   private def transformExpression(
       expr: TypedExpression.Expression,
       callSiteType: ExpressionValue,
-      substitution: Map[String, ConcreteType],
+      substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
     expr match {
@@ -106,7 +106,7 @@ class MonomorphicTypeCheckProcessor
   private def transformValueReference(
       vfqn: Sourced[ValueFQN],
       callSiteType: ExpressionValue,
-      substitution: Map[String, ConcreteType],
+      substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
@@ -117,7 +117,7 @@ class MonomorphicTypeCheckProcessor
       typeArgs <- if (typeParams.nonEmpty) {
                     inferTypeArguments(typeChecked.signature, typeParams, callSiteType, substitution, source)
                   } else {
-                    Seq.empty[ConcreteType].pure[CompilerIO]
+                    Seq.empty[Value].pure[CompilerIO]
                   }
 
       _ <- if (typeArgs.nonEmpty || typeParams.isEmpty)
@@ -139,9 +139,9 @@ class MonomorphicTypeCheckProcessor
       signature: ExpressionValue,
       typeParams: Seq[String],
       callSiteType: ExpressionValue,
-      substitution: Map[String, ConcreteType],
+      substitution: Map[String, Value],
       source: Sourced[?]
-  ): CompilerIO[Seq[ConcreteType]] = {
+  ): CompilerIO[Seq[Value]] = {
     val strippedSignature = TypeEvaluator.stripUniversalIntros(signature)
     val bindings          = matchTypes(strippedSignature, callSiteType)
 
@@ -193,7 +193,7 @@ class MonomorphicTypeCheckProcessor
   private def transformFunctionApplication(
       target: Sourced[TypeStack[TypedExpression]],
       arg: Sourced[TypeStack[TypedExpression]],
-      substitution: Map[String, ConcreteType],
+      substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
@@ -207,7 +207,7 @@ class MonomorphicTypeCheckProcessor
       paramName: Sourced[String],
       paramType: Sourced[TypeStack[TypedExpression]],
       body: Sourced[TypeStack[TypedExpression]],
-      substitution: Map[String, ConcreteType],
+      substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
@@ -220,7 +220,7 @@ class MonomorphicTypeCheckProcessor
     */
   private def transformTypedExpressionStack(
       stack: Sourced[TypeStack[TypedExpression]],
-      substitution: Map[String, ConcreteType]
+      substitution: Map[String, Value]
   ): CompilerIO[Sourced[MonomorphicExpression]] =
     stack.value.signature match {
       case Some(typed) =>
@@ -236,9 +236,9 @@ class MonomorphicTypeCheckProcessor
     */
   private def evaluateTypeStack(
       stack: TypeStack[TypedExpression],
-      substitution: Map[String, ConcreteType],
+      substitution: Map[String, Value],
       source: Sourced[?]
-  ): CompilerIO[ConcreteType] =
+  ): CompilerIO[Value] =
     stack.signature match {
       case Some(typed) =>
         TypeEvaluator.evaluate(typed.expressionType, substitution, source)

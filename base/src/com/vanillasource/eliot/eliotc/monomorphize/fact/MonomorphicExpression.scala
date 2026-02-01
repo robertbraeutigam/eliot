@@ -1,13 +1,14 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
+import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** A runtime expression annotated with concrete (ground) types. All types are fully evaluated with no free type
+/** A runtime expression annotated with concrete (ground) types. All types are fully evaluated Values with no free type
   * variables.
   */
 case class MonomorphicExpression(
-    expressionType: ConcreteType,
+    expressionType: Value,
     expression: MonomorphicExpression.Expression
 )
 
@@ -21,7 +22,7 @@ object MonomorphicExpression {
 
   case class FunctionLiteral(
       parameterName: Sourced[String],
-      parameterType: ConcreteType,
+      parameterType: Value,
       body: Sourced[MonomorphicExpression]
   ) extends Expression
 
@@ -35,6 +36,6 @@ object MonomorphicExpression {
     */
   case class MonomorphicValueReference(
       valueName: Sourced[ValueFQN],
-      typeArguments: Seq[ConcreteType]
+      typeArguments: Seq[Value]
   ) extends Expression
 }

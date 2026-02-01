@@ -10,7 +10,6 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.eval.util.Types
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.ConcreteType
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
@@ -27,9 +26,21 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val intVfqn    = ValueFQN(testModuleName, "Int")
   private val stringVfqn = ValueFQN(testModuleName, "String")
   private val boolVfqn   = ValueFQN(testModuleName, "Bool")
-  private val intType    = ConcreteType.TypeRef(intVfqn)
-  private val stringType = ConcreteType.TypeRef(stringVfqn)
-  private val boolType   = ConcreteType.TypeRef(boolVfqn)
+  private val intType    = Types.dataType(intVfqn)
+  private val stringType = Types.dataType(stringVfqn)
+  private val boolType   = Types.dataType(boolVfqn)
+
+  private val functionDataTypeVfqn = ValueFQN(ModuleName.systemFunctionModuleName, "Function$DataType")
+
+  private def functionType(paramType: Value, returnType: Value): Value =
+    Value.Structure(
+      Map(
+        "$typeName" -> Value.Direct(functionDataTypeVfqn, Value.Type),
+        "A"         -> paramType,
+        "B"         -> returnType
+      ),
+      Value.Type
+    )
 
   "TypeEvaluator" should "evaluate concrete value to type ref" in {
     val expr = ConcreteValue(Types.dataType(intVfqn))
@@ -52,7 +63,7 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       ParameterReference("B", Value.Type)
     )
     runEvaluator(expr, Map("A" -> intType, "B" -> stringType))
-      .asserting(_ shouldBe ConcreteType.FunctionType(intType, stringType))
+      .asserting(_ shouldBe functionType(intType, stringType))
   }
 
   it should "evaluate nested function types" in {
@@ -64,8 +75,8 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       ParameterReference("A", Value.Type)
     )
     runEvaluator(expr, Map("A" -> intType, "B" -> stringType))
-      .asserting(_ shouldBe ConcreteType.FunctionType(
-        ConcreteType.FunctionType(intType, stringType),
+      .asserting(_ shouldBe functionType(
+        functionType(intType, stringType),
         intType
       ))
   }
@@ -76,27 +87,22 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       ConcreteValue(Types.dataType(stringVfqn))
     )
     runEvaluator(expr, Map.empty)
-      .asserting(_ shouldBe ConcreteType.FunctionType(intType, stringType))
+      .asserting(_ shouldBe functionType(intType, stringType))
   }
 
   it should "evaluate type application" in {
     val listVfqn = ValueFQN(testModuleName, "List")
+    val listType = Types.dataType(listVfqn)
     val expr     = FunctionApplication(
-      ConcreteValue(Types.dataType(listVfqn)),
+      ConcreteValue(listType),
       ParameterReference("A", Value.Type)
     )
+    val expected = Value.Structure(
+      listType.asInstanceOf[Value.Structure].fields + ("A" -> intType),
+      Value.Type
+    )
     runEvaluator(expr, Map("A" -> intType))
-      .asserting(_ shouldBe ConcreteType.TypeApplication(ConcreteType.TypeRef(listVfqn), intType))
-  }
-
-  it should "evaluate integer literal value to IntLiteral type" in {
-    val expr = ConcreteValue(Value.Direct(BigInt(42), Value.Type))
-    runEvaluator(expr, Map.empty).asserting(_ shouldBe ConcreteType.IntLiteral(42))
-  }
-
-  it should "evaluate string literal value to StringLiteral type" in {
-    val expr = ConcreteValue(Value.Direct("hello", Value.Type))
-    runEvaluator(expr, Map.empty).asserting(_ shouldBe ConcreteType.StringLiteral("hello"))
+      .asserting(_ shouldBe expected)
   }
 
   it should "fail on type-level lambda" in {
@@ -117,11 +123,11 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       )
     )
     runEvaluator(expr, Map("A" -> intType, "B" -> stringType, "C" -> boolType))
-      .asserting(_ shouldBe ConcreteType.FunctionType(
+      .asserting(_ shouldBe functionType(
         intType,
-        ConcreteType.FunctionType(
+        functionType(
           stringType,
-          ConcreteType.FunctionType(boolType, intType)
+          functionType(boolType, intType)
         )
       ))
   }
@@ -199,8 +205,8 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   private def runEvaluator(
       expr: ExpressionValue,
-      substitution: Map[String, ConcreteType]
-  ): IO[ConcreteType] =
+      substitution: Map[String, Value]
+  ): IO[Value] =
     for {
       generator <- FactGenerator.create(SequentialCompilerProcessors(Seq.empty))
       _         <- generator.registerFact(sourceContent)
@@ -212,7 +218,7 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   private def runEvaluatorForError(
       expr: ExpressionValue,
-      substitution: Map[String, ConcreteType]
+      substitution: Map[String, Value]
   ): IO[String] =
     for {
       generator <- FactGenerator.create(SequentialCompilerProcessors(Seq.empty))
