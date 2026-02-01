@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
+import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 
 /** Processor that provides NamedEvaluable facts for data type constructors (values ending with $DataType).
@@ -15,21 +15,20 @@ import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
   * For data types like `data Function[A, B]`, this creates a NativeFunction chain that builds Value.Structure
   * representing the type when all type parameters are applied.
   */
-class DataTypeEvaluator extends SingleKeyTypeProcessor[NamedEvaluable.Key] {
+class DataTypeEvaluator
+    extends TransformationProcessor[ResolvedValue.Key, NamedEvaluable.Key](key => ResolvedValue.Key(key.vfqn)) {
 
   override protected def generateFact(key: NamedEvaluable.Key): CompilerIO[Unit] =
     if (key.vfqn.name.endsWith("$DataType")) {
-      getFact(ResolvedValue.Key(key.vfqn)).flatMap {
-        case Some(resolvedValue) =>
-          val typeParams = extractTypeParams(resolvedValue.typeStack.value)
-          val evaluable  = createDataTypeEvaluable(key.vfqn, typeParams)
-          registerFactIfClear(evaluable)
-        case None                =>
-          ().pure[CompilerIO]
-      }
+      super.generateFact(key)
     } else {
       ().pure[CompilerIO]
     }
+
+  override protected def generateFromKeyAndFact(key: NamedEvaluable.Key, fact: InputFact): CompilerIO[OutputFact] = {
+    val typeParams = extractTypeParams(fact.typeStack.value)
+    createDataTypeEvaluable(key.vfqn, typeParams).pure[CompilerIO]
+  }
 
   /** Extracts type parameter names from the resolved type stack. Type parameters are represented as FunctionLiterals with
     * empty parameter types at the signature level.
