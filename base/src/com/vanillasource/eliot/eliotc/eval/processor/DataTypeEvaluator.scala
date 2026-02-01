@@ -1,7 +1,12 @@
 package com.vanillasource.eliot.eliotc.eval.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, FunctionLiteral, NativeFunction}
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{
+  ConcreteValue,
+  FunctionLiteral,
+  InitialExpressionValue,
+  NativeFunction
+}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
@@ -24,9 +29,9 @@ class DataTypeEvaluator
   override protected def generateFromKeyAndFact(key: NamedEvaluable.Key, fact: InputFact): CompilerIO[OutputFact] =
     if (key.vfqn.name.endsWith("$DataType") && fact.runtime.isEmpty && key.vfqn =!= functionDataTypeFQN) {
       for {
-        evaluated  <- Evaluator.evaluate(fact.typeStack.map(_.signature))
-        typeParams  = extractParameters(evaluated)
-        result      = createDataTypeEvaluable(key.vfqn, typeParams)
+        evaluated <- Evaluator.evaluate(fact.typeStack.map(_.signature))
+        typeParams = extractParameters(evaluated)
+        result     = NamedEvaluable(key.vfqn, createDataTypeEvaluable(key.vfqn, typeParams))
       } yield result
     } else {
       abort
@@ -40,51 +45,24 @@ class DataTypeEvaluator
         Seq.empty
     }
 
-  /** Creates a NamedEvaluable for a data type. For types with no parameters, returns a ConcreteValue directly. For
+  /** Creates an ExpressionValue for a data type. For types with no parameters, returns a ConcreteValue directly. For
     * types with parameters, returns a chain of NativeFunctions that collect arguments.
     */
-  private def createDataTypeEvaluable(vfqn: ValueFQN, typeParams: Seq[(String, Value)]): NamedEvaluable =
-    if (typeParams.isEmpty) {
-      val structure = createTypeStructure(vfqn, Map.empty)
-      NamedEvaluable(vfqn, ConcreteValue(structure))
-    } else {
-      val nativeFunction = createNativeFunctionChain(vfqn, typeParams, Map.empty)
-      NamedEvaluable(vfqn, nativeFunction)
-    }
-
-  /** Creates a chain of NativeFunctions that collect type arguments and finally produce a Structure.
-    */
-  private def createNativeFunctionChain(
+  private def createDataTypeEvaluable(
       vfqn: ValueFQN,
       remainingParams: Seq[(String, Value)],
-      collectedArgs: Map[String, Value]
-  ): NativeFunction =
+      collectedArgs: Map[String, Value] = Map.empty
+  ): InitialExpressionValue =
     remainingParams match {
-      case (name, paramType) +: tail if tail.isEmpty =>
-        NativeFunction(
-          paramType,
-          arg => {
-            val finalArgs = collectedArgs + (name -> arg)
-            ConcreteValue(createTypeStructure(vfqn, finalArgs))
-          }
+      case (name, paramType) +: tail =>
+        NativeFunction(paramType, arg => createDataTypeEvaluable(vfqn, tail, collectedArgs + (name -> arg)))
+      case _                         =>
+        ConcreteValue(
+          Structure(
+            Map("$typeName" -> Direct(vfqn, fullyQualifiedNameType)) ++ collectedArgs,
+            Type
+          )
         )
-      case (name, paramType) +: tail                 =>
-        NativeFunction(
-          paramType,
-          arg => {
-            val newCollectedArgs = collectedArgs + (name -> arg)
-            createNativeFunctionChain(vfqn, tail, newCollectedArgs)
-          }
-        )
-      case _                                         =>
-        NativeFunction(Type, _ => ConcreteValue(createTypeStructure(vfqn, collectedArgs)))
     }
 
-  /** Creates a Value.Structure representing a data type with its type arguments.
-    */
-  private def createTypeStructure(vfqn: ValueFQN, typeArgs: Map[String, Value]): Value =
-    Structure(
-      Map("$typeName" -> Direct(vfqn, fullyQualifiedNameType)) ++ typeArgs,
-      Type
-    )
 }
