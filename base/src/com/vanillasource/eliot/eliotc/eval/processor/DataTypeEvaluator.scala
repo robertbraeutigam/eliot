@@ -5,7 +5,6 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, NativeFunction}
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
-import com.vanillasource.eliot.eliotc.eval.util.Types.typeFQN
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -27,6 +26,8 @@ class DataTypeEvaluator
       abort
     }
 
+  private val typeFQN = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
+  
   private val functionVfqn = ValueFQN(ModuleName(Seq("eliot", "lang"), "Function"), "Function$DataType")
 
   /** Check if a type stack represents a kind annotation (for universal introductions). A kind annotation is:

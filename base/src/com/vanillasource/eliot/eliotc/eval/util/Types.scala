@@ -9,8 +9,6 @@ object Types {
   val fqnFQN: ValueFQN =
     ValueFQN(ModuleName(Seq("eliot", "compile"), "FullyQualifiedName"), "FullyQualifiedName")
 
-  val typeFQN = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
-
   /** The type of FullyQualifiedName.
     */
   val fullyQualifiedNameType: Value =
