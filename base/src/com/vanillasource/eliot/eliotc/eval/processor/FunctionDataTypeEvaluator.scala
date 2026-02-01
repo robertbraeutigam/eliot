@@ -26,24 +26,25 @@ class FunctionDataTypeEvaluator
     }
 
   private def createFunctionDataTypeEvaluable(): NamedEvaluable = {
-    val nativeFunction = NativeFunction(
-      Type,
-      paramA =>
-        NativeFunction(
-          Type,
-          paramB =>
-            ConcreteValue(
-              Structure(
-                Map(
-                  "$typeName" -> Direct(functionDataTypeFQN, fullyQualifiedNameType),
-                  "A"         -> paramA,
-                  "B"         -> paramB
-                ),
-                Type
+    val nativeFunction =
+      NativeFunction(
+        Type,
+        paramA =>
+          NativeFunction(
+            Type,
+            paramB =>
+              ConcreteValue(
+                Structure(
+                  Map(
+                    "$typeName" -> Direct(functionDataTypeFQN, fullyQualifiedNameType),
+                    "A"         -> paramA,
+                    "B"         -> paramB
+                  ),
+                  Type
+                )
               )
-            )
-        )
-    )
+          )
+      )
     NamedEvaluable(functionDataTypeFQN, nativeFunction)
   }
 }
