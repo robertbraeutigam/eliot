@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, NativeFunction}
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
+import com.vanillasource.eliot.eliotc.eval.util.Types.typeFQN
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -26,12 +27,10 @@ class DataTypeEvaluator
       abort
     }
 
-  private val typeVfqn = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
-
   /** Check if a type stack represents a bare Type annotation (for universal introductions). */
   private def isTypeAnnotation(stack: TypeStack[Expression]): Boolean =
     stack.levels.length == 1 && (stack.signature match {
-      case Expression.ValueReference(vfqn) => vfqn.value === typeVfqn
+      case Expression.ValueReference(vfqn) => vfqn.value === typeFQN
       case _                               => false
     })
 
