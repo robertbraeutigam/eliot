@@ -20,14 +20,14 @@ class DataTypeEvaluator
 
   override protected def generateFromKeyAndFact(key: NamedEvaluable.Key, fact: InputFact): CompilerIO[OutputFact] =
     if (key.vfqn.name.endsWith("$DataType") && fact.runtime.isEmpty) {
-      val typeParams = extractTypeParams(fact.typeStack.value)
+      val typeParams = collectTypeParamsFromExpression(fact.typeStack.value.signature)
       createDataTypeEvaluable(key.vfqn, typeParams).pure[CompilerIO]
     } else {
       abort
     }
 
   private val typeFQN = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
-  
+
   private val functionVfqn = ValueFQN(ModuleName(Seq("eliot", "lang"), "Function"), "Function$DataType")
 
   /** Check if a type stack represents a kind annotation (for universal introductions). A kind annotation is:
@@ -41,7 +41,7 @@ class DataTypeEvaluator
 
   private def isKindExpression(expr: Expression): Boolean =
     expr match {
-      case Expression.ValueReference(vfqn) =>
+      case Expression.ValueReference(vfqn)                       =>
         vfqn.value === typeFQN
       case Expression.FunctionApplication(targetStack, argStack) =>
         // Check if this is Function(<kind>, <kind>) - a function from kinds to kinds
@@ -50,9 +50,9 @@ class DataTypeEvaluator
             isFunctionReference(fnStack.value.signature) &&
             isKindExpression(argKindStack.value.signature) &&
             isKindExpression(argStack.value.signature)
-          case _ => false
+          case _                                                     => false
         }
-      case _ => false
+      case _                                                     => false
     }
 
   private def isFunctionReference(expr: Expression): Boolean =
@@ -61,18 +61,12 @@ class DataTypeEvaluator
       case _                               => false
     }
 
-  /** Extracts type parameter names from the resolved type stack. Type parameters are represented as FunctionLiterals
-    * with a kind annotation as the parameter type.
-    */
-  private def extractTypeParams(typeStack: TypeStack[Expression]): Seq[String] =
-    collectTypeParamsFromExpr(typeStack.signature)
-
-  private def collectTypeParamsFromExpr(expr: Expression): Seq[String] =
+  private def collectTypeParamsFromExpression(expr: Expression): Seq[String] =
     expr match {
       case Expression.FunctionLiteral(paramName, paramType, body) if isKindAnnotation(paramType.value) =>
-        paramName.value +: collectTypeParamsFromExpr(body.value.signature)
+        paramName.value +: collectTypeParamsFromExpression(body.value.signature)
       case Expression.FunctionApplication(target, _)                                                   =>
-        collectTypeParamsFromExpr(target.value.signature)
+        collectTypeParamsFromExpression(target.value.signature)
       case _                                                                                           =>
         Seq.empty
     }
