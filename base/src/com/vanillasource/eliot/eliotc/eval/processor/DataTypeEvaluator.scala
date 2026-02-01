@@ -32,21 +32,10 @@ class DataTypeEvaluator
       abort
     }
 
-  /** Extracts parameters from an evaluated signature. Walks the FunctionLiteral chain collecting (name, type) pairs
-    * until reaching a ConcreteValue (typically Type).
-    */
-  private def extractParameters(evaluated: ExpressionValue.InitialExpressionValue): Seq[(String, Value)] =
-    evaluated match {
-      case FunctionLiteral(name, paramType, body) =>
-        (name, paramType) +: extractParametersFromBody(body)
-      case _                                      =>
-        Seq.empty
-    }
-
-  private def extractParametersFromBody(body: ExpressionValue): Seq[(String, Value)] =
+  private def extractParameters(body: ExpressionValue): Seq[(String, Value)] =
     body match {
       case FunctionLiteral(name, paramType, innerBody) =>
-        (name, paramType) +: extractParametersFromBody(innerBody)
+        (name, paramType) +: extractParameters(innerBody)
       case _                                           =>
         Seq.empty
     }
