@@ -68,11 +68,11 @@ class ValueResolver
       case NamedValueReference(name, None) =>
         name.value == "Type"
       case FunctionApplication(targetStack, argStack) =>
-        // Check if this is Function(Type, <kind>) where <kind> is Type or another kind
+        // Check if this is Function(<kind>, <kind>) - a function from kinds to kinds
         targetStack.value.signature match {
-          case FunctionApplication(fnStack, argTypeStack) =>
+          case FunctionApplication(fnStack, argKindStack) =>
             isFunctionReference(fnStack.value.signature) &&
-            isTypeReference(argTypeStack.value.signature) &&
+            isKindExpression(argKindStack.value.signature) &&
             isKindExpression(argStack.value.signature)
           case _ => false
         }
@@ -82,12 +82,6 @@ class ValueResolver
   private def isFunctionReference(expr: CoreExpression): Boolean =
     expr match {
       case NamedValueReference(name, None) => name.value == "Function"
-      case _                               => false
-    }
-
-  private def isTypeReference(expr: CoreExpression): Boolean =
-    expr match {
-      case NamedValueReference(name, None) => name.value == "Type"
       case _                               => false
     }
 

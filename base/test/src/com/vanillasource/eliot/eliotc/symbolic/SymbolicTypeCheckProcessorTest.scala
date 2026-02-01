@@ -166,6 +166,13 @@ class SymbolicTypeCheckProcessorTest
       .asserting(_ shouldBe Seq("Type argument mismatch."))
   }
 
+  it should "type check nested higher-kinded parameter" in {
+    runEngineForErrors(
+      "data Int\nf[G[A], F[G[A]]](x: F[G[Int]]): F[G[Int]] = x"
+    )
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   "top level functions" should "be assignable to function types" in {
     runEngineForErrors(
       "data Foo\ng(a: Foo): Foo\nf: Function[Foo, Foo] = g"

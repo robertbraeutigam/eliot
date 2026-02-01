@@ -138,10 +138,10 @@ object TypeEvaluator {
       case Value.Type =>
         true
       case Value.Structure(fields, Value.Type) =>
-        // Check if this is Function(Type, <kind>) where <kind> is Type or another kind
+        // Check if this is Function(<kind>, <kind>) - a function from kinds to kinds
         fields.get("$typeName") match {
           case Some(Value.Direct(vfqn: ValueFQN, _)) if vfqn === functionDataTypeVfqn =>
-            fields.get("A").exists(_ == Value.Type) &&
+            fields.get("A").exists(isKind) &&
             fields.get("B").exists(isKind)
           case _ => false
         }

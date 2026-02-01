@@ -43,11 +43,11 @@ class DataTypeEvaluator
       case Expression.ValueReference(vfqn) =>
         vfqn.value === typeFQN
       case Expression.FunctionApplication(targetStack, argStack) =>
-        // Check if this is Function(Type, <kind>) where <kind> is Type or another kind
+        // Check if this is Function(<kind>, <kind>) - a function from kinds to kinds
         targetStack.value.signature match {
-          case Expression.FunctionApplication(fnStack, argTypeStack) =>
+          case Expression.FunctionApplication(fnStack, argKindStack) =>
             isFunctionReference(fnStack.value.signature) &&
-            isTypeReference(argTypeStack.value.signature) &&
+            isKindExpression(argKindStack.value.signature) &&
             isKindExpression(argStack.value.signature)
           case _ => false
         }
@@ -57,12 +57,6 @@ class DataTypeEvaluator
   private def isFunctionReference(expr: Expression): Boolean =
     expr match {
       case Expression.ValueReference(vfqn) => vfqn.value === functionVfqn
-      case _                               => false
-    }
-
-  private def isTypeReference(expr: Expression): Boolean =
-    expr match {
-      case Expression.ValueReference(vfqn) => vfqn.value === typeFQN
       case _                               => false
     }
 

@@ -179,11 +179,11 @@ object TypeStackBuilder {
       case Expr.ValueReference(vfqn) =>
         vfqn.value === typeVfqn
       case Expr.FunctionApplication(targetStack, argStack) =>
-        // Check if this is Function(Type, <kind>) where <kind> is Type or another kind
+        // Check if this is Function(<kind>, <kind>) - a function from kinds to kinds
         targetStack.value.signature match {
-          case Expr.FunctionApplication(fnStack, argTypeStack) =>
+          case Expr.FunctionApplication(fnStack, argKindStack) =>
             isFunctionReference(fnStack.value.signature) &&
-            isTypeReference(argTypeStack.value.signature) &&
+            isKindExpression(argKindStack.value.signature) &&
             isKindExpression(argStack.value.signature)
           case _ => false
         }
@@ -193,12 +193,6 @@ object TypeStackBuilder {
   private def isFunctionReference(expr: Expression): Boolean =
     expr match {
       case Expr.ValueReference(vfqn) => vfqn.value === functionVfqn
-      case _                         => false
-    }
-
-  private def isTypeReference(expr: Expression): Boolean =
-    expr match {
-      case Expr.ValueReference(vfqn) => vfqn.value === typeVfqn
       case _                         => false
     }
 
