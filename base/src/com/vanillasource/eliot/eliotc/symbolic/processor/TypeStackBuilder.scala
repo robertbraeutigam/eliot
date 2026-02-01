@@ -162,19 +162,50 @@ object TypeStackBuilder {
         } yield (signatureType, typeResult +: restTypedLevels)
     }
 
-  private val typeVfqn = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
+  private val typeVfqn     = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
+  private val functionVfqn = ValueFQN(ModuleName(Seq("eliot", "lang"), "Function"), "Function$DataType")
 
-  /** Check if a type stack represents a bare Type annotation (for universal introductions). */
-  private def isTypeAnnotation(stack: TypeStack[Expression]): Boolean =
-    stack.levels.length == 1 && (stack.levels.head match {
+  /** Check if a type stack represents a kind annotation (for universal introductions). A kind annotation is:
+    *   - Type (for simple type parameters)
+    *   - Function(Type, Type) (for type constructors of arity 1)
+    *   - Function(Type, Function(Type, Type)) (for type constructors of arity 2)
+    *   - etc.
+    */
+  private def isKindAnnotation(stack: TypeStack[Expression]): Boolean =
+    stack.levels.length == 1 && isKindExpression(stack.levels.head)
+
+  private def isKindExpression(expr: Expression): Boolean =
+    expr match {
+      case Expr.ValueReference(vfqn) =>
+        vfqn.value === typeVfqn
+      case Expr.FunctionApplication(targetStack, argStack) =>
+        // Check if this is Function(Type, <kind>) where <kind> is Type or another kind
+        targetStack.value.signature match {
+          case Expr.FunctionApplication(fnStack, argTypeStack) =>
+            isFunctionReference(fnStack.value.signature) &&
+            isTypeReference(argTypeStack.value.signature) &&
+            isKindExpression(argStack.value.signature)
+          case _ => false
+        }
+      case _ => false
+    }
+
+  private def isFunctionReference(expr: Expression): Boolean =
+    expr match {
+      case Expr.ValueReference(vfqn) => vfqn.value === functionVfqn
+      case _                         => false
+    }
+
+  private def isTypeReference(expr: Expression): Boolean =
+    expr match {
       case Expr.ValueReference(vfqn) => vfqn.value === typeVfqn
       case _                         => false
-    })
+    }
 
   /** Build a typed expression from a single type expression. */
   private def buildExpression(expression: Expression): TypeGraphIO[TypedExpression] =
     expression match {
-      case Expr.FunctionLiteral(paramName, paramType, body) if isTypeAnnotation(paramType.value) =>
+      case Expr.FunctionLiteral(paramName, paramType, body) if isKindAnnotation(paramType.value) =>
         buildUniversalIntro(paramName, paramType, body)
 
       case Expr.FunctionLiteral(paramName, paramType, body) =>

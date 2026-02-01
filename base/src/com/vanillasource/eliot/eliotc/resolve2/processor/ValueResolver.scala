@@ -41,23 +41,55 @@ class ValueResolver
     resolveProgram.runA(scope)
   }
 
-  /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with Type as param type. */
+  /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with a kind annotation
+    * (Type or Function returning Type) as param type.
+    */
   private def collectGenericParams(stack: TypeStack[CoreExpression]): Seq[String] =
     collectGenericParamsFromExpr(stack.signature)
 
   private def collectGenericParamsFromExpr(expr: CoreExpression): Seq[String] =
     expr match {
-      case FunctionLiteral(paramName, paramType, body) if isTypeAnnotation(paramType) =>
+      case FunctionLiteral(paramName, paramType, body) if isKindAnnotation(paramType) =>
         paramName.value +: collectGenericParamsFromExpr(body.value.signature)
       case _                                                                          => Seq.empty
     }
 
-  /** Check if a type stack represents a bare Type annotation (for universal introductions). */
-  private def isTypeAnnotation(stack: TypeStack[CoreExpression]): Boolean =
-    stack.levels.length == 1 && (stack.signature match {
+  /** Check if a type stack represents a kind annotation (for universal introductions). A kind annotation is:
+    *   - Type (for simple type parameters)
+    *   - Function(Type, Type) (for type constructors of arity 1)
+    *   - Function(Type, Function(Type, Type)) (for type constructors of arity 2)
+    *   - etc.
+    */
+  private def isKindAnnotation(stack: TypeStack[CoreExpression]): Boolean =
+    stack.levels.length == 1 && isKindExpression(stack.signature)
+
+  private def isKindExpression(expr: CoreExpression): Boolean =
+    expr match {
+      case NamedValueReference(name, None) =>
+        name.value == "Type"
+      case FunctionApplication(targetStack, argStack) =>
+        // Check if this is Function(Type, <kind>) where <kind> is Type or another kind
+        targetStack.value.signature match {
+          case FunctionApplication(fnStack, argTypeStack) =>
+            isFunctionReference(fnStack.value.signature) &&
+            isTypeReference(argTypeStack.value.signature) &&
+            isKindExpression(argStack.value.signature)
+          case _ => false
+        }
+      case _ => false
+    }
+
+  private def isFunctionReference(expr: CoreExpression): Boolean =
+    expr match {
+      case NamedValueReference(name, None) => name.value == "Function"
+      case _                               => false
+    }
+
+  private def isTypeReference(expr: CoreExpression): Boolean =
+    expr match {
       case NamedValueReference(name, None) => name.value == "Type"
       case _                               => false
-    })
+    }
 
   /** Resolves a type stack from top (most abstract) to bottom (signature). Expression variables from above are visible
     * on below levels, but go out of scope outside the type stack.

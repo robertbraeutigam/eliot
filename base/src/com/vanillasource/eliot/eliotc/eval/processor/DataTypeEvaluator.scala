@@ -27,22 +27,54 @@ class DataTypeEvaluator
       abort
     }
 
-  /** Check if a type stack represents a bare Type annotation (for universal introductions). */
-  private def isTypeAnnotation(stack: TypeStack[Expression]): Boolean =
-    stack.levels.length == 1 && (stack.signature match {
+  private val functionVfqn = ValueFQN(ModuleName(Seq("eliot", "lang"), "Function"), "Function$DataType")
+
+  /** Check if a type stack represents a kind annotation (for universal introductions). A kind annotation is:
+    *   - Type (for simple type parameters)
+    *   - Function(Type, Type) (for type constructors of arity 1)
+    *   - Function(Type, Function(Type, Type)) (for type constructors of arity 2)
+    *   - etc.
+    */
+  private def isKindAnnotation(stack: TypeStack[Expression]): Boolean =
+    stack.levels.length == 1 && isKindExpression(stack.signature)
+
+  private def isKindExpression(expr: Expression): Boolean =
+    expr match {
+      case Expression.ValueReference(vfqn) =>
+        vfqn.value === typeFQN
+      case Expression.FunctionApplication(targetStack, argStack) =>
+        // Check if this is Function(Type, <kind>) where <kind> is Type or another kind
+        targetStack.value.signature match {
+          case Expression.FunctionApplication(fnStack, argTypeStack) =>
+            isFunctionReference(fnStack.value.signature) &&
+            isTypeReference(argTypeStack.value.signature) &&
+            isKindExpression(argStack.value.signature)
+          case _ => false
+        }
+      case _ => false
+    }
+
+  private def isFunctionReference(expr: Expression): Boolean =
+    expr match {
+      case Expression.ValueReference(vfqn) => vfqn.value === functionVfqn
+      case _                               => false
+    }
+
+  private def isTypeReference(expr: Expression): Boolean =
+    expr match {
       case Expression.ValueReference(vfqn) => vfqn.value === typeFQN
       case _                               => false
-    })
+    }
 
   /** Extracts type parameter names from the resolved type stack. Type parameters are represented as FunctionLiterals
-    * with Type reference as the parameter type.
+    * with a kind annotation as the parameter type.
     */
   private def extractTypeParams(typeStack: TypeStack[Expression]): Seq[String] =
     collectTypeParamsFromExpr(typeStack.signature)
 
   private def collectTypeParamsFromExpr(expr: Expression): Seq[String] =
     expr match {
-      case Expression.FunctionLiteral(paramName, paramType, body) if isTypeAnnotation(paramType.value) =>
+      case Expression.FunctionLiteral(paramName, paramType, body) if isKindAnnotation(paramType.value) =>
         paramName.value +: collectTypeParamsFromExpr(body.value.signature)
       case Expression.FunctionApplication(target, _)                                                   =>
         collectTypeParamsFromExpr(target.value.signature)

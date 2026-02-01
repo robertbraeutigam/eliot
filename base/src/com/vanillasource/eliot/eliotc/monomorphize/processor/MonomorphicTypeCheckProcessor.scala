@@ -176,7 +176,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
         matchTypes(patTarget, tgtTarget) ++ matchTypes(patArg, tgtArg)
 
       case (FunctionLiteral(_, patParamType, patBody), FunctionLiteral(_, tgtParamType, tgtBody))
-          if patParamType != Value.Type =>
+          if !TypeEvaluator.isKind(patParamType) =>
         // Regular function literal (not universal intro)
         matchTypes(patBody, tgtBody)
 

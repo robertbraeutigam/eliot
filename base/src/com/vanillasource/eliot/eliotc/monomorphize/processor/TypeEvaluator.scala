@@ -107,22 +107,44 @@ object TypeEvaluator {
   ): Map[String, Value] =
     typeParams.zip(typeArgs).toMap
 
-  /** Extract universal type parameter names from the outermost function literals with Type parameter type. Universal
-    * type parameters are represented as FunctionLiteral nodes where the parameter type is Value.Type.
+  /** Extract universal type parameter names from the outermost function literals with a kind annotation. Universal type
+    * parameters are represented as FunctionLiteral nodes where the parameter type is a kind (Type or a function
+    * returning Type for higher-kinded types).
     */
   def extractUniversalParams(signature: ExpressionValue): Seq[String] =
     signature match {
-      case FunctionLiteral(name, paramType, body) if paramType == Value.Type =>
+      case FunctionLiteral(name, paramType, body) if isKind(paramType) =>
         name +: extractUniversalParams(body)
-      case _                                                                 => Seq.empty
+      case _                                                           => Seq.empty
     }
 
   /** Strip universal type parameter introductions from the signature, leaving the actual function/value type.
     */
   def stripUniversalIntros(expr: ExpressionValue): ExpressionValue =
     expr match {
-      case FunctionLiteral(_, paramType, body) if paramType == Value.Type =>
+      case FunctionLiteral(_, paramType, body) if isKind(paramType) =>
         stripUniversalIntros(body)
-      case other                                                          => other
+      case other                                                    => other
+    }
+
+  /** Check if a Value represents a kind (Type or Function returning Type). A kind is:
+    *   - Type (for simple type parameters)
+    *   - Function(Type, Type) (for type constructors of arity 1)
+    *   - Function(Type, Function(Type, Type)) (for type constructors of arity 2)
+    *   - etc.
+    */
+  def isKind(value: Value): Boolean =
+    value match {
+      case Value.Type =>
+        true
+      case Value.Structure(fields, Value.Type) =>
+        // Check if this is Function(Type, <kind>) where <kind> is Type or another kind
+        fields.get("$typeName") match {
+          case Some(Value.Direct(vfqn: ValueFQN, _)) if vfqn === functionDataTypeVfqn =>
+            fields.get("A").exists(_ == Value.Type) &&
+            fields.get("B").exists(isKind)
+          case _ => false
+        }
+      case _ => false
     }
 }
