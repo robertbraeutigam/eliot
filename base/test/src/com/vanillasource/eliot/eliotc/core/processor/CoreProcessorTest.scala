@@ -197,10 +197,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  // Note: don't forget "Type" will be converted to "Type$DataType"!
+  // Note: Signature uses FunctionLiteral to preserve parameter names (A: Type -> Type)
   it should "generate type function with generic param and argument in typeStack" in {
     namedValue("data Box[A]", "Box$DataType").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe App(App(Ref("Function"), Ref("Type")), Ref("Type"))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type"), Ref("Type"))
     }
   }
 

@@ -28,7 +28,7 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
   private val typeEvaluable  = NamedEvaluable(typeVfqn, ConcreteValue(Type))
 
   "DataTypeEvaluator" should "evaluate Int$DataType (0 params) to correct Structure" in {
-    val vfqn         = ValueFQN(testModuleName, "Int$DataType")
+    val vfqn          = ValueFQN(testModuleName, "Int$DataType")
     val resolvedValue = createResolvedValue(vfqn, Seq.empty)
 
     runDataTypeEvaluator(vfqn, resolvedValue).asserting { result =>
@@ -38,63 +38,6 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
           Type
         )
       )
-    }
-  }
-
-  it should "evaluate Function$DataType(Int)(String) to correct Structure with both type args" in {
-    val functionVfqn = ValueFQN(testModuleName, "Function$DataType")
-    val intVfqn      = ValueFQN(testModuleName, "Int$DataType")
-    val stringVfqn   = ValueFQN(testModuleName, "String$DataType")
-
-    val functionResolved = createResolvedValue(functionVfqn, Seq("A", "B"))
-    val intResolved      = createResolvedValue(intVfqn, Seq.empty)
-    val stringResolved   = createResolvedValue(stringVfqn, Seq.empty)
-
-    val intType    = Structure(Map("$typeName" -> Direct(intVfqn, Type)), Type)
-    val stringType = Structure(Map("$typeName" -> Direct(stringVfqn, Type)), Type)
-
-    runDataTypeEvaluatorWithFacts(functionVfqn, Seq(functionResolved, intResolved, stringResolved)).flatMap {
-      case nf: NativeFunction =>
-        val afterFirst = nf.body(intType)
-        afterFirst match {
-          case nf2: NativeFunction =>
-            val afterSecond = nf2.body(stringType)
-            IO.pure(afterSecond)
-          case other               =>
-            IO.raiseError(new Exception(s"Expected NativeFunction after first application, got: $other"))
-        }
-      case other              =>
-        IO.raiseError(new Exception(s"Expected NativeFunction, got: $other"))
-    }.asserting { result =>
-      result shouldBe ConcreteValue(
-        Structure(
-          Map(
-            "$typeName" -> Direct(functionVfqn, Type),
-            "A"         -> intType,
-            "B"         -> stringType
-          ),
-          Type
-        )
-      )
-    }
-  }
-
-  it should "return NativeFunction for partial application Function$DataType(Int)" in {
-    val functionVfqn = ValueFQN(testModuleName, "Function$DataType")
-    val intVfqn      = ValueFQN(testModuleName, "Int$DataType")
-
-    val functionResolved = createResolvedValue(functionVfqn, Seq("A", "B"))
-    val intResolved      = createResolvedValue(intVfqn, Seq.empty)
-
-    val intType = Structure(Map("$typeName" -> Direct(intVfqn, Type)), Type)
-
-    runDataTypeEvaluatorWithFacts(functionVfqn, Seq(functionResolved, intResolved)).flatMap {
-      case nf: NativeFunction =>
-        IO.pure(nf.body(intType))
-      case other              =>
-        IO.raiseError(new Exception(s"Expected NativeFunction, got: $other"))
-    }.asserting { result =>
-      result shouldBe a[NativeFunction]
     }
   }
 
@@ -125,6 +68,63 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     }
   }
 
+  it should "evaluate two-parameter data type Either$DataType(Int)(String) correctly" in {
+    val eitherVfqn = ValueFQN(testModuleName, "Either$DataType")
+    val intVfqn    = ValueFQN(testModuleName, "Int$DataType")
+    val stringVfqn = ValueFQN(testModuleName, "String$DataType")
+
+    val eitherResolved = createResolvedValue(eitherVfqn, Seq("A", "B"))
+    val intResolved    = createResolvedValue(intVfqn, Seq.empty)
+    val stringResolved = createResolvedValue(stringVfqn, Seq.empty)
+
+    val intType    = Structure(Map("$typeName" -> Direct(intVfqn, Type)), Type)
+    val stringType = Structure(Map("$typeName" -> Direct(stringVfqn, Type)), Type)
+
+    runDataTypeEvaluatorWithFacts(eitherVfqn, Seq(eitherResolved, intResolved, stringResolved)).flatMap {
+      case nf: NativeFunction =>
+        val afterFirst = nf.body(intType)
+        afterFirst match {
+          case nf2: NativeFunction =>
+            val afterSecond = nf2.body(stringType)
+            IO.pure(afterSecond)
+          case other               =>
+            IO.raiseError(new Exception(s"Expected NativeFunction after first application, got: $other"))
+        }
+      case other              =>
+        IO.raiseError(new Exception(s"Expected NativeFunction, got: $other"))
+    }.asserting { result =>
+      result shouldBe ConcreteValue(
+        Structure(
+          Map(
+            "$typeName" -> Direct(eitherVfqn, Type),
+            "A"         -> intType,
+            "B"         -> stringType
+          ),
+          Type
+        )
+      )
+    }
+  }
+
+  it should "return NativeFunction for partial application Either$DataType(Int)" in {
+    val eitherVfqn = ValueFQN(testModuleName, "Either$DataType")
+    val intVfqn    = ValueFQN(testModuleName, "Int$DataType")
+
+    val eitherResolved = createResolvedValue(eitherVfqn, Seq("A", "B"))
+    val intResolved    = createResolvedValue(intVfqn, Seq.empty)
+
+    val intType = Structure(Map("$typeName" -> Direct(intVfqn, Type)), Type)
+
+    runDataTypeEvaluatorWithFacts(eitherVfqn, Seq(eitherResolved, intResolved)).flatMap {
+      case nf: NativeFunction =>
+        IO.pure(nf.body(intType))
+      case other              =>
+        IO.raiseError(new Exception(s"Expected NativeFunction, got: $other"))
+    }.asserting { result =>
+      result shouldBe a[NativeFunction]
+    }
+  }
+
   it should "not generate fact for non-DataType names" in {
     val vfqn = ValueFQN(testModuleName, "someFunction")
 
@@ -132,11 +132,11 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
   }
 
   it should "reduce applied lambda in signature to zero-parameter type" in {
-    // Signature is: (a: Type -> a)(Self$DataType) which should reduce to just Self$DataType
+    // Signature is: (a: Type -> a)(Type) which should reduce to just Type
     // This tests that applications in the signature are properly reduced
     val selfVfqn = ValueFQN(testModuleName, "Self$DataType")
 
-    // Build: (a: Type -> a)(Self$DataType)
+    // Build: (a: Type -> a)(Type)
     val innerLambda = Expression.FunctionLiteral(
       sourced("a"),
       sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn))))),
@@ -144,7 +144,7 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     )
     val appliedExpr = Expression.FunctionApplication(
       sourced(TypeStack(NonEmptySeq.of(innerLambda))),
-      sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(selfVfqn)))))
+      sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn)))))
     )
     val resolvedValue = ResolvedValue(
       selfVfqn,
@@ -154,7 +154,7 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     )
 
     runDataTypeEvaluator(selfVfqn, resolvedValue).asserting { result =>
-      // Should be ConcreteValue (0 params) since (a -> a)(Self) reduces to Self
+      // Should be ConcreteValue (0 params) since (a -> a)(Type) reduces to Type
       result shouldBe ConcreteValue(
         Structure(
           Map("$typeName" -> Direct(selfVfqn, Type)),
@@ -164,13 +164,21 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     }
   }
 
+  it should "not generate fact for Function$DataType (handled by FunctionDataTypeEvaluator)" in {
+    val functionVfqn     = ValueFQN(ModuleName.systemFunctionModuleName, "Function$DataType")
+    val functionResolved = createResolvedValue(functionVfqn, Seq("A", "B"))
+
+    runDataTypeEvaluatorExpectNoneWithFacts(functionVfqn, Seq(functionResolved)).asserting(_ shouldBe None)
+  }
+
   private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
 
-  /** Creates a ResolvedValue with the given type parameters. Type parameters are represented as FunctionLiterals with
-    * empty parameter types.
+  /** Creates a ResolvedValue with the given type parameters. Signatures are FunctionLiterals ending in Type (not
+    * self-reference), matching what CoreProcessor produces.
     */
   private def createResolvedValue(vfqn: ValueFQN, typeParams: Seq[String]): ResolvedValue = {
-    val typeExpr = typeParams.foldRight[Expression](Expression.ValueReference(sourced(vfqn))) { (param, body) =>
+    // Signature ends in Type (not self-reference)
+    val typeExpr = typeParams.foldRight[Expression](Expression.ValueReference(sourced(typeVfqn))) { (param, body) =>
       Expression.FunctionLiteral(
         sourced(param),
         sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn))))),
@@ -210,6 +218,18 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     for {
       generator <- FactGenerator.create(SequentialCompilerProcessors(Seq(DataTypeEvaluator())))
       _         <- generator.registerFact(sourceContent)
+      result    <- generator.getFact(NamedEvaluable.Key(vfqn))
+    } yield result
+
+  private def runDataTypeEvaluatorExpectNoneWithFacts(
+      vfqn: ValueFQN,
+      resolvedValues: Seq[ResolvedValue]
+  ): IO[Option[NamedEvaluable]] =
+    for {
+      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq(DataTypeEvaluator())))
+      _         <- generator.registerFact(sourceContent)
+      _         <- generator.registerFact(typeEvaluable)
+      _         <- resolvedValues.traverse_(generator.registerFact)
       result    <- generator.getFact(NamedEvaluable.Key(vfqn))
     } yield result
 }

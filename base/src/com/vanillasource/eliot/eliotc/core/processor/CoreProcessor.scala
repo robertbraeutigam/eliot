@@ -221,10 +221,8 @@ class CoreProcessor
       transformFunction(
         FunctionDefinition(
           definition.name.map(_ + "$DataType"),
+          definition.genericParameters,
           Seq.empty,
-          definition.genericParameters.map(gp =>
-            ArgumentDefinition(gp.name, TypeReference(definition.name.as("Type"), gp.genericParameters))
-          ),
           TypeReference(definition.name.as("Type"), Seq.empty),
           None
         )
