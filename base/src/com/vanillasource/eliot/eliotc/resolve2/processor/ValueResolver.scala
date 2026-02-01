@@ -43,7 +43,7 @@ class ValueResolver
 
   /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with empty param type. */
   private def collectGenericParams(stack: TypeStack[CoreExpression]): Seq[String] =
-    stack.signature.toSeq.flatMap(collectGenericParamsFromExpr)
+    collectGenericParamsFromExpr(stack.signature)
 
   private def collectGenericParamsFromExpr(expr: CoreExpression): Seq[String] =
     expr match {

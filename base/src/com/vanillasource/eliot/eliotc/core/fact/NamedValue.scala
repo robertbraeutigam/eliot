@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.core.fact
 import cats.{Eq, Show}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact
-import com.vanillasource.eliot.eliotc.core.fact.Expression.structuralEqualityOption
+import com.vanillasource.eliot.eliotc.core.fact.Expression.structuralEquality
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The core AST unifies data and functions into "names values". I.e. everything is a value, even types and functions.
@@ -24,7 +24,7 @@ case class NamedValue(
 
 object NamedValue {
   val signatureEquality: Eq[NamedValue] = (x: NamedValue, y: NamedValue) =>
-    structuralEqualityOption.eqv(x.typeStack.signature, y.typeStack.signature)
+    structuralEquality.eqv(x.typeStack.signature, y.typeStack.signature)
 
   given Show[NamedValue] = (namedValue: NamedValue) => s"${namedValue.name.value}: ${namedValue.typeStack.show}"
 

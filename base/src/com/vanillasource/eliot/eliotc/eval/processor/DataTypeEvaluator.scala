@@ -26,24 +26,24 @@ class DataTypeEvaluator
       abort
     }
 
-  /** Extracts type parameter names from the resolved type stack. Type parameters are represented as FunctionLiterals with
-    * empty parameter types at the signature level.
+  /** Extracts type parameter names from the resolved type stack. Type parameters are represented as FunctionLiterals
+    * with empty parameter types at the signature level.
     */
   private def extractTypeParams(typeStack: TypeStack[Expression]): Seq[String] =
-    typeStack.signature.toSeq.flatMap(collectTypeParamsFromExpr)
+    collectTypeParamsFromExpr(typeStack.signature)
 
   private def collectTypeParamsFromExpr(expr: Expression): Seq[String] =
     expr match {
       case Expression.FunctionLiteral(paramName, paramType, body) if paramType.value.levels.isEmpty =>
-        paramName.value +: body.value.signature.toSeq.flatMap(collectTypeParamsFromExpr)
-      case Expression.FunctionApplication(target, _)                                               =>
-        target.value.signature.toSeq.flatMap(collectTypeParamsFromExpr)
-      case _                                                                                       =>
+        paramName.value +: collectTypeParamsFromExpr(body.value.signature)
+      case Expression.FunctionApplication(target, _)                                                =>
+        collectTypeParamsFromExpr(target.value.signature)
+      case _                                                                                        =>
         Seq.empty
     }
 
-  /** Creates a NamedEvaluable for a data type. For types with no parameters, returns a ConcreteValue directly. For types
-    * with parameters, returns a chain of NativeFunctions that collect arguments.
+  /** Creates a NamedEvaluable for a data type. For types with no parameters, returns a ConcreteValue directly. For
+    * types with parameters, returns a chain of NativeFunctions that collect arguments.
     */
   private def createDataTypeEvaluable(vfqn: ValueFQN, typeParams: Seq[String]): NamedEvaluable =
     if (typeParams.isEmpty) {

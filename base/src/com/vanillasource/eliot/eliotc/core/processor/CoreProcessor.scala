@@ -51,7 +51,7 @@ class CoreProcessor
   private def transformFunction(function: FunctionDefinition): NamedValue = {
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
     val curriedValue = function.body.map(body => buildCurriedBody(function.args, body))
-    val typeStack    = TypeStack(Seq(curriedType.value))
+    val typeStack    = TypeStack.of(curriedType.value)
     NamedValue(function.name, curriedValue.map(_.value), typeStack)
   }
 
@@ -82,6 +82,7 @@ class CoreProcessor
       )
     }
     genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
+      // TODO: Generic parametes are either Type or some Function requiring other Types and return a Type
       param.name.as(FunctionLiteral(param.name, TypeStack.empty, acc.map(TypeStack.of)))
     }
   }

@@ -66,20 +66,12 @@ object Evaluator {
       for {
         evaluatedParamType <- evaluateTypeToValue(paramType.value, evaluating, paramContext, paramType)
         newContext          = paramContext + (paramName.value -> evaluatedParamType)
-        evaluatedBody      <- body.value.signature.fold(compilerAbort(body.as("Function literal has no body."))) {
-                                evaluateToValue(_, evaluating, newContext, body)
-                              }
+        evaluatedBody      <- evaluateToValue(body.value.signature, evaluating, newContext, body)
       } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
     case Expression.FunctionApplication(target, argument)       =>
       for {
-        targetValue <-
-          target.value.signature.fold(compilerAbort(target.as("Function application has no target."))) {
-            evaluateToValue(_, evaluating, paramContext, target)
-          }
-        argValue    <-
-          argument.value.signature.fold(compilerAbort(argument.as("Function application has no argument."))) {
-            evaluateToValue(_, evaluating, paramContext, argument)
-          }
+        targetValue <- evaluateToValue(target.value.signature, evaluating, paramContext, target)
+        argValue    <- evaluateToValue(argument.value.signature, evaluating, paramContext, argument)
       } yield FunctionApplication(targetValue, argValue)
   }
 
@@ -89,11 +81,9 @@ object Evaluator {
       paramContext: Map[String, Value],
       sourced: Sourced[?]
   ): CompilerIO[Value] =
-    typeStack.signature.fold(compilerAbort(sourced.as("Type expression has no signature."))) { typeExpr =>
-      evaluateToValue(typeExpr, evaluating, paramContext, sourced).flatMap {
-        case ConcreteValue(v) => v.pure[CompilerIO]
-        case _                => compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
-      }
+    evaluateToValue(typeStack.signature, evaluating, paramContext, sourced).flatMap {
+      case ConcreteValue(v) => v.pure[CompilerIO]
+      case _                => compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
     }
 
   private def reduce(value: ExpressionValue, sourced: Sourced[?]): CompilerIO[ExpressionValue] = value match {

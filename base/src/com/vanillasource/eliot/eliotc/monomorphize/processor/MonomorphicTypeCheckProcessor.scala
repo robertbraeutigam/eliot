@@ -18,14 +18,11 @@ import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpr
 /** Processor that monomorphizes (specializes) generic functions.
   *
   * Given a MonomorphicValue.Key(vfqn, typeArgs), it:
-  *   1. Fetches the TypeCheckedValue for vfqn
-  *   2. Builds substitution from universal type params to concrete args
-  *   3. Evaluates the signature type to a Value
-  *   4. Transforms the runtime body, replacing types and recursively monomorphizing called functions
+  *   1. Fetches the TypeCheckedValue for vfqn 2. Builds substitution from universal type params to concrete args 3.
+  *      Evaluates the signature type to a Value 4. Transforms the runtime body, replacing types and recursively
+  *      monomorphizing called functions
   */
-class MonomorphicTypeCheckProcessor
-    extends SingleKeyTypeProcessor[MonomorphicValue.Key]
-    with Logging {
+class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicValue.Key] with Logging {
 
   override protected def generateFact(key: MonomorphicValue.Key): CompilerIO[Unit] =
     for {
@@ -96,8 +93,8 @@ class MonomorphicTypeCheckProcessor
         transformFunctionLiteral(paramName, paramType, body, substitution, source)
     }
 
-  /** Transform a value reference, determining concrete type arguments and triggering monomorphization of the
-    * referenced value.
+  /** Transform a value reference, determining concrete type arguments and triggering monomorphization of the referenced
+    * value.
     *
     * @param callSiteType
     *   The type of this value reference at the call site (after unification). For a generic function like `id[A]: A ->
@@ -211,7 +208,7 @@ class MonomorphicTypeCheckProcessor
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
-      concreteParamType <- evaluateTypeStack(paramType.value, substitution, paramType)
+      concreteParamType <- TypeEvaluator.evaluate(paramType.value.signature.expressionType, substitution, paramType)
       transformedBody   <- transformTypedExpressionStack(body, substitution)
     } yield MonomorphicExpression.FunctionLiteral(paramName, concreteParamType, transformedBody)
 
@@ -222,27 +219,9 @@ class MonomorphicTypeCheckProcessor
       stack: Sourced[TypeStack[TypedExpression]],
       substitution: Map[String, Value]
   ): CompilerIO[Sourced[MonomorphicExpression]] =
-    stack.value.signature match {
-      case Some(typed) =>
-        for {
-          concreteType <- TypeEvaluator.evaluate(typed.expressionType, substitution, stack)
-          transformed  <- transformExpression(typed.expression, typed.expressionType, substitution, stack)
-        } yield stack.as(MonomorphicExpression(concreteType, transformed))
-      case None        =>
-        compilerAbort(stack.as("Empty expression stack in monomorphization"))
-    }
-
-  /** Evaluate a TypeStack to get the concrete signature type.
-    */
-  private def evaluateTypeStack(
-      stack: TypeStack[TypedExpression],
-      substitution: Map[String, Value],
-      source: Sourced[?]
-  ): CompilerIO[Value] =
-    stack.signature match {
-      case Some(typed) =>
-        TypeEvaluator.evaluate(typed.expressionType, substitution, source)
-      case None        =>
-        compilerAbort(source.as("Empty type stack in monomorphization"))
-    }
+    for {
+      concreteType <- TypeEvaluator.evaluate(stack.value.signature.expressionType, substitution, stack)
+      transformed  <-
+        transformExpression(stack.value.signature.expression, stack.value.signature.expressionType, substitution, stack)
+    } yield stack.as(MonomorphicExpression(concreteType, transformed))
 }
