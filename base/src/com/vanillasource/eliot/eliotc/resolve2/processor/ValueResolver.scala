@@ -41,16 +41,23 @@ class ValueResolver
     resolveProgram.runA(scope)
   }
 
-  /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with empty param type. */
+  /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with Type as param type. */
   private def collectGenericParams(stack: TypeStack[CoreExpression]): Seq[String] =
     collectGenericParamsFromExpr(stack.signature)
 
   private def collectGenericParamsFromExpr(expr: CoreExpression): Seq[String] =
     expr match {
-      case FunctionLiteral(paramName, paramType, body) if paramType.levels.isEmpty =>
-        paramName.value +: collectGenericParamsFromExpr(body.value.levels.head)
-      case _                                                                       => Seq.empty
+      case FunctionLiteral(paramName, paramType, body) if isTypeAnnotation(paramType) =>
+        paramName.value +: collectGenericParamsFromExpr(body.value.signature)
+      case _                                                                          => Seq.empty
     }
+
+  /** Check if a type stack represents a bare Type annotation (for universal introductions). */
+  private def isTypeAnnotation(stack: TypeStack[CoreExpression]): Boolean =
+    stack.levels.length == 1 && (stack.signature match {
+      case NamedValueReference(name, None) => name.value == "Type"
+      case _                               => false
+    })
 
   /** Resolves a type stack from top (most abstract) to bottom (signature). Expression variables from above are visible
     * on below levels, but go out of scope outside the type stack.
@@ -70,6 +77,10 @@ class ValueResolver
         isParameter(nameSrc.value).flatMap { isParam =>
           if (isParam) {
             Expression.ParameterReference(nameSrc).pure[ScopedIO]
+          } else if (nameSrc.value == "Type") {
+            // Type is a special builtin for type-level parameters
+            val typeVfqn = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
+            Expression.ValueReference(nameSrc.as(typeVfqn)).pure[ScopedIO]
           } else {
             // TODO: Hardcoded: anything that's not a parameter reference (above), AND starts with an upper-case letter,
             //  is a reference to a type. Therefore we need to add "$DataType" to the call. This is a hack, fix this later!

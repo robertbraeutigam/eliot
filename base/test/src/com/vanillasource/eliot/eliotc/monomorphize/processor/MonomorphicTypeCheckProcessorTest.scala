@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
-import cats.data.Chain
+import cats.data.{Chain, NonEmptySeq}
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
@@ -212,12 +212,12 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
       ConcreteValue(Types.dataType(intVfqn))
     )
 
-    val paramTypeStack = TypeStack(Seq(typedExpr(
+    val paramTypeStack = TypeStack(NonEmptySeq.of(typedExpr(
       ConcreteValue(Types.dataType(intVfqn)),
       TypedExpression.ValueReference(sourced(intVfqn))
     )))
 
-    val bodyStack = TypeStack(Seq(typedExpr(
+    val bodyStack = TypeStack(NonEmptySeq.of(typedExpr(
       ConcreteValue(Types.dataType(intVfqn)),
       TypedExpression.ParameterReference(sourced("x"))
     )))
@@ -385,8 +385,8 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
     val fBody = typedExpr(
       ConcreteValue(Types.dataType(intVfqn)),
       TypedExpression.FunctionApplication(
-        sourced(TypeStack(Seq(idRef))),
-        sourced(TypeStack(Seq(argLit)))
+        sourced(TypeStack(NonEmptySeq.of(idRef))),
+        sourced(TypeStack(NonEmptySeq.of(argLit)))
       )
     )
 

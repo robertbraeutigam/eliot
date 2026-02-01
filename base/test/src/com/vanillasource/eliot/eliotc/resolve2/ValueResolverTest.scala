@@ -56,11 +56,12 @@ class ValueResolverTest
 
   it should "resolve lambda parameter references" in {
     runEngineForValue("data T\na: T = x: T -> x").flatMap {
-      case Some(
-            FunctionLiteral(_, _, Sourced(_, _, TypeStack(Seq(ParameterReference(Sourced(_, _, name))))))
-          ) =>
-        IO.delay(name shouldBe "x")
-      case x =>
+      case Some(FunctionLiteral(_, _, Sourced(_, _, body))) =>
+        body.signature match {
+          case ParameterReference(Sourced(_, _, name)) => IO.delay(name shouldBe "x")
+          case _                                       => IO.delay(fail(s"body was not a parameter reference"))
+        }
+      case x                                                =>
         IO.delay(fail(s"was not a function literal with parameter reference, instead: $x"))
     }
   }
@@ -80,9 +81,12 @@ class ValueResolverTest
 
   it should "resolve function application" in {
     runEngineForValue("data T\nf: T\nb: T\na: T = f(b)").flatMap {
-      case Some(FunctionApplication(Sourced(_, _, TypeStack(Seq(ValueReference(_)))), _)) =>
-        IO.pure(succeed)
-      case x                                                                              =>
+      case Some(FunctionApplication(Sourced(_, _, target), _)) =>
+        target.signature match {
+          case ValueReference(_) => IO.pure(succeed)
+          case _                 => IO.delay(fail(s"target was not a value reference"))
+        }
+      case x                                                   =>
         IO.delay(fail(s"was not a function application, instead: $x"))
     }
   }
@@ -148,14 +152,14 @@ class ValueResolverTest
     runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map { case (errors, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
-        .flatMap(_.typeStack.value.signature)
+        .map(_.typeStack.value.signature)
     }
 
   private def runEngineForTypeExpression(source: String): IO[Expression] =
     runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map { case (_, facts) =>
       facts.values
         .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
-        .flatMap(_.typeStack.value.signature)
+        .map(_.typeStack.value.signature)
         .get
     }
 

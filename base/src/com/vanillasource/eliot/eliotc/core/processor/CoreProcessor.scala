@@ -83,7 +83,7 @@ class CoreProcessor
     }
     genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
       // TODO: Generic parametes are either Type or some Function requiring other Types and return a Type
-      param.name.as(FunctionLiteral(param.name, TypeStack.empty, acc.map(TypeStack.of)))
+      param.name.as(FunctionLiteral(param.name, TypeStack.of(NamedValueReference(param.name.as("Type"))), acc.map(TypeStack.of)))
     }
   }
 

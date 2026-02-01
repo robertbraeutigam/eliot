@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, NativeFunction}
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
-import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
@@ -26,19 +26,28 @@ class DataTypeEvaluator
       abort
     }
 
+  private val typeVfqn = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
+
+  /** Check if a type stack represents a bare Type annotation (for universal introductions). */
+  private def isTypeAnnotation(stack: TypeStack[Expression]): Boolean =
+    stack.levels.length == 1 && (stack.signature match {
+      case Expression.ValueReference(vfqn) => vfqn.value === typeVfqn
+      case _                               => false
+    })
+
   /** Extracts type parameter names from the resolved type stack. Type parameters are represented as FunctionLiterals
-    * with empty parameter types at the signature level.
+    * with Type reference as the parameter type.
     */
   private def extractTypeParams(typeStack: TypeStack[Expression]): Seq[String] =
     collectTypeParamsFromExpr(typeStack.signature)
 
   private def collectTypeParamsFromExpr(expr: Expression): Seq[String] =
     expr match {
-      case Expression.FunctionLiteral(paramName, paramType, body) if paramType.value.levels.isEmpty =>
+      case Expression.FunctionLiteral(paramName, paramType, body) if isTypeAnnotation(paramType.value) =>
         paramName.value +: collectTypeParamsFromExpr(body.value.signature)
-      case Expression.FunctionApplication(target, _)                                                =>
+      case Expression.FunctionApplication(target, _)                                                   =>
         collectTypeParamsFromExpr(target.value.signature)
-      case _                                                                                        =>
+      case _                                                                                           =>
         Seq.empty
     }
 

@@ -155,7 +155,7 @@ class SymbolicTypeCheckProcessorTest
   "type resolve" should "store lambda type into AST" in {
     runEngineForErrors(
       "data String\ndata Unit\ndata Foo(l: Function[Unit, String])\ng: String\nf: Foo = Foo((unit: Unit) -> g)"
-    ).asserting(_ shouldBe Seq("Name not defined.", "Target of function application is not a Function. Possibly too many arguments."))
+    ).asserting(_ shouldBe Seq("Target of function application is not a Function. Possibly too many arguments."))
   }
 
   "apply" should "type check and return B" in {

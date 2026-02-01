@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.eval.processor
 
-import cats.data.Chain
+import cats.data.{Chain, NonEmptySeq}
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
@@ -23,6 +23,7 @@ import java.io.File
 class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val testFile       = new File("Test.els")
   private val testModuleName = ModuleName(Seq.empty, "Test")
+  private val typeVfqn       = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
   private val sourceContent  = SourceContent(testFile, Sourced(testFile, PositionRange.zero, "test source"))
 
   "DataTypeEvaluator" should "evaluate Int$DataType (0 params) to correct Structure" in {
@@ -138,15 +139,15 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     val typeExpr = typeParams.foldRight[Expression](Expression.ValueReference(sourced(vfqn))) { (param, body) =>
       Expression.FunctionLiteral(
         sourced(param),
-        sourced(TypeStack(Seq.empty)),
-        sourced(TypeStack(Seq(body)))
+        sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn))))),
+        sourced(TypeStack(NonEmptySeq.of(body)))
       )
     }
     ResolvedValue(
       vfqn,
       sourced(vfqn.name),
       None,
-      sourced(TypeStack(Seq(typeExpr)))
+      sourced(TypeStack(NonEmptySeq.of(typeExpr)))
     )
   }
 

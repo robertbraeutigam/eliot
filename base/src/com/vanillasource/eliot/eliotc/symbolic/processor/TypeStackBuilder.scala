@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.symbolic.processor
 
-import cats.data.StateT
+import cats.data.{NonEmptySeq, StateT}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
@@ -33,7 +33,7 @@ object TypeStackBuilder {
   ): TypeGraphIO[(ExpressionValue, Sourced[TypeStack[TypedExpression]])] =
     for {
       (signatureType, typedLevels) <- processLevels(stack.value.levels.toList.reverse, Value.Type, stack)
-    } yield (signatureType, stack.as(TypeStack(typedLevels.reverse)))
+    } yield (signatureType, stack.as(TypeStack(NonEmptySeq.fromSeqUnsafe(typedLevels.reverse))))
 
   /** Build constraints from a body expression, inferring types. */
   def inferBody(body: Sourced[Expression]): TypeGraphIO[TypedExpression] =
@@ -103,8 +103,8 @@ object TypeStackBuilder {
       _               <- tellConstraint(
                            SymbolicUnification.constraint(argTypeVar, arg.as(argResult.expressionType), "Argument type mismatch.")
                          )
-      typedTarget      = target.as(TypeStack[TypedExpression](Seq(targetResult)))
-      typedArg         = arg.as(TypeStack[TypedExpression](Seq(argResult)))
+      typedTarget      = target.as(TypeStack[TypedExpression](NonEmptySeq.of(targetResult)))
+      typedArg         = arg.as(TypeStack[TypedExpression](NonEmptySeq.of(argResult)))
     } yield TypedExpression(retTypeVar, TypedExpression.FunctionApplication(typedTarget, typedArg))
 
   private def inferFunctionLiteral(
@@ -117,18 +117,12 @@ object TypeStackBuilder {
       _                                 <- bindParameter(paramName.value, paramTypeValue)
       bodyResult                        <- inferBodyStack(bodyStack)
       funcType                           = functionType(paramTypeValue, bodyResult.expressionType)
-      typedBodyStack                     = bodyStack.as(TypeStack[TypedExpression](Seq(bodyResult)))
+      typedBodyStack                     = bodyStack.as(TypeStack[TypedExpression](NonEmptySeq.of(bodyResult)))
     } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamStack, typedBodyStack))
 
   /** Build from a body stack by extracting and processing the signature expression. */
   private def inferBodyStack(stack: Sourced[TypeStack[Expression]]): TypeGraphIO[TypedExpression] =
-    stack.value.signature match {
-      case Some(expr) => inferBody(stack.as(expr))
-      case None       =>
-        for {
-          uvar <- generateUnificationVar(stack)
-        } yield TypedExpression(uvar, TypedExpression.ParameterReference(stack.as(uvar.parameterName)))
-    }
+    inferBody(stack.as(stack.value.signature))
 
   /** Shared handling for parameter references in both type-level and body-level contexts. */
   private def handleParameterReference(name: Sourced[String]): TypeGraphIO[TypedExpression] =
@@ -168,10 +162,19 @@ object TypeStackBuilder {
         } yield (signatureType, typeResult +: restTypedLevels)
     }
 
+  private val typeVfqn = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
+
+  /** Check if a type stack represents a bare Type annotation (for universal introductions). */
+  private def isTypeAnnotation(stack: TypeStack[Expression]): Boolean =
+    stack.levels.length == 1 && (stack.levels.head match {
+      case Expr.ValueReference(vfqn) => vfqn.value === typeVfqn
+      case _                         => false
+    })
+
   /** Build a typed expression from a single type expression. */
   private def buildExpression(expression: Expression): TypeGraphIO[TypedExpression] =
     expression match {
-      case Expr.FunctionLiteral(paramName, paramType, body) if paramType.value.levels.isEmpty =>
+      case Expr.FunctionLiteral(paramName, paramType, body) if isTypeAnnotation(paramType.value) =>
         buildUniversalIntro(paramName, paramType, body)
 
       case Expr.FunctionLiteral(paramName, paramType, body) =>
@@ -195,7 +198,7 @@ object TypeStackBuilder {
         TypedExpression(exprValue, TypedExpression.StringLiteral(value)).pure[TypeGraphIO]
     }
 
-  /** Universal variable introduction: A -> ... where A has empty type */
+  /** Universal variable introduction: A -> ... where A is of type Type */
   private def buildUniversalIntro(
       paramName: Sourced[String],
       paramType: Sourced[TypeStack[Expression]],
@@ -203,11 +206,11 @@ object TypeStackBuilder {
   ): TypeGraphIO[TypedExpression] =
     for {
       _                               <- addUniversalVar(paramName.value)
+      (_, typedParamStack)            <- processStack(paramType)
       (bodyTypeValue, typedBodyStack) <- processStack(body)
-      typedParamType                   = paramType.as(TypeStack[TypedExpression](Seq.empty))
     } yield TypedExpression(
       bodyTypeValue,
-      TypedExpression.FunctionLiteral(paramName, typedParamType, typedBodyStack)
+      TypedExpression.FunctionLiteral(paramName, typedParamStack, typedBodyStack)
     )
 
   /** Regular function literal (lambda type): (a: A) -> B becomes FunctionType */

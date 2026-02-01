@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.eval.util
 
-import cats.data.Chain
+import cats.data.{Chain, NonEmptySeq}
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
@@ -257,32 +257,6 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     runEvaluatorWithTracking(expr, Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }
 
-  it should "handle function literal with no body" in {
-    val expr = Expression.FunctionLiteral(
-      sourced("x"),
-      sourced(TypeStack(Seq(valueRef(bigIntTypeVfqn)))),
-      sourced(TypeStack(Seq.empty))
-    )
-    runEvaluatorForError(expr).asserting(_ shouldBe "Function literal has no body.")
-  }
-
-  it should "handle function application with no target" in {
-    val expr = Expression.FunctionApplication(
-      sourced(TypeStack(Seq.empty)),
-      sourced(TypeStack(Seq(intLit(1))))
-    )
-    runEvaluatorForError(expr).asserting(_ shouldBe "Function application has no target.")
-  }
-
-  it should "handle function application with no argument" in {
-    val fn   = intFunLit("x", paramRef("x"))
-    val expr = Expression.FunctionApplication(
-      sourced(TypeStack(Seq(fn))),
-      sourced(TypeStack(Seq.empty))
-    )
-    runEvaluatorForError(expr).asserting(_ shouldBe "Function application has no argument.")
-  }
-
   private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
 
   private def intLit(value: BigInt): Expression = Expression.IntegerLiteral(sourced(value))
@@ -296,8 +270,8 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private def funLit(param: String, paramTypeExpr: Expression, body: Expression): Expression =
     Expression.FunctionLiteral(
       sourced(param),
-      sourced(TypeStack(Seq(paramTypeExpr))),
-      sourced(TypeStack(Seq(body)))
+      sourced(TypeStack(NonEmptySeq.of(paramTypeExpr))),
+      sourced(TypeStack(NonEmptySeq.of(body)))
     )
 
   /** Function literal with BigInt parameter type */
@@ -306,8 +280,8 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   private def funApp(target: Expression, arg: Expression): Expression =
     Expression.FunctionApplication(
-      sourced(TypeStack(Seq(target))),
-      sourced(TypeStack(Seq(arg)))
+      sourced(TypeStack(NonEmptySeq.of(target))),
+      sourced(TypeStack(NonEmptySeq.of(arg)))
     )
 
   private def runEvaluator(expression: Expression): IO[InitialExpressionValue] =

@@ -11,9 +11,9 @@ object ExpressionMatchers {
   object FunLit {
     def unapply(expr: Expression): Option[(String, Expression)] =
       expr match {
-        case FunctionLiteral(Sourced(_, _, paramName), _, Sourced(_, _, TypeStack(Seq(body)))) =>
-          Some((paramName, body))
-        case _                                                                                 => None
+        case FunctionLiteral(Sourced(_, _, paramName), _, Sourced(_, _, body)) =>
+          Some((paramName, body.signature))
+        case _                                                                 => None
       }
   }
 
@@ -53,10 +53,10 @@ object ExpressionMatchers {
     def unapply(expr: Expression): Option[(Expression, Expression)] =
       expr match {
         case FunctionApplication(
-              Sourced(_, _, TypeStack(Seq(target))),
-              Sourced(_, _, TypeStack(Seq(arg)))
+              Sourced(_, _, target),
+              Sourced(_, _, arg)
             ) =>
-          Some((target, arg))
+          Some((target.signature, arg.signature))
         case _ => None
       }
   }

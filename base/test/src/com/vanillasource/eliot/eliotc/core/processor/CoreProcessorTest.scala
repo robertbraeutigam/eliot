@@ -54,21 +54,21 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  "generic parameters" should "become outer lambdas with empty type in typeStack" in {
+  "generic parameters" should "become outer lambdas with Type reference in typeStack" in {
     namedValue("f[A]: R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda("A", Empty, Ref("R"))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type"), Ref("R"))
     }
   }
 
   it should "preserve order for multiple generic parameters" in {
     namedValue("f[A, B]: R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda("A", Empty, Lambda("B", Empty, Ref("R")))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type"), Lambda("B", Ref("Type"), Ref("R")))
     }
   }
 
   it should "place generics then function args in typeStack" in {
     namedValue("f[A](x: X): R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("X")), Ref("R")))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type"), App(App(Ref("Function"), Ref("X")), Ref("R")))
     }
   }
 
@@ -83,8 +83,8 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       nv.typeStack.signatureStructure shouldBe
         Lambda(
           "A",
-          Empty,
-          Lambda("B", Empty, App(App(Ref("Function"), Ref("X")), App(App(Ref("Function"), Ref("Y")), Ref("R"))))
+          Ref("Type"),
+          Lambda("B", Ref("Type"), App(App(Ref("Function"), Ref("X")), App(App(Ref("Function"), Ref("Y")), Ref("R"))))
         )
     }
   }
@@ -238,7 +238,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "generate accessor with generic param and argument in typeStack" in {
     namedValue("data Box[A](value: A)", "value").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda("A", Empty, App(App(Ref("Function"), Ref("Box$DataType")), Ref("A")))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type"), App(App(Ref("Function"), Ref("Box$DataType")), Ref("A")))
     }
   }
 
@@ -253,10 +253,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       nv.typeStack.signatureStructure shouldBe
         Lambda(
           "A",
-          Empty,
+          Ref("Type"),
           Lambda(
             "B",
-            Empty,
+            Ref("Type"),
             App(App(Ref("Function"), Ref("A")), App(App(Ref("Function"), Ref("B")), Ref("Pair$DataType")))
           )
         )
@@ -285,9 +285,9 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   extension (stack: TypeStack[Expression]) {
-    def signatureStructure: ExprStructure = stack.signature.map(_.structure).getOrElse(Empty)
+    def signatureStructure: ExprStructure = stack.signature.structure
     // Gets the first expression in the stack (signature for TypeStack)
-    def firstStructure: ExprStructure     = stack.levels.headOption.map(_.structure).getOrElse(Empty)
+    def firstStructure: ExprStructure     = stack.levels.head.structure
   }
 
   extension (expr: Expression) {
