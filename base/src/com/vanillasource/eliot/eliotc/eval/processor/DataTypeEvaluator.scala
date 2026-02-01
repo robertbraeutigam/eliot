@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, 
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
-import com.vanillasource.eliot.eliotc.eval.util.Types.functionDataTypeFQN
+import com.vanillasource.eliot.eliotc.eval.util.Types.{fullyQualifiedNameType, functionDataTypeFQN}
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -95,7 +95,7 @@ class DataTypeEvaluator
     */
   private def createTypeStructure(vfqn: ValueFQN, typeArgs: Map[String, Value]): Value =
     Structure(
-      Map("$typeName" -> Direct(vfqn, Type)) ++ typeArgs,
+      Map("$typeName" -> Direct(vfqn, fullyQualifiedNameType)) ++ typeArgs,
       Type
     )
 }

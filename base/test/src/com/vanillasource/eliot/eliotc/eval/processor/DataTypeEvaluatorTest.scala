@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
+import com.vanillasource.eliot.eliotc.eval.util.Types.fullyQualifiedNameType
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
@@ -34,7 +35,7 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     runDataTypeEvaluator(vfqn, resolvedValue).asserting { result =>
       result shouldBe ConcreteValue(
         Structure(
-          Map("$typeName" -> Direct(vfqn, Type)),
+          Map("$typeName" -> Direct(vfqn, fullyQualifiedNameType)),
           Type
         )
       )
@@ -48,7 +49,7 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     val boxResolved = createResolvedValue(boxVfqn, Seq("A"))
     val intResolved = createResolvedValue(intVfqn, Seq.empty)
 
-    val intType = Structure(Map("$typeName" -> Direct(intVfqn, Type)), Type)
+    val intType = Structure(Map("$typeName" -> Direct(intVfqn, fullyQualifiedNameType)), Type)
 
     runDataTypeEvaluatorWithFacts(boxVfqn, Seq(boxResolved, intResolved)).flatMap {
       case nf: NativeFunction =>
@@ -59,7 +60,7 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
       result shouldBe ConcreteValue(
         Structure(
           Map(
-            "$typeName" -> Direct(boxVfqn, Type),
+            "$typeName" -> Direct(boxVfqn, fullyQualifiedNameType),
             "A"         -> intType
           ),
           Type
@@ -77,8 +78,8 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     val intResolved    = createResolvedValue(intVfqn, Seq.empty)
     val stringResolved = createResolvedValue(stringVfqn, Seq.empty)
 
-    val intType    = Structure(Map("$typeName" -> Direct(intVfqn, Type)), Type)
-    val stringType = Structure(Map("$typeName" -> Direct(stringVfqn, Type)), Type)
+    val intType    = Structure(Map("$typeName" -> Direct(intVfqn, fullyQualifiedNameType)), Type)
+    val stringType = Structure(Map("$typeName" -> Direct(stringVfqn, fullyQualifiedNameType)), Type)
 
     runDataTypeEvaluatorWithFacts(eitherVfqn, Seq(eitherResolved, intResolved, stringResolved)).flatMap {
       case nf: NativeFunction =>
@@ -96,7 +97,7 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
       result shouldBe ConcreteValue(
         Structure(
           Map(
-            "$typeName" -> Direct(eitherVfqn, Type),
+            "$typeName" -> Direct(eitherVfqn, fullyQualifiedNameType),
             "A"         -> intType,
             "B"         -> stringType
           ),
@@ -113,7 +114,7 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     val eitherResolved = createResolvedValue(eitherVfqn, Seq("A", "B"))
     val intResolved    = createResolvedValue(intVfqn, Seq.empty)
 
-    val intType = Structure(Map("$typeName" -> Direct(intVfqn, Type)), Type)
+    val intType = Structure(Map("$typeName" -> Direct(intVfqn, fullyQualifiedNameType)), Type)
 
     runDataTypeEvaluatorWithFacts(eitherVfqn, Seq(eitherResolved, intResolved)).flatMap {
       case nf: NativeFunction =>
@@ -157,7 +158,7 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
       // Should be ConcreteValue (0 params) since (a -> a)(Type) reduces to Type
       result shouldBe ConcreteValue(
         Structure(
-          Map("$typeName" -> Direct(selfVfqn, Type)),
+          Map("$typeName" -> Direct(selfVfqn, fullyQualifiedNameType)),
           Type
         )
       )
