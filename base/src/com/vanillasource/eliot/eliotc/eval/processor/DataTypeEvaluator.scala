@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, 
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
+import com.vanillasource.eliot.eliotc.eval.util.Types.functionDataTypeFQN
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -21,10 +22,8 @@ import com.vanillasource.eliot.eliotc.resolve2.fact.ResolvedValue
 class DataTypeEvaluator
     extends TransformationProcessor[ResolvedValue.Key, NamedEvaluable.Key](key => ResolvedValue.Key(key.vfqn)) {
 
-  private val functionDataTypeVfqn = ValueFQN(ModuleName.systemFunctionModuleName, "Function$DataType")
-
   override protected def generateFromKeyAndFact(key: NamedEvaluable.Key, fact: InputFact): CompilerIO[OutputFact] =
-    if (key.vfqn.name.endsWith("$DataType") && fact.runtime.isEmpty && key.vfqn =!= functionDataTypeVfqn) {
+    if (key.vfqn.name.endsWith("$DataType") && fact.runtime.isEmpty && key.vfqn =!= functionDataTypeFQN) {
       for {
         evaluated  <- Evaluator.evaluate(fact.typeStack.map(_.signature))
         typeParams  = extractParameters(evaluated)
