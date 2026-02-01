@@ -273,28 +273,12 @@ object TypeStackBuilder {
       resultType                           = applyTypeApplication(targetTypeValue, argTypeValue)
     } yield TypedExpression(resultType, TypedExpression.FunctionApplication(typedTargetStack, typedArgStack))
 
-  /** Apply a type constructor to an argument. Handles Function type specially. */
+  /** Apply a type constructor to an argument. */
   private def applyTypeApplication(
       target: ExpressionValue,
       arg: ExpressionValue
   ): ExpressionValue =
-    target match {
-      case FunctionApplication(ConcreteValue(v), paramType) if isFunctionType(v) =>
-        functionType(paramType, arg)
-      case _                                                                     =>
-        FunctionApplication(target, arg)
-    }
-
-  private def isFunctionType(v: Value): Boolean =
-    v match {
-      case Value.Structure(fields, _) =>
-        fields.get("$typeName") match {
-          case Some(Value.Direct(vfqn: ValueFQN, _)) =>
-            vfqn.moduleName === ModuleName.systemFunctionModuleName && vfqn.name === "Function$DataType"
-          case _                                     => false
-        }
-      case _                          => false
-    }
+    FunctionApplication(target, arg)
 
   private def extractConcreteValue(
       typeResult: TypedExpression,

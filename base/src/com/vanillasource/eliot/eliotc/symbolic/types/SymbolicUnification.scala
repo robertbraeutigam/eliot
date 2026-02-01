@@ -82,7 +82,7 @@ case class SymbolicUnification(constraints: Seq[Constraint]) {
       case (ConcreteValue(_), ConcreteValue(_))                       =>
         issueError(constraint, constraint.errorMessage)
 
-      // Function types: unify parameter and return types separately
+      // Function types (A -> B): unify parameter and return types separately with specific error messages
       case (FunctionType(p1, r1), FunctionType(p2, r2))               =>
         for {
           _ <-

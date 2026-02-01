@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.eval.util
 
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.module2.fact.ModuleName.defaultSystemPackage
@@ -10,6 +12,10 @@ object Types {
     ValueFQN(ModuleName(Seq("eliot", "compile"), "FullyQualifiedName"), "FullyQualifiedName")
 
   val functionDataTypeFQN = ValueFQN(ModuleName.systemFunctionModuleName, "Function$DataType")
+
+  /** The Function data type as an ExpressionValue for use in type expressions.
+    */
+  val functionDataTypeExpr: ExpressionValue = ConcreteValue(dataType(functionDataTypeFQN))
 
   /** The type of FullyQualifiedName.
     */

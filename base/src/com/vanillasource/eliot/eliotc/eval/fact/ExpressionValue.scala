@@ -2,6 +2,8 @@ package com.vanillasource.eliot.eliotc.eval.fact
 
 import cats.Show
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.eval.util.Types
+import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 
 /** The result of an expression evaluation.
   */
@@ -40,24 +42,28 @@ object ExpressionValue {
     }
   }
 
-  /** Marker for function types. Function types are represented as FunctionApplication chains. */
-  val FunctionTypeMarker: ExpressionValue = ConcreteValue(Value.Structure(
-    Map("$marker" -> Value.Direct("FunctionType", Value.Type)),
-    Value.Type
-  ))
-
-  /** Create a function type: paramType -> returnType */
+  /** Create a function type: paramType -> returnType. Uses the standard Function$DataType representation. */
   def functionType(paramType: ExpressionValue, returnType: ExpressionValue): ExpressionValue =
-    FunctionApplication(FunctionApplication(FunctionTypeMarker, paramType), returnType)
+    FunctionApplication(FunctionApplication(Types.functionDataTypeExpr, paramType), returnType)
 
-  /** Extractor for function types */
+  /** Extractor for function types. Matches FunctionApplication chains with Function$DataType. */
   object FunctionType {
     def unapply(expr: ExpressionValue): Option[(ExpressionValue, ExpressionValue)] =
       expr match {
-        case FunctionApplication(FunctionApplication(marker, paramType), returnType)
-            if marker == FunctionTypeMarker =>
+        case FunctionApplication(FunctionApplication(ConcreteValue(v), paramType), returnType)
+            if isFunctionDataType(v) =>
           Some((paramType, returnType))
         case _ => None
+      }
+
+    private def isFunctionDataType(v: Value): Boolean =
+      v match {
+        case Value.Structure(fields, _) =>
+          fields.get("$typeName") match {
+            case Some(Value.Direct(vfqn: ValueFQN, _)) => vfqn === Types.functionDataTypeFQN
+            case _                                     => false
+          }
+        case _                          => false
       }
   }
 
