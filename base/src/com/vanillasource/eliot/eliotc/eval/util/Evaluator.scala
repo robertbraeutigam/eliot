@@ -86,7 +86,7 @@ object Evaluator {
       case _                => compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
     }
 
-  private def reduce(value: ExpressionValue, sourced: Sourced[?]): CompilerIO[ExpressionValue] = value match {
+  def reduce(value: ExpressionValue, sourced: Sourced[?]): CompilerIO[ExpressionValue] = value match {
     case FunctionApplication(target, arg)       =>
       for {
         reducedTarget <- reduce(target, sourced)

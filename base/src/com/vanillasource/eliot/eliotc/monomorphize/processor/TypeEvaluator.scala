@@ -3,16 +3,16 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value
-import com.vanillasource.eliot.eliotc.eval.util.Types
+import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
+import com.vanillasource.eliot.eliotc.eval.util.{Evaluator, Types}
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
-/** Evaluates ExpressionValue types to Value with substitution of type parameters to their concrete instantiations.
-  * Function types are now represented uniformly as FunctionApplication chains with Function$DataType, eliminating the
-  * need for special FunctionType handling.
+/** Evaluates ExpressionValue types to Value using Evaluator.reduce(). Type parameter substitution is handled by
+  * replacing ParameterReferences with ConcreteValues, and data type references are resolved to their NativeFunctions
+  * from NamedEvaluable before reduction.
   */
 object TypeEvaluator {
 
@@ -32,51 +32,95 @@ object TypeEvaluator {
       substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[Value] =
+    for {
+      substituted <- substituteParams(expr, substitution, source)
+      resolved    <- resolveDataTypeRefs(substituted)
+      reduced     <- Evaluator.reduce(resolved, source)
+      value       <- extractValue(reduced, source)
+    } yield value
+
+  /** Substitute ParameterReferences with their concrete values from the substitution map. */
+  private def substituteParams(
+      expr: ExpressionValue,
+      substitution: Map[String, Value],
+      source: Sourced[?]
+  ): CompilerIO[ExpressionValue] =
     expr match {
-      case ConcreteValue(value) =>
-        value.pure[CompilerIO]
+      case ConcreteValue(_) =>
+        expr.pure[CompilerIO]
 
       case ParameterReference(name, _) =>
         substitution.get(name) match {
-          case Some(value) => value.pure[CompilerIO]
+          case Some(value) => ConcreteValue(value).pure[CompilerIO]
           case None        => compilerAbort(source.as(s"Unbound type parameter: $name"))
         }
 
       case FunctionApplication(target, arg) =>
         for {
-          targetValue <- evaluate(target, substitution, source)
-          argValue    <- evaluate(arg, substitution, source)
-          result      <- applyType(targetValue, argValue, source)
-        } yield result
+          newTarget <- substituteParams(target, substitution, source)
+          newArg    <- substituteParams(arg, substitution, source)
+        } yield FunctionApplication(newTarget, newArg)
 
-      case FunctionLiteral(_, _, _) =>
-        compilerAbort(source.as("Type-level lambda not yet supported in monomorphization"))
+      case FunctionLiteral(name, paramType, body) =>
+        substituteParams(body, substitution, source).map(FunctionLiteral(name, paramType, _))
 
       case NativeFunction(_, _) =>
-        compilerAbort(source.as("Unexpected NativeFunction in type expression"))
+        expr.pure[CompilerIO]
     }
 
-  /** Apply a type constructor to an argument by adding the argument to the structure's next parameter slot.
+  /** Resolve data type references that are targets of FunctionApplication. Only targets need resolution because they
+    * represent type constructors that need to be applied. Standalone ConcreteValues are already final type values.
     */
-  private def applyType(target: Value, arg: Value, source: Sourced[?]): CompilerIO[Value] =
-    target match {
-      case Value.Structure(fields, Value.Type) =>
-        val existingParams = fields.keys.filter(k => k.length == 1 && k.head.isUpper).toSeq.sorted
-        val nextParam      = if (existingParams.isEmpty) "A" else (existingParams.last.head + 1).toChar.toString
-        Value.Structure(fields + (nextParam -> arg), Value.Type).pure[CompilerIO]
+  private def resolveDataTypeRefs(expr: ExpressionValue): CompilerIO[ExpressionValue] =
+    expr match {
+      case FunctionApplication(target, arg) =>
+        for {
+          newTarget <- resolveTargetIfNeeded(target)
+          newArg    <- resolveDataTypeRefs(arg)
+        } yield FunctionApplication(newTarget, newArg)
+
+      case FunctionLiteral(name, paramType, body) =>
+        resolveDataTypeRefs(body).map(FunctionLiteral(name, paramType, _))
 
       case _ =>
-        compilerAbort(source.as(s"Cannot apply type argument to: $target"))
+        expr.pure[CompilerIO]
+    }
+
+  /** Resolve a FunctionApplication target if it's a data type reference. */
+  private def resolveTargetIfNeeded(target: ExpressionValue): CompilerIO[ExpressionValue] =
+    target match {
+      case ConcreteValue(Value.Structure(fields, Value.Type)) if isDataTypeRef(fields) =>
+        fields("$typeName") match {
+          case Value.Direct(vfqn: ValueFQN, _) =>
+            getFactOrAbort(NamedEvaluable.Key(vfqn)).map(_.value)
+          case _                               =>
+            target.pure[CompilerIO]
+        }
+      case FunctionApplication(_, _)                                                   =>
+        resolveDataTypeRefs(target)
+      case _                                                                           =>
+        target.pure[CompilerIO]
+    }
+
+  /** Check if fields represent a data type reference (only has $typeName, no type parameters). */
+  private def isDataTypeRef(fields: Map[String, Value]): Boolean =
+    fields.size == 1 && fields.contains("$typeName")
+
+  /** Extract a Value from the reduced ExpressionValue. */
+  private def extractValue(reduced: ExpressionValue, source: Sourced[?]): CompilerIO[Value] =
+    reduced match {
+      case ConcreteValue(v)            => v.pure[CompilerIO]
+      case FunctionLiteral(_, _, _)    =>
+        compilerAbort(source.as("Type expression reduced to unapplied type function"))
+      case NativeFunction(_, _)        =>
+        compilerAbort(source.as("Type expression reduced to unapplied native function"))
+      case ParameterReference(name, _) =>
+        compilerAbort(source.as(s"Type expression contains unsubstituted parameter: $name"))
+      case FunctionApplication(_, _)   =>
+        compilerAbort(source.as("Type expression could not be fully reduced"))
     }
 
   /** Build a substitution map from universal type parameters and their concrete arguments.
-    *
-    * @param typeParams
-    *   List of type parameter names (in order)
-    * @param typeArgs
-    *   Concrete type arguments (in order)
-    * @return
-    *   Map from parameter names to concrete Values
     */
   def buildSubstitution(
       typeParams: Seq[String],
@@ -84,9 +128,7 @@ object TypeEvaluator {
   ): Map[String, Value] =
     typeParams.zip(typeArgs).toMap
 
-  /** Extract universal type parameter names from the outermost function literals with a kind annotation. Universal type
-    * parameters are represented as FunctionLiteral nodes where the parameter type is a kind (Type or a function
-    * returning Type for higher-kinded types).
+  /** Extract universal type parameter names from the outermost function literals with a kind annotation.
     */
   def extractUniversalParams(signature: ExpressionValue): Seq[String] =
     signature match {
@@ -104,11 +146,7 @@ object TypeEvaluator {
       case other                                                    => other
     }
 
-  /** Check if a Value represents a kind (Type or Function returning Type). A kind is:
-    *   - Type (for simple type parameters)
-    *   - Function(Type, Type) (for type constructors of arity 1)
-    *   - Function(Type, Function(Type, Type)) (for type constructors of arity 2)
-    *   - etc.
+  /** Check if a Value represents a kind (Type or Function returning Type).
     */
   def isKind(value: Value): Boolean =
     value match {

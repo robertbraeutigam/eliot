@@ -13,7 +13,7 @@ object Types {
 
   val functionDataTypeFQN = ValueFQN(ModuleName.systemFunctionModuleName, "Function$DataType")
 
-  /** The Function data type as an ExpressionValue for use in type expressions.
+  /** The Function data type as an ExpressionValue reference for use in type expressions.
     */
   val functionDataTypeExpr: ExpressionValue = ConcreteValue(dataType(functionDataTypeFQN))
 
@@ -37,7 +37,7 @@ object Types {
       Map(
         "$typeName" -> Direct(
           dataFQN,
-          Type
+          fullyQualifiedNameType
         )
       ),
       Type

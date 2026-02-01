@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Types
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
@@ -39,11 +39,35 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
   private def functionType(paramType: Value, returnType: Value): Value =
     Value.Structure(
       Map(
-        "$typeName" -> Value.Direct(functionDataTypeVfqn, Value.Type),
+        "$typeName" -> Value.Direct(functionDataTypeVfqn, Types.fullyQualifiedNameType),
         "A"         -> paramType,
         "B"         -> returnType
       ),
       Value.Type
+    )
+
+  /** Create the NamedEvaluable for Function$DataType (a curried NativeFunction). */
+  private def functionDataTypeEvaluable: NamedEvaluable =
+    NamedEvaluable(
+      functionDataTypeVfqn,
+      NativeFunction(
+        Value.Type,
+        paramA =>
+          NativeFunction(
+            Value.Type,
+            paramB =>
+              ConcreteValue(
+                Value.Structure(
+                  Map(
+                    "$typeName" -> Value.Direct(functionDataTypeVfqn, Types.fullyQualifiedNameType),
+                    "A"         -> paramA,
+                    "B"         -> paramB
+                  ),
+                  Value.Type
+                )
+              )
+          )
+      )
     )
 
   "MonomorphicTypeCheckProcessor" should "monomorphize non-generic value" in {
@@ -92,7 +116,7 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
       Some(sourced(body.expression))
     )
 
-    runProcessor(MonomorphicValue.Key(idVfqn, Seq(intType)), Seq(typeChecked))
+    runProcessor(MonomorphicValue.Key(idVfqn, Seq(intType)), Seq(typeChecked, functionDataTypeEvaluable))
       .asserting { result =>
         result.vfqn shouldBe idVfqn
         result.typeArguments shouldBe Seq(intType)
@@ -131,7 +155,7 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
       Some(sourced(body.expression))
     )
 
-    runProcessor(MonomorphicValue.Key(idVfqn, Seq(stringType)), Seq(typeChecked))
+    runProcessor(MonomorphicValue.Key(idVfqn, Seq(stringType)), Seq(typeChecked, functionDataTypeEvaluable))
       .asserting { result =>
         result.signature shouldBe functionType(stringType, stringType)
       }
@@ -170,7 +194,7 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
       Some(sourced(body.expression))
     )
 
-    runProcessor(MonomorphicValue.Key(constVfqn, Seq(intType, stringType)), Seq(typeChecked))
+    runProcessor(MonomorphicValue.Key(constVfqn, Seq(intType, stringType)), Seq(typeChecked, functionDataTypeEvaluable))
       .asserting { result =>
         result.signature shouldBe functionType(
           intType,
@@ -199,7 +223,7 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
     )
 
     // Request with 2 type args, but id only has 1
-    runProcessorForError(MonomorphicValue.Key(idVfqn, Seq(intType, stringType)), Seq(typeChecked))
+    runProcessorForError(MonomorphicValue.Key(idVfqn, Seq(intType, stringType)), Seq(typeChecked, functionDataTypeEvaluable))
       .asserting(_ shouldBe "Type argument count mismatch: expected 1, got 2")
   }
 
@@ -238,7 +262,7 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
       Some(sourced(body.expression))
     )
 
-    runProcessor(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(typeChecked))
+    runProcessor(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(typeChecked, functionDataTypeEvaluable))
       .asserting { result =>
         result.signature shouldBe functionType(intType, intType)
         result.runtime.get.value match {
@@ -397,7 +421,7 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
       Some(sourced(fBody.expression))
     )
 
-    runProcessor(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(fTypeChecked, idTypeChecked))
+    runProcessor(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(fTypeChecked, idTypeChecked, functionDataTypeEvaluable))
       .asserting { result =>
         result.runtime.get.value match {
           case MonomorphicExpression.FunctionApplication(target, arg) =>
