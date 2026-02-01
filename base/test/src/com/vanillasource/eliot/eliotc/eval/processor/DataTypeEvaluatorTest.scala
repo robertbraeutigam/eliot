@@ -25,6 +25,7 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
   private val testModuleName = ModuleName(Seq.empty, "Test")
   private val typeVfqn       = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
   private val sourceContent  = SourceContent(testFile, Sourced(testFile, PositionRange.zero, "test source"))
+  private val typeEvaluable  = NamedEvaluable(typeVfqn, ConcreteValue(Type))
 
   "DataTypeEvaluator" should "evaluate Int$DataType (0 params) to correct Structure" in {
     val vfqn         = ValueFQN(testModuleName, "Int$DataType")
@@ -130,6 +131,39 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     runDataTypeEvaluatorExpectNone(vfqn).asserting(_ shouldBe None)
   }
 
+  it should "reduce applied lambda in signature to zero-parameter type" in {
+    // Signature is: (a: Type -> a)(Self$DataType) which should reduce to just Self$DataType
+    // This tests that applications in the signature are properly reduced
+    val selfVfqn = ValueFQN(testModuleName, "Self$DataType")
+
+    // Build: (a: Type -> a)(Self$DataType)
+    val innerLambda = Expression.FunctionLiteral(
+      sourced("a"),
+      sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn))))),
+      sourced(TypeStack(NonEmptySeq.of(Expression.ParameterReference(sourced("a")))))
+    )
+    val appliedExpr = Expression.FunctionApplication(
+      sourced(TypeStack(NonEmptySeq.of(innerLambda))),
+      sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(selfVfqn)))))
+    )
+    val resolvedValue = ResolvedValue(
+      selfVfqn,
+      sourced(selfVfqn.name),
+      None,
+      sourced(TypeStack(NonEmptySeq.of(appliedExpr)))
+    )
+
+    runDataTypeEvaluator(selfVfqn, resolvedValue).asserting { result =>
+      // Should be ConcreteValue (0 params) since (a -> a)(Self) reduces to Self
+      result shouldBe ConcreteValue(
+        Structure(
+          Map("$typeName" -> Direct(selfVfqn, Type)),
+          Type
+        )
+      )
+    }
+  }
+
   private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
 
   /** Creates a ResolvedValue with the given type parameters. Type parameters are represented as FunctionLiterals with
@@ -164,6 +198,7 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     for {
       generator <- FactGenerator.create(SequentialCompilerProcessors(Seq(DataTypeEvaluator())))
       _         <- generator.registerFact(sourceContent)
+      _         <- generator.registerFact(typeEvaluable)
       _         <- resolvedValues.traverse_(generator.registerFact)
       result    <- generator.getFact(NamedEvaluable.Key(vfqn))
     } yield result match {
