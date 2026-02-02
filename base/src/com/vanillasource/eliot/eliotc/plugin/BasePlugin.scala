@@ -24,6 +24,7 @@ import com.vanillasource.eliot.eliotc.datafunctions.DataFunctionsProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.typesystem.processor.TypeCheckProcessor
 import com.vanillasource.eliot.eliotc.uncurry.UncurryingProcessor
+import com.vanillasource.eliot.eliotc.uncurry2.processor.Uncurrying2Processor
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsProcessor
 import scopt.{OParser, OParserBuilder}
 
@@ -64,7 +65,8 @@ class BasePlugin extends CompilerPlugin {
             TypeResolver(),
             TypeCheckProcessor(),
             UncurryingProcessor(),
-            UsedSymbolsProcessor()
+            UsedSymbolsProcessor(),
+            Uncurrying2Processor()
           )
         )
       )
