@@ -24,21 +24,20 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param targetArity
   *   The selected optimal arity for this function
   */
-case class Uncurried2Value(
+case class UncurriedValue(
     vfqn: ValueFQN,
     typeArguments: Seq[Value],
     name: Sourced[String],
     signature: Value,
-    parameters: Seq[Parameter2Definition],
+    parameters: Seq[ParameterDefinition],
     returnType: Value,
-    body: Option[Sourced[Uncurried2Expression.Expression]],
+    body: Option[Sourced[UncurriedExpression.Expression]],
     targetArity: Int
 ) extends CompilerFact {
-  override def key(): CompilerFactKey[Uncurried2Value] =
-    Uncurried2Value.Key(vfqn, typeArguments)
+  override def key(): CompilerFactKey[UncurriedValue] =
+    UncurriedValue.Key(vfqn, typeArguments)
 }
 
-object Uncurried2Value {
-  case class Key(vfqn: ValueFQN, typeArguments: Seq[Value])
-      extends CompilerFactKey[Uncurried2Value]
+object UncurriedValue {
+  case class Key(vfqn: ValueFQN, typeArguments: Seq[Value]) extends CompilerFactKey[UncurriedValue]
 }

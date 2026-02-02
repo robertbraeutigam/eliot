@@ -6,26 +6,26 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Expression tree after uncurrying, using concrete Value types.
   */
-case class Uncurried2Expression(
+case class UncurriedExpression(
     expressionType: Value,
-    expression: Uncurried2Expression.Expression
+    expression: UncurriedExpression.Expression
 )
 
-object Uncurried2Expression {
+object UncurriedExpression {
   sealed trait Expression
 
   /** Multi-argument function application. Flattened from nested curried applications based on target arity.
     */
   case class FunctionApplication(
-      target: Sourced[Uncurried2Expression],
-      arguments: Seq[Sourced[Uncurried2Expression]]
+      target: Sourced[UncurriedExpression],
+      arguments: Seq[Sourced[UncurriedExpression]]
   ) extends Expression
 
   /** Multi-parameter function literal. Flattened from nested lambdas up to optimal arity.
     */
   case class FunctionLiteral(
-      parameters: Seq[Parameter2Definition],
-      body: Sourced[Uncurried2Expression]
+      parameters: Seq[ParameterDefinition],
+      body: Sourced[UncurriedExpression]
   ) extends Expression
 
   case class IntegerLiteral(value: Sourced[BigInt]) extends Expression

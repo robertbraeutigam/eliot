@@ -21,38 +21,34 @@ import scala.annotation.tailrec
   * Currently defaults to max arity (full uncurrying) since usage statistics are not available at the individual value
   * level.
   */
-class Uncurrying2Processor extends SingleKeyTypeProcessor[Uncurried2Value.Key] with Logging {
+class UncurryingProcessor extends SingleKeyTypeProcessor[UncurriedValue.Key] with Logging {
 
-  override protected def generateFact(key: Uncurried2Value.Key): CompilerIO[Unit] =
+  override protected def generateFact(key: UncurriedValue.Key): CompilerIO[Unit] =
     for {
-      monomorphicValue <- getFactOrAbort(MonomorphicValue.Key(key.vfqn, key.typeArguments))
-
-      optimalArity = AritySelector.selectOptimalArity(None, monomorphicValue.signature)
-
-      (bodyParams, convertedBody) <- monomorphicValue.runtime match {
-                                       case Some(sourcedExpr) =>
-                                         val (params, inner) = stripLambdas(sourcedExpr.value, optimalArity)
-                                         convertExpression(inner).map(converted => (params, Some(sourcedExpr.as(converted))))
-                                       case None              =>
-                                         (Seq.empty[Parameter2Definition], None).pure[CompilerIO]
-                                     }
-
+      monomorphicValue             <- getFactOrAbort(MonomorphicValue.Key(key.vfqn, key.typeArguments))
+      optimalArity                  = AritySelector.selectOptimalArity(None, monomorphicValue.signature)
+      (bodyParams, convertedBody)  <- monomorphicValue.runtime match {
+                                        case Some(sourcedExpr) =>
+                                          val (params, inner) = stripLambdas(sourcedExpr.value, optimalArity)
+                                          convertExpression(inner).map(converted =>
+                                            (params, Some(sourcedExpr.as(converted)))
+                                          )
+                                        case None              =>
+                                          (Seq.empty[ParameterDefinition], None).pure[CompilerIO]
+                                      }
       (signatureParams, returnType) = extractParameters(monomorphicValue.name, monomorphicValue.signature, optimalArity)
-
-      parameters = if (bodyParams.nonEmpty) bodyParams else signatureParams
-
-      result = Uncurried2Value(
-                 vfqn = key.vfqn,
-                 typeArguments = key.typeArguments,
-                 name = monomorphicValue.name,
-                 signature = monomorphicValue.signature,
-                 parameters = parameters,
-                 returnType = returnType,
-                 body = convertedBody,
-                 targetArity = optimalArity
-               )
-
-      _ <- registerFactIfClear(result)
+      parameters                    = if (bodyParams.nonEmpty) bodyParams else signatureParams
+      result                        = UncurriedValue(
+                                        vfqn = key.vfqn,
+                                        typeArguments = key.typeArguments,
+                                        name = monomorphicValue.name,
+                                        signature = monomorphicValue.signature,
+                                        parameters = parameters,
+                                        returnType = returnType,
+                                        body = convertedBody,
+                                        targetArity = optimalArity
+                                      )
+      _                            <- registerFactIfClear(result)
     } yield ()
 
   /** Extract parameters from a function signature up to the specified arity.
@@ -66,21 +62,25 @@ class Uncurrying2Processor extends SingleKeyTypeProcessor[Uncurried2Value.Key] w
     * @return
     *   (extracted parameters, return type after extraction)
     */
-  private def extractParameters(name: Sourced[String], signature: Value, arity: Int): (Seq[Parameter2Definition], Value) = {
+  private def extractParameters(
+      name: Sourced[String],
+      signature: Value,
+      arity: Int
+  ): (Seq[ParameterDefinition], Value) = {
     @tailrec
     def loop(
         sig: Value,
         remaining: Int,
         paramIndex: Int,
-        acc: Seq[Parameter2Definition]
-    ): (Seq[Parameter2Definition], Value) =
+        acc: Seq[ParameterDefinition]
+    ): (Seq[ParameterDefinition], Value) =
       if (remaining <= 0) {
         (acc, sig)
       } else {
         sig match {
           case FunctionType(paramType, returnType) =>
             val paramName = name.as(s"_p$paramIndex")
-            val param     = Parameter2Definition(paramName, paramType)
+            val param     = ParameterDefinition(paramName, paramType)
             loop(returnType, remaining - 1, paramIndex + 1, acc :+ param)
           case _                                   =>
             (acc, sig)
@@ -98,19 +98,19 @@ class Uncurrying2Processor extends SingleKeyTypeProcessor[Uncurried2Value.Key] w
   private def stripLambdas(
       expr: MonomorphicExpression.Expression,
       maxLambdas: Int
-  ): (Seq[Parameter2Definition], MonomorphicExpression) = {
+  ): (Seq[ParameterDefinition], MonomorphicExpression) = {
     @tailrec
     def loop(
         e: MonomorphicExpression.Expression,
         remaining: Int,
-        acc: Seq[Parameter2Definition]
-    ): (Seq[Parameter2Definition], MonomorphicExpression) =
+        acc: Seq[ParameterDefinition]
+    ): (Seq[ParameterDefinition], MonomorphicExpression) =
       if (remaining <= 0) {
         (acc, MonomorphicExpression(Value.Type, e))
       } else {
         e match {
           case MonomorphicExpression.FunctionLiteral(paramName, paramType, body) =>
-            val param = Parameter2Definition(paramName, paramType)
+            val param = ParameterDefinition(paramName, paramType)
             loop(body.value.expression, remaining - 1, acc :+ param)
           case _                                                                 =>
             (acc, MonomorphicExpression(Value.Type, e))
@@ -122,23 +122,18 @@ class Uncurrying2Processor extends SingleKeyTypeProcessor[Uncurried2Value.Key] w
 
   /** Convert a MonomorphicExpression to Uncurried2Expression.
     */
-  private def convertExpression(expr: MonomorphicExpression): CompilerIO[Uncurried2Expression.Expression] =
+  private def convertExpression(expr: MonomorphicExpression): CompilerIO[UncurriedExpression.Expression] =
     expr.expression match {
-      case MonomorphicExpression.IntegerLiteral(value) =>
-        Uncurried2Expression.IntegerLiteral(value).pure[CompilerIO]
-
-      case MonomorphicExpression.StringLiteral(value) =>
-        Uncurried2Expression.StringLiteral(value).pure[CompilerIO]
-
-      case MonomorphicExpression.ParameterReference(paramName) =>
-        Uncurried2Expression.ParameterReference(paramName).pure[CompilerIO]
-
-      case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) =>
-        Uncurried2Expression.ValueReference(vfqn, typeArgs).pure[CompilerIO]
-
-      case MonomorphicExpression.FunctionApplication(target, argument) =>
+      case MonomorphicExpression.IntegerLiteral(value)                       =>
+        UncurriedExpression.IntegerLiteral(value).pure[CompilerIO]
+      case MonomorphicExpression.StringLiteral(value)                        =>
+        UncurriedExpression.StringLiteral(value).pure[CompilerIO]
+      case MonomorphicExpression.ParameterReference(paramName)               =>
+        UncurriedExpression.ParameterReference(paramName).pure[CompilerIO]
+      case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)   =>
+        UncurriedExpression.ValueReference(vfqn, typeArgs).pure[CompilerIO]
+      case MonomorphicExpression.FunctionApplication(target, argument)       =>
         convertApplication(target, argument)
-
       case MonomorphicExpression.FunctionLiteral(paramName, paramType, body) =>
         convertLambda(paramName, paramType, body)
     }
@@ -148,12 +143,12 @@ class Uncurrying2Processor extends SingleKeyTypeProcessor[Uncurried2Value.Key] w
   private def convertApplication(
       target: Sourced[MonomorphicExpression],
       argument: Sourced[MonomorphicExpression]
-  ): CompilerIO[Uncurried2Expression.Expression] = {
+  ): CompilerIO[UncurriedExpression.Expression] = {
     val (finalTarget, arguments) = flattenApplication(target, Seq(argument))
     for {
       convertedTarget <- convertSourcedExpression(finalTarget)
       convertedArgs   <- arguments.traverse(convertSourcedExpression)
-    } yield Uncurried2Expression.FunctionApplication(convertedTarget, convertedArgs)
+    } yield UncurriedExpression.FunctionApplication(convertedTarget, convertedArgs)
   }
 
   /** Flatten nested function applications into a single application with multiple arguments.
@@ -176,32 +171,32 @@ class Uncurrying2Processor extends SingleKeyTypeProcessor[Uncurried2Value.Key] w
       paramName: Sourced[String],
       paramType: Value,
       body: Sourced[MonomorphicExpression]
-  ): CompilerIO[Uncurried2Expression.Expression] = {
-    val firstParam              = Parameter2Definition(paramName, paramType)
-    val (params, finalBody)     = flattenLambda(Seq(firstParam), body)
+  ): CompilerIO[UncurriedExpression.Expression] = {
+    val firstParam          = ParameterDefinition(paramName, paramType)
+    val (params, finalBody) = flattenLambda(Seq(firstParam), body)
     for {
       convertedBody <- convertSourcedExpression(finalBody)
-    } yield Uncurried2Expression.FunctionLiteral(params, convertedBody)
+    } yield UncurriedExpression.FunctionLiteral(params, convertedBody)
   }
 
   /** Flatten nested lambda expressions into a single lambda with multiple parameters.
     */
   @tailrec
   private def flattenLambda(
-      parameters: Seq[Parameter2Definition],
+      parameters: Seq[ParameterDefinition],
       body: Sourced[MonomorphicExpression]
-  ): (Seq[Parameter2Definition], Sourced[MonomorphicExpression]) =
+  ): (Seq[ParameterDefinition], Sourced[MonomorphicExpression]) =
     body.value.expression match {
       case MonomorphicExpression.FunctionLiteral(paramName, paramType, innerBody) =>
-        flattenLambda(parameters :+ Parameter2Definition(paramName, paramType), innerBody)
+        flattenLambda(parameters :+ ParameterDefinition(paramName, paramType), innerBody)
       case _                                                                      =>
         (parameters, body)
     }
 
   private def convertSourcedExpression(
       sourced: Sourced[MonomorphicExpression]
-  ): CompilerIO[Sourced[Uncurried2Expression]] =
+  ): CompilerIO[Sourced[UncurriedExpression]] =
     convertExpression(sourced.value).map(converted =>
-      sourced.as(Uncurried2Expression(sourced.value.expressionType, converted))
+      sourced.as(UncurriedExpression(sourced.value.expressionType, converted))
     )
 }

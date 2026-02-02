@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param parameterType
   *   The concrete type of the parameter as a Value
   */
-case class Parameter2Definition(
+case class ParameterDefinition(
     name: Sourced[String],
     parameterType: Value
 )
