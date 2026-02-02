@@ -28,7 +28,7 @@ object Evaluator {
       evaluating: Set[ValueFQN] = Set.empty
   ): CompilerIO[InitialExpressionValue] =
     for {
-      value   <- evaluateToValue(expression.value, evaluating, Map.empty, expression)
+      value   <- toExpressionValue(expression.value, evaluating, Map.empty, expression)
       reduced <- reduce(value, expression)
       result  <- reduced match {
                    case iv: InitialExpressionValue  => iv.pure[CompilerIO]
@@ -39,7 +39,7 @@ object Evaluator {
                  }
     } yield result
 
-  private def evaluateToValue(
+  private def toExpressionValue(
       expression: Expression,
       evaluating: Set[ValueFQN],
       paramContext: Map[String, Value],
@@ -64,27 +64,23 @@ object Evaluator {
       }
     case Expression.FunctionLiteral(paramName, paramType, body) =>
       for {
-        evaluatedParamType <- evaluateTypeToValue(paramType.value, evaluating, paramContext, paramType)
-        newContext          = paramContext + (paramName.value -> evaluatedParamType)
-        evaluatedBody      <- evaluateToValue(body.value.signature, evaluating, newContext, body)
+        // TODO: Is it ok to ignore the type stack here?
+        evaluatedParamTypeFull <- toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType)
+        // TODO: We require a monomorphized type value here. This might require some parameters in some cases!
+        evaluatedParamType     <- concreteValueOf(evaluatedParamTypeFull).fold(
+                                    compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
+                                  )(_.pure[CompilerIO])
+        newContext              = paramContext + (paramName.value -> evaluatedParamType)
+        evaluatedBody          <- toExpressionValue(body.value.signature, evaluating, newContext, body)
       } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
     case Expression.FunctionApplication(target, argument)       =>
       for {
-        targetValue <- evaluateToValue(target.value.signature, evaluating, paramContext, target)
-        argValue    <- evaluateToValue(argument.value.signature, evaluating, paramContext, argument)
+        // TODO: Is it ok to ignore the type stack here?
+        targetValue <- toExpressionValue(target.value.signature, evaluating, paramContext, target)
+        // TODO: Is it ok to ignore the type stack here?
+        argValue    <- toExpressionValue(argument.value.signature, evaluating, paramContext, argument)
       } yield FunctionApplication(targetValue, argValue)
   }
-
-  private def evaluateTypeToValue(
-      typeStack: TypeStack[Expression],
-      evaluating: Set[ValueFQN],
-      paramContext: Map[String, Value],
-      sourced: Sourced[?]
-  ): CompilerIO[Value] =
-    evaluateToValue(typeStack.signature, evaluating, paramContext, sourced).flatMap {
-      case ConcreteValue(v) => v.pure[CompilerIO]
-      case _                => compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
-    }
 
   def reduce(value: ExpressionValue, sourced: Sourced[?]): CompilerIO[ExpressionValue] = value match {
     case FunctionApplication(target, arg)       =>

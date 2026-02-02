@@ -14,11 +14,11 @@ object ExpressionValue {
   /** Check if an expression contains a variable with the given name. Used for occurs check in unification. */
   def containsVar(expr: ExpressionValue, varName: String): Boolean =
     expr match {
-      case ParameterReference(name, _)         => name == varName
-      case FunctionApplication(target, arg)    => containsVar(target, varName) || containsVar(arg, varName)
-      case FunctionLiteral(_, _, body)         => containsVar(body, varName)
-      case ConcreteValue(_)                    => false
-      case NativeFunction(_, _)                => false
+      case ParameterReference(name, _)      => name == varName
+      case FunctionApplication(target, arg) => containsVar(target, varName) || containsVar(arg, varName)
+      case FunctionLiteral(_, _, body)      => containsVar(body, varName)
+      case ConcreteValue(_)                 => false
+      case NativeFunction(_, _)             => false
     }
 
   /** Transform an expression by applying f to all children first, then to the result. */
@@ -28,19 +28,25 @@ object ExpressionValue {
         FunctionApplication(transform(target, f), transform(arg, f))
       case FunctionLiteral(name, paramType, body) =>
         FunctionLiteral(name, paramType, transform(body, f))
-      case leaf => leaf
+      case leaf                                   => leaf
     })
 
   given Show[ExpressionValue] with {
     def show(expr: ExpressionValue): String = expr match {
-      case FunctionType(paramType, returnType)      => s"(${show(paramType)}) -> ${show(returnType)}"
-      case ConcreteValue(v)                         => v.toString
-      case FunctionLiteral(name, paramType, body)   => s"($name: $paramType) -> ${show(body)}"
-      case NativeFunction(paramType, _)             => s"native($paramType)"
-      case ParameterReference(name, _)              => name
-      case FunctionApplication(target, arg)         => s"${show(target)}(${show(arg)})"
+      case FunctionType(paramType, returnType)    => s"(${show(paramType)}) -> ${show(returnType)}"
+      case ConcreteValue(v)                       => v.toString
+      case FunctionLiteral(name, paramType, body) => s"($name: $paramType) -> ${show(body)}"
+      case NativeFunction(paramType, _)           => s"native($paramType)"
+      case ParameterReference(name, _)            => name
+      case FunctionApplication(target, arg)       => s"${show(target)}(${show(arg)})"
     }
   }
+
+  def concreteValueOf(expressionValue: ExpressionValue): Option[Value] =
+    expressionValue match {
+      case ConcreteValue(value) => Some(value)
+      case _                    => None
+    }
 
   /** Create a function type: paramType -> returnType. Uses the standard Function$DataType representation. */
   def functionType(paramType: ExpressionValue, returnType: ExpressionValue): ExpressionValue =
