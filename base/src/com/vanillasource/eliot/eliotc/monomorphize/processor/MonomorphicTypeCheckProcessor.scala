@@ -28,7 +28,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
     for {
       typeChecked <- getFactOrAbort(TypeCheckedValue.Key(key.vfqn))
 
-      typeParams = TypeEvaluator.extractUniversalParams(typeChecked.signature)
+      typeParams = TypeEvaluator.extractTypeParams(typeChecked.signature)
 
       _ <- if (typeParams.length != key.typeArguments.length)
              compilerAbort(
@@ -38,12 +38,12 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
              )
            else ().pure[CompilerIO]
 
-      substitution = TypeEvaluator.buildSubstitution(typeParams, key.typeArguments)
+      substitution = typeParams.zip(key.typeArguments).toMap
 
       _ <- debug[CompilerIO](s"Monomorphizing ${key.vfqn} with substitution: $substitution")
 
-      strippedSignature = TypeEvaluator.stripUniversalIntros(typeChecked.signature)
-      signature        <- TypeEvaluator.evaluate(strippedSignature, substitution, typeChecked.name)
+      strippedSignature = TypeEvaluator.stripTypeParams(typeChecked.signature)
+      signature        <- TypeEvaluator.evaluate(typeChecked.signature, key.typeArguments, typeChecked.name)
 
       runtime <- typeChecked.runtime.traverse { body =>
                    transformExpression(body.value, strippedSignature, substitution, body).map(body.as)
@@ -109,7 +109,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
     for {
       typeChecked <- getFactOrAbort(TypeCheckedValue.Key(vfqn.value))
 
-      typeParams = TypeEvaluator.extractUniversalParams(typeChecked.signature)
+      typeParams = TypeEvaluator.extractTypeParams(typeChecked.signature)
 
       typeArgs <- if (typeParams.nonEmpty) {
                     inferTypeArguments(typeChecked.signature, typeParams, callSiteType, substitution, source)
@@ -139,13 +139,13 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[Seq[Value]] = {
-    val strippedSignature = TypeEvaluator.stripUniversalIntros(signature)
+    val strippedSignature = TypeEvaluator.stripTypeParams(signature)
     val bindings          = matchTypes(strippedSignature, callSiteType)
 
     typeParams.traverse { param =>
       bindings.get(param) match {
         case Some(exprValue) =>
-          TypeEvaluator.evaluate(exprValue, substitution, source)
+          TypeEvaluator.evaluateWithSubstitution(exprValue, substitution, source)
         case None            =>
           // Try substitution as fallback (for nested generics)
           substitution.get(param) match {
@@ -175,9 +175,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       case (FunctionApplication(patTarget, patArg), FunctionApplication(tgtTarget, tgtArg)) =>
         matchTypes(patTarget, tgtTarget) ++ matchTypes(patArg, tgtArg)
 
-      case (FunctionLiteral(_, patParamType, patBody), FunctionLiteral(_, tgtParamType, tgtBody))
-          if !TypeEvaluator.isKind(patParamType) =>
-        // Regular function literal (not universal intro)
+      case (FunctionLiteral(_, _, patBody), FunctionLiteral(_, _, tgtBody)) =>
         matchTypes(patBody, tgtBody)
 
       case _ =>
@@ -208,7 +206,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
-      concreteParamType <- TypeEvaluator.evaluate(paramType.value.signature.expressionType, substitution, paramType)
+      concreteParamType <- TypeEvaluator.evaluateWithSubstitution(paramType.value.signature.expressionType, substitution, paramType)
       transformedBody   <- transformTypedExpressionStack(body, substitution)
     } yield MonomorphicExpression.FunctionLiteral(paramName, concreteParamType, transformedBody)
 
@@ -220,7 +218,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       substitution: Map[String, Value]
   ): CompilerIO[Sourced[MonomorphicExpression]] =
     for {
-      concreteType <- TypeEvaluator.evaluate(stack.value.signature.expressionType, substitution, stack)
+      concreteType <- TypeEvaluator.evaluateWithSubstitution(stack.value.signature.expressionType, substitution, stack)
       transformed  <-
         transformExpression(stack.value.signature.expression, stack.value.signature.expressionType, substitution, stack)
     } yield stack.as(MonomorphicExpression(concreteType, transformed))

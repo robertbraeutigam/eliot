@@ -85,7 +85,7 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "fail on unbound type parameter" in {
     val expr = ParameterReference("A", Value.Type)
     runEvaluatorForError(expr, Map.empty, Seq.empty)
-      .asserting(_ shouldBe "Unbound type parameter: A")
+      .asserting(_ shouldBe "Type expression contains unsubstituted parameter: A")
   }
 
   it should "evaluate function type with substitution" in {
@@ -171,12 +171,12 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       .asserting(_ shouldBe functionType(intType, functionType(stringType, functionType(boolType, intType))))
   }
 
-  "extractUniversalParams" should "extract single universal parameter" in {
+  "extractTypeParams" should "extract single type parameter" in {
     val sig = FunctionLiteral("A", Value.Type, ParameterReference("A", Value.Type))
-    TypeEvaluator.extractUniversalParams(sig) shouldBe Seq("A")
+    TypeEvaluator.extractTypeParams(sig) shouldBe Seq("A")
   }
 
-  it should "extract multiple universal parameters" in {
+  it should "extract multiple type parameters" in {
     val sig = FunctionLiteral(
       "A",
       Value.Type,
@@ -186,58 +186,46 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
         ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("B", Value.Type))
       )
     )
-    TypeEvaluator.extractUniversalParams(sig) shouldBe Seq("A", "B")
+    TypeEvaluator.extractTypeParams(sig) shouldBe Seq("A", "B")
   }
 
-  it should "return empty for non-universal signature" in {
+  it should "return empty for non-parameterized signature" in {
     val sig = ExpressionValue.functionType(
       ConcreteValue(Types.dataType(intVfqn)),
       ConcreteValue(Types.dataType(stringVfqn))
     )
-    TypeEvaluator.extractUniversalParams(sig) shouldBe Seq.empty
+    TypeEvaluator.extractTypeParams(sig) shouldBe Seq.empty
   }
 
-  it should "stop at non-Type parameter type" in {
+  it should "extract all FunctionLiteral params regardless of type" in {
     val sig = FunctionLiteral(
       "A",
       Value.Type,
       FunctionLiteral(
-        "x",
+        "n",
         Types.dataType(intVfqn),
-        ParameterReference("x", Types.dataType(intVfqn))
+        ParameterReference("n", Types.dataType(intVfqn))
       )
     )
-    TypeEvaluator.extractUniversalParams(sig) shouldBe Seq("A")
+    TypeEvaluator.extractTypeParams(sig) shouldBe Seq("A", "n")
   }
 
-  "stripUniversalIntros" should "strip single universal introduction" in {
+  "stripTypeParams" should "strip single type parameter" in {
     val inner = ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("A", Value.Type))
     val sig   = FunctionLiteral("A", Value.Type, inner)
-    TypeEvaluator.stripUniversalIntros(sig) shouldBe inner
+    TypeEvaluator.stripTypeParams(sig) shouldBe inner
   }
 
-  it should "strip multiple universal introductions" in {
+  it should "strip multiple type parameters" in {
     val inner = ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("B", Value.Type))
     val sig   = FunctionLiteral("A", Value.Type, FunctionLiteral("B", Value.Type, inner))
-    TypeEvaluator.stripUniversalIntros(sig) shouldBe inner
+    TypeEvaluator.stripTypeParams(sig) shouldBe inner
   }
 
-  it should "not strip non-universal function literal" in {
-    val sig = FunctionLiteral("x", Types.dataType(intVfqn), ParameterReference("x", Types.dataType(intVfqn)))
-    TypeEvaluator.stripUniversalIntros(sig) shouldBe sig
-  }
-
-  "buildSubstitution" should "build empty map for empty inputs" in {
-    TypeEvaluator.buildSubstitution(Seq.empty, Seq.empty) shouldBe Map.empty
-  }
-
-  it should "build single-entry map" in {
-    TypeEvaluator.buildSubstitution(Seq("A"), Seq(intType)) shouldBe Map("A" -> intType)
-  }
-
-  it should "build multi-entry map preserving order" in {
-    TypeEvaluator.buildSubstitution(Seq("A", "B", "C"), Seq(intType, stringType, boolType)) shouldBe
-      Map("A" -> intType, "B" -> stringType, "C" -> boolType)
+  it should "strip all FunctionLiterals regardless of param type" in {
+    val inner = ParameterReference("n", Types.dataType(intVfqn))
+    val sig   = FunctionLiteral("n", Types.dataType(intVfqn), inner)
+    TypeEvaluator.stripTypeParams(sig) shouldBe inner
   }
 
   private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
@@ -251,7 +239,7 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       generator <- FactGenerator.create(SequentialCompilerProcessors(Seq.empty))
       _         <- generator.registerFact(sourceContent)
       _         <- evaluables.traverse(generator.registerFact)
-      result    <- TypeEvaluator.evaluate(expr, substitution, sourced(())).run(generator).run(Chain.empty).value
+      result    <- TypeEvaluator.evaluateWithSubstitution(expr, substitution, sourced(())).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((_, value)) => value
       case Left(errors)      => throw new Exception(s"Evaluation failed: ${errors.map(_.message).toList.mkString(", ")}")
@@ -266,7 +254,7 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       generator <- FactGenerator.create(SequentialCompilerProcessors(Seq.empty))
       _         <- generator.registerFact(sourceContent)
       _         <- evaluables.traverse(generator.registerFact)
-      result    <- TypeEvaluator.evaluate(expr, substitution, sourced(())).run(generator).run(Chain.empty).value
+      result    <- TypeEvaluator.evaluateWithSubstitution(expr, substitution, sourced(())).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((errors, _)) if errors.nonEmpty => errors.toList.head.message
       case Left(errors) if errors.nonEmpty       => errors.toList.head.message

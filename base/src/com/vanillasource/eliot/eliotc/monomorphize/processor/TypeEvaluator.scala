@@ -4,24 +4,24 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
-import com.vanillasource.eliot.eliotc.eval.util.{Evaluator, Types}
+import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
-/** Evaluates ExpressionValue types to Value using Evaluator.reduce(). Type parameter substitution is handled by
-  * replacing ParameterReferences with ConcreteValues, and data type references are resolved to their NativeFunctions
-  * from NamedEvaluable before reduction.
+/** Evaluates ExpressionValue types to Value using Evaluator.reduce(). Type parameters are applied as function
+  * arguments, allowing the normal Evaluator to handle beta reduction. Data type references are resolved to their
+  * NativeFunctions from NamedEvaluable before reduction.
   */
 object TypeEvaluator {
 
   /** Evaluate an ExpressionValue to a fully evaluated Value.
     *
     * @param expr
-    *   The expression value to evaluate
-    * @param substitution
-    *   Map from type parameter names to their concrete Value types
+    *   The expression value to evaluate (including type parameter FunctionLiterals)
+    * @param typeArgs
+    *   Concrete type arguments to apply to the expression
     * @param source
     *   Source location for error reporting
     * @return
@@ -29,44 +29,16 @@ object TypeEvaluator {
     */
   def evaluate(
       expr: ExpressionValue,
-      substitution: Map[String, Value],
+      typeArgs: Seq[Value],
       source: Sourced[?]
-  ): CompilerIO[Value] =
+  ): CompilerIO[Value] = {
+    val applied  = typeArgs.foldLeft(expr)((e, arg) => FunctionApplication(e, ConcreteValue(arg)))
     for {
-      substituted <- substituteParams(expr, substitution, source)
-      resolved    <- resolveDataTypeRefs(substituted)
-      reduced     <- Evaluator.reduce(resolved, source)
-      value       <- extractValue(reduced, source)
+      resolved <- resolveDataTypeRefs(applied)
+      reduced  <- Evaluator.reduce(resolved, source)
+      value    <- extractValue(reduced, source)
     } yield value
-
-  /** Substitute ParameterReferences with their concrete values from the substitution map. */
-  private def substituteParams(
-      expr: ExpressionValue,
-      substitution: Map[String, Value],
-      source: Sourced[?]
-  ): CompilerIO[ExpressionValue] =
-    expr match {
-      case ConcreteValue(_) =>
-        expr.pure[CompilerIO]
-
-      case ParameterReference(name, _) =>
-        substitution.get(name) match {
-          case Some(value) => ConcreteValue(value).pure[CompilerIO]
-          case None        => compilerAbort(source.as(s"Unbound type parameter: $name"))
-        }
-
-      case FunctionApplication(target, arg) =>
-        for {
-          newTarget <- substituteParams(target, substitution, source)
-          newArg    <- substituteParams(arg, substitution, source)
-        } yield FunctionApplication(newTarget, newArg)
-
-      case FunctionLiteral(name, paramType, body) =>
-        substituteParams(body, substitution, source).map(FunctionLiteral(name, paramType, _))
-
-      case NativeFunction(_, _) =>
-        expr.pure[CompilerIO]
-    }
+  }
 
   /** Resolve data type references that are targets of FunctionApplication. Only targets need resolution because they
     * represent type constructors that need to be applied. Standalone ConcreteValues are already final type values.
@@ -98,6 +70,8 @@ object TypeEvaluator {
         }
       case FunctionApplication(_, _)                                                   =>
         resolveDataTypeRefs(target)
+      case FunctionLiteral(_, _, _)                                                    =>
+        resolveDataTypeRefs(target)
       case _                                                                           =>
         target.pure[CompilerIO]
     }
@@ -120,45 +94,32 @@ object TypeEvaluator {
         compilerAbort(source.as("Type expression could not be fully reduced"))
     }
 
-  /** Build a substitution map from universal type parameters and their concrete arguments.
+  /** Evaluate an ExpressionValue with a substitution map. Used for evaluating type expressions within function bodies
+    * where type parameters need to be substituted with their concrete values.
     */
-  def buildSubstitution(
-      typeParams: Seq[String],
-      typeArgs: Seq[Value]
-  ): Map[String, Value] =
-    typeParams.zip(typeArgs).toMap
+  def evaluateWithSubstitution(
+      expr: ExpressionValue,
+      substitution: Map[String, Value],
+      source: Sourced[?]
+  ): CompilerIO[Value] = {
+    val (params, args) = substitution.toSeq.unzip
+    val wrapped        = params.foldRight(expr)((param, body) => FunctionLiteral(param, Value.Type, body))
+    evaluate(wrapped, args, source)
+  }
 
-  /** Extract universal type parameter names from the outermost function literals with a kind annotation.
+  /** Extract type parameter names from the outermost function literals.
     */
-  def extractUniversalParams(signature: ExpressionValue): Seq[String] =
+  def extractTypeParams(signature: ExpressionValue): Seq[String] =
     signature match {
-      case FunctionLiteral(name, paramType, body) if isKind(paramType) =>
-        name +: extractUniversalParams(body)
-      case _                                                           => Seq.empty
+      case FunctionLiteral(name, _, body) => name +: extractTypeParams(body)
+      case _                              => Seq.empty
     }
 
-  /** Strip universal type parameter introductions from the signature, leaving the actual function/value type.
+  /** Strip type parameter introductions from the signature, leaving the actual type.
     */
-  def stripUniversalIntros(expr: ExpressionValue): ExpressionValue =
+  def stripTypeParams(expr: ExpressionValue): ExpressionValue =
     expr match {
-      case FunctionLiteral(_, paramType, body) if isKind(paramType) =>
-        stripUniversalIntros(body)
-      case other                                                    => other
-    }
-
-  /** Check if a Value represents a kind (Type or Function returning Type).
-    */
-  def isKind(value: Value): Boolean =
-    value match {
-      case Value.Type =>
-        true
-      case Value.Structure(fields, Value.Type) =>
-        fields.get("$typeName") match {
-          case Some(Value.Direct(vfqn: ValueFQN, _)) if vfqn === Types.functionDataTypeFQN =>
-            fields.get("A").exists(isKind) &&
-            fields.get("B").exists(isKind)
-          case _ => false
-        }
-      case _ => false
+      case FunctionLiteral(_, _, body) => stripTypeParams(body)
+      case other                       => other
     }
 }
