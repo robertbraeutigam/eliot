@@ -85,33 +85,26 @@ object Evaluator {
       for {
         reducedTarget <- reduce(target, sourced)
         reducedArg    <- reduce(arg, sourced)
-        result        <- applyOrKeep(reducedTarget, reducedArg, sourced)
+        result        <- reducedTarget match {
+                           case FunctionLiteral(paramName, paramType, body) =>
+                             checkType(paramType, reducedArg, sourced) >>
+                               reduce(substitute(body, paramName, reducedArg), sourced)
+                           case NativeFunction(paramType, nativeFn)         =>
+                             reducedArg match {
+                               case ConcreteValue(v) =>
+                                 checkType(paramType, reducedArg, sourced) >> nativeFn(v).pure[CompilerIO]
+                               case _                =>
+                                 FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
+                             }
+                           case _                                           =>
+                             FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
+                         }
       } yield result
     case FunctionLiteral(name, paramType, body) =>
       reduce(body, sourced).map(FunctionLiteral(name, paramType, _))
     case other                                  =>
       other.pure[CompilerIO]
   }
-
-  private def applyOrKeep(
-      target: ExpressionValue,
-      arg: ExpressionValue,
-      sourced: Sourced[?]
-  ): CompilerIO[ExpressionValue] =
-    target match {
-      case FunctionLiteral(paramName, paramType, body) =>
-        checkType(paramType, arg, sourced) >>
-          reduce(substitute(body, paramName, arg), sourced)
-      case NativeFunction(paramType, nativeFn)         =>
-        arg match {
-          case ConcreteValue(v) =>
-            checkType(paramType, arg, sourced) >> nativeFn(v).pure[CompilerIO]
-          case _                =>
-            FunctionApplication(target, arg).pure[CompilerIO]
-        }
-      case _                                           =>
-        FunctionApplication(target, arg).pure[CompilerIO]
-    }
 
   private def checkType(expectedType: Value, argument: ExpressionValue, sourced: Sourced[?]): CompilerIO[Unit] =
     argumentType(argument) match {
