@@ -3,101 +3,104 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.data.IndexedStateT
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.types
 import NativeImplementation.implementations
 import TypeState.*
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor2, moduleNameToOld, simpleType, valueFQNToTypeFQN}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
+import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.TypeReference.DirectTypeReference
-import com.vanillasource.eliot.eliotc.resolve.fact.{ArgumentDefinition, ResolvedData, TypeReference}
+import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedData
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
-import com.vanillasource.eliot.eliotc.uncurry.UncurriedTypedExpression.*
-import com.vanillasource.eliot.eliotc.uncurry.{
-  UncurriedFunction,
-  UncurriedTypedExpression,
-  UncurriedTypedFunctionDefinition
-}
-import com.vanillasource.eliot.eliotc.used.UsedSymbols
+import com.vanillasource.eliot.eliotc.uncurry2.fact.*
+import com.vanillasource.eliot.eliotc.uncurry2.fact.UncurriedExpression.*
+import com.vanillasource.eliot.eliotc.used2.UsedNames
+import com.vanillasource.eliot.eliotc.used2.UsedNames.UsageStats
 
 class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with Logging {
 
   override protected def generateFact(key: GeneratedModule.Key): CompilerIO[Unit] =
     for {
-      usedSymbols            <- getFactOrAbort(UsedSymbols.Key(key.ffqn))
-      usedFunctions           = usedSymbols.usedFunctions.filter(_.value.moduleName == key.moduleName)
-      usedTypes               = usedSymbols.usedTypes.filter(_.value.moduleName == key.moduleName)
-      mainClassGenerator     <- createClassGenerator[CompilerIO](key.moduleName)
-      typeFiles              <- usedTypes
-                                  .filter(stfqn => !types.contains(stfqn.value))
-                                  .flatTraverse(sourcedTfqn => createData(mainClassGenerator, sourcedTfqn))
-      typeGeneratedFunctions <- usedTypes.flatTraverse(collectTypeGeneratedFunctions).map(_.toSet)
-      functionFiles          <- usedFunctions
-                                  .filter(sffqn => !typeGeneratedFunctions.contains(sffqn.value.functionName))
-                                  .flatTraverse(sourcedFfqn => createModuleMethod(mainClassGenerator, sourcedFfqn))
-      mainClass              <- mainClassGenerator.generate[CompilerIO]()
-      _                      <- registerFactIfClear(GeneratedModule(key.moduleName, key.ffqn, typeFiles ++ functionFiles ++ Seq(mainClass)))
+      usedNames          <- getFactOrAbort(UsedNames.Key(key.vfqn))
+      usedValues          = usedNames.usedNames.filter((vfqn, _) => vfqn.moduleName === key.moduleName)
+      mainClassGenerator <- createClassGenerator[CompilerIO](moduleNameToOld(key.moduleName))
+      functionFiles      <- usedValues.toSeq.flatTraverse { case (vfqn, stats) =>
+                              createModuleMethod(mainClassGenerator, vfqn, stats)
+                            }
+      mainClass          <- mainClassGenerator.generate[CompilerIO]()
+      _                  <- registerFactIfClear(GeneratedModule(key.moduleName, key.vfqn, functionFiles ++ Seq(mainClass)))
     } yield ()
+
+  private def selectBestArity(stats: UsageStats): Int =
+    if (stats.directCallApplications.isEmpty) {
+      0
+    } else {
+      stats.directCallApplications.maxByOption(_._2).map(_._1).getOrElse(0)
+    }
 
   private def createModuleMethod(
       mainClassGenerator: ClassGenerator,
-      sourcedFfqn: Sourced[FunctionFQN]
+      vfqn: ValueFQN,
+      stats: UsageStats
   ): CompilerIO[Seq[ClassFile]] = {
-    implementations.get(sourcedFfqn.value) match {
+    implementations.get(vfqn) match {
       case Some(nativeImplementation) =>
         // There's a native implementation for this method so get it
         nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty)
       case None                       =>
         // Not a native method, should have a body and generate it
+        val arity = selectBestArity(stats)
         for {
-          functionDefinition <- getFactOrAbort(UncurriedFunction.Key(sourcedFfqn.value))
-          classFiles         <- createModuleMethod(mainClassGenerator, functionDefinition)
-          _                  <- createApplicationMain(sourcedFfqn.value, mainClassGenerator).whenA(isMain(functionDefinition.definition))
+          uncurriedValue <- getFactOrAbort(UncurriedValue.Key(vfqn, arity))
+          classFiles     <- createModuleMethod(mainClassGenerator, uncurriedValue)
+          _              <- createApplicationMain(vfqn, mainClassGenerator).whenA(isMain(uncurriedValue))
         } yield classFiles
     }
   }
 
   private def createModuleMethod(
       classGenerator: ClassGenerator,
-      functionDefinition: UncurriedFunction
+      uncurriedValue: UncurriedValue
   ): CompilerIO[Seq[ClassFile]] = {
-    functionDefinition.definition.body match {
+    uncurriedValue.body match {
       case Some(body) =>
         classGenerator
           .createMethod[CompilerIO](
-            functionDefinition.ffqn.functionName,
-            functionDefinition.definition.parameters.map(p => simpleType(p.typeReference)),
-            simpleType(functionDefinition.definition.returnType)
+            uncurriedValue.vfqn.name,
+            uncurriedValue.parameters.map(p => simpleType(p.parameterType)),
+            simpleType(uncurriedValue.returnType)
           )
           .use { methodGenerator =>
-            val program = for {
+            val bodyExpression = UncurriedExpression(uncurriedValue.returnType, body.value)
+            val program        = for {
               // Add parameters to state
-              _       <- functionDefinition.definition.parameters.traverse_(addParameterDefinition)
+              _       <- uncurriedValue.parameters.traverse_(addParameterDefinition)
               // Generate code for the body
               classes <-
                 createExpressionCode(
-                  functionDefinition.ffqn.moduleName,
+                  uncurriedValue.vfqn.moduleName,
                   classGenerator,
                   methodGenerator,
-                  body.value
+                  bodyExpression
                 )
               _       <-
                 debug[CompilationTypesIO](
-                  s"From function ${functionDefinition.ffqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
+                  s"From function ${uncurriedValue.vfqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
                 )
             } yield classes
 
             program.runA(TypeState())
           }
       case None       =>
-        compilerAbort(functionDefinition.definition.name.as(s"Function not implemented."))
+        compilerAbort(uncurriedValue.name.as(s"Function not implemented."))
     }
   }
 
@@ -105,9 +108,9 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
-      typedExpression: UncurriedTypedExpression
+      uncurriedExpression: UncurriedExpression
   ): CompilationTypesIO[Seq[ClassFile]] =
-    typedExpression.expression match {
+    uncurriedExpression.expression match {
       case FunctionApplication(target, arguments)   =>
         generateFunctionApplication(
           moduleName,
@@ -115,7 +118,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           methodGenerator,
           target.value,
           arguments.map(_.value),
-          typedExpression.expressionType
+          uncurriedExpression.expressionType
         )
       case IntegerLiteral(integerLiteral)           => ???
       case StringLiteral(stringLiteral)             =>
@@ -126,17 +129,17 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           parameterType <- getParameterType(sourcedParameterName.value)
           _             <- compilerAbort(sourcedParameterName.as("Could not find in scope.")).liftToTypes
                              .whenA(index.isEmpty || parameterType.isEmpty)
-          _             <- methodGenerator.addLoadVar[CompilationTypesIO](simpleType(parameterType.get.typeReference), index.get)
+          _             <- methodGenerator.addLoadVar[CompilationTypesIO](simpleType(parameterType.get.parameterType), index.get)
         } yield Seq.empty
-      case ValueReference(Sourced(_, _, ffqn))      =>
+      case ValueReference(sourcedVfqn)              =>
         // This is practically a zero argument function call to this
         generateFunctionApplication(
           moduleName,
           outerClassGenerator,
           methodGenerator,
-          typedExpression,
+          uncurriedExpression,
           Seq.empty,
-          typedExpression.expressionType
+          uncurriedExpression.expressionType
         )
       case FunctionLiteral(parameters, body)        =>
         generateLambda(moduleName, outerClassGenerator, methodGenerator, parameters, body)
@@ -146,14 +149,14 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
-      typedTarget: UncurriedTypedExpression,
-      arguments: Seq[UncurriedTypedExpression],
-      expectedResultType: TypeReference
+      typedTarget: UncurriedExpression,
+      arguments: Seq[UncurriedExpression],
+      expectedResultType: ExpressionValue
   ): CompilationTypesIO[Seq[ClassFile]] =
     typedTarget.expression match {
-      case IntegerLiteral(integerLiteral)                                => ??? // FIXME: we can't apply functions on this, right?
-      case StringLiteral(stringLiteral)                                  => ??? // FIXME: we can't apply functions on this, right?
-      case ParameterReference(parameterName)                             =>
+      case IntegerLiteral(integerLiteral)          => ??? // FIXME: we can't apply functions on this, right?
+      case StringLiteral(stringLiteral)            => ??? // FIXME: we can't apply functions on this, right?
+      case ParameterReference(parameterName)       =>
         // Function application on a parameter reference, so this needs to be a Function
         // FIXME: This only works with 1-arguments now, since this needs to be a java.lang.Function
         for {
@@ -162,7 +165,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           _              <- compilerAbort(parameterName.as("Could not find parameter in scope.")).liftToTypes
                               .whenA(parameterIndex.isEmpty || parameterType.isEmpty)
           _              <- methodGenerator
-                              .addLoadVar[CompilationTypesIO](simpleType(parameterType.get.typeReference), parameterIndex.get)
+                              .addLoadVar[CompilationTypesIO](simpleType(parameterType.get.parameterType), parameterIndex.get)
           // FIXME: this does not work when currying and it fails runtime, it is not detected here
           classes        <- arguments.flatTraverse(expression =>
                               createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
@@ -172,40 +175,47 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                               simpleType(expectedResultType)
                             )
         } yield classes
-      case ValueReference(sourcedCalledFfqn @ Sourced(_, _, calledFfqn)) =>
+      case ValueReference(sourcedCalledVfqn)       =>
         // Calling a function
+        val calledVfqn = sourcedCalledVfqn.value
         for {
-          uncurriedFunctionMaybe <- getFact(UncurriedFunction.Key(calledFfqn)).liftToTypes
-          resultClasses          <- uncurriedFunctionMaybe match
-                                      case Some(uncurriedFunction) =>
-                                        val parameterTypes =
-                                          uncurriedFunction.definition.parameters.map(p => simpleType(p.typeReference))
-                                        val returnType     = simpleType(uncurriedFunction.definition.returnType)
-                                        // FIXME: this doesn't seem to check whether arguments match either
-                                        for {
-                                          classes <-
-                                            arguments.flatTraverse(expression =>
-                                              createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
-                                            )
-                                          _       <- methodGenerator.addCallTo[CompilationTypesIO](
-                                                       calledFfqn,
-                                                       parameterTypes,
-                                                       returnType
-                                                     )
-                                          _       <- methodGenerator
-                                                       .addCastTo[CompilationTypesIO](
-                                                         simpleType(expectedResultType)
-                                                       )
-                                                       .whenA(simpleType(expectedResultType) =!= returnType)
-                                        } yield classes
-                                      case None                    =>
-                                        compilerError(
-                                          sourcedCalledFfqn.as("Could not find uncurried function."),
-                                          Seq(s"Looking for function: ${calledFfqn.show}")
-                                        ).liftToTypes.as(Seq.empty)
+          usedNamesMaybe  <- getFact(UsedNames.Key(calledVfqn)).liftToTypes
+          calledArity      = usedNamesMaybe
+                               .flatMap(_.usedNames.get(calledVfqn))
+                               .map(stats => selectBestArity(stats))
+                               .getOrElse(arguments.length)
+          uncurriedMaybe  <- getFact(UncurriedValue.Key(calledVfqn, calledArity)).liftToTypes
+          resultClasses   <- uncurriedMaybe match
+                               case Some(uncurriedValue) =>
+                                 val parameterTypes =
+                                   uncurriedValue.parameters.map(p => simpleType(p.parameterType))
+                                 val returnType     = simpleType(uncurriedValue.returnType)
+                                 val calledFfqn     = FunctionFQN(moduleNameToOld(calledVfqn.moduleName), calledVfqn.name)
+                                 // FIXME: this doesn't seem to check whether arguments match either
+                                 for {
+                                   classes <-
+                                     arguments.flatTraverse(expression =>
+                                       createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                     )
+                                   _       <- methodGenerator.addCallTo[CompilationTypesIO](
+                                                calledFfqn,
+                                                parameterTypes,
+                                                returnType
+                                              )
+                                   _       <- methodGenerator
+                                                .addCastTo[CompilationTypesIO](
+                                                  simpleType(expectedResultType)
+                                                )
+                                                .whenA(simpleType(expectedResultType) =!= returnType)
+                                 } yield classes
+                               case None                 =>
+                                 compilerError(
+                                   sourcedCalledVfqn.as("Could not find uncurried function."),
+                                   Seq(s"Looking for function: ${calledVfqn.show}")
+                                 ).liftToTypes.as(Seq.empty)
         } yield resultClasses
-      case FunctionLiteral(parameters, body)                             => ??? // FIXME: applying lambda immediately
-      case FunctionApplication(target, arguments)                        => ??? // FIXME: applying on a result function?
+      case FunctionLiteral(parameters, body)       => ??? // FIXME: applying lambda immediately
+      case FunctionApplication(target, arguments2) => ??? // FIXME: applying on a result function?
     }
 
   private def collectParameterReferences(expr: Expression): Seq[String] =
@@ -225,8 +235,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
-      parameters: Seq[ArgumentDefinition],
-      body: Sourced[UncurriedTypedExpression]
+      parameters: Seq[ParameterDefinition],
+      body: Sourced[UncurriedExpression]
   ): CompilationTypesIO[Seq[ClassFile]] = {
     // Validate parameter count - only support 0 or 1 parameter
     if (parameters.length > 1) {
@@ -237,6 +247,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     val closedOverNames = collectParameterReferences(body.value.expression)
       .filter(_ =!= definition.name.value)
     val returnType      = simpleType(body.value.expressionType)
+    val oldModuleName   = moduleNameToOld(moduleName)
 
     for {
       _                <- addParameterDefinition(definition)
@@ -249,7 +260,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
         outerClassGenerator
           .createMethod[CompilationTypesIO](
             "lambdaFn$" + lambdaIndex,
-            closedOverArgs.get.map(_.typeReference).map(simpleType),
+            closedOverArgs.get.map(_.parameterType).map(simpleType),
             simpleType(body.value.expressionType)
           )
           .use { fnGenerator =>
@@ -258,10 +269,10 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       innerClassWriter <-
         outerClassGenerator
           .createInnerClassGenerator[CompilationTypesIO]("lambda$" + lambdaIndex, Seq("java/util/function/Function"))
-      _                <- innerClassWriter.addDataFieldsAndCtor[CompilationTypesIO](closedOverArgs.get)
+      _                <- innerClassWriter.addDataFieldsAndCtor2[CompilationTypesIO](closedOverArgs.get)
       _                <- innerClassWriter
                             .createApplyMethod[CompilationTypesIO](
-                              Seq(simpleType(definition.typeReference)),
+                              Seq(simpleType(definition.parameterType)),
                               simpleType(body.value.expressionType)
                             )
                             .use { applyGenerator =>
@@ -270,153 +281,70 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                        for {
                                          _ <- applyGenerator
                                                 .addLoadVar[CompilationTypesIO](
-                                                  TypeFQN(moduleName, "lambda$" + lambdaIndex),
+                                                  TypeFQN(oldModuleName, "lambda$" + lambdaIndex),
                                                   0 // The data object is the parameter
                                                 )
                                          _ <- applyGenerator.addGetField[CompilationTypesIO](
                                                 argument.name.value,
-                                                simpleType(argument.typeReference),
-                                                TypeFQN(moduleName, "lambda$" + lambdaIndex)
+                                                simpleType(argument.parameterType),
+                                                TypeFQN(oldModuleName, "lambda$" + lambdaIndex)
                                               )
                                        } yield ()
                                      }
                                 // Call the static lambdaFn
                                 _ <- applyGenerator.addCallTo[CompilationTypesIO](
-                                       FunctionFQN(moduleName, "lambdaFn$" + lambdaIndex),
-                                       closedOverArgs.get.map(_.typeReference).map(simpleType),
+                                       FunctionFQN(oldModuleName, "lambdaFn$" + lambdaIndex),
+                                       closedOverArgs.get.map(_.parameterType).map(simpleType),
                                        simpleType(body.value.expressionType)
                                      )
                               } yield ()
                             }
       classFile        <- innerClassWriter.generate[CompilationTypesIO]()
-      _                <- methodGenerator.addNew[CompilationTypesIO](TypeFQN(moduleName, "lambda$" + lambdaIndex))
+      _                <- methodGenerator.addNew[CompilationTypesIO](TypeFQN(oldModuleName, "lambda$" + lambdaIndex))
       _                <- closedOverArgs.get.traverse_ { argument =>
                             for {
                               argIndex <- getParameterIndex(argument.name.value)
                               argType  <- getParameterType(argument.name.value)
                               _        <- methodGenerator
-                                            .addLoadVar[CompilationTypesIO](simpleType(argType.get.typeReference), argIndex.get)
+                                            .addLoadVar[CompilationTypesIO](simpleType(argType.get.parameterType), argIndex.get)
                             } yield ()
                           }
       _                <- methodGenerator.addCallToCtor[CompilationTypesIO]( // Call constructor
-                            TypeFQN(moduleName, "lambda$" + lambdaIndex),
-                            closedOverArgs.get.map(_.typeReference).map(simpleType)
+                            TypeFQN(oldModuleName, "lambda$" + lambdaIndex),
+                            closedOverArgs.get.map(_.parameterType).map(simpleType)
                           )
       // FIXME: add apply: calling the static method
     } yield classFile +: cls1
   }
 
-  private def createData(
-      outerClassGenerator: ClassGenerator,
-      sourcedTfqn: Sourced[TypeFQN]
-  ): CompilerIO[Seq[ClassFile]] =
-    for {
-      typeDefinitionMaybe <- getFact(ResolvedData.Key(sourcedTfqn.value))
-      classes             <- typeDefinitionMaybe match {
-                               case Some(typeDefinition) =>
-                                 for {
-                                   _  <- compilerAbort(sourcedTfqn.as("Type not fully defined."))
-                                           .unlessA(typeDefinition.definition.fields.isDefined)
-                                   cs <-
-                                     createDataClass(
-                                       outerClassGenerator,
-                                       sourcedTfqn.value.typeName,
-                                       typeDefinition.definition.fields.get
-                                     )
-                                   // Define data function
-                                   _  <-
-                                     outerClassGenerator
-                                       .createMethod[CompilerIO](
-                                         sourcedTfqn.value.typeName, // TODO: is name legal?
-                                         typeDefinition.definition.fields.get.map(_.typeReference).map(simpleType),
-                                         sourcedTfqn.value
-                                       )
-                                       .use { methodGenerator =>
-                                         for {
-                                           // Allocate new data object
-                                           _ <- methodGenerator.addNew[CompilerIO](sourcedTfqn.value)
-                                           // Load constructor arguments
-                                           _ <- typeDefinition.definition.fields.get.zipWithIndex.traverse_ {
-                                                  (fieldDefinition, index) =>
-                                                    methodGenerator
-                                                      .addLoadVar[CompilerIO](simpleType(fieldDefinition.typeReference), index)
-                                                }
-                                           // Call constructor
-                                           _ <- methodGenerator.addCallToCtor[CompilerIO](
-                                                  sourcedTfqn.value,
-                                                  typeDefinition.definition.fields.get
-                                                    .map(_.typeReference)
-                                                    .map(simpleType)
-                                                )
-                                         } yield ()
-                                       }
-                                   // Define accessors
-                                   _  <- typeDefinition.definition.fields.get.traverse_ { argumentDefinition =>
-                                           outerClassGenerator
-                                             .createMethod[CompilerIO](
-                                               argumentDefinition.name.value,
-                                               Seq(sourcedTfqn.value),
-                                               simpleType(argumentDefinition.typeReference)
-                                             )
-                                             .use { accessorGenerator =>
-                                               for {
-                                                 _ <- accessorGenerator
-                                                        .addLoadVar[CompilerIO](
-                                                          sourcedTfqn.value,
-                                                          0 // The data object is the parameter
-                                                        )
-                                                 _ <- accessorGenerator.addGetField[CompilerIO](
-                                                        argumentDefinition.name.value,
-                                                        simpleType(argumentDefinition.typeReference),
-                                                        sourcedTfqn.value
-                                                      )
-                                               } yield ()
-                                             }
-                                         }
-
-                                 } yield cs
-                               case None                 => compilerError(sourcedTfqn.as("Could not find resolved type.")).as(Seq.empty)
-                             }
-    } yield classes
-
-  private def createDataClass(
-      outerClassGenerator: ClassGenerator,
-      innerClassName: String,
-      fields: Seq[ArgumentDefinition],
-      javaInterfaces: Seq[String] = Seq.empty
-  ): CompilerIO[Seq[ClassFile]] =
-    for {
-      innerClassWriter <- outerClassGenerator.createInnerClassGenerator[CompilerIO](innerClassName, javaInterfaces)
-      _                <- innerClassWriter.addDataFieldsAndCtor[CompilerIO](fields)
-      classFile        <- innerClassWriter.generate[CompilerIO]()
-    } yield Seq(classFile)
-
-  private def collectTypeGeneratedFunctions(
-      sourcedTfqn: Sourced[TypeFQN]
-  ): CompilerIO[Seq[String]] = {
-    getFact(ResolvedData.Key(sourcedTfqn.value)).map {
-      case Some(resolvedData) =>
-        resolvedData.definition.fields.getOrElse(Seq.empty).map(_.name.value) ++ Seq(sourcedTfqn.value.typeName)
-      case None               => Seq(sourcedTfqn.value.typeName)
-    }
-  }
-
-  /** Create a JVM compatible static main, if this methid is the eliot main, presumably generated from the
+  /** Create a JVM compatible static main, if this method is the eliot main, presumably generated from the
     * JvmProgramGenerator.
     */
-  private def createApplicationMain(mainFfqn: FunctionFQN, generator: ClassGenerator): CompilerIO[Unit] =
+  private def createApplicationMain(mainVfqn: ValueFQN, generator: ClassGenerator): CompilerIO[Unit] =
     generator.createMainMethod[CompilerIO]().use { methodGenerator =>
-      methodGenerator.addCallTo(mainFfqn, Seq.empty, systemUnitType)
+      methodGenerator.addCallTo(FunctionFQN(moduleNameToOld(mainVfqn.moduleName), mainVfqn.name), Seq.empty, systemUnitType)
     }
 
   /** @return
     *   Iff the method definition is a suitable main to run from the JVM
     */
-  private def isMain(definition: UncurriedTypedFunctionDefinition): Boolean =
-    definition.name.value === "main" && definition.genericParameters.isEmpty &&
-      definition.parameters.isEmpty &&
-      (definition.returnType match {
-        case DirectTypeReference(Sourced(_, _, sut), gs) if gs.isEmpty && sut === systemUnitType => true
-        case _                                                                                   => false
+  private def isMain(uncurriedValue: UncurriedValue): Boolean =
+    uncurriedValue.name.value === "main" &&
+      uncurriedValue.parameters.isEmpty &&
+      (uncurriedValue.returnType match {
+        case ExpressionValue.ConcreteValue(value) =>
+          import com.vanillasource.eliot.eliotc.eval.fact.Value
+          value match {
+            case Value.Structure(fields, _) =>
+              fields.get("$typeName") match {
+                case Some(Value.Direct(vfqn: ValueFQN, _)) =>
+                  vfqn.moduleName.packages === Seq("eliot", "lang") &&
+                  vfqn.moduleName.name === "Unit" &&
+                  vfqn.name === "Unit"
+                case _                                     => false
+              }
+            case _                          => false
+          }
+        case _                                    => false
       })
 }

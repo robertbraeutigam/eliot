@@ -2,9 +2,10 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemLangType
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
+import com.vanillasource.eliot.eliotc.module2.fact.ModuleName
+import com.vanillasource.eliot.eliotc.module2.fact.ModuleName.defaultSystemPackage
+import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import org.objectweb.asm.Opcodes
 
@@ -13,15 +14,15 @@ trait NativeImplementation {
 }
 
 object NativeImplementation {
-  val implementations: Map[FunctionFQN, NativeImplementation] = Map.from(
+  val implementations: Map[ValueFQN, NativeImplementation] = Map.from(
     Seq(
-      (systemLangFunction("String", "printlnInternal"), eliot_lang_String_printlnInternal),
-      (systemLangFunction("Unit", "unit"), eliot_lang_Unit_unit)
+      (systemLangValue("String", "printlnInternal"), eliot_lang_String_printlnInternal),
+      (systemLangValue("Unit", "unit"), eliot_lang_Unit_unit)
     )
   )
 
-  private def systemLangFunction(moduleName: String, functionName: String): FunctionFQN =
-    FunctionFQN(ModuleName(defaultSystemPackage, moduleName), functionName)
+  private def systemLangValue(moduleName: String, valueName: String): ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, moduleName), valueName)
 
   private def eliot_lang_Unit_unit: NativeImplementation = new NativeImplementation {
     override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {

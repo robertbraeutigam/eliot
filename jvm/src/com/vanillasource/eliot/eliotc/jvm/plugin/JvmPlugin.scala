@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.plugin.BasePlugin
 import com.vanillasource.eliot.eliotc.jvm.jargen.{GenerateExecutableJar, JvmProgramGenerator}
 import com.vanillasource.eliot.eliotc.compiler.Compiler
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.JvmClassGenerator
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
+import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
@@ -19,7 +19,7 @@ class JvmPlugin extends CompilerPlugin {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
   import cmdLineBuilder.*
 
-  private val mainKey = namedKey[FunctionFQN]("mainFunction")
+  private val mainKey = namedKey[ValueFQN]("mainFunction")
 
   override def commandLineParser(): OParser[?, Configuration] = OParser.sequence(
     cmd("jvm")
@@ -31,7 +31,7 @@ class JvmPlugin extends CompilerPlugin {
             opt[String]('m', "main-module")
               .required()
               .text("module that has a suitable main method")
-              .action((moduleName, config) => config.set(mainKey, FunctionFQN(ModuleName.parse(moduleName), "main")))
+              .action((moduleName, config) => config.set(mainKey, ValueFQN(ModuleName.parse(moduleName), "main")))
           )
       )
   )

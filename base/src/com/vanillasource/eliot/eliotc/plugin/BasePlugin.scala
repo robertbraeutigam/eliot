@@ -15,17 +15,28 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleFunctionProcessor,
   UnifiedModuleNamesProcessor
 }
+import com.vanillasource.eliot.eliotc.module2.processor.{
+  ModuleNamesProcessor => ModuleNamesProcessor2,
+  ModuleValueProcessor,
+  UnifiedModuleNamesProcessor => UnifiedModuleNamesProcessor2,
+  UnifiedModuleValueProcessor
+}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
+import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
+import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.datafunctions.DataFunctionsProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.typesystem.processor.TypeCheckProcessor
 import com.vanillasource.eliot.eliotc.uncurry.UncurryingProcessor
 import com.vanillasource.eliot.eliotc.uncurry2.processor.{UncurryingProcessor => UncurryingProcessor2}
 import com.vanillasource.eliot.eliotc.used.UsedSymbolsProcessor
+import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
+import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
+import com.vanillasource.eliot.eliotc.used2.UsedNamesProcessor
 import scopt.{OParser, OParserBuilder}
 
 import java.io.File
@@ -54,6 +65,7 @@ class BasePlugin extends CompilerPlugin {
             PathScanner(configuration.getOrElse(pathKey, Seq.empty)),
             Tokenizer(),
             ASTParser(),
+            CoreProcessor(),
             DataFunctionsProcessor(),
             ModuleFunctionProcessor(),
             ModuleDataProcessor(),
@@ -66,6 +78,16 @@ class BasePlugin extends CompilerPlugin {
             TypeCheckProcessor(),
             UncurryingProcessor(),
             UsedSymbolsProcessor(),
+            // New module2 pipeline
+            ModuleNamesProcessor2(),
+            ModuleValueProcessor(),
+            UnifiedModuleNamesProcessor2(),
+            UnifiedModuleValueProcessor(),
+            ValueResolver(),
+            // New pipeline for uncurry2
+            SymbolicTypeCheckProcessor(),
+            MonomorphicTypeCheckProcessor(),
+            UsedNamesProcessor(),
             UncurryingProcessor2()
           )
         )

@@ -4,11 +4,11 @@ import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName}
+import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.SourceContent.addSource
-import com.vanillasource.eliot.eliotc.used.UsedSymbols
+import com.vanillasource.eliot.eliotc.used2.UsedNames
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.StandardOpenOption.*
@@ -22,37 +22,35 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
   override protected def generateFact(key: GenerateExecutableJar.Key): CompilerIO[Unit] =
     for {
       // First, generate all modules for user's code
-      _          <- generateModulesFrom(key.ffqn)
+      _          <- generateModulesFrom(key.vfqn)
       // Add dynamic main and generate everything if user's code did not fail
-      _          <- addSource(sourceDir.resolve("main.els").toFile, generateMainSource(key.ffqn))
-      allModules <- generateModulesFrom(FunctionFQN(ModuleName(Seq(), "main"), "main"))
-      _          <- generateJarFile(key.ffqn, allModules).to[CompilerIO]
+      _          <- addSource(sourceDir.resolve("main.els").toFile, generateMainSource(key.vfqn))
+      allModules <- generateModulesFrom(ValueFQN(ModuleName(Seq(), "main"), "main"))
+      _          <- generateJarFile(key.vfqn, allModules).to[CompilerIO]
     } yield ()
 
-  private def generateModulesFrom(ffqn: FunctionFQN): CompilerIO[Seq[GeneratedModule]] =
+  private def generateModulesFrom(vfqn: ValueFQN): CompilerIO[Seq[GeneratedModule]] =
     for {
-      usedSymbols <- getFactOrAbort(UsedSymbols.Key(ffqn))
-      modules     <- generateModules(ffqn, usedSymbols)
+      usedNames <- getFactOrAbort(UsedNames.Key(vfqn))
+      modules   <- generateModules(vfqn, usedNames)
     } yield modules
 
-  private def generateModules(ffqn: FunctionFQN, usedSymbols: UsedSymbols): CompilerIO[Seq[GeneratedModule]] = {
-    val groupedFunctions = usedSymbols.usedFunctions.groupBy(_.value.moduleName)
-    val groupedTypes     = usedSymbols.usedTypes.groupBy(_.value.moduleName)
-    val moduleNames      = (groupedFunctions.keys ++ groupedTypes.keys).toSeq
+  private def generateModules(vfqn: ValueFQN, usedNames: UsedNames): CompilerIO[Seq[GeneratedModule]] = {
+    val moduleNames = usedNames.usedNames.keys.map(_.moduleName).toSeq.distinct
 
-    moduleNames.traverse(moduleName => getFactOrAbort(GeneratedModule.Key(moduleName, ffqn)))
+    moduleNames.traverse(moduleName => getFactOrAbort(GeneratedModule.Key(moduleName, vfqn)))
   }
 
-  private def generateJarFile(mainFunction: FunctionFQN, allClasses: Seq[GeneratedModule]): IO[Unit] =
-    jarOutputStream(mainFunction).use { jos =>
+  private def generateJarFile(mainValue: ValueFQN, allClasses: Seq[GeneratedModule]): IO[Unit] =
+    jarOutputStream(mainValue).use { jos =>
       IO.blocking {
         generateManifest(jos)
         generateClasses(jos, allClasses)
       }
-    } >> info(s"Generated executable jar: ${jarFilePath(mainFunction)}.")
+    } >> info(s"Generated executable jar: ${jarFilePath(mainValue)}.")
 
   private def generateClasses(jos: JarOutputStream, allClasses: Seq[GeneratedModule]): Unit = {
-    allClasses.foreach { case GeneratedModule(moduleName, ffqn, classFiles) =>
+    allClasses.foreach { case GeneratedModule(moduleName, vfqn, classFiles) =>
       classFiles.foreach { classFile =>
         jos.putNextEntry(new JarEntry(classFile.fileName))
         jos.write(classFile.bytecode)
@@ -61,18 +59,18 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
     }
   }
 
-  private def jarOutputStream(mainFunction: FunctionFQN): Resource[IO, JarOutputStream] =
+  private def jarOutputStream(mainValue: ValueFQN): Resource[IO, JarOutputStream] =
     for {
       _   <- Resource.eval(IO.blocking(Files.createDirectories(targetDir)))
       os  <- Resource.fromAutoCloseable(
-               IO.blocking(Files.newOutputStream(jarFilePath(mainFunction), CREATE, TRUNCATE_EXISTING))
+               IO.blocking(Files.newOutputStream(jarFilePath(mainValue), CREATE, TRUNCATE_EXISTING))
              )
       jos <- Resource.fromAutoCloseable(IO.blocking(new JarOutputStream(os)))
     } yield jos
 
-  private def jarFilePath(mainFunction: FunctionFQN): Path = targetDir.resolve(jarFileName(mainFunction))
+  private def jarFilePath(mainValue: ValueFQN): Path = targetDir.resolve(jarFileName(mainValue))
 
-  private def jarFileName(mainFunction: FunctionFQN): String = mainFunction.moduleName.name + ".jar"
+  private def jarFileName(mainValue: ValueFQN): String = mainValue.moduleName.name + ".jar"
 
   private def generateManifest(jos: JarOutputStream): Unit = {
     jos.putNextEntry(new JarEntry("META-INF/MANIFEST.MF"))
@@ -80,8 +78,8 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
     jos.closeEntry()
   }
 
-  private def generateMainSource(mainFfqn: FunctionFQN): String =
+  private def generateMainSource(mainVfqn: ValueFQN): String =
     s"""
-       |main: Unit = apply(block(${mainFfqn.moduleName.show}::${mainFfqn.functionName}), unit)
+       |main: Unit = apply(block(${mainVfqn.moduleName.show}::${mainVfqn.name}), unit)
        |""".stripMargin
 }
