@@ -360,174 +360,163 @@ When a function is uncurried to arity N but called with M < N arguments:
 
 ### 5.1 Overview
 
-The JVM backend needs to be modified to:
+The existing JVM backend will be modified in-place (as the final step) to:
 
 1. Use `Uncurried2Value` instead of `UncurriedFunction`
 2. Use `UsedNames` instead of `UsedSymbols`
 3. Work with `Value` types instead of `TypeReference`
 4. Handle monomorphic specializations (different type arguments = different methods)
 
-### 5.2 New JvmClassGenerator2
+### 5.2 GeneratedModule Key Changes
 
-Create a new processor that works with the new pipeline:
+Update the `GeneratedModule` fact to use the new identifier types:
 
 ```scala
-package com.vanillasource.eliot.eliotc.jvm.classgen.processor
+// Current key structure (to be replaced)
+case class Key(moduleName: ModuleName, ffqn: FunctionFQN)
 
-class JvmClassGenerator2 extends SingleKeyTypeProcessor[GeneratedModule2.Key] with Logging {
-
-  override protected def generateFact(key: GeneratedModule2.Key): CompilerIO[Unit] =
-    for {
-      // Use UsedNames instead of UsedSymbols
-      usedNames <- getFactOrAbort(UsedNames.Key(key.rootVfqn))
-
-      // Filter to this module's values
-      moduleValues = usedNames.usedNames
-        .filter { case (vfqn, _) => vfqn.moduleName == key.moduleName }
-
-      // For each (vfqn, typeArgs) combination, generate specialized code
-      mainClassGenerator <- createClassGenerator[CompilerIO](key.moduleName)
-
-      classFiles <- moduleValues.toSeq.flatTraverse { case (vfqn, stats) =>
-        // Generate for each monomorphic specialization
-        stats.monomorphicTypeParameters.flatTraverse { typeArgs =>
-          createModuleMethod(mainClassGenerator, vfqn, typeArgs)
-        }
-      }
-
-      mainClass <- mainClassGenerator.generate[CompilerIO]()
-      _ <- registerFactIfClear(GeneratedModule2(key.moduleName, key.rootVfqn, classFiles :+ mainClass))
-    } yield ()
-
-  private def createModuleMethod(
-      classGenerator: ClassGenerator,
-      vfqn: ValueFQN,
-      typeArgs: Seq[Value]
-  ): CompilerIO[Seq[ClassFile]] =
-    for {
-      // Get the uncurried value for this specialization
-      uncurriedValue <- getFactOrAbort(Uncurried2Value.Key(vfqn, typeArgs))
-
-      // Generate method with mangled name for specialization
-      methodName = mangleMethodName(vfqn.valueName, typeArgs)
-
-      classFiles <- uncurriedValue.body match {
-        case Some(body) =>
-          classGenerator
-            .createMethod[CompilerIO](
-              methodName,
-              uncurriedValue.parameters.map(p => valueToNativeType(p.parameterType)),
-              valueToNativeType(uncurriedValue.returnType)
-            )
-            .use { methodGenerator =>
-              createExpressionCode(classGenerator, methodGenerator, body.value)
-            }
-        case None =>
-          // Handle native implementations
-          handleNativeImplementation(classGenerator, vfqn, typeArgs)
-      }
-    } yield classFiles
-}
+// New key structure
+case class Key(moduleName: ModuleName, rootVfqn: ValueFQN)
 ```
 
-### 5.3 Type Mapping Changes
+### 5.3 JvmClassGenerator Modifications
 
-Update `NativeType` to work with `Value` instead of `TypeReference`:
+Modify the existing `JvmClassGenerator` to work with the new pipeline:
 
+**File:** `jvm/src/com/vanillasource/eliot/eliotc/jvm/classgen/processor/JvmClassGenerator.scala`
+
+**Changes Required:**
+
+1. **Change fact dependency from `UsedSymbols` to `UsedNames`:**
 ```scala
-package com.vanillasource.eliot.eliotc.jvm.classgen.asm
+// Before
+usedSymbols <- getFactOrAbort(UsedSymbols.Key(key.ffqn))
 
-object NativeType2 {
-
-  /**
-   * Map Value types to JVM types.
-   */
-  def valueToNativeType(value: Value): TypeFQN = value match {
-    case Value.ConcreteType(typeFQN) =>
-      types.getOrElse(typeFQN, typeFQN)
-
-    case Value.FunctionType(_, _) =>
-      // All functions map to java.util.function.Function
-      TypeFQN(ModuleName(Seq("java", "util", "function"), "Function"), "Function")
-
-    case Value.DataType(typeFQN, _) =>
-      typeFQN
-
-    case _ =>
-      // Default to Object for complex/unknown types
-      TypeFQN(ModuleName(Seq("java", "lang"), "Object"), "Object")
-  }
-
-  // Built-in type mappings
-  private val types: Map[TypeFQN, TypeFQN] = Map(
-    TypeFQN.eliotString -> TypeFQN.javaString,
-    TypeFQN.eliotUnit -> TypeFQN.javaVoid,
-    TypeFQN.eliotNumber -> TypeFQN.javaInteger
-    // ... etc
-  )
-}
+// After
+usedNames <- getFactOrAbort(UsedNames.Key(key.rootVfqn))
 ```
 
-### 5.4 Expression Code Generation
-
-Update expression handling for `Uncurried2Expression`:
-
+2. **Update iteration to handle monomorphic specializations:**
 ```scala
-private def createExpressionCode(
-    classGenerator: ClassGenerator,
-    methodGenerator: MethodGenerator,
-    expr: Uncurried2Expression
-): CompilationTypesIO[Seq[ClassFile]] =
-  expr.expression match {
-    case Uncurried2Expression.FunctionApplication(target, arguments) =>
-      // Multi-argument application already flattened
-      generateFunctionApplication(classGenerator, methodGenerator, target.value, arguments)
+// Before: iterate over usedFunctions (FunctionFQN)
+usedFunctions.flatTraverse(sourcedFfqn => createModuleMethod(mainClassGenerator, sourcedFfqn))
 
-    case Uncurried2Expression.FunctionLiteral(parameters, body) =>
-      // Multi-parameter lambda
-      generateLambda(classGenerator, methodGenerator, parameters, body)
-
-    case Uncurried2Expression.ValueReference(valueName, typeArgs) =>
-      // Look up the uncurried value's arity and generate appropriate call
-      for {
-        uncurriedTarget <- getFact(Uncurried2Value.Key(valueName.value, typeArgs)).liftToTypes
-        _ <- uncurriedTarget match {
-          case Some(target) if target.targetArity == 0 =>
-            // Zero-arity: direct call
-            methodGenerator.addCallTo[CompilationTypesIO](
-              mangleMethodName(valueName.value, typeArgs),
-              Seq.empty,
-              valueToNativeType(target.returnType)
-            )
-          case Some(target) =>
-            // Non-zero arity but no args provided: need to create partial application wrapper
-            generatePartialApplication(classGenerator, methodGenerator, target, Seq.empty)
-          case None =>
-            compilerError(valueName.as("Could not find uncurried value.")).liftToTypes
-        }
-      } yield Seq.empty
-
-    case Uncurried2Expression.IntegerLiteral(intLit) =>
-      methodGenerator.addLdcInsn[CompilationTypesIO](intLit.value.intValue).as(Seq.empty)
-
-    case Uncurried2Expression.StringLiteral(strLit) =>
-      methodGenerator.addLdcInsn[CompilationTypesIO](strLit.value).as(Seq.empty)
-
-    case Uncurried2Expression.ParameterReference(paramName) =>
-      for {
-        index <- getParameterIndex(paramName.value)
-        paramType <- getParameterType(paramName.value)
-        _ <- methodGenerator.addLoadVar[CompilationTypesIO](
-          valueToNativeType(paramType),
-          index
-        )
-      } yield Seq.empty
+// After: iterate over usedNames with type arguments
+usedNames.usedNames
+  .filter { case (vfqn, _) => vfqn.moduleName == key.moduleName }
+  .toSeq
+  .flatTraverse { case (vfqn, stats) =>
+    stats.monomorphicTypeParameters.flatTraverse { typeArgs =>
+      createModuleMethod(mainClassGenerator, vfqn, typeArgs)
+    }
   }
 ```
 
-### 5.5 Method Name Mangling
+3. **Change fact lookup from `UncurriedFunction` to `Uncurried2Value`:**
+```scala
+// Before
+functionDefinition <- getFactOrAbort(UncurriedFunction.Key(sourcedFfqn.value))
 
-For monomorphic specializations, mangle method names to include type arguments:
+// After
+uncurriedValue <- getFactOrAbort(Uncurried2Value.Key(vfqn, typeArgs))
+```
+
+4. **Update expression code generation to use `Uncurried2Expression`:**
+```scala
+// Before: pattern match on UncurriedTypedExpression variants
+case FunctionApplication(target, arguments) => ...
+case UncurriedTypedExpression.ValueReference(valueName) => ...
+
+// After: pattern match on Uncurried2Expression variants
+case Uncurried2Expression.FunctionApplication(target, arguments) => ...
+case Uncurried2Expression.ValueReference(valueName, typeArgs) => ...
+```
+
+### 5.4 Type Mapping Changes
+
+Add a new method to `NativeType` (or modify existing) to handle `Value` types:
+
+**File:** `jvm/src/com/vanillasource/eliot/eliotc/jvm/classgen/asm/NativeType.scala`
+
+**Add:**
+```scala
+/**
+ * Map Value types to JVM types.
+ */
+def valueToNativeType(value: Value): TypeFQN = value match {
+  case Value.ConcreteType(typeFQN) =>
+    types.getOrElse(typeFQN, typeFQN)
+
+  case Value.FunctionType(_, _) =>
+    // All functions map to java.util.function.Function
+    TypeFQN(ModuleName(Seq("java", "util", "function"), "Function"), "Function")
+
+  case Value.DataType(typeFQN, _) =>
+    typeFQN
+
+  case _ =>
+    // Default to Object for complex/unknown types
+    TypeFQN(ModuleName(Seq("java", "lang"), "Object"), "Object")
+}
+```
+
+The existing `simpleType(TypeReference)` method will be removed once migration is complete.
+
+### 5.5 NativeImplementation Changes
+
+**File:** `jvm/src/com/vanillasource/eliot/eliotc/jvm/classgen/processor/NativeImplementation.scala`
+
+**Changes Required:**
+
+1. Change the key type from `FunctionFQN` to `ValueFQN`:
+```scala
+// Before
+val implementations: Map[FunctionFQN, NativeImplementation] = Map(...)
+
+// After
+val implementations: Map[ValueFQN, NativeImplementation] = Map(...)
+```
+
+2. Update all native function references to use `ValueFQN`.
+
+### 5.6 JvmProgramGenerator Modifications
+
+**File:** `jvm/src/com/vanillasource/eliot/eliotc/jvm/jargen/JvmProgramGenerator.scala`
+
+**Changes Required:**
+
+1. **Update entry point key type:**
+```scala
+// Before
+case class Key(ffqn: FunctionFQN) extends CompilerFactKey[GenerateExecutableJar]
+
+// After
+case class Key(vfqn: ValueFQN) extends CompilerFactKey[GenerateExecutableJar]
+```
+
+2. **Update module generation:**
+```scala
+// Before
+generateModulesFrom(key.ffqn)
+
+// After
+generateModulesFrom(key.vfqn)
+```
+
+3. **Update UsedSymbols → UsedNames:**
+```scala
+// Before
+usedSymbols <- getFactOrAbort(UsedSymbols.Key(ffqn))
+
+// After
+usedNames <- getFactOrAbort(UsedNames.Key(vfqn))
+```
+
+### 5.7 Method Name Mangling
+
+Add method name mangling for monomorphic specializations:
+
+**Add to:** `JvmClassGenerator.scala` or create utility object
 
 ```scala
 /**
@@ -554,47 +543,84 @@ def valueToTypeName(value: Value): String = value match {
 }
 ```
 
+### 5.8 TypeState Modifications
+
+**File:** `jvm/src/com/vanillasource/eliot/eliotc/jvm/classgen/processor/TypeState.scala`
+
+**Changes Required:**
+
+Update parameter type tracking to use `Value` instead of `TypeReference`:
+
+```scala
+// Before
+case class TypeState(
+    parameterTypes: Map[String, ArgumentDefinition] = Map.empty,
+    ...
+)
+
+// After
+case class TypeState(
+    parameterTypes: Map[String, Parameter2Definition] = Map.empty,
+    ...
+)
+```
+
 ---
 
 ## 6. Migration Strategy
 
-### Phase 1: Create Uncurry2 Package (Parallel Development)
+### Phase 1: Create Uncurry2 Package
 
 1. Create `uncurry2/fact/` with new data structures
 2. Implement `AritySelector` with tests
 3. Implement `Uncurrying2Processor`
 4. Add processor to BasePlugin (alongside existing processors)
-5. Write comprehensive tests
+5. Write comprehensive tests for uncurry2 in isolation
 
-### Phase 2: Create JVM Backend v2 (Parallel Development)
+### Phase 2: Test New Pipeline End-to-End (Without JVM)
 
-1. Create `GeneratedModule2` fact with `ValueFQN`-based key
-2. Create `JvmClassGenerator2` working with new facts
-3. Create `NativeType2` mapping for `Value` types
-4. Update `NativeImplementation` for new type system
-5. Create `JvmProgramGenerator2` using new pipeline
+1. Verify the chain: `symbolic` → `monomorphize` → `used2` → `uncurry2` works correctly
+2. Write integration tests that validate `Uncurried2Value` output
+3. Compare uncurried output structure with expected results
+4. Ensure arity selection produces correct results for various usage patterns
 
-### Phase 3: Integration Testing
+### Phase 3: Remove Old Pipeline from BasePlugin
 
-1. Run both pipelines in parallel
-2. Compare outputs for correctness
-3. Benchmark performance differences
-4. Fix any discrepancies
+1. Remove old processors from BasePlugin:
+   - Remove `TypeCheckProcessor()`
+   - Remove `UncurryingProcessor()`
+   - Remove `UsedSymbolsProcessor()`
+2. Add `Uncurrying2Processor()` to BasePlugin
+3. Verify compilation still works (will fail at JVM backend initially)
 
-### Phase 4: Switchover
+### Phase 4: Modify JVM Backend
 
-1. Add command-line flag to select pipeline (e.g., `--use-new-pipeline`)
-2. Make new pipeline the default
-3. Deprecate old pipeline
-4. Remove old pipeline after validation period
+1. Update `GeneratedModule` key to use `ValueFQN`
+2. Modify `JvmClassGenerator`:
+   - Change `UsedSymbols` → `UsedNames`
+   - Change `UncurriedFunction` → `Uncurried2Value`
+   - Change `UncurriedTypedExpression` → `Uncurried2Expression`
+   - Update type handling: `TypeReference` → `Value`
+3. Modify `NativeType`:
+   - Add `valueToNativeType(Value)` method
+   - Remove `simpleType(TypeReference)` method
+4. Modify `NativeImplementation`:
+   - Change keys from `FunctionFQN` → `ValueFQN`
+5. Modify `JvmProgramGenerator`:
+   - Update entry point handling
+   - Change `UsedSymbols` → `UsedNames`
+6. Modify `TypeState`:
+   - Update parameter type tracking
 
-### Phase 5: Cleanup
+### Phase 5: Cleanup Old Code
 
-1. Remove old `typecheck/` package
-2. Remove old `uncurry/` package
-3. Remove old `used/` package
-4. Remove old JVM generators
-5. Rename `uncurry2` → `uncurry`, etc. (optional)
+1. Remove old packages:
+   - `base/src/.../typesystem/` (old type checker)
+   - `base/src/.../uncurry/` (old uncurry)
+   - `base/src/.../used/` (old used symbols)
+2. Remove old tests for removed packages
+3. Update any remaining references
+4. Rename `uncurry2` → `uncurry` (optional, for cleaner naming)
 
 ---
 
@@ -615,70 +641,77 @@ base/src/com/vanillasource/eliot/eliotc/uncurry2/
 base/test/src/com/vanillasource/eliot/eliotc/uncurry2/
 ├── AritySelectorTest.scala
 └── Uncurrying2ProcessorTest.scala
-
-jvm/src/com/vanillasource/eliot/eliotc/jvm/
-├── classgen2/
-│   ├── processor/
-│   │   ├── JvmClassGenerator2.scala
-│   │   └── TypeState2.scala
-│   ├── asm/
-│   │   └── NativeType2.scala
-│   └── fact/
-│       └── GeneratedModule2.scala
-└── jargen2/
-    ├── JvmProgramGenerator2.scala
-    └── GenerateExecutableJar2.scala
-
-jvm/test/src/com/vanillasource/eliot/eliotc/jvm/
-├── classgen2/
-│   └── JvmClassGenerator2Test.scala
-└── jargen2/
-    └── JvmProgramGenerator2Test.scala
 ```
 
 ### Files to Modify
 
 ```
 base/src/com/vanillasource/eliot/eliotc/plugin/BasePlugin.scala
-  - Add Uncurrying2Processor to processor list
+  - Remove: TypeCheckProcessor(), UncurryingProcessor(), UsedSymbolsProcessor()
+  - Add: Uncurrying2Processor()
 
 jvm/src/com/vanillasource/eliot/eliotc/jvm/plugin/JvmPlugin.scala
-  - Add option to select between old and new pipeline
-  - Register new processors
+  - Update entry point key type from FunctionFQN to ValueFQN
+
+jvm/src/com/vanillasource/eliot/eliotc/jvm/classgen/processor/JvmClassGenerator.scala
+  - Change UsedSymbols → UsedNames
+  - Change UncurriedFunction → Uncurried2Value
+  - Change UncurriedTypedExpression → Uncurried2Expression
+  - Update type handling: TypeReference → Value
+  - Add method name mangling for monomorphic specializations
+
+jvm/src/com/vanillasource/eliot/eliotc/jvm/classgen/processor/TypeState.scala
+  - Update parameter type from ArgumentDefinition to Parameter2Definition
+
+jvm/src/com/vanillasource/eliot/eliotc/jvm/classgen/asm/NativeType.scala
+  - Add valueToNativeType(Value) method
+  - Remove simpleType(TypeReference) method
 
 jvm/src/com/vanillasource/eliot/eliotc/jvm/classgen/processor/NativeImplementation.scala
-  - Add support for new ValueFQN-based lookups (or create NativeImplementation2)
+  - Change key type from FunctionFQN to ValueFQN
+
+jvm/src/com/vanillasource/eliot/eliotc/jvm/classgen/fact/GeneratedModule.scala
+  - Update Key to use ValueFQN instead of FunctionFQN
+
+jvm/src/com/vanillasource/eliot/eliotc/jvm/jargen/JvmProgramGenerator.scala
+  - Change UsedSymbols → UsedNames
+  - Update entry point handling for ValueFQN
+
+jvm/src/com/vanillasource/eliot/eliotc/jvm/jargen/GenerateExecutableJar.scala
+  - Update Key to use ValueFQN instead of FunctionFQN
 ```
 
-### Files to Eventually Remove
+### Files to Remove (After Migration)
 
 ```
 base/src/com/vanillasource/eliot/eliotc/typesystem/         # Old type checker
 base/src/com/vanillasource/eliot/eliotc/uncurry/            # Old uncurry
 base/src/com/vanillasource/eliot/eliotc/used/               # Old used symbols
-jvm/src/com/vanillasource/eliot/eliotc/jvm/classgen/        # Old JVM class generator
-jvm/src/com/vanillasource/eliot/eliotc/jvm/jargen/          # Old JAR generator (except shared utilities)
+
+base/test/src/com/vanillasource/eliot/eliotc/typesystem/    # Old type checker tests
+base/test/src/com/vanillasource/eliot/eliotc/uncurry/       # Old uncurry tests
+base/test/src/com/vanillasource/eliot/eliotc/used/          # Old used symbols tests
 ```
 
 ---
 
 ## 8. Implementation Tasks
 
-### Task 1: Uncurry2 Facts
+### Task 1: Uncurry2 Facts (Phase 1)
 
 - [ ] Create `Parameter2Definition.scala`
 - [ ] Create `Uncurried2Expression.scala` with all expression variants
 - [ ] Create `Uncurried2Value.scala` with key structure
 - [ ] Ensure compatibility with `Value` type system from `eval/fact/`
 
-### Task 2: Arity Selection
+### Task 2: Arity Selection (Phase 1)
 
 - [ ] Implement `AritySelector.selectOptimalArity()`
 - [ ] Implement `AritySelector.computeMaxArity()`
 - [ ] Write unit tests for various usage patterns
 - [ ] Handle edge cases (no stats, ties, zero arity)
 
-### Task 3: Uncurrying2Processor
+### Task 3: Uncurrying2Processor (Phase 1)
 
 - [ ] Implement basic structure extending `SingleKeyTypeProcessor`
 - [ ] Implement parameter extraction from `Value` types
@@ -688,49 +721,67 @@ jvm/src/com/vanillasource/eliot/eliotc/jvm/jargen/          # Old JAR generator 
 - [ ] Handle partial application cases
 - [ ] Write integration tests
 
-### Task 4: JVM Backend v2 - Types
+### Task 4: New Pipeline Integration Testing (Phase 2)
 
-- [ ] Create `NativeType2` with `Value` → JVM type mapping
-- [ ] Implement method name mangling for specializations
-- [ ] Update or create `NativeImplementation2` for new types
+- [ ] Write tests verifying `symbolic` → `monomorphize` → `used2` → `uncurry2` chain
+- [ ] Verify `Uncurried2Value` output matches expected structure
+- [ ] Test arity selection with various usage patterns
+- [ ] Ensure all expression types are correctly converted
 
-### Task 5: JVM Backend v2 - Code Generation
+### Task 5: Remove Old Pipeline from BasePlugin (Phase 3)
 
-- [ ] Create `GeneratedModule2` fact
-- [ ] Create `JvmClassGenerator2` processor
-- [ ] Implement expression code generation for `Uncurried2Expression`
-- [ ] Implement multi-argument function calls
-- [ ] Implement multi-parameter lambda generation
-- [ ] Handle partial application wrapper generation
+- [ ] Remove `TypeCheckProcessor()` from BasePlugin
+- [ ] Remove `UncurryingProcessor()` from BasePlugin
+- [ ] Remove `UsedSymbolsProcessor()` from BasePlugin
+- [ ] Add `Uncurrying2Processor()` to BasePlugin
+- [ ] Verify new processor ordering is correct
 
-### Task 6: JVM Backend v2 - JAR Generation
+### Task 6: Modify JVM Backend - Type Handling (Phase 4)
 
-- [ ] Create `GenerateExecutableJar2` fact
-- [ ] Create `JvmProgramGenerator2` processor
-- [ ] Wire up entry point generation
-- [ ] Handle main method generation
+- [ ] Add `valueToNativeType(Value)` to `NativeType.scala`
+- [ ] Implement method name mangling utility
+- [ ] Update `NativeImplementation` keys from `FunctionFQN` to `ValueFQN`
+- [ ] Update `TypeState` to use `Parameter2Definition`
 
-### Task 7: Plugin Integration
+### Task 7: Modify JVM Backend - Class Generation (Phase 4)
 
-- [ ] Add `Uncurrying2Processor` to `BasePlugin`
-- [ ] Add pipeline selection flag to `JvmPlugin`
-- [ ] Register new JVM processors
-- [ ] Ensure proper processor ordering
+- [ ] Update `GeneratedModule` key to use `ValueFQN`
+- [ ] Modify `JvmClassGenerator.generateFact()` to use `UsedNames`
+- [ ] Modify `createModuleMethod()` to use `Uncurried2Value`
+- [ ] Update `createExpressionCode()` to handle `Uncurried2Expression`
+- [ ] Handle monomorphic specialization iteration
+- [ ] Implement partial application wrapper generation
 
-### Task 8: Testing
+### Task 8: Modify JVM Backend - JAR Generation (Phase 4)
 
-- [ ] Port existing uncurry tests to uncurry2
-- [ ] Port existing JVM tests to new generator
-- [ ] Add tests for arity-based optimization
-- [ ] Add tests for monomorphic specialization
+- [ ] Update `GenerateExecutableJar` key to use `ValueFQN`
+- [ ] Modify `JvmProgramGenerator` to use `UsedNames`
+- [ ] Update entry point resolution
+- [ ] Update main method generation
+
+### Task 9: Update JvmPlugin (Phase 4)
+
+- [ ] Update command-line parsing for new key types
+- [ ] Update `run()` method to use `ValueFQN`
+- [ ] Ensure proper processor dependencies
+
+### Task 10: Testing (Phase 4)
+
+- [ ] Update existing JVM tests for new types
+- [ ] Add tests for monomorphic specialization code generation
+- [ ] Add tests for method name mangling
 - [ ] End-to-end tests with real ELIOT programs
+- [ ] Verify generated JAR files execute correctly
 
-### Task 9: Migration & Cleanup
+### Task 11: Cleanup (Phase 5)
 
-- [ ] Run parallel pipelines in CI
-- [ ] Switch default to new pipeline
-- [ ] Remove old pipeline code
-- [ ] Update documentation
+- [ ] Remove `base/src/.../typesystem/` package
+- [ ] Remove `base/src/.../uncurry/` package
+- [ ] Remove `base/src/.../used/` package
+- [ ] Remove old test files
+- [ ] Remove `simpleType(TypeReference)` from `NativeType`
+- [ ] Update any remaining documentation
+- [ ] (Optional) Rename `uncurry2` → `uncurry`
 
 ---
 
