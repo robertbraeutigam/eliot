@@ -34,7 +34,7 @@ object TypeEvaluator {
       typeArgs: Seq[Value],
       source: Sourced[?]
   ): CompilerIO[Value] = {
-    val applied  = typeArgs.foldLeft(expr)((e, arg) => FunctionApplication(e, ConcreteValue(arg)))
+    val applied = typeArgs.foldLeft(expr)((e, arg) => FunctionApplication(e, ConcreteValue(arg)))
     for {
       resolved <- resolveDataTypeRefs(applied)
       reduced  <- Evaluator.reduce(resolved, source)

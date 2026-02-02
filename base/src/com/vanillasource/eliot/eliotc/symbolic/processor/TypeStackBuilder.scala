@@ -148,10 +148,10 @@ object TypeStackBuilder {
       source: Sourced[?]
   ): TypeGraphIO[(ExpressionValue, Seq[TypedExpression])] =
     levels match {
-      case Nil          =>
+      case Nil =>
         generateUnificationVar(source).map((_, Seq.empty))
 
-      case head :: Nil  =>
+      case head :: Nil =>
         buildExpression(head).map(typeResult => (typeResult.expressionType, Seq(typeResult)))
 
       case expr :: rest =>
@@ -176,7 +176,7 @@ object TypeStackBuilder {
 
   private def isKindExpression(expr: Expression): Boolean =
     expr match {
-      case Expr.ValueReference(vfqn) =>
+      case Expr.ValueReference(vfqn)                       =>
         vfqn.value === typeVfqn
       case Expr.FunctionApplication(targetStack, argStack) =>
         // Check if this is Function(<kind>, <kind>) - a function from kinds to kinds
@@ -185,9 +185,9 @@ object TypeStackBuilder {
             isFunctionReference(fnStack.value.signature) &&
             isKindExpression(argKindStack.value.signature) &&
             isKindExpression(argStack.value.signature)
-          case _ => false
+          case _                                               => false
         }
-      case _ => false
+      case _                                               => false
     }
 
   private def isFunctionReference(expr: Expression): Boolean =

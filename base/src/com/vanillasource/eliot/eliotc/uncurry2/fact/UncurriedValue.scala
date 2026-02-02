@@ -1,43 +1,40 @@
 package com.vanillasource.eliot.eliotc.uncurry2.fact
 
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** A monomorphic value that has been uncurried to its optimal arity based on usage statistics.
+/** A type-checked value that has been uncurried to a specific arity.
   *
   * @param vfqn
   *   The fully qualified value name
-  * @param typeArguments
-  *   Concrete type arguments (from monomorphization)
+  * @param arity
+  *   The arity this value has been uncurried to
   * @param name
   *   The sourced name
   * @param signature
-  *   The concrete ground type (Value) after uncurrying
+  *   The type of this value
   * @param parameters
-  *   The uncurried parameter list (optimal arity)
+  *   The uncurried parameter list
   * @param returnType
   *   The return type after uncurrying
   * @param body
   *   Optional uncurried expression body
-  * @param targetArity
-  *   The selected optimal arity for this function
   */
 case class UncurriedValue(
     vfqn: ValueFQN,
-    typeArguments: Seq[Value],
+    arity: Int,
     name: Sourced[String],
-    signature: Value,
+    signature: ExpressionValue,
     parameters: Seq[ParameterDefinition],
-    returnType: Value,
-    body: Option[Sourced[UncurriedExpression.Expression]],
-    targetArity: Int
+    returnType: ExpressionValue,
+    body: Option[Sourced[UncurriedExpression.Expression]]
 ) extends CompilerFact {
   override def key(): CompilerFactKey[UncurriedValue] =
-    UncurriedValue.Key(vfqn, typeArguments)
+    UncurriedValue.Key(vfqn, arity)
 }
 
 object UncurriedValue {
-  case class Key(vfqn: ValueFQN, typeArguments: Seq[Value]) extends CompilerFactKey[UncurriedValue]
+  case class Key(vfqn: ValueFQN, arity: Int) extends CompilerFactKey[UncurriedValue]
 }

@@ -1,13 +1,13 @@
 package com.vanillasource.eliot.eliotc.uncurry2.fact
 
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Expression tree after uncurrying, using concrete Value types.
+/** Expression tree after uncurrying.
   */
 case class UncurriedExpression(
-    expressionType: Value,
+    expressionType: ExpressionValue,
     expression: UncurriedExpression.Expression
 )
 
@@ -21,7 +21,7 @@ object UncurriedExpression {
       arguments: Seq[Sourced[UncurriedExpression]]
   ) extends Expression
 
-  /** Multi-parameter function literal. Flattened from nested lambdas up to optimal arity.
+  /** Multi-parameter function literal. Flattened from nested lambdas.
     */
   case class FunctionLiteral(
       parameters: Seq[ParameterDefinition],
@@ -34,10 +34,7 @@ object UncurriedExpression {
 
   case class ParameterReference(parameterName: Sourced[String]) extends Expression
 
-  /** Reference to an uncurried monomorphic value.
+  /** Reference to a value.
     */
-  case class ValueReference(
-      valueName: Sourced[ValueFQN],
-      typeArguments: Seq[Value]
-  ) extends Expression
+  case class ValueReference(valueName: Sourced[ValueFQN]) extends Expression
 }

@@ -34,6 +34,5 @@ object MonomorphicValue {
   /** Composite key that uniquely identifies a monomorphic specialization. The same generic function with different type
     * arguments produces different keys.
     */
-  case class Key(vfqn: ValueFQN, typeArguments: Seq[Value])
-      extends CompilerFactKey[MonomorphicValue]
+  case class Key(vfqn: ValueFQN, typeArguments: Seq[Value]) extends CompilerFactKey[MonomorphicValue]
 }
