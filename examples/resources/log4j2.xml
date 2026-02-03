@@ -16,6 +16,7 @@
            <!-- <Logger name="com.vanillasource.eliot.eliotc.compiler.FactGenerator" level="debug"/>> -->
            <!-- <Logger name="com.vanillasource.eliot.eliotc.jvm.JvmClassGenerator" level="debug"/> -->
            <Logger name="com.vanillasource.eliot.eliotc.symbolic" level="debug"/>
+           <Logger name="com.vanillasource.eliot.eliotc.resolve" level="debug"/>
     </Loggers>
 </Configuration>
 

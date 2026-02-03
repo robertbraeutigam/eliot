@@ -28,7 +28,7 @@ object Expression {
     case StringLiteral(Sourced(_, _, value))                                           => s"\"$value\""
     case FunctionApplication(Sourced(_, _, targetValue), Sourced(_, _, argumentValue)) =>
       s"${targetValue.show}(${argumentValue.show})"
-    case FunctionLiteral(param, _, body)                                               => s"${param.value} -> ${body.value.show}"
+    case FunctionLiteral(param, paramType, body)                                       => s"(${paramType.value.show} :: ${param.value}) -> ${body.value.show}"
     case ParameterReference(name)                                                      => name.value
     case ValueReference(name)                                                          => name.value.show
   }

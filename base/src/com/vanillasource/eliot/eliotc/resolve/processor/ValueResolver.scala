@@ -30,7 +30,10 @@ class ValueResolver
     val resolveProgram = for {
       resolvedRuntime <- namedValue.runtime.traverse(expr => resolveExpression(expr).map(namedValue.name.as))
       resolvedStack   <- resolveTypeStack(namedValue.name.as(namedValue.typeStack))
-      _               <- debug[ScopedIO](s"Resolved ${key.vfqn.show}: ${resolvedStack.value.show}")
+      _               <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedStack.value.show}")
+      _               <- debug[ScopedIO](
+                           s"Resolved ${key.vfqn.show} runtime: ${resolvedRuntime.map(_.value.show).getOrElse("<abstract>")}"
+                         )
     } yield ResolvedValue(
       unifiedValue.vfqn,
       namedValue.name,
@@ -65,7 +68,7 @@ class ValueResolver
 
   private def isKindExpression(expr: CoreExpression): Boolean =
     expr match {
-      case NamedValueReference(name, None) =>
+      case NamedValueReference(name, None)            =>
         name.value == "Type"
       case FunctionApplication(targetStack, argStack) =>
         // Check if this is Function(<kind>, <kind>) - a function from kinds to kinds
@@ -74,9 +77,9 @@ class ValueResolver
             isFunctionReference(fnStack.value.signature) &&
             isKindExpression(argKindStack.value.signature) &&
             isKindExpression(argStack.value.signature)
-          case _ => false
+          case _                                          => false
         }
-      case _ => false
+      case _                                          => false
     }
 
   private def isFunctionReference(expr: CoreExpression): Boolean =
