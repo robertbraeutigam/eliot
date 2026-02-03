@@ -42,8 +42,12 @@ object ExpressionValue {
   }
 
   val expressionValueUserDisplay: Show[ExpressionValue] = {
-    case ConcreteValue(value) => Value.valueUserDisplay.show(value)
-    case other                => "<expression>"
+    case ConcreteValue(value)                   => Value.valueUserDisplay.show(value)
+    case FunctionLiteral(name, paramType, body) => s"($name: $paramType) -> ${expressionValueUserDisplay.show(body)}"
+    case NativeFunction(paramType, _)           => s"native($paramType)"
+    case ParameterReference(name, _)            => name
+    case FunctionApplication(target, arg)       =>
+      s"${expressionValueUserDisplay.show(target)}(${expressionValueUserDisplay.show(arg)})"
   }
 
   def concreteValueOf(expressionValue: ExpressionValue): Option[Value] =
