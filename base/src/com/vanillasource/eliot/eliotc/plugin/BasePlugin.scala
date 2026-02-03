@@ -8,8 +8,8 @@ import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.module.processor.{
   ModuleValueProcessor,
   UnifiedModuleValueProcessor,
-  ModuleNamesProcessor as ModuleNamesProcessor2,
-  UnifiedModuleNamesProcessor as UnifiedModuleNamesProcessor2
+  ModuleNamesProcessor,
+  UnifiedModuleNamesProcessor
 }
 import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.plugin.BasePlugin.pathKey
@@ -52,9 +52,9 @@ class BasePlugin extends CompilerPlugin {
             Tokenizer(),
             ASTParser(),
             CoreProcessor(),
-            ModuleNamesProcessor2(),
+            ModuleNamesProcessor(),
             ModuleValueProcessor(),
-            UnifiedModuleNamesProcessor2(),
+            UnifiedModuleNamesProcessor(),
             UnifiedModuleValueProcessor(),
             ValueResolver(),
             SymbolicTypeCheckProcessor(),
