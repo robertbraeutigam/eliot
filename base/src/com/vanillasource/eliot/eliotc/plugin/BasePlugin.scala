@@ -4,39 +4,28 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
+import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
+import com.vanillasource.eliot.eliotc.module2.processor.{
+  ModuleValueProcessor,
+  UnifiedModuleValueProcessor,
+  ModuleNamesProcessor as ModuleNamesProcessor2,
+  UnifiedModuleNamesProcessor as UnifiedModuleNamesProcessor2
+}
+import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.plugin.BasePlugin.pathKey
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
-import com.vanillasource.eliot.eliotc.module.processor.{
-  ModuleDataProcessor,
-  ModuleFunctionProcessor,
-  ModuleNamesProcessor,
-  UnifiedModuleDataProcessor,
-  UnifiedModuleFunctionProcessor,
-  UnifiedModuleNamesProcessor
-}
-import com.vanillasource.eliot.eliotc.module2.processor.{
-  ModuleNamesProcessor => ModuleNamesProcessor2,
-  ModuleValueProcessor,
-  UnifiedModuleNamesProcessor => UnifiedModuleNamesProcessor2,
-  UnifiedModuleValueProcessor
-}
-import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
-import com.vanillasource.eliot.eliotc.resolve.processor.{FunctionResolver, TypeResolver}
+import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.datafunctions.DataFunctionsProcessor
+import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.uncurry2.processor.UncurryingProcessor
-import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
-import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.used2.UsedNamesProcessor
 import scopt.{OParser, OParserBuilder}
 
-import java.io.File
 import java.nio.file.Path
 
 class BasePlugin extends CompilerPlugin {
@@ -63,22 +52,11 @@ class BasePlugin extends CompilerPlugin {
             Tokenizer(),
             ASTParser(),
             CoreProcessor(),
-            DataFunctionsProcessor(),
-            ModuleFunctionProcessor(),
-            ModuleDataProcessor(),
-            ModuleNamesProcessor(),
-            UnifiedModuleNamesProcessor(),
-            UnifiedModuleDataProcessor(),
-            UnifiedModuleFunctionProcessor(),
-            FunctionResolver(),
-            TypeResolver(),
-            // New module2 pipeline
             ModuleNamesProcessor2(),
             ModuleValueProcessor(),
             UnifiedModuleNamesProcessor2(),
             UnifiedModuleValueProcessor(),
             ValueResolver(),
-            // New pipeline for uncurry2
             SymbolicTypeCheckProcessor(),
             MonomorphicTypeCheckProcessor(),
             UsedNamesProcessor(),
@@ -90,5 +68,5 @@ class BasePlugin extends CompilerPlugin {
 }
 
 object BasePlugin {
-  val pathKey = namedKey[Seq[Path]]("paths")
+  val pathKey: Configuration.Key[Seq[Path]] = namedKey[Seq[Path]]("paths")
 }
