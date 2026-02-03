@@ -59,9 +59,6 @@ object Evaluator {
       if (evaluating.contains(vfqn)) {
         // Don't allow recursions when evaluating, for now
         compilerAbort(s.as("Recursive evaluation detected."))
-      } else if (vfqn === typeFQN) {
-        // Special case, if we're referencing Type
-        ConcreteValue(Type).pure[CompilerIO]
       } else {
         getFact(NamedEvaluable.Key(vfqn)).flatMap {
           case Some(value) => value.value.pure[CompilerIO]

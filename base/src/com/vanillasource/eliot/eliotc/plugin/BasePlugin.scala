@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.eval.processor.{
   DataTypeEvaluator,
   ExistingNamedValueEvaluator,
-  FunctionDataTypeEvaluator
+  SystemValueEvaluator
 }
 import com.vanillasource.eliot.eliotc.module.processor.{
   ModuleNamesProcessor,
@@ -57,7 +57,7 @@ class BasePlugin extends CompilerPlugin {
             Tokenizer(),
             ASTParser(),
             CoreProcessor(),
-            FunctionDataTypeEvaluator(),
+            SystemValueEvaluator(),
             ExistingNamedValueEvaluator(),
             DataTypeEvaluator(),
             ModuleNamesProcessor(),

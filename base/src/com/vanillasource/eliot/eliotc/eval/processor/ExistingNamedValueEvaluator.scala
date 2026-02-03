@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.eval.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.NamedEvaluable
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator.evaluate
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.{CompilerIO, abort}
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -15,7 +15,6 @@ class ExistingNamedValueEvaluator
     fact.runtime match {
       case Some(runtimeExpression) =>
         evaluate(runtimeExpression, Set(key.vfqn)).map(NamedEvaluable(key.vfqn, _))
-      case None                    =>
-        compilerAbort(fact.name.as("Value has no runtime expression."))
+      case None                    => abort
     }
 }
