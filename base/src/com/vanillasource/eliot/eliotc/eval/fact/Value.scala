@@ -1,5 +1,8 @@
 package com.vanillasource.eliot.eliotc.eval.fact
 
+import cats.{Eq, Show}
+import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.eval.fact.Types.fullyQualifiedNameType
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 
 /** The evaluator creates these values to represent every "runtime" value in a program.
@@ -19,9 +22,22 @@ object Value {
     lazy val fields: Map[String, Value] = Map(
       "$typeName" -> Direct(
         ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type"),
-        Type
+        fullyQualifiedNameType
       )
     )
     override def valueType: Value       = this
+  }
+
+  given Eq[Value] = Eq.fromUniversalEquals
+
+  val valueUserDisplay: Show[Value] = {
+    case Type                                               => "Type"
+    case Direct(value, valueType)                           => value.toString // TODO: this should be explicit
+    case Structure(fields, valueType) if valueType === Type =>
+      fields
+        .get("$typeName")
+        .map(_.asInstanceOf[Direct].value.asInstanceOf[ValueFQN].name.stripSuffix("$DataType"))
+        .getOrElse("<unknown type>")
+    case Structure(fields, valueType)                       => "Structure(...)"
   }
 }

@@ -1,8 +1,7 @@
-package com.vanillasource.eliot.eliotc.eval.util
+package com.vanillasource.eliot.eliotc.eval.fact
 
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.module2.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}

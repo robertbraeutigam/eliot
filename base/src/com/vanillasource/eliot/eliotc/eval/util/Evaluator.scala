@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.eval.util
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
-import com.vanillasource.eliot.eliotc.eval.util.Types.{bigIntType, stringType}
+import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType}
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression

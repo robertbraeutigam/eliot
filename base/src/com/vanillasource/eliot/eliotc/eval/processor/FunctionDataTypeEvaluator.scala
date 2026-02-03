@@ -4,7 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, NativeFunction}
 import com.vanillasource.eliot.eliotc.eval.fact.NamedEvaluable
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
-import com.vanillasource.eliot.eliotc.eval.util.Types.{fullyQualifiedNameType, functionDataTypeFQN}
+import com.vanillasource.eliot.eliotc.eval.fact.Types.{fullyQualifiedNameType, functionDataTypeFQN}
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor

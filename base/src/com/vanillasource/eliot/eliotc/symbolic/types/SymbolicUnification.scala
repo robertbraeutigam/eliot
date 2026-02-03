@@ -128,8 +128,8 @@ case class SymbolicUnification(constraints: Seq[Constraint]) {
       compilerError(
         constraint.right.as(message),
         Seq(
-          s"Expected: ${constraint.left.show}",
-          s"Found:    ${constraint.right.value.show}"
+          s"Expected: ${expressionValueUserDisplay.show(constraint.left)}",
+          s"Found:    ${expressionValueUserDisplay.show(constraint.right.value)}"
         )
       )
     )

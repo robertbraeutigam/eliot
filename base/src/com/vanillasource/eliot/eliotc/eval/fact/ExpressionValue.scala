@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.eval.fact
 
 import cats.Show
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.util.Types
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 
 /** The result of an expression evaluation.
@@ -40,6 +39,11 @@ object ExpressionValue {
       case ParameterReference(name, _)            => name
       case FunctionApplication(target, arg)       => s"${show(target)}(${show(arg)})"
     }
+  }
+
+  val expressionValueUserDisplay: Show[ExpressionValue] = {
+    case ConcreteValue(value) => Value.valueUserDisplay.show(value)
+    case other                => "<expression>"
   }
 
   def concreteValueOf(expressionValue: ExpressionValue): Option[Value] =
