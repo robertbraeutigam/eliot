@@ -18,8 +18,8 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
-import com.vanillasource.eliot.eliotc.uncurry2.fact.*
-import com.vanillasource.eliot.eliotc.uncurry2.fact.UncurriedExpression.*
+import com.vanillasource.eliot.eliotc.uncurry.fact.*
+import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedExpression.*
 import com.vanillasource.eliot.eliotc.used2.UsedNames
 import com.vanillasource.eliot.eliotc.used2.UsedNames.UsageStats
 

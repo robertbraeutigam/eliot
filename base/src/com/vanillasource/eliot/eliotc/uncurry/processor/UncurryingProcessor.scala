@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.uncurry2.processor
+package com.vanillasource.eliot.eliotc.uncurry.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpression}
-import com.vanillasource.eliot.eliotc.uncurry2.fact.*
+import com.vanillasource.eliot.eliotc.uncurry.fact.*
 
 import scala.annotation.tailrec
 

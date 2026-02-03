@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.uncurry2.fact
+package com.vanillasource.eliot.eliotc.uncurry.fact
 
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced

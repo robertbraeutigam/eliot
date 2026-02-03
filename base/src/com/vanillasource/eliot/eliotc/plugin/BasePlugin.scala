@@ -22,7 +22,7 @@ import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.uncurry2.processor.UncurryingProcessor
+import com.vanillasource.eliot.eliotc.uncurry.processor.UncurryingProcessor
 import com.vanillasource.eliot.eliotc.used2.UsedNamesProcessor
 import scopt.{OParser, OParserBuilder}
 

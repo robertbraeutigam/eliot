@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.uncurry2.fact.ParameterDefinition
+import com.vanillasource.eliot.eliotc.uncurry.fact.ParameterDefinition
 
 case class TypeState(
     typeMap: Map[String, ParameterDefinition] = Map.empty,

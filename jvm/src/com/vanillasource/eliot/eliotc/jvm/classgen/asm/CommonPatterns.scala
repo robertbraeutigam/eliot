@@ -5,7 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.uncurry2.fact.ParameterDefinition
+import com.vanillasource.eliot.eliotc.uncurry.fact.ParameterDefinition
 import NativeType.{systemFunctionValue, systemAnyValue}
 
 object CommonPatterns {
