@@ -4,47 +4,37 @@ import cats.effect.Sync
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.Value
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => OldModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.{systemAnyType, systemFunctionType, systemUnitType}
-import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.uncurry2.fact.ParameterDefinition
+import NativeType.{systemFunctionValue, systemAnyValue}
 
 object CommonPatterns {
-  def simpleType(expressionValue: ExpressionValue): TypeFQN =
+  def simpleType(expressionValue: ExpressionValue): ValueFQN =
     expressionValue match {
       case ExpressionValue.FunctionType(_, _) =>
-        systemFunctionType
+        systemFunctionValue
       case ExpressionValue.ConcreteValue(value) =>
-        valueToTypeFQN(value)
+        valueToValueFQN(value)
       case ExpressionValue.ParameterReference(_, paramType) =>
-        valueToTypeFQN(paramType)
+        valueToValueFQN(paramType)
       case _ =>
-        systemAnyType
+        systemAnyValue
     }
 
-  def valueToTypeFQN(value: Value): TypeFQN =
+  def valueToValueFQN(value: Value): ValueFQN =
     value match {
       case Value.Structure(fields, _) =>
         fields.get("$typeName") match {
           case Some(Value.Direct(vfqn: ValueFQN, _)) =>
-            valueFQNToTypeFQN(vfqn)
+            vfqn
           case _ =>
-            systemAnyType
+            systemAnyValue
         }
       case Value.Type =>
-        systemAnyType
+        systemAnyValue
       case _ =>
-        systemAnyType
+        systemAnyValue
     }
-
-  def valueFQNToTypeFQN(vfqn: ValueFQN): TypeFQN =
-    TypeFQN(
-      OldModuleName(vfqn.moduleName.packages, vfqn.moduleName.name),
-      vfqn.name
-    )
-
-  def moduleNameToOld(moduleName: ModuleName): OldModuleName =
-    OldModuleName(moduleName.packages, moduleName.name)
 
   extension (classGenerator: ClassGenerator) {
     def addDataFieldsAndCtor2[F[_]: Sync](fields: Seq[ParameterDefinition]): F[Unit] =

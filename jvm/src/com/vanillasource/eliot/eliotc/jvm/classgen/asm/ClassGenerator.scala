@@ -6,7 +6,7 @@ import cats.effect.kernel.Resource
 import ClassGenerator.createClassGenerator
 import NativeType.{convertToCtorSignatureString, convertToMainClassName, convertToSignatureString, javaSignatureName}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
+import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
 class ClassGenerator(private val moduleName: ModuleName, private val classWriter: ClassWriter) {
@@ -52,7 +52,7 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
     * @param fieldType
     *   The type of the field.
     */
-  def createField[F[_]: Sync](name: String, fieldType: TypeFQN): F[Unit] = Sync[F].delay {
+  def createField[F[_]: Sync](name: String, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
     classWriter
       .visitField(
         Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL,
@@ -68,8 +68,8 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
     */
   def createMethod[F[_]: Sync](
       name: String,
-      parameterTypes: Seq[TypeFQN],
-      resultType: TypeFQN
+      parameterTypes: Seq[ValueFQN],
+      resultType: ValueFQN
   ): Resource[F, MethodGenerator] =
     Resource.make(Sync[F].delay {
       val methodVisitor = classWriter.visitMethod(
@@ -95,7 +95,7 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
     )
 
   def createCtor[F[_]: Sync](
-      parameterTypes: Seq[TypeFQN]
+      parameterTypes: Seq[ValueFQN]
   ): Resource[F, MethodGenerator] =
     Resource.make(Sync[F].delay {
       val methodVisitor = classWriter.visitMethod(
@@ -139,8 +139,8 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
     )
 
   def createApplyMethod[F[_]: Sync](
-      parameterTypes: Seq[TypeFQN],
-      resultType: TypeFQN
+      parameterTypes: Seq[ValueFQN],
+      resultType: ValueFQN
   ): Resource[F, MethodGenerator] =
     Resource.make(Sync[F].delay {
       val methodVisitor = classWriter.visitMethod(

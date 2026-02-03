@@ -8,9 +8,7 @@ import NativeType.{
   javaInternalName,
   javaSignatureName
 }
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
-import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import org.objectweb.asm.{MethodVisitor, Opcodes}
 
 class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: MethodVisitor) {
@@ -19,7 +17,7 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
     * @param calledVfqn
     *   The called function's fully qualified name.
     */
-  def addCallTo[F[_]: Sync](calledVfqn: ValueFQN, parameterTypes: Seq[TypeFQN], resultType: TypeFQN): F[Unit] =
+  def addCallTo[F[_]: Sync](calledVfqn: ValueFQN, parameterTypes: Seq[ValueFQN], resultType: ValueFQN): F[Unit] =
     Sync[F].delay {
       methodVisitor.visitMethodInsn(
         Opcodes.INVOKESTATIC,
@@ -34,7 +32,7 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
 
   /** Instantiate a class with its constructor. It is assumed that all parameters are correctly on the stack already.
     */
-  def addCallToCtor[F[_]: Sync](target: TypeFQN, parameterTypes: Seq[TypeFQN]): F[Unit] = Sync[F].delay {
+  def addCallToCtor[F[_]: Sync](target: ValueFQN, parameterTypes: Seq[ValueFQN]): F[Unit] = Sync[F].delay {
     methodVisitor.visitMethodInsn(
       Opcodes.INVOKESPECIAL,
       convertToNestedClassName(target),
@@ -58,7 +56,7 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
 
   /** Instantiate an object and leave it on stack.
     */
-  def addNew[F[_]: Sync](target: TypeFQN): F[Unit] = Sync[F].delay {
+  def addNew[F[_]: Sync](target: ValueFQN): F[Unit] = Sync[F].delay {
     methodVisitor.visitTypeInsn(
       Opcodes.NEW,
       convertToNestedClassName(target)
@@ -74,14 +72,14 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
 
   /** Load the given "variable" of given index to the stack.
     */
-  def addLoadVar[F[_]: Sync](varType: TypeFQN, index: Int): F[Unit] = Sync[F].delay {
+  def addLoadVar[F[_]: Sync](varType: ValueFQN, index: Int): F[Unit] = Sync[F].delay {
     // TODO: Fix type ALOAD based on type
     methodVisitor.visitVarInsn(Opcodes.ALOAD, index)
   }
 
   /** Add getting the instance field from a data object.
     */
-  def addGetField[F[_]: Sync](fieldName: String, fieldType: TypeFQN, target: TypeFQN): F[Unit] = Sync[F].delay {
+  def addGetField[F[_]: Sync](fieldName: String, fieldType: ValueFQN, target: ValueFQN): F[Unit] = Sync[F].delay {
     methodVisitor.visitFieldInsn(
       Opcodes.GETFIELD,
       convertToNestedClassName(target),
@@ -92,7 +90,7 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
 
   /** Add putting field into local instance variable.
     */
-  def addPutField[F[_]: Sync](fieldName: String, fieldType: TypeFQN): F[Unit] = Sync[F].delay {
+  def addPutField[F[_]: Sync](fieldName: String, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
     methodVisitor.visitFieldInsn(
       Opcodes.PUTFIELD,
       moduleName.packages.appended(moduleName.name).mkString("/"), // TODO: use some existing naming method here
@@ -113,7 +111,7 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
     block(methodVisitor)
   }
 
-  def addCastTo[F[_]: Sync](targetType: TypeFQN): F[Unit] = Sync[F].delay {
+  def addCastTo[F[_]: Sync](targetType: ValueFQN): F[Unit] = Sync[F].delay {
     methodVisitor.visitTypeInsn(Opcodes.CHECKCAST, javaInternalName(targetType));
   }
 

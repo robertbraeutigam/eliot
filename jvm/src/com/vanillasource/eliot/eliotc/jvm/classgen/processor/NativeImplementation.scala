@@ -1,8 +1,7 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
-import cats.effect.IO
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemLangType
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemLangValue
 import com.vanillasource.eliot.eliotc.module2.fact.ModuleName
 import com.vanillasource.eliot.eliotc.module2.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
@@ -16,18 +15,18 @@ trait NativeImplementation {
 object NativeImplementation {
   val implementations: Map[ValueFQN, NativeImplementation] = Map.from(
     Seq(
-      (systemLangValue("String", "printlnInternal"), eliot_lang_String_printlnInternal),
-      (systemLangValue("Unit", "unit"), eliot_lang_Unit_unit)
+      (systemLangValueFQN("String", "printlnInternal"), eliot_lang_String_printlnInternal),
+      (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit)
     )
   )
 
-  private def systemLangValue(moduleName: String, valueName: String): ValueFQN =
+  private def systemLangValueFQN(moduleName: String, valueName: String): ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, moduleName), valueName)
 
   private def eliot_lang_Unit_unit: NativeImplementation = new NativeImplementation {
     override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
       classGenerator
-        .createMethod[CompilerIO]("unit", Seq.empty, systemLangType("Unit"))
+        .createMethod[CompilerIO]("unit", Seq.empty, systemLangValue("Unit"))
         .use { methodGenerator =>
           methodGenerator.runNative { methodVisitor =>
             methodVisitor.visitInsn(Opcodes.ACONST_NULL)
@@ -39,7 +38,7 @@ object NativeImplementation {
   private def eliot_lang_String_printlnInternal: NativeImplementation = new NativeImplementation {
     override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
       classGenerator
-        .createMethod[CompilerIO]("printlnInternal", Seq(systemLangType("String")), systemLangType("Unit"))
+        .createMethod[CompilerIO]("printlnInternal", Seq(systemLangValue("String")), systemLangValue("Unit"))
         .use { methodGenerator =>
           methodGenerator.runNative { methodVisitor =>
             methodVisitor.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;")

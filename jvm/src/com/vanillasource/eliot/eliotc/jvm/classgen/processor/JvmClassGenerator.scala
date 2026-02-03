@@ -9,15 +9,13 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClas
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.types
 import NativeImplementation.implementations
 import TypeState.*
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor2, moduleNameToOld, simpleType, valueFQNToTypeFQN}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor2, simpleType}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemUnitValue
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
-import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedData
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 import com.vanillasource.eliot.eliotc.uncurry2.fact.*
@@ -31,7 +29,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     for {
       usedNames          <- getFactOrAbort(UsedNames.Key(key.vfqn))
       usedValues          = usedNames.usedNames.filter((vfqn, _) => vfqn.moduleName === key.moduleName)
-      mainClassGenerator <- createClassGenerator[CompilerIO](moduleNameToOld(key.moduleName))
+      mainClassGenerator <- createClassGenerator[CompilerIO](key.moduleName)
       functionFiles      <- usedValues.toSeq.flatTraverse { case (vfqn, stats) =>
                               createModuleMethod(mainClassGenerator, vfqn, stats)
                             }
@@ -246,7 +244,6 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     val closedOverNames = collectParameterReferences(body.value.expression)
       .filter(_ =!= definition.name.value)
     val returnType      = simpleType(body.value.expressionType)
-    val oldModuleName   = moduleNameToOld(moduleName)
 
     for {
       _                <- addParameterDefinition(definition)
@@ -280,13 +277,13 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                        for {
                                          _ <- applyGenerator
                                                 .addLoadVar[CompilationTypesIO](
-                                                  TypeFQN(oldModuleName, "lambda$" + lambdaIndex),
+                                                  ValueFQN(moduleName, "lambda$" + lambdaIndex),
                                                   0 // The data object is the parameter
                                                 )
                                          _ <- applyGenerator.addGetField[CompilationTypesIO](
                                                 argument.name.value,
                                                 simpleType(argument.parameterType),
-                                                TypeFQN(oldModuleName, "lambda$" + lambdaIndex)
+                                                ValueFQN(moduleName, "lambda$" + lambdaIndex)
                                               )
                                        } yield ()
                                      }
@@ -299,7 +296,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                               } yield ()
                             }
       classFile        <- innerClassWriter.generate[CompilationTypesIO]()
-      _                <- methodGenerator.addNew[CompilationTypesIO](TypeFQN(oldModuleName, "lambda$" + lambdaIndex))
+      _                <- methodGenerator.addNew[CompilationTypesIO](ValueFQN(moduleName, "lambda$" + lambdaIndex))
       _                <- closedOverArgs.get.traverse_ { argument =>
                             for {
                               argIndex <- getParameterIndex(argument.name.value)
@@ -309,7 +306,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                             } yield ()
                           }
       _                <- methodGenerator.addCallToCtor[CompilationTypesIO]( // Call constructor
-                            TypeFQN(oldModuleName, "lambda$" + lambdaIndex),
+                            ValueFQN(moduleName, "lambda$" + lambdaIndex),
                             closedOverArgs.get.map(_.parameterType).map(simpleType)
                           )
       // FIXME: add apply: calling the static method
@@ -321,7 +318,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     */
   private def createApplicationMain(mainVfqn: ValueFQN, generator: ClassGenerator): CompilerIO[Unit] =
     generator.createMainMethod[CompilerIO]().use { methodGenerator =>
-      methodGenerator.addCallTo(mainVfqn, Seq.empty, systemUnitType)
+      methodGenerator.addCallTo(mainVfqn, Seq.empty, systemUnitValue)
     }
 
   /** @return
