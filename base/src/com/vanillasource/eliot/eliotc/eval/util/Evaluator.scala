@@ -61,7 +61,7 @@ object Evaluator {
         getFact(NamedEvaluable.Key(vfqn)).flatMap {
           case Some(value) => value.value.pure[CompilerIO]
           case None        =>
-            compilerAbort(sourced.as("Could not evaluate expression."), Seq(s"Named value '${vfqn.show}' not found.'"))
+            compilerAbort(sourced.as("Could not evaluate expression."), Seq(s"Named value '${vfqn.show}' not found."))
         }
       }
     case Expression.FunctionLiteral(paramName, paramType, body) =>
