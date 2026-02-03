@@ -38,10 +38,10 @@ object TypeStackBuilder {
   def inferBody(body: Sourced[Expression]): TypeGraphIO[TypedExpression] =
     body.value match {
       case Expr.IntegerLiteral(value) =>
-        inferLiteral(value, "Number", "Byte", TypedExpression.IntegerLiteral(value))
+        inferLiteral(value, "Number", "Int$DataType", TypedExpression.IntegerLiteral(value))
 
       case Expr.StringLiteral(value) =>
-        inferLiteral(value, "String", "String", TypedExpression.StringLiteral(value))
+        inferLiteral(value, "String", "String$DataType", TypedExpression.StringLiteral(value))
 
       case Expr.ParameterReference(name) =>
         handleParameterReference(name)
