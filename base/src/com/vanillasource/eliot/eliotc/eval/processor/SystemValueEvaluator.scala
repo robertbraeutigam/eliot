@@ -3,19 +3,17 @@ package com.vanillasource.eliot.eliotc.eval.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, NativeFunction}
 import com.vanillasource.eliot.eliotc.eval.fact.NamedEvaluable
-import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{fullyQualifiedNameType, functionDataTypeFQN, typeFQN}
+import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
+import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
-/** Evaluating built-in system values.
+/** Evaluating built-in system values. Even things that are not in source code form can be here, so this does not always
+  * get downstream facts for a reason.
   */
-class SystemValueEvaluator
-    extends TransformationProcessor[ResolvedValue.Key, NamedEvaluable.Key](key => ResolvedValue.Key(key.vfqn)) {
-
-  override protected def generateFromKeyAndFact(key: NamedEvaluable.Key, fact: InputFact): CompilerIO[OutputFact] =
+class SystemValueEvaluator extends SingleFactProcessor[NamedEvaluable.Key] {
+  override def generateSingleFact(key: NamedEvaluable.Key): CompilerIO[NamedEvaluable] =
     if (key.vfqn === functionDataTypeFQN) {
       createFunctionDataTypeEvaluable().pure[CompilerIO]
     } else if (key.vfqn === typeFQN) {
