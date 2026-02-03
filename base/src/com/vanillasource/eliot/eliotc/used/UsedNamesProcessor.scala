@@ -24,7 +24,7 @@ class UsedNamesProcessor extends SingleKeyTypeProcessor[UsedNames.Key] with Logg
   override protected def generateFact(key: UsedNames.Key): CompilerIO[Unit] =
     for {
       state <- processValue(key.rootFQN, Seq.empty).runS(UsedNamesState())
-      _     <- registerFactIfClear(getUsedNames(key.rootFQN, state))
+      _     <- registerFactIfClear(getUsedNames(key.rootFQN, state)).whenA(!state.failed)
     } yield ()
 
   private def processValue(vfqn: ValueFQN, typeArgs: Seq[Value]): UsedNamesIO[Unit] =
@@ -33,7 +33,7 @@ class UsedNamesProcessor extends SingleKeyTypeProcessor[UsedNames.Key] with Logg
       for {
         _                <- markVisited(vfqn, typeArgs)
         monomorphicMaybe <- getFact(MonomorphicValue.Key(vfqn, typeArgs)).liftToUsedNames
-        _                <- monomorphicMaybe.traverse_(processMonomorphicValue)
+        _                <- monomorphicMaybe.fold(markFailed())(processMonomorphicValue)
       } yield ()
     )
 

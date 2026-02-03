@@ -9,7 +9,8 @@ import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
 
 case class UsedNamesState(
     usedNames: Map[ValueFQN, UsedNamesState.UsageStatsBuilder] = Map.empty,
-    visited: Set[(ValueFQN, Seq[Value])] = Set.empty
+    visited: Set[(ValueFQN, Seq[Value])] = Set.empty,
+    failed: Boolean = false
 )
 
 object UsedNamesState {
@@ -56,4 +57,7 @@ object UsedNamesState {
       val updated = builder.addTypeParameters(typeArgs).addDirectCallApplication(applicationCount)
       state.copy(usedNames = state.usedNames.updated(vfqn, updated))
     }
+
+  def markFailed(): UsedNamesIO[Unit] =
+    StateT.modify[CompilerIO, UsedNamesState](_.copy(failed = true))
 }
