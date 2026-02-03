@@ -160,6 +160,6 @@ object SymbolicUnification {
 
   given Show[SymbolicUnification] = (unification: SymbolicUnification) =>
     unification.constraints
-      .map(c => s"${c.left.show} := ${c.right.value.show}")
+      .map(c => s"${expressionValueUserDisplay.show(c.left)} := ${expressionValueUserDisplay.show(c.right.value)}")
       .mkString(" ∧ ")
 }

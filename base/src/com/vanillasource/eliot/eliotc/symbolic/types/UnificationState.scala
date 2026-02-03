@@ -27,6 +27,6 @@ case class UnificationState(substitutions: Map[String, ExpressionValue] = Map.em
 object UnificationState {
   given Show[UnificationState] = state =>
     state.substitutions
-      .map { case (name, expr) => s"?$name -> ${expr.show}" }
+      .map { case (name, expr) => s"?$name -> ${expressionValueUserDisplay.show(expr)}" }
       .mkString(", ")
 }

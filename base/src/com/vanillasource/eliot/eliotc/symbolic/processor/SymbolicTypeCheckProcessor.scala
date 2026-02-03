@@ -57,9 +57,9 @@ class SymbolicTypeCheckProcessor
 
       (declaredType, typedLevels, typedBody, constraints, universalVars, unificationVars) = result
 
-      _                  <- debug[CompilerIO](s"Constraints: ${constraints.show}")
+      _                  <- debug[CompilerIO](s"Constraints (of ${resolvedValue.vfqn.show}): ${constraints.show}")
       solution           <- constraints.solve(universalVars, unificationVars)
-      _                  <- debug[CompilerIO](s"Solution: ${solution.show}")
+      _                  <- debug[CompilerIO](s"Solution (of ${resolvedValue.vfqn.show}): ${solution.show}")
       resolvedTypedLevels = typedLevels.map(_.transformTypes(solution.substitute))
       resolvedTypedBody   = typedBody.transformTypes(solution.substitute)
       signatureType       = resolvedTypedLevels.head.expressionType
