@@ -7,7 +7,6 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.typesystem.processor.ShortUniqueIdentifiers
 
 /** Combined state for type checking, including constraint accumulation. */
 case class TypeCheckState(

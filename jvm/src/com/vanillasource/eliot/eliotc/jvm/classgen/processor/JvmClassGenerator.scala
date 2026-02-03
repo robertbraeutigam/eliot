@@ -13,7 +13,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFi
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, TypeFQN}
+import com.vanillasource.eliot.eliotc.module.fact.TypeFQN
 import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
@@ -190,7 +190,6 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                  val parameterTypes =
                                    uncurriedValue.parameters.map(p => simpleType(p.parameterType))
                                  val returnType     = simpleType(uncurriedValue.returnType)
-                                 val calledFfqn     = FunctionFQN(moduleNameToOld(calledVfqn.moduleName), calledVfqn.name)
                                  // FIXME: this doesn't seem to check whether arguments match either
                                  for {
                                    classes <-
@@ -198,7 +197,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                        createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
                                      )
                                    _       <- methodGenerator.addCallTo[CompilationTypesIO](
-                                                calledFfqn,
+                                                calledVfqn,
                                                 parameterTypes,
                                                 returnType
                                               )
@@ -293,7 +292,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                      }
                                 // Call the static lambdaFn
                                 _ <- applyGenerator.addCallTo[CompilationTypesIO](
-                                       FunctionFQN(oldModuleName, "lambdaFn$" + lambdaIndex),
+                                       ValueFQN(moduleName, "lambdaFn$" + lambdaIndex),
                                        closedOverArgs.get.map(_.parameterType).map(simpleType),
                                        simpleType(body.value.expressionType)
                                      )
@@ -322,7 +321,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     */
   private def createApplicationMain(mainVfqn: ValueFQN, generator: ClassGenerator): CompilerIO[Unit] =
     generator.createMainMethod[CompilerIO]().use { methodGenerator =>
-      methodGenerator.addCallTo(FunctionFQN(moduleNameToOld(mainVfqn.moduleName), mainVfqn.name), Seq.empty, systemUnitType)
+      methodGenerator.addCallTo(mainVfqn, Seq.empty, systemUnitType)
     }
 
   /** @return

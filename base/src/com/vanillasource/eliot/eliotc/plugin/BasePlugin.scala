@@ -30,10 +30,7 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.datafunctions.DataFunctionsProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.typesystem.processor.TypeCheckProcessor
-import com.vanillasource.eliot.eliotc.uncurry.UncurryingProcessor
-import com.vanillasource.eliot.eliotc.uncurry2.processor.{UncurryingProcessor => UncurryingProcessor2}
-import com.vanillasource.eliot.eliotc.used.UsedSymbolsProcessor
+import com.vanillasource.eliot.eliotc.uncurry2.processor.UncurryingProcessor
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.used2.UsedNamesProcessor
@@ -75,9 +72,6 @@ class BasePlugin extends CompilerPlugin {
             UnifiedModuleFunctionProcessor(),
             FunctionResolver(),
             TypeResolver(),
-            TypeCheckProcessor(),
-            UncurryingProcessor(),
-            UsedSymbolsProcessor(),
             // New module2 pipeline
             ModuleNamesProcessor2(),
             ModuleValueProcessor(),
@@ -88,7 +82,7 @@ class BasePlugin extends CompilerPlugin {
             SymbolicTypeCheckProcessor(),
             MonomorphicTypeCheckProcessor(),
             UsedNamesProcessor(),
-            UncurryingProcessor2()
+            UncurryingProcessor()
           )
         )
       )

@@ -9,23 +9,24 @@ import NativeType.{
   javaSignatureName
 }
 import com.vanillasource.eliot.eliotc.module.fact.TypeFQN.systemUnitType
-import com.vanillasource.eliot.eliotc.module.fact.{FunctionFQN, ModuleName, TypeFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, TypeFQN}
+import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
 import org.objectweb.asm.{MethodVisitor, Opcodes}
 
 class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: MethodVisitor) {
 
   /** Add calling the given function with the given signature.
-    * @param calledFfqn
-    *   The called function's fully qualified moduleName.
+    * @param calledVfqn
+    *   The called function's fully qualified name.
     */
-  def addCallTo[F[_]: Sync](calledFfqn: FunctionFQN, parameterTypes: Seq[TypeFQN], resultType: TypeFQN): F[Unit] =
+  def addCallTo[F[_]: Sync](calledVfqn: ValueFQN, parameterTypes: Seq[TypeFQN], resultType: TypeFQN): F[Unit] =
     Sync[F].delay {
       methodVisitor.visitMethodInsn(
         Opcodes.INVOKESTATIC,
-        calledFfqn.moduleName.packages
-          .appended(calledFfqn.moduleName.name)
+        calledVfqn.moduleName.packages
+          .appended(calledVfqn.moduleName.name)
           .mkString("/"),
-        calledFfqn.functionName, // TODO: not a safe moduleName
+        calledVfqn.name,
         convertToSignatureString(parameterTypes, resultType),
         false
       )
