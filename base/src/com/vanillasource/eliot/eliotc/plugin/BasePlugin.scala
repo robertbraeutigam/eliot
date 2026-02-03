@@ -5,11 +5,16 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
+import com.vanillasource.eliot.eliotc.eval.processor.{
+  DataTypeEvaluator,
+  ExistingNamedValueEvaluator,
+  FunctionDataTypeEvaluator
+}
 import com.vanillasource.eliot.eliotc.module.processor.{
-  ModuleValueProcessor,
-  UnifiedModuleValueProcessor,
   ModuleNamesProcessor,
-  UnifiedModuleNamesProcessor
+  ModuleValueProcessor,
+  UnifiedModuleNamesProcessor,
+  UnifiedModuleValueProcessor
 }
 import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.plugin.BasePlugin.pathKey
@@ -52,6 +57,9 @@ class BasePlugin extends CompilerPlugin {
             Tokenizer(),
             ASTParser(),
             CoreProcessor(),
+            FunctionDataTypeEvaluator(),
+            ExistingNamedValueEvaluator(),
+            DataTypeEvaluator(),
             ModuleNamesProcessor(),
             ModuleValueProcessor(),
             UnifiedModuleNamesProcessor(),
