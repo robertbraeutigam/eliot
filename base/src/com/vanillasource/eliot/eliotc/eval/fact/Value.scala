@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.eval.fact
 
 import cats.{Eq, Show}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.Types.fullyQualifiedNameType
+import com.vanillasource.eliot.eliotc.eval.fact.Types.{fullyQualifiedNameType, typeFQN}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 
 /** The evaluator creates these values to represent every "runtime" value in a program.
@@ -19,12 +19,7 @@ object Value {
     * Both its valueType and all field types reference itself.
     */
   object Type extends Value {
-    lazy val fields: Map[String, Value] = Map(
-      "$typeName" -> Direct(
-        ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type"),
-        fullyQualifiedNameType
-      )
-    )
+    lazy val fields: Map[String, Value] = Map("$typeName" -> Direct(typeFQN, fullyQualifiedNameType))
     override def valueType: Value       = this
   }
 

@@ -3,7 +3,8 @@ package com.vanillasource.eliot.eliotc.eval.util
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
-import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType}
+import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType, typeFQN}
+import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression
@@ -56,7 +57,11 @@ object Evaluator {
     case Expression.ValueReference(s)                           =>
       val vfqn = s.value
       if (evaluating.contains(vfqn)) {
+        // Don't allow recursions when evaluating, for now
         compilerAbort(s.as("Recursive evaluation detected."))
+      } else if (vfqn === typeFQN) {
+        // Special case, if we're referencing Type
+        ConcreteValue(Type).pure[CompilerIO]
       } else {
         getFact(NamedEvaluable.Key(vfqn)).flatMap {
           case Some(value) => value.value.pure[CompilerIO]

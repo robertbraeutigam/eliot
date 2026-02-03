@@ -7,8 +7,10 @@ import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackag
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 
 object Types {
-  val fqnFQN: ValueFQN =
+  val fqnFQN: ValueFQN  =
     ValueFQN(ModuleName(Seq("eliot", "compile"), "FullyQualifiedName"), "FullyQualifiedName")
+  val typeFQN: ValueFQN =
+    ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
 
   val functionDataTypeFQN = ValueFQN(ModuleName.systemFunctionModuleName, "Function$DataType")
 
