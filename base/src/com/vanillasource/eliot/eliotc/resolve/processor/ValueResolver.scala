@@ -28,7 +28,7 @@ class ValueResolver
     }
 
     val resolveProgram = for {
-      resolvedRuntime <- namedValue.runtime.traverse(expr => resolveExpression(expr).map(namedValue.name.as))
+      resolvedRuntime <- namedValue.runtime.traverse(expr => resolveExpression(expr, true).map(namedValue.name.as))
       resolvedStack   <- resolveTypeStack(namedValue.name.as(namedValue.typeStack))
       _               <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedStack.value.show}")
       _               <- debug[ScopedIO](
@@ -96,11 +96,11 @@ class ValueResolver
   ): ScopedIO[Sourced[TypeStack[Expression]]] =
     withLocalScope {
       stack.value.levels.reverse
-        .traverse(resolveExpression)
+        .traverse(expression => resolveExpression(expression, false))
         .map(es => stack.as(TypeStack(es.reverse)))
     }
 
-  private def resolveExpression(expression: CoreExpression): ScopedIO[Expression] =
+  private def resolveExpression(expression: CoreExpression, runtime: Boolean): ScopedIO[Expression] =
     expression match {
       case NamedValueReference(nameSrc, None)          =>
         isParameter(nameSrc.value).flatMap { isParam =>
@@ -113,8 +113,10 @@ class ValueResolver
           } else {
             // TODO: Hardcoded: anything that's not a parameter reference (above), AND starts with an upper-case letter,
             //  is a reference to a type. Therefore we need to add "$DataType" to the call. This is a hack, fix this later!
-            // Note: we can't do this earlier, because we have to know, whether it's a generic parameter
-            val valueName = if (nameSrc.value.charAt(0).isUpper) nameSrc.value + "$DataType" else nameSrc.value
+            // Note: we can't do this earlier, because we have to know, whether it's a generic parameter or not
+            // Note 2: we also need to know whether we're on the runtime plane or not
+            val valueName =
+              if (nameSrc.value.charAt(0).isUpper && !runtime) nameSrc.value + "$DataType" else nameSrc.value
             getValue(valueName).flatMap {
               case Some(vfqn) =>
                 Expression.ValueReference(nameSrc.as(vfqn)).pure[ScopedIO]
