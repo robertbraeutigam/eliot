@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 

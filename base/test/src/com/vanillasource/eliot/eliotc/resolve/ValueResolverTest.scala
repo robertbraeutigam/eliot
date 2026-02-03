@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.resolve2
+package com.vanillasource.eliot.eliotc.resolve
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
@@ -7,10 +7,10 @@ import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
-import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
-import com.vanillasource.eliot.eliotc.resolve2.fact.Expression.*
-import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.resolve2.ExpressionMatchers.*
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
+import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.resolve.ExpressionMatchers.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 

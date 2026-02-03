@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.resolve2.processor
+package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
@@ -7,8 +7,8 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
-import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolverScope.*
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolverScope.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 

@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
-import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers

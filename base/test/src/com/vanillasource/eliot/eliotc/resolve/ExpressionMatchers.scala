@@ -1,9 +1,9 @@
-package com.vanillasource.eliot.eliotc.resolve2
+package com.vanillasource.eliot.eliotc.resolve
 
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
-import com.vanillasource.eliot.eliotc.resolve2.fact.Expression.*
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 object ExpressionMatchers {

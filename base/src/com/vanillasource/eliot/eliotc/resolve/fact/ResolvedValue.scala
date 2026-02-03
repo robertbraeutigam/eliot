@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.resolve2.fact
+package com.vanillasource.eliot.eliotc.resolve.fact
 
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN

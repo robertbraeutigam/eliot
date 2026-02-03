@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.Types.{fullyQualifiedNameType, f
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve2.fact.ResolvedValue
+import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 
 /** Processor that provides NamedEvaluable facts for data type constructors (values ending with $DataType).
   *

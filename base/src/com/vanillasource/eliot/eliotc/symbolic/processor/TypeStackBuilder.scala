@@ -8,8 +8,8 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
-import com.vanillasource.eliot.eliotc.resolve2.fact.Expression as Expr
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression as Expr
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression

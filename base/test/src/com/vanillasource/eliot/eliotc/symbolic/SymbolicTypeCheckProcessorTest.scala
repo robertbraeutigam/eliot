@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
-import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypeCheckedValue
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor

@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.NamedEvaluable
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator.evaluate
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve2.fact.ResolvedValue
+import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 

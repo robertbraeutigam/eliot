@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.resolve2.processor
+package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.data.StateT
 import cats.syntax.all.*

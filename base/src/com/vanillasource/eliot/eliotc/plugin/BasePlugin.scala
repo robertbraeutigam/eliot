@@ -17,7 +17,7 @@ import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
-import com.vanillasource.eliot.eliotc.resolve2.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
