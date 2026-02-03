@@ -1,7 +1,7 @@
-package com.vanillasource.eliot.eliotc.module2.processor
+package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ModuleNames, UnifiedModuleNames}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ModuleNames, UnifiedModuleNames}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 import com.vanillasource.eliot.eliotc.source.scan.PathScan

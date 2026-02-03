@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.uncurry2.fact
 
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Expression tree after uncurrying.

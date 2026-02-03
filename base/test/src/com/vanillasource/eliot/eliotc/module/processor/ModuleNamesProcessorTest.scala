@@ -1,10 +1,10 @@
-package com.vanillasource.eliot.eliotc.module2.processor
+package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.module2.fact.ModuleNames
+import com.vanillasource.eliot.eliotc.module.fact.ModuleNames
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class ModuleNamesProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProcessor(), ModuleNamesProcessor()) {

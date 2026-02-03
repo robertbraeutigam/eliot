@@ -13,7 +13,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFi
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemUnitValue
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
-import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced

@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
 import com.vanillasource.eliot.eliotc.eval.fact.Value
-import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** A runtime expression annotated with concrete (ground) types. All types are fully evaluated Values with no free type

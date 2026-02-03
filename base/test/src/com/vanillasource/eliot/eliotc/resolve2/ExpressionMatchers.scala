@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.resolve2
 
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
-import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced

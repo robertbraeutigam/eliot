@@ -8,7 +8,7 @@ import NativeType.{
   javaInternalName,
   javaSignatureName
 }
-import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import org.objectweb.asm.{MethodVisitor, Opcodes}
 
 class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: MethodVisitor) {

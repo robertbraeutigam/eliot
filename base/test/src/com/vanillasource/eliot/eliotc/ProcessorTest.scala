@@ -5,7 +5,7 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
-import com.vanillasource.eliot.eliotc.module2.fact.ModuleName
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey, CompilerProcessor}

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.eval.fact
 
 import cats.Show
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 
 /** The result of an expression evaluation.
   */

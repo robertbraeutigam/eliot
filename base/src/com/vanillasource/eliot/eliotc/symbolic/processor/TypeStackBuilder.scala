@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
-import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve2.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve2.fact.Expression as Expr

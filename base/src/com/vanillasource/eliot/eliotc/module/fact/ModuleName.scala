@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.module2.fact
+package com.vanillasource.eliot.eliotc.module.fact
 
 import cats.{Eq, Show}
 import com.vanillasource.eliot.eliotc.ast.fact.ImportStatement

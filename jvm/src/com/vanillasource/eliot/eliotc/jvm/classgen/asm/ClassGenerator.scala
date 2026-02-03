@@ -6,7 +6,7 @@ import cats.effect.kernel.Resource
 import ClassGenerator.createClassGenerator
 import NativeType.{convertToCtorSignatureString, convertToMainClassName, convertToSignatureString, javaSignatureName}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
-import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
 class ClassGenerator(private val moduleName: ModuleName, private val classWriter: ClassWriter) {

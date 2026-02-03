@@ -2,9 +2,9 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemLangValue
-import com.vanillasource.eliot.eliotc.module2.fact.ModuleName
-import com.vanillasource.eliot.eliotc.module2.fact.ModuleName.defaultSystemPackage
-import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import org.objectweb.asm.Opcodes
 

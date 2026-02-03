@@ -4,7 +4,7 @@ import cats.effect.Sync
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.Value
-import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.uncurry2.fact.ParameterDefinition
 import NativeType.{systemFunctionValue, systemAnyValue}
 

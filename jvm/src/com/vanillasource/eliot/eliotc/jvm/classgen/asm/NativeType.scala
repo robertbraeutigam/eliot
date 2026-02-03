@@ -1,9 +1,9 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module2.fact.ModuleName
-import com.vanillasource.eliot.eliotc.module2.fact.ModuleName.defaultSystemPackage
-import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import org.objectweb.asm.Type
 
 trait NativeType {

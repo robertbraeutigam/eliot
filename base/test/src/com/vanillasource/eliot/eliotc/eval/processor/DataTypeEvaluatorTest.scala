@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.fullyQualifiedNameType
-import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}

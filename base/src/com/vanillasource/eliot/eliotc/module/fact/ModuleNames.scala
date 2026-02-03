@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.module2.fact
+package com.vanillasource.eliot.eliotc.module.fact
 
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 

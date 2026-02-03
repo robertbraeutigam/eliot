@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.plugin.BasePlugin
 import com.vanillasource.eliot.eliotc.jvm.jargen.{GenerateExecutableJar, JvmProgramGenerator}
 import com.vanillasource.eliot.eliotc.compiler.Compiler
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.JvmClassGenerator
-import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors

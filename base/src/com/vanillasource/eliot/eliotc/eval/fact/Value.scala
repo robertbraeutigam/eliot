@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.eval.fact
 import cats.{Eq, Show}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.fullyQualifiedNameType
-import com.vanillasource.eliot.eliotc.module2.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 
 /** The evaluator creates these values to represent every "runtime" value in a program.
   */

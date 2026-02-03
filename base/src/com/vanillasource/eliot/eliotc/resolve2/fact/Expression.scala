@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.resolve2.fact
 import cats.syntax.all.*
 import cats.Show
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
-import com.vanillasource.eliot.eliotc.module2.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 sealed trait Expression

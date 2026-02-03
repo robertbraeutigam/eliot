@@ -1,8 +1,8 @@
-package com.vanillasource.eliot.eliotc.module2.processor
+package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.NamedValue
-import com.vanillasource.eliot.eliotc.module2.fact.{ModuleValue, UnifiedModuleValue, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleValue, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -47,6 +47,6 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
     values.tail.forall(v => NamedValue.signatureEquality.eqv(first.namedValue, v.namedValue))
   }
 
-  private def pathName(name: com.vanillasource.eliot.eliotc.module2.fact.ModuleName): Path =
+  private def pathName(name: com.vanillasource.eliot.eliotc.module.fact.ModuleName): Path =
     (name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ `resolve` _)
 }
