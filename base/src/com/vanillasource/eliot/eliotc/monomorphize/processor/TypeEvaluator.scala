@@ -36,7 +36,7 @@ object TypeEvaluator {
   ): CompilerIO[Value] = {
     val applied = typeArgs.foldLeft(expr)((e, arg) => FunctionApplication(e, ConcreteValue(arg)))
     for {
-      resolved <- resolveDataTypeRefs(applied)
+      resolved <- resolveDataTypeRefs(applied, source)
       reduced  <- Evaluator.reduce(resolved, source)
       value    <- extractValue(reduced, source)
     } yield value
@@ -45,35 +45,38 @@ object TypeEvaluator {
   /** Resolve data type references that are targets of FunctionApplication. Only targets need resolution because they
     * represent type constructors that need to be applied. Standalone ConcreteValues are already final type values.
     */
-  private def resolveDataTypeRefs(expr: ExpressionValue): CompilerIO[ExpressionValue] =
+  private def resolveDataTypeRefs(expr: ExpressionValue, source: Sourced[?]): CompilerIO[ExpressionValue] =
     expr match {
       case FunctionApplication(target, arg) =>
         for {
-          newTarget <- resolveTargetIfNeeded(target)
-          newArg    <- resolveDataTypeRefs(arg)
+          newTarget <- resolveTargetIfNeeded(target, source)
+          newArg    <- resolveDataTypeRefs(arg, source)
         } yield FunctionApplication(newTarget, newArg)
 
       case FunctionLiteral(name, paramType, body) =>
-        resolveDataTypeRefs(body).map(FunctionLiteral(name, paramType, _))
+        resolveDataTypeRefs(body, source).map(FunctionLiteral(name, paramType, _))
 
       case _ =>
         expr.pure[CompilerIO]
     }
 
   /** Resolve a FunctionApplication target if it's a data type reference. */
-  private def resolveTargetIfNeeded(target: ExpressionValue): CompilerIO[ExpressionValue] =
+  private def resolveTargetIfNeeded(target: ExpressionValue, source: Sourced[?]): CompilerIO[ExpressionValue] =
     target match {
       case ConcreteValue(Value.Structure(fields, Value.Type)) if isDataTypeRef(fields) =>
         fields("$typeName") match {
           case Value.Direct(vfqn: ValueFQN, _) =>
-            getFactOrAbort(NamedEvaluable.Key(vfqn)).map(_.value)
+            getFact(NamedEvaluable.Key(vfqn)).flatMap {
+              case Some(value) => value.value.pure[CompilerIO]
+              case None        => compilerAbort(source.as(s"Could not resolve type."), Seq(s"Looking for ${vfqn.show}."))
+            }
           case _                               =>
             target.pure[CompilerIO]
         }
       case FunctionApplication(_, _)                                                   =>
-        resolveDataTypeRefs(target)
+        resolveDataTypeRefs(target, source)
       case FunctionLiteral(_, _, _)                                                    =>
-        resolveDataTypeRefs(target)
+        resolveDataTypeRefs(target, source)
       case _                                                                           =>
         target.pure[CompilerIO]
     }
