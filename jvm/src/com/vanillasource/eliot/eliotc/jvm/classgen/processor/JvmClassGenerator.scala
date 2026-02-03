@@ -20,8 +20,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedExpression.*
-import com.vanillasource.eliot.eliotc.used2.UsedNames
-import com.vanillasource.eliot.eliotc.used2.UsedNames.UsageStats
+import com.vanillasource.eliot.eliotc.used.UsedNames
+import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
 
 class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with Logging {
 

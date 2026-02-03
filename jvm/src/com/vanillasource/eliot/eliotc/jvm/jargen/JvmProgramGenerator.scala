@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.SourceContent.addSource
-import com.vanillasource.eliot.eliotc.used2.UsedNames
+import com.vanillasource.eliot.eliotc.used.UsedNames
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.StandardOpenOption.*

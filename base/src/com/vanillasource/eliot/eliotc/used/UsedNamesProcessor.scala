@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.used2
+package com.vanillasource.eliot.eliotc.used
 
 import cats.Monad
 import cats.syntax.all.*
@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, 
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.used2.UsedNamesState.*
+import com.vanillasource.eliot.eliotc.used.UsedNamesState.*
 
 import scala.annotation.tailrec
 
