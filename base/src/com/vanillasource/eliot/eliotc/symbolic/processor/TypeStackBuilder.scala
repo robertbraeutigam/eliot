@@ -72,8 +72,11 @@ object TypeStackBuilder {
       maybeResolved <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)).attempt.map(_.toOption))
       result        <- maybeResolved match {
                          case Some(resolved) =>
-                           processStack(resolved.typeStack).map { case (signatureType, _) =>
-                             TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
+                           // Use instantiation mode so type parameters become unification vars
+                           withInstantiationMode {
+                             processStack(resolved.typeStack).map { case (signatureType, _) =>
+                               TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
+                             }
                            }
                          case None           =>
                            val exprValue = ConcreteValue(Types.dataType(vfqn.value))
@@ -222,18 +225,35 @@ object TypeStackBuilder {
         TypedExpression(exprValue, TypedExpression.StringLiteral(value)).pure[TypeGraphIO]
     }
 
-  /** Universal variable introduction: A -> ... where A is of type Type */
+  /** Universal variable introduction: A -> ... where A is of type Type
+    *
+    * In instantiation mode (when processing a referenced value's type), the type parameter becomes a fresh unification
+    * variable instead of a universal variable. This allows type inference at call sites. In this mode, the body type is
+    * returned directly (type params are instantiated).
+    *
+    * In declaration mode, the polymorphic type (FunctionLiteral wrapping body type) is preserved so that
+    * MonomorphicTypeCheckProcessor can apply type arguments during monomorphization.
+    */
   private def buildUniversalIntro(
       paramName: Sourced[String],
       paramType: Sourced[TypeStack[Expression]],
       body: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
-      _                               <- addUniversalVar(paramName.value)
+      inInstMode <- isInstantiationMode
+      _          <- if (inInstMode) {
+                      // Generate fresh unification var and bind it so later references find it
+                      generateUnificationVar(paramName).flatMap(uniVar => bindParameter(paramName.value, uniVar))
+                    } else {
+                      addUniversalVar(paramName.value)
+                    }
       (_, typedParamStack)            <- processStack(paramType)
       (bodyTypeValue, typedBodyStack) <- processStack(body)
+      // In instantiation mode, return body type directly (type params are already instantiated as unification vars).
+      // In declaration mode, wrap in FunctionLiteral to preserve polymorphic type for monomorphization.
+      resultType = if (inInstMode) bodyTypeValue else FunctionLiteral(paramName.value, Value.Type, bodyTypeValue)
     } yield TypedExpression(
-      bodyTypeValue,
+      resultType,
       TypedExpression.FunctionLiteral(paramName, typedParamStack, typedBodyStack)
     )
 

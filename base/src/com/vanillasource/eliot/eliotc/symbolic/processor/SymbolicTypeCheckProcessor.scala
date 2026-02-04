@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -42,9 +43,12 @@ class SymbolicTypeCheckProcessor
                       (signatureType, typedStack.value.levels)
                     }
                   bodyResult                  <- TypeStackBuilder.inferBody(body)
+                  // For constraint building, strip universal intros (type params) from declared type
+                  // since the body's type won't have them - they're handled via universalVars
+                  strippedDeclaredType         = stripUniversalIntros(declaredType)
                   _                           <- tellConstraint(
                                                    SymbolicUnification.constraint(
-                                                     declaredType,
+                                                     strippedDeclaredType,
                                                      body.as(bodyResult.expressionType),
                                                      "Type mismatch."
                                                    )
@@ -87,4 +91,13 @@ class SymbolicTypeCheckProcessor
       None
     )
 
+  /** Strip FunctionLiteral wrappers that represent universal type introductions. These have Value.Type as the parameter
+    * type. This is used for constraint building where the body's type doesn't include these wrappers.
+    */
+  @scala.annotation.tailrec
+  private def stripUniversalIntros(expr: ExpressionValue): ExpressionValue =
+    expr match {
+      case ExpressionValue.FunctionLiteral(_, Value.Type, body) => stripUniversalIntros(body)
+      case other                                                => other
+    }
 }

@@ -8,13 +8,19 @@ import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Combined state for type checking, including constraint accumulation. */
+/** Combined state for type checking, including constraint accumulation.
+  *
+  * @param instantiationMode
+  *   When true, type parameters in referenced values become fresh unification vars instead of universal vars. This
+  *   allows type inference at call sites.
+  */
 case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
     parameterTypes: Map[String, ExpressionValue] = Map.empty,
     universalVars: Set[String] = Set.empty,
     unificationVars: Set[String] = Set.empty,
-    constraints: SymbolicUnification = SymbolicUnification.empty
+    constraints: SymbolicUnification = SymbolicUnification.empty,
+    instantiationMode: Boolean = false
 )
 
 object TypeCheckState {
@@ -53,4 +59,15 @@ object TypeCheckState {
 
   def isUniversalVar(name: String): TypeGraphIO[Boolean] =
     StateT.inspect(_.universalVars.contains(name))
+
+  def withInstantiationMode[T](computation: TypeGraphIO[T]): TypeGraphIO[T] =
+    for {
+      original <- StateT.inspect[CompilerIO, TypeCheckState, Boolean](_.instantiationMode)
+      _        <- StateT.modify[CompilerIO, TypeCheckState](_.copy(instantiationMode = true))
+      result   <- computation
+      _        <- StateT.modify[CompilerIO, TypeCheckState](_.copy(instantiationMode = original))
+    } yield result
+
+  def isInstantiationMode: TypeGraphIO[Boolean] =
+    StateT.inspect(_.instantiationMode)
 }
