@@ -241,7 +241,10 @@ class CoreProcessor
               definition.name,
               definition.genericParameters,
               fields,
-              TypeReference(definition.name.map(_ + "$DataType"), Seq.empty), // The "type" name value
+              TypeReference(
+                definition.name.map(_ + "$DataType"),
+                definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
+              ),
               None
             )
           )
@@ -259,7 +262,13 @@ class CoreProcessor
             field.name,
             definition.genericParameters,
             Seq(
-              ArgumentDefinition(field.name.as("obj"), TypeReference(definition.name.map(_ + "$DataType"), Seq.empty))
+              ArgumentDefinition(
+                field.name.as("obj"),
+                TypeReference(
+                  definition.name.map(_ + "$DataType"),
+                  definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
+                )
+              )
             ),
             field.typeReference,
             None
