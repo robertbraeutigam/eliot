@@ -29,7 +29,7 @@ class ValueResolver
 
     val resolveProgram = for {
       resolvedRuntime <- namedValue.runtime.traverse(expr => resolveExpression(expr, true).map(namedValue.name.as))
-      resolvedStack   <- resolveTypeStack(namedValue.name.as(namedValue.typeStack))
+      resolvedStack   <- resolveTypeStack(namedValue.name.as(namedValue.typeStack), false)
       _               <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedStack.value.show}")
       _               <- debug[ScopedIO](
                            s"Resolved ${key.vfqn.show} runtime: ${resolvedRuntime.map(_.value.show).getOrElse("<abstract>")}"
@@ -90,13 +90,22 @@ class ValueResolver
 
   /** Resolves a type stack from top (most abstract) to bottom (signature). Expression variables from above are visible
     * on below levels, but go out of scope outside the type stack.
+    *
+    * @param runtime
+    *   Whether the signature (bottom level) is in runtime context. Higher levels are always type-level.
     */
   private def resolveTypeStack(
-      stack: Sourced[TypeStack[CoreExpression]]
+      stack: Sourced[TypeStack[CoreExpression]],
+      runtime: Boolean
   ): ScopedIO[Sourced[TypeStack[Expression]]] =
     withLocalScope {
-      stack.value.levels.reverse
-        .traverse(expression => resolveExpression(expression, false))
+      val levels    = stack.value.levels.reverse
+      val numLevels = levels.length
+      levels.zipWithIndex
+        .traverse { case (expression, idx) =>
+          val isSignature = idx == numLevels - 1
+          resolveExpression(expression, if (isSignature) runtime else false)
+        }
         .map(es => stack.as(TypeStack(es.reverse)))
     }
 
@@ -116,7 +125,9 @@ class ValueResolver
             // Note: we can't do this earlier, because we have to know, whether it's a generic parameter or not
             // Note 2: we also need to know whether we're on the runtime plane or not
             val valueName =
-              if (nameSrc.value.charAt(0).isUpper && !runtime) nameSrc.value + "$DataType" else nameSrc.value
+              if (nameSrc.value.charAt(0).isUpper && !runtime && !nameSrc.value.endsWith("$DataType"))
+                nameSrc.value + "$DataType"
+              else nameSrc.value
             getValue(valueName).flatMap {
               case Some(vfqn) =>
                 Expression.ValueReference(nameSrc.as(vfqn)).pure[ScopedIO]
@@ -136,16 +147,16 @@ class ValueResolver
         }
       case FunctionApplication(targetStack, argStack)  =>
         for {
-          resolvedTarget <- resolveTypeStack(targetStack)
-          resolvedArg    <- resolveTypeStack(argStack)
+          resolvedTarget <- resolveTypeStack(targetStack, runtime)
+          resolvedArg    <- resolveTypeStack(argStack, runtime)
         } yield Expression.FunctionApplication(resolvedTarget, resolvedArg)
       case FunctionLiteral(paramName, paramType, body) =>
         for {
-          resolvedParamType <- resolveTypeStack(paramName.as(paramType))
+          resolvedParamType <- resolveTypeStack(paramName.as(paramType), false)
           resolvedBody      <- withLocalScope {
                                  for {
                                    _    <- addParameter(paramName)
-                                   body <- resolveTypeStack(body)
+                                   body <- resolveTypeStack(body, runtime)
                                  } yield body
                                }
         } yield Expression.FunctionLiteral(paramName, resolvedParamType, resolvedBody)
