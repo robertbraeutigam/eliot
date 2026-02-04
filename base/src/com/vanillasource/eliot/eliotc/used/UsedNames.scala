@@ -19,5 +19,7 @@ object UsedNames {
       // with how many times this happened. Constants would always have 0 -> n, where
       // n is the number of times it occurs in the source.
       directCallApplications: Map[Int, Int]
-  )
+  ) {
+    def highestArity: Option[Int] = directCallApplications.values.maxOption
+  }
 }
