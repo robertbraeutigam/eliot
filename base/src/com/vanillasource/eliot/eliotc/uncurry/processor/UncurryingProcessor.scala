@@ -3,11 +3,13 @@ package com.vanillasource.eliot.eliotc.uncurry.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.expressionValueUserDisplay
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, expressionValueUserDisplay}
+import com.vanillasource.eliot.eliotc.eval.fact.Value.Direct
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpression}
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
 
@@ -28,8 +30,8 @@ class UncurryingProcessor
       key: UncurriedValue.Key,
       typeCheckedValue: TypeCheckedValue
   ): CompilerIO[UncurriedValue] = {
-    val arity                         = key.arity
-    val (bodyParams, convertedBody)   = typeCheckedValue.runtime match {
+    val arity                       = key.arity
+    val (bodyParams, convertedBody) = typeCheckedValue.runtime match {
       case Some(sourcedExpr) =>
         val (params, inner) = stripLambdas(sourcedExpr.value, arity)
         val converted       = convertExpression(inner)
@@ -37,16 +39,14 @@ class UncurryingProcessor
       case None              =>
         (Seq.empty[ParameterDefinition], None)
     }
-    val (signatureParams, returnType) =
-      extractParameters(typeCheckedValue.name, typeCheckedValue.signature, arity)
-    val parameters                    = if (bodyParams.nonEmpty) bodyParams else signatureParams
 
     for {
-      _ <- debug[CompilerIO](
-             s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameters: ${bodyParams
-                 .map(p => p.name.value + ": " + expressionValueUserDisplay.show(p.parameterType))
-                 .mkString(", ")}, body: ${convertedBody.map(_.value.show).getOrElse("<abstract>")}"
-           )
+      (parameters, returnType) <- extractParameters(typeCheckedValue.name, typeCheckedValue.signature, arity)
+      _                        <- debug[CompilerIO](
+                                    s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameters: ${bodyParams
+                                        .map(p => p.name.value + ": " + expressionValueUserDisplay.show(p.parameterType))
+                                        .mkString(", ")}, body: ${convertedBody.map(_.value.show).getOrElse("<abstract>")}"
+                                  )
     } yield UncurriedValue(
       vfqn = key.vfqn,
       arity = arity,
@@ -59,43 +59,27 @@ class UncurryingProcessor
   }
 
   /** Extract parameters from a function signature up to the specified arity.
-    *
-    * @param name
-    *   The function name (used for creating synthetic parameter names)
-    * @param signature
-    *   The function type signature
-    * @param arity
-    *   Number of parameters to extract
-    * @return
-    *   (extracted parameters, return type after extraction)
     */
   private def extractParameters(
       name: Sourced[String],
       signature: ExpressionValue,
       arity: Int
-  ): (Seq[ParameterDefinition], ExpressionValue) = {
-    @tailrec
-    def loop(
-        sig: ExpressionValue,
-        remaining: Int,
-        paramIndex: Int,
-        acc: Seq[ParameterDefinition]
-    ): (Seq[ParameterDefinition], ExpressionValue) =
-      if (remaining <= 0) {
-        (acc, sig)
-      } else {
-        sig match {
-          case ExpressionValue.FunctionType(paramType, returnType) =>
-            val paramName = name.as(s"_p$paramIndex")
-            val param     = ParameterDefinition(paramName, paramType)
-            loop(returnType, remaining - 1, paramIndex + 1, acc :+ param)
-          case _                                                   =>
-            (acc, sig)
-        }
+  ): CompilerIO[(Seq[ParameterDefinition], ExpressionValue)] =
+    if (arity === 0) {
+      (Seq.empty, signature).pure[CompilerIO]
+    } else {
+      signature match {
+        case ExpressionValue.FunctionLiteral(parameterName, parameterType, body) =>
+          extractParameters(name, body, arity - 1).map { (restParameters, restSignature) =>
+            (restParameters :+ ParameterDefinition(name.as(parameterName), ConcreteValue(parameterType)), restSignature)
+          }
+        case _                                                                   =>
+          compilerAbort(
+            name.as("Could not extract parameters."),
+            Seq(s"Remaining arity: $arity", s"Signature: ${ExpressionValue.expressionValueUserDisplay.show(signature)}")
+          )
       }
-
-    loop(signature, arity, 0, Seq.empty)
-  }
+    }
 
   /** Strip lambda expressions from the body up to a maximum count.
     *
