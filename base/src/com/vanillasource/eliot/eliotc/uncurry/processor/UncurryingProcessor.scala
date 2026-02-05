@@ -41,11 +41,13 @@ class UncurryingProcessor
       extractParameters(typeCheckedValue.name, typeCheckedValue.signature, arity)
     val parameters                    = if (bodyParams.nonEmpty) bodyParams else signatureParams
 
-    debug[CompilerIO](
-      s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameters: ${bodyParams
-          .map(p => p.name.value + ": " + expressionValueUserDisplay.show(p.parameterType))
-          .mkString(", ")}, body: ${convertedBody.map(_.value.show).getOrElse("<abstract>")}"
-    ) >> UncurriedValue(
+    for {
+      _ <- debug[CompilerIO](
+             s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameters: ${bodyParams
+                 .map(p => p.name.value + ": " + expressionValueUserDisplay.show(p.parameterType))
+                 .mkString(", ")}, body: ${convertedBody.map(_.value.show).getOrElse("<abstract>")}"
+           )
+    } yield UncurriedValue(
       vfqn = key.vfqn,
       arity = arity,
       name = typeCheckedValue.name,
@@ -53,7 +55,7 @@ class UncurryingProcessor
       parameters = parameters,
       returnType = returnType,
       body = convertedBody
-    ).pure[CompilerIO]
+    )
   }
 
   /** Extract parameters from a function signature up to the specified arity.
