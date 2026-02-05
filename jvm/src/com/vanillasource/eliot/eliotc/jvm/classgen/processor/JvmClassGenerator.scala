@@ -77,7 +77,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
         classGenerator
           .createMethod[CompilerIO](
             uncurriedValue.vfqn.name,
-            uncurriedValue.parameterTypes.map(simpleType),
+            uncurriedValue.parameters.map(simpleType),
             simpleType(uncurriedValue.returnType)
           )
           .use { methodGenerator =>
@@ -330,7 +330,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   // FIXME: this seems wrong
   private def isMain(uncurriedValue: UncurriedValue): Boolean =
     uncurriedValue.name.value === "main" &&
-      uncurriedValue.parameterTypes.isEmpty &&
+      uncurriedValue.parameters.isEmpty &&
       (uncurriedValue.returnType match {
         case ExpressionValue.ConcreteValue(value) =>
           import com.vanillasource.eliot.eliotc.eval.fact.Value

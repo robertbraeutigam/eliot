@@ -28,34 +28,38 @@ class UncurryingProcessor
   override protected def generateFromKeyAndFact(
       key: UncurriedValue.Key,
       typeCheckedValue: TypeCheckedValue
-  ): CompilerIO[UncurriedValue] = {
-    val arity                       = key.arity
-    val (bodyParams, convertedBody) = typeCheckedValue.runtime match {
-      case Some(sourcedExpr) =>
-        val (params, inner) = stripLambdas(sourcedExpr.value, arity)
-        val converted       = convertExpression(inner)
-        (params, Some(sourcedExpr.as(converted)))
-      case None              =>
-        (Seq.empty[ParameterDefinition], None)
-    }
-
+  ): CompilerIO[UncurriedValue] =
     for {
-      (parameterTypes, returnType) <- extractParameters(typeCheckedValue.name, typeCheckedValue.signature, arity)
-      _                            <- debug[CompilerIO](
-                                        s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameterTypes: ${parameterTypes
-                                            .map(expressionValueUserDisplay.show)
-                                            .mkString(", ")}, body: ${convertedBody.map(_.value.show).getOrElse("<abstract>")}"
-                                      )
+      (parameterTypes, returnType)    <- extractParameters(typeCheckedValue.name, typeCheckedValue.signature, key.arity)
+      (parameterNames, convertedBody) <- typeCheckedValue.runtime match {
+                                           case Some(body) =>
+                                             convertBody(
+                                               body.map(expression => TypedExpression(returnType, expression)),
+                                               key.arity
+                                             )
+                                           case None       =>
+                                             // Just pick some random parameter names if there is no body with real names
+                                             (
+                                               Range
+                                                 .inclusive(1, key.arity)
+                                                 .map(i => typeCheckedValue.name.as("$p" + i)),
+                                               None
+                                             ).pure[CompilerIO]
+                                         }
+      _                               <- debug[CompilerIO](
+                                           s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameterTypes: ${parameterTypes
+                                               .map(expressionValueUserDisplay.show)
+                                               .mkString(", ")}, body: ${convertedBody.map(_.value.expression.show).getOrElse("<abstract>")}"
+                                         )
     } yield UncurriedValue(
       vfqn = key.vfqn,
-      arity = arity,
+      arity = key.arity,
       name = typeCheckedValue.name,
       signature = typeCheckedValue.signature,
-      parameterTypes = parameterTypes,
+      parameters = parameterNames.zip(parameterTypes).map(ParameterDefinition(_, _)),
       returnType = returnType,
-      body = convertedBody
+      body = convertedBody.map(_.map(_.expression))
     )
-  }
 
   /** Extract parameters from a function signature up to the specified arity.
     */
@@ -80,72 +84,63 @@ class UncurryingProcessor
       }
     }
 
+  private def convertBody(
+      expression: Sourced[TypedExpression],
+      arity: Int
+  ): CompilerIO[(Seq[Sourced[String]], Option[Sourced[UncurriedExpression]])] =
+    for {
+      (parameterNames, body) <- stripLambdas(expression.value, arity, expression)
+    } yield (parameterNames, Some(expression.as(convertExpression(body))))
+
   /** Strip lambda expressions from the body up to a maximum count.
     *
     * @return
     *   (extracted parameters, remaining body expression)
     */
   private def stripLambdas(
-      expr: TypedExpression.Expression,
-      maxLambdas: Int
-  ): (Seq[ParameterDefinition], TypedExpression) = {
-    @tailrec
-    def loop(
-        e: TypedExpression.Expression,
-        remaining: Int,
-        acc: Seq[ParameterDefinition]
-    ): (Seq[ParameterDefinition], TypedExpression) =
-      if (remaining <= 0) {
-        (acc, TypedExpression(ExpressionValue.ConcreteValue(com.vanillasource.eliot.eliotc.eval.fact.Value.Type), e))
-      } else {
-        e match {
-          case TypedExpression.FunctionLiteral(paramName, paramType, body) =>
-            val paramExprValue = typeStackToExpressionValue(paramType.value)
-            val param          = ParameterDefinition(paramName, paramExprValue)
-            loop(body.value.signature.expression, remaining - 1, acc :+ param)
-          case _                                                           =>
-            (
-              acc,
-              TypedExpression(ExpressionValue.ConcreteValue(com.vanillasource.eliot.eliotc.eval.fact.Value.Type), e)
-            )
-        }
+      expression: TypedExpression,
+      arity: Int,
+      sourced: Sourced[?]
+  ): CompilerIO[(Seq[Sourced[String]], TypedExpression)] =
+    if (arity === 0) {
+      (Seq.empty, expression).pure[CompilerIO]
+    } else {
+      expression.expression match {
+        case TypedExpression.FunctionLiteral(parameterName, parameterType, body) =>
+          for {
+            (restParameters, restExpression) <- stripLambdas(body.value, arity - 1, sourced)
+          } yield (parameterName +: restParameters, restExpression)
+        case _                                                                   => compilerAbort(sourced.as("Could not strip enough parameters from expression."))
       }
-
-    loop(expr, maxLambdas, Seq.empty)
-  }
-
-  /** Convert a TypeStack to an ExpressionValue by taking the type of the signature level.
-    */
-  private def typeStackToExpressionValue(stack: TypeStack[TypedExpression]): ExpressionValue =
-    stack.signature.expressionType
+    }
 
   /** Convert a TypedExpression to UncurriedExpression.
     */
-  private def convertExpression(expr: TypedExpression): UncurriedExpression.Expression =
+  private def convertExpression(expr: TypedExpression): UncurriedExpression =
     expr.expression match {
       case TypedExpression.IntegerLiteral(value)                       =>
-        UncurriedExpression.IntegerLiteral(value)
+        UncurriedExpression(expr.expressionType, UncurriedExpression.IntegerLiteral(value))
       case TypedExpression.StringLiteral(value)                        =>
-        UncurriedExpression.StringLiteral(value)
+        UncurriedExpression(expr.expressionType, UncurriedExpression.StringLiteral(value))
       case TypedExpression.ParameterReference(paramName)               =>
-        UncurriedExpression.ParameterReference(paramName)
+        UncurriedExpression(expr.expressionType, UncurriedExpression.ParameterReference(paramName))
       case TypedExpression.ValueReference(vfqn)                        =>
-        UncurriedExpression.ValueReference(vfqn)
+        UncurriedExpression(expr.expressionType, UncurriedExpression.ValueReference(vfqn))
       case TypedExpression.FunctionApplication(target, argument)       =>
-        convertApplication(target, argument)
+        UncurriedExpression(expr.expressionType, convertApplication(target, argument))
       case TypedExpression.FunctionLiteral(paramName, paramType, body) =>
-        convertLambda(paramName, paramType, body)
+        UncurriedExpression(expr.expressionType, convertLambda(paramName, paramType, body))
     }
 
   /** Convert a function application, flattening nested applications.
     */
   private def convertApplication(
-      target: Sourced[TypeStack[TypedExpression]],
-      argument: Sourced[TypeStack[TypedExpression]]
+      target: Sourced[TypedExpression],
+      argument: Sourced[TypedExpression]
   ): UncurriedExpression.Expression = {
     val (finalTarget, arguments) = flattenApplication(target, Seq(argument))
-    val convertedTarget          = convertSourcedTypeStack(finalTarget)
-    val convertedArgs            = arguments.map(convertSourcedTypeStack)
+    val convertedTarget          = finalTarget.as(convertExpression(finalTarget.value))
+    val convertedArgs            = arguments.map(se => se.as(convertExpression(se.value)))
     UncurriedExpression.FunctionApplication(convertedTarget, convertedArgs)
   }
 
@@ -153,10 +148,10 @@ class UncurryingProcessor
     */
   @tailrec
   private def flattenApplication(
-      target: Sourced[TypeStack[TypedExpression]],
-      arguments: Seq[Sourced[TypeStack[TypedExpression]]]
-  ): (Sourced[TypeStack[TypedExpression]], Seq[Sourced[TypeStack[TypedExpression]]]) =
-    target.value.signature.expression match {
+      target: Sourced[TypedExpression],
+      arguments: Seq[Sourced[TypedExpression]]
+  ): (Sourced[TypedExpression], Seq[Sourced[TypedExpression]]) =
+    target.value.expression match {
       case TypedExpression.FunctionApplication(innerTarget, innerArg) =>
         flattenApplication(innerTarget, innerArg +: arguments)
       case _                                                          =>
@@ -167,14 +162,12 @@ class UncurryingProcessor
     */
   private def convertLambda(
       paramName: Sourced[String],
-      paramType: Sourced[TypeStack[TypedExpression]],
-      body: Sourced[TypeStack[TypedExpression]]
+      paramType: Sourced[ExpressionValue],
+      body: Sourced[TypedExpression]
   ): UncurriedExpression.Expression = {
-    val paramExprValue      = typeStackToExpressionValue(paramType.value)
-    val firstParam          = ParameterDefinition(paramName, paramExprValue)
+    val firstParam          = ParameterDefinition(paramName, paramType.value)
     val (params, finalBody) = flattenLambda(Seq(firstParam), body)
-    val convertedBody       = convertSourcedTypeStack(finalBody)
-    UncurriedExpression.FunctionLiteral(params, convertedBody)
+    UncurriedExpression.FunctionLiteral(params, body.as(convertExpression(finalBody.value)))
   }
 
   /** Flatten nested lambda expressions into a single lambda with multiple parameters.
@@ -182,21 +175,12 @@ class UncurryingProcessor
   @tailrec
   private def flattenLambda(
       parameters: Seq[ParameterDefinition],
-      body: Sourced[TypeStack[TypedExpression]]
-  ): (Seq[ParameterDefinition], Sourced[TypeStack[TypedExpression]]) =
-    body.value.signature.expression match {
+      body: Sourced[TypedExpression]
+  ): (Seq[ParameterDefinition], Sourced[TypedExpression]) =
+    body.value.expression match {
       case TypedExpression.FunctionLiteral(paramName, paramType, innerBody) =>
-        val paramExprValue = typeStackToExpressionValue(paramType.value)
-        flattenLambda(parameters :+ ParameterDefinition(paramName, paramExprValue), innerBody)
+        flattenLambda(parameters :+ ParameterDefinition(paramName, paramType.value), innerBody)
       case _                                                                =>
         (parameters, body)
     }
-
-  private def convertSourcedTypeStack(
-      sourced: Sourced[TypeStack[TypedExpression]]
-  ): Sourced[UncurriedExpression] = {
-    val typedExpr = sourced.value.signature
-    val converted = convertExpression(typedExpr)
-    sourced.as(UncurriedExpression(typedExpr.expressionType, converted))
-  }
 }
