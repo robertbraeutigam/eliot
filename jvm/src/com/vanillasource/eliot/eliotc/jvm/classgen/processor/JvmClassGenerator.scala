@@ -439,11 +439,6 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     if (isConstructor(valueFQN)) {
       for {
         uncurriedValue <- getFactOrAbort(UncurriedValue.Key(valueFQN, stats.highestArity.getOrElse(0)))
-        _              <-
-          debug[CompilerIO](
-            s"Found constructor '${valueFQN.show}' (arity ${stats.highestArity}), parameters: ${uncurriedValue.parameters
-                .map(p => p.name.value + ": " + expressionValueUserDisplay.show(p.parameterType).mkString(", "))}"
-          )
       } yield Seq(valueFQN)
     } else {
       Seq.empty.pure[CompilerIO]

@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.uncurry.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.expressionValueUserDisplay
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -40,7 +41,11 @@ class UncurryingProcessor
       extractParameters(typeCheckedValue.name, typeCheckedValue.signature, arity)
     val parameters                    = if (bodyParams.nonEmpty) bodyParams else signatureParams
 
-    UncurriedValue(
+    debug[CompilerIO](
+      s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameters: ${bodyParams
+          .map(p => p.name.value + ": " + expressionValueUserDisplay.show(p.parameterType))
+          .mkString(", ")}, body: ${convertedBody.map(_.value.show).getOrElse("<abstract>")}"
+    ) >> UncurriedValue(
       vfqn = key.vfqn,
       arity = arity,
       name = typeCheckedValue.name,
@@ -180,10 +185,10 @@ class UncurryingProcessor
       paramType: Sourced[TypeStack[TypedExpression]],
       body: Sourced[TypeStack[TypedExpression]]
   ): UncurriedExpression.Expression = {
-    val paramExprValue          = typeStackToExpressionValue(paramType.value)
-    val firstParam              = ParameterDefinition(paramName, paramExprValue)
-    val (params, finalBody)     = flattenLambda(Seq(firstParam), body)
-    val convertedBody           = convertSourcedTypeStack(finalBody)
+    val paramExprValue      = typeStackToExpressionValue(paramType.value)
+    val firstParam          = ParameterDefinition(paramName, paramExprValue)
+    val (params, finalBody) = flattenLambda(Seq(firstParam), body)
+    val convertedBody       = convertSourcedTypeStack(finalBody)
     UncurriedExpression.FunctionLiteral(params, convertedBody)
   }
 
