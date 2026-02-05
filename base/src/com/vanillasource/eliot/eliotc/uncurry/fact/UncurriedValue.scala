@@ -27,7 +27,7 @@ case class UncurriedValue(
     arity: Int,
     name: Sourced[String],
     signature: ExpressionValue,
-    parameters: Seq[ParameterDefinition],
+    parameterTypes: Seq[ExpressionValue],
     returnType: ExpressionValue,
     body: Option[Sourced[UncurriedExpression.Expression]]
 ) extends CompilerFact {

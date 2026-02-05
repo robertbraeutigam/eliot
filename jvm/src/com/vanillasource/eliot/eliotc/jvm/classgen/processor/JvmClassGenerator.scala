@@ -77,13 +77,13 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
         classGenerator
           .createMethod[CompilerIO](
             uncurriedValue.vfqn.name,
-            uncurriedValue.parameters.map(p => simpleType(p.parameterType)),
+            uncurriedValue.parameterTypes.map(simpleType),
             simpleType(uncurriedValue.returnType)
           )
           .use { methodGenerator =>
             val bodyExpression = UncurriedExpression(uncurriedValue.returnType, body.value)
             val program        = for {
-              // Add parameters to state
+              // FIXME: add parameters dynamically when we encounter them in the body!
               _       <- uncurriedValue.parameters.traverse_(addParameterDefinition)
               // Generate code for the body
               classes <-
@@ -189,8 +189,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           uncurriedMaybe <- getFact(UncurriedValue.Key(calledVfqn, calledArity)).liftToTypes
           resultClasses  <- uncurriedMaybe match
                               case Some(uncurriedValue) =>
-                                val parameterTypes =
-                                  uncurriedValue.parameters.map(p => simpleType(p.parameterType))
+                                val parameterTypes = uncurriedValue.parameterTypes.map(simpleType)
                                 val returnType     = simpleType(uncurriedValue.returnType)
                                 // FIXME: this doesn't seem to check whether arguments match either
                                 for {
@@ -331,7 +330,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   // FIXME: this seems wrong
   private def isMain(uncurriedValue: UncurriedValue): Boolean =
     uncurriedValue.name.value === "main" &&
-      uncurriedValue.parameters.isEmpty &&
+      uncurriedValue.parameterTypes.isEmpty &&
       (uncurriedValue.returnType match {
         case ExpressionValue.ConcreteValue(value) =>
           import com.vanillasource.eliot.eliotc.eval.fact.Value

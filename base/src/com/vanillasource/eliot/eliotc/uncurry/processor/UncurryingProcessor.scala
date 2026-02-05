@@ -4,7 +4,6 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, expressionValueUserDisplay}
-import com.vanillasource.eliot.eliotc.eval.fact.Value.Direct
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -41,18 +40,18 @@ class UncurryingProcessor
     }
 
     for {
-      (parameters, returnType) <- extractParameters(typeCheckedValue.name, typeCheckedValue.signature, arity)
-      _                        <- debug[CompilerIO](
-                                    s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameters: ${bodyParams
-                                        .map(p => p.name.value + ": " + expressionValueUserDisplay.show(p.parameterType))
-                                        .mkString(", ")}, body: ${convertedBody.map(_.value.show).getOrElse("<abstract>")}"
-                                  )
+      (parameterTypes, returnType) <- extractParameters(typeCheckedValue.name, typeCheckedValue.signature, arity)
+      _                            <- debug[CompilerIO](
+                                        s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameterTypes: ${parameterTypes
+                                            .map(expressionValueUserDisplay.show)
+                                            .mkString(", ")}, body: ${convertedBody.map(_.value.show).getOrElse("<abstract>")}"
+                                      )
     } yield UncurriedValue(
       vfqn = key.vfqn,
       arity = arity,
       name = typeCheckedValue.name,
       signature = typeCheckedValue.signature,
-      parameters = parameters,
+      parameterTypes = parameterTypes,
       returnType = returnType,
       body = convertedBody
     )
@@ -64,16 +63,16 @@ class UncurryingProcessor
       name: Sourced[String],
       signature: ExpressionValue,
       arity: Int
-  ): CompilerIO[(Seq[ParameterDefinition], ExpressionValue)] =
+  ): CompilerIO[(Seq[ExpressionValue], ExpressionValue)] =
     if (arity === 0) {
       (Seq.empty, signature).pure[CompilerIO]
     } else {
       signature match {
-        case ExpressionValue.FunctionLiteral(parameterName, parameterType, body) =>
-          extractParameters(name, body, arity - 1).map { (restParameters, restSignature) =>
-            (restParameters :+ ParameterDefinition(name.as(parameterName), ConcreteValue(parameterType)), restSignature)
+        case ExpressionValue.FunctionType(parameterType, returnType) =>
+          extractParameters(name, returnType, arity - 1).map { (restParameters, restReturnType) =>
+            (parameterType +: restParameters, restReturnType)
           }
-        case _                                                                   =>
+        case _                                                       =>
           compilerAbort(
             name.as("Could not extract parameters."),
             Seq(s"Remaining arity: $arity", s"Signature: ${ExpressionValue.expressionValueUserDisplay.show(signature)}")
