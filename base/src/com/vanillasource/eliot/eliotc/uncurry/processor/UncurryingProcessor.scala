@@ -27,8 +27,9 @@ class UncurryingProcessor
   override protected def generateFromKeyAndFact(
       key: UncurriedValue.Key,
       typeCheckedValue: TypeCheckedValue
-  ): CompilerIO[UncurriedValue] =
+  ): CompilerIO[UncurriedValue] = {
     for {
+      _                               <- debug[CompilerIO](s"Uncurrying ${key.vfqn} to ${key.arity}")
       (parameterTypes, returnType)    <-
         extractParameters(typeCheckedValue.name, dropLambdas(typeCheckedValue.signature), key.arity)
       (parameterNames, convertedBody) <- typeCheckedValue.runtime match {
@@ -60,6 +61,7 @@ class UncurryingProcessor
       returnType = returnType,
       body = convertedBody.map(_.map(_.expression))
     )
+  }
 
   @tailrec
   private def dropLambdas(signature: ExpressionValue): ExpressionValue =
