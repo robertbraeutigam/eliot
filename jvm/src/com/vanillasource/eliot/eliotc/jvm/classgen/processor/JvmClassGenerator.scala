@@ -436,6 +436,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
    */
   private def collectDataGeneratedFunctions(valueFQN: ValueFQN, stats: UsageStats): CompilerIO[Seq[ValueFQN]] =
     if (isConstructor(valueFQN)) {
+      // Return the constructor and accessor methods, these will need to be custom implemented
+      // FIXME: constructor does not have the field names! Neither does the $DataType
       for {
         uncurriedValue <- getFactOrAbort(UncurriedValue.Key(valueFQN, stats.highestArity.getOrElse(0)))
       } yield Seq(valueFQN)
