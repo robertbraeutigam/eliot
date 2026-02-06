@@ -231,6 +231,10 @@ class CoreProcessor
 
   /** Note: we only create a constructor if fields are present. Else the data type is abstract and we can't create it
     * anyway.
+    *
+    * The body is a self-referential call: Box(fieldA)(fieldB)... This is never evaluated - JvmClassGenerator
+    * recognizes constructors and generates native bytecode. The purpose is to preserve field names as lambda parameter
+    * names through the pipeline.
     */
   private def createConstructor(definition: DataDefinition): Seq[NamedValue] = {
     definition.fields
@@ -245,7 +249,14 @@ class CoreProcessor
                 definition.name.map(_ + "$DataType"),
                 definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
               ),
-              None
+              Some(
+                definition.name.as(
+                  SourceExpression.FunctionApplication(
+                    definition.name,
+                    fields.map(f => f.name.as(SourceExpression.FunctionApplication(f.name, Seq.empty)))
+                  )
+                )
+              )
             )
           )
         )

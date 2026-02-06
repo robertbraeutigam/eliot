@@ -25,7 +25,7 @@ class ValueResolverTest
       UnifiedModuleValueProcessor(),
       ValueResolver()
     ) {
-  private val testModuleName2   = ModuleName2(Seq.empty, "Test")
+  private val testModuleName2    = ModuleName2(Seq.empty, "Test")
   private val functionModuleName = ModuleName2.systemFunctionModuleName
 
   "value resolver" should "resolve a literal integer expression" in {
