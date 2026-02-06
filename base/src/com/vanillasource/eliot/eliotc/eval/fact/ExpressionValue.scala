@@ -43,8 +43,9 @@ object ExpressionValue {
 
   val expressionValueUserDisplay: Show[ExpressionValue] = {
     case ConcreteValue(value)                   => Value.valueUserDisplay.show(value)
-    case FunctionLiteral(name, paramType, body) => s"($name: $paramType) -> ${expressionValueUserDisplay.show(body)}"
-    case NativeFunction(paramType, _)           => s"native($paramType)"
+    case FunctionLiteral(name, paramType, body) =>
+      s"($name: ${Value.valueUserDisplay.show(paramType)}) -> ${expressionValueUserDisplay.show(body)}"
+    case NativeFunction(paramType, _)           => s"native(${Value.valueUserDisplay.show(paramType)})"
     case ParameterReference(name, _)            => name
     case FunctionApplication(target, arg)       =>
       s"${expressionValueUserDisplay.show(target)}(${expressionValueUserDisplay.show(arg)})"
