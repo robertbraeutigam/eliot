@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -184,40 +183,39 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
   /** Transform a function application.
     */
   private def transformFunctionApplication(
-      target: Sourced[TypeStack[TypedExpression]],
-      arg: Sourced[TypeStack[TypedExpression]],
+      target: Sourced[TypedExpression],
+      arg: Sourced[TypedExpression],
       substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
-      transformedTarget <- transformTypedExpressionStack(target, substitution)
-      transformedArg    <- transformTypedExpressionStack(arg, substitution)
+      transformedTarget <- transformTypedExpression(target, substitution)
+      transformedArg    <- transformTypedExpression(arg, substitution)
     } yield MonomorphicExpression.FunctionApplication(transformedTarget, transformedArg)
 
   /** Transform a function literal.
     */
   private def transformFunctionLiteral(
       paramName: Sourced[String],
-      paramType: Sourced[TypeStack[TypedExpression]],
-      body: Sourced[TypeStack[TypedExpression]],
+      paramType: Sourced[ExpressionValue],
+      body: Sourced[TypedExpression],
       substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
-      concreteParamType <- TypeEvaluator.evaluateWithSubstitution(paramType.value.signature.expressionType, substitution, paramType)
-      transformedBody   <- transformTypedExpressionStack(body, substitution)
+      concreteParamType <- TypeEvaluator.evaluateWithSubstitution(paramType.value, substitution, paramType)
+      transformedBody   <- transformTypedExpression(body, substitution)
     } yield MonomorphicExpression.FunctionLiteral(paramName, concreteParamType, transformedBody)
 
-  /** Transform a TypeStack[TypedExpression] to Sourced[MonomorphicExpression]. Extracts the signature level and
-    * transforms it.
+  /** Transform a TypedExpression to Sourced[MonomorphicExpression].
     */
-  private def transformTypedExpressionStack(
-      stack: Sourced[TypeStack[TypedExpression]],
+  private def transformTypedExpression(
+      typed: Sourced[TypedExpression],
       substitution: Map[String, Value]
   ): CompilerIO[Sourced[MonomorphicExpression]] =
     for {
-      concreteType <- TypeEvaluator.evaluateWithSubstitution(stack.value.signature.expressionType, substitution, stack)
+      concreteType <- TypeEvaluator.evaluateWithSubstitution(typed.value.expressionType, substitution, typed)
       transformed  <-
-        transformExpression(stack.value.signature.expression, stack.value.signature.expressionType, substitution, stack)
-    } yield stack.as(MonomorphicExpression(concreteType, transformed))
+        transformExpression(typed.value.expression, typed.value.expressionType, substitution, typed)
+    } yield typed.as(MonomorphicExpression(concreteType, transformed))
 }

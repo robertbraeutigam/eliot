@@ -77,7 +77,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
         classGenerator
           .createMethod[CompilerIO](
             uncurriedValue.vfqn.name,
-            uncurriedValue.parameters.map(simpleType),
+            uncurriedValue.parameters.map(p => simpleType(p.parameterType)),
             simpleType(uncurriedValue.returnType)
           )
           .use { methodGenerator =>
@@ -189,7 +189,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           uncurriedMaybe <- getFact(UncurriedValue.Key(calledVfqn, calledArity)).liftToTypes
           resultClasses  <- uncurriedMaybe match
                               case Some(uncurriedValue) =>
-                                val parameterTypes = uncurriedValue.parameterTypes.map(simpleType)
+                                val parameterTypes = uncurriedValue.parameters.map(p => simpleType(p.parameterType))
                                 val returnType     = simpleType(uncurriedValue.returnType)
                                 // FIXME: this doesn't seem to check whether arguments match either
                                 for {

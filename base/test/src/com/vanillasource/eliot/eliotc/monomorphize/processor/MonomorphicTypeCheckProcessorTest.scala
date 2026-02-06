@@ -235,22 +235,19 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
       ConcreteValue(Types.dataType(intVfqn))
     )
 
-    val paramTypeStack = TypeStack(NonEmptySeq.of(typedExpr(
-      ConcreteValue(Types.dataType(intVfqn)),
-      TypedExpression.ValueReference(sourced(intVfqn))
-    )))
+    val paramType = ConcreteValue(Types.dataType(intVfqn))
 
-    val bodyStack = TypeStack(NonEmptySeq.of(typedExpr(
+    val bodyExpr = typedExpr(
       ConcreteValue(Types.dataType(intVfqn)),
       TypedExpression.ParameterReference(sourced("x"))
-    )))
+    )
 
     val body = typedExpr(
       signature,
       TypedExpression.FunctionLiteral(
         sourced("x"),
-        sourced(paramTypeStack),
-        sourced(bodyStack)
+        sourced(paramType),
+        sourced(bodyExpr)
       )
     )
 
@@ -408,8 +405,8 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
     val fBody = typedExpr(
       ConcreteValue(Types.dataType(intVfqn)),
       TypedExpression.FunctionApplication(
-        sourced(TypeStack(NonEmptySeq.of(idRef))),
-        sourced(TypeStack(NonEmptySeq.of(argLit)))
+        sourced(idRef),
+        sourced(argLit)
       )
     )
 

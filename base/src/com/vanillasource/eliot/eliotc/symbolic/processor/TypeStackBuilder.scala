@@ -105,8 +105,8 @@ object TypeStackBuilder {
       _               <- tellConstraint(
                            SymbolicUnification.constraint(argTypeVar, arg.as(argResult.expressionType), "Argument type mismatch.")
                          )
-      typedTarget      = target.as(TypeStack[TypedExpression](NonEmptySeq.of(targetResult)))
-      typedArg         = arg.as(TypeStack[TypedExpression](NonEmptySeq.of(argResult)))
+      typedTarget      = target.as(targetResult)
+      typedArg         = arg.as(argResult)
     } yield TypedExpression(retTypeVar, TypedExpression.FunctionApplication(typedTarget, typedArg))
 
   private def inferFunctionLiteral(
@@ -115,12 +115,11 @@ object TypeStackBuilder {
       bodyStack: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
-      (paramTypeValue, typedParamStack) <- processStack(paramType)
-      _                                 <- bindParameter(paramName.value, paramTypeValue)
-      bodyResult                        <- inferBodyStack(bodyStack)
-      funcType                           = functionType(paramTypeValue, bodyResult.expressionType)
-      typedBodyStack                     = bodyStack.as(TypeStack[TypedExpression](NonEmptySeq.of(bodyResult)))
-    } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamStack, typedBodyStack))
+      (paramTypeValue, _) <- processStack(paramType)
+      _                   <- bindParameter(paramName.value, paramTypeValue)
+      bodyResult          <- inferBodyStack(bodyStack)
+      funcType             = functionType(paramTypeValue, bodyResult.expressionType)
+    } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), bodyStack.as(bodyResult)))
 
   /** Build from a body stack by extracting and processing the signature expression. */
   private def inferBodyStack(stack: Sourced[TypeStack[Expression]]): TypeGraphIO[TypedExpression] =
@@ -247,14 +246,14 @@ object TypeStackBuilder {
                     } else {
                       addUniversalVar(paramName.value)
                     }
-      (_, typedParamStack)            <- processStack(paramType)
-      (bodyTypeValue, typedBodyStack) <- processStack(body)
+      (paramTypeValue, typedParamStack) <- processStack(paramType)
+      (bodyTypeValue, typedBodyStack)   <- processStack(body)
       // In instantiation mode, return body type directly (type params are already instantiated as unification vars).
       // In declaration mode, wrap in FunctionLiteral to preserve polymorphic type for monomorphization.
       resultType = if (inInstMode) bodyTypeValue else FunctionLiteral(paramName.value, Value.Type, bodyTypeValue)
     } yield TypedExpression(
       resultType,
-      TypedExpression.FunctionLiteral(paramName, typedParamStack, typedBodyStack)
+      TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), body.as(typedBodyStack.value.signature))
     )
 
   /** Regular function literal (lambda type): (a: A) -> B becomes FunctionType */
@@ -268,7 +267,7 @@ object TypeStackBuilder {
       _                                 <- bindParameter(paramName.value, paramTypeValue)
       (bodyTypeValue, typedBodyStack)   <- processStack(body)
       funcType                           = functionType(paramTypeValue, bodyTypeValue)
-    } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, typedParamStack, typedBodyStack))
+    } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), body.as(typedBodyStack.value.signature)))
 
   /** Value reference - could be a type like Int, String, or a universal var */
   private def buildValueReference(
@@ -290,7 +289,7 @@ object TypeStackBuilder {
       (targetTypeValue, typedTargetStack) <- processStack(target)
       (argTypeValue, typedArgStack)       <- processStack(arg)
       resultType                           = applyTypeApplication(targetTypeValue, argTypeValue)
-    } yield TypedExpression(resultType, TypedExpression.FunctionApplication(typedTargetStack, typedArgStack))
+    } yield TypedExpression(resultType, TypedExpression.FunctionApplication(target.as(typedTargetStack.value.signature), arg.as(typedArgStack.value.signature)))
 
   /** Apply a type constructor to an argument. */
   private def applyTypeApplication(
