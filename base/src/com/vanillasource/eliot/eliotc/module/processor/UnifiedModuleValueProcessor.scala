@@ -14,10 +14,10 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
 
   override protected def generateSingleFact(key: UnifiedModuleValue.Key): CompilerIO[UnifiedModuleValue] =
     for {
-      pathScan    <- getFactOrAbort(PathScan.Key(pathName(key.vfqn.moduleName)))
-      allValues   <- pathScan.files
-                       .traverse(file => getFactOrAbort(ModuleValue.Key(file, key.vfqn)).attempt.map(_.toOption))
-                       .map(_.flatten)
+      pathScan     <- getFactOrAbort(PathScan.Key(pathName(key.vfqn.moduleName)))
+      allValues    <- pathScan.files
+                        .traverse(file => getFact(ModuleValue.Key(file, key.vfqn)))
+                        .map(_.flatten)
       unifiedValue <- unifyValues(key.vfqn, allValues)
     } yield unifiedValue
 
