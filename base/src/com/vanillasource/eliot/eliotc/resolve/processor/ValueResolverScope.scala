@@ -4,17 +4,11 @@ import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 case class ValueResolverScope(
     dictionary: Map[String, ValueFQN],
-    preAddedParameters: Set[String],
-    visibleParameters: Map[String, Sourced[String]]
-) {
-  def addPreAddedParam(name: String): ValueResolverScope =
-    copy(preAddedParameters = preAddedParameters + name, visibleParameters = visibleParameters + (name -> null))
-}
+    parameters: Set[String]
+)
 
 object ValueResolverScope {
   type ScopedIO[T] = StateT[CompilerIO, ValueResolverScope, T]
@@ -23,22 +17,11 @@ object ValueResolverScope {
     def liftToScoped: ScopedIO[T] = StateT.liftF[CompilerIO, ValueResolverScope, T](io)
   }
 
-  def addParameter(name: Sourced[String]): ScopedIO[Unit] =
-    for {
-      scope        <- StateT.get[CompilerIO, ValueResolverScope]
-      // Allow re-adding if it was pre-added (generic param from signature)
-      // Error if it shadows a dictionary name or a lambda-added param (nested shadowing)
-      isPreAdded    = scope.preAddedParameters.contains(name.value)
-      isLambdaAdded = scope.visibleParameters.contains(name.value) && !isPreAdded
-      _            <- (compilerError(name.as("Parameter shadows existing name in scope.")) *> abort[Unit]).liftToScoped
-                        .whenA(scope.dictionary.contains(name.value) || isLambdaAdded)
-      _            <- StateT.modify[CompilerIO, ValueResolverScope](s =>
-                        s.copy(visibleParameters = s.visibleParameters + (name.value -> name))
-                      )
-    } yield ()
+  def addParameter(name: String): ScopedIO[Unit] =
+    StateT.modify[CompilerIO, ValueResolverScope](s => s.copy(parameters = s.parameters + name))
 
   def isParameter(name: String): ScopedIO[Boolean] =
-    StateT.get[CompilerIO, ValueResolverScope].map(_.visibleParameters.contains(name))
+    StateT.get[CompilerIO, ValueResolverScope].map(_.parameters.contains(name))
 
   def getValue(name: String): ScopedIO[Option[ValueFQN]] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.dictionary.get(name))

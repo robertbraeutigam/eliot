@@ -21,11 +21,8 @@ class ValueResolver
       unifiedValue: UnifiedModuleValue
   ): CompilerIO[ResolvedValue] = {
     val namedValue    = unifiedValue.namedValue
-    // Pre-add generic params from signature so they're visible in runtime
     val genericParams = collectGenericParams(namedValue.typeStack)
-    val scope         = genericParams.foldLeft(ValueResolverScope(unifiedValue.dictionary, Set.empty, Map.empty)) { (s, name) =>
-      s.addPreAddedParam(name)
-    }
+    val scope         = ValueResolverScope(unifiedValue.dictionary, genericParams.toSet)
 
     val resolveProgram = for {
       resolvedRuntime <- namedValue.runtime.traverse(expr => resolveExpression(expr, true).map(namedValue.name.as))
@@ -57,12 +54,6 @@ class ValueResolver
       case _                                                                          => Seq.empty
     }
 
-  /** Check if a type stack represents a kind annotation (for universal introductions). A kind annotation is:
-    *   - Type (for simple type parameters)
-    *   - Function(Type, Type) (for type constructors of arity 1)
-    *   - Function(Type, Function(Type, Type)) (for type constructors of arity 2)
-    *   - etc.
-    */
   private def isKindAnnotation(stack: TypeStack[CoreExpression]): Boolean =
     stack.levels.length == 1 && isKindExpression(stack.signature)
 
@@ -71,7 +62,6 @@ class ValueResolver
       case NamedValueReference(name, None)            =>
         name.value == "Type"
       case FunctionApplication(targetStack, argStack) =>
-        // Check if this is Function(<kind>, <kind>) - a function from kinds to kinds
         targetStack.value.signature match {
           case FunctionApplication(fnStack, argKindStack) =>
             isFunctionReference(fnStack.value.signature) &&
@@ -155,7 +145,7 @@ class ValueResolver
           resolvedParamType <- resolveTypeStack(paramName.as(paramType), false)
           resolvedBody      <- withLocalScope {
                                  for {
-                                   _    <- addParameter(paramName)
+                                   _    <- addParameter(paramName.value)
                                    body <- resolveTypeStack(body, runtime)
                                  } yield body
                                }

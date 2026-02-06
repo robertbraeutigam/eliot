@@ -108,14 +108,32 @@ class ValueResolverTest
     runEngineForErrors("data T\na: T = undefined").asserting(_ shouldBe Seq("Name not defined."))
   }
 
-  it should "report error when lambda parameter shadows dictionary name" in {
-    runEngineForErrors("data T\nb: T\na: T = b: T -> b")
-      .asserting(_ shouldBe Seq("Parameter shadows existing name in scope."))
+  it should "allow lambda parameter to shadow dictionary name" in {
+    runEngineForValue("data T\nb: T\na: T = b: T -> b").flatMap {
+      case Some(FunctionLiteral(_, _, Sourced(_, _, body))) =>
+        body.signature match {
+          case ParameterReference(Sourced(_, _, name)) => IO.delay(name shouldBe "b")
+          case _                                       => IO.delay(fail(s"body was not a parameter reference"))
+        }
+      case x                                                =>
+        IO.delay(fail(s"was not a function literal with parameter reference, instead: $x"))
+    }
   }
 
-  it should "report error when nested lambda parameter shadows outer parameter" in {
-    runEngineForErrors("data T\na: T = x: T -> x: T -> x")
-      .asserting(_ shouldBe Seq("Parameter shadows existing name in scope."))
+  it should "allow nested lambda parameter to shadow outer parameter" in {
+    runEngineForValue("data T\na: T = x: T -> x: T -> x").flatMap {
+      case Some(FunctionLiteral(_, _, Sourced(_, _, outerBody))) =>
+        outerBody.signature match {
+          case FunctionLiteral(_, _, Sourced(_, _, innerBody)) =>
+            innerBody.signature match {
+              case ParameterReference(Sourced(_, _, name)) => IO.delay(name shouldBe "x")
+              case _                                       => IO.delay(fail(s"inner body was not a parameter reference"))
+            }
+          case _                                               => IO.delay(fail(s"outer body was not a function literal"))
+        }
+      case x                                                     =>
+        IO.delay(fail(s"was not a nested function literal, instead: $x"))
+    }
   }
 
   it should "resolve type expressions" in {
