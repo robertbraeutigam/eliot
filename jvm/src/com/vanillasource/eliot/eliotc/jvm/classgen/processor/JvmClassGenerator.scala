@@ -440,7 +440,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       // FIXME: constructor does not have the field names! Neither does the $DataType
       for {
         uncurriedValue <- getFactOrAbort(UncurriedValue.Key(valueFQN, stats.highestArity.getOrElse(0)))
-      } yield Seq(valueFQN)
+        names           = uncurriedValue.parameters.map(_.name.value)
+      } yield Seq(valueFQN) ++ names.map(name => ValueFQN(valueFQN.moduleName, name))
     } else {
       Seq.empty.pure[CompilerIO]
     }
