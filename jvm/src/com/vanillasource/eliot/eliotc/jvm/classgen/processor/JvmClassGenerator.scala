@@ -6,16 +6,14 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.types
-import NativeImplementation.implementations
-import TypeState.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.expressionValueUserDisplay
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor2, simpleType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemUnitValue
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
+import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
+import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.{getFactOrAbort, *}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
@@ -181,12 +179,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
         // Calling a function
         val calledVfqn = sourcedCalledVfqn.value
         for {
-          usedNamesMaybe <- getFact(UsedNames.Key(calledVfqn)).liftToTypes
-          calledArity     = usedNamesMaybe
-                              .flatMap(_.usedNames.get(calledVfqn))
-                              .map(stats => selectBestArity(stats))
-                              .getOrElse(arguments.length)
-          uncurriedMaybe <- getFact(UncurriedValue.Key(calledVfqn, calledArity)).liftToTypes
+          // FIXME: calls with different currying may generate different methods here
+          uncurriedMaybe <- getFact(UncurriedValue.Key(calledVfqn, arguments.length)).liftToTypes
           resultClasses  <- uncurriedMaybe match
                               case Some(uncurriedValue) =>
                                 val parameterTypes = uncurriedValue.parameters.map(p => simpleType(p.parameterType))
