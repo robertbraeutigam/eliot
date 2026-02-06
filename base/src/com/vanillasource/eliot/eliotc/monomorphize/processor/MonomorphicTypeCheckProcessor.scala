@@ -23,38 +23,31 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
 
   override protected def generateFact(key: MonomorphicValue.Key): CompilerIO[Unit] =
     for {
-      typeChecked <- getFactOrAbort(TypeCheckedValue.Key(key.vfqn))
-
-      typeParams = TypeEvaluator.extractTypeParams(typeChecked.signature)
-
-      _ <- if (typeParams.length != key.typeArguments.length)
-             compilerAbort(
-               typeChecked.name.as(
-                 s"Type argument count mismatch: expected ${typeParams.length}, got ${key.typeArguments.length}"
-               )
-             )
-           else ().pure[CompilerIO]
-
-      substitution = typeParams.zip(key.typeArguments).toMap
-
-      _ <- debug[CompilerIO](s"Monomorphizing ${key.vfqn} with substitution: $substitution")
-
+      typeChecked      <- getFactOrAbort(TypeCheckedValue.Key(key.vfqn))
+      typeParams        = TypeEvaluator.extractTypeParams(typeChecked.signature)
+      _                <- if (typeParams.length != key.typeArguments.length)
+                            compilerAbort(
+                              typeChecked.name.as(
+                                s"Type argument count mismatch: expected ${typeParams.length}, got ${key.typeArguments.length}"
+                              )
+                            )
+                          else ().pure[CompilerIO]
+      substitution      = typeParams.zip(key.typeArguments).toMap
+      _                <- debug[CompilerIO](s"Monomorphizing ${key.vfqn} with substitution: $substitution")
       strippedSignature = TypeEvaluator.stripTypeParams(typeChecked.signature)
       signature        <- TypeEvaluator.evaluate(typeChecked.signature, key.typeArguments, typeChecked.name)
-
-      runtime <- typeChecked.runtime.traverse { body =>
-                   transformExpression(body.value, strippedSignature, substitution, body).map(body.as)
-                 }
-
-      _ <- registerFactIfClear(
-             MonomorphicValue(
-               key.vfqn,
-               key.typeArguments,
-               typeChecked.name,
-               signature,
-               runtime
-             )
-           )
+      runtime          <- typeChecked.runtime.traverse { body =>
+                            transformExpression(body.value, strippedSignature, substitution, body).map(body.as)
+                          }
+      _                <- registerFactIfClear(
+                            MonomorphicValue(
+                              key.vfqn,
+                              key.typeArguments,
+                              typeChecked.name,
+                              signature,
+                              runtime
+                            )
+                          )
     } yield ()
 
   /** Transform a TypedExpression.Expression to MonomorphicExpression.Expression, evaluating all types with the given
@@ -71,21 +64,16 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
     expr match {
-      case TypedExpression.IntegerLiteral(value) =>
+      case TypedExpression.IntegerLiteral(value)                       =>
         MonomorphicExpression.IntegerLiteral(value).pure[CompilerIO]
-
-      case TypedExpression.StringLiteral(value) =>
+      case TypedExpression.StringLiteral(value)                        =>
         MonomorphicExpression.StringLiteral(value).pure[CompilerIO]
-
-      case TypedExpression.ParameterReference(name) =>
+      case TypedExpression.ParameterReference(name)                    =>
         MonomorphicExpression.ParameterReference(name).pure[CompilerIO]
-
-      case TypedExpression.ValueReference(vfqn) =>
+      case TypedExpression.ValueReference(vfqn)                        =>
         transformValueReference(vfqn, callSiteType, substitution, source)
-
-      case TypedExpression.FunctionApplication(target, arg) =>
+      case TypedExpression.FunctionApplication(target, arg)            =>
         transformFunctionApplication(target, arg, substitution, source)
-
       case TypedExpression.FunctionLiteral(paramName, paramType, body) =>
         transformFunctionLiteral(paramName, paramType, body, substitution, source)
     }
@@ -105,18 +93,15 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
       typeChecked <- getFactOrAbort(TypeCheckedValue.Key(vfqn.value))
-
-      typeParams = TypeEvaluator.extractTypeParams(typeChecked.signature)
-
-      typeArgs <- if (typeParams.nonEmpty) {
-                    inferTypeArguments(typeChecked.signature, typeParams, callSiteType, substitution, source)
-                  } else {
-                    Seq.empty[Value].pure[CompilerIO]
-                  }
-
-      _ <- if (typeArgs.nonEmpty || typeParams.isEmpty)
-             getFact(MonomorphicValue.Key(vfqn.value, typeArgs)).void
-           else ().pure[CompilerIO]
+      typeParams   = TypeEvaluator.extractTypeParams(typeChecked.signature)
+      typeArgs    <- if (typeParams.nonEmpty) {
+                       inferTypeArguments(typeChecked.signature, typeParams, callSiteType, substitution, source)
+                     } else {
+                       Seq.empty[Value].pure[CompilerIO]
+                     }
+      _           <- if (typeArgs.nonEmpty || typeParams.isEmpty)
+                       getFact(MonomorphicValue.Key(vfqn.value, typeArgs)).void
+                     else ().pure[CompilerIO]
     } yield MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)
 
   /** Infer concrete type arguments for a referenced value by matching the call-site type against the polymorphic
@@ -162,20 +147,16 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       target: ExpressionValue
   ): Map[String, ExpressionValue] =
     (pattern, target) match {
-      case (ParameterReference(name, _), _) =>
+      case (ParameterReference(name, _), _)                                                 =>
         // Universal type parameter matches the target type
         Map(name -> target)
-
-      case (FunctionType(patParam, patRet), FunctionType(tgtParam, tgtRet)) =>
+      case (FunctionType(patParam, patRet), FunctionType(tgtParam, tgtRet))                 =>
         matchTypes(patParam, tgtParam) ++ matchTypes(patRet, tgtRet)
-
       case (FunctionApplication(patTarget, patArg), FunctionApplication(tgtTarget, tgtArg)) =>
         matchTypes(patTarget, tgtTarget) ++ matchTypes(patArg, tgtArg)
-
-      case (FunctionLiteral(_, _, patBody), FunctionLiteral(_, _, tgtBody)) =>
+      case (FunctionLiteral(_, _, patBody), FunctionLiteral(_, _, tgtBody))                 =>
         matchTypes(patBody, tgtBody)
-
-      case _ =>
+      case _                                                                                =>
         // Concrete types or no match
         Map.empty
     }

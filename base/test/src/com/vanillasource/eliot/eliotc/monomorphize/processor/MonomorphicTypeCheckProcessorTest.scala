@@ -71,8 +71,8 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
 
   "MonomorphicTypeCheckProcessor" should "monomorphize non-generic value" in {
     // value: Int (no type params, no body)
-    val valueVfqn     = ValueFQN(testModuleName, "value")
-    val typeChecked   = TypeCheckedValue(
+    val valueVfqn   = ValueFQN(testModuleName, "value")
+    val typeChecked = TypeCheckedValue(
       valueVfqn,
       sourced("value"),
       ConcreteValue(Types.dataType(intVfqn)),
@@ -222,7 +222,10 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
     )
 
     // Request with 2 type args, but id only has 1
-    runProcessorForError(MonomorphicValue.Key(idVfqn, Seq(intType, stringType)), Seq(typeChecked, functionDataTypeEvaluable))
+    runProcessorForError(
+      MonomorphicValue.Key(idVfqn, Seq(intType, stringType)),
+      Seq(typeChecked, functionDataTypeEvaluable)
+    )
       .asserting(_ shouldBe "Type argument count mismatch: expected 1, got 2")
   }
 
@@ -370,7 +373,7 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
     val idVfqn = ValueFQN(testModuleName, "id")
 
     // id[A](a: A): A (no body for simplicity)
-    val idSignature    = FunctionLiteral(
+    val idSignature   = FunctionLiteral(
       "A",
       Value.Type,
       ExpressionValue.functionType(
@@ -378,7 +381,7 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
         ParameterReference("A", Value.Type)
       )
     )
-    val idTypeChecked  = TypeCheckedValue(
+    val idTypeChecked = TypeCheckedValue(
       idVfqn,
       sourced("id"),
       idSignature,
@@ -424,8 +427,8 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
             target.value.expression match {
               case MonomorphicExpression.MonomorphicValueReference(name, typeArgs) =>
                 name.value shouldBe idVfqn
-                // Note: type args inference is based on substitution context
-                // In this case, id doesn't have its universals in our context
+              // Note: type args inference is based on substitution context
+              // In this case, id doesn't have its universals in our context
               case other                                                           =>
                 fail(s"Expected MonomorphicValueReference in target, got $other")
             }
@@ -438,6 +441,85 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
           case other                                                  =>
             fail(s"Expected FunctionApplication, got $other")
         }
+      }
+  }
+
+  it should "handle direct recursion without infinite loop" in {
+    // f: Int -> Int = f (calls itself)
+    val fVfqn       = ValueFQN(testModuleName, "f")
+    val signature   = ExpressionValue.functionType(
+      ConcreteValue(Types.dataType(intVfqn)),
+      ConcreteValue(Types.dataType(intVfqn))
+    )
+    // Body references itself: f calls f
+    val fBody       = typedExpr(
+      signature,
+      TypedExpression.ValueReference(sourced(fVfqn))
+    )
+    val typeChecked = TypeCheckedValue(
+      fVfqn,
+      sourced("f"),
+      signature,
+      Some(sourced(fBody.expression))
+    )
+
+    runProcessorWithTimeout(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(typeChecked, functionDataTypeEvaluable))
+      .asserting { result =>
+        result.vfqn shouldBe fVfqn
+        result.runtime.isDefined shouldBe true
+        result.runtime.get.value match {
+          case MonomorphicExpression.MonomorphicValueReference(name, typeArgs) =>
+            name.value shouldBe fVfqn
+            typeArgs shouldBe Seq.empty
+
+          case other =>
+            fail(s"Expected MonomorphicValueReference, got $other")
+
+        }
+
+      }
+  }
+
+  it should "handle mutual recursion without infinite loop" in {
+    // f: Int -> Int = g
+    // g: Int -> Int = f
+    val fVfqn        = ValueFQN(testModuleName, "f")
+    val gVfqn        = ValueFQN(testModuleName, "g")
+    val signature    = ExpressionValue.functionType(
+      ConcreteValue(Types.dataType(intVfqn)),
+      ConcreteValue(Types.dataType(intVfqn))
+    )
+    // f calls g
+    val fBody        = typedExpr(
+      signature,
+      TypedExpression.ValueReference(sourced(gVfqn))
+    )
+    val fTypeChecked = TypeCheckedValue(
+      fVfqn,
+      sourced("f"),
+      signature,
+      Some(sourced(fBody.expression))
+    )
+    // g calls f
+    val gBody        = typedExpr(
+      signature,
+      TypedExpression.ValueReference(sourced(fVfqn))
+    )
+    val gTypeChecked = TypeCheckedValue(
+      gVfqn,
+      sourced("g"),
+      signature,
+      Some(sourced(gBody.expression))
+    )
+
+    runProcessorWithTimeout(
+      MonomorphicValue.Key(fVfqn, Seq.empty),
+      Seq(fTypeChecked, gTypeChecked, functionDataTypeEvaluable)
+    )
+      .asserting { result =>
+        result.vfqn shouldBe fVfqn
+        result.runtime.isDefined shouldBe true
+
       }
   }
 
@@ -472,4 +554,12 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
       _         <- generator.getFact(key)
       errors    <- generator.currentErrors()
     } yield errors.headOption.map(_.message).getOrElse(throw new Exception("Expected error but none occurred"))
+
+  private def runProcessorWithTimeout(
+      key: MonomorphicValue.Key,
+      facts: Seq[CompilerFact]
+  ): IO[MonomorphicValue] = {
+    import scala.concurrent.duration.*
+    runProcessor(key, facts).timeout(1.seconds)
+  }
 }
