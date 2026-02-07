@@ -31,7 +31,7 @@ class UncurryingProcessor
     for {
       _                               <- debug[CompilerIO](s"Uncurrying ${key.vfqn} to ${key.arity}")
       (parameterTypes, returnType)    <-
-        extractParameters(typeCheckedValue.name, dropLambdas(typeCheckedValue.signature), key.arity)
+        extractParameters(typeCheckedValue.name, ExpressionValue.stripLeadingLambdas(typeCheckedValue.signature), key.arity)
       (parameterNames, convertedBody) <- typeCheckedValue.runtime match {
                                            case Some(body) =>
                                              convertBody(
@@ -62,13 +62,6 @@ class UncurryingProcessor
       body = convertedBody.map(_.map(_.expression))
     )
   }
-
-  @tailrec
-  private def dropLambdas(signature: ExpressionValue): ExpressionValue =
-    signature match {
-      case ExpressionValue.FunctionLiteral(_, _, body) => dropLambdas(body)
-      case _                                           => signature
-    }
 
   /** Extract parameters from a function signature up to the specified arity.
     */

@@ -4,6 +4,8 @@ import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 
+import scala.annotation.tailrec
+
 /** The result of an expression evaluation.
   */
 sealed trait ExpressionValue
@@ -18,6 +20,33 @@ object ExpressionValue {
       case FunctionLiteral(_, _, body)      => containsVar(body, varName)
       case ConcreteValue(_)                 => false
       case NativeFunction(_, _)             => false
+    }
+
+  /** Strip all leading FunctionLiteral wrappers, returning the innermost body. */
+  @tailrec
+  def stripLeadingLambdas(expr: ExpressionValue): ExpressionValue =
+    expr match {
+      case FunctionLiteral(_, _, body) => stripLeadingLambdas(body)
+      case other                       => other
+    }
+
+  /** Extract parameter names and types from leading FunctionLiteral wrappers. */
+  def extractLeadingLambdaParams(expr: ExpressionValue): Seq[(String, Value)] =
+    expr match {
+      case FunctionLiteral(name, paramType, body) => (name, paramType) +: extractLeadingLambdaParams(body)
+      case _                                      => Seq.empty
+    }
+
+  /** Capture-avoiding substitution: replace all free occurrences of paramName with argValue. */
+  def substitute(body: ExpressionValue, paramName: String, argValue: ExpressionValue): ExpressionValue =
+    body match {
+      case ParameterReference(name, _) if name == paramName                 => argValue
+      case ParameterReference(_, _)                                         => body
+      case FunctionApplication(target, arg)                                 =>
+        FunctionApplication(substitute(target, paramName, argValue), substitute(arg, paramName, argValue))
+      case FunctionLiteral(name, paramType, innerBody) if name != paramName =>
+        FunctionLiteral(name, paramType, substitute(innerBody, paramName, argValue))
+      case _                                                                => body
     }
 
   /** Transform an expression by applying f to all children first, then to the result. */

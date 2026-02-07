@@ -209,24 +209,6 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     TypeEvaluator.extractTypeParams(sig) shouldBe Seq("A", "n")
   }
 
-  "stripTypeParams" should "strip single type parameter" in {
-    val inner = ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("A", Value.Type))
-    val sig   = FunctionLiteral("A", Value.Type, inner)
-    TypeEvaluator.stripTypeParams(sig) shouldBe inner
-  }
-
-  it should "strip multiple type parameters" in {
-    val inner = ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("B", Value.Type))
-    val sig   = FunctionLiteral("A", Value.Type, FunctionLiteral("B", Value.Type, inner))
-    TypeEvaluator.stripTypeParams(sig) shouldBe inner
-  }
-
-  it should "strip all FunctionLiterals regardless of param type" in {
-    val inner = ParameterReference("n", Types.dataType(intVfqn))
-    val sig   = FunctionLiteral("n", Types.dataType(intVfqn), inner)
-    TypeEvaluator.stripTypeParams(sig) shouldBe inner
-  }
-
   private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
 
   private def runEvaluator(

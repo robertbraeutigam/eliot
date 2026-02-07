@@ -30,19 +30,11 @@ class DataTypeEvaluator
     if (key.vfqn.name.endsWith("$DataType") && fact.runtime.isEmpty && key.vfqn =!= functionDataTypeFQN) {
       for {
         evaluated <- Evaluator.evaluate(fact.typeStack.map(_.signature))
-        typeParams = extractParameters(evaluated)
+        typeParams = ExpressionValue.extractLeadingLambdaParams(evaluated)
         result     = NamedEvaluable(key.vfqn, createDataTypeEvaluable(key.vfqn, typeParams))
       } yield result
     } else {
       abort
-    }
-
-  private def extractParameters(body: ExpressionValue): Seq[(String, Value)] =
-    body match {
-      case FunctionLiteral(name, paramType, innerBody) =>
-        (name, paramType) +: extractParameters(innerBody)
-      case _                                           =>
-        Seq.empty
     }
 
   /** Creates an ExpressionValue for a data type. For types with no parameters, returns a ConcreteValue directly. For

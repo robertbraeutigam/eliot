@@ -10,8 +10,6 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
-import scala.annotation.tailrec
-
 /** Evaluates ExpressionValue types to Value using Evaluator.reduce(). Type parameters are applied as function
   * arguments, allowing the normal Evaluator to handle beta reduction. Data type references are resolved to their
   * NativeFunctions from NamedEvaluable before reduction.
@@ -115,17 +113,5 @@ object TypeEvaluator {
   /** Extract type parameter names from the outermost function literals.
     */
   def extractTypeParams(signature: ExpressionValue): Seq[String] =
-    signature match {
-      case FunctionLiteral(name, _, body) => name +: extractTypeParams(body)
-      case _                              => Seq.empty
-    }
-
-  /** Strip type parameter introductions from the signature, leaving the actual type.
-    */
-  @tailrec
-  def stripTypeParams(expr: ExpressionValue): ExpressionValue =
-    expr match {
-      case FunctionLiteral(_, _, body) => stripTypeParams(body)
-      case other                       => other
-    }
+    extractLeadingLambdaParams(signature).map(_._1)
 }
