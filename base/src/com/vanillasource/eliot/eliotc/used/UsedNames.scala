@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.used
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
 
 case class UsedNames(rootFQN: ValueFQN, usedNames: Map[ValueFQN, UsageStats]) extends CompilerFact {

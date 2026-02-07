@@ -37,7 +37,7 @@ object CommonPatterns {
     }
 
   extension (classGenerator: ClassGenerator) {
-    def addDataFieldsAndCtor2[F[_]: Sync](fields: Seq[ParameterDefinition]): F[Unit] =
+    def addDataFieldsAndCtor[F[_]: Sync](fields: Seq[ParameterDefinition]): F[Unit] =
       for {
         _ <- fields.traverse_ { paramDefinition =>
                classGenerator.createField[F](paramDefinition.name.value, simpleType(paramDefinition.parameterType))
