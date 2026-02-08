@@ -31,7 +31,11 @@ class UncurryingProcessor
     for {
       _                               <- debug[CompilerIO](s"Uncurrying ${key.vfqn} to ${key.arity}")
       (parameterTypes, returnType)    <-
-        extractParameters(typeCheckedValue.name, ExpressionValue.stripLeadingLambdas(typeCheckedValue.signature), key.arity)
+        extractParameters(
+          typeCheckedValue.name,
+          ExpressionValue.stripLeadingLambdas(typeCheckedValue.signature),
+          key.arity
+        )
       (parameterNames, convertedBody) <- typeCheckedValue.runtime match {
                                            case Some(body) =>
                                              convertBody(
@@ -47,11 +51,13 @@ class UncurryingProcessor
                                                None
                                              ).pure[CompilerIO]
                                          }
-      _                               <- debug[CompilerIO](
-                                           s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameterTypes: ${parameterTypes
-                                               .map(expressionValueUserDisplay.show)
-                                               .mkString(", ")}, body: ${convertedBody.map(_.value.expression.show).getOrElse("<abstract>")}"
-                                         )
+      _                               <-
+        debug[CompilerIO](
+          s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameterTypes: ${parameterTypes
+              .map(expressionValueUserDisplay.show)
+              .mkString(", ")}, return type: ${ExpressionValue.expressionValueUserDisplay
+              .show(returnType)}, body: ${convertedBody.map(_.value.expression.show).getOrElse("<abstract>")}"
+        )
     } yield UncurriedValue(
       vfqn = key.vfqn,
       arity = key.arity,
