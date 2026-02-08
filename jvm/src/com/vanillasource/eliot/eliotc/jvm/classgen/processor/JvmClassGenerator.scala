@@ -26,6 +26,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
 
   override protected def generateFact(key: GeneratedModule.Key): CompilerIO[Unit] =
     for {
+      _                      <- debug[CompilerIO](s"Generating ${key.moduleName.show} (from ${key.vfqn.show}).")
       usedNames              <- getFactOrAbort(UsedNames.Key(key.vfqn))
       usedValues              = usedNames.usedNames.filter((vfqn, _) => vfqn.moduleName === key.moduleName)
       mainClassGenerator     <- createClassGenerator[CompilerIO](key.moduleName)
