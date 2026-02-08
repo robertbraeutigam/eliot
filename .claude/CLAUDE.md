@@ -4,7 +4,7 @@
 
 ELIOT is a functional, generic programming language for microcontrollers, implemented in Scala 3.
 
-The project contains all parts of the compiler, the ELIOT standard library.
+The project contains all parts of the compiler and the ELIOT standard library.
 
 The compiler uses a plugin-based architecture with a fact-based compilation system and supports 
 multiple backends (currently JVM).
@@ -50,10 +50,6 @@ The project is organized into four main modules (defined in `build.mill`):
 3. **jvm** - JVM backend (bytecode generation using ASM, JAR generation)
 4. **examples** - Example ELIOT programs
 
-**Dependency chain:** `examples` → `jvm` → `base` → `eliotc`
-
-All modules use Scala 3.7.4 and share common dependencies: Cats Effect, Parsley (parser combinators), log4j2, and ScalaTest.
-
 ## Architecture
 
 ### Plugin System
@@ -75,6 +71,21 @@ The compiler follows a **fact-based compilation model**:
 2. **Processors** (sometimes referred to as "Generators") compute facts from other facts on demand
 3. **FactGenerator** orchestrates lazy fact computation with caching
 4. Facts are identified by their keys, which are usually a subset of the fact's data
+
+### Main components of processing pipeline
+
+Each of these is a package in the "base" module, roughly in order of processing:
+
+1. source: Reading source files from the filesystem
+2. token: Tokenizer
+3. ast: Building the AST
+4. core: Building the core language AST
+5. module: Splitting working with modules into working with individual values. It also unifies similarly named modules from different paths.
+6. resolve: Resolve all identifiers to fully qualified names or parameters.
+7. symbolic: Symbolic type checker. Checks types as far as possible with generic parameters (symbols).
+8. monomorphize: Monomorphic type checker. Checks all types at their usage with all instantiated values.
+9. used: Collects all the used value names starting at a given "main".
+10. uncurry: Uncurries function calls, so its easier to generate on the backend.
 
 ### Error Handling
 
