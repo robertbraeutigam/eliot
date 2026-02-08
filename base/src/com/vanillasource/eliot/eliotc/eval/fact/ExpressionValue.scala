@@ -30,6 +30,13 @@ object ExpressionValue {
       case other                       => other
     }
 
+  @tailrec
+  def stripLeadingFunctionApplications(expr: ExpressionValue): ExpressionValue =
+    expr match {
+      case FunctionApplication(target, _) => stripLeadingFunctionApplications(target)
+      case other                          => other
+    }
+
   /** Extract parameter names and types from leading FunctionLiteral wrappers. */
   def extractLeadingLambdaParams(expr: ExpressionValue): Seq[(String, Value)] =
     expr match {

@@ -6,18 +6,20 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.uncurry.fact.ParameterDefinition
-import NativeType.{systemFunctionValue, systemAnyValue}
+import NativeType.{systemAnyValue, systemFunctionValue}
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.stripLeadingFunctionApplications
 
 object CommonPatterns {
+  // FIXME: A => IO[A] is Any, should be just IO$DataType
   def simpleType(expressionValue: ExpressionValue): ValueFQN =
-    expressionValue match {
-      case ExpressionValue.FunctionType(_, _) =>
+    stripLeadingFunctionApplications(expressionValue) match {
+      case ExpressionValue.FunctionType(_, _)               =>
         systemFunctionValue
-      case ExpressionValue.ConcreteValue(value) =>
+      case ExpressionValue.ConcreteValue(value)             =>
         valueToValueFQN(value)
       case ExpressionValue.ParameterReference(_, paramType) =>
         valueToValueFQN(paramType)
-      case _ =>
+      case _                                                =>
         systemAnyValue
     }
 
@@ -27,12 +29,12 @@ object CommonPatterns {
         fields.get("$typeName") match {
           case Some(Value.Direct(vfqn: ValueFQN, _)) =>
             vfqn
-          case _ =>
+          case _                                     =>
             systemAnyValue
         }
-      case Value.Type =>
+      case Value.Type                 =>
         systemAnyValue
-      case _ =>
+      case _                          =>
         systemAnyValue
     }
 
