@@ -23,7 +23,7 @@ class UsedNamesProcessor extends SingleKeyTypeProcessor[UsedNames.Key] with Logg
 
   override protected def generateFact(key: UsedNames.Key): CompilerIO[Unit] =
     for {
-      state <- processValue(key.rootFQN, Seq.empty).runS(UsedNamesState())
+      state <- (recordUsage(key.rootFQN, Seq.empty, 0) >> processValue(key.rootFQN, Seq.empty)).runS(UsedNamesState())
       _     <- registerFactIfClear(getUsedNames(key.rootFQN, state)).whenA(!state.failed)
     } yield ()
 
