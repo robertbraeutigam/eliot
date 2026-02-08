@@ -327,26 +327,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   /** @return
     *   Iff the method definition is a suitable main to run from the JVM
     */
-  // FIXME: this seems wrong
   private def isMain(uncurriedValue: UncurriedValue): Boolean =
-    uncurriedValue.name.value === "main" &&
-      uncurriedValue.parameters.isEmpty &&
-      (uncurriedValue.returnType match {
-        case ExpressionValue.ConcreteValue(value) =>
-          import com.vanillasource.eliot.eliotc.eval.fact.Value
-          value match {
-            case Value.Structure(fields, _) =>
-              fields.get("$typeName") match {
-                case Some(Value.Direct(vfqn: ValueFQN, _)) =>
-                  vfqn.moduleName.packages === Seq("eliot", "lang") &&
-                  vfqn.moduleName.name === "Unit" &&
-                  vfqn.name === "Unit"
-                case _                                     => false
-              }
-            case _                          => false
-          }
-        case _                                    => false
-      })
+    uncurriedValue.name.value === "main" && uncurriedValue.parameters.isEmpty
 
   private def createDataFromConstructor(
       outerClassGenerator: ClassGenerator,
