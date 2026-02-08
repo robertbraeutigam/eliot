@@ -10,7 +10,6 @@ import NativeType.{systemAnyValue, systemFunctionValue}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.stripLeadingFunctionApplications
 
 object CommonPatterns {
-  // FIXME: A => IO[A] is Any, should be just IO$DataType
   def simpleType(expressionValue: ExpressionValue): ValueFQN =
     stripLeadingFunctionApplications(expressionValue) match {
       case ExpressionValue.FunctionType(_, _)               =>
