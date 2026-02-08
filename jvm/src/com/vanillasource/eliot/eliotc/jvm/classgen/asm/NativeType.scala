@@ -11,19 +11,19 @@ trait NativeType {
 }
 
 object NativeType {
-  def systemLangValue(typeName: String): ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, typeName), typeName)
+  def systemLangType(typeName: String): ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, typeName), typeName + "$DataType")
 
-  val systemFunctionValue: ValueFQN = systemLangValue("Function")
-  val systemAnyValue: ValueFQN      = systemLangValue("Any")
-  val systemUnitValue: ValueFQN     = systemLangValue("Unit")
+  val systemFunctionValue: ValueFQN = systemLangType("Function")
+  val systemAnyValue: ValueFQN      = systemLangType("Any")
+  val systemUnitValue: ValueFQN     = systemLangType("Unit")
 
   val types: Map[ValueFQN, NativeType] = Map.from(
     Seq(
-      (systemLangValue("String"), eliot_lang_String),
-      (systemLangValue("Function"), eliot_lang_Function),
-      (systemLangValue("Unit"), eliot_lang_Unit),
-      (systemLangValue("Any"), eliot_lang_Any)
+      (systemLangType("String"), eliot_lang_String),
+      (systemLangType("Function"), eliot_lang_Function),
+      (systemLangType("Unit"), eliot_lang_Unit),
+      (systemLangType("Any"), eliot_lang_Any)
     )
   )
 
