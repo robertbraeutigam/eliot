@@ -16,9 +16,9 @@ object CommonPatterns {
       case ExpressionValue.FunctionType(_, _)               =>
         systemFunctionValue
       case ExpressionValue.ConcreteValue(value)             =>
-        valueToValueFQN(value)
+        stripDataTypeSuffix(valueToValueFQN(value))
       case ExpressionValue.ParameterReference(_, paramType) =>
-        valueToValueFQN(paramType)
+        stripDataTypeSuffix(valueToValueFQN(paramType))
       case _                                                =>
         systemAnyValue
     }
@@ -37,6 +37,9 @@ object CommonPatterns {
       case _                          =>
         systemAnyValue
     }
+
+  private def stripDataTypeSuffix(valueFQN: ValueFQN): ValueFQN =
+    ValueFQN(valueFQN.moduleName, valueFQN.name.stripSuffix("$DataType"))
 
   extension (classGenerator: ClassGenerator) {
     def addDataFieldsAndCtor[F[_]: Sync](fields: Seq[ParameterDefinition]): F[Unit] =

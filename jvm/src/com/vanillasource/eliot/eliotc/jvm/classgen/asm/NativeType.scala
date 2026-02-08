@@ -12,7 +12,7 @@ trait NativeType {
 
 object NativeType {
   def systemLangType(typeName: String): ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, typeName), typeName + "$DataType")
+    ValueFQN(ModuleName(defaultSystemPackage, typeName), typeName)
 
   val systemFunctionValue: ValueFQN = systemLangType("Function")
   val systemAnyValue: ValueFQN      = systemLangType("Any")
