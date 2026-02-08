@@ -328,6 +328,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       stats: UsageStats
   ): CompilerIO[Seq[ClassFile]] =
     for {
+      _                   <- debug[CompilerIO](s"Creating data type from constructor '${valueFQN.show}'")
       uncurriedValueMaybe <- getFact(UncurriedValue.Key(valueFQN, stats.highestArity.getOrElse(0)))
       classes             <- uncurriedValueMaybe match {
                                case Some(uncurriedValue) =>
