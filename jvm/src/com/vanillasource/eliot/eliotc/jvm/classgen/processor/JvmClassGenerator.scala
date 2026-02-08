@@ -30,7 +30,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       usedNames              <- getFactOrAbort(UsedNames.Key(key.vfqn))
       usedValues              = usedNames.usedNames.filter((vfqn, _) => vfqn.moduleName === key.moduleName)
       mainClassGenerator     <- createClassGenerator[CompilerIO](key.moduleName)
-      _                      <-
+      dataClasses            <-
         usedValues
           .filter((vfqn, _) => isConstructor(vfqn))
           .toSeq
@@ -42,7 +42,9 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           createModuleMethod(mainClassGenerator, vfqn, stats)
         }
       mainClass              <- mainClassGenerator.generate[CompilerIO]()
-      _                      <- registerFactIfClear(GeneratedModule(key.moduleName, key.vfqn, functionFiles ++ Seq(mainClass)))
+      _                      <- registerFactIfClear(
+                                  GeneratedModule(key.moduleName, key.vfqn, functionFiles ++ dataClasses ++ Seq(mainClass))
+                                )
     } yield ()
 
   private def createModuleMethod(
@@ -328,11 +330,11 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       stats: UsageStats
   ): CompilerIO[Seq[ClassFile]] =
     for {
-      _                   <- debug[CompilerIO](s"Creating data type from constructor '${valueFQN.show}'")
       uncurriedValueMaybe <- getFact(UncurriedValue.Key(valueFQN, stats.highestArity.getOrElse(0)))
       classes             <- uncurriedValueMaybe match {
                                case Some(uncurriedValue) =>
                                  for {
+                                   _  <- debug[CompilerIO](s"Creating data type from constructor '${valueFQN.show}'")
                                    cs <- createDataClass(outerClassGenerator, valueFQN.name, uncurriedValue.parameters)
                                    // Define data function
                                    _  <-
@@ -386,7 +388,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                  } yield cs
                                case None                 =>
                                  // compilerError(sourced.as("Could not find resolved type.")).as(Seq.empty)
-                                 Seq.empty.pure[CompilerIO]
+                                 error[CompilerIO](s"Could not resolve '${valueFQN.show}'.") >> Seq.empty.pure[CompilerIO]
                              }
     } yield classes
 
