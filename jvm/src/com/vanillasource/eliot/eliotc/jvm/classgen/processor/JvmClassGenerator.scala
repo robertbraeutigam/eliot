@@ -45,13 +45,6 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       _                      <- registerFactIfClear(GeneratedModule(key.moduleName, key.vfqn, functionFiles ++ Seq(mainClass)))
     } yield ()
 
-  private def selectBestArity(stats: UsageStats): Int =
-    if (stats.directCallApplications.isEmpty) {
-      0
-    } else {
-      stats.directCallApplications.maxByOption(_._2).map(_._1).getOrElse(0)
-    }
-
   private def createModuleMethod(
       mainClassGenerator: ClassGenerator,
       vfqn: ValueFQN,
@@ -63,9 +56,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
         nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty)
       case None                       =>
         // Not a native method, should have a body and generate it
-        val arity = selectBestArity(stats)
         for {
-          uncurriedValue <- getFactOrAbort(UncurriedValue.Key(vfqn, arity))
+          uncurriedValue <- getFactOrAbort(UncurriedValue.Key(vfqn, stats.highestArity.getOrElse(0)))
           classFiles     <- createModuleMethod(mainClassGenerator, uncurriedValue)
           _              <- createApplicationMain(vfqn, mainClassGenerator).whenA(isMain(uncurriedValue))
         } yield classFiles
