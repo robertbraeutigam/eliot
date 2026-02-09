@@ -34,7 +34,8 @@
       "mcp__ide__getDiagnostics",
       "Bash(mill --no-server base.test.testOnly:*)",
       "Bash(tree:*)",
-      "Bash(jar tf:*)"
+      "Bash(jar tf:*)",
+      "Bash(done)"
     ]
   }
 }
