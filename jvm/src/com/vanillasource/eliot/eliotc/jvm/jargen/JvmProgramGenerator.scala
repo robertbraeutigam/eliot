@@ -25,7 +25,11 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
       _          <- generateModulesFrom(key.vfqn)
       // Add dynamic main and generate everything if user's code did not fail
       // FIXME: this is a lie, there's no such file
-      _          <- addSource(Path.of("main.els"), sourceDir.resolve("main.els").toFile, generateMainSource(key.vfqn))
+      _          <- addSource(
+                      Path.of("main.els"),
+                      sourceDir.resolve("main.els").toFile.getAbsoluteFile,
+                      generateMainSource(key.vfqn)
+                    )
       allModules <- generateModulesFrom(ValueFQN(ModuleName(Seq(), "main"), "main"))
       _          <- generateJarFile(key.vfqn, allModules).to[CompilerIO]
     } yield ()
