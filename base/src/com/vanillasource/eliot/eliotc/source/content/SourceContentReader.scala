@@ -1,16 +1,15 @@
 package com.vanillasource.eliot.eliotc.source.content
 
-import cats.effect.{IO, Resource}
+import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.common.{SingleFactProcessor, SingleKeyTypeProcessor}
+import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerErrorWithContent
 import com.vanillasource.eliot.eliotc.source.file.FileContent
 
 import java.io.File
-import scala.io.Source
 
 /** Generates the source code for a given File, i.e. reads it from disk. Note, that this generator does not fail if the
   * File is missing, so it can be used to probe whether a file is present. If File is not present, or not readable, this

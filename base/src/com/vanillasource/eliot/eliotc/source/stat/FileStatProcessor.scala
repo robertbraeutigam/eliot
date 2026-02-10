@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.source.stat
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
-import com.vanillasource.eliot.eliotc.processor.common.{SingleFactProcessor, SingleKeyTypeProcessor}
+import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
 import java.time.Instant
 
