@@ -23,7 +23,7 @@ class PathScanner(rootPaths: Seq[Path]) extends SingleKeyTypeProcessor[PathScan.
                         compilerGlobalError(s"Could not find path ${key.path} at given roots: ${rootPaths.mkString(", ")}")
                           .to[CompilerIO]
                       } else {
-                        registerFactIfClear(PathScan(key.path, files))
+                        registerFactIfClear(PathScan(key.path, files.map(_.toURI)))
                       }
     } yield ()
 }

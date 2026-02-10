@@ -7,13 +7,13 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
-class ModuleNamesProcessor extends TransformationProcessor[CoreAST.Key, ModuleNames.Key](key => CoreAST.Key(key.file)) {
+class ModuleNamesProcessor extends TransformationProcessor[CoreAST.Key, ModuleNames.Key](key => CoreAST.Key(key.uri)) {
 
   override protected def generateFromKeyAndFact(
       key: ModuleNames.Key,
       fact: CoreAST
   ): CompilerIO[ModuleNames] =
-    extractNames(fact.ast.value.namedValues).map(names => ModuleNames(key.file, names))
+    extractNames(fact.ast.value.namedValues).map(names => ModuleNames(key.uri, names))
 
   private def extractNames(namedValues: Seq[NamedValue]): CompilerIO[Set[String]] =
     namedValues.foldLeftM(Set.empty[String]) { (acc, nv) =>

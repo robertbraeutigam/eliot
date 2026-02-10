@@ -3,17 +3,17 @@ package com.vanillasource.eliot.eliotc.module.fact
 import com.vanillasource.eliot.eliotc.core.fact.NamedValue
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
-import java.io.File
+import java.net.URI
 
 case class ModuleValue(
-    file: File,
+    uri: URI,
     vfqn: ValueFQN,
     dictionary: Map[String, ValueFQN],
     namedValue: NamedValue
 ) extends CompilerFact {
-  override def key(): CompilerFactKey[ModuleValue] = ModuleValue.Key(file, vfqn)
+  override def key(): CompilerFactKey[ModuleValue] = ModuleValue.Key(uri, vfqn)
 }
 
 object ModuleValue {
-  case class Key(file: File, vfqn: ValueFQN) extends CompilerFactKey[ModuleValue]
+  case class Key(uri: URI, vfqn: ValueFQN) extends CompilerFactKey[ModuleValue]
 }

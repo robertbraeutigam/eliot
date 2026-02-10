@@ -24,6 +24,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
+import com.vanillasource.eliot.eliotc.source.file.FileContentReader
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.source.stat.FileStatProcessor
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
@@ -54,6 +55,7 @@ class BasePlugin extends CompilerPlugin {
           Seq(
             superProcessor,
             FileStatProcessor(),
+            FileContentReader(),
             SourceContentReader(),
             PathScanner(configuration.getOrElse(pathKey, Seq.empty)),
             Tokenizer(),

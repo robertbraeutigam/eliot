@@ -14,39 +14,42 @@ import com.vanillasource.eliot.eliotc.token.SourceTokens
 import com.vanillasource.eliot.eliotc.ast.parser.Parser.*
 
 class ASTParser
-    extends TransformationProcessor[SourceTokens.Key, SourceAST.Key](key => SourceTokens.Key(key.file))
+    extends TransformationProcessor[SourceTokens.Key, SourceAST.Key](key => SourceTokens.Key(key.uri))
     with Logging {
 
-  override protected def generateFromKeyAndFact(key: SourceAST.Key, sourceTokens: SourceTokens): CompilerIO[SourceAST] = {
+  override protected def generateFromKeyAndFact(
+      key: SourceAST.Key,
+      sourceTokens: SourceTokens
+  ): CompilerIO[SourceAST] = {
     val tokens    = sourceTokens.tokens.value
-    val file      = sourceTokens.file
+    val uri       = sourceTokens.uri
     val astResult = component[AST].fully().parse(tokens)
 
     for {
-      _ <- astResult.allErrors.map {
-             case ParserError(pos, expected) if pos >= tokens.size =>
-               tokens match {
-                 case Nil =>
-                   compilerError(
-                     sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but input was empty.")
-                   )
-                 case _   =>
-                   val pos = tokens.last.range.to
-                   compilerError(
-                     sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but end of input reached.")
-                   )
-               }
-             case ParserError(pos, expected)                       =>
-               val token = tokens.get(pos).get
-               compilerError(
-                 token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
-               )
-           }.sequence_
+      _   <- astResult.allErrors.map {
+               case ParserError(pos, expected) if pos >= tokens.size =>
+                 tokens match {
+                   case Nil =>
+                     compilerError(
+                       sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but input was empty.")
+                     )
+                   case _   =>
+                     val pos = tokens.last.range.to
+                     compilerError(
+                       sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but end of input reached.")
+                     )
+                 }
+               case ParserError(pos, expected)                       =>
+                 val token = tokens.get(pos).get
+                 compilerError(
+                   token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
+                 )
+             }.sequence_
       ast <- astResult.value match
                case Some(ast) =>
-                 debug[CompilerIO](s"Generated AST for $file: ${ast.show}.").as(ast)
+                 debug[CompilerIO](s"Generated AST for $uri: ${ast.show}.").as(ast)
                case None      => abort[AST]
-    } yield SourceAST(file, sourceTokens.tokens.as(ast))
+    } yield SourceAST(uri, sourceTokens.tokens.as(ast))
   }
 
   private def expectedMessage(expected: Set[String]): String = expected.toSeq match

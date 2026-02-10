@@ -14,12 +14,13 @@ import scala.io.Source
   * will just silently ignore the issue and not produce a fact.
   */
 class FileContentReader extends SingleKeyTypeProcessor[FileContent.Key] with Logging {
+  // FIXME: remove sourced, SourcedContent does that
   override protected def generateFact(key: FileContent.Key): CompilerIO[Unit] =
     Resource
       .make(IO(Source.fromFile(key.file)))(source => IO.blocking(source.close()))
       .use { source =>
         IO.blocking(source.getLines()).map { contentLines =>
-          FileContent(key.file, Sourced(key.file, PositionRange.zero, contentLines.mkString("\n")))
+          FileContent(key.file, Sourced(key.file.toURI, PositionRange.zero, contentLines.mkString("\n")))
         }
       }
       .attempt

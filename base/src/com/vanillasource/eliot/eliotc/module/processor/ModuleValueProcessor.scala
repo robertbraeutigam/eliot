@@ -14,8 +14,8 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
 
   override protected def generateFact(key: ModuleValue.Key): CompilerIO[Unit] =
     for {
-      coreAST        <- getFactOrAbort(CoreAST.Key(key.file))
-      moduleNames    <- getFactOrAbort(ModuleNames.Key(key.file))
+      coreAST        <- getFactOrAbort(CoreAST.Key(key.uri))
+      moduleNames    <- getFactOrAbort(ModuleNames.Key(key.uri))
       importedModules =
         extractImportedModules(key.vfqn.moduleName, coreAST.ast.as(coreAST.ast.value.importStatements), systemModules)
       importedNames  <- extractImportedNames(importedModules, moduleNames.names)
@@ -25,7 +25,7 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
                           .flatMap(name => namedValuesMap.get(name).map(nv => (name, nv)))
                           .map { (name, namedValue) =>
                             registerFactIfClear(
-                              ModuleValue(key.file, ValueFQN(key.vfqn.moduleName, name), dictionary, namedValue)
+                              ModuleValue(key.uri, ValueFQN(key.vfqn.moduleName, name), dictionary, namedValue)
                             )
                           }
                           .sequence_

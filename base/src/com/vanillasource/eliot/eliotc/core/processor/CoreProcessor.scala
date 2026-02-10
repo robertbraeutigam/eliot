@@ -26,7 +26,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   - Represents all types as levels in ExpressionStacks
   */
 class CoreProcessor
-    extends TransformationProcessor[SourceAST.Key, CoreAST.Key](key => SourceAST.Key(key.file))
+    extends TransformationProcessor[SourceAST.Key, CoreAST.Key](key => SourceAST.Key(key.uri))
     with Logging {
 
   override protected def generateFromKeyAndFact(
@@ -40,9 +40,9 @@ class CoreProcessor
     )
 
     debug[CompilerIO](
-      s"Core functions in ${key.file}: ${coreAstData.namedValues.map(_.show).mkString(", ")}"
+      s"Core functions in ${key.uri}: ${coreAstData.namedValues.map(_.show).mkString(", ")}"
     ) >>
-      CoreAST(sourceAst.file, sourceAst.ast.as(coreAstData)).pure[CompilerIO]
+      CoreAST(sourceAst.uri, sourceAst.ast.as(coreAstData)).pure[CompilerIO]
   }
 
   private def transformFunctions(functions: Seq[FunctionDefinition]): Seq[NamedValue] =
@@ -232,9 +232,9 @@ class CoreProcessor
   /** Note: we only create a constructor if fields are present. Else the data type is abstract and we can't create it
     * anyway.
     *
-    * The body is a self-referential call: Box(fieldA)(fieldB)... This is never evaluated - JvmClassGenerator
-    * recognizes constructors and generates native bytecode. The purpose is to preserve field names as lambda parameter
-    * names through the pipeline.
+    * The body is a self-referential call: Box(fieldA)(fieldB)... This is never evaluated - JvmClassGenerator recognizes
+    * constructors and generates native bytecode. The purpose is to preserve field names as lambda parameter names
+    * through the pipeline.
     */
   private def createConstructor(definition: DataDefinition): Seq[NamedValue] = {
     definition.fields

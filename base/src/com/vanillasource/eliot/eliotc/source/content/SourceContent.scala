@@ -7,21 +7,15 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 
 import java.io.File
+import java.net.URI
 import java.nio.file.Path
 
 /** The contents of a source file.
   */
-case class SourceContent(file: File, content: Sourced[String]) extends CompilerFact {
-  override def key(): CompilerFactKey[SourceContent] = SourceContent.Key(file)
+case class SourceContent(uri: URI, content: Sourced[String]) extends CompilerFact {
+  override def key(): CompilerFactKey[SourceContent] = SourceContent.Key(uri)
 }
 
 object SourceContent {
-  case class Key(file: File) extends CompilerFactKey[SourceContent]
-
-  // TODO: this doesn't belong here
-  def addSource(path: Path, file: File, content: String): CompilerIO[Unit] = {
-    // TODO: fix file to URI, since this is not really a file
-    registerFactIfClear(SourceContent(file, Sourced(file, PositionRange.zero, content))) >>
-      registerFactIfClear(PathScan(path, Seq(file)))
-  }
+  case class Key(uri: URI) extends CompilerFactKey[SourceContent]
 }
