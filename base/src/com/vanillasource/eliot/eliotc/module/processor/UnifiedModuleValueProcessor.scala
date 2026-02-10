@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.NamedValue
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleValue, UnifiedModuleValue, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleNames, ModuleValue, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -15,7 +15,9 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
   override protected def generateSingleFact(key: UnifiedModuleValue.Key): CompilerIO[UnifiedModuleValue] =
     for {
       pathScan     <- getFactOrAbort(PathScan.Key(pathName(key.vfqn.moduleName)))
-      allValues    <- pathScan.files
+      allNames     <- pathScan.files.traverse(file => getFactOrAbort(ModuleNames.Key(file)).map(file -> _))
+      filesWithName = allNames.collect { case (file, names) if names.names.contains(key.vfqn.name) => file }
+      allValues    <- filesWithName
                         .traverse(file => getFact(ModuleValue.Key(file, key.vfqn)))
                         .map(_.flatten)
       unifiedValue <- unifyValues(key.vfqn, allValues)
