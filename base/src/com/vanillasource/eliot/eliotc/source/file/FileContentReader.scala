@@ -1,10 +1,11 @@
 package com.vanillasource.eliot.eliotc.source.file
 
 import cats.effect.{IO, Resource}
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
+import com.vanillasource.eliot.eliotc.processor.common.{SingleFactProcessor, SingleKeyTypeProcessor}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 import scala.io.Source
@@ -13,9 +14,9 @@ import scala.io.Source
   * File is missing, so it can be used to probe whether a file is present. If File is not present, or not readable, this
   * will just silently ignore the issue and not produce a fact.
   */
-class FileContentReader extends SingleKeyTypeProcessor[FileContent.Key] with Logging {
+class FileContentReader extends SingleFactProcessor[FileContent.Key] with Logging {
   // FIXME: remove sourced, SourcedContent does that
-  override protected def generateFact(key: FileContent.Key): CompilerIO[Unit] =
+  override protected def generateSingleFact(key: FileContent.Key): CompilerIO[FileContent] =
     Resource
       .make(IO(Source.fromFile(key.file)))(source => IO.blocking(source.close()))
       .use { source =>
@@ -26,10 +27,11 @@ class FileContentReader extends SingleKeyTypeProcessor[FileContent.Key] with Log
       .attempt
       .to[CompilerIO]
       .flatMap {
-        case Right(fact) => registerFactIfClear(fact)
+        case Right(fact) => fact.pure[CompilerIO]
         case Left(_)     =>
           registerCompilerError(
             CompilerError("Could not read file.", Seq.empty, key.file.getPath, "", PositionRange.zero)
-          )
+          ) >> abort
       }
+
 }
