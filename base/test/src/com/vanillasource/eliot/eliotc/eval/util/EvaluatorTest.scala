@@ -20,10 +20,10 @@ import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-import java.io.File
+import java.net.URI
 
 class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
-  private val testFile       = new File("Test.els")
+  private val testFile       = URI.create("Test.els")
   private val testModuleName = ModuleName(Seq.empty, "Test")
   private val sourceContent  = SourceContent(testFile, Sourced(testFile, PositionRange.zero, "test source"))
 
