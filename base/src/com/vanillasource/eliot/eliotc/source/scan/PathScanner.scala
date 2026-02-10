@@ -18,6 +18,7 @@ class PathScanner(rootPaths: Seq[Path]) extends SingleKeyTypeProcessor[PathScan.
                         .toList
                         .traverse(file => getFactOrAbort(FileStat.Key(file)))
       files         = contentFacts.filter(_.lastModified.isDefined).map(_.file)
+      _            <- debug[CompilerIO](s"Found files: ${files.mkString(", ")}")
       _            <- if (files.isEmpty) {
                         compilerGlobalError(s"Could not find path ${key.path} at given roots: ${rootPaths.mkString(", ")}")
                           .to[CompilerIO]

@@ -13,6 +13,6 @@ class FileStatProcessor extends SingleFactProcessor[FileStat.Key] with Logging {
   override protected def generateSingleFact(key: FileStat.Key): CompilerIO[FileStat] =
     IO(key.file.lastModified()).attempt
       .map(_.toOption)
-      .map(lastModified => FileStat(key.file, lastModified.map(Instant.ofEpochMilli)))
+      .map(lastModified => FileStat(key.file, lastModified.filter(_ > 0L).map(Instant.ofEpochMilli)))
       .to[CompilerIO]
 }
