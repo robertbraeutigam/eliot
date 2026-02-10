@@ -1,32 +1,19 @@
 package com.vanillasource.eliot.eliotc.eval.processor
 
-import cats.data.{Chain, NonEmptySeq}
+import cats.data.NonEmptySeq
 import cats.effect.IO
-import cats.effect.testing.scalatest.AsyncIOSpec
-import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.compiler.FactGenerator
+import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.fullyQualifiedNameType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.pos.PositionRange
-import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
-import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
-import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
-import org.scalatest.flatspec.AsyncFlatSpec
-import org.scalatest.matchers.should.Matchers
 
-import java.net.URI
-
-class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
-  private val testFile       = URI.create("Test.els")
-  private val testModuleName = ModuleName(Seq.empty, "Test")
-  private val typeVfqn       = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
-  private val sourceContent  = SourceContent(testFile, Sourced(testFile, PositionRange.zero, "test source"))
-  private val typeEvaluable  = NamedEvaluable(typeVfqn, ConcreteValue(Type))
+class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
+  private val typeVfqn      = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
+  private val typeEvaluable = NamedEvaluable(typeVfqn, ConcreteValue(Type))
 
   "DataTypeEvaluator" should "evaluate Int$DataType (0 params) to correct Structure" in {
     val vfqn          = ValueFQN(testModuleName, "Int$DataType")
@@ -172,8 +159,6 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
     runDataTypeEvaluatorExpectNoneWithFacts(functionVfqn, Seq(functionResolved)).asserting(_ shouldBe None)
   }
 
-  private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
-
   /** Creates a ResolvedValue with the given type parameters. Signatures are FunctionLiterals ending in Type (not
     * self-reference), matching what CoreProcessor produces.
     */
@@ -204,33 +189,17 @@ class DataTypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
       vfqn: ValueFQN,
       resolvedValues: Seq[ResolvedValue]
   ): IO[InitialExpressionValue] =
-    for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq(DataTypeEvaluator())))
-      _         <- generator.registerFact(sourceContent)
-      _         <- generator.registerFact(typeEvaluable)
-      _         <- resolvedValues.traverse_(generator.registerFact)
-      result    <- generator.getFact(NamedEvaluable.Key(vfqn))
-    } yield result match {
-      case Some(namedEvaluable) => namedEvaluable.value
-      case None                 => throw new Exception(s"No NamedEvaluable generated for $vfqn")
+    runGeneratorWithFacts(typeEvaluable +: resolvedValues, NamedEvaluable.Key(vfqn)).map {
+      case (Some(namedEvaluable), _) => namedEvaluable.value
+      case _                         => throw new Exception(s"No NamedEvaluable generated for $vfqn")
     }
 
   private def runDataTypeEvaluatorExpectNone(vfqn: ValueFQN): IO[Option[NamedEvaluable]] =
-    for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq(DataTypeEvaluator())))
-      _         <- generator.registerFact(sourceContent)
-      result    <- generator.getFact(NamedEvaluable.Key(vfqn))
-    } yield result
+    runGeneratorWithFacts(Seq.empty, NamedEvaluable.Key(vfqn)).map(_._1)
 
   private def runDataTypeEvaluatorExpectNoneWithFacts(
       vfqn: ValueFQN,
       resolvedValues: Seq[ResolvedValue]
   ): IO[Option[NamedEvaluable]] =
-    for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq(DataTypeEvaluator())))
-      _         <- generator.registerFact(sourceContent)
-      _         <- generator.registerFact(typeEvaluable)
-      _         <- resolvedValues.traverse_(generator.registerFact)
-      result    <- generator.getFact(NamedEvaluable.Key(vfqn))
-    } yield result
+    runGeneratorWithFacts(typeEvaluable +: resolvedValues, NamedEvaluable.Key(vfqn)).map(_._1)
 }

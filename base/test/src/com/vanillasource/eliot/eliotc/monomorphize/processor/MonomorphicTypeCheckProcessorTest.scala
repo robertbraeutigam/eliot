@@ -1,31 +1,16 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
-import cats.data.{Chain, NonEmptySeq}
 import cats.effect.IO
-import cats.effect.testing.scalatest.AsyncIOSpec
-import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.compiler.FactGenerator
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
-import com.vanillasource.eliot.eliotc.pos.PositionRange
-import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
-import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
+import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpression}
-import org.scalatest.flatspec.AsyncFlatSpec
-import org.scalatest.matchers.should.Matchers
 
-import java.net.URI
-
-class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
-  private val testFile       = URI.create("Test.els")
-  private val testModuleName = ModuleName(Seq.empty, "Test")
-  private val sourceContent  = SourceContent(testFile, Sourced(testFile, PositionRange.zero, "test source"))
-
+class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeCheckProcessor()) {
   private val intVfqn    = ValueFQN(testModuleName, "Int")
   private val stringVfqn = ValueFQN(testModuleName, "String")
   private val boolVfqn   = ValueFQN(testModuleName, "Bool")
@@ -523,8 +508,6 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
       }
   }
 
-  private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
-
   private def typedExpr(exprType: ExpressionValue, expr: TypedExpression.Expression): TypedExpression =
     TypedExpression(exprType, expr)
 
@@ -532,28 +515,18 @@ class MonomorphicTypeCheckProcessorTest extends AsyncFlatSpec with AsyncIOSpec w
       key: MonomorphicValue.Key,
       facts: Seq[CompilerFact]
   ): IO[MonomorphicValue] =
-    for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq(MonomorphicTypeCheckProcessor())))
-      _         <- generator.registerFact(sourceContent)
-      _         <- facts.traverse_(generator.registerFact)
-      result    <- generator.getFact(key)
-      errors    <- generator.currentErrors()
-      _         <- if (errors.nonEmpty)
-                     IO.raiseError(new Exception(s"Errors: ${errors.map(_.message).mkString(", ")}"))
-                   else IO.unit
-    } yield result.getOrElse(throw new Exception("MonomorphicValue not produced"))
+    runGeneratorWithFacts(facts, key).flatMap { case (result, errors) =>
+      if (errors.nonEmpty) IO.raiseError(new Exception(s"Errors: ${errors.map(_.message).mkString(", ")}"))
+      else IO.pure(result.getOrElse(throw new Exception("MonomorphicValue not produced")))
+    }
 
   private def runProcessorForError(
       key: MonomorphicValue.Key,
       facts: Seq[CompilerFact]
   ): IO[String] =
-    for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq(MonomorphicTypeCheckProcessor())))
-      _         <- generator.registerFact(sourceContent)
-      _         <- facts.traverse_(generator.registerFact)
-      _         <- generator.getFact(key)
-      errors    <- generator.currentErrors()
-    } yield errors.headOption.map(_.message).getOrElse(throw new Exception("Expected error but none occurred"))
+    runGeneratorWithFacts(facts, key).map { case (_, errors) =>
+      errors.headOption.map(_.message).getOrElse(throw new Exception("Expected error but none occurred"))
+    }
 
   private def runProcessorWithTimeout(
       key: MonomorphicValue.Key,

@@ -2,26 +2,13 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.data.Chain
 import cats.effect.IO
-import cats.effect.testing.scalatest.AsyncIOSpec
-import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.compiler.FactGenerator
+import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.pos.PositionRange
-import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
-import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
-import org.scalatest.flatspec.AsyncFlatSpec
-import org.scalatest.matchers.should.Matchers
 
-import java.net.URI
-
-class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
-  private val testFile       = URI.create("Test.els")
-  private val testModuleName = ModuleName(Seq.empty, "Test")
-  private val sourceContent  = SourceContent(testFile, Sourced(testFile, PositionRange.zero, "test source"))
-
+class TypeEvaluatorTest extends ProcessorTest() {
   private val intVfqn    = ValueFQN(testModuleName, "Int")
   private val stringVfqn = ValueFQN(testModuleName, "String")
   private val boolVfqn   = ValueFQN(testModuleName, "Bool")
@@ -209,17 +196,13 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     TypeEvaluator.extractTypeParams(sig) shouldBe Seq("A", "n")
   }
 
-  private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
-
   private def runEvaluator(
       expr: ExpressionValue,
       substitution: Map[String, Value],
       evaluables: Seq[NamedEvaluable]
   ): IO[Value] =
     for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq.empty))
-      _         <- generator.registerFact(sourceContent)
-      _         <- evaluables.traverse(generator.registerFact)
+      generator <- createGenerator(evaluables)
       result    <- TypeEvaluator.evaluateWithSubstitution(expr, substitution, sourced(())).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((_, value)) => value
@@ -232,9 +215,7 @@ class TypeEvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       evaluables: Seq[NamedEvaluable]
   ): IO[String] =
     for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq.empty))
-      _         <- generator.registerFact(sourceContent)
-      _         <- evaluables.traverse(generator.registerFact)
+      generator <- createGenerator(evaluables)
       result    <- TypeEvaluator.evaluateWithSubstitution(expr, substitution, sourced(())).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((errors, _)) if errors.nonEmpty => errors.toList.head.message

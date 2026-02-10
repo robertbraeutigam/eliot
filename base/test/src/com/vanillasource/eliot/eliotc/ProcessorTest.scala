@@ -20,7 +20,27 @@ import java.nio.file.Path
 abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   val file           = URI.create("Test.els")
   val testModuleName = ModuleName(Seq.empty, "Test")
+  val sourceContent  = SourceContent(file, Sourced(file, PositionRange.zero, "test source"))
   val systemImports  = Seq(SystemImport("Function", "data Function[A, B]"))
+
+  def sourced[T](value: T): Sourced[T] = Sourced(file, PositionRange.zero, value)
+
+  def createGenerator(facts: Seq[CompilerFact]): IO[FactGenerator] =
+    for {
+      generator <- FactGenerator.create(SequentialCompilerProcessors(processors))
+      _         <- generator.registerFact(sourceContent)
+      _         <- facts.traverse_(generator.registerFact)
+    } yield generator
+
+  def runGeneratorWithFacts[K <: CompilerFact](
+      facts: Seq[CompilerFact],
+      trigger: CompilerFactKey[K]
+  ): IO[(Option[K], Seq[CompilerError])] =
+    for {
+      generator <- createGenerator(facts)
+      result    <- generator.getFact(trigger)
+      errors    <- generator.currentErrors()
+    } yield (result, errors)
 
   def runGenerator(
       source: String,

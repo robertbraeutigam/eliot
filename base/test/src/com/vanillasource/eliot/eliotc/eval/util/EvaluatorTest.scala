@@ -2,31 +2,16 @@ package com.vanillasource.eliot.eliotc.eval.util
 
 import cats.data.{Chain, NonEmptySeq}
 import cats.effect.IO
-import cats.effect.testing.scalatest.AsyncIOSpec
-import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.compiler.FactGenerator
+import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
-import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType}
-import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.pos.PositionRange
-import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
-import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression
-import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
-import org.scalatest.flatspec.AsyncFlatSpec
-import org.scalatest.matchers.should.Matchers
 
-import java.net.URI
-
-class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
-  private val testFile       = URI.create("Test.els")
-  private val testModuleName = ModuleName(Seq.empty, "Test")
-  private val sourceContent  = SourceContent(testFile, Sourced(testFile, PositionRange.zero, "test source"))
-
+class EvaluatorTest extends ProcessorTest() {
   // Type facts for use in function parameter types
   private val bigIntTypeVfqn = ValueFQN(testModuleName, "BigIntType")
   private val bigIntTypeFact = NamedEvaluable(bigIntTypeVfqn, ConcreteValue(bigIntType))
@@ -257,8 +242,6 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     runEvaluatorWithTracking(expr, Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }
 
-  private def sourced[T](value: T): Sourced[T] = Sourced(testFile, PositionRange.zero, value)
-
   private def intLit(value: BigInt): Expression = Expression.IntegerLiteral(sourced(value))
 
   private def strLit(value: String): Expression = Expression.StringLiteral(sourced(value))
@@ -292,11 +275,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       facts: Seq[CompilerFact]
   ): IO[InitialExpressionValue] =
     for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq.empty))
-      _         <- generator.registerFact(sourceContent)
-      _         <- generator.registerFact(bigIntTypeFact)
-      _         <- generator.registerFact(stringTypeFact)
-      _         <- facts.traverse_(generator.registerFact)
+      generator <- createGenerator(Seq(bigIntTypeFact, stringTypeFact) ++ facts)
       result    <- Evaluator.evaluate(sourced(expression)).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((_, value)) => value
@@ -311,11 +290,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       facts: Seq[CompilerFact]
   ): IO[String] =
     for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq.empty))
-      _         <- generator.registerFact(sourceContent)
-      _         <- generator.registerFact(bigIntTypeFact)
-      _         <- generator.registerFact(stringTypeFact)
-      _         <- facts.traverse_(generator.registerFact)
+      generator <- createGenerator(Seq(bigIntTypeFact, stringTypeFact) ++ facts)
       result    <- Evaluator.evaluate(sourced(expression)).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((errors, _)) if errors.nonEmpty => errors.toList.head.message
@@ -335,11 +310,7 @@ class EvaluatorTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       evaluating: Set[ValueFQN]
   ): IO[Either[String, InitialExpressionValue]] =
     for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(Seq.empty))
-      _         <- generator.registerFact(sourceContent)
-      _         <- generator.registerFact(bigIntTypeFact)
-      _         <- generator.registerFact(stringTypeFact)
-      _         <- facts.traverse_(generator.registerFact)
+      generator <- createGenerator(Seq(bigIntTypeFact, stringTypeFact) ++ facts)
       result    <- Evaluator.evaluate(sourced(expression), evaluating).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((_, value))                     => Right(value)

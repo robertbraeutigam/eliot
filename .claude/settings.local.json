@@ -35,7 +35,8 @@
       "Bash(mill --no-server base.test.testOnly:*)",
       "Bash(tree:*)",
       "Bash(jar tf:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(bc:*)"
     ]
   }
 }
