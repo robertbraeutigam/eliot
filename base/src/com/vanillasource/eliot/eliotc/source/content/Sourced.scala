@@ -33,18 +33,11 @@ object Sourced {
       CompilerError(
         message.value,
         description,
-        uriDescription(message.uri),
+        message.uri.getPath,
         content,
         message.range
       )
     )
-
-  private def uriDescription(uri: URI): String =
-    if (uri.getScheme === "file") {
-      uri.getPath
-    } else {
-      uri.toString
-    }
 
   def compilerAbort[T](message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[T] =
     compilerError(message, description) *> abort[T]
