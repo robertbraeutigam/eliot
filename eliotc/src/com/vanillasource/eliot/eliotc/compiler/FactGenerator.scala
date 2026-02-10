@@ -26,10 +26,11 @@ final class FactGenerator(
                         modifyResult._1.complete(None)).start
                         .whenA(modifyResult._2) // Only if we are first
       result       <- modifyResult._1.get
-      _            <-
-        debug[IO](
-          s"${if (!modifyResult._2) "Cached" else if (result.isDefined) "Returning" else "Failing"} (${key.getClass.getName}) $key"
-        )
+      _            <- if (result.isDefined) {
+                        debug[IO](s"${if (!modifyResult._2) "Cached" else "Generated"} (${key.getClass.getName}) $key.")
+                      } else {
+                        warn[IO](s"Did not find key (${key.getClass.getName}) $key.")
+                      }
     } yield result.map(_.asInstanceOf[V])
   }
 

@@ -1,13 +1,11 @@
 package com.vanillasource.eliot.eliotc.source.content
 
 import cats.effect.{IO, Resource}
-import cats.Monad
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 
-import java.io.File
 import scala.io.Source
 
 /** Generates the source code for a given File, i.e. reads it from disk. Note, that this generator does not fail if the
@@ -27,6 +25,9 @@ class SourceContentReader extends SingleKeyTypeProcessor[SourceContent.Key] with
       .to[CompilerIO]
       .flatMap {
         case Right(fact) => registerFactIfClear(fact)
-        case Left(_)     => Monad[CompilerIO].unit
+        case Left(_)     =>
+          registerCompilerError(
+            CompilerError("Could not read file.", Seq.empty, key.file.getPath, "", PositionRange.zero)
+          )
       }
 }
