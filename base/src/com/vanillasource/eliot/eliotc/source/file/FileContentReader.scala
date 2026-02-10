@@ -1,0 +1,34 @@
+package com.vanillasource.eliot.eliotc.source.file
+
+import cats.effect.{IO, Resource}
+import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
+import com.vanillasource.eliot.eliotc.pos.PositionRange
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
+import com.vanillasource.eliot.eliotc.source.content.Sourced
+
+import scala.io.Source
+
+/** Generates the source code for a given File, i.e. reads it from disk. Note, that this generator does not fail if the
+  * File is missing, so it can be used to probe whether a file is present. If File is not present, or not readable, this
+  * will just silently ignore the issue and not produce a fact.
+  */
+class FileContentReader extends SingleKeyTypeProcessor[FileContent.Key] with Logging {
+  override protected def generateFact(key: FileContent.Key): CompilerIO[Unit] =
+    Resource
+      .make(IO(Source.fromFile(key.file)))(source => IO.blocking(source.close()))
+      .use { source =>
+        IO.blocking(source.getLines()).map { contentLines =>
+          FileContent(key.file, Sourced(key.file, PositionRange.zero, contentLines.mkString("\n")))
+        }
+      }
+      .attempt
+      .to[CompilerIO]
+      .flatMap {
+        case Right(fact) => registerFactIfClear(fact)
+        case Left(_)     =>
+          registerCompilerError(
+            CompilerError("Could not read file.", Seq.empty, key.file.getPath, "", PositionRange.zero)
+          )
+      }
+}
