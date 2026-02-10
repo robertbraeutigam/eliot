@@ -74,7 +74,7 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
                                   .pure[CompilerIO]
                               }
                             case Left(_)            =>
-                              compilerError(module.as("Could not find imported module."), Seq(s"Module: ${module.value.show}"))
+                              compilerError(module.as(s"Could not find imported module '${module.value.show}'."))
                                 .as(importedNames)
                           }
     } yield result
