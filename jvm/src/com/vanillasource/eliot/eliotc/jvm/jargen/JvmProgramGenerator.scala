@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
+import com.vanillasource.eliot.eliotc.processor.common.{SingleFactProcessor, SingleKeyTypeProcessor}
 import com.vanillasource.eliot.eliotc.source.file.FileContent.addSource
 import com.vanillasource.eliot.eliotc.used.UsedNames
 
@@ -16,10 +16,10 @@ import java.nio.file.{Files, Path}
 import java.util.jar.{JarEntry, JarOutputStream}
 
 class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
-    extends SingleKeyTypeProcessor[GenerateExecutableJar.Key]
+    extends SingleFactProcessor[GenerateExecutableJar.Key]
     with Logging {
 
-  override protected def generateFact(key: GenerateExecutableJar.Key): CompilerIO[Unit] =
+  override protected def generateSingleFact(key: GenerateExecutableJar.Key): CompilerIO[GenerateExecutableJar] =
     for {
       // First, generate all modules for user's code
       _          <- generateModulesFrom(key.vfqn)
@@ -32,7 +32,7 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
                     )
       allModules <- generateModulesFrom(ValueFQN(ModuleName(Seq(), "main"), "main"))
       _          <- generateJarFile(key.vfqn, allModules).to[CompilerIO]
-    } yield ()
+    } yield GenerateExecutableJar(key.vfqn)
 
   private def generateModulesFrom(vfqn: ValueFQN): CompilerIO[Seq[GeneratedModule]] =
     for {
