@@ -52,9 +52,9 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
       module: Sourced[ModuleName]
   ): CompilerIO[Map[String, ValueFQN]] =
     for {
-      maybeModuleNames <- getFactOrAbort(UnifiedModuleNames.Key(module.value)).attempt
+      maybeModuleNames <- getFact(UnifiedModuleNames.Key(module.value))
       result           <- maybeModuleNames match {
-                            case Right(moduleNames) =>
+                            case Some(moduleNames) =>
                               val shadowingLocal    = moduleNames.names.intersect(localNames)
                               val shadowingImported = moduleNames.names.intersect(importedNames.keySet)
 
@@ -73,7 +73,7 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
                                   .toMap)
                                   .pure[CompilerIO]
                               }
-                            case Left(_)            =>
+                            case None              =>
                               compilerError(module.as(s"Could not find imported module."))
                                 .as(importedNames)
                           }
