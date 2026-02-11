@@ -69,7 +69,7 @@ class SymbolicTypeCheckProcessor
       signatureType       = resolvedTypedLevels.head.expressionType
       _                  <-
         debug[CompilerIO](
-          s"Produced symbolic checked (of ${resolvedValue.vfqn.show}): ${TypedExpression(signatureType, resolvedTypedBody.expression).show}"
+          s"Produced symbolic checked (of ${resolvedValue.vfqn.show}) signature: ${signatureType.show}, body: ${resolvedTypedBody.expression.show}"
         )
     } yield TypeCheckedValue(
       resolvedValue.vfqn,

@@ -68,9 +68,9 @@ object ExpressionValue {
 
   given Show[ExpressionValue] with {
     def show(expr: ExpressionValue): String = expr match {
-      case FunctionType(paramType, returnType)    => s"(${paramType.show}) -> ${returnType.show}"
+      case FunctionType(paramType, returnType)    => s"Function(${paramType.show}, ${returnType.show})"
       case ConcreteValue(v)                       => v.show
-      case FunctionLiteral(name, paramType, body) => s"($name: ${paramType.show}) -> ${body.show}"
+      case FunctionLiteral(name, paramType, body) => s"(($name: ${paramType.show}) -> ${body.show})"
       case NativeFunction(paramType, _)           => s"native(${paramType.show})"
       case ParameterReference(name, _)            => name
       case FunctionApplication(target, arg)       => s"${target.show}(${arg.show})"

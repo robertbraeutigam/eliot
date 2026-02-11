@@ -63,7 +63,7 @@ object TypedExpression {
       case IntegerLiteral(integerLiteral)             => integerLiteral.value.toString()
       case StringLiteral(stringLiteral)               => stringLiteral.value
       case FunctionLiteral(name, parameterType, body) =>
-        s"(${parameterType.value.show} :: ${name.value}) -> ${body.value.show}"
+        s"((${parameterType.value.show} :: ${name.value}) -> ${body.value.show})"
       case ParameterReference(parameterName)          => parameterName.value
       case FunctionApplication(target, argument)      => s"${target.value.show}(${argument.value.show})"
       case ValueReference(valueFQN)                   => valueFQN.value.show
