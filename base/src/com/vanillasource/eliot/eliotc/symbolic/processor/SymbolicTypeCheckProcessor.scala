@@ -67,6 +67,10 @@ class SymbolicTypeCheckProcessor
       resolvedTypedLevels = typedLevels.map(_.transformTypes(solution.substitute))
       resolvedTypedBody   = typedBody.transformTypes(solution.substitute)
       signatureType       = resolvedTypedLevels.head.expressionType
+      _                  <-
+        debug[CompilerIO](
+          s"Produced symbolic checked (of ${resolvedValue.vfqn.show}): ${TypedExpression(signatureType, resolvedTypedBody.expression).show}"
+        )
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       resolvedValue.name,

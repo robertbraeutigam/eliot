@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.symbolic.fact
 
+import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -17,7 +18,7 @@ case class TypedExpression(
     TypedExpression(
       f(expressionType),
       expression match {
-        case TypedExpression.FunctionApplication(target, arg) =>
+        case TypedExpression.FunctionApplication(target, arg)            =>
           TypedExpression.FunctionApplication(
             target.map(_.transformTypes(f)),
             arg.map(_.transformTypes(f))
@@ -28,7 +29,7 @@ case class TypedExpression(
             paramType.map(f),
             body.map(_.transformTypes(f))
           )
-        case other => other
+        case other                                                       => other
       }
     )
 }
@@ -52,4 +53,20 @@ object TypedExpression {
       parameterType: Sourced[ExpressionValue],
       body: Sourced[TypedExpression]
   ) extends Expression
+
+  given Show[TypedExpression] with {
+    override def show(expr: TypedExpression): String = expr.expressionType.show + " :: " + expr.expression.show
+  }
+
+  given Show[Expression] with {
+    def show(expr: Expression): String = expr match {
+      case IntegerLiteral(integerLiteral)             => integerLiteral.value.toString()
+      case StringLiteral(stringLiteral)               => stringLiteral.value
+      case FunctionLiteral(name, parameterType, body) =>
+        s"(${parameterType.value.show} :: ${name.value}) -> ${body.value.show}"
+      case ParameterReference(parameterName)          => parameterName.value
+      case FunctionApplication(target, argument)      => s"${target.value.show}(${argument.value.show})"
+      case ValueReference(valueFQN)                   => valueFQN.value.show
+    }
+  }
 }

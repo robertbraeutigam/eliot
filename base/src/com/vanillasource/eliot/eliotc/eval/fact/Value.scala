@@ -25,7 +25,7 @@ object Value {
 
   given Eq[Value] = Eq.fromUniversalEquals
 
-  val valueUserDisplay: Show[Value] = {
+  given valueUserDisplay: Show[Value] = {
     case Type                                               => "Type"
     case Direct(value, valueType)                           => value.toString // TODO: this should be explicit
     case Structure(fields, valueType) if valueType === Type =>
