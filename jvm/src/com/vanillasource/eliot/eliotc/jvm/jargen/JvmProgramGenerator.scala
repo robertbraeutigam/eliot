@@ -6,8 +6,8 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.common.{SingleFactProcessor, SingleKeyTypeProcessor}
-import com.vanillasource.eliot.eliotc.source.file.FileContent.addSource
+import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
+import com.vanillasource.eliot.eliotc.source.dynamic.DynamicContent.addDynamicSource
 import com.vanillasource.eliot.eliotc.used.UsedNames
 
 import java.nio.charset.StandardCharsets
@@ -24,12 +24,7 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
       // First, generate all modules for user's code
       _          <- generateModulesFrom(key.vfqn)
       // Add dynamic main and generate everything if user's code did not fail
-      // FIXME: this is a lie, there's no such file
-      _          <- addSource(
-                      Path.of("main.els"),
-                      sourceDir.resolve("main.els").toFile.getAbsoluteFile,
-                      generateMainSource(key.vfqn)
-                    )
+      _          <- addDynamicSource(Path.of("main.els"), generateMainSource(key.vfqn))
       allModules <- generateModulesFrom(ValueFQN(ModuleName(Seq(), "main"), "main"))
       _          <- generateJarFile(key.vfqn, allModules).to[CompilerIO]
     } yield GenerateExecutableJar(key.vfqn)

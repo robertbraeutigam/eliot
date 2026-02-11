@@ -18,12 +18,4 @@ case class FileContent(file: File, content: Sourced[String]) extends CompilerFac
 
 object FileContent {
   case class Key(file: File) extends CompilerFactKey[FileContent]
-
-  // TODO: this doesn't belong here
-  def addSource(path: Path, file: File, content: String): CompilerIO[Unit] = {
-    // TODO: fix file to URI, since this is not really a file
-    registerFactIfClear(FileContent(file, Sourced(file.toURI, PositionRange.zero, content))) >>
-      registerFactIfClear(PathScan(path, Seq(file.toURI)))
-  }
-
 }
