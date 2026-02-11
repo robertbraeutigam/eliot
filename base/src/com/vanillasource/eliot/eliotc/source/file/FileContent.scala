@@ -12,7 +12,7 @@ import java.nio.file.Path
 
 /** The contents of a source file.
   */
-case class FileContent(file: File, content: Sourced[String]) extends CompilerFact {
+case class FileContent(file: File, content: String) extends CompilerFact {
   override def key(): CompilerFactKey[FileContent] = FileContent.Key(file)
 }
 

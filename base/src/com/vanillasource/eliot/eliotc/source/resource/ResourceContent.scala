@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 import java.net.URI
 
-case class ResourceContent(uri: URI, content: Sourced[String]) extends CompilerFact {
+case class ResourceContent(uri: URI, content: String) extends CompilerFact {
   override def key(): CompilerFactKey[ResourceContent] = ResourceContent.Key(uri)
 }
 

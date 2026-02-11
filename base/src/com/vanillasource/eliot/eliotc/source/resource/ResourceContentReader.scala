@@ -6,7 +6,6 @@ import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
-import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
@@ -17,7 +16,7 @@ class ResourceContentReader extends SingleFactProcessor[ResourceContent.Key] wit
       .make(IO(key.uri.toURL.openStream()))(stream => IO.blocking(stream.close()))
       .use { stream =>
         IO.blocking(new String(stream.readAllBytes(), StandardCharsets.UTF_8)).map { content =>
-          ResourceContent(key.uri, Sourced(key.uri, PositionRange.zero, content))
+          ResourceContent(key.uri, content)
         }
       }
       .attempt

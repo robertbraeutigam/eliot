@@ -6,7 +6,6 @@ import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
-import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 import scala.io.Source
 
@@ -15,13 +14,12 @@ import scala.io.Source
   * will just silently ignore the issue and not produce a fact.
   */
 class FileContentReader extends SingleFactProcessor[FileContent.Key] with Logging {
-  // FIXME: remove sourced, SourcedContent does that
   override protected def generateSingleFact(key: FileContent.Key): CompilerIO[FileContent] =
     Resource
       .make(IO(Source.fromFile(key.file)))(source => IO.blocking(source.close()))
       .use { source =>
         IO.blocking(source.getLines()).map { contentLines =>
-          FileContent(key.file, Sourced(key.file.toURI, PositionRange.zero, contentLines.mkString("\n")))
+          FileContent(key.file, contentLines.mkString("\n"))
         }
       }
       .attempt
