@@ -26,8 +26,14 @@ import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 class DataTypeEvaluator
     extends TransformationProcessor[ResolvedValue.Key, NamedEvaluable.Key](key => ResolvedValue.Key(key.vfqn)) {
 
+  override protected def generateFact(key: NamedEvaluable.Key): CompilerIO[Unit] =
+    if (key.vfqn.name.endsWith("$DataType") && key.vfqn =!= functionDataTypeFQN)
+      super.generateFact(key)
+    else
+      abort
+
   override protected def generateFromKeyAndFact(key: NamedEvaluable.Key, fact: InputFact): CompilerIO[OutputFact] =
-    if (key.vfqn.name.endsWith("$DataType") && fact.runtime.isEmpty && key.vfqn =!= functionDataTypeFQN) {
+    if (fact.runtime.isEmpty) {
       for {
         evaluated <- Evaluator.evaluate(fact.typeStack.map(_.signature))
         typeParams = ExpressionValue.extractLeadingLambdaParams(evaluated)
