@@ -37,21 +37,16 @@ object TypeStackBuilder {
   /** Build constraints from a body expression, inferring types. */
   def inferBody(body: Sourced[Expression]): TypeGraphIO[TypedExpression] =
     body.value match {
-      case Expr.IntegerLiteral(value) =>
+      case Expr.IntegerLiteral(value)                            =>
         inferLiteral(value, "Number", "Int$DataType", TypedExpression.IntegerLiteral(value))
-
-      case Expr.StringLiteral(value) =>
+      case Expr.StringLiteral(value)                             =>
         inferLiteral(value, "String", "String$DataType", TypedExpression.StringLiteral(value))
-
-      case Expr.ParameterReference(name) =>
+      case Expr.ParameterReference(name)                         =>
         handleParameterReference(name)
-
-      case Expr.ValueReference(vfqn) =>
+      case Expr.ValueReference(vfqn)                             =>
         inferValueReference(vfqn)
-
-      case Expr.FunctionApplication(target, arg) =>
+      case Expr.FunctionApplication(target, arg)                 =>
         inferFunctionApplication(body, target, arg)
-
       case Expr.FunctionLiteral(paramName, paramType, bodyStack) =>
         inferFunctionLiteral(paramName, paramType, bodyStack)
     }
