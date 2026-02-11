@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.{TypeStack, Expression as CoreExpression}
+import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -107,8 +108,7 @@ class ValueResolver
             Expression.ParameterReference(nameSrc).pure[ScopedIO]
           } else if (nameSrc.value == "Type") {
             // Type is a special builtin for type-level parameters
-            val typeVfqn = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
-            Expression.ValueReference(nameSrc.as(typeVfqn)).pure[ScopedIO]
+            Expression.ValueReference(nameSrc.as(typeFQN)).pure[ScopedIO]
           } else {
             // TODO: Hardcoded: anything that's not a parameter reference (above), AND starts with an upper-case letter,
             //  is a reference to a type. Therefore we need to add "$DataType" to the call. This is a hack, fix this later!

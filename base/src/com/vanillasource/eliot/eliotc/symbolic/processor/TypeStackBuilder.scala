@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
+import com.vanillasource.eliot.eliotc.eval.fact.Types.{functionDataTypeFQN, typeFQN}
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -63,7 +64,7 @@ object TypeStackBuilder {
     ).pure[TypeGraphIO]
 
   private def inferValueReference(vfqn: Sourced[ValueFQN]): TypeGraphIO[TypedExpression] = {
-    if (vfqn.value === typeVfqn) {
+    if (vfqn.value === typeFQN) {
       val exprValue = ConcreteValue(Types.dataType(vfqn.value))
       TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
     } else {
@@ -162,9 +163,6 @@ object TypeStackBuilder {
         } yield (signatureType, typeResult +: restTypedLevels)
     }
 
-  private val typeVfqn     = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
-  private val functionVfqn = ValueFQN(ModuleName(Seq("eliot", "lang"), "Function"), "Function$DataType")
-
   /** Check if a type stack represents a kind annotation (for universal introductions). A kind annotation is:
     *   - Type (for simple type parameters)
     *   - Function(Type, Type) (for type constructors of arity 1)
@@ -177,7 +175,7 @@ object TypeStackBuilder {
   private def isKindExpression(expr: Expression): Boolean =
     expr match {
       case Expr.ValueReference(vfqn)                       =>
-        vfqn.value === typeVfqn
+        vfqn.value === typeFQN
       case Expr.FunctionApplication(targetStack, argStack) =>
         // Check if this is Function(<kind>, <kind>) - a function from kinds to kinds
         targetStack.value.signature match {
@@ -192,7 +190,7 @@ object TypeStackBuilder {
 
   private def isFunctionReference(expr: Expression): Boolean =
     expr match {
-      case Expr.ValueReference(vfqn) => vfqn.value === functionVfqn
+      case Expr.ValueReference(vfqn) => vfqn.value === functionDataTypeFQN
       case _                         => false
     }
 
