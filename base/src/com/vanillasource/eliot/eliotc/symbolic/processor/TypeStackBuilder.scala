@@ -69,7 +69,7 @@ object TypeStackBuilder {
 
   private def inferValueReference(vfqn: Sourced[ValueFQN]): TypeGraphIO[TypedExpression] =
     for {
-      maybeResolved <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)).attempt.map(_.toOption))
+      maybeResolved <- StateT.liftF(getFact(ResolvedValue.Key(vfqn.value)))
       result        <- maybeResolved match {
                          case Some(resolved) =>
                            // Use instantiation mode so type parameters become unification vars
@@ -119,7 +119,10 @@ object TypeStackBuilder {
       _                   <- bindParameter(paramName.value, paramTypeValue)
       bodyResult          <- inferBodyStack(bodyStack)
       funcType             = functionType(paramTypeValue, bodyResult.expressionType)
-    } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), bodyStack.as(bodyResult)))
+    } yield TypedExpression(
+      funcType,
+      TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), bodyStack.as(bodyResult))
+    )
 
   /** Build from a body stack by extracting and processing the signature expression. */
   private def inferBodyStack(stack: Sourced[TypeStack[Expression]]): TypeGraphIO[TypedExpression] =
@@ -239,18 +242,18 @@ object TypeStackBuilder {
       body: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
-      inInstMode <- isInstantiationMode
-      _          <- if (inInstMode) {
-                      // Generate fresh unification var and bind it so later references find it
-                      generateUnificationVar(paramName).flatMap(uniVar => bindParameter(paramName.value, uniVar))
-                    } else {
-                      addUniversalVar(paramName.value)
-                    }
+      inInstMode                        <- isInstantiationMode
+      _                                 <- if (inInstMode) {
+                                             // Generate fresh unification var and bind it so later references find it
+                                             generateUnificationVar(paramName).flatMap(uniVar => bindParameter(paramName.value, uniVar))
+                                           } else {
+                                             addUniversalVar(paramName.value)
+                                           }
       (paramTypeValue, typedParamStack) <- processStack(paramType)
       (bodyTypeValue, typedBodyStack)   <- processStack(body)
       // In instantiation mode, return body type directly (type params are already instantiated as unification vars).
       // In declaration mode, wrap in FunctionLiteral to preserve polymorphic type for monomorphization.
-      resultType = if (inInstMode) bodyTypeValue else FunctionLiteral(paramName.value, Value.Type, bodyTypeValue)
+      resultType                         = if (inInstMode) bodyTypeValue else FunctionLiteral(paramName.value, Value.Type, bodyTypeValue)
     } yield TypedExpression(
       resultType,
       TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), body.as(typedBodyStack.value.signature))
@@ -267,7 +270,10 @@ object TypeStackBuilder {
       _                                 <- bindParameter(paramName.value, paramTypeValue)
       (bodyTypeValue, typedBodyStack)   <- processStack(body)
       funcType                           = functionType(paramTypeValue, bodyTypeValue)
-    } yield TypedExpression(funcType, TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), body.as(typedBodyStack.value.signature)))
+    } yield TypedExpression(
+      funcType,
+      TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), body.as(typedBodyStack.value.signature))
+    )
 
   /** Value reference - could be a type like Int, String, or a universal var */
   private def buildValueReference(
@@ -289,7 +295,13 @@ object TypeStackBuilder {
       (targetTypeValue, typedTargetStack) <- processStack(target)
       (argTypeValue, typedArgStack)       <- processStack(arg)
       resultType                           = applyTypeApplication(targetTypeValue, argTypeValue)
-    } yield TypedExpression(resultType, TypedExpression.FunctionApplication(target.as(typedTargetStack.value.signature), arg.as(typedArgStack.value.signature)))
+    } yield TypedExpression(
+      resultType,
+      TypedExpression.FunctionApplication(
+        target.as(typedTargetStack.value.signature),
+        arg.as(typedArgStack.value.signature)
+      )
+    )
 
   /** Apply a type constructor to an argument. */
   private def applyTypeApplication(
