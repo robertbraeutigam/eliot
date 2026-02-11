@@ -62,22 +62,23 @@ object TypeStackBuilder {
       typedExpr
     ).pure[TypeGraphIO]
 
-  private def inferValueReference(vfqn: Sourced[ValueFQN]): TypeGraphIO[TypedExpression] =
-    for {
-      maybeResolved <- StateT.liftF(getFact(ResolvedValue.Key(vfqn.value)))
-      result        <- maybeResolved match {
-                         case Some(resolved) =>
-                           // Use instantiation mode so type parameters become unification vars
-                           withInstantiationMode {
-                             processStack(resolved.typeStack).map { case (signatureType, _) =>
-                               TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
-                             }
-                           }
-                         case None           =>
-                           val exprValue = ConcreteValue(Types.dataType(vfqn.value))
-                           TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
-                       }
-    } yield result
+  private def inferValueReference(vfqn: Sourced[ValueFQN]): TypeGraphIO[TypedExpression] = {
+    if (vfqn.value === typeVfqn) {
+      val exprValue = ConcreteValue(Types.dataType(vfqn.value))
+      TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
+    } else {
+
+      for {
+        resolved <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)))
+        // Use instantiation mode so type parameters become unification vars
+        result   <- withInstantiationMode {
+                      processStack(resolved.typeStack).map { case (signatureType, _) =>
+                        TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
+                      }
+                    }
+      } yield result
+    }
+  }
 
   private def inferFunctionApplication(
       body: Sourced[Expression],
