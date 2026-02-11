@@ -1,13 +1,11 @@
 package com.vanillasource.eliot.eliotc.source.content
 
-import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
-import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerErrorWithContent
 import com.vanillasource.eliot.eliotc.source.file.FileContent
+import com.vanillasource.eliot.eliotc.source.resource.ResourceContent
 
 import java.io.File
 
@@ -23,10 +21,8 @@ class SourceContentReader extends SingleFactProcessor[SourceContent.Key] with Lo
         fileContent <- getFactOrAbort(FileContent.Key(new File(key.uri.toURL.getFile)))
       } yield SourceContent(key.uri, fileContent.content)
     } else {
-      // Scheme is not handled
-      compilerErrorWithContent(
-        Sourced(key.uri, PositionRange.zero, s"Unhandled source scheme '${key.uri.getScheme}'."),
-        ""
-      ) >> abort
+      for {
+        resourceContent <- getFactOrAbort(ResourceContent.Key(key.uri))
+      } yield SourceContent(key.uri, resourceContent.content)
     }
 }
