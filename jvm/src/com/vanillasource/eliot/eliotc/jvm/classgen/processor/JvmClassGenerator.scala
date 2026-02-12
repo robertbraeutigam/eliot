@@ -249,11 +249,12 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                             .whenA(closedOverArgs.isEmpty)
                             .liftToTypes
       lambdaIndex      <- incLambdaCount
+      lambdaFnParams    = closedOverArgs.get ++ parameters
       cls1             <-
         outerClassGenerator
           .createMethod[CompilationTypesIO](
             "lambdaFn$" + lambdaIndex,
-            closedOverArgs.get.map(_.parameterType).map(simpleType),
+            lambdaFnParams.map(_.parameterType).map(simpleType),
             simpleType(body.value.expressionType)
           )
           .use { fnGenerator =>
@@ -284,10 +285,18 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                               )
                                        } yield ()
                                      }
+                                // Load the lambda parameter from apply method argument (0=this, 1=arg)
+                                _ <- applyGenerator.addLoadVar[CompilationTypesIO](
+                                       simpleType(definition.parameterType),
+                                       1
+                                     )
+                                _ <- applyGenerator.addCastTo[CompilationTypesIO](
+                                       simpleType(definition.parameterType)
+                                     )
                                 // Call the static lambdaFn
                                 _ <- applyGenerator.addCallTo[CompilationTypesIO](
                                        ValueFQN(moduleName, "lambdaFn$" + lambdaIndex),
-                                       closedOverArgs.get.map(_.parameterType).map(simpleType),
+                                       lambdaFnParams.map(_.parameterType).map(simpleType),
                                        simpleType(body.value.expressionType)
                                      )
                               } yield ()
