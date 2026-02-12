@@ -135,6 +135,71 @@ class TypeEvaluatorTest extends ProcessorTest() {
       .asserting(_ shouldBe expected)
   }
 
+  it should "evaluate type parameter applied to a type" in {
+    val ioVfqn  = ValueFQN(testModuleName, "IO$DataType")
+    val unitVfqn = ValueFQN(testModuleName, "Unit")
+    val unitType = Types.dataType(unitVfqn)
+    val ioType   = Types.dataType(ioVfqn)
+    val ioEvaluable = NamedEvaluable(
+      ioVfqn,
+      NativeFunction(
+        Value.Type,
+        paramA =>
+          ConcreteValue(
+            Value.Structure(
+              Map("$typeName" -> Value.Direct(ioVfqn, Types.fullyQualifiedNameType), "A" -> paramA),
+              Value.Type
+            )
+          )
+      )
+    )
+    // Expression: M(Unit) — a type parameter applied to a concrete type
+    val expr = FunctionApplication(
+      ParameterReference("M", Value.Type),
+      ConcreteValue(unitType)
+    )
+    val expected = Value.Structure(
+      Map("$typeName" -> Value.Direct(ioVfqn, Types.fullyQualifiedNameType), "A" -> unitType),
+      Value.Type
+    )
+    runEvaluator(expr, Map("M" -> ioType), Seq(ioEvaluable))
+      .asserting(_ shouldBe expected)
+  }
+
+  it should "evaluate nested type parameters applied to types" in {
+    val ioVfqn   = ValueFQN(testModuleName, "IO$DataType")
+    val unitVfqn = ValueFQN(testModuleName, "Unit")
+    val unitType = Types.dataType(unitVfqn)
+    val ioType   = Types.dataType(ioVfqn)
+    val ioEvaluable = NamedEvaluable(
+      ioVfqn,
+      NativeFunction(
+        Value.Type,
+        paramA =>
+          ConcreteValue(
+            Value.Structure(
+              Map("$typeName" -> Value.Direct(ioVfqn, Types.fullyQualifiedNameType), "A" -> paramA),
+              Value.Type
+            )
+          )
+      )
+    )
+    // Expression: Function(A, M(Unit)) — matching the HelloWorld::f pattern
+    val expr = ExpressionValue.functionType(
+      ParameterReference("A", Value.Type),
+      FunctionApplication(
+        ParameterReference("M", Value.Type),
+        ConcreteValue(unitType)
+      )
+    )
+    val expectedIoUnit = Value.Structure(
+      Map("$typeName" -> Value.Direct(ioVfqn, Types.fullyQualifiedNameType), "A" -> unitType),
+      Value.Type
+    )
+    runEvaluator(expr, Map("M" -> ioType, "A" -> stringType), Seq(ioEvaluable, functionDataTypeEvaluable))
+      .asserting(_ shouldBe functionType(stringType, expectedIoUnit))
+  }
+
   it should "fail on type-level lambda" in {
     // Use a body that doesn't require substitution so the FunctionLiteral survives to reduction
     val expr = FunctionLiteral("A", Value.Type, ConcreteValue(intType))
