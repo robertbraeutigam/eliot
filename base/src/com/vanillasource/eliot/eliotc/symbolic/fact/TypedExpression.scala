@@ -55,18 +55,36 @@ object TypedExpression {
   ) extends Expression
 
   given Show[TypedExpression] with {
-    override def show(expr: TypedExpression): String = expr.expressionType.show + " :: " + expr.expression.show
+    override def show(expression: TypedExpression): String =
+      s"L0: ${showTyped(expression)}, L1: ${showLevel1(expression.expression)}"
   }
 
   given Show[Expression] with {
-    def show(expr: Expression): String = expr match {
-      case IntegerLiteral(integerLiteral)             => integerLiteral.value.toString()
-      case StringLiteral(stringLiteral)               => stringLiteral.value
-      case FunctionLiteral(name, parameterType, body) =>
-        s"((${parameterType.value.show} :: ${name.value}) -> ${body.value.show})"
-      case ParameterReference(parameterName)          => parameterName.value
-      case FunctionApplication(target, argument)      => s"${target.value.show}(${argument.value.show})"
-      case ValueReference(valueFQN)                   => valueFQN.value.show
-    }
+    def show(expression: Expression): String =
+      s"L0: ${showLevel0(expression)}, L1: ${showLevel1(expression).mkString(", ")}"
   }
+
+  private def showLevel1(expression: Expression): Seq[String] =
+    expression match {
+      case FunctionLiteral(name, parameterType, body) =>
+        Seq(s"${name.value}: ${parameterType.value.show}", showTyped(body.value)) ++ showLevel1(body.value.expression)
+      case FunctionApplication(target, argument)      =>
+        Seq(showTyped(target.value), showTyped(target.value)) ++
+          showLevel1(target.value.expression) ++ showLevel1(argument.value.expression)
+      case _                                          => Seq.empty
+    }
+
+  private def showTyped(typedExpression: TypedExpression): String =
+    s"${showLevel0(typedExpression.expression)}: ${typedExpression.expressionType.show}"
+
+  private def showLevel0(expression: Expression): String =
+    expression match {
+      case IntegerLiteral(integerLiteral)        => integerLiteral.value.toString()
+      case StringLiteral(stringLiteral)          => stringLiteral.value
+      case FunctionLiteral(name, _, body)        => s"${name.value} -> ${showLevel0(body.value.expression)}"
+      case ParameterReference(parameterName)     => parameterName.value
+      case FunctionApplication(target, argument) =>
+        s"${showLevel0(target.value.expression)}(${showLevel0(argument.value.expression)})"
+      case ValueReference(valueFQN)              => valueFQN.value.show
+    }
 }
