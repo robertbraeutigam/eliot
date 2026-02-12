@@ -32,18 +32,36 @@ object TypeEvaluator extends Logging {
       expr: ExpressionValue,
       typeArgs: Seq[Value],
       source: Sourced[?]
-  ): CompilerIO[Value] = {
-    val applied = typeArgs.foldLeft(expr)((e, arg) => FunctionApplication(e, ConcreteValue(arg)))
+  ): CompilerIO[Value] =
     for {
-      _        <- debug[CompilerIO](s"Applied: ${expr.show} to: ${applied.show} ")
-      resolved <- resolveDataTypeRefs(applied, source)
-      _        <- debug[CompilerIO](s"Resolved data type refs to: ${resolved.show} ")
-      reduced  <- Evaluator.reduce(resolved, source)
-      _        <- debug[CompilerIO](s"Reduced to: ${resolved.show} ")
-      value    <- extractValue(reduced, source)
-      _        <- debug[CompilerIO](s"Resulting value: ${value.show} ")
+      resolvedArgs <- typeArgs.traverse(resolveTypeArgConstructor(_, source))
+      applied       = resolvedArgs.foldLeft(expr)((e, arg) => FunctionApplication(e, arg))
+      _            <- debug[CompilerIO](s"Applied: ${expr.show} to: ${applied.show} ")
+      resolved     <- resolveDataTypeRefs(applied, source)
+      _            <- debug[CompilerIO](s"Resolved data type refs to: ${resolved.show} ")
+      reduced      <- Evaluator.reduce(resolved, source)
+      _            <- debug[CompilerIO](s"Reduced to: ${reduced.show} ")
+      value        <- extractValue(reduced, source)
+      _            <- debug[CompilerIO](s"Resulting value: ${value.show} ")
     } yield value
-  }
+
+  /** Resolve a type argument Value to its constructor form. Data type references that have a registered NamedEvaluable
+    * (like parameterized types IO, List, etc.) are resolved to their NativeFunction constructor, so that applying them
+    * as functions works naturally during reduction. Non-constructor types are wrapped as ConcreteValue.
+    */
+  private def resolveTypeArgConstructor(arg: Value, source: Sourced[?]): CompilerIO[ExpressionValue] =
+    arg match {
+      case Value.Structure(fields, Value.Type) if isDataTypeRef(fields) =>
+        fields("$typeName") match {
+          case Value.Direct(vfqn: ValueFQN, _) =>
+            getFact(NamedEvaluable.Key(vfqn)).map {
+              case Some(evaluable) => evaluable.value
+              case None            => ConcreteValue(arg)
+            }
+          case _                               => ConcreteValue(arg).pure[CompilerIO]
+        }
+      case _                                                           => ConcreteValue(arg).pure[CompilerIO]
+    }
 
   /** Resolve data type references that are targets of FunctionApplication. Only targets need resolution because they
     * represent type constructors that need to be applied. Standalone ConcreteValues are already final type values.

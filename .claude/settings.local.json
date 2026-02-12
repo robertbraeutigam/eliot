@@ -40,7 +40,8 @@
       "Bash(git -C /home/robert/personal/eliot log --all --oneline --grep=\"Type\\\\|type\\\\|missing\")",
       "Bash(git -C /home/robert/personal/eliot log --oneline -20)",
       "Bash(git -C /home/robert/personal/eliot show 4d3d145)",
-      "Bash(git -C /home/robert/personal/eliot show:*)"
+      "Bash(git -C /home/robert/personal/eliot show:*)",
+      "Bash(xargs:*)"
     ]
   }
 }
