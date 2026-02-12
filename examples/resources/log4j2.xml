@@ -17,6 +17,7 @@
            <!-- <Logger name="com.vanillasource.eliot.eliotc.jvm.classgen.processor.JvmClassGenerator" level="debug"/> -->
            <!-- <Logger name="com.vanillasource.eliot.eliotc.symbolic" level="debug"/> -->
             <Logger name="com.vanillasource.eliot.eliotc.monomorphize" level="debug"/>
+            <Logger name="com.vanillasource.eliot.eliotc.eval" level="debug"/>
            <!-- <Logger name="com.vanillasource.eliot.eliotc.resolve" level="debug"/> -->
            <!-- <Logger name="com.vanillasource.eliot.eliotc.uncurry" level="debug"/> -->
            <!-- <Logger name="com.vanillasource.eliot.eliotc.core" level="debug"/> -->

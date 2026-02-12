@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -14,7 +15,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   * arguments, allowing the normal Evaluator to handle beta reduction. Data type references are resolved to their
   * NativeFunctions from NamedEvaluable before reduction.
   */
-object TypeEvaluator {
+object TypeEvaluator extends Logging {
 
   /** Evaluate an ExpressionValue to a fully evaluated Value.
     *
@@ -34,9 +35,13 @@ object TypeEvaluator {
   ): CompilerIO[Value] = {
     val applied = typeArgs.foldLeft(expr)((e, arg) => FunctionApplication(e, ConcreteValue(arg)))
     for {
+      _        <- debug[CompilerIO](s"Applied: ${expr.show} to: ${applied.show} ")
       resolved <- resolveDataTypeRefs(applied, source)
+      _        <- debug[CompilerIO](s"Resolved data type refs to: ${resolved.show} ")
       reduced  <- Evaluator.reduce(resolved, source)
+      _        <- debug[CompilerIO](s"Reduced to: ${resolved.show} ")
       value    <- extractValue(reduced, source)
+      _        <- debug[CompilerIO](s"Resulting value: ${value.show} ")
     } yield value
   }
 
