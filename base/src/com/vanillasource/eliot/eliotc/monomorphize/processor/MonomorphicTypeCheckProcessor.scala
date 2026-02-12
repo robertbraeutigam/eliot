@@ -23,37 +23,40 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
 
   override protected def generateFact(key: MonomorphicValue.Key): CompilerIO[Unit] =
     for {
-      typeChecked      <- getFactOrAbort(TypeCheckedValue.Key(key.vfqn))
-      typeParams        = TypeEvaluator.extractTypeParams(typeChecked.signature)
-      _                <- if (typeParams.length != key.typeArguments.length)
-                            compilerAbort(
-                              typeChecked.name.as(
-                                s"Type argument count mismatch: expected ${typeParams.length}, got ${key.typeArguments.length}"
-                              )
-                            )
-                          else ().pure[CompilerIO]
-      substitution      = typeParams.zip(key.typeArguments).toMap
-      _                <-
+      typeChecked <- getFactOrAbort(TypeCheckedValue.Key(key.vfqn))
+      _           <-
         debug[CompilerIO](
-          s"Monomorphizing ${key.vfqn.show}, signature: ${typeChecked.signature.show}, with substitution: ${substitution.toSeq
+          s"Monomorphizing ${key.vfqn.show}, signature: ${typeChecked.signature.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
+        )
+      typeParams   = TypeEvaluator.extractTypeParams(typeChecked.signature)
+      _           <- if (typeParams.length != key.typeArguments.length)
+                       compilerAbort(
+                         typeChecked.name.as(
+                           s"Type argument count mismatch: expected ${typeParams.length}, got ${key.typeArguments.length}"
+                         )
+                       )
+                     else ().pure[CompilerIO]
+      substitution = typeParams.zip(key.typeArguments).toMap
+      _           <-
+        debug[CompilerIO](
+          s"Monomorphic eval ${key.vfqn.show} with substitution: ${substitution.toSeq
               .map((param, paramType) => s"$param <- ${paramType.show}")
               .mkString(", ")}"
         )
-      strippedSignature = stripLeadingLambdas(typeChecked.signature)
-      signature        <- TypeEvaluator.evaluate(typeChecked.signature, key.typeArguments, typeChecked.name)
-      _                <- debug[CompilerIO](s"Monomorphized ${key.vfqn.show} to: ${signature.show}")
-      runtime          <- typeChecked.runtime.traverse { body =>
-                            transformExpression(body.value, strippedSignature, substitution, body).map(body.as)
-                          }
-      _                <- registerFactIfClear(
-                            MonomorphicValue(
-                              key.vfqn,
-                              key.typeArguments,
-                              typeChecked.name,
-                              signature,
-                              runtime
-                            )
-                          )
+      signature   <- TypeEvaluator.evaluate(typeChecked.signature, key.typeArguments, typeChecked.name)
+      _           <- debug[CompilerIO](s"Monomorphized ${key.vfqn.show} to: ${signature.show}")
+      runtime     <- typeChecked.runtime.traverse { body =>
+                       transformExpression(body.value, typeChecked.signature, substitution, body).map(body.as)
+                     }
+      _           <- registerFactIfClear(
+                       MonomorphicValue(
+                         key.vfqn,
+                         key.typeArguments,
+                         typeChecked.name,
+                         signature,
+                         runtime
+                       )
+                     )
     } yield ()
 
   /** Transform a TypedExpression.Expression to MonomorphicExpression.Expression, evaluating all types with the given
