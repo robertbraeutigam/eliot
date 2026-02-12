@@ -1,3 +1,4 @@
+//main: IO[Unit] = println("Hello World!")
 main: IO[Unit] = f(println, "Hello")
 
 f[M[X], A](op: Function[A, M[Unit]], value: A): M[Unit] = op(value)

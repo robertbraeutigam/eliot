@@ -39,6 +39,9 @@ mill clean
 # Run the compiler and generate and executable JAR file from the HelloWorld example
 # The generate jar file will be under target/HelloWorld.jar
 mill examples.run jvm exe-jar examples/src/ -m HelloWorld
+
+# To run the generated file, use java
+java -jar target/HelloWorld.jar
 ```
 
 ### Module Structure
