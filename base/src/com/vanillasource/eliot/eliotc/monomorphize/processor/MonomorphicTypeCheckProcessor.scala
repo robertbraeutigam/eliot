@@ -33,9 +33,15 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                             )
                           else ().pure[CompilerIO]
       substitution      = typeParams.zip(key.typeArguments).toMap
-      _                <- debug[CompilerIO](s"Monomorphizing ${key.vfqn} with substitution: $substitution")
+      _                <-
+        debug[CompilerIO](
+          s"Monomorphizing ${key.vfqn.show}, signature: ${typeChecked.signature.show}, with substitution: ${substitution.toSeq
+              .map((param, paramType) => s"$param <- ${paramType.show}")
+              .mkString(", ")}"
+        )
       strippedSignature = stripLeadingLambdas(typeChecked.signature)
       signature        <- TypeEvaluator.evaluate(typeChecked.signature, key.typeArguments, typeChecked.name)
+      _                <- debug[CompilerIO](s"Monomorphized ${key.vfqn.show} to: ${signature.show}")
       runtime          <- typeChecked.runtime.traverse { body =>
                             transformExpression(body.value, strippedSignature, substitution, body).map(body.as)
                           }

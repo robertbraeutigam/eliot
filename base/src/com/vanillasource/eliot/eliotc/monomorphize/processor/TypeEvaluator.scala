@@ -94,7 +94,7 @@ object TypeEvaluator {
       case ParameterReference(name, _) =>
         compilerAbort(source.as(s"Type expression contains unsubstituted parameter: $name"))
       case FunctionApplication(_, _)   =>
-        compilerAbort(source.as("Type expression could not be fully reduced"))
+        compilerAbort(source.as("Type expression could not be fully reduced"), Seq(s"Value: ${reduced.show}"))
     }
 
   /** Evaluate an ExpressionValue with a substitution map. Used for evaluating type expressions within function bodies
