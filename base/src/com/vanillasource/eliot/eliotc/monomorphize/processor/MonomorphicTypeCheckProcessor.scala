@@ -98,10 +98,6 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                      } else {
                        Seq.empty[Value].pure[CompilerIO]
                      }
-      // Note: We intentionally don't call getFact for the MonomorphicValue of referenced
-      // functions here. The signature is already available from TypeCheckedValue, and
-      // monomorphization of referenced functions will happen lazily when needed
-      // (e.g., during code generation). This also avoids infinite loops with recursion.
     } yield MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)
 
   /** Infer concrete type arguments for a referenced value by matching the call-site type against the polymorphic
