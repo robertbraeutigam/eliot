@@ -28,8 +28,7 @@ trait BytecodeTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       baos.toString.stripLineEnd
     }
 
-  private class InMemoryClassLoader(classFiles: Seq[ClassFile], parent: ClassLoader)
-      extends ClassLoader(parent) {
+  private class InMemoryClassLoader(classFiles: Seq[ClassFile], parent: ClassLoader) extends ClassLoader(parent) {
     private val classes: Map[String, Array[Byte]] = classFiles.map { cf =>
       cf.fileName.stripSuffix(".class").replace('/', '.') -> cf.bytecode
     }.toMap
