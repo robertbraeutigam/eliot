@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.core.fact
 
-import cats.Show
+import cats.{Eq, Show}
 
 case class QualifiedName(name: String, qualifier: Qualifier)
 
@@ -9,4 +9,6 @@ object QualifiedName {
     override def show(name: QualifiedName): String =
       name.name + (if (name.qualifier == Qualifier.Default) ("") else ("^" + name.qualifier.toString))
   }
+
+  given Eq[QualifiedName] = Eq.fromUniversalEquals
 }

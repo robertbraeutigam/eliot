@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
+import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -21,7 +22,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 case class MonomorphicValue(
     vfqn: ValueFQN,
     typeArguments: Seq[Value],
-    name: Sourced[String],
+    name: Sourced[QualifiedName],
     signature: Value,
     runtime: Option[Sourced[MonomorphicExpression.Expression]]
 ) extends CompilerFact {

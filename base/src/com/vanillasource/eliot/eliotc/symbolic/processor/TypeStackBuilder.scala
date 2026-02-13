@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.data.{NonEmptySeq, StateT}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{functionDataTypeFQN, typeFQN}
@@ -39,9 +39,9 @@ object TypeStackBuilder {
   def inferBody(body: Sourced[Expression]): TypeGraphIO[TypedExpression] =
     body.value match {
       case Expr.IntegerLiteral(value)                            =>
-        inferLiteral(value, "Number", "Int$DataType", TypedExpression.IntegerLiteral(value))
+        inferLiteral(value, "Number", QualifiedName("Int", Qualifier.Type), TypedExpression.IntegerLiteral(value))
       case Expr.StringLiteral(value)                             =>
-        inferLiteral(value, "String", "String$DataType", TypedExpression.StringLiteral(value))
+        inferLiteral(value, "String", QualifiedName("String", Qualifier.Type), TypedExpression.StringLiteral(value))
       case Expr.ParameterReference(name)                         =>
         handleParameterReference(name)
       case Expr.ValueReference(vfqn)                             =>
@@ -55,7 +55,7 @@ object TypeStackBuilder {
   private def inferLiteral[T](
       value: Sourced[T],
       moduleName: String,
-      typeName: String,
+      typeName: QualifiedName,
       typedExpr: TypedExpression.Expression
   ): TypeGraphIO[TypedExpression] =
     TypedExpression(
@@ -273,9 +273,9 @@ object TypeStackBuilder {
   private def buildValueReference(
       vfqn: Sourced[ValueFQN]
   ): TypeGraphIO[TypedExpression] =
-    isUniversalVar(vfqn.value.name).map { isUniv =>
+    isUniversalVar(vfqn.value.name.name).map { isUniv =>
       val exprValue =
-        if (isUniv) ParameterReference(vfqn.value.name, Value.Type)
+        if (isUniv) ParameterReference(vfqn.value.name.name, Value.Type)
         else ConcreteValue(Types.dataType(vfqn.value))
       TypedExpression(exprValue, TypedExpression.ValueReference(vfqn))
     }

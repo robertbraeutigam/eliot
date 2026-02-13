@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.uncurry.fact
 
+import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -25,7 +26,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 case class UncurriedValue(
     vfqn: ValueFQN,
     arity: Int,
-    name: Sourced[String],
+    name: Sourced[QualifiedName],
     signature: ExpressionValue,
     parameters: Seq[ParameterDefinition],
     returnType: ExpressionValue,

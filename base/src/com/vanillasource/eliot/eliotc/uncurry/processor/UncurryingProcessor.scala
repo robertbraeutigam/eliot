@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.uncurry.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.expressionValueUserDisplay
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -72,7 +73,7 @@ class UncurryingProcessor
   /** Extract parameters from a function signature up to the specified arity.
     */
   private def extractParameters(
-      name: Sourced[String],
+      name: Sourced[QualifiedName],
       signature: ExpressionValue,
       arity: Int
   ): CompilerIO[(Seq[ExpressionValue], ExpressionValue)] =
