@@ -13,6 +13,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
 }
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
+import com.vanillasource.eliot.eliotc.core.fact.Qualifier.{Default, Type}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -52,8 +53,15 @@ class CoreProcessor
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
     val curriedValue = function.body.map(body => buildCurriedBody(function.args, body))
     val typeStack    = TypeStack.of(curriedType.value)
-    NamedValue(function.name, curriedValue.map(_.value), typeStack)
+    NamedValue(function.name.map(toQualifiedName), curriedValue.map(_.value), typeStack)
   }
+
+  private def toQualifiedName(name: String): QualifiedName =
+    if (name.endsWith("$DataType")) {
+      QualifiedName(name.stripSuffix("$DataType"), Type)
+    } else {
+      QualifiedName(name, Default)
+    }
 
   /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function$DataType(D,
     * Function$DataType(E, F)). Note: f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y
@@ -67,7 +75,7 @@ class CoreProcessor
     val withArgs = args.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (arg, acc) =>
       val argType     = toTypeExpression(arg.typeReference)
       val functionRef =
-        arg.name.as(NamedValueReference(arg.name.as("Function")))
+        arg.name.as(NamedValueReference(arg.name.as(QualifiedName("Function", Default))))
       val withArgType = arg.name.as(
         FunctionApplication(
           functionRef.map(TypeStack.of),
@@ -99,9 +107,9 @@ class CoreProcessor
     */
   private def toKindExpression(source: Sourced[String], genericParams: Seq[TypeReference]): Sourced[Expression] =
     if (genericParams.isEmpty) {
-      source.as(NamedValueReference(source.as("Type")))
+      source.as(NamedValueReference(source.as(QualifiedName("Type", Default))))
     } else {
-      val typeRef = source.as(NamedValueReference(source.as("Type")))
+      val typeRef = source.as(NamedValueReference(source.as(QualifiedName("Type", Default))))
       genericParams.foldRight[Sourced[Expression]](typeRef) { (param, acc) =>
         // Recursively compute the kind of this parameter based on its own nested generic params
         val paramKind = toKindExpression(param.typeName, param.genericParameters)
@@ -115,7 +123,7 @@ class CoreProcessor
       argKind: Sourced[Expression],
       resultKind: Sourced[Expression]
   ): Sourced[Expression] = {
-    val functionRef = source.as(NamedValueReference(source.as("Function")))
+    val functionRef = source.as(NamedValueReference(source.as(QualifiedName("Function", Default))))
     val withArgType = source.as(
       FunctionApplication(
         functionRef.map(TypeStack.of),
@@ -135,7 +143,7 @@ class CoreProcessor
     */
   private def toTypeExpression(reference: TypeReference): Sourced[Expression] =
     reference.genericParameters.foldLeft[Sourced[Expression]](
-      reference.typeName.as(NamedValueReference(reference.typeName))
+      reference.typeName.as(NamedValueReference(reference.typeName.map(toQualifiedName)))
     ) { (acc, ref) =>
       ref.typeName.as(
         FunctionApplication(acc.map(TypeStack.of), toTypeExpression(ref).map(TypeStack.of))
@@ -161,9 +169,9 @@ class CoreProcessor
   private def toBodyExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
     expr.value match {
       case SourceExpression.FunctionApplication(name, args)                        =>
-        curryApplication(expr.as(NamedValueReference(name, None)), args)
+        curryApplication(expr.as(NamedValueReference(name.map(toQualifiedName), None)), args)
       case SourceExpression.QualifiedFunctionApplication(moduleName, fnName, args) =>
-        curryApplication(expr.as(NamedValueReference(fnName, Some(moduleName))), args)
+        curryApplication(expr.as(NamedValueReference(fnName.map(toQualifiedName), Some(moduleName))), args)
       case SourceExpression.FunctionLiteral(params, body)                          =>
         curryLambda(params, toBodyExpression(body), expr)
       case SourceExpression.IntegerLiteral(lit)                                    =>

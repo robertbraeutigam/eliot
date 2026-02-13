@@ -17,7 +17,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   The type levels for this value. The signature is at index 0.
   */
 case class NamedValue(
-    name: Sourced[String],
+    qualifiedName: Sourced[QualifiedName],
     runtime: Option[Expression],
     typeStack: TypeStack[Expression]
 )
@@ -26,6 +26,7 @@ object NamedValue {
   val signatureEquality: Eq[NamedValue] = (x: NamedValue, y: NamedValue) =>
     structuralEquality.eqv(x.typeStack.signature, y.typeStack.signature)
 
-  given Show[NamedValue] = (namedValue: NamedValue) => s"${namedValue.name.value}: ${namedValue.typeStack.show}"
+  given Show[NamedValue] = (namedValue: NamedValue) =>
+    s"${namedValue.qualifiedName.value}: ${namedValue.typeStack.show}"
 
 }

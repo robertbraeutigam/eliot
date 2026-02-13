@@ -27,9 +27,13 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
     if (values.isEmpty) {
       abort[UnifiedModuleValue]
     } else if (hasMoreImplementations(values)) {
-      compilerError(values.head.namedValue.name.as("Has multiple implementations.")) *> abort[UnifiedModuleValue]
+      compilerError(values.head.namedValue.qualifiedName.as("Has multiple implementations.")) *> abort[
+        UnifiedModuleValue
+      ]
     } else if (!hasSameSignatures(values)) {
-      compilerError(values.head.namedValue.name.as("Has multiple different definitions.")) *> abort[UnifiedModuleValue]
+      compilerError(values.head.namedValue.qualifiedName.as("Has multiple different definitions.")) *> abort[
+        UnifiedModuleValue
+      ]
     } else {
       val implementedValue = values.find(_.namedValue.runtime.isDefined).getOrElse(values.head)
 

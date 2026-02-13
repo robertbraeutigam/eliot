@@ -1,12 +1,8 @@
 package com.vanillasource.eliot.eliotc.eval.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{
-  ConcreteValue,
-  FunctionLiteral,
-  InitialExpressionValue,
-  NativeFunction
-}
+import com.vanillasource.eliot.eliotc.core.fact.Qualifier
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, FunctionLiteral, InitialExpressionValue, NativeFunction}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
@@ -27,7 +23,7 @@ class DataTypeEvaluator
     extends TransformationProcessor[ResolvedValue.Key, NamedEvaluable.Key](key => ResolvedValue.Key(key.vfqn)) {
 
   override protected def generateFact(key: NamedEvaluable.Key): CompilerIO[Unit] =
-    if (key.vfqn.name.endsWith("$DataType") && key.vfqn =!= functionDataTypeFQN)
+    if (key.vfqn.name.qualifier === Qualifier.Type && key.vfqn =!= functionDataTypeFQN)
       super.generateFact(key)
     else
       abort

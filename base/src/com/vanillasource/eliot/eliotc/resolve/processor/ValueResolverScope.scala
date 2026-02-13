@@ -2,11 +2,12 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
 case class ValueResolverScope(
-    dictionary: Map[String, ValueFQN],
+    dictionary: Map[QualifiedName, ValueFQN],
     parameters: Set[String]
 )
 
@@ -23,7 +24,7 @@ object ValueResolverScope {
   def isParameter(name: String): ScopedIO[Boolean] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.parameters.contains(name))
 
-  def getValue(name: String): ScopedIO[Option[ValueFQN]] =
+  def getValue(name: QualifiedName): ScopedIO[Option[ValueFQN]] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.dictionary.get(name))
 
   def withLocalScope[T](computation: ScopedIO[T]): ScopedIO[T] =

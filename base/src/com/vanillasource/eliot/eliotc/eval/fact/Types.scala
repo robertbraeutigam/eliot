@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.eval.fact
 
+import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
+import com.vanillasource.eliot.eliotc.core.fact.Qualifier
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
@@ -8,11 +10,14 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 
 object Types {
   val fqnFQN: ValueFQN  =
-    ValueFQN(ModuleName(Seq("eliot", "lang"), "FullyQualifiedName"), "FullyQualifiedName")
+    ValueFQN(
+      ModuleName(Seq("eliot", "lang"), "FullyQualifiedName"),
+      QualifiedName("FullyQualifiedName", Qualifier.Default)
+    )
   val typeFQN: ValueFQN =
-    ValueFQN(ModuleName(Seq("eliot", "lang"), "Type"), "Type")
+    ValueFQN(ModuleName(Seq("eliot", "lang"), "Type"), QualifiedName("Type", Qualifier.Default))
 
-  val functionDataTypeFQN = ValueFQN(ModuleName.systemFunctionModuleName, "Function$DataType")
+  val functionDataTypeFQN = ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
 
   /** The Function data type as an ExpressionValue reference for use in type expressions.
     */
@@ -44,6 +49,10 @@ object Types {
       Type
     )
 
-  val bigIntType: Value = dataType(ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), "BigInteger"))
-  val stringType: Value = dataType(ValueFQN(ModuleName(defaultSystemPackage, "String"), "String"))
+  val bigIntType: Value = dataType(
+    ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Default))
+  )
+  val stringType: Value = dataType(
+    ValueFQN(ModuleName(defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Default))
+  )
 }

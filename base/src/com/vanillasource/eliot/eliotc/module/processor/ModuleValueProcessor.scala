@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.CoreAST
+import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, QualifiedName}
 import com.vanillasource.eliot.eliotc.module.fact.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemModules
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -20,7 +20,7 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
         extractImportedModules(key.vfqn.moduleName, coreAST.ast.as(coreAST.ast.value.importStatements), systemModules)
       importedNames  <- extractImportedNames(importedModules, moduleNames.names)
       dictionary      = importedNames ++ moduleNames.names.map(name => (name, ValueFQN(key.vfqn.moduleName, name))).toMap
-      namedValuesMap  = coreAST.ast.value.namedValues.map(nv => nv.name.value -> nv).toMap
+      namedValuesMap  = coreAST.ast.value.namedValues.map(nv => nv.qualifiedName.value -> nv).toMap
       _              <- moduleNames.names.toSeq
                           .flatMap(name => namedValuesMap.get(name).map(nv => (name, nv)))
                           .map { (name, namedValue) =>
@@ -42,15 +42,15 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
 
   private def extractImportedNames(
       importedModules: Seq[Sourced[ModuleName]],
-      localNames: Set[String]
-  ): CompilerIO[Map[String, ValueFQN]] =
-    importedModules.foldLeftM(Map.empty[String, ValueFQN])((acc, m) => importModuleNames(localNames, acc, m))
+      localNames: Set[QualifiedName]
+  ): CompilerIO[Map[QualifiedName, ValueFQN]] =
+    importedModules.foldLeftM(Map.empty[QualifiedName, ValueFQN])((acc, m) => importModuleNames(localNames, acc, m))
 
   private def importModuleNames(
-      localNames: Set[String],
-      importedNames: Map[String, ValueFQN],
+      localNames: Set[QualifiedName],
+      importedNames: Map[QualifiedName, ValueFQN],
       module: Sourced[ModuleName]
-  ): CompilerIO[Map[String, ValueFQN]] =
+  ): CompilerIO[Map[QualifiedName, ValueFQN]] =
     for {
       maybeModuleNames <- getFact(UnifiedModuleNames.Key(module.value))
       result           <- maybeModuleNames match {

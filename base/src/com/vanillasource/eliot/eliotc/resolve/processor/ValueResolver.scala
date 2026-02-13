@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{TypeStack, Expression as CoreExpression}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack, Expression as CoreExpression}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
@@ -26,15 +26,16 @@ class ValueResolver
     val scope         = ValueResolverScope(unifiedValue.dictionary, genericParams.toSet)
 
     val resolveProgram = for {
-      resolvedRuntime <- namedValue.runtime.traverse(expr => resolveExpression(expr, true).map(namedValue.name.as))
-      resolvedStack   <- resolveTypeStack(namedValue.name.as(namedValue.typeStack), false)
+      resolvedRuntime <-
+        namedValue.runtime.traverse(expr => resolveExpression(expr, true).map(namedValue.qualifiedName.as))
+      resolvedStack   <- resolveTypeStack(namedValue.qualifiedName.as(namedValue.typeStack), false)
       _               <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedStack.value.show}")
       _               <- debug[ScopedIO](
                            s"Resolved ${key.vfqn.show} runtime: ${resolvedRuntime.map(_.value.show).getOrElse("<abstract>")}"
                          )
     } yield ResolvedValue(
       unifiedValue.vfqn,
-      namedValue.name,
+      namedValue.qualifiedName,
       resolvedRuntime,
       resolvedStack
     )
@@ -61,7 +62,7 @@ class ValueResolver
   private def isKindExpression(expr: CoreExpression): Boolean =
     expr match {
       case NamedValueReference(name, None)            =>
-        name.value == "Type"
+        name.value.name === "Type"
       case FunctionApplication(targetStack, argStack) =>
         targetStack.value.signature match {
           case FunctionApplication(fnStack, argKindStack) =>
@@ -75,7 +76,7 @@ class ValueResolver
 
   private def isFunctionReference(expr: CoreExpression): Boolean =
     expr match {
-      case NamedValueReference(name, None) => name.value == "Function"
+      case NamedValueReference(name, None) => name.value === QualifiedName("Function", Qualifier.Default)
       case _                               => false
     }
 
@@ -103,22 +104,14 @@ class ValueResolver
   private def resolveExpression(expression: CoreExpression, runtime: Boolean): ScopedIO[Expression] =
     expression match {
       case NamedValueReference(nameSrc, None)          =>
-        isParameter(nameSrc.value).flatMap { isParam =>
+        isParameter(nameSrc.value.name).flatMap { isParam =>
           if (isParam) {
-            Expression.ParameterReference(nameSrc).pure[ScopedIO]
-          } else if (nameSrc.value == "Type") {
+            Expression.ParameterReference(nameSrc.map(_.name)).pure[ScopedIO]
+          } else if (nameSrc.value.name === "Type") { // Note Type is the same on all plains
             // Type is a special builtin for type-level parameters
             Expression.ValueReference(nameSrc.as(typeFQN)).pure[ScopedIO]
           } else {
-            // TODO: Hardcoded: anything that's not a parameter reference (above), AND starts with an upper-case letter,
-            //  is a reference to a type. Therefore we need to add "$DataType" to the call. This is a hack, fix this later!
-            // Note: we can't do this earlier, because we have to know, whether it's a generic parameter or not
-            // Note 2: we also need to know whether we're on the runtime plane or not
-            val valueName =
-              if (nameSrc.value.charAt(0).isUpper && !runtime && !nameSrc.value.endsWith("$DataType"))
-                nameSrc.value + "$DataType"
-              else nameSrc.value
-            getValue(valueName).flatMap {
+            getValue(nameSrc.value).flatMap {
               case Some(vfqn) =>
                 Expression.ValueReference(nameSrc.as(vfqn)).pure[ScopedIO]
               case None       =>

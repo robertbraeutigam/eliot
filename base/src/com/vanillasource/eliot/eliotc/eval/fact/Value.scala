@@ -31,7 +31,7 @@ object Value {
     case Structure(fields, valueType) if valueType === Type =>
       fields
         .get("$typeName")
-        .map(_.asInstanceOf[Direct].value.asInstanceOf[ValueFQN].name.stripSuffix("$DataType"))
+        .map(_.asInstanceOf[Direct].value.asInstanceOf[ValueFQN].name.name)
         .getOrElse("<unknown type>")
     case Structure(fields, valueType)                       => "Structure(...)"
   }

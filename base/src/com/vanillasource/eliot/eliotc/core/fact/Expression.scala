@@ -9,7 +9,7 @@ trait Expression
 object Expression {
 
   // Reference to a named value
-  case class NamedValueReference(valueName: Sourced[String], qualifier: Option[Sourced[String]] = None)
+  case class NamedValueReference(valueName: Sourced[QualifiedName], moduleName: Option[Sourced[String]] = None)
       extends Expression
   // Apply an argument to an expression (assumed to be a function)
   case class FunctionApplication(
