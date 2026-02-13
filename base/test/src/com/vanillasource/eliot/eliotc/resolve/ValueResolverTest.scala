@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
@@ -49,7 +50,7 @@ class ValueResolverTest
   it should "resolve value references" in {
     runEngineForValue("data T\nb: T\na: T = b").flatMap {
       case Some(ValueReference(Sourced(_, _, vfqn))) =>
-        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, "b"))
+        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
       case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
     }
   }
@@ -70,9 +71,9 @@ class ValueResolverTest
     runEngineForSignature("data T\na(x: T): T").flatMap {
       case Some(FunApp(FunApp(ValRef(fnVfqn), ValRef(argVfqn)), ValRef(retVfqn))) =>
         IO.delay {
-          fnVfqn shouldBe ValueFQN(functionModuleName, "Function$DataType")
-          argVfqn shouldBe ValueFQN(testModuleName2, "T$DataType")
-          retVfqn shouldBe ValueFQN(testModuleName2, "T$DataType")
+          fnVfqn shouldBe ValueFQN(functionModuleName, QualifiedName("Function", Qualifier.Type))
+          argVfqn shouldBe ValueFQN(testModuleName2, QualifiedName("T", Qualifier.Type))
+          retVfqn shouldBe ValueFQN(testModuleName2, QualifiedName("T", Qualifier.Type))
         }
       case x                                                                      =>
         IO.delay(fail(s"was not a function application, instead: $x"))
@@ -94,7 +95,7 @@ class ValueResolverTest
   it should "resolve qualified value reference" in {
     runEngineForValue("data T\nb: T\na: T = Test::b").flatMap {
       case Some(ValueReference(Sourced(_, _, vfqn))) =>
-        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, "b"))
+        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
       case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
     }
   }
@@ -139,7 +140,7 @@ class ValueResolverTest
   it should "resolve type expressions" in {
     runEngineForTypeExpression("data SomeType(s: SomeType)\na: SomeType").flatMap {
       case ValueReference(Sourced(_, _, vfqn)) =>
-        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, "SomeType$DataType"))
+        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("SomeType", Qualifier.Type)))
       case x                                   => IO.delay(fail(s"type was not resolved to value reference, instead: $x"))
     }
   }
@@ -160,27 +161,27 @@ class ValueResolverTest
   }
 
   private def runEngineForValue(source: String): IO[Option[Expression]] =
-    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map { case (errors, facts) =>
+    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, QualifiedName("a", Qualifier.Default))), systemImports).map { case (errors, facts) =>
       facts.values
-        .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
+        .collectFirst { case rv: ResolvedValue if rv.vfqn.name == QualifiedName("a", Qualifier.Default) => rv }
         .flatMap(_.runtime.map(_.value))
     }
 
   private def runEngineForSignature(source: String): IO[Option[Expression]] =
-    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map { case (errors, facts) =>
+    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, QualifiedName("a", Qualifier.Default))), systemImports).map { case (errors, facts) =>
       facts.values
-        .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
+        .collectFirst { case rv: ResolvedValue if rv.vfqn.name == QualifiedName("a", Qualifier.Default) => rv }
         .map(_.typeStack.value.signature)
     }
 
   private def runEngineForTypeExpression(source: String): IO[Expression] =
-    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map { case (_, facts) =>
+    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, QualifiedName("a", Qualifier.Default))), systemImports).map { case (_, facts) =>
       facts.values
-        .collectFirst { case rv: ResolvedValue if rv.vfqn.name == "a" => rv }
+        .collectFirst { case rv: ResolvedValue if rv.vfqn.name == QualifiedName("a", Qualifier.Default) => rv }
         .map(_.typeStack.value.signature)
         .get
     }
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =
-    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, "a")), systemImports).map(_._1.map(_.message))
+    runGenerator(source, ResolvedValue.Key(ValueFQN(testModuleName2, QualifiedName("a", Qualifier.Default))), systemImports).map(_._1.map(_.message))
 }

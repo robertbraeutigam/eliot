@@ -7,15 +7,16 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 
 class EvaluatorTest extends ProcessorTest() {
   // Type facts for use in function parameter types
-  private val bigIntTypeVfqn = ValueFQN(testModuleName, "BigIntType")
+  private val bigIntTypeVfqn = ValueFQN(testModuleName, QualifiedName("BigIntType", Qualifier.Default))
   private val bigIntTypeFact = NamedEvaluable(bigIntTypeVfqn, ConcreteValue(bigIntType))
-  private val stringTypeVfqn = ValueFQN(testModuleName, "StringType")
+  private val stringTypeVfqn = ValueFQN(testModuleName, QualifiedName("StringType", Qualifier.Default))
   private val stringTypeFact = NamedEvaluable(stringTypeVfqn, ConcreteValue(stringType))
 
   "evaluator" should "evaluate integer literal to ConcreteValue" in {
@@ -93,13 +94,13 @@ class EvaluatorTest extends ProcessorTest() {
   }
 
   it should "resolve value reference from registered fact" in {
-    val vfqn = ValueFQN(testModuleName, "testValue")
+    val vfqn = ValueFQN(testModuleName, QualifiedName("testValue", Qualifier.Default))
     val fact = NamedEvaluable(vfqn, ConcreteValue(Value.Direct(100, bigIntType)))
     runEvaluatorWithFacts(valueRef(vfqn), Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(100, bigIntType)))
   }
 
   it should "resolve function value reference and apply" in {
-    val vfqn = ValueFQN(testModuleName, "identity")
+    val vfqn = ValueFQN(testModuleName, QualifiedName("identity", Qualifier.Default))
     val identityFn = FunctionLiteral("x", bigIntType, ParameterReference("x", bigIntType))
     val fact = NamedEvaluable(vfqn, identityFn)
     val expr = funApp(valueRef(vfqn), intLit(42))
@@ -107,20 +108,20 @@ class EvaluatorTest extends ProcessorTest() {
   }
 
   it should "detect direct recursion" in {
-    val vfqn = ValueFQN(testModuleName, "recursive")
+    val vfqn = ValueFQN(testModuleName, QualifiedName("recursive", Qualifier.Default))
     val expr = valueRef(vfqn)
     runEvaluatorWithTracking(expr, Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }
 
   it should "detect recursion through function application target" in {
-    val vfqn = ValueFQN(testModuleName, "recursive")
+    val vfqn = ValueFQN(testModuleName, QualifiedName("recursive", Qualifier.Default))
     val expr = funApp(valueRef(vfqn), intLit(1))
     runEvaluatorWithTracking(expr, Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }
 
   it should "detect recursion through function application argument" in {
-    val vfqn    = ValueFQN(testModuleName, "recursive")
-    val fnVfqn  = ValueFQN(testModuleName, "fn")
+    val vfqn    = ValueFQN(testModuleName, QualifiedName("recursive", Qualifier.Default))
+    val fnVfqn  = ValueFQN(testModuleName, QualifiedName("fn", Qualifier.Default))
     val fnFact  = NamedEvaluable(fnVfqn, FunctionLiteral("x", bigIntType, ParameterReference("x", bigIntType)))
     val expr    = funApp(valueRef(fnVfqn), valueRef(vfqn))
     runEvaluatorWithFactsAndTracking(expr, Seq(fnFact), Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
@@ -138,7 +139,7 @@ class EvaluatorTest extends ProcessorTest() {
   }
 
   it should "apply native function to concrete argument" in {
-    val vfqn = ValueFQN(testModuleName, "double")
+    val vfqn = ValueFQN(testModuleName, QualifiedName("double", Qualifier.Default))
     val nativeFn = NativeFunction(bigIntType, {
       case Value.Direct(n: BigInt, t) => ConcreteValue(Value.Direct(n * 2, t))
       case v                          => ConcreteValue(v)
@@ -149,7 +150,7 @@ class EvaluatorTest extends ProcessorTest() {
   }
 
   it should "leave native function application unreduced when argument is not concrete" in {
-    val vfqn = ValueFQN(testModuleName, "nativeFn")
+    val vfqn = ValueFQN(testModuleName, QualifiedName("nativeFn", Qualifier.Default))
     val nativeFn = NativeFunction(bigIntType, v => ConcreteValue(v))
     val fact = NamedEvaluable(vfqn, nativeFn)
     val outerFn = intFunLit("y", funApp(valueRef(vfqn), paramRef("y")))
@@ -191,8 +192,8 @@ class EvaluatorTest extends ProcessorTest() {
   }
 
   it should "allow different values with same name in tracking set" in {
-    val vfqn1 = ValueFQN(testModuleName, "a")
-    val vfqn2 = ValueFQN(ModuleName(Seq("other"), "Module"), "a")
+    val vfqn1 = ValueFQN(testModuleName, QualifiedName("a", Qualifier.Default))
+    val vfqn2 = ValueFQN(ModuleName(Seq("other"), "Module"), QualifiedName("a", Qualifier.Default))
     val fact1 = NamedEvaluable(vfqn1, ConcreteValue(Value.Direct(1, bigIntType)))
     val fact2 = NamedEvaluable(vfqn2, ConcreteValue(Value.Direct(2, bigIntType)))
     val expr  = valueRef(vfqn2)
@@ -214,9 +215,9 @@ class EvaluatorTest extends ProcessorTest() {
   }
 
   it should "chain multiple value references" in {
-    val vfqnA = ValueFQN(testModuleName, "a")
-    val vfqnB = ValueFQN(testModuleName, "b")
-    val vfqnC = ValueFQN(testModuleName, "c")
+    val vfqnA = ValueFQN(testModuleName, QualifiedName("a", Qualifier.Default))
+    val vfqnB = ValueFQN(testModuleName, QualifiedName("b", Qualifier.Default))
+    val vfqnC = ValueFQN(testModuleName, QualifiedName("c", Qualifier.Default))
     val factC = NamedEvaluable(vfqnC, ConcreteValue(Value.Direct(42, bigIntType)))
     val factB = NamedEvaluable(vfqnB, factC.value)
     val factA = NamedEvaluable(vfqnA, factB.value)
@@ -237,7 +238,7 @@ class EvaluatorTest extends ProcessorTest() {
   }
 
   it should "detect recursion in nested function literal body" in {
-    val vfqn = ValueFQN(testModuleName, "rec")
+    val vfqn = ValueFQN(testModuleName, QualifiedName("rec", Qualifier.Default))
     val expr = intFunLit("x", valueRef(vfqn))
     runEvaluatorWithTracking(expr, Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }

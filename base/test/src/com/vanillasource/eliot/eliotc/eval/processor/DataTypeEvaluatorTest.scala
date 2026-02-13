@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.eval.processor
 import cats.data.NonEmptySeq
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
@@ -12,11 +12,11 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
 
 class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
-  private val typeVfqn      = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), "Type")
+  private val typeVfqn      = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), QualifiedName("Type", Qualifier.Default))
   private val typeEvaluable = NamedEvaluable(typeVfqn, ConcreteValue(Type))
 
   "DataTypeEvaluator" should "evaluate Int$DataType (0 params) to correct Structure" in {
-    val vfqn          = ValueFQN(testModuleName, "Int$DataType")
+    val vfqn          = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type))
     val resolvedValue = createResolvedValue(vfqn, Seq.empty)
 
     runDataTypeEvaluator(vfqn, resolvedValue).asserting { result =>
@@ -30,8 +30,8 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   }
 
   it should "evaluate single-parameter data type Box$DataType(Int) correctly" in {
-    val boxVfqn = ValueFQN(testModuleName, "Box$DataType")
-    val intVfqn = ValueFQN(testModuleName, "Int$DataType")
+    val boxVfqn = ValueFQN(testModuleName, QualifiedName("Box", Qualifier.Type))
+    val intVfqn = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type))
 
     val boxResolved = createResolvedValue(boxVfqn, Seq("A"))
     val intResolved = createResolvedValue(intVfqn, Seq.empty)
@@ -57,9 +57,9 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   }
 
   it should "evaluate two-parameter data type Either$DataType(Int)(String) correctly" in {
-    val eitherVfqn = ValueFQN(testModuleName, "Either$DataType")
-    val intVfqn    = ValueFQN(testModuleName, "Int$DataType")
-    val stringVfqn = ValueFQN(testModuleName, "String$DataType")
+    val eitherVfqn = ValueFQN(testModuleName, QualifiedName("Either", Qualifier.Type))
+    val intVfqn    = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type))
+    val stringVfqn = ValueFQN(testModuleName, QualifiedName("String", Qualifier.Type))
 
     val eitherResolved = createResolvedValue(eitherVfqn, Seq("A", "B"))
     val intResolved    = createResolvedValue(intVfqn, Seq.empty)
@@ -95,8 +95,8 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   }
 
   it should "return NativeFunction for partial application Either$DataType(Int)" in {
-    val eitherVfqn = ValueFQN(testModuleName, "Either$DataType")
-    val intVfqn    = ValueFQN(testModuleName, "Int$DataType")
+    val eitherVfqn = ValueFQN(testModuleName, QualifiedName("Either", Qualifier.Type))
+    val intVfqn    = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type))
 
     val eitherResolved = createResolvedValue(eitherVfqn, Seq("A", "B"))
     val intResolved    = createResolvedValue(intVfqn, Seq.empty)
@@ -114,7 +114,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   }
 
   it should "not generate fact for non-DataType names" in {
-    val vfqn = ValueFQN(testModuleName, "someFunction")
+    val vfqn = ValueFQN(testModuleName, QualifiedName("someFunction", Qualifier.Default))
 
     runDataTypeEvaluatorExpectNone(vfqn).asserting(_ shouldBe None)
   }
@@ -122,7 +122,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   it should "reduce applied lambda in signature to zero-parameter type" in {
     // Signature is: (a: Type -> a)(Type) which should reduce to just Type
     // This tests that applications in the signature are properly reduced
-    val selfVfqn = ValueFQN(testModuleName, "Self$DataType")
+    val selfVfqn = ValueFQN(testModuleName, QualifiedName("Self", Qualifier.Type))
 
     // Build: (a: Type -> a)(Type)
     val innerLambda = Expression.FunctionLiteral(
@@ -153,7 +153,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   }
 
   it should "not generate fact for Function$DataType (handled by FunctionDataTypeEvaluator)" in {
-    val functionVfqn     = ValueFQN(ModuleName.systemFunctionModuleName, "Function$DataType")
+    val functionVfqn     = ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
     val functionResolved = createResolvedValue(functionVfqn, Seq("A", "B"))
 
     runDataTypeEvaluatorExpectNoneWithFacts(functionVfqn, Seq(functionResolved)).asserting(_ shouldBe None)

@@ -5,20 +5,21 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpression}
 
 class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeCheckProcessor()) {
-  private val intVfqn    = ValueFQN(testModuleName, "Int")
-  private val stringVfqn = ValueFQN(testModuleName, "String")
-  private val boolVfqn   = ValueFQN(testModuleName, "Bool")
+  private val intVfqn    = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Default))
+  private val stringVfqn = ValueFQN(testModuleName, QualifiedName("String", Qualifier.Default))
+  private val boolVfqn   = ValueFQN(testModuleName, QualifiedName("Bool", Qualifier.Default))
   private val intType    = Types.dataType(intVfqn)
   private val stringType = Types.dataType(stringVfqn)
   private val boolType   = Types.dataType(boolVfqn)
 
-  private val functionDataTypeVfqn = ValueFQN(ModuleName.systemFunctionModuleName, "Function$DataType")
+  private val functionDataTypeVfqn = ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
 
   private def functionType(paramType: Value, returnType: Value): Value =
     Value.Structure(
@@ -56,7 +57,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
   "MonomorphicTypeCheckProcessor" should "monomorphize non-generic value" in {
     // value: Int (no type params, no body)
-    val valueVfqn   = ValueFQN(testModuleName, "value")
+    val valueVfqn   = ValueFQN(testModuleName, QualifiedName("value", Qualifier.Default))
     val typeChecked = TypeCheckedValue(
       valueVfqn,
       sourced("value"),
@@ -75,7 +76,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
   it should "monomorphize identity function with Int" in {
     // id[A](a: A): A = a
-    val idVfqn = ValueFQN(testModuleName, "id")
+    val idVfqn = ValueFQN(testModuleName, QualifiedName("id", Qualifier.Default))
 
     // Signature: [A] A -> A
     val signature = FunctionLiteral(
@@ -116,7 +117,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
   }
 
   it should "monomorphize identity function with String" in {
-    val idVfqn = ValueFQN(testModuleName, "id")
+    val idVfqn = ValueFQN(testModuleName, QualifiedName("id", Qualifier.Default))
 
     val signature = FunctionLiteral(
       "A",
@@ -147,7 +148,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
   it should "monomorphize function with multiple type parameters" in {
     // const[A, B](a: A, b: B): A = a
-    val constVfqn = ValueFQN(testModuleName, "const")
+    val constVfqn = ValueFQN(testModuleName, QualifiedName("const", Qualifier.Default))
 
     // Signature: [A][B] A -> B -> A
     val signature = FunctionLiteral(
@@ -188,7 +189,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
   }
 
   it should "fail on type argument count mismatch" in {
-    val idVfqn = ValueFQN(testModuleName, "id")
+    val idVfqn = ValueFQN(testModuleName, QualifiedName("id", Qualifier.Default))
 
     val signature = FunctionLiteral(
       "A",
@@ -216,7 +217,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
   it should "monomorphize function literal in body" in {
     // f: Int -> Int = (x: Int) -> x
-    val fVfqn = ValueFQN(testModuleName, "f")
+    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
 
     val signature = ExpressionValue.functionType(
       ConcreteValue(Types.dataType(intVfqn)),
@@ -260,7 +261,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
   }
 
   it should "monomorphize integer literal in body" in {
-    val fVfqn = ValueFQN(testModuleName, "f")
+    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
 
     val signature = ConcreteValue(Types.dataType(intVfqn))
 
@@ -288,7 +289,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
   }
 
   it should "monomorphize string literal in body" in {
-    val fVfqn = ValueFQN(testModuleName, "f")
+    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
 
     val signature = ConcreteValue(Types.dataType(stringVfqn))
 
@@ -316,8 +317,8 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
   }
 
   it should "monomorphize value reference to non-generic value" in {
-    val fVfqn     = ValueFQN(testModuleName, "f")
-    val constVfqn = ValueFQN(testModuleName, "constVal")
+    val fVfqn     = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
+    val constVfqn = ValueFQN(testModuleName, QualifiedName("constVal", Qualifier.Default))
 
     // constVal: Int (no body)
     val constTypeChecked = TypeCheckedValue(
@@ -354,8 +355,8 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
   }
 
   it should "monomorphize function application" in {
-    val fVfqn  = ValueFQN(testModuleName, "f")
-    val idVfqn = ValueFQN(testModuleName, "id")
+    val fVfqn  = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
+    val idVfqn = ValueFQN(testModuleName, QualifiedName("id", Qualifier.Default))
 
     // id[A](a: A): A (no body for simplicity)
     val idSignature   = FunctionLiteral(
@@ -431,7 +432,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
   it should "handle direct recursion without infinite loop" in {
     // f: Int -> Int = f (calls itself)
-    val fVfqn       = ValueFQN(testModuleName, "f")
+    val fVfqn       = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
     val signature   = ExpressionValue.functionType(
       ConcreteValue(Types.dataType(intVfqn)),
       ConcreteValue(Types.dataType(intVfqn))
@@ -468,8 +469,8 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
   it should "handle mutual recursion without infinite loop" in {
     // f: Int -> Int = g
     // g: Int -> Int = f
-    val fVfqn        = ValueFQN(testModuleName, "f")
-    val gVfqn        = ValueFQN(testModuleName, "g")
+    val fVfqn        = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
+    val gVfqn        = ValueFQN(testModuleName, QualifiedName("g", Qualifier.Default))
     val signature    = ExpressionValue.functionType(
       ConcreteValue(Types.dataType(intVfqn)),
       ConcreteValue(Types.dataType(intVfqn))

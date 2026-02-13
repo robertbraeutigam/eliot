@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemLangType
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
@@ -21,7 +22,7 @@ object NativeImplementation {
   )
 
   private def systemLangValueFQN(moduleName: String, valueName: String): ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, moduleName), valueName)
+    ValueFQN(ModuleName(defaultSystemPackage, moduleName), QualifiedName(valueName, Qualifier.Default))
 
   private def eliot_lang_Unit_unit: NativeImplementation = new NativeImplementation {
     override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {

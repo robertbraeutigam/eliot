@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -12,7 +13,7 @@ trait NativeType {
 
 object NativeType {
   def systemLangType(typeName: String): ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, typeName), typeName)
+    ValueFQN(ModuleName(defaultSystemPackage, typeName), QualifiedName(typeName, Qualifier.Default))
 
   val systemFunctionValue: ValueFQN = systemLangType("Function")
   val systemAnyValue: ValueFQN      = systemLangType("Any")
@@ -44,7 +45,7 @@ object NativeType {
     moduleName.packages.appended(moduleName.name).mkString("/")
 
   def convertToNestedClassName(vfqn: ValueFQN): String =
-    convertToMainClassName(vfqn.moduleName) + "$" + vfqn.name
+    convertToMainClassName(vfqn.moduleName) + "$" + vfqn.name.name
 
   def convertToSignatureString(parameterTypes: Seq[ValueFQN], resultType: ValueFQN): String =
     s"(${parameterTypes.map(javaSignatureName).mkString})${javaSignatureName(resultType)}"

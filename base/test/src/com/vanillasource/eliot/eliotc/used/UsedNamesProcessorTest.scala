@@ -3,17 +3,18 @@ package com.vanillasource.eliot.eliotc.used
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.eval.fact.Types
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
-  private val intVfqn = ValueFQN(testModuleName, "Int")
+  private val intVfqn = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Default))
   private val intType = Types.dataType(intVfqn)
 
   "UsedNamesProcessor" should "include root name in used names for value with no body" in {
-    val valueVfqn = ValueFQN(testModuleName, "value")
+    val valueVfqn = ValueFQN(testModuleName, QualifiedName("value", Qualifier.Default))
     val mv        = MonomorphicValue(valueVfqn, Seq.empty, sourced("value"), intType, None)
 
     runProcessor(UsedNames.Key(valueVfqn), Seq(mv))
@@ -21,8 +22,8 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
   }
 
   it should "include root name in used names when it references another value" in {
-    val fVfqn = ValueFQN(testModuleName, "f")
-    val gVfqn = ValueFQN(testModuleName, "g")
+    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
+    val gVfqn = ValueFQN(testModuleName, QualifiedName("g", Qualifier.Default))
 
     val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced("g"), intType, None)
     val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced("f"), intType, runtime(valueRef(gVfqn)))
@@ -32,8 +33,8 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
   }
 
   it should "include referenced value in used names" in {
-    val fVfqn = ValueFQN(testModuleName, "f")
-    val gVfqn = ValueFQN(testModuleName, "g")
+    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
+    val gVfqn = ValueFQN(testModuleName, QualifiedName("g", Qualifier.Default))
 
     val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced("g"), intType, None)
     val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced("f"), intType, runtime(valueRef(gVfqn)))
@@ -43,8 +44,8 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
   }
 
   it should "track direct call application count" in {
-    val fVfqn = ValueFQN(testModuleName, "f")
-    val gVfqn = ValueFQN(testModuleName, "g")
+    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
+    val gVfqn = ValueFQN(testModuleName, QualifiedName("g", Qualifier.Default))
 
     val gMv   = MonomorphicValue(gVfqn, Seq.empty, sourced("g"), intType, None)
     val gRef  = MonomorphicExpression(intType, valueRef(gVfqn))
@@ -57,8 +58,8 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
   }
 
   it should "follow references through function literal bodies" in {
-    val fVfqn = ValueFQN(testModuleName, "f")
-    val gVfqn = ValueFQN(testModuleName, "g")
+    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
+    val gVfqn = ValueFQN(testModuleName, QualifiedName("g", Qualifier.Default))
 
     val gMv      = MonomorphicValue(gVfqn, Seq.empty, sourced("g"), intType, None)
     val innerRef = MonomorphicExpression(intType, valueRef(gVfqn))
@@ -72,7 +73,7 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
   it should "handle recursive value without infinite loop" in {
     import scala.concurrent.duration.*
 
-    val fVfqn = ValueFQN(testModuleName, "f")
+    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
     val fMv   = MonomorphicValue(fVfqn, Seq.empty, sourced("f"), intType, runtime(valueRef(fVfqn)))
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv)).timeout(1.seconds)
@@ -82,8 +83,8 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
   it should "handle mutual recursion without infinite loop" in {
     import scala.concurrent.duration.*
 
-    val fVfqn = ValueFQN(testModuleName, "f")
-    val gVfqn = ValueFQN(testModuleName, "g")
+    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
+    val gVfqn = ValueFQN(testModuleName, QualifiedName("g", Qualifier.Default))
 
     val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced("f"), intType, runtime(valueRef(gVfqn)))
     val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced("g"), intType, runtime(valueRef(fVfqn)))

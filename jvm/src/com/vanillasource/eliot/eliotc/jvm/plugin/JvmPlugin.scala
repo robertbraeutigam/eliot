@@ -5,6 +5,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.plugin.BasePlugin
 import com.vanillasource.eliot.eliotc.jvm.jargen.{GenerateExecutableJar, JvmProgramGenerator}
 import com.vanillasource.eliot.eliotc.compiler.Compiler
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.JvmClassGenerator
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
@@ -31,7 +32,7 @@ class JvmPlugin extends CompilerPlugin {
             opt[String]('m', "main-module")
               .required()
               .text("module that has a suitable main method")
-              .action((moduleName, config) => config.set(mainKey, ValueFQN(ModuleName.parse(moduleName), "main")))
+              .action((moduleName, config) => config.set(mainKey, ValueFQN(ModuleName.parse(moduleName), QualifiedName("main", Qualifier.Default))))
           )
       )
   )

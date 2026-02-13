@@ -5,6 +5,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemUnitValue
@@ -74,7 +75,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       case Some(body) =>
         classGenerator
           .createMethod[CompilerIO](
-            uncurriedValue.vfqn.name,
+            uncurriedValue.vfqn.name.name,
             uncurriedValue.parameters.map(p => simpleType(p.parameterType)),
             simpleType(uncurriedValue.returnType)
           )
@@ -275,13 +276,13 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                        for {
                                          _ <- applyGenerator
                                                 .addLoadVar[CompilationTypesIO](
-                                                  ValueFQN(moduleName, "lambda$" + lambdaIndex),
+                                                  ValueFQN(moduleName, QualifiedName("lambda$" + lambdaIndex, Qualifier.Default)),
                                                   0 // The data object is the parameter
                                                 )
                                          _ <- applyGenerator.addGetField[CompilationTypesIO](
                                                 argument.name.value,
                                                 simpleType(argument.parameterType),
-                                                ValueFQN(moduleName, "lambda$" + lambdaIndex)
+                                                ValueFQN(moduleName, QualifiedName("lambda$" + lambdaIndex, Qualifier.Default))
                                               )
                                        } yield ()
                                      }
@@ -295,14 +296,14 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                      )
                                 // Call the static lambdaFn
                                 _ <- applyGenerator.addCallTo[CompilationTypesIO](
-                                       ValueFQN(moduleName, "lambdaFn$" + lambdaIndex),
+                                       ValueFQN(moduleName, QualifiedName("lambdaFn$" + lambdaIndex, Qualifier.Default)),
                                        lambdaFnParams.map(_.parameterType).map(simpleType),
                                        simpleType(body.value.expressionType)
                                      )
                               } yield ()
                             }
       classFile        <- innerClassWriter.generate[CompilationTypesIO]()
-      _                <- methodGenerator.addNew[CompilationTypesIO](ValueFQN(moduleName, "lambda$" + lambdaIndex))
+      _                <- methodGenerator.addNew[CompilationTypesIO](ValueFQN(moduleName, QualifiedName("lambda$" + lambdaIndex, Qualifier.Default)))
       _                <- closedOverArgs.get.traverse_ { argument =>
                             for {
                               argIndex <- getParameterIndex(argument.name.value)
@@ -312,7 +313,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                             } yield ()
                           }
       _                <- methodGenerator.addCallToCtor[CompilationTypesIO]( // Call constructor
-                            ValueFQN(moduleName, "lambda$" + lambdaIndex),
+                            ValueFQN(moduleName, QualifiedName("lambda$" + lambdaIndex, Qualifier.Default)),
                             closedOverArgs.get.map(_.parameterType).map(simpleType)
                           )
       // FIXME: add apply: calling the static method
@@ -331,7 +332,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     *   Iff the method definition is a suitable main to run from the JVM
     */
   private def isMain(uncurriedValue: UncurriedValue): Boolean =
-    uncurriedValue.name.value === "main" && uncurriedValue.parameters.isEmpty
+    uncurriedValue.name.value.name === "main" && uncurriedValue.parameters.isEmpty
 
   private def createDataFromConstructor(
       outerClassGenerator: ClassGenerator,
@@ -344,12 +345,12 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                case Some(uncurriedValue) =>
                                  for {
                                    _  <- debug[CompilerIO](s"Creating data type from constructor '${valueFQN.show}'")
-                                   cs <- createDataClass(outerClassGenerator, valueFQN.name, uncurriedValue.parameters)
+                                   cs <- createDataClass(outerClassGenerator, valueFQN.name.name, uncurriedValue.parameters)
                                    // Define data function
                                    _  <-
                                      outerClassGenerator
                                        .createMethod[CompilerIO](
-                                         valueFQN.name, // TODO: is name legal?
+                                         valueFQN.name.name, // TODO: is name legal?
                                          uncurriedValue.parameters.map(_.parameterType).map(simpleType),
                                          valueFQN
                                        )
@@ -418,11 +419,11 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       for {
         uncurriedValue <- getFactOrAbort(UncurriedValue.Key(valueFQN, stats.highestArity.getOrElse(0)))
         names           = uncurriedValue.parameters.map(_.name.value)
-      } yield Seq(valueFQN) ++ names.map(name => ValueFQN(valueFQN.moduleName, name))
+      } yield Seq(valueFQN) ++ names.map(name => ValueFQN(valueFQN.moduleName, QualifiedName(name, Qualifier.Default)))
     } else {
       Seq.empty.pure[CompilerIO]
     }
 
   private def isConstructor(valueFQN: ValueFQN): Boolean =
-    valueFQN.name.charAt(0).isUpper && !valueFQN.name.endsWith("$DataType")
+    valueFQN.name.qualifier === Qualifier.Default && valueFQN.name.name.charAt(0).isUpper
 }

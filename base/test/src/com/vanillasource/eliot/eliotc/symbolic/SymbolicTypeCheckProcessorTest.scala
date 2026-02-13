@@ -4,6 +4,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
@@ -231,23 +232,23 @@ class SymbolicTypeCheckProcessorTest
   private val testModuleName2 = ModuleName2(Seq.empty, "Test")
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =
-    runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, "f")), systemImports)
+    runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))), systemImports)
       .map(_._1.map(_.message))
 
   private def runEngineForTypedValues(source: String): IO[Seq[ValueFQN]] =
-    runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, "f")), systemImports).map { case (_, facts) =>
+    runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))), systemImports).map { case (_, facts) =>
       facts.values.collect { case TypeCheckedValue(vfqn, _, _, _) =>
         vfqn
       }.toSeq
     }
 
   private def runEngineForTypedValue(source: String): IO[TypeCheckedValue] =
-    runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, "f")), systemImports)
+    runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))), systemImports)
       .flatMap { case (errors, facts) =>
         if (errors.nonEmpty) {
           IO.raiseError(new Exception(s"Compilation errors: ${errors.map(_.message).mkString(", ")}"))
         } else {
-          facts.values.collectFirst { case v: TypeCheckedValue if v.vfqn.name == "f" => v } match {
+          facts.values.collectFirst { case v: TypeCheckedValue if v.vfqn.name == QualifiedName("f", Qualifier.Default) => v } match {
             case Some(value) => IO.pure(value)
             case None        => IO.raiseError(new Exception("No type checked value 'f' found in results"))
           }

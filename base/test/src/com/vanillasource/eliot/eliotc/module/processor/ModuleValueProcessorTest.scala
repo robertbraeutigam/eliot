@@ -4,6 +4,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
@@ -20,19 +21,19 @@ class ModuleValueProcessorTest
 
   "module value processor" should "create module value for a simple constant" in {
     runEngineForValue("a: A", "a").asserting { mv =>
-      mv.vfqn shouldBe ValueFQN(testModuleName2, "a")
+      mv.vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("a", Qualifier.Default))
     }
   }
 
   it should "include local names in dictionary" in {
-    runEngineForValue("a: A\nb: B", "a").asserting(_.dictionary.keySet shouldBe Set("a", "b"))
+    runEngineForValue("a: A\nb: B", "a").asserting(_.dictionary.keySet shouldBe Set(QualifiedName("a", Qualifier.Default), QualifiedName("b", Qualifier.Default)))
   }
 
   it should "map local names to correct FQNs in dictionary" in {
     runEngineForValue("a: A\nb: B", "a").asserting { mv =>
       mv.dictionary shouldBe Map(
-        "a" -> ValueFQN(testModuleName2, "a"),
-        "b" -> ValueFQN(testModuleName2, "b")
+        QualifiedName("a", Qualifier.Default) -> ValueFQN(testModuleName2, QualifiedName("a", Qualifier.Default)),
+        QualifiedName("b", Qualifier.Default) -> ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default))
       )
     }
   }
@@ -48,7 +49,7 @@ class ModuleValueProcessorTest
   it should "include imported names in dictionary" in {
     val imp = SystemImport("Imported", "exported: A")
     runEngineForValue("import eliot.lang.Imported\na: A", "a", Seq(imp))
-      .asserting(_.dictionary("exported") shouldBe ValueFQN(ModuleName2(Seq("eliot", "lang"), "Imported"), "exported"))
+      .asserting(_.dictionary(QualifiedName("exported", Qualifier.Default)) shouldBe ValueFQN(ModuleName2(Seq("eliot", "lang"), "Imported"), QualifiedName("exported", Qualifier.Default)))
   }
 
   it should "detect imported names shadowing local names" in {
@@ -69,10 +70,10 @@ class ModuleValueProcessorTest
       name: String,
       imports: Seq[SystemImport] = Seq.empty
   ): IO[ModuleValue] =
-    runGenerator(source, ModuleValue.Key(file, ValueFQN(testModuleName2, name)), imports).map { case (_, facts) =>
-      facts.values.collectFirst { case mv: ModuleValue if mv.vfqn.name == name => mv }.get
+    runGenerator(source, ModuleValue.Key(file, ValueFQN(testModuleName2, QualifiedName(name, Qualifier.Default))), imports).map { case (_, facts) =>
+      facts.values.collectFirst { case mv: ModuleValue if mv.vfqn.name == QualifiedName(name, Qualifier.Default) => mv }.get
     }
 
   private def runEngineForErrors(source: String, imports: Seq[SystemImport] = Seq.empty): IO[Seq[String]] =
-    runGenerator(source, ModuleValue.Key(file, ValueFQN(testModuleName2, "a")), imports).map(_._1.map(_.message))
+    runGenerator(source, ModuleValue.Key(file, ValueFQN(testModuleName2, QualifiedName("a", Qualifier.Default))), imports).map(_._1.map(_.message))
 }

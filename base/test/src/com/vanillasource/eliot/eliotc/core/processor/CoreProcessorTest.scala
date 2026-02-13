@@ -4,21 +4,21 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, Expression, TypeStack, NamedValue}
+import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, Expression, QualifiedName, Qualifier, TypeStack, NamedValue}
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProcessor()) {
 
   "core processor" should "transform a simple constant reference" in {
-    namedValue("a: A = b", "a").asserting { nv =>
-      (nv.name.value, nv.typeStack.signatureStructure, nv.runtimeStructure) shouldBe
+    namedValue("a: A = b", QualifiedName("a", Qualifier.Default)).asserting { nv =>
+      (nv.qualifiedName.value.name, nv.typeStack.signatureStructure, nv.runtimeStructure) shouldBe
         ("a", Ref("A"), Some(Ref("b")))
     }
   }
 
   it should "transform an abstract constant without body" in {
-    namedValue("a: A", "a").asserting { nv =>
-      (nv.name.value, nv.typeStack.signatureStructure, nv.runtime) shouldBe ("a", Ref("A"), None)
+    namedValue("a: A", QualifiedName("a", Qualifier.Default)).asserting { nv =>
+      (nv.qualifiedName.value.name, nv.typeStack.signatureStructure, nv.runtime) shouldBe ("a", Ref("A"), None)
     }
   }
 
@@ -185,77 +185,77 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  "data definitions" should "generate type function with $DataType suffix" in {
+  "data definitions" should "generate type function with Type qualifier" in {
     namedValues("data Person").asserting { nvs =>
-      nvs.map(_.name.value) should contain("Person$DataType")
+      nvs.map(_.qualifiedName.value) should contain(QualifiedName("Person", Qualifier.Type))
     }
   }
 
   it should "generate type function returning Type" in {
-    namedValue("data Person", "Person$DataType").asserting { nv =>
+    namedValue("data Person", QualifiedName("Person", Qualifier.Type)).asserting { nv =>
       nv.typeStack.signatureStructure shouldBe Ref("Type")
     }
   }
 
   // Note: Signature uses FunctionLiteral to preserve parameter names (A: Type -> Type)
   it should "generate type function with generic param and argument in typeStack" in {
-    namedValue("data Box[A]", "Box$DataType").asserting { nv =>
+    namedValue("data Box[A]", QualifiedName("Box", Qualifier.Type)).asserting { nv =>
       nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type"), Ref("Type"))
     }
   }
 
   it should "generate constructor for data with fields" in {
     namedValues("data Person(name: String)").asserting { nvs =>
-      nvs.map(_.name.value) should contain("Person")
+      nvs.map(_.qualifiedName.value) should contain(QualifiedName("Person", Qualifier.Default))
     }
   }
 
   it should "generate constructor with curried arguments in typeStack" in {
-    namedValue("data Person(name: Name, age: Age)", "Person").asserting { nv =>
+    namedValue("data Person(name: Name, age: Age)", QualifiedName("Person", Qualifier.Default)).asserting { nv =>
       nv.typeStack.signatureStructure shouldBe
-        App(App(Ref("Function"), Ref("Name")), App(App(Ref("Function"), Ref("Age")), Ref("Person$DataType")))
+        App(App(Ref("Function"), Ref("Name")), App(App(Ref("Function"), Ref("Age")), Ref("Person", Qualifier.Type)))
     }
   }
 
   it should "not generate constructor for abstract data without fields" in {
     namedValues("data Abstract").asserting { nvs =>
-      nvs.map(_.name.value) should not contain "Abstract"
-      nvs.map(_.name.value) should contain("Abstract$DataType")
+      nvs.map(_.qualifiedName.value) should not contain QualifiedName("Abstract", Qualifier.Default)
+      nvs.map(_.qualifiedName.value) should contain(QualifiedName("Abstract", Qualifier.Type))
     }
   }
 
   it should "generate accessor functions for each field" in {
     namedValues("data Person(name: Name, age: Age)").asserting { nvs =>
-      nvs.map(_.name.value) should contain allOf ("name", "age")
+      nvs.map(_.qualifiedName.value) should contain allOf (QualifiedName("name", Qualifier.Default), QualifiedName("age", Qualifier.Default))
     }
   }
 
   it should "generate accessor with argument in typeStack" in {
-    namedValue("data Person(name: Name)", "name").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe App(App(Ref("Function"), Ref("Person$DataType")), Ref("Name"))
+    namedValue("data Person(name: Name)", QualifiedName("name", Qualifier.Default)).asserting { nv =>
+      nv.typeStack.signatureStructure shouldBe App(App(Ref("Function"), Ref("Person", Qualifier.Type)), Ref("Name"))
     }
   }
 
   it should "generate accessor with generic param and argument in typeStack" in {
-    namedValue("data Box[A](value: A)", "value").asserting { nv =>
-      // The accessor type is (A :: Type) -> Function(Box$DataType(A), A)
+    namedValue("data Box[A](value: A)", QualifiedName("value", Qualifier.Default)).asserting { nv =>
+      // The accessor type is (A :: Type) -> Function(Box^Type(A), A)
       nv.typeStack.signatureStructure shouldBe Lambda(
         "A",
         Ref("Type"),
-        App(App(Ref("Function"), App(Ref("Box$DataType"), Ref("A"))), Ref("A"))
+        App(App(Ref("Function"), App(Ref("Box", Qualifier.Type), Ref("A"))), Ref("A"))
       )
     }
   }
 
   "complex scenarios" should "handle mixed functions and data" in {
     runEngineForCoreAST("data A\nf: A").asserting { ast =>
-      ast.namedValues.map(_.name.value) should contain allOf ("A$DataType", "f")
+      ast.namedValues.map(_.qualifiedName.value) should contain allOf (QualifiedName("A", Qualifier.Type), QualifiedName("f", Qualifier.Default))
     }
   }
 
   it should "handle data with generic constructor" in {
-    namedValue("data Pair[A, B](fst: A, snd: B)", "Pair").asserting { nv =>
-      // The constructor type is (A :: Type) -> (B :: Type) -> Function(A, Function(B, Pair$DataType(A)(B)))
+    namedValue("data Pair[A, B](fst: A, snd: B)", QualifiedName("Pair", Qualifier.Default)).asserting { nv =>
+      // The constructor type is (A :: Type) -> (B :: Type) -> Function(A, Function(B, Pair^Type(A)(B)))
       nv.typeStack.signatureStructure shouldBe
         Lambda(
           "A",
@@ -265,7 +265,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
             Ref("Type"),
             App(
               App(Ref("Function"), Ref("A")),
-              App(App(Ref("Function"), Ref("B")), App(App(Ref("Pair$DataType"), Ref("A")), Ref("B")))
+              App(App(Ref("Function"), Ref("B")), App(App(Ref("Pair", Qualifier.Type), Ref("A")), Ref("B")))
             )
           )
         )
@@ -281,7 +281,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   // Structural representation of expressions (ignores source positions)
   sealed trait ExprStructure
-  case class Ref(name: String)                                                    extends ExprStructure
+  case class Ref(name: String, qualifier: Qualifier = Qualifier.Default)           extends ExprStructure
   case class QualRef(name: String, module: String)                                extends ExprStructure
   case class App(target: ExprStructure, arg: ExprStructure)                       extends ExprStructure
   case class Lambda(param: String, paramType: ExprStructure, body: ExprStructure) extends ExprStructure
@@ -301,8 +301,8 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   extension (expr: Expression) {
     def structure: ExprStructure = expr match {
-      case NamedValueReference(name, None)         => Ref(name.value)
-      case NamedValueReference(name, Some(qual))   => QualRef(name.value, qual.value)
+      case NamedValueReference(name, None)         => Ref(name.value.name, name.value.qualifier)
+      case NamedValueReference(name, Some(qual))   => QualRef(name.value.name, qual.value)
       case FunctionApplication(target, arg)        => App(target.value.firstStructure, arg.value.firstStructure)
       case FunctionLiteral(param, paramType, body) =>
         Lambda(param.value, paramType.firstStructure, body.value.firstStructure)
@@ -311,8 +311,8 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  private def namedValue(source: String, name: String = "f"): IO[NamedValue] =
-    runEngineForCoreAST(source).map(_.namedValues.find(_.name.value == name).get)
+  private def namedValue(source: String, name: QualifiedName = QualifiedName("f", Qualifier.Default)): IO[NamedValue] =
+    runEngineForCoreAST(source).map(_.namedValues.find(_.qualifiedName.value == name).get)
 
   private def namedValues(source: String): IO[Seq[NamedValue]] =
     runEngineForCoreAST(source).map(_.namedValues)

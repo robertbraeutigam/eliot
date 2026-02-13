@@ -6,17 +6,18 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 
 class TypeEvaluatorTest extends ProcessorTest() {
-  private val intVfqn    = ValueFQN(testModuleName, "Int")
-  private val stringVfqn = ValueFQN(testModuleName, "String")
-  private val boolVfqn   = ValueFQN(testModuleName, "Bool")
+  private val intVfqn    = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Default))
+  private val stringVfqn = ValueFQN(testModuleName, QualifiedName("String", Qualifier.Default))
+  private val boolVfqn   = ValueFQN(testModuleName, QualifiedName("Bool", Qualifier.Default))
   private val intType    = Types.dataType(intVfqn)
   private val stringType = Types.dataType(stringVfqn)
   private val boolType   = Types.dataType(boolVfqn)
 
-  private val functionDataTypeVfqn = ValueFQN(ModuleName.systemFunctionModuleName, "Function$DataType")
+  private val functionDataTypeVfqn = ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
 
   private def functionType(paramType: Value, returnType: Value): Value =
     Value.Structure(
@@ -108,7 +109,7 @@ class TypeEvaluatorTest extends ProcessorTest() {
   }
 
   it should "evaluate type application" in {
-    val listVfqn = ValueFQN(testModuleName, "List")
+    val listVfqn = ValueFQN(testModuleName, QualifiedName("List", Qualifier.Default))
     val listType = Types.dataType(listVfqn)
     val expr     = FunctionApplication(
       ConcreteValue(listType),
@@ -136,8 +137,8 @@ class TypeEvaluatorTest extends ProcessorTest() {
   }
 
   it should "evaluate type parameter applied to a type" in {
-    val ioVfqn  = ValueFQN(testModuleName, "IO$DataType")
-    val unitVfqn = ValueFQN(testModuleName, "Unit")
+    val ioVfqn  = ValueFQN(testModuleName, QualifiedName("IO", Qualifier.Type))
+    val unitVfqn = ValueFQN(testModuleName, QualifiedName("Unit", Qualifier.Default))
     val unitType = Types.dataType(unitVfqn)
     val ioType   = Types.dataType(ioVfqn)
     val ioEvaluable = NamedEvaluable(
@@ -167,8 +168,8 @@ class TypeEvaluatorTest extends ProcessorTest() {
   }
 
   it should "evaluate nested type parameters applied to types" in {
-    val ioVfqn   = ValueFQN(testModuleName, "IO$DataType")
-    val unitVfqn = ValueFQN(testModuleName, "Unit")
+    val ioVfqn   = ValueFQN(testModuleName, QualifiedName("IO", Qualifier.Type))
+    val unitVfqn = ValueFQN(testModuleName, QualifiedName("Unit", Qualifier.Default))
     val unitType = Types.dataType(unitVfqn)
     val ioType   = Types.dataType(ioVfqn)
     val ioEvaluable = NamedEvaluable(

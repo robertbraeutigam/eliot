@@ -4,6 +4,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, FunctionLiteral, ParameterReference}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.*
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemAnyValue, systemFunctionValue, systemUnitValue}
@@ -24,10 +25,10 @@ class CommonPatternsTest extends BytecodeTest {
   private def sourced[T](value: T): Sourced[T] = Sourced(testUri, zeroRange, value)
 
   private def stringExprType: ExpressionValue =
-    ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), "String")))
+    ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default))))
 
   private def anyExprType: ExpressionValue =
-    ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "Any"), "Any")))
+    ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "Any"), QualifiedName("Any", Qualifier.Default))))
 
   private def functionExprType: ExpressionValue =
     ExpressionValue.functionType(stringExprType, stringExprType)
@@ -114,7 +115,7 @@ class CommonPatternsTest extends BytecodeTest {
       cg        <- createClassGenerator[IO](testModule)
       innerCg   <- cg.createInnerClassGenerator[IO]("Data")
       _         <- innerCg.addDataFieldsAndCtor[IO](fields)
-      boxType    = ValueFQN(testModule, "Data")
+      boxType    = ValueFQN(testModule, QualifiedName("Data", Qualifier.Default))
       _         <- cg.createMethod[IO]("wrap", Seq(stringType), anyType).use { mg =>
                      for {
                        _ <- mg.addNew[IO](boxType)
@@ -166,24 +167,24 @@ class CommonPatternsTest extends BytecodeTest {
   }
 
   it should "return the parameter type for a ParameterReference" in {
-    val paramRef = ParameterReference("x", Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), "String")))
+    val paramRef = ParameterReference("x", Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default))))
     simpleType(paramRef) shouldBe NativeType.systemLangType("String")
   }
 
   it should "strip DataType suffix from concrete values" in {
-    val dataTypeFqn = ValueFQN(ModuleName(Seq("test"), "Foo"), "Foo$DataType")
+    val dataTypeFqn = ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Type))
     val expr        = ConcreteValue(Types.dataType(dataTypeFqn))
-    simpleType(expr) shouldBe ValueFQN(ModuleName(Seq("test"), "Foo"), "Foo")
+    simpleType(expr) shouldBe ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Default))
   }
 
   it should "strip leading function applications before resolving type" in {
-    val innerType = ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), "String")))
+    val innerType = ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default))))
     val applied   = ExpressionValue.FunctionApplication(innerType, stringExprType)
     simpleType(applied) shouldBe NativeType.systemLangType("String")
   }
 
   "valueToValueFQN" should "extract ValueFQN from a data type Value" in {
-    val fqn   = ValueFQN(ModuleName(Seq("test"), "Foo"), "Foo")
+    val fqn   = ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Default))
     val value = Types.dataType(fqn)
     valueToValueFQN(value) shouldBe fqn
   }

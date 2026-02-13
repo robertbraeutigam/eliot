@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm.jargen
 
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
@@ -25,7 +26,7 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
       _          <- generateModulesFrom(key.vfqn)
       // Add dynamic main and generate everything if user's code did not fail
       _          <- addDynamicSource(Path.of("main.els"), generateMainSource(key.vfqn))
-      allModules <- generateModulesFrom(ValueFQN(ModuleName(Seq(), "main"), "main"))
+      allModules <- generateModulesFrom(ValueFQN(ModuleName(Seq(), "main"), QualifiedName("main", Qualifier.Default)))
       _          <- generateJarFile(key.vfqn, allModules).to[CompilerIO]
     } yield GenerateExecutableJar(key.vfqn)
 
@@ -80,6 +81,6 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
 
   private def generateMainSource(mainVfqn: ValueFQN): String =
     s"""
-       |main: Unit = apply(block(${mainVfqn.moduleName.show}::${mainVfqn.name}), unit)
+       |main: Unit = apply(block(${mainVfqn.moduleName.show}::${mainVfqn.name.name}), unit)
        |""".stripMargin
 }

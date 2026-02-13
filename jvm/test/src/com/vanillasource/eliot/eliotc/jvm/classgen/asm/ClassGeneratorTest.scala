@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemAnyValue, systemFunctionValue, systemUnitValue}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
@@ -98,7 +99,7 @@ class ClassGeneratorTest extends BytecodeTest {
                      mg.addLdcInsn[IO]("from inner")
                    }
       _         <- cg.createMethod[IO]("outer", Seq.empty, stringType).use { mg =>
-                     val innerVfqn = ValueFQN(testModule, "inner")
+                     val innerVfqn = ValueFQN(testModule, QualifiedName("inner", Qualifier.Default))
                      mg.addCallTo[IO](innerVfqn, Seq.empty, stringType)
                    }
       classFile <- cg.generate[IO]()
@@ -117,7 +118,7 @@ class ClassGeneratorTest extends BytecodeTest {
                      mg.addLoadVar[IO](stringType, 0)
                    }
       _         <- cg.createMethod[IO]("callIdentity", Seq.empty, stringType).use { mg =>
-                     val identityVfqn = ValueFQN(testModule, "identity")
+                     val identityVfqn = ValueFQN(testModule, QualifiedName("identity", Qualifier.Default))
                      mg.addLdcInsn[IO]("passed") >>
                        mg.addCallTo[IO](identityVfqn, Seq(stringType), stringType)
                    }
@@ -242,7 +243,7 @@ class ClassGeneratorTest extends BytecodeTest {
 
   it should "generate a method that creates and returns an inner class instance" in {
     val innerModule = ModuleName(Seq("test", "pkg"), "TestClass$Box")
-    val boxType     = ValueFQN(testModule, "Box")
+    val boxType     = ValueFQN(testModule, QualifiedName("Box", Qualifier.Default))
 
     for {
       cg        <- createClassGenerator[IO](testModule)
@@ -278,7 +279,7 @@ class ClassGeneratorTest extends BytecodeTest {
   }
 
   it should "generate a method that reads a field from an object parameter" in {
-    val boxType = ValueFQN(testModule, "Box")
+    val boxType = ValueFQN(testModule, QualifiedName("Box", Qualifier.Default))
 
     for {
       cg        <- createClassGenerator[IO](testModule)
@@ -362,7 +363,7 @@ class ClassGeneratorTest extends BytecodeTest {
       otherFile <- otherCg.generate[IO]()
       cg        <- createClassGenerator[IO](testModule)
       _         <- cg.createMethod[IO]("fetch", Seq.empty, stringType).use { mg =>
-                     val otherVfqn = ValueFQN(otherModule, "provide")
+                     val otherVfqn = ValueFQN(otherModule, QualifiedName("provide", Qualifier.Default))
                      mg.addCallTo[IO](otherVfqn, Seq.empty, stringType)
                    }
       classFile <- cg.generate[IO]()
@@ -402,7 +403,7 @@ class ClassGeneratorTest extends BytecodeTest {
                       mg.addLdcInsn[IO]("lambda result")
                     }
       _          <- cg.createMethod[IO]("makeLambda", Seq.empty, systemFunctionValue).use { mg =>
-                      val lambdaType = ValueFQN(testModule, "lambda$0")
+                      val lambdaType = ValueFQN(testModule, QualifiedName("lambda$0", Qualifier.Default))
                       for {
                         _ <- mg.addNew[IO](lambdaType)
                         _ <- mg.addCallToCtor[IO](lambdaType, Seq.empty)
@@ -433,7 +434,7 @@ class ClassGeneratorTest extends BytecodeTest {
                         _ <- mg.addPutField[IO]("captured", stringType)
                       } yield ()
                     }
-      lambdaType  = ValueFQN(testModule, "lambda$0")
+      lambdaType  = ValueFQN(testModule, QualifiedName("lambda$0", Qualifier.Default))
       _          <- lambdaCg.createApplyMethod[IO](Seq(anyType), anyType).use { mg =>
                       mg.addLoadThis[IO]() >>
                         mg.addGetField[IO]("captured", stringType, lambdaType)

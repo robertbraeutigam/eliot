@@ -24,7 +24,7 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
         calledVfqn.moduleName.packages
           .appended(calledVfqn.moduleName.name)
           .mkString("/"),
-        calledVfqn.name,
+        calledVfqn.name.name,
         convertToSignatureString(parameterTypes, resultType),
         false
       )

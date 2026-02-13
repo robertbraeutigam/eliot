@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.Sync
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -38,7 +39,7 @@ object CommonPatterns {
     }
 
   private def stripDataTypeSuffix(valueFQN: ValueFQN): ValueFQN =
-    ValueFQN(valueFQN.moduleName, valueFQN.name.stripSuffix("$DataType"))
+    ValueFQN(valueFQN.moduleName, QualifiedName(valueFQN.name.name, Qualifier.Default))
 
   extension (classGenerator: ClassGenerator) {
     def addDataFieldsAndCtor[F[_]: Sync](fields: Seq[ParameterDefinition]): F[Unit] =
