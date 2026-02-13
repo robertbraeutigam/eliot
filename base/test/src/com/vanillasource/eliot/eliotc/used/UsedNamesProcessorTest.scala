@@ -14,57 +14,57 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
   private val intType = Types.dataType(intVfqn)
 
   "UsedNamesProcessor" should "include root name in used names for value with no body" in {
-    val valueVfqn = ValueFQN(testModuleName, QualifiedName("value", Qualifier.Default))
-    val mv        = MonomorphicValue(valueVfqn, Seq.empty, sourced("value"), intType, None)
+    val valueVfqn = ValueFQN(testModuleName, default("value"))
+    val mv        = MonomorphicValue(valueVfqn, Seq.empty, sourced(default("value")), intType, None)
 
     runProcessor(UsedNames.Key(valueVfqn), Seq(mv))
       .asserting(_.usedNames should contain key valueVfqn)
   }
 
   it should "include root name in used names when it references another value" in {
-    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
-    val gVfqn = ValueFQN(testModuleName, QualifiedName("g", Qualifier.Default))
+    val fVfqn = ValueFQN(testModuleName, default("f"))
+    val gVfqn = ValueFQN(testModuleName, default("g"))
 
-    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced("g"), intType, None)
-    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced("f"), intType, runtime(valueRef(gVfqn)))
+    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, None)
+    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(valueRef(gVfqn)))
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv))
       .asserting(_.usedNames should contain key fVfqn)
   }
 
   it should "include referenced value in used names" in {
-    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
-    val gVfqn = ValueFQN(testModuleName, QualifiedName("g", Qualifier.Default))
+    val fVfqn = ValueFQN(testModuleName, default("f"))
+    val gVfqn = ValueFQN(testModuleName, default("g"))
 
-    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced("g"), intType, None)
-    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced("f"), intType, runtime(valueRef(gVfqn)))
+    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, None)
+    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(valueRef(gVfqn)))
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv))
       .asserting(_.usedNames should contain key gVfqn)
   }
 
   it should "track direct call application count" in {
-    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
-    val gVfqn = ValueFQN(testModuleName, QualifiedName("g", Qualifier.Default))
+    val fVfqn = ValueFQN(testModuleName, default("f"))
+    val gVfqn = ValueFQN(testModuleName, default("g"))
 
-    val gMv   = MonomorphicValue(gVfqn, Seq.empty, sourced("g"), intType, None)
-    val gRef  = MonomorphicExpression(intType, valueRef(gVfqn))
-    val arg   = MonomorphicExpression(intType, MonomorphicExpression.IntegerLiteral(sourced(BigInt(42))))
-    val app   = MonomorphicExpression.FunctionApplication(sourced(gRef), sourced(arg))
-    val fMv   = MonomorphicValue(fVfqn, Seq.empty, sourced("f"), intType, runtime(app))
+    val gMv  = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, None)
+    val gRef = MonomorphicExpression(intType, valueRef(gVfqn))
+    val arg  = MonomorphicExpression(intType, MonomorphicExpression.IntegerLiteral(sourced(BigInt(42))))
+    val app  = MonomorphicExpression.FunctionApplication(sourced(gRef), sourced(arg))
+    val fMv  = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(app))
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv))
       .asserting(_.usedNames(gVfqn).directCallApplications shouldBe Map(1 -> 1))
   }
 
   it should "follow references through function literal bodies" in {
-    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
-    val gVfqn = ValueFQN(testModuleName, QualifiedName("g", Qualifier.Default))
+    val fVfqn = ValueFQN(testModuleName, default("f"))
+    val gVfqn = ValueFQN(testModuleName, default("g"))
 
-    val gMv      = MonomorphicValue(gVfqn, Seq.empty, sourced("g"), intType, None)
+    val gMv      = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, None)
     val innerRef = MonomorphicExpression(intType, valueRef(gVfqn))
     val lambda   = MonomorphicExpression.FunctionLiteral(sourced("x"), intType, sourced(innerRef))
-    val fMv      = MonomorphicValue(fVfqn, Seq.empty, sourced("f"), intType, runtime(lambda))
+    val fMv      = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(lambda))
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv))
       .asserting(_.usedNames should contain key gVfqn)
@@ -73,23 +73,25 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
   it should "handle recursive value without infinite loop" in {
     import scala.concurrent.duration.*
 
-    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
-    val fMv   = MonomorphicValue(fVfqn, Seq.empty, sourced("f"), intType, runtime(valueRef(fVfqn)))
+    val fVfqn = ValueFQN(testModuleName, default("f"))
+    val fMv   = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(valueRef(fVfqn)))
 
-    runProcessor(UsedNames.Key(fVfqn), Seq(fMv)).timeout(1.seconds)
+    runProcessor(UsedNames.Key(fVfqn), Seq(fMv))
+      .timeout(1.seconds)
       .asserting(_.usedNames should contain key fVfqn)
   }
 
   it should "handle mutual recursion without infinite loop" in {
     import scala.concurrent.duration.*
 
-    val fVfqn = ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))
-    val gVfqn = ValueFQN(testModuleName, QualifiedName("g", Qualifier.Default))
+    val fVfqn = ValueFQN(testModuleName, default("f"))
+    val gVfqn = ValueFQN(testModuleName, default("g"))
 
-    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced("f"), intType, runtime(valueRef(gVfqn)))
-    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced("g"), intType, runtime(valueRef(fVfqn)))
+    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(valueRef(gVfqn)))
+    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, runtime(valueRef(fVfqn)))
 
-    runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv)).timeout(1.seconds)
+    runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv))
+      .timeout(1.seconds)
       .asserting { result =>
         result.usedNames should contain key fVfqn
         result.usedNames should contain key gVfqn

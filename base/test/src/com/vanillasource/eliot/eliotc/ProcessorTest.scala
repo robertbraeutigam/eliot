@@ -4,6 +4,7 @@ import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -24,6 +25,8 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
   val systemImports  = Seq(SystemImport("Function", "data Function[A, B]"))
 
   def sourced[T](value: T): Sourced[T] = Sourced(file, PositionRange.zero, value)
+
+  def default(name: String): QualifiedName = QualifiedName(name, Qualifier.Default)
 
   def createGenerator(facts: Seq[CompilerFact]): IO[FactGenerator] =
     for {
