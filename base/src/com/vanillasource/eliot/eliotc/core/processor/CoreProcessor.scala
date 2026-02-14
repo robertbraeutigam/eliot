@@ -63,6 +63,9 @@ class CoreProcessor
       QualifiedName(name, Default)
     }
 
+  private def toTypeQualifiedName(name: String): QualifiedName =
+    QualifiedName(name.stripSuffix("$DataType"), Type)
+
   /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function$DataType(D,
     * Function$DataType(E, F)). Note: f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y
     * \-> Function$DataType(X, Y)
@@ -75,7 +78,7 @@ class CoreProcessor
     val withArgs = args.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (arg, acc) =>
       val argType     = toTypeExpression(arg.typeReference)
       val functionRef =
-        arg.name.as(NamedValueReference(arg.name.as(QualifiedName("Function", Default))))
+        arg.name.as(NamedValueReference(arg.name.as(QualifiedName("Function", Type))))
       val withArgType = arg.name.as(
         FunctionApplication(
           functionRef.map(TypeStack.of),
@@ -123,7 +126,7 @@ class CoreProcessor
       argKind: Sourced[Expression],
       resultKind: Sourced[Expression]
   ): Sourced[Expression] = {
-    val functionRef = source.as(NamedValueReference(source.as(QualifiedName("Function", Default))))
+    val functionRef = source.as(NamedValueReference(source.as(QualifiedName("Function", Type))))
     val withArgType = source.as(
       FunctionApplication(
         functionRef.map(TypeStack.of),
@@ -143,7 +146,7 @@ class CoreProcessor
     */
   private def toTypeExpression(reference: TypeReference): Sourced[Expression] =
     reference.genericParameters.foldLeft[Sourced[Expression]](
-      reference.typeName.as(NamedValueReference(reference.typeName.map(toQualifiedName)))
+      reference.typeName.as(NamedValueReference(reference.typeName.map(toTypeQualifiedName)))
     ) { (acc, ref) =>
       ref.typeName.as(
         FunctionApplication(acc.map(TypeStack.of), toTypeExpression(ref).map(TypeStack.of))

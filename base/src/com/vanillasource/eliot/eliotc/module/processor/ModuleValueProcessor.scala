@@ -59,7 +59,7 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
                               val shadowingImported = moduleNames.names.intersect(importedNames.keySet)
 
                               if (shadowingLocal.nonEmpty) {
-                                compilerError(module.as(s"Imported names shadow local names: ${shadowingLocal.mkString(", ")}"))
+                                compilerError(module.as(s"Imported names shadow local names: ${shadowingLocal.toSeq.map(_.show).mkString(", ")}"))
                                   .as(importedNames)
                               } else if (shadowingImported.nonEmpty) {
                                 compilerError(

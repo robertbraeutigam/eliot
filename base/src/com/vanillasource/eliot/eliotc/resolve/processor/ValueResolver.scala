@@ -76,7 +76,7 @@ class ValueResolver
 
   private def isFunctionReference(expr: CoreExpression): Boolean =
     expr match {
-      case NamedValueReference(name, None) => name.value === QualifiedName("Function", Qualifier.Default)
+      case NamedValueReference(name, None) => name.value === QualifiedName("Function", Qualifier.Type)
       case _                               => false
     }
 
