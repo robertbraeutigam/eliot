@@ -2,7 +2,12 @@ package com.vanillasource.eliot.eliotc.eval.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.Qualifier
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, FunctionLiteral, InitialExpressionValue, NativeFunction}
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{
+  ConcreteValue,
+  FunctionLiteral,
+  InitialExpressionValue,
+  NativeFunction
+}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
@@ -12,12 +17,12 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 
-/** Processor that provides NamedEvaluable facts for data type constructors (values ending with $DataType).
+/** Processor that provides NamedEvaluable facts for data type constructors (values with Type qualifier).
   *
   * For data types like `data Box[A]`, this creates a NativeFunction chain that builds Value.Structure representing the
   * type when all type parameters are applied.
   *
-  * Note: Function$DataType is handled by FunctionDataTypeEvaluator since it's foundational.
+  * Note: Function^Type is handled by FunctionDataTypeEvaluator since it's foundational.
   */
 class DataTypeEvaluator
     extends TransformationProcessor[ResolvedValue.Key, NamedEvaluable.Key](key => ResolvedValue.Key(key.vfqn)) {

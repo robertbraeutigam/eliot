@@ -93,11 +93,11 @@ object ExpressionValue {
       case _                    => None
     }
 
-  /** Create a function type: paramType -> returnType. Uses the standard Function$DataType representation. */
+  /** Create a function type: paramType -> returnType. Uses the standard Function^Type representation. */
   def functionType(paramType: ExpressionValue, returnType: ExpressionValue): ExpressionValue =
     FunctionApplication(FunctionApplication(Types.functionDataTypeExpr, paramType), returnType)
 
-  /** Extractor for function types. Matches FunctionApplication chains with Function$DataType. */
+  /** Extractor for function types. Matches FunctionApplication chains with Function^Type. */
   object FunctionType {
     def unapply(expr: ExpressionValue): Option[(ExpressionValue, ExpressionValue)] =
       expr match {
