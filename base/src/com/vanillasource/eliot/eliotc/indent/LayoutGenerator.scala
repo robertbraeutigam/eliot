@@ -61,7 +61,7 @@ class LayoutGenerator
                                      )
                                    )
                 tailTransformed <- generateLayout(tail)
-              } yield Seq(head.as(LayoutToken.Newline)) ++ dedents.as(head.as(LayoutToken.Indent)) ++ Seq(
+              } yield Seq(head.as(LayoutToken.Newline)) ++ dedents.as(head.as(LayoutToken.Dedent)) ++ Seq(
                 head.map(ContentToken.apply)
               ) ++ tailTransformed
             } else {
