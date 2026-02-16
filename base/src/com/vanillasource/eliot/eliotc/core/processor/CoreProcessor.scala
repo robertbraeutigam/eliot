@@ -58,17 +58,6 @@ class CoreProcessor
     NamedValue(function.name, curriedValue.map(_.value), typeStack)
   }
 
-  // FIXME: this should not be needed
-  private def toQualifiedName(name: String): QualifiedName =
-    if (name.endsWith("$DataType")) {
-      QualifiedName(name.stripSuffix("$DataType"), Type)
-    } else {
-      QualifiedName(name, Default)
-    }
-
-  private def toTypeQualifiedName(name: String): QualifiedName =
-    QualifiedName(name.stripSuffix("$DataType"), Type)
-
   /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function$DataType(D,
     * Function$DataType(E, F)). Note: f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y
     * \-> Function$DataType(X, Y)
@@ -149,7 +138,7 @@ class CoreProcessor
     */
   private def toTypeExpression(reference: TypeReference): Sourced[Expression] =
     reference.genericParameters.foldLeft[Sourced[Expression]](
-      reference.typeName.as(NamedValueReference(reference.typeName.map(toTypeQualifiedName)))
+      reference.typeName.as(NamedValueReference(reference.typeName.map(n => QualifiedName(n, Qualifier.Type))))
     ) { (acc, ref) =>
       ref.typeName.as(
         FunctionApplication(acc.map(TypeStack.of), toTypeExpression(ref).map(TypeStack.of))
@@ -175,9 +164,12 @@ class CoreProcessor
   private def toBodyExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
     expr.value match {
       case SourceExpression.FunctionApplication(name, args)                        =>
-        curryApplication(expr.as(NamedValueReference(name.map(toQualifiedName), None)), args)
+        curryApplication(expr.as(NamedValueReference(name.map(n => QualifiedName(n, Qualifier.Default)), None)), args)
       case SourceExpression.QualifiedFunctionApplication(moduleName, fnName, args) =>
-        curryApplication(expr.as(NamedValueReference(fnName.map(toQualifiedName), Some(moduleName))), args)
+        curryApplication(
+          expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Default)), Some(moduleName))),
+          args
+        )
       case SourceExpression.FunctionLiteral(params, body)                          =>
         curryLambda(params, toBodyExpression(body), expr)
       case SourceExpression.IntegerLiteral(lit)                                    =>
@@ -290,7 +282,7 @@ class CoreProcessor
               ArgumentDefinition(
                 field.name.as("obj"),
                 TypeReference(
-                  definition.name.map(_ + "$DataType"),
+                  definition.name,
                   definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
                 )
               )
