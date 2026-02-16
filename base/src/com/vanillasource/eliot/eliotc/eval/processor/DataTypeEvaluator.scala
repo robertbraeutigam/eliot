@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.eval.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.Qualifier
+import com.vanillasource.eliot.eliotc.ast.fact.Qualifier
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, FunctionLiteral, InitialExpressionValue, NativeFunction}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}

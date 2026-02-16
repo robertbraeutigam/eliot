@@ -1,7 +1,8 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, NamedValue, QualifiedName}
+import com.vanillasource.eliot.eliotc.ast.fact.QualifiedName
+import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, NamedValue}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleNames
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor

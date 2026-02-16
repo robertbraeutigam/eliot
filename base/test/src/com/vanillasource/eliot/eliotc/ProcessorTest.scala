@@ -3,8 +3,8 @@ package com.vanillasource.eliot.eliotc
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.pos.PositionRange

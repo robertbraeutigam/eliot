@@ -3,9 +3,9 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.data.IndexedStateT
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemUnitValue

@@ -1,8 +1,9 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack, Expression as CoreExpression}
+import com.vanillasource.eliot.eliotc.core.fact.{TypeStack, Expression as CoreExpression}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}

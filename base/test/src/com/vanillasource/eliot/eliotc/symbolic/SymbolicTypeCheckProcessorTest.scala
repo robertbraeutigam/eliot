@@ -2,9 +2,9 @@ package com.vanillasource.eliot.eliotc.symbolic
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
+import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver

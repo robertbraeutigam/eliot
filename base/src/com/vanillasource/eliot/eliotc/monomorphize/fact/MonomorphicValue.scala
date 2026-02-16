@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
-import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
+import com.vanillasource.eliot.eliotc.ast.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}

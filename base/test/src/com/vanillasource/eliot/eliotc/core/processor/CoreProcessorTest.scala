@@ -2,9 +2,10 @@ package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
+import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, Expression, QualifiedName, Qualifier, TypeStack, NamedValue}
+import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, Expression, TypeStack, NamedValue}
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProcessor()) {

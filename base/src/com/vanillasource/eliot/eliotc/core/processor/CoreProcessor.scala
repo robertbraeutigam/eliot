@@ -1,19 +1,10 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{
-  ArgumentDefinition,
-  DataDefinition,
-  FunctionDefinition,
-  GenericParameter,
-  SourceAST,
-  TypeReference,
-  ArgumentDefinition as SourceArgument,
-  Expression as SourceExpression
-}
+import com.vanillasource.eliot.eliotc.ast.fact.{ArgumentDefinition, DataDefinition, FunctionDefinition, GenericParameter, QualifiedName, SourceAST, TypeReference, ArgumentDefinition as SourceArgument, Expression as SourceExpression}
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.Qualifier.{Default, Type}
+import com.vanillasource.eliot.eliotc.ast.fact.Qualifier.{Default, Type}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor

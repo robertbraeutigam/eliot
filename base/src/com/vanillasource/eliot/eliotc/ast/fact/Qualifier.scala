@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.core.fact
+package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.kernel.Eq
 

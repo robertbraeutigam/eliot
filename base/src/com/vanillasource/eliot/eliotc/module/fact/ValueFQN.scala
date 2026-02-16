@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.module.fact
 import cats.kernel.Eq
 import cats.Show
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
+import com.vanillasource.eliot.eliotc.ast.fact.QualifiedName
 
 case class ValueFQN(moduleName: ModuleName, name: QualifiedName)
 

@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.module.fact
 
-import com.vanillasource.eliot.eliotc.core.fact.{NamedValue, QualifiedName}
+import com.vanillasource.eliot.eliotc.ast.fact.QualifiedName
+import com.vanillasource.eliot.eliotc.core.fact.NamedValue
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 import java.net.URI
