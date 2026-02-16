@@ -32,7 +32,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
       Value.Type
     )
 
-  /** Create the NamedEvaluable for Function$DataType (a curried NativeFunction). */
+  /** Create the NamedEvaluable for Function^Type (a curried NativeFunction). */
   private def functionDataTypeEvaluable: NamedEvaluable =
     NamedEvaluable(
       functionDataTypeVfqn,

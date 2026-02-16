@@ -16,7 +16,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   private val typeVfqn      = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), QualifiedName("Type", Qualifier.Default))
   private val typeEvaluable = NamedEvaluable(typeVfqn, ConcreteValue(Type))
 
-  "DataTypeEvaluator" should "evaluate Int$DataType (0 params) to correct Structure" in {
+  "DataTypeEvaluator" should "evaluate Int^Type (0 params) to correct Structure" in {
     val vfqn          = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type))
     val resolvedValue = createResolvedValue(vfqn, Seq.empty)
 
@@ -30,7 +30,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
     }
   }
 
-  it should "evaluate single-parameter data type Box$DataType(Int) correctly" in {
+  it should "evaluate single-parameter data type Box^Type(Int) correctly" in {
     val boxVfqn = ValueFQN(testModuleName, QualifiedName("Box", Qualifier.Type))
     val intVfqn = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type))
 
@@ -39,25 +39,27 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
 
     val intType = Structure(Map("$typeName" -> Direct(intVfqn, fullyQualifiedNameType)), Type)
 
-    runDataTypeEvaluatorWithFacts(boxVfqn, Seq(boxResolved, intResolved)).flatMap {
-      case nf: NativeFunction =>
-        IO.pure(nf.body(intType))
-      case other              =>
-        IO.raiseError(new Exception(s"Expected NativeFunction, got: $other"))
-    }.asserting { result =>
-      result shouldBe ConcreteValue(
-        Structure(
-          Map(
-            "$typeName" -> Direct(boxVfqn, fullyQualifiedNameType),
-            "A"         -> intType
-          ),
-          Type
+    runDataTypeEvaluatorWithFacts(boxVfqn, Seq(boxResolved, intResolved))
+      .flatMap {
+        case nf: NativeFunction =>
+          IO.pure(nf.body(intType))
+        case other              =>
+          IO.raiseError(new Exception(s"Expected NativeFunction, got: $other"))
+      }
+      .asserting { result =>
+        result shouldBe ConcreteValue(
+          Structure(
+            Map(
+              "$typeName" -> Direct(boxVfqn, fullyQualifiedNameType),
+              "A"         -> intType
+            ),
+            Type
+          )
         )
-      )
-    }
+      }
   }
 
-  it should "evaluate two-parameter data type Either$DataType(Int)(String) correctly" in {
+  it should "evaluate two-parameter data type Either^Type(Int)(String) correctly" in {
     val eitherVfqn = ValueFQN(testModuleName, QualifiedName("Either", Qualifier.Type))
     val intVfqn    = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type))
     val stringVfqn = ValueFQN(testModuleName, QualifiedName("String", Qualifier.Type))
@@ -69,33 +71,35 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
     val intType    = Structure(Map("$typeName" -> Direct(intVfqn, fullyQualifiedNameType)), Type)
     val stringType = Structure(Map("$typeName" -> Direct(stringVfqn, fullyQualifiedNameType)), Type)
 
-    runDataTypeEvaluatorWithFacts(eitherVfqn, Seq(eitherResolved, intResolved, stringResolved)).flatMap {
-      case nf: NativeFunction =>
-        val afterFirst = nf.body(intType)
-        afterFirst match {
-          case nf2: NativeFunction =>
-            val afterSecond = nf2.body(stringType)
-            IO.pure(afterSecond)
-          case other               =>
-            IO.raiseError(new Exception(s"Expected NativeFunction after first application, got: $other"))
-        }
-      case other              =>
-        IO.raiseError(new Exception(s"Expected NativeFunction, got: $other"))
-    }.asserting { result =>
-      result shouldBe ConcreteValue(
-        Structure(
-          Map(
-            "$typeName" -> Direct(eitherVfqn, fullyQualifiedNameType),
-            "A"         -> intType,
-            "B"         -> stringType
-          ),
-          Type
+    runDataTypeEvaluatorWithFacts(eitherVfqn, Seq(eitherResolved, intResolved, stringResolved))
+      .flatMap {
+        case nf: NativeFunction =>
+          val afterFirst = nf.body(intType)
+          afterFirst match {
+            case nf2: NativeFunction =>
+              val afterSecond = nf2.body(stringType)
+              IO.pure(afterSecond)
+            case other               =>
+              IO.raiseError(new Exception(s"Expected NativeFunction after first application, got: $other"))
+          }
+        case other              =>
+          IO.raiseError(new Exception(s"Expected NativeFunction, got: $other"))
+      }
+      .asserting { result =>
+        result shouldBe ConcreteValue(
+          Structure(
+            Map(
+              "$typeName" -> Direct(eitherVfqn, fullyQualifiedNameType),
+              "A"         -> intType,
+              "B"         -> stringType
+            ),
+            Type
+          )
         )
-      )
-    }
+      }
   }
 
-  it should "return NativeFunction for partial application Either$DataType(Int)" in {
+  it should "return NativeFunction for partial application Either^Type(Int)" in {
     val eitherVfqn = ValueFQN(testModuleName, QualifiedName("Either", Qualifier.Type))
     val intVfqn    = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type))
 
@@ -104,14 +108,16 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
 
     val intType = Structure(Map("$typeName" -> Direct(intVfqn, fullyQualifiedNameType)), Type)
 
-    runDataTypeEvaluatorWithFacts(eitherVfqn, Seq(eitherResolved, intResolved)).flatMap {
-      case nf: NativeFunction =>
-        IO.pure(nf.body(intType))
-      case other              =>
-        IO.raiseError(new Exception(s"Expected NativeFunction, got: $other"))
-    }.asserting { result =>
-      result shouldBe a[NativeFunction]
-    }
+    runDataTypeEvaluatorWithFacts(eitherVfqn, Seq(eitherResolved, intResolved))
+      .flatMap {
+        case nf: NativeFunction =>
+          IO.pure(nf.body(intType))
+        case other              =>
+          IO.raiseError(new Exception(s"Expected NativeFunction, got: $other"))
+      }
+      .asserting { result =>
+        result shouldBe a[NativeFunction]
+      }
   }
 
   it should "not generate fact for non-DataType names" in {
@@ -126,12 +132,12 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
     val selfVfqn = ValueFQN(testModuleName, QualifiedName("Self", Qualifier.Type))
 
     // Build: (a: Type -> a)(Type)
-    val innerLambda = Expression.FunctionLiteral(
+    val innerLambda   = Expression.FunctionLiteral(
       sourced("a"),
       sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn))))),
       sourced(TypeStack(NonEmptySeq.of(Expression.ParameterReference(sourced("a")))))
     )
-    val appliedExpr = Expression.FunctionApplication(
+    val appliedExpr   = Expression.FunctionApplication(
       sourced(TypeStack(NonEmptySeq.of(innerLambda))),
       sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn)))))
     )
@@ -153,7 +159,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
     }
   }
 
-  it should "not generate fact for Function$DataType (handled by FunctionDataTypeEvaluator)" in {
+  it should "not generate fact for Function^Type (handled by FunctionDataTypeEvaluator)" in {
     val functionVfqn     = ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
     val functionResolved = createResolvedValue(functionVfqn, Seq("A", "B"))
 

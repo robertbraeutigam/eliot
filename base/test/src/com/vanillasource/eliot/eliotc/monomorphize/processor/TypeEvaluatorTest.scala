@@ -17,7 +17,8 @@ class TypeEvaluatorTest extends ProcessorTest() {
   private val stringType = Types.dataType(stringVfqn)
   private val boolType   = Types.dataType(boolVfqn)
 
-  private val functionDataTypeVfqn = ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
+  private val functionDataTypeVfqn =
+    ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
 
   private def functionType(paramType: Value, returnType: Value): Value =
     Value.Structure(
@@ -33,7 +34,7 @@ class TypeEvaluatorTest extends ProcessorTest() {
   private def simpleDataTypeEvaluable(vfqn: ValueFQN): NamedEvaluable =
     NamedEvaluable(vfqn, ConcreteValue(Types.dataType(vfqn)))
 
-  /** Create the NamedEvaluable for Function$DataType (a curried NativeFunction). */
+  /** Create the NamedEvaluable for Function^Type (a curried NativeFunction). */
   private def functionDataTypeEvaluable: NamedEvaluable =
     NamedEvaluable(
       functionDataTypeVfqn,
@@ -109,13 +110,13 @@ class TypeEvaluatorTest extends ProcessorTest() {
   }
 
   it should "evaluate type application" in {
-    val listVfqn = ValueFQN(testModuleName, QualifiedName("List", Qualifier.Default))
-    val listType = Types.dataType(listVfqn)
-    val expr     = FunctionApplication(
+    val listVfqn      = ValueFQN(testModuleName, QualifiedName("List", Qualifier.Default))
+    val listType      = Types.dataType(listVfqn)
+    val expr          = FunctionApplication(
       ConcreteValue(listType),
       ParameterReference("A", Value.Type)
     )
-    val expected = Value.Structure(
+    val expected      = Value.Structure(
       listType.asInstanceOf[Value.Structure].fields + ("A" -> intType),
       Value.Type
     )
@@ -137,10 +138,10 @@ class TypeEvaluatorTest extends ProcessorTest() {
   }
 
   it should "evaluate type parameter applied to a type" in {
-    val ioVfqn  = ValueFQN(testModuleName, QualifiedName("IO", Qualifier.Type))
-    val unitVfqn = ValueFQN(testModuleName, QualifiedName("Unit", Qualifier.Default))
-    val unitType = Types.dataType(unitVfqn)
-    val ioType   = Types.dataType(ioVfqn)
+    val ioVfqn      = ValueFQN(testModuleName, QualifiedName("IO", Qualifier.Type))
+    val unitVfqn    = ValueFQN(testModuleName, QualifiedName("Unit", Qualifier.Default))
+    val unitType    = Types.dataType(unitVfqn)
+    val ioType      = Types.dataType(ioVfqn)
     val ioEvaluable = NamedEvaluable(
       ioVfqn,
       NativeFunction(
@@ -155,11 +156,11 @@ class TypeEvaluatorTest extends ProcessorTest() {
       )
     )
     // Expression: M(Unit) — a type parameter applied to a concrete type
-    val expr = FunctionApplication(
+    val expr        = FunctionApplication(
       ParameterReference("M", Value.Type),
       ConcreteValue(unitType)
     )
-    val expected = Value.Structure(
+    val expected    = Value.Structure(
       Map("$typeName" -> Value.Direct(ioVfqn, Types.fullyQualifiedNameType), "A" -> unitType),
       Value.Type
     )
@@ -168,11 +169,11 @@ class TypeEvaluatorTest extends ProcessorTest() {
   }
 
   it should "evaluate nested type parameters applied to types" in {
-    val ioVfqn   = ValueFQN(testModuleName, QualifiedName("IO", Qualifier.Type))
-    val unitVfqn = ValueFQN(testModuleName, QualifiedName("Unit", Qualifier.Default))
-    val unitType = Types.dataType(unitVfqn)
-    val ioType   = Types.dataType(ioVfqn)
-    val ioEvaluable = NamedEvaluable(
+    val ioVfqn         = ValueFQN(testModuleName, QualifiedName("IO", Qualifier.Type))
+    val unitVfqn       = ValueFQN(testModuleName, QualifiedName("Unit", Qualifier.Default))
+    val unitType       = Types.dataType(unitVfqn)
+    val ioType         = Types.dataType(ioVfqn)
+    val ioEvaluable    = NamedEvaluable(
       ioVfqn,
       NativeFunction(
         Value.Type,
@@ -186,7 +187,7 @@ class TypeEvaluatorTest extends ProcessorTest() {
       )
     )
     // Expression: Function(A, M(Unit)) — matching the HelloWorld::f pattern
-    val expr = ExpressionValue.functionType(
+    val expr           = ExpressionValue.functionType(
       ParameterReference("A", Value.Type),
       FunctionApplication(
         ParameterReference("M", Value.Type),
@@ -269,7 +270,8 @@ class TypeEvaluatorTest extends ProcessorTest() {
   ): IO[Value] =
     for {
       generator <- createGenerator(evaluables)
-      result    <- TypeEvaluator.evaluateWithSubstitution(expr, substitution, sourced(())).run(generator).run(Chain.empty).value
+      result    <-
+        TypeEvaluator.evaluateWithSubstitution(expr, substitution, sourced(())).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((_, value)) => value
       case Left(errors)      => throw new Exception(s"Evaluation failed: ${errors.map(_.message).toList.mkString(", ")}")
@@ -282,7 +284,8 @@ class TypeEvaluatorTest extends ProcessorTest() {
   ): IO[String] =
     for {
       generator <- createGenerator(evaluables)
-      result    <- TypeEvaluator.evaluateWithSubstitution(expr, substitution, sourced(())).run(generator).run(Chain.empty).value
+      result    <-
+        TypeEvaluator.evaluateWithSubstitution(expr, substitution, sourced(())).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((errors, _)) if errors.nonEmpty => errors.toList.head.message
       case Left(errors) if errors.nonEmpty       => errors.toList.head.message
