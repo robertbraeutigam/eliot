@@ -163,11 +163,9 @@ class CoreProcessor
 
   private def toBodyExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
     expr.value match {
-      case SourceExpression.FunctionApplication(name, args)                        =>
-        curryApplication(expr.as(NamedValueReference(name.map(n => QualifiedName(n, Qualifier.Default)), None)), args)
-      case SourceExpression.QualifiedFunctionApplication(moduleName, fnName, args) =>
+      case SourceExpression.FunctionApplication(moduleName, fnName, args) =>
         curryApplication(
-          expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Default)), Some(moduleName))),
+          expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Default)), moduleName)),
           args
         )
       case SourceExpression.FunctionLiteral(params, body)                          =>
@@ -258,8 +256,9 @@ class CoreProcessor
               Some(
                 definition.name.as(
                   SourceExpression.FunctionApplication(
+                    None,
                     definition.name,
-                    fields.map(f => f.name.as(SourceExpression.FunctionApplication(f.name, Seq.empty)))
+                    fields.map(f => f.name.as(SourceExpression.FunctionApplication(None, f.name, Seq.empty)))
                   )
                 )
               )
