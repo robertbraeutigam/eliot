@@ -81,6 +81,6 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
 
   private def generateMainSource(mainVfqn: ValueFQN): String =
     s"""
-       |main: Unit = apply(block(${mainVfqn.moduleName.show}::${mainVfqn.name.name}), unit)
+       |def main: Unit = apply(block(${mainVfqn.moduleName.show}::${mainVfqn.name.name}), unit)
        |""".stripMargin
 }

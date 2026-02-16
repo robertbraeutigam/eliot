@@ -1,1 +1,1 @@
-main: IO[Unit] = println("Hello World!")
+def main: IO[Unit] = println("Hello World!")

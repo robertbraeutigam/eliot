@@ -1,6 +1,6 @@
 data String
 
-println(s: String): IO[Unit] = IO((u: Unit) -> printlnInternal(s))
+def println(s: String): IO[Unit] = IO((u: Unit) -> printlnInternal(s))
 
-printlnInternal(s: String): Unit
+def printlnInternal(s: String): Unit
 
