@@ -8,14 +8,17 @@ import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.module.fact.ModuleNames
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
-class ModuleNamesProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProcessor(), ModuleNamesProcessor()) {
+class ModuleNamesProcessorTest
+    extends ProcessorTest(Tokenizer(), ASTParser(), CoreProcessor(), ModuleNamesProcessor()) {
 
   "module names processor" should "extract a single name" in {
-    runEngineForNames("a: A").asserting(_ shouldBe Set(QualifiedName("a", Qualifier.Default)))
+    runEngineForNames("def a: A").asserting(_ shouldBe Set(QualifiedName("a", Qualifier.Default)))
   }
 
   it should "extract multiple names" in {
-    runEngineForNames("a: A\nb: B").asserting(_ shouldBe Set(QualifiedName("a", Qualifier.Default), QualifiedName("b", Qualifier.Default)))
+    runEngineForNames("def a: A\ndef b: B").asserting(
+      _ shouldBe Set(QualifiedName("a", Qualifier.Default), QualifiedName("b", Qualifier.Default))
+    )
   }
 
   it should "extract names from data definitions" in {
@@ -23,15 +26,23 @@ class ModuleNamesProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), C
   }
 
   it should "extract constructor and accessor names from data with fields" in {
-    runEngineForNames("data Person(name: Name)").asserting(_ shouldBe Set(QualifiedName("Person", Qualifier.Type), QualifiedName("Person", Qualifier.Default), QualifiedName("name", Qualifier.Default)))
+    runEngineForNames("data Person(name: Name)").asserting(
+      _ shouldBe Set(
+        QualifiedName("Person", Qualifier.Type),
+        QualifiedName("Person", Qualifier.Default),
+        QualifiedName("name", Qualifier.Default)
+      )
+    )
   }
 
   it should "extract mixed function and data names" in {
-    runEngineForNames("data A\nf: A").asserting(_ shouldBe Set(QualifiedName("A", Qualifier.Type), QualifiedName("f", Qualifier.Default)))
+    runEngineForNames("data A\ndef f: A").asserting(
+      _ shouldBe Set(QualifiedName("A", Qualifier.Type), QualifiedName("f", Qualifier.Default))
+    )
   }
 
   it should "detect duplicate names" in {
-    runEngineForErrors("a: A\na: B").asserting(_ shouldBe Seq("Name was already defined in this module."))
+    runEngineForErrors("def a: A\ndef a: B").asserting(_ shouldBe Seq("Name was already defined in this module."))
   }
 
   it should "return empty set for empty module" in {

@@ -25,104 +25,104 @@ class SymbolicTypeCheckProcessorTest
       SymbolicTypeCheckProcessor()
     ) {
   "function call" should "compile if same number of arguments" in {
-    runEngineForErrors("data A\nf: A = b\nb: A")
+    runEngineForErrors("data A\ndef f: A = b\ndef b: A")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "not compile if call site has arguments, but definition doesn't" in {
-    runEngineForErrors("data A\nf: A = b(1)\nb: A")
+    runEngineForErrors("data A\ndef f: A = b(1)\ndef b: A")
       .asserting(
         _ shouldBe Seq("Target of function application is not a Function. Possibly too many arguments.")
       )
   }
 
   it should "issue error when referencing an undefined function" in {
-    runEngineForErrors("data A\nf: A = c")
+    runEngineForErrors("data A\ndef f: A = c")
       .asserting(_ shouldBe Seq("Name not defined."))
   }
 
   it should "not compile if call site has no arguments, but definition has one" in {
-    runEngineForErrors("data A\nf: A = b\nb(x: A): A")
+    runEngineForErrors("data A\ndef f: A = b\ndef b(x: A): A")
       .asserting(
         _ shouldBe Seq("Type mismatch.")
       )
   }
 
   "processor" should "produce type checked results if arities are ok" in {
-    runEngineForTypedValues("data A\nf: A = b\nb: A")
+    runEngineForTypedValues("data A\ndef f: A = b\ndef b: A")
       .asserting(_.length shouldBe 1)
   }
 
   it should "not produce type checked results if arities mismatch" in {
-    runEngineForTypedValues("data A\nf: A = b(3)\nb: A")
+    runEngineForTypedValues("data A\ndef f: A = b(3)\ndef b: A")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail only once when a function is used wrong" in {
-    runEngineForErrors("data A\ndata B\na: A\nf: B = a")
+    runEngineForErrors("data A\ndata B\ndef a: A\ndef f: B = a")
       .asserting(_ shouldBe Seq("Type mismatch."))
   }
 
   it should "fail if parameter is of wrong type" in {
-    runEngineForErrors("data A\ndata B\nf(b: B): A = b")
+    runEngineForErrors("data A\ndata B\ndef f(b: B): A = b")
       .asserting(_ shouldBe Seq("Return type mismatch."))
   }
 
   it should "fail if parameter is used as a wrong parameter in another function" in {
-    runEngineForErrors("data A\ndata B\na(b: B): A\nf(x: A): A = a(x)")
+    runEngineForErrors("data A\ndata B\ndef a(b: B): A\ndef f(x: A): A = a(x)")
       .asserting(_ shouldBe Seq("Argument type mismatch."))
   }
 
   "generic types" should "type check when returning itself from a parameter" in {
-    runEngineForErrors("f[A](a: A): A = a")
+    runEngineForErrors("def f[A](a: A): A = a")
       .asserting(_ shouldBe Seq())
   }
 
   it should "type check when returning different, but non-constrained generic" in {
-    runEngineForErrors("f[A, B](a: A, b: B): A = b")
+    runEngineForErrors("def f[A, B](a: A, b: B): A = b")
       .asserting(_ shouldBe Seq("Return type mismatch."))
   }
 
   it should "forward unification to concrete types" in {
-    runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nf(i: Int, s: String): String = id(s)")
+    runEngineForErrors("def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(s)")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "forward unification to concrete types in recursive setup" in {
     runEngineForErrors(
-      "id[A](a: A): A = a\ndata String\ndata Int\nf(i: Int, s: String): String = id(id(id(s)))"
+      "def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(id(id(s)))"
     )
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail if forward unification to concrete types produces conflict" in {
-    runEngineForErrors("id[A](a: A): A = a\ndata String\ndata Int\nf(i: Int, s: String): String = id(i)")
+    runEngineForErrors("def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(i)")
       .asserting(_ shouldBe Seq("Return type mismatch."))
   }
 
   it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
     runEngineForErrors(
-      "id[A](a: A): A = a\ndata String\ndata Int\nf(i: Int, s: String): String = id(id(id(i)))"
+      "def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(id(id(i)))"
     )
       .asserting(_ shouldBe Seq("Return type mismatch."))
   }
 
   it should "unify on multiple parameters" in {
     runEngineForErrors(
-      "g[A](a: A, b: A, c: A): A = a\nsomeA[A]: A\ndata String\ndata Int\nf(i: Int, s: String): String = g(someA, someA, s)"
+      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndata String\ndata Int\ndef f(i: Int, s: String): String = g(someA, someA, s)"
     )
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail, if unifying on multiple parameters fail at later stage" in {
     runEngineForErrors(
-      "g[A](a: A, b: A, c: A): A = a\nsomeA[A]: A\ndata String\ndata Int\nf(i: Int, s: String): String = g(someA, someA, i)"
+      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndata String\ndata Int\ndef f(i: Int, s: String): String = g(someA, someA, i)"
     )
       .asserting(_ shouldBe Seq("Return type mismatch."))
   }
 
   "higher kind generic types" should "type check through single generic placeholder" in {
-    runEngineForErrors("id[A](a: A): A\nf[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
+    runEngineForErrors("def id[A](a: A): A\ndef f[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -130,101 +130,101 @@ class SymbolicTypeCheckProcessorTest
   // Full detection would require tracking type constructor arities during unification.
   // For now, this passes without errors due to how type parameters are instantiated.
   it should "reject different arities of generic parameters" in {
-    runEngineForErrors("id[B, A[B]](a: A[B]): A[B]\nf[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
+    runEngineForErrors("def id[B, A[B]](a: A[B]): A[B]\ndef f[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "unify generic parameters of generics via a non-parameterized generic" in {
     runEngineForErrors(
-      "data Foo\ndata Bar\nid[A](a: A): A\nf(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)"
+      "data Foo\ndata Bar\ndef id[A](a: A): A\ndef f(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)"
     )
       .asserting(_ shouldBe Seq("Parameter type mismatch.", "Return type mismatch."))
   }
 
   it should "type check higher-kinded parameter returning identity" in {
     runEngineForErrors(
-      "data Int\nf[F[A]](x: F[Int]): F[Int] = x"
+      "data Int\ndef f[F[A]](x: F[Int]): F[Int] = x"
     )
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "type check higher-kinded parameter with two type args" in {
     runEngineForErrors(
-      "data Int\ndata String\nf[F[A, B]](x: F[Int, String]): F[Int, String] = x"
+      "data Int\ndata String\ndef f[F[A, B]](x: F[Int, String]): F[Int, String] = x"
     )
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail when higher-kinded parameters mismatch" in {
     runEngineForErrors(
-      "data Int\ndata String\nf[F[A]](x: F[Int]): F[String] = x"
+      "data Int\ndata String\ndef f[F[A]](x: F[Int]): F[String] = x"
     )
       .asserting(_ shouldBe Seq("Type argument mismatch."))
   }
 
   it should "type check nested higher-kinded parameter" in {
     runEngineForErrors(
-      "data Int\nf[G[A], F[G[A]]](x: F[G[Int]]): F[G[Int]] = x"
+      "data Int\ndef f[G[A], F[G[A]]](x: F[G[Int]]): F[G[Int]] = x"
     )
       .asserting(_ shouldBe Seq.empty)
   }
 
   "top level functions" should "be assignable to function types" in {
     runEngineForErrors(
-      "data Foo\ng(a: Foo): Foo\nf: Function[Foo, Foo] = g"
+      "data Foo\ndef g(a: Foo): Foo\ndef f: Function[Foo, Foo] = g"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   // TODO: check returns typed function
   "type resolve" should "store lambda type into AST" in {
     runEngineForErrors(
-      "data String\ndata Unit\ndata Foo(l: Function[Unit, String])\ng: String\nf: Foo = Foo((unit: Unit) -> g)"
+      "data String\ndata Unit\ndata Foo(l: Function[Unit, String])\ndef g: String\ndef f: Foo = Foo((unit: Unit) -> g)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   "apply" should "type check and return B" in {
     runEngineForErrors(
-      "f[A, B](g: Function[A, B], a: A): B = g(a)"
+      "def f[A, B](g: Function[A, B], a: A): B = g(a)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   "functions without body" should "be type checked successfully with simple return type" in {
-    runEngineForErrors("data A\nf: A")
+    runEngineForErrors("data A\ndef f: A")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "be type checked successfully with one parameter" in {
-    runEngineForErrors("data A\ndata B\nf(a: A): B")
+    runEngineForErrors("data A\ndata B\ndef f(a: A): B")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "be type checked successfully with multiple parameters" in {
-    runEngineForErrors("data A\ndata B\ndata C\nf(a: A, b: B): C")
+    runEngineForErrors("data A\ndata B\ndata C\ndef f(a: A, b: B): C")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "be type checked successfully with generic parameters" in {
-    runEngineForErrors("f[A](a: A): A")
+    runEngineForErrors("def f[A](a: A): A")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "be type checked successfully with generic parameters and multiple arguments" in {
-    runEngineForErrors("f[A, B](a: A, b: B): A")
+    runEngineForErrors("def f[A, B](a: A, b: B): A")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "produce type checked function fact for function without body" in {
-    runEngineForTypedValue("data A\nf: A")
+    runEngineForTypedValue("data A\ndef f: A")
       .asserting(_.runtime shouldBe None)
   }
 
   "parameter usage" should "type check when parameter type matches return type" in {
-    runEngineForErrors("data TypeA(fieldA: TypeA)\nf(x: TypeA): TypeA = x")
+    runEngineForErrors("data TypeA(fieldA: TypeA)\ndef f(x: TypeA): TypeA = x")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail when parameter type does not match return type" in {
-    runEngineForErrors("data TypeA(fieldA: TypeA)\ndata TypeB(fieldB: TypeB)\nf(x: TypeA): TypeB = x")
+    runEngineForErrors("data TypeA(fieldA: TypeA)\ndata TypeB(fieldB: TypeB)\ndef f(x: TypeA): TypeB = x")
       .asserting(_ shouldBe Seq("Return type mismatch."))
   }
 
@@ -232,23 +232,37 @@ class SymbolicTypeCheckProcessorTest
   private val testModuleName2 = ModuleName2(Seq.empty, "Test")
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =
-    runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))), systemImports)
+    runGenerator(
+      source,
+      TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))),
+      systemImports
+    )
       .map(_._1.map(_.message))
 
   private def runEngineForTypedValues(source: String): IO[Seq[ValueFQN]] =
-    runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))), systemImports).map { case (_, facts) =>
+    runGenerator(
+      source,
+      TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))),
+      systemImports
+    ).map { case (_, facts) =>
       facts.values.collect { case TypeCheckedValue(vfqn, _, _, _) =>
         vfqn
       }.toSeq
     }
 
   private def runEngineForTypedValue(source: String): IO[TypeCheckedValue] =
-    runGenerator(source, TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))), systemImports)
+    runGenerator(
+      source,
+      TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))),
+      systemImports
+    )
       .flatMap { case (errors, facts) =>
         if (errors.nonEmpty) {
           IO.raiseError(new Exception(s"Compilation errors: ${errors.map(_.message).mkString(", ")}"))
         } else {
-          facts.values.collectFirst { case v: TypeCheckedValue if v.vfqn.name == QualifiedName("f", Qualifier.Default) => v } match {
+          facts.values.collectFirst {
+            case v: TypeCheckedValue if v.vfqn.name == QualifiedName("f", Qualifier.Default) => v
+          } match {
             case Some(value) => IO.pure(value)
             case None        => IO.raiseError(new Exception("No type checked value 'f' found in results"))
           }
