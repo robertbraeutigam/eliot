@@ -58,9 +58,9 @@ class CoreProcessor
     NamedValue(function.name, curriedValue.map(_.value), typeStack)
   }
 
-  /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function$DataType(D,
-    * Function$DataType(E, F)). Note: f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y
-    * \-> Function$DataType(X, Y)
+  /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function^Type(D,
+    * Function^Type(E, F)). Note: f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y \->
+    * Function^Type(X, Y)
     */
   private def curriedFunctionType(
       args: Seq[SourceArgument],
