@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.token.Token
 import Parser.*
 
 case class FunctionDefinition(
-    name: Sourced[String],
+    name: Sourced[QualifiedName],
     genericParameters: Seq[GenericParameter],
     args: Seq[ArgumentDefinition],
     typeDefinition: TypeReference,
@@ -30,6 +30,9 @@ object FunctionDefinition {
     s"${fd.name.show}(${fd.args.map(_.show).mkString(", ")}): ${fd.body.show}"
 
   given ASTComponent[FunctionDefinition] = new ASTComponent[FunctionDefinition] {
+    private val functionBody =
+      (symbol("=") *> sourced(component[Expression])).optional()
+
     override val parser: Parser[Sourced[Token], FunctionDefinition] = for {
       name              <- acceptIfAll(isTopLevel, isIdentifier, isLowerCase)("function name")
       genericParameters <- component[Seq[GenericParameter]]
@@ -37,9 +40,12 @@ object FunctionDefinition {
       _                 <- symbol(":")
       typeReference     <- component[TypeReference]
       functionBody      <- functionBody
-    } yield FunctionDefinition(name.map(_.content), genericParameters, args, typeReference, functionBody)
-
-    private val functionBody =
-      (symbol("=") *> sourced(component[Expression])).optional()
+    } yield FunctionDefinition(
+      name.map(m => QualifiedName(m.content, Qualifier.Default)),
+      genericParameters,
+      args,
+      typeReference,
+      functionBody
+    )
   }
 }

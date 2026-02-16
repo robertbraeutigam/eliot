@@ -1,7 +1,18 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{ArgumentDefinition, DataDefinition, FunctionDefinition, GenericParameter, QualifiedName, SourceAST, TypeReference, ArgumentDefinition as SourceArgument, Expression as SourceExpression}
+import com.vanillasource.eliot.eliotc.ast.fact.{
+  ArgumentDefinition,
+  DataDefinition,
+  FunctionDefinition,
+  GenericParameter,
+  QualifiedName,
+  Qualifier,
+  SourceAST,
+  TypeReference,
+  ArgumentDefinition as SourceArgument,
+  Expression as SourceExpression
+}
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.ast.fact.Qualifier.{Default, Type}
@@ -44,9 +55,10 @@ class CoreProcessor
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
     val curriedValue = function.body.map(body => buildCurriedBody(function.args, body))
     val typeStack    = TypeStack.of(curriedType.value)
-    NamedValue(function.name.map(toQualifiedName), curriedValue.map(_.value), typeStack)
+    NamedValue(function.name, curriedValue.map(_.value), typeStack)
   }
 
+  // FIXME: this should not be needed
   private def toQualifiedName(name: String): QualifiedName =
     if (name.endsWith("$DataType")) {
       QualifiedName(name.stripSuffix("$DataType"), Type)
@@ -222,7 +234,7 @@ class CoreProcessor
     Seq(
       transformFunction(
         FunctionDefinition(
-          definition.name.map(_ + "$DataType"),
+          definition.name.map(n => QualifiedName(n, Qualifier.Type)),
           definition.genericParameters,
           Seq.empty,
           TypeReference(definition.name.as("Type"), Seq.empty),
@@ -244,11 +256,11 @@ class CoreProcessor
         Seq(
           transformFunction(
             FunctionDefinition(
-              definition.name,
+              definition.name.map(n => QualifiedName(n, Qualifier.Default)), // Constructor name
               definition.genericParameters,
               fields,
               TypeReference(
-                definition.name.map(_ + "$DataType"),
+                definition.name, // Type name
                 definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
               ),
               Some(
@@ -272,7 +284,7 @@ class CoreProcessor
       .map { field =>
         transformFunction(
           FunctionDefinition(
-            field.name,
+            field.name.map(n => QualifiedName(n, Qualifier.Default)),
             definition.genericParameters,
             Seq(
               ArgumentDefinition(
