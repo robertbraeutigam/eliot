@@ -33,14 +33,14 @@ object Parser {
       */
     def leftJoin[P](other: Parser[I, P]): Parser[I, (O, Option[P])] = StateT { input =>
       p.run(input) match
-        case ParserResult(consume, currentError, allErrors, None)                     =>
-          ParserResult(consume, currentError, allErrors, None)
-        case ParserResult(consume, currentError, allErrors, Some(nextInput, pResult)) =>
+        case ParserResult(consume, currentError, None)                     =>
+          ParserResult(consume, currentError, None)
+        case ParserResult(consume, currentError, Some(nextInput, pResult)) =>
           other.run(LimitedInputStream(input, nextInput.pos)) match
-            case ParserResult(_, _, _, None)                   =>
-              ParserResult(consume, currentError, allErrors, Some(nextInput, (pResult, None)))
-            case ParserResult(_, _, _, Some((_, otherResult))) =>
-              ParserResult(consume, currentError, allErrors, Some(nextInput, (pResult, Some(otherResult))))
+            case ParserResult(_, _, None)                   =>
+              ParserResult(consume, currentError, Some(nextInput, (pResult, None)))
+            case ParserResult(_, _, Some((_, otherResult))) =>
+              ParserResult(consume, currentError, Some(nextInput, (pResult, Some(otherResult))))
     }
 
     /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
@@ -52,9 +52,9 @@ object Parser {
       */
     def optional(): Parser[I, Option[O]] = StateT { input =>
       p.run(input) match
-        case ParserResult(NotConsumed, expected, allErrors, None) =>
-          ParserResult(NotConsumed, expected, allErrors, Some((input, None)))
-        case other                                                => other.map((input, a) => (input, Some(a)))
+        case ParserResult(NotConsumed, expected, None) =>
+          ParserResult(NotConsumed, expected, Some((input, None)))
+        case other                                     => other.map((input, a) => (input, Some(a)))
     }
 
     /** Match the given parser zero or more times. */
@@ -102,9 +102,9 @@ object Parser {
       */
     def atomic(): Parser[I, O] = StateT { input =>
       p.run(input) match
-        case ParserResult(_, _, allErrors, None) =>
-          ParserResult(NotConsumed, ParserError.noError, allErrors, None)
-        case other                               => other
+        case ParserResult(_, _, None) =>
+          ParserResult(NotConsumed, ParserError.noError, None)
+        case other                    => other
     }
 
     /** Skip to this parser.
@@ -138,12 +138,11 @@ object Parser {
   def acceptIf[I](predicate: I => Boolean, expected: String = ""): Parser[I, I] = StateT { input =>
     input.headOption match {
       case Some(nextI) if predicate(nextI) =>
-        ParserResult(Consumed, ParserError.noError, Seq.empty, Some((input.tail, nextI)))
+        ParserResult(Consumed, ParserError.noError, Some((input.tail, nextI)))
       case _                               =>
         ParserResult(
           NotConsumed,
           ParserError(input.pos, if (expected.isBlank) Set.empty else Set(expected)),
-          Seq.empty,
           None
         )
     }

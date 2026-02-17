@@ -23,7 +23,6 @@ import scala.util.control.TailCalls.{TailRec, done, tailcall}
 sealed case class ParserResult[A](
     consume: Consume,
     currentError: ParserError,
-    allErrors: Seq[ParserError],
     value: Option[A]
 )
 
@@ -33,16 +32,16 @@ object ParserResult {
   }
 
   given Monad[ParserResult] = new Monad[ParserResult]:
-    override def pure[A](a: A): ParserResult[A] = ParserResult(NotConsumed, ParserError.noError, Seq.empty, Some(a))
+    override def pure[A](a: A): ParserResult[A] = ParserResult(NotConsumed, ParserError.noError, Some(a))
 
     override def flatMap[A, B](fa: ParserResult[A])(f: A => ParserResult[B]): ParserResult[B] = fa match
-      case ParserResult(consume, currentError, allErrors, Some(a)) =>
+      case ParserResult(consume, currentError, Some(a)) =>
         f(a) match
-          case ParserResult(NotConsumed, error, allNextErrors, value) =>
-            ParserResult(consume, currentError |+| error, allErrors ++ allNextErrors, value)
-          case ParserResult(Consumed, error, allNextErrors, value)    =>
-            ParserResult(Consumed, error, allErrors ++ allNextErrors, value)
-      case err                                                     => err.asInstanceOf[ParserResult[B]]
+          case ParserResult(NotConsumed, error, value) =>
+            ParserResult(consume, currentError |+| error, value)
+          case ParserResult(Consumed, error, value)    =>
+            ParserResult(Consumed, error, value)
+      case err                                          => err.asInstanceOf[ParserResult[B]]
 
     override def tailRecM[A, B](a: A)(f: A => ParserResult[Either[A, B]]): ParserResult[B] = {
       def trampoline(current: ParserResult[Either[A, B]]): TailRec[ParserResult[B]] = current.value match
