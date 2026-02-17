@@ -14,7 +14,7 @@ class ModuleNamesProcessor extends TransformationProcessor[CoreAST.Key, ModuleNa
       key: ModuleNames.Key,
       fact: CoreAST
   ): CompilerIO[ModuleNames] =
-    extractNames(fact.ast.value.namedValues).map(names => ModuleNames(key.uri, names))
+    extractNames(fact.ast.value.namedValues).map(names => ModuleNames(key.uri, fact.ast.as(names)))
 
   private def extractNames(namedValues: Seq[NamedValue]): CompilerIO[Set[QualifiedName]] =
     namedValues.foldLeftM(Set.empty[QualifiedName]) { (acc, nv) =>

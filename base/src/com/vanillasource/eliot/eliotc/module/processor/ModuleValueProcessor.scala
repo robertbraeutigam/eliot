@@ -19,10 +19,11 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
       moduleNames    <- getFactOrAbort(ModuleNames.Key(key.uri))
       importedModules =
         extractImportedModules(key.vfqn.moduleName, coreAST.ast.as(coreAST.ast.value.importStatements), systemModules)
-      importedNames  <- extractImportedNames(importedModules, moduleNames.names)
-      dictionary      = importedNames ++ moduleNames.names.map(name => (name, ValueFQN(key.vfqn.moduleName, name))).toMap
+      importedNames  <- extractImportedNames(importedModules, moduleNames.names.value)
+      dictionary      =
+        importedNames ++ moduleNames.names.value.map(name => (name, ValueFQN(key.vfqn.moduleName, name))).toMap
       namedValuesMap  = coreAST.ast.value.namedValues.map(nv => nv.qualifiedName.value -> nv).toMap
-      _              <- moduleNames.names.toSeq
+      _              <- moduleNames.names.value.toSeq
                           .flatMap(name => namedValuesMap.get(name).map(nv => (name, nv)))
                           .map { (name, namedValue) =>
                             registerFactIfClear(
@@ -60,7 +61,11 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
                               val shadowingImported = moduleNames.names.intersect(importedNames.keySet)
 
                               if (shadowingLocal.nonEmpty) {
-                                compilerError(module.as(s"Imported names shadow local names: ${shadowingLocal.toSeq.map(_.show).mkString(", ")}"))
+                                compilerError(
+                                  module.as(
+                                    s"Imported names shadow local names: ${shadowingLocal.toSeq.map(_.show).mkString(", ")}"
+                                  )
+                                )
                                   .as(importedNames)
                               } else if (shadowingImported.nonEmpty) {
                                 compilerError(

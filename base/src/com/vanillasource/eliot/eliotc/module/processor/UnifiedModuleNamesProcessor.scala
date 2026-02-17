@@ -14,7 +14,7 @@ class UnifiedModuleNamesProcessor extends SingleFactProcessor[UnifiedModuleNames
     for {
       pathScan <- getFactOrAbort(PathScan.Key(pathName(key.moduleName)))
       allNames <- pathScan.files.traverse(uri => getFactOrAbort(ModuleNames.Key(uri)))
-    } yield UnifiedModuleNames(key.moduleName, allNames.flatMap(_.names).toSet)
+    } yield UnifiedModuleNames(key.moduleName, allNames.flatMap(_.names.value).toSet)
 
   private def pathName(name: ModuleName): Path =
     (name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ `resolve` _)

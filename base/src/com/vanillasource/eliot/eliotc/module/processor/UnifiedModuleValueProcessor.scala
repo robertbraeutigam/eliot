@@ -16,7 +16,7 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
     for {
       pathScan     <- getFactOrAbort(PathScan.Key(pathName(key.vfqn.moduleName)))
       allNames     <- pathScan.files.traverse(file => getFactOrAbort(ModuleNames.Key(file)).map(file -> _))
-      filesWithName = allNames.collect { case (file, names) if names.names.contains(key.vfqn.name) => file }
+      filesWithName = allNames.collect { case (file, names) if names.names.value.contains(key.vfqn.name) => file }
       allValues    <- filesWithName
                         .traverse(file => getFact(ModuleValue.Key(file, key.vfqn)))
                         .map(_.flatten)
