@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.core.fact.NamedValue
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleNames, ModuleValue, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
-import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
+import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerError, compilerAbort}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 
 import java.nio.file.{Path, Paths}
@@ -18,6 +18,8 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
       allNames     <- pathScan.files.traverse(file => getFactOrAbort(ModuleNames.Key(file)).map(file -> _))
       filesWithName = allNames.collect { case (file, names) if names.names.value.contains(key.vfqn.name) => file }
       allValues    <- filesWithName.traverse(file => getFactOrAbort(ModuleValue.Key(file, key.vfqn)))
+      _            <- compilerAbort(allNames.head._2.names.as(s"Could not find '${key.vfqn.name.show}'."))
+                        .whenA(allValues.isEmpty)
       unifiedValue <- unifyValues(key.vfqn, allValues)
     } yield unifiedValue
 
