@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.module.fact
 
-import com.vanillasource.eliot.eliotc.ast.fact.QualifiedName
+import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 case class UnifiedModuleNames(moduleName: ModuleName, names: Set[QualifiedName]) extends CompilerFact {

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm.jargen
 
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}

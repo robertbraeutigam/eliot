@@ -2,8 +2,8 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.QualifiedName
-import com.vanillasource.eliot.eliotc.ast.fact.Qualifier.Ability
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.Qualifier.Ability
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 

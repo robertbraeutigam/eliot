@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
@@ -61,7 +61,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
     val valueVfqn   = ValueFQN(testModuleName, default("value"))
     val typeChecked = TypeCheckedValue(
       valueVfqn,
-      sourced(default("value")),
+      sourced(toSymbolic(default("value"))),
       ConcreteValue(Types.dataType(intVfqn)),
       None
     )
@@ -97,7 +97,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
     val typeChecked = TypeCheckedValue(
       idVfqn,
-      sourced(default("id")),
+      sourced(toSymbolic(default("id"))),
       signature,
       Some(sourced(body.expression))
     )
@@ -136,7 +136,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
     val typeChecked = TypeCheckedValue(
       idVfqn,
-      sourced(default("id")),
+      sourced(toSymbolic(default("id"))),
       signature,
       Some(sourced(body.expression))
     )
@@ -175,7 +175,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
     val typeChecked = TypeCheckedValue(
       constVfqn,
-      sourced(default("const")),
+      sourced(toSymbolic(default("const"))),
       signature,
       Some(sourced(body.expression))
     )
@@ -203,7 +203,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
     val typeChecked = TypeCheckedValue(
       idVfqn,
-      sourced(default("id")),
+      sourced(toSymbolic(default("id"))),
       signature,
       None
     )
@@ -243,7 +243,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
     val typeChecked = TypeCheckedValue(
       fVfqn,
-      sourced(default("f")),
+      sourced(toSymbolic(default("f"))),
       signature,
       Some(sourced(body.expression))
     )
@@ -273,7 +273,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
     val typeChecked = TypeCheckedValue(
       fVfqn,
-      sourced(default("f")),
+      sourced(toSymbolic(default("f"))),
       signature,
       Some(sourced(body.expression))
     )
@@ -301,7 +301,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
     val typeChecked = TypeCheckedValue(
       fVfqn,
-      sourced(default("f")),
+      sourced(toSymbolic(default("f"))),
       signature,
       Some(sourced(body.expression))
     )
@@ -324,7 +324,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
     // constVal: Int (no body)
     val constTypeChecked = TypeCheckedValue(
       constVfqn,
-      sourced(default("constVal")),
+      sourced(toSymbolic(default("constVal"))),
       ConcreteValue(Types.dataType(intVfqn)),
       None
     )
@@ -338,7 +338,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
     val fTypeChecked = TypeCheckedValue(
       fVfqn,
-      sourced(default("f")),
+      sourced(toSymbolic(default("f"))),
       fSignature,
       Some(sourced(fBody.expression))
     )
@@ -370,7 +370,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
     )
     val idTypeChecked = TypeCheckedValue(
       idVfqn,
-      sourced(default("id")),
+      sourced(toSymbolic(default("id"))),
       idSignature,
       None
     )
@@ -402,7 +402,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
 
     val fTypeChecked = TypeCheckedValue(
       fVfqn,
-      sourced(default("f")),
+      sourced(toSymbolic(default("f"))),
       fSignature,
       Some(sourced(fBody.expression))
     )
@@ -445,7 +445,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
     )
     val typeChecked = TypeCheckedValue(
       fVfqn,
-      sourced(default("f")),
+      sourced(toSymbolic(default("f"))),
       signature,
       Some(sourced(fBody.expression))
     )
@@ -483,7 +483,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
     )
     val fTypeChecked = TypeCheckedValue(
       fVfqn,
-      sourced(default("f")),
+      sourced(toSymbolic(default("f"))),
       signature,
       Some(sourced(fBody.expression))
     )
@@ -494,7 +494,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
     )
     val gTypeChecked = TypeCheckedValue(
       gVfqn,
-      sourced(default("g")),
+      sourced(toSymbolic(default("g"))),
       signature,
       Some(sourced(gBody.expression))
     )

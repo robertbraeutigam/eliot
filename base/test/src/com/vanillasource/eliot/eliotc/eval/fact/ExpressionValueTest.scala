@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.eval.fact
 
-import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import org.scalatest.flatspec.AnyFlatSpec

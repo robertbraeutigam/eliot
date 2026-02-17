@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.resolve.fact
 
-import com.vanillasource.eliot.eliotc.ast.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}

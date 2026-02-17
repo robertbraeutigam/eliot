@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.eval.processor
 import cats.data.NonEmptySeq
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
@@ -143,7 +143,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
     )
     val resolvedValue = ResolvedValue(
       selfVfqn,
-      sourced(selfVfqn.name),
+      sourced(toResolve(selfVfqn.name)),
       None,
       sourced(TypeStack(NonEmptySeq.of(appliedExpr)))
     )
@@ -180,7 +180,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
     }
     ResolvedValue(
       vfqn,
-      sourced(vfqn.name),
+      sourced(toResolve(vfqn.name)),
       None,
       sourced(TypeStack(NonEmptySeq.of(typeExpr)))
     )

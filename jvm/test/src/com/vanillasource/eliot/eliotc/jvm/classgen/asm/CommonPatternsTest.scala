@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, FunctionLiteral, ParameterReference}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator

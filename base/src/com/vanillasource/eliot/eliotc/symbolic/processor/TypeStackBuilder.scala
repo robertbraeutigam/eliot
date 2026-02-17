@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.data.{NonEmptySeq, StateT}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*

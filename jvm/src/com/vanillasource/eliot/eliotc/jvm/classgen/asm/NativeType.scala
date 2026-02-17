@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN

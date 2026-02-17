@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.resolve
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
@@ -102,7 +102,7 @@ class ValueResolverTest
 
   it should "report error for undefined qualified name" in {
     runEngineForErrors("data T\ndef a: T = NonExistent::value")
-      .asserting(_ shouldBe Seq("Name not defined."))
+      .asserting(_ shouldBe Seq("Qualified named value not available."))
   }
 
   it should "report error for undefined name" in {

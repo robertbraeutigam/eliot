@@ -6,8 +6,8 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   DataDefinition,
   FunctionDefinition,
   GenericParameter,
-  QualifiedName,
-  Qualifier,
+  QualifiedName as AstQualifiedName,
+  Qualifier as AstQualifier,
   SourceAST,
   TypeReference,
   ArgumentDefinition as SourceArgument,
@@ -15,7 +15,6 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
 }
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.ast.fact.Qualifier.{Default, Type}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -55,8 +54,23 @@ class CoreProcessor
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
     val curriedValue = function.body.map(body => buildCurriedBody(function.args, body))
     val typeStack    = TypeStack.of(curriedType.value)
-    NamedValue(function.name, curriedValue.map(_.value), typeStack)
+    NamedValue(convertQualifiedName(function.name), curriedValue.map(_.value), typeStack)
   }
+
+  private def convertQualifiedName(name: Sourced[AstQualifiedName]): Sourced[QualifiedName] =
+    name.map(n => QualifiedName(n.name, convertQualifier(n.qualifier)))
+
+  private def convertQualifier(qualifier: AstQualifier): Qualifier =
+    qualifier match {
+      case AstQualifier.Default                                  => Qualifier.Default
+      case AstQualifier.Type                                     => Qualifier.Type
+      case AstQualifier.Ability(n)                               => Qualifier.Ability(n)
+      case AstQualifier.AbilityImplementation(n, genericParams)  =>
+        Qualifier.AbilityImplementation(
+          n,
+          genericParams.map(gp => toTypeExpression(TypeReference(gp.name, gp.genericParameters)).value)
+        )
+    }
 
   /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function^Type(D,
     * Function^Type(E, F)). Note: f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y \->
@@ -70,7 +84,7 @@ class CoreProcessor
     val withArgs = args.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (arg, acc) =>
       val argType     = toTypeExpression(arg.typeReference)
       val functionRef =
-        arg.name.as(NamedValueReference(arg.name.as(QualifiedName("Function", Type))))
+        arg.name.as(NamedValueReference(arg.name.as(QualifiedName("Function", Qualifier.Type))))
       val withArgType = arg.name.as(
         FunctionApplication(
           functionRef.map(TypeStack.of),
@@ -102,9 +116,9 @@ class CoreProcessor
     */
   private def toKindExpression(source: Sourced[String], genericParams: Seq[TypeReference]): Sourced[Expression] =
     if (genericParams.isEmpty) {
-      source.as(NamedValueReference(source.as(QualifiedName("Type", Default))))
+      source.as(NamedValueReference(source.as(QualifiedName("Type", Qualifier.Default))))
     } else {
-      val typeRef = source.as(NamedValueReference(source.as(QualifiedName("Type", Default))))
+      val typeRef = source.as(NamedValueReference(source.as(QualifiedName("Type", Qualifier.Default))))
       genericParams.foldRight[Sourced[Expression]](typeRef) { (param, acc) =>
         // Recursively compute the kind of this parameter based on its own nested generic params
         val paramKind = toKindExpression(param.typeName, param.genericParameters)
@@ -118,7 +132,7 @@ class CoreProcessor
       argKind: Sourced[Expression],
       resultKind: Sourced[Expression]
   ): Sourced[Expression] = {
-    val functionRef = source.as(NamedValueReference(source.as(QualifiedName("Function", Type))))
+    val functionRef = source.as(NamedValueReference(source.as(QualifiedName("Function", Qualifier.Type))))
     val withArgType = source.as(
       FunctionApplication(
         functionRef.map(TypeStack.of),
@@ -224,7 +238,7 @@ class CoreProcessor
     Seq(
       transformFunction(
         FunctionDefinition(
-          definition.name.map(n => QualifiedName(n, Qualifier.Type)),
+          definition.name.map(n => AstQualifiedName(n, AstQualifier.Type)),
           definition.genericParameters,
           Seq.empty,
           TypeReference(definition.name.as("Type"), Seq.empty),
@@ -246,7 +260,7 @@ class CoreProcessor
         Seq(
           transformFunction(
             FunctionDefinition(
-              definition.name.map(n => QualifiedName(n, Qualifier.Default)), // Constructor name
+              definition.name.map(n => AstQualifiedName(n, AstQualifier.Default)), // Constructor name
               definition.genericParameters,
               fields,
               TypeReference(
@@ -275,7 +289,7 @@ class CoreProcessor
       .map { field =>
         transformFunction(
           FunctionDefinition(
-            field.name.map(n => QualifiedName(n, Qualifier.Default)),
+            field.name.map(n => AstQualifiedName(n, AstQualifier.Default)),
             definition.genericParameters,
             Seq(
               ArgumentDefinition(

@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{Qualifier as ResolveQualifier, QualifiedName as ResolveQualifiedName}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.*
 import com.vanillasource.eliot.eliotc.symbolic.types.*
@@ -53,13 +54,22 @@ class SymbolicTypeCheckProcessor
                                                      "Type mismatch."
                                                    )
                                                  )
+                  resolvedQualifierParams     <- resolveQualifierParams(resolvedValue.name)
                   constraints                 <- getConstraints
                   universalVars               <- getUniversalVars
                   unificationVars             <- getUnificationVars
-                } yield (declaredType, typedLevels, bodyResult, constraints, universalVars, unificationVars))
+                } yield (
+                  declaredType,
+                  typedLevels,
+                  bodyResult,
+                  constraints,
+                  universalVars,
+                  unificationVars,
+                  resolvedQualifierParams
+                ))
                   .runA(TypeCheckState())
 
-      (declaredType, typedLevels, typedBody, constraints, universalVars, unificationVars) = result
+      (declaredType, typedLevels, typedBody, constraints, universalVars, unificationVars, qualifierParams) = result
 
       _                  <- debug[CompilerIO](s"Constraints (of ${resolvedValue.vfqn.show}): ${constraints.show}")
       solution           <- constraints.solve(universalVars, unificationVars)
@@ -67,13 +77,14 @@ class SymbolicTypeCheckProcessor
       resolvedTypedLevels = typedLevels.map(_.transformTypes(solution.substitute))
       resolvedTypedBody   = typedBody.transformTypes(solution.substitute)
       signatureType       = resolvedTypedLevels.head.expressionType
+      resolvedQualifierParams = qualifierParams.map(solution.substitute)
       _                  <-
         debug[CompilerIO](
           s"Produced symbolic checked (of ${resolvedValue.vfqn.show}) signature: ${signatureType.show}, body: ${resolvedTypedBody.expression.show}"
         )
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
-      resolvedValue.name,
+      convertQualifiedName(resolvedValue.name, resolvedQualifierParams),
       signatureType,
       Some(resolvedValue.typeStack.as(resolvedTypedBody.expression))
     )
@@ -82,18 +93,47 @@ class SymbolicTypeCheckProcessor
       resolvedValue: ResolvedValue
   ): CompilerIO[TypeCheckedValue] =
     for {
-      (signatureType, _) <- TypeStackBuilder
-                              .processStack(resolvedValue.typeStack)
-                              .map { case (signatureType, typedStack) =>
-                                (signatureType, typedStack.value.levels)
-                              }
-                              .runA(TypeCheckState())
+      result <- (for {
+                  (signatureType, _) <- TypeStackBuilder
+                                          .processStack(resolvedValue.typeStack)
+                                          .map { case (signatureType, typedStack) =>
+                                            (signatureType, typedStack.value.levels)
+                                          }
+                  qualifierParams    <- resolveQualifierParams(resolvedValue.name)
+                } yield (signatureType, qualifierParams))
+                  .runA(TypeCheckState())
+      (signatureType, qualifierParams) = result
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
-      resolvedValue.name,
+      convertQualifiedName(resolvedValue.name, qualifierParams),
       signatureType,
       None
     )
+
+  private def resolveQualifierParams(
+      name: Sourced[ResolveQualifiedName]
+  ): TypeGraphIO[Seq[ExpressionValue]] =
+    name.value.qualifier match {
+      case ResolveQualifier.AbilityImplementation(_, params) =>
+        params.traverse { param =>
+          TypeStackBuilder.inferBody(name.as(param)).map(_.expressionType)
+        }
+      case _                                                 => Seq.empty[ExpressionValue].pure[TypeGraphIO]
+    }
+
+  private def convertQualifiedName(
+      name: Sourced[ResolveQualifiedName],
+      qualifierParams: Seq[ExpressionValue]
+  ): Sourced[QualifiedName] =
+    name.map { n =>
+      val qualifier = n.qualifier match {
+        case ResolveQualifier.Default                       => Qualifier.Default
+        case ResolveQualifier.Type                          => Qualifier.Type
+        case ResolveQualifier.Ability(an)                   => Qualifier.Ability(an)
+        case ResolveQualifier.AbilityImplementation(an, _)  => Qualifier.AbilityImplementation(an, qualifierParams)
+      }
+      QualifiedName(n.name, qualifier)
+    }
 
   /** Strip FunctionLiteral wrappers that represent universal type introductions. These have Value.Type as the parameter
     * type. This is used for constraint building where the body's type doesn't include these wrappers.
