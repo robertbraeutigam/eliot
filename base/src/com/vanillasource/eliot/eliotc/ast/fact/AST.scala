@@ -28,13 +28,19 @@ object AST {
     override def parser: Parser[Sourced[Token], (Seq[ParserError], AST)] =
       for {
         (errors, items) <-
-          (component[ImportStatement] xor (component[FunctionDefinition] xor component[DataDefinition]))
+          (component[ImportStatement] xor
+            (component[FunctionDefinition] xor
+              (component[DataDefinition] xor
+                AbilityBlock.abilityBlock.parser)))
             .recoveringAnyTimes(isKeyword)
       } yield {
         val importStatements    = items.flatMap(_.left.toOption)
         val functionDefinitions = items.flatMap(_.toOption).flatMap(_.left.toOption)
-        val dataDefinitions     = items.flatMap(_.toOption).flatMap(_.toOption)
-        (errors, AST(importStatements, functionDefinitions, dataDefinitions))
+        val dataDefinitions     = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.left.toOption)
+        val abilities           = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption)
+        val abilityErrors       = abilities.flatMap(_._1)
+        val abilityFunctions    = abilities.flatMap(_._2)
+        (errors ++ abilityErrors, AST(importStatements, functionDefinitions ++ abilityFunctions, dataDefinitions))
       }
   }
 }

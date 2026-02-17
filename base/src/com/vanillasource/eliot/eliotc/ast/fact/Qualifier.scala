@@ -17,5 +17,9 @@ object Qualifier {
     */
   case object Type extends Qualifier
 
+  /** Functions belonging to a given typeclass.
+    */
+  case class Ability(name: String) extends Qualifier
+
   given Eq[Qualifier] = Eq.fromUniversalEquals
 }
