@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.QualifiedName
+import com.vanillasource.eliot.eliotc.ast.fact.Qualifier.Ability
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
@@ -26,6 +27,17 @@ object ValueResolverScope {
 
   def getValue(name: QualifiedName): ScopedIO[Option[ValueFQN]] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.dictionary.get(name))
+
+  def searchAbilities(searchingName: String): ScopedIO[Seq[ValueFQN]] =
+    StateT
+      .get[CompilerIO, ValueResolverScope]
+      .map(
+        _.dictionary.values
+          .collect {
+            case vfqn @ ValueFQN(_, QualifiedName(valueName, Ability(_))) if valueName === searchingName => vfqn
+          }
+          .toSeq
+      )
 
   def withLocalScope[T](computation: ScopedIO[T]): ScopedIO[T] =
     for {

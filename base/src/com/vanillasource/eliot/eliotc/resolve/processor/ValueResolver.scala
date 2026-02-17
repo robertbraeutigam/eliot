@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.Qualifier.Ability
 import com.vanillasource.eliot.eliotc.ast.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.{TypeStack, Expression as CoreExpression}
@@ -13,6 +14,8 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolverScope.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
+
+import scala.collection.immutable.{AbstractSeq, LinearSeq}
 
 class ValueResolver
     extends TransformationProcessor[UnifiedModuleValue.Key, ResolvedValue.Key](key => UnifiedModuleValue.Key(key.vfqn))
@@ -107,16 +110,27 @@ class ValueResolver
       case NamedValueReference(nameSrc, None)          =>
         isParameter(nameSrc.value.name).flatMap { isParam =>
           if (isParam) {
+            // This is a parameter defined in the expression
             Expression.ParameterReference(nameSrc.map(_.name)).pure[ScopedIO]
-          } else if (nameSrc.value.name === "Type") { // Note Type is the same on all plains
-            // Type is a special builtin for type-level parameters
+          } else if (nameSrc.value.name === "Type") {
+            // Type is a special builtin for type-level parameters (same on all plains)
             Expression.ValueReference(nameSrc.as(typeFQN)).pure[ScopedIO]
           } else {
+            // This should be a referenced value
             getValue(nameSrc.value).flatMap {
               case Some(vfqn) =>
+                // This is a normal value
                 Expression.ValueReference(nameSrc.as(vfqn)).pure[ScopedIO]
               case None       =>
-                compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
+                searchAbilities(nameSrc.value.name).flatMap {
+                  case Nil         => compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
+                  case head :: Nil => Expression.ValueReference(nameSrc.as(head)).pure[ScopedIO]
+                  case as          =>
+                    compilerAbort(
+                      nameSrc.as("Name defined in multiple abilities."),
+                      Seq(s"Abilities: ${as.map(_.name.qualifier.asInstanceOf[Ability].name).mkString(", ")}")
+                    ).liftToScoped
+                }
             }
           }
         }
@@ -127,7 +141,7 @@ class ValueResolver
 
         getFact(UnifiedModuleValue.Key(vfqn)).liftToScoped.flatMap {
           case Some(_) => Expression.ValueReference(outline.as(vfqn)).pure[ScopedIO]
-          case None    => compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
+          case None    => compilerAbort(nameSrc.as("Qualified named value not available.")).liftToScoped
         }
       case FunctionApplication(targetStack, argStack)  =>
         for {
