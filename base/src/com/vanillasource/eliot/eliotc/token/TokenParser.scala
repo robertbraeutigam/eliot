@@ -51,7 +51,7 @@ class TokenParser(sourced: Sourced[?]) {
   )
 
   private lazy val standaloneSymbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
-    character.strings("(", ")", "[", "]", ",", "->").map(Token.Symbol.apply)
+    character.strings("(", ")", "[", "]", "{", "}", ",", "->").map(Token.Symbol.apply)
   ).label("special operator")
 
   private lazy val keyword: Parsley[Sourced[Token.Keyword]] = sourcedLexeme(
