@@ -28,16 +28,6 @@ object Parser {
       */
     def parse(input: Seq[I]): ParserResult[O] = p.runA(InputStream.of(input))
 
-    /** Save the error into the error list. This does not alter the result in any other way, the parser will still fail
-      * on error.
-      */
-    private def saveError(): Parser[I, O] = StateT { input =>
-      p.run(input) match
-        case ParserResult(consume, expected, allErrors, None) =>
-          ParserResult(consume, expected, allErrors :+ expected, None)
-        case other                                            => other
-    }
-
     /** Run another parser on exactly the matched input. The resulting parser will match exactly when this parser
       * matches, and if it does, it will potentially contain the other parser's result as well.
       */
@@ -66,14 +56,6 @@ object Parser {
           ParserResult(NotConsumed, expected, allErrors, Some((input, None)))
         case other                                                => other.map((input, a) => (input, Some(a)))
     }
-
-    /** Attempt this parser for the input until the given other parser. If the parser fails, the error will be saved and
-      * the input will skip to the given delimiter.
-      */
-    def attemptPhraseTo(delimiter: Parser[I, ?]): Parser[I, Option[O]] = p
-      .followedBy(delimiter)
-      .saveError()
-      .recoverWith(delimiter.skipTo())
 
     /** Match the given parser zero or more times. */
     def anyTimes(): Parser[I, Seq[O]] = anyTimesWhile(().pure)
@@ -125,33 +107,10 @@ object Parser {
         case other                               => other
     }
 
-    /** Find the given parser in the stream. The resulting parser will advance the stream until the parser can be
-      * matched at some position.
-      *
-      * Note: when such a parser is made [[atomic]], that would mean that it will either find the given input which can
-      * be parsed, or it will not consume any input.
-      *
-      * Note: when such a parser is combined with [[anyTimes]], it will always consume the full input searching for the
-      * given parser.
-      *
-      * Note: when such a parser is both [[atomic]] and [[anyTimes]] (in that order), then the parser will be matched as
-      * many times as possible, but input will only be consumed to the end of the last match.
-      */
-    def find(): Parser[I, O] = findAt(any())
-
-    /** Find this input which matches this parser, but only in positions where the "at" parser matches.
-      */
-    def findAt(at: Parser[I, ?]): Parser[I, O] =
-      recoverWith(at.skipTo())
-        .iterateUntil(_.nonEmpty)
-        .map(_.get)
-
     /** Skip to this parser.
       */
     def skipTo(): Parser[I, O] =
       (p.lookahead().map(Some.apply) or any().as(None)).iterateUntil(_.isDefined).map(_.get)
-
-    def recoverWith(skip: Parser[I, ?]): Parser[I, Option[O]] = p.atomic().map(Some.apply) or (any() >> skip.as(None))
 
     /** Will match if this parser matches the input, but will not consume any input regardless of success or failure.
       */

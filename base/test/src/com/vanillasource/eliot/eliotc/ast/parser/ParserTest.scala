@@ -114,46 +114,6 @@ class ParserTest extends AnyFlatSpec with Matchers {
     p.parse("ac") shouldBe ParserResult(Consumed, ParserError.noError, Seq.empty, Some(2))
   }
 
-  "find" should "parse whole input to find the parser" in {
-    val p = (literal('a') >> literal('b') >> literal('c')).find()
-
-    p.parse("..ab..abc..") shouldBe ParserResult(Consumed, ParserError.noError, Seq.empty, Some('c'))
-  }
-
-  it should "fail if the input did not contain a match and consume all of the input" in {
-    val p = (literal('a') >> literal('b') >> literal('c')).find()
-
-    p.parse("..ab..abd..") shouldBe ParserResult(Consumed, ParserError(11, Set("input")), Seq.empty, None)
-  }
-
-  it should "collect all found matches if it can match the last one" in {
-    val p = (literal('a') >> literal('b') >> literal('c')).find().anyTimes().map(_.size)
-
-    p.parse("..abc..abd..aaabc") shouldBe ParserResult(Consumed, ParserError(0, Set("input")), Seq.empty, Some(2))
-  }
-
-  it should "fail with anyTimes() is the last portion does not match" in {
-    val p = (literal('a') >> literal('b') >> literal('c')).find().anyTimes().map(_.size)
-
-    p.parse("..abc..abd..aaabc..") shouldBe ParserResult(Consumed, ParserError(19, Set("input")), Seq.empty, None)
-  }
-
-  it should "collect all found matches, and then continue to parse after last match if combined with atomic and any times" in {
-    val a = (literal('a') >> literal('b') >> literal('c')).find().atomic().anyTimes().map(_.size)
-    val b = literal('c') >> literal('d').as(99)
-    val p = a >> b
-
-    p.parse("..abc..abccd") shouldBe ParserResult(Consumed, ParserError.noError, Seq.empty, Some(99))
-  }
-
-  it should "report expected from both itself and following parser after last match" in {
-    val a = (literal('a') >> literal('b') >> literal('c')).find().atomic().anyTimes().map(_.size)
-    val b = literal('c') >> literal('d').as(99)
-    val p = a >> b
-
-    p.parse("..abc..abcxcd") shouldBe ParserResult(Consumed, ParserError(10, Set("c")), Seq.empty, None)
-  }
-
   "any" should "consume a random item" in {
     val p = any[Char]()
 
