@@ -1,27 +1,15 @@
 package com.vanillasource.eliot.eliotc.ast.parser
 
-trait InputStream[I] {
-  def headOption: Option[I]
+import scala.annotation.tailrec
 
-  def tail: InputStream[I]
+case class InputStream[I](remainder: Seq[I], pos: Int) {
+  def headOption: Option[I] = remainder.headOption
 
-  def pos: Int
+  def tail: InputStream[I] = InputStream(remainder.tail, pos + 1)
+
+  def lastBefore(maxPos: Int): I = remainder.apply(math.min(remainder.length - 1, maxPos - 1))
 }
 
 object InputStream {
-  def of[I](input: Seq[I]): InputStream[I] = SeqInputStream(input, 0)
-
-  /** The input stream that will be read by the parser.
-    *
-    * @param remainder
-    *   The remaining items in the stream.
-    * @param pos
-    *   The position in the original stream. 0=at the beginning.
-    */
-  case class SeqInputStream[I](remainder: Seq[I], pos: Int) extends InputStream[I] {
-    def headOption: Option[I] = remainder.headOption
-
-    def tail: InputStream[I] = SeqInputStream(remainder.tail, pos + 1)
-  }
-
+  def of[I](input: Seq[I]): InputStream[I] = InputStream(input, 0)
 }

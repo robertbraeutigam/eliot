@@ -33,11 +33,11 @@ object Parser {
       */
     def withBounds: Parser[I, (O, I, I)] = StateT { input =>
       p.run(input) match
-        case ParserResult(consume, error, None)                          =>
+        case ParserResult(consume, error, None)                      =>
           ParserResult(consume, error, None)
-        case ParserResult(consume, error, Some((nextInput, result)))     =>
+        case ParserResult(consume, error, Some((nextInput, result))) =>
           val firstItem = input.headOption.get
-          val lastItem  = Parser.lastBefore(input, nextInput.pos)
+          val lastItem  = input.lastBefore(nextInput.pos)
           ParserResult(consume, error, Some((nextInput, (result, firstItem, lastItem))))
     }
 
@@ -174,9 +174,4 @@ object Parser {
     */
   def acceptIfAll[I](predicates: (I => Boolean)*)(expected: String): Parser[I, I] =
     acceptIf(i => predicates.forall(_.apply(i)), expected)
-
-  @tailrec
-  private def lastBefore[I](stream: InputStream[I], maxPos: Int): I =
-    if stream.tail.pos >= maxPos then stream.headOption.get
-    else lastBefore(stream.tail, maxPos)
 }
