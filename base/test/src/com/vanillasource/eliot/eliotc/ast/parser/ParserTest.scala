@@ -174,18 +174,15 @@ class ParserTest extends AnyFlatSpec with Matchers {
     p.parse("a,a") shouldBe ParserResult(Consumed, ParserError(0, Set(",")), Some(Seq('a', 'a')))
   }
 
-  it should "successfully left join a parser that matches on the input" in {
-    val p = (literal('a') >> literal('b')).anyTimes()
-    val j = literal('a') >> literal('b') >> literal('a') >> literal('b')
+  it should "return first and last consumed items with withBounds" in {
+    val p = literal('a') >> literal('b') >> literal('c')
 
-    p.leftJoin(j).parse("abab").value shouldBe Some((Seq('b', 'b'), Some('b')))
+    p.withBounds.parse("abc").value shouldBe Some(('c', 'a', 'c'))
   }
 
-  it should "return none for a left join that would be one character too long" in {
-    val p = (literal('a') >> literal('b')).anyTimes()
-    val j = literal('a') >> literal('b') >> literal('c')
+  it should "return same item for first and last when single item consumed with withBounds" in {
+    val p = literal('a')
 
-    p.leftJoin(j).parse("abc").value shouldBe Some((Seq('b'), None))
-
+    p.withBounds.parse("a").value shouldBe Some(('a', 'a', 'a'))
   }
 }

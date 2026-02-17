@@ -3,8 +3,9 @@ package com.vanillasource.eliot.eliotc.ast.parser
 import cats.data.StateT
 import cats.syntax.all.*
 import cats.{Eq, Show}
-import InputStream.LimitedInputStream
 import ParserResult.Consume.*
+
+import scala.annotation.tailrec
 
 /** A parser combinator that consumes items of type [[I]] and produces results of some type [[O]].
   *
@@ -28,19 +29,16 @@ object Parser {
       */
     def parse(input: Seq[I]): ParserResult[O] = p.runA(InputStream.of(input))
 
-    /** Run another parser on exactly the matched input. The resulting parser will match exactly when this parser
-      * matches, and if it does, it will potentially contain the other parser's result as well.
+    /** Run the parser and capture the first and last consumed input items alongside the result.
       */
-    def leftJoin[P](other: Parser[I, P]): Parser[I, (O, Option[P])] = StateT { input =>
+    def withBounds: Parser[I, (O, I, I)] = StateT { input =>
       p.run(input) match
-        case ParserResult(consume, currentError, None)                     =>
-          ParserResult(consume, currentError, None)
-        case ParserResult(consume, currentError, Some(nextInput, pResult)) =>
-          other.run(LimitedInputStream(input, nextInput.pos)) match
-            case ParserResult(_, _, None)                   =>
-              ParserResult(consume, currentError, Some(nextInput, (pResult, None)))
-            case ParserResult(_, _, Some((_, otherResult))) =>
-              ParserResult(consume, currentError, Some(nextInput, (pResult, Some(otherResult))))
+        case ParserResult(consume, error, None)                          =>
+          ParserResult(consume, error, None)
+        case ParserResult(consume, error, Some((nextInput, result)))     =>
+          val firstItem = input.headOption.get
+          val lastItem  = Parser.lastBefore(input, nextInput.pos)
+          ParserResult(consume, error, Some((nextInput, (result, firstItem, lastItem))))
     }
 
     /** Fully read the input with the given parser. This means after the parser completes, the input should be empty.
@@ -176,4 +174,9 @@ object Parser {
     */
   def acceptIfAll[I](predicates: (I => Boolean)*)(expected: String): Parser[I, I] =
     acceptIf(i => predicates.forall(_.apply(i)), expected)
+
+  @tailrec
+  private def lastBefore[I](stream: InputStream[I], maxPos: Int): I =
+    if stream.tail.pos >= maxPos then stream.headOption.get
+    else lastBefore(stream.tail, maxPos)
 }

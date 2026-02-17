@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
@@ -32,8 +33,8 @@ object Primitives {
       .map(_.getOrElse(Seq.empty))
 
   def sourced[A](p: Parser[Sourced[Token], A]): Parser[Sourced[Token], Sourced[A]] =
-    p.leftJoin(any[Sourced[Token]]().anyTimes()).map { case (result, tokenList) =>
-      Sourced.outline(tokenList.get).as(result)
+    p.withBounds.map { case (result, first, last) =>
+      Sourced(first.uri, PositionRange(first.range.from, last.range.to), result)
     }
 
   def symbol(s: String) = acceptIfAll(isSymbol, hasContent(s))(s"symbol '$s'")

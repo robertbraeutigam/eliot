@@ -24,13 +24,4 @@ object InputStream {
     def tail: InputStream[I] = SeqInputStream(remainder.tail, pos + 1)
   }
 
-  /** An input that will maintain a list of items consumed.
-    */
-  case class LimitedInputStream[I](input: InputStream[I], maxPos: Int) extends InputStream[I] {
-    override def headOption: Option[I] = if (pos < maxPos) input.headOption else None
-
-    override def tail: InputStream[I] = LimitedInputStream(input.tail, maxPos)
-
-    override def pos: Int = input.pos
-  }
 }
