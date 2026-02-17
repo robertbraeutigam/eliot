@@ -127,6 +127,31 @@ object Parser {
       * therefore, a pair is returned.
       */
     infix def xor[P](p2: Parser[I, P]): Parser[I, Either[O, P]] = p.map(Left(_)) or p2.map(Right(_))
+
+    /** Try this parser, and if it fails after consuming input, recover by skipping to the next item matching the given
+      * predicate. The error is captured in the result rather than causing the parser to fail.
+      *
+      *   - Success: Right(value), input consumed normally
+      *   - Fail without consuming: parser fails without consuming (propagated to caller)
+      *   - Fail after consuming: Left(error), input skipped to next span boundary
+      */
+    def recovering(spanStart: I => Boolean): Parser[I, Either[ParserError, O]] = StateT { input =>
+      p.run(input) match
+        case ParserResult(consume, error, Some((next, value))) =>
+          ParserResult(consume, error, Some((next, Right(value))))
+        case ParserResult(NotConsumed, error, None)             =>
+          ParserResult(NotConsumed, error, None)
+        case ParserResult(Consumed, error, None)                =>
+          ParserResult(Consumed, ParserError.noError, Some((input.tail.dropWhile(i => !spanStart(i)), Left(error))))
+    }
+
+    /** Repeatedly apply this parser with error recovery. When the parser fails after consuming input, the error is
+      * recorded and input is skipped to the next item matching the given predicate.
+      */
+    def recoveringAnyTimes(spanStart: I => Boolean): Parser[I, (Seq[ParserError], Seq[O])] =
+      p.recovering(spanStart).anyTimes().map { results =>
+        (results.collect { case Left(e) => e }, results.flatMap(_.toOption))
+      }
   }
 
   /** Accept if the given predicate holds.

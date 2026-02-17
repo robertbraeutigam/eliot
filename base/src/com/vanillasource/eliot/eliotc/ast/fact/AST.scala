@@ -25,47 +25,18 @@ object AST {
         .mkString(", ")}, type definitions: ${ast.typeDefinitions.map(_.show).mkString(", ")}"
 
   def parse(tokens: Seq[Sourced[Token]]): (Seq[ParserError], AST) = {
-    val blocks = topBlocks(tokens)
+    val topLevel =
+      (component[ImportStatement] xor (component[FunctionDefinition] xor component[DataDefinition]))
+        .recoveringAnyTimes(isKeyword)
 
-    val importStatementsResults =
-      blocks
-        .takeWhile(ts => isKeyword(ts.head) && ts.head.value.content === "import")
-        .map(ts => parseWith(component[ImportStatement], ts))
-    val definitionsResults      =
-      blocks
-        .dropWhile(ts => isKeyword(ts.head) && ts.head.value.content === "import")
-        .map(ts => parseWith(component[FunctionDefinition] xor component[DataDefinition], ts))
-
-    val errors              = importStatementsResults.flatMap(_._1) ++ definitionsResults.flatMap(_._1)
-    val importStatements    = importStatementsResults.flatMap(_._2)
-    val functionDefinitions = definitionsResults.flatMap(_._2).flatMap(_.left.toOption)
-    val dataDefinition      = definitionsResults.flatMap(_._2).flatMap(_.toOption)
-
-    (errors, AST(importStatements, functionDefinitions, dataDefinition))
-  }
-
-  private def parseWith[A](
-      parser: Parser[Sourced[Token], A],
-      ts: Seq[Sourced[Token]]
-  ): (Seq[ParserError], Option[A]) = {
-    val result = parser.fully().parse(ts)
-
+    val result = topLevel.fully().parse(tokens)
     result.value match
-      case Some(value) => (Seq.empty, Some(value))
-      case None        => (Seq(result.currentError), None)
+      case Some((errors, items)) =>
+        val importStatements    = items.flatMap(_.left.toOption)
+        val functionDefinitions = items.flatMap(_.toOption).flatMap(_.left.toOption)
+        val dataDefinitions     = items.flatMap(_.toOption).flatMap(_.toOption)
+        (errors, AST(importStatements, functionDefinitions, dataDefinitions))
+      case None                  =>
+        (Seq(result.currentError), AST(Seq.empty, Seq.empty, Seq.empty))
   }
-
-  /** Splits the incoming tokens into the top-level blocks a source-file can have. Each of these blocks is then parsed
-    * separately. This also means all of them can have a separate error.
-    */
-  private def topBlocks(tokens: Seq[Sourced[Token]]): Seq[Seq[Sourced[Token]]] =
-    tokens.foldLeft(Seq.empty) { (acc, token) =>
-      token.value match {
-        case Token.Keyword(content) => acc :+ Seq(token)
-        case _                      =>
-          acc match
-            case Nil => Seq(Seq(token))
-            case _   => acc.init :+ (acc.last :+ token)
-      }
-    }
 }

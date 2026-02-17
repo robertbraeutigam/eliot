@@ -185,4 +185,70 @@ class ParserTest extends AnyFlatSpec with Matchers {
 
     p.withBounds.parse("a").value shouldBe Some(('a', 'a', 'a'))
   }
+
+  "recovering" should "return right on success" in {
+    val p = (literal('a') >> literal('b')).recovering(_ == 'a')
+
+    p.parse("ab").value shouldBe Some(Right('b'))
+  }
+
+  it should "propagate failure when nothing consumed" in {
+    val p = (literal('a') >> literal('b')).recovering(_ == 'a')
+
+    p.parse("cd") shouldBe ParserResult(NotConsumed, ParserError(0, Set("a")), None)
+  }
+
+  it should "return left with error when failing after consuming" in {
+    val p = (literal('a') >> literal('b')).recovering(_ == 'a')
+
+    p.parse("ac").value shouldBe Some(Left(ParserError(1, Set("b"))))
+  }
+
+  it should "skip to next span boundary after failing" in {
+    val p = (literal('a') >> literal('b')).recovering(_ == 'a') >> literal('a')
+
+    p.parse("ac..a").value shouldBe Some('a')
+  }
+
+  it should "skip to end of input when no boundary found" in {
+    val p = (literal('a') >> literal('b')).recovering(_ == 'a')
+
+    p.fully().parse("ac..").value shouldBe Some(Left(ParserError(1, Set("b"))))
+  }
+
+  "recovering any times" should "parse all successful spans" in {
+    val p = (literal('a') >> literal('b')).recoveringAnyTimes(_ == 'a')
+
+    p.parse("ababab").value shouldBe Some((Seq.empty, Seq('b', 'b', 'b')))
+  }
+
+  it should "collect errors from failed spans and continue" in {
+    val p = (literal('a') >> literal('b')).recoveringAnyTimes(_ == 'a')
+
+    p.parse("acabab").value shouldBe Some((Seq(ParserError(1, Set("b"))), Seq('b', 'b')))
+  }
+
+  it should "stop when no span boundary is ahead" in {
+    val p = (literal('a') >> literal('b')).recoveringAnyTimes(_ == 'a') >> literal('z')
+
+    p.parse("ababz").value shouldBe Some('z')
+  }
+
+  it should "return empty results on empty input" in {
+    val p = (literal('a') >> literal('b')).recoveringAnyTimes(_ == 'a')
+
+    p.parse("").value shouldBe Some((Seq.empty, Seq.empty))
+  }
+
+  it should "collect multiple errors from consecutive failed spans" in {
+    val p = (literal('a') >> literal('b')).recoveringAnyTimes(_ == 'a')
+
+    p.parse("acac").value shouldBe Some((Seq(ParserError(1, Set("b")), ParserError(3, Set("b"))), Seq.empty))
+  }
+
+  it should "recover failed span between successful spans" in {
+    val p = (literal('a') >> literal('b')).recoveringAnyTimes(_ == 'a')
+
+    p.parse("abacab").value shouldBe Some((Seq(ParserError(3, Set("b"))), Seq('b', 'b')))
+  }
 }
