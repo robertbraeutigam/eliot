@@ -2,18 +2,9 @@ package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
-import com.vanillasource.eliot.eliotc.ast.fact.Primitives.{
-  bracketedCommaSeparatedItems,
-  hasContent,
-  isIdentifier,
-  isKeyword,
-  isUpperCase,
-  keyword,
-  optionalBracketedCommaSeparatedItems,
-  symbol
-}
+import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
+import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIfAll, between, recoveringAnyTimes}
 import com.vanillasource.eliot.eliotc.ast.parser.{Parser, ParserError}
-import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIfAll, atLeastOnce, between, recoveringAnyTimes}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 
