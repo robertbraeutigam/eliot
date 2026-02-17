@@ -67,7 +67,9 @@ object AST {
   ): (Seq[ParserError], Option[A]) = {
     val result = parser.fully().parse(ts)
 
-    (Seq(result.currentError), result.value)
+    result.value match
+      case Some(value) => (Seq.empty, Some(value))
+      case None        => (Seq(result.currentError), None)
   }
 
   /** Splits the incoming tokens into the top-level blocks a source-file can have. Each of these blocks is then parsed
