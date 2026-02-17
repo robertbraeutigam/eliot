@@ -17,9 +17,13 @@ object Qualifier {
     */
   case object Type extends Qualifier
 
-  /** Functions belonging to a given typeclass.
+  /** Functions belonging to a given ability.
     */
   case class Ability(name: String) extends Qualifier
+
+  /** Function belongs to the given ability implementation.
+    */
+  case class AbilityImplementation(name: String, genericParameters: Seq[GenericParameter]) extends Qualifier
 
   given Eq[Qualifier] = Eq.fromUniversalEquals
 }
