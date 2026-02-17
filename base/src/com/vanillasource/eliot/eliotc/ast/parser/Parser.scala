@@ -3,9 +3,7 @@ package com.vanillasource.eliot.eliotc.ast.parser
 import cats.data.StateT
 import cats.syntax.all.*
 import cats.{Eq, Show}
-import ParserResult.Consume.*
-
-import scala.annotation.tailrec
+import com.vanillasource.eliot.eliotc.ast.parser.ParserResult.Consume.*
 
 /** A parser combinator that consumes items of type [[I]] and produces results of some type [[O]].
   *
@@ -62,7 +60,7 @@ object Parser {
       * @param n
       *   The parser that should match before applying this parser.
       */
-    def anyTimesWhile(n: Parser[I, ?]): Parser[I, Seq[O]] =
+    private def anyTimesWhile(n: Parser[I, ?]): Parser[I, Seq[O]] =
       Seq.empty[O].tailRecM { acc =>
         (n.lookahead() *> p).optional().map {
           case Some(value) => Left(acc.appended(value))
@@ -112,7 +110,7 @@ object Parser {
 
     /** Will match if this parser matches the input, but will not consume any input regardless of success or failure.
       */
-    def lookahead(): Parser[I, O] = StateT { input =>
+    private def lookahead(): Parser[I, O] = StateT { input =>
       p.run(input).copy(consume = NotConsumed).map((_, o) => (input, o))
     }
 

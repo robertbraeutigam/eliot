@@ -1,7 +1,5 @@
 package com.vanillasource.eliot.eliotc.ast.parser
 
-import scala.annotation.tailrec
-
 case class InputStream[I](remainder: Seq[I], pos: Int) {
   def headOption: Option[I] = remainder.headOption
 
