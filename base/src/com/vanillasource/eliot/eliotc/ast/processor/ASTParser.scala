@@ -23,30 +23,36 @@ class ASTParser
   ): CompilerIO[SourceAST] = {
     val tokens    = sourceTokens.tokens.value
     val uri       = sourceTokens.uri
-    val astResult = AST.parse(tokens)
-    val ast       = astResult._2
+    val astResult = component[(Seq[ParserError], AST)].fully().parse(tokens)
 
     for {
-      _ <- astResult._1.map {
-             case ParserError(pos, expected) if pos >= tokens.size =>
-               tokens match {
-                 case Nil =>
+      _   <- astResult.value
+               .map(_._1)
+               .getOrElse(Seq(astResult.currentError))
+               .map {
+                 case ParserError(pos, expected) if pos >= tokens.size =>
+                   tokens match {
+                     case Nil =>
+                       compilerError(
+                         sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but input was empty.")
+                       )
+                     case _   =>
+                       val pos = tokens.last.range.to
+                       compilerError(
+                         sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but end of input reached.")
+                       )
+                   }
+                 case ParserError(pos, expected)                       =>
+                   val token = tokens.get(pos).get
                    compilerError(
-                     sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but input was empty.")
-                   )
-                 case _   =>
-                   val pos = tokens.last.range.to
-                   compilerError(
-                     sourceTokens.tokens.as(s"Expected ${expectedMessage(expected)}, but end of input reached.")
+                     token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
                    )
                }
-             case ParserError(pos, expected)                       =>
-               val token = tokens.get(pos).get
-               compilerError(
-                 token.map(_ => s"Expected ${expectedMessage(expected)}, but encountered ${token.value.show}.")
-               )
-           }.sequence_
-      _ <- debug[CompilerIO](s"Generated AST for $uri: ${ast.show}.").as(ast)
+               .sequence_
+      ast <- astResult.value.map(_._2) match {
+               case Some(value) => debug[CompilerIO](s"Generated AST for $uri: ${value.show}.").as(value)
+               case None        => abort
+             }
     } yield SourceAST(uri, sourceTokens.tokens.as(ast))
   }
 
