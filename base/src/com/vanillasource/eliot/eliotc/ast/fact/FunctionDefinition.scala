@@ -34,7 +34,7 @@ object FunctionDefinition {
       (symbol("=") *> sourced(component[Expression])).optional()
 
     override val parser: Parser[Sourced[Token], FunctionDefinition] = for {
-      _                 <- topLevelKeyword("def")
+      _                 <- keyword("def")
       name              <- acceptIfAll(isIdentifier, isLowerCase)("function name")
       genericParameters <- component[Seq[GenericParameter]]
       args              <- optionalArgumentListOf(component[ArgumentDefinition])

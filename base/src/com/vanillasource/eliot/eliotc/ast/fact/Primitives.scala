@@ -38,8 +38,8 @@ object Primitives {
 
   def symbol(s: String) = acceptIfAll(isSymbol, hasContent(s))(s"symbol '$s'")
 
-  def topLevelKeyword(word: String) =
-    acceptIfAll(isTopLevel, isKeyword, hasContent(word))(s"top level keyword '$word'")
+  def keyword(word: String) =
+    acceptIfAll(isKeyword, hasContent(word))(s"keyword '$word'")
 
   def hasContent(content: String)(st: Sourced[Token]) = st.value.content === content
 
@@ -71,7 +71,4 @@ object Primitives {
     case Sourced(_, _, Symbol(_)) => true
     case _                        => false
   }
-
-  def isTopLevel(st: Sourced[Token]): Boolean = st.range.from.col === 1
-
 }

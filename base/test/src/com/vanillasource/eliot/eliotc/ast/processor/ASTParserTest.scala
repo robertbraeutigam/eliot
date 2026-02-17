@@ -37,9 +37,9 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("import a.b\n.C").asserting(_.size should be > 0)
   }
 
-  it should "not parse import that is not top-level, even if correct" in {
+  it should "parse import that is not top-level" in {
     runEngineForErrors(" import a.b.C").asserting(
-      _ shouldBe Seq("Expected top level keyword 'def' or top level keyword 'data', but encountered keyword 'import'.")
+      _ shouldBe Seq.empty
     )
   }
 

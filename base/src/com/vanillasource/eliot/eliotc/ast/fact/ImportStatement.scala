@@ -22,7 +22,7 @@ object ImportStatement {
 
   given ASTComponent[ImportStatement] = new ASTComponent[ImportStatement] {
     override def parser: Parser[Sourced[Token], ImportStatement] = for {
-      keyword      <- topLevelKeyword("import")
+      keyword      <- keyword("import")
       packageNames <- (packageNameOnSameLineAs(keyword) <* symbol(".")).anyTimes()
       moduleName   <- moduleNameOnSameLineAs(keyword)
     } yield ImportStatement(keyword.map(_.content), packageNames.map(_.map(_.content)), moduleName.map(_.content))

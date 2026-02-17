@@ -25,7 +25,7 @@ object DataDefinition {
 
   given ASTComponent[DataDefinition] = new ASTComponent[DataDefinition] {
     override val parser: Parser[Sourced[Token], DataDefinition] = for {
-      _                 <- topLevelKeyword("data")
+      _                 <- keyword("data")
       name              <- acceptIfAll(isIdentifier, isUpperCase)("type name")
       genericParameters <- component[Seq[GenericParameter]]
       fields            <- bracketedCommaSeparatedItems("(", component[ArgumentDefinition], ")").optional()
