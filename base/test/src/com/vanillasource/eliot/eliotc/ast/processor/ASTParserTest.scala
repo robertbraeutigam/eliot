@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.ast.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
+import com.vanillasource.eliot.eliotc.ast.fact.{AST, FunctionDefinition, Qualifier, SourceAST}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -173,6 +173,60 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("def f: A = eliot.lang.String::println()").asserting(_.size should be > 0)
   }
 
+  it should "accept an empty ability" in {
+    runEngineForErrors("ability Showable {}").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an ability with an abstract function" in {
+    runEngineForErrors("ability Showable { def show: String }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an ability with a function with body" in {
+    runEngineForErrors("ability Showable { def show: String = a }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an ability with multiple functions" in {
+    runEngineForErrors("ability Showable { def show: String\ndef display: String = a }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an ability with generic parameters" in {
+    runEngineForErrors("ability Functor[A] { def map: A }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject an ability with lowercase name" in {
+    runEngineForErrors("ability showable {}").asserting(
+      _ shouldBe Seq("Expected ability name, but encountered identifier 'showable'.")
+    )
+  }
+
+  it should "reject an ability without braces" in {
+    runEngineForErrors("ability Showable").asserting(_.size should be > 0)
+  }
+
+  it should "qualify ability functions with the ability name" in {
+    runEngineForFunctions("ability Showable { def show: String }").asserting(
+      _ shouldBe Seq(("show", Qualifier.Ability("Showable")))
+    )
+  }
+
+  it should "qualify multiple ability functions with the ability name" in {
+    runEngineForFunctions("ability Showable { def show: String\ndef display: String }").asserting(
+      _ shouldBe Seq(("show", Qualifier.Ability("Showable")), ("display", Qualifier.Ability("Showable")))
+  )
+  }
+
+  it should "prepend ability generic parameters to function generic parameters" in {
+    runEngineForFunctionGenericCounts("ability Functor[A] { def map[B]: A }").asserting(
+      _ shouldBe Seq(("map", 2))
+    )
+  }
+
+  it should "not mix ability functions with top-level functions" in {
+    runEngineForFunctions("def f: A = a\nability Showable { def show: String }").asserting(
+      _ shouldBe Seq(("f", Qualifier.Default), ("show", Qualifier.Ability("Showable")))
+    )
+  }
+
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
     runGenerator(source, SourceAST.Key(file)).map(_._2)
 
@@ -186,6 +240,30 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results.values
         .collect { case SourceAST(_, Sourced(_, _, AST(statements, _, _))) =>
           statements.map(i => (i.packageNames.map(_.value) :+ i.moduleName.value).mkString("."))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctions(source: String): IO[Seq[(String, Qualifier)]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.name.value.qualifier))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctionGenericCounts(source: String): IO[Seq[(String, Int)]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.genericParameters.size))
         }
         .toSeq
         .flatten
