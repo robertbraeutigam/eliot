@@ -1,3 +1,11 @@
 ability Show[A] {
    def show(a: A): String
 }
+
+data HelloWorld()
+
+implement Show[HelloWorld] {
+   def show(a: HelloWorld): String = "Hello World!"
+}
+
+def main: IO[Unit] = println(show(HelloWorld()))
