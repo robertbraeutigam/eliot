@@ -227,6 +227,65 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
+  it should "accept an empty implement block" in {
+    runEngineForErrors("implement Showable {}").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an implement block with a function" in {
+    runEngineForErrors("implement Showable { def show: String = a }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an implement block with an abstract function" in {
+    runEngineForErrors("implement Showable { def show: String }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an implement block with multiple functions" in {
+    runEngineForErrors("implement Showable { def show: String = a\ndef display: String = b }").asserting(
+      _ shouldBe Seq.empty
+    )
+  }
+
+  it should "accept an implement block with generic parameters" in {
+    runEngineForErrors("implement Functor[Byte] { def map: Byte = a }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject an implement block with lowercase name" in {
+    runEngineForErrors("implement showable {}").asserting(
+      _ shouldBe Seq("Expected ability name, but encountered identifier 'showable'.")
+    )
+  }
+
+  it should "reject an implement block without braces" in {
+    runEngineForErrors("implement Showable").asserting(_.size should be > 0)
+  }
+
+  it should "qualify implement functions with AbilityImplementation qualifier" in {
+    runEngineForFunctions("implement Showable { def show: String = a }").asserting(
+      _ shouldBe Seq(("show", Qualifier.AbilityImplementation("Showable", Seq.empty)))
+    )
+  }
+
+  it should "qualify multiple implement functions with the same qualifier" in {
+    runEngineForFunctions("implement Showable { def show: String\ndef display: String }").asserting(
+      _ shouldBe Seq(
+        ("show", Qualifier.AbilityImplementation("Showable", Seq.empty)),
+        ("display", Qualifier.AbilityImplementation("Showable", Seq.empty))
+      )
+    )
+  }
+
+  it should "not prepend implement generic parameters to function generic parameters" in {
+    runEngineForFunctionGenericCounts("implement Functor[Byte] { def map[B]: Byte }").asserting(
+      _ shouldBe Seq(("map", 1))
+    )
+  }
+
+  it should "not mix implement functions with top-level functions" in {
+    runEngineForFunctions("def f: A = a\nimplement Showable { def show: String = b }").asserting(
+      _ shouldBe Seq(("f", Qualifier.Default), ("show", Qualifier.AbilityImplementation("Showable", Seq.empty)))
+    )
+  }
+
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
     runGenerator(source, SourceAST.Key(file)).map(_._2)
 
