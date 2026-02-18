@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.plugin
 import cats.data.StateT
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.plugin.BasePlugin
+import com.vanillasource.eliot.eliotc.plugin.LangPlugin
 import com.vanillasource.eliot.eliotc.jvm.jargen.{GenerateExecutableJar, JvmProgramGenerator}
 import com.vanillasource.eliot.eliotc.compiler.Compiler
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.JvmClassGenerator
@@ -47,7 +47,7 @@ class JvmPlugin extends CompilerPlugin {
             JvmProgramGenerator(
               configuration.get(Compiler.targetPathKey).get,
               // TODO: This is not clean, just selecting a random path to insert main source into
-              configuration.get(BasePlugin.pathKey).flatMap(_.headOption).getOrElse(Path.of("."))
+              configuration.get(LangPlugin.pathKey).flatMap(_.headOption).getOrElse(Path.of("."))
             )
           )
         )
@@ -56,7 +56,7 @@ class JvmPlugin extends CompilerPlugin {
   override def isSelectedBy(configuration: Configuration): Boolean = configuration.contains(mainKey)
 
   override def pluginDependencies(configuration: Configuration): Seq[Class[? <: CompilerPlugin]] = Seq(
-    classOf[BasePlugin]
+    classOf[LangPlugin]
   )
 
   override def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =

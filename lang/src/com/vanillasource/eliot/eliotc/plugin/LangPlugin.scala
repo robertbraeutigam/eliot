@@ -19,7 +19,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleValueProcessor
 }
 import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
-import com.vanillasource.eliot.eliotc.plugin.BasePlugin.pathKey
+import com.vanillasource.eliot.eliotc.plugin.LangPlugin.pathKey
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
@@ -38,7 +38,7 @@ import scopt.{OParser, OParserBuilder}
 
 import java.nio.file.Path
 
-class BasePlugin extends CompilerPlugin {
+class LangPlugin extends CompilerPlugin {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
 
   import cmdLineBuilder.*
@@ -85,6 +85,6 @@ class BasePlugin extends CompilerPlugin {
   }
 }
 
-object BasePlugin {
+object LangPlugin {
   val pathKey: Configuration.Key[Seq[Path]] = namedKey[Seq[Path]]("paths")
 }
