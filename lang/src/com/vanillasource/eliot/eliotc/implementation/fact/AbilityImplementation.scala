@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.ability.fact
+package com.vanillasource.eliot.eliotc.implementation.fact
 
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN

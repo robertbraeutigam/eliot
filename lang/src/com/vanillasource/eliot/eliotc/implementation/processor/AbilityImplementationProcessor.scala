@@ -1,7 +1,7 @@
-package com.vanillasource.eliot.eliotc.ability.processor
+package com.vanillasource.eliot.eliotc.implementation.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
+import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
