@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.implementation.processor.AbilityImplementationProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
@@ -20,7 +20,7 @@ class SymbolicTypeCheckProcessorTest
       CoreProcessor(),
       ModuleNamesProcessor(),
       UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(Seq(ModuleName2.systemFunctionModuleName)),
+      ModuleValueProcessor(Seq(ModuleName.systemFunctionModuleName)),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
       SymbolicTypeCheckProcessor(),
@@ -230,31 +230,10 @@ class SymbolicTypeCheckProcessorTest
       .asserting(_ shouldBe Seq("Return type mismatch."))
   }
 
-  "ability calls" should "type check when calling ability with concrete type" in {
-    runEngineForErrors(
-      "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
-    ).asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "fail when calling ability with abstract type parameter" in {
-    runEngineForErrors(
-      "ability Show[A] { def show(x: A): A }\ndef f[A](x: A): A = show(x)"
-    ).asserting(_ shouldBe Seq("Cannot call ability 'Show' with abstract type parameter. Ability implementations require concrete types."))
-  }
-
-  it should "fail when no implementation exists for the concrete type" in {
-    runEngineForErrors(
-      "ability Show[A] { def show(x: A): A }\ndata Int\ndef f(x: Int): Int = show(x)"
-    ).asserting(_ shouldBe Seq("show^Ability(Show): No ability implementation found for ability 'Show' with type arguments [Int]."))
-  }
-
-  // TODO: remove this after module1 is removed
-  private val testModuleName2 = ModuleName2(Seq.empty, "Test")
-
   private def runEngineForErrors(source: String): IO[Seq[String]] =
     runGenerator(
       source,
-      TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))),
+      TypeCheckedValue.Key(ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))),
       systemImports
     )
       .map(_._1.map(_.message))
@@ -262,7 +241,7 @@ class SymbolicTypeCheckProcessorTest
   private def runEngineForTypedValues(source: String): IO[Seq[ValueFQN]] =
     runGenerator(
       source,
-      TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))),
+      TypeCheckedValue.Key(ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))),
       systemImports
     ).map { case (_, facts) =>
       facts.values.collect { case TypeCheckedValue(vfqn, _, _, _) =>
@@ -273,7 +252,7 @@ class SymbolicTypeCheckProcessorTest
   private def runEngineForTypedValue(source: String): IO[TypeCheckedValue] =
     runGenerator(
       source,
-      TypeCheckedValue.Key(ValueFQN(testModuleName2, QualifiedName("f", Qualifier.Default))),
+      TypeCheckedValue.Key(ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))),
       systemImports
     )
       .flatMap { case (errors, facts) =>
