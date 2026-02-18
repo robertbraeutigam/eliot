@@ -27,7 +27,7 @@ object ImplementBlock {
             // Note: the implement qualifier has to include the instantiation type parameters
             FunctionDefinition(
               f.name.map(n =>
-                QualifiedName(n.name, Qualifier.AbilityImplementation(name.value.content, genericParameters))
+                QualifiedName(n.name, Qualifier.AbilityImplementation(name.map(_.content), genericParameters))
               ),
               f.genericParameters, // Don't add parameters to the function, it'll have to have those already
               f.args,

@@ -2,8 +2,9 @@ package com.vanillasource.eliot.eliotc.ast.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.fact.{AST, FunctionDefinition, Qualifier, SourceAST}
+import com.vanillasource.eliot.eliotc.ast.fact.{AST, Qualifier, SourceAST}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
+import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -212,7 +213,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   it should "qualify multiple ability functions with the ability name" in {
     runEngineForFunctions("ability Showable { def show: String\ndef display: String }").asserting(
       _ shouldBe Seq(("show", Qualifier.Ability("Showable")), ("display", Qualifier.Ability("Showable")))
-  )
+    )
   }
 
   it should "prepend ability generic parameters to function generic parameters" in {
@@ -261,15 +262,35 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "qualify implement functions with AbilityImplementation qualifier" in {
     runEngineForFunctions("implement Showable { def show: String = a }").asserting(
-      _ shouldBe Seq(("show", Qualifier.AbilityImplementation("Showable", Seq.empty)))
+      _ shouldBe Seq(
+        (
+          "show",
+          Qualifier.AbilityImplementation(
+            Sourced(file, PositionRange(Position(1, 11), Position(1, 19)), "Showable"),
+            Seq.empty
+          )
+        )
+      )
     )
   }
 
   it should "qualify multiple implement functions with the same qualifier" in {
     runEngineForFunctions("implement Showable { def show: String\ndef display: String }").asserting(
       _ shouldBe Seq(
-        ("show", Qualifier.AbilityImplementation("Showable", Seq.empty)),
-        ("display", Qualifier.AbilityImplementation("Showable", Seq.empty))
+        (
+          "show",
+          Qualifier.AbilityImplementation(
+            Sourced(file, PositionRange(Position(1, 11), Position(1, 19)), "Showable"),
+            Seq.empty
+          )
+        ),
+        (
+          "display",
+          Qualifier.AbilityImplementation(
+            Sourced(file, PositionRange(Position(1, 11), Position(1, 19)), "Showable"),
+            Seq.empty
+          )
+        )
       )
     )
   }
@@ -282,7 +303,16 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "not mix implement functions with top-level functions" in {
     runEngineForFunctions("def f: A = a\nimplement Showable { def show: String = b }").asserting(
-      _ shouldBe Seq(("f", Qualifier.Default), ("show", Qualifier.AbilityImplementation("Showable", Seq.empty)))
+      _ shouldBe Seq(
+        ("f", Qualifier.Default),
+        (
+          "show",
+          Qualifier.AbilityImplementation(
+            Sourced(file, PositionRange(Position(2, 11), Position(2, 19)), "Showable"),
+            Seq.empty
+          )
+        )
+      )
     )
   }
 

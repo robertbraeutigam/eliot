@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.kernel.Eq
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** A qualifier is a sort-of additional namespace names can live in. It is used as technical namespaces as opposed to
   * user defined ones.
@@ -23,7 +24,7 @@ object Qualifier {
 
   /** Function belongs to the given ability implementation.
     */
-  case class AbilityImplementation(name: String, genericParameters: Seq[GenericParameter]) extends Qualifier
+  case class AbilityImplementation(name: Sourced[String], genericParameters: Seq[GenericParameter]) extends Qualifier
 
   given Eq[Qualifier] = Eq.fromUniversalEquals
 }

@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.resolve.fact
 
 import cats.kernel.Eq
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 
 sealed trait Qualifier
 

@@ -64,10 +64,10 @@ class ValueResolver
         } yield Qualifier.AbilityImplementation(resolvedName, resolvedTypes)
     }
 
-  private def resolveAbilityName(name: String): ScopedIO[AbilityName] =
-    getAbility(name).flatMap {
+  private def resolveAbilityName(name: Sourced[String]): ScopedIO[AbilityName] =
+    getAbility(name.value).flatMap {
       case Some(abilityName) => abilityName.pure[ScopedIO]
-      case None              => abort.liftToScoped // FIXME: no sourced compilerAbort(s"")
+      case None              => compilerAbort(name.as(s"Ability not found.")).liftToScoped
     }
 
   /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with a kind annotation
