@@ -86,9 +86,11 @@ Each of these is a package in the "lang" module, roughly in order of processing:
 5. module: Splitting working with modules into working with individual values. It also unifies similarly named modules from different paths.
 6. resolve: Resolve all identifiers to fully qualified names or parameters.
 7. symbolic: Symbolic type checker. Checks types as far as possible with generic parameters (symbols).
-8. monomorphize: Monomorphic type checker. Checks all types at their usage with all instantiated values.
-9. used: Collects all the used value names starting at a given "main".
-10. uncurry: Uncurries function calls, so its easier to generate on the backend.
+8. implementation: Checks and returns a type-specific ability implementation.
+9. abilitycheck: Check abilities can be proven to exist. Also resolves abilities directly if all types are already known.
+10. monomorphize: Monomorphic type checker. Checks all types at their usage with all instantiated values.
+11. used: Collects all the used value names starting at a given "main".
+12. uncurry: Uncurries function calls, so its easier to generate on the backend.
 
 ### Error Handling
 
