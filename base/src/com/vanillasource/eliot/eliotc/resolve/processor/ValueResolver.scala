@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{Qualifier as CoreQualifier, QualifiedName as CoreQualifiedName}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName as CoreQualifiedName, Qualifier as CoreQualifier}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.{TypeStack, Expression as CoreExpression}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, QualifiedName, Qualifier, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityName, Expression, QualifiedName, Qualifier, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolverScope.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
@@ -54,13 +54,20 @@ class ValueResolver
 
   private def convertQualifier(qualifier: CoreQualifier): ScopedIO[Qualifier] =
     qualifier match {
-      case CoreQualifier.Default                          => (Qualifier.Default: Qualifier).pure[ScopedIO]
-      case CoreQualifier.Type                             => (Qualifier.Type: Qualifier).pure[ScopedIO]
-      case CoreQualifier.Ability(n)                       => (Qualifier.Ability(n): Qualifier).pure[ScopedIO]
-      case CoreQualifier.AbilityImplementation(n, params) =>
+      case CoreQualifier.Default                             => (Qualifier.Default: Qualifier).pure[ScopedIO]
+      case CoreQualifier.Type                                => (Qualifier.Type: Qualifier).pure[ScopedIO]
+      case CoreQualifier.Ability(n)                          => (Qualifier.Ability(n): Qualifier).pure[ScopedIO]
+      case CoreQualifier.AbilityImplementation(name, params) =>
         for {
+          resolvedName  <- resolveAbilityName(name)
           resolvedTypes <- params.traverse(resolveExpression(_, false))
-        } yield Qualifier.AbilityImplementation(n, resolvedTypes)
+        } yield Qualifier.AbilityImplementation(resolvedName, resolvedTypes)
+    }
+
+  private def resolveAbilityName(name: String): ScopedIO[AbilityName] =
+    getAbility(name).flatMap {
+      case Some(abilityName) => abilityName.pure[ScopedIO]
+      case None              => abort.liftToScoped // FIXME: no sourced compilerAbort(s"")
     }
 
   /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with a kind annotation
