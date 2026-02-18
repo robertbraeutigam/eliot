@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier
 class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] with Logging {
 
   override protected def generateFact(key: AbilityImplementation.Key): CompilerIO[Unit] = {
-    val abilityValueFQN                   = key.abstractFunctionFQN
+    val abilityValueFQN                   = key.abilityValueFQN
     val candidateModules: Set[ModuleName] =
       Set(abilityValueFQN.moduleName) ++ key.typeArguments.flatMap(moduleOf)
 
