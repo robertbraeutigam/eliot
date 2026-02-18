@@ -1,13 +1,17 @@
 package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{Qualifier as CoreQualifier, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
-import com.vanillasource.eliot.eliotc.resolve.fact.{Qualifier as ResolveQualifier, QualifiedName as ResolveQualifiedName}
+import com.vanillasource.eliot.eliotc.resolve.fact.{
+  Expression,
+  ResolvedValue,
+  QualifiedName as ResolveQualifiedName,
+  Qualifier as ResolveQualifier
+}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.*
 import com.vanillasource.eliot.eliotc.symbolic.types.*

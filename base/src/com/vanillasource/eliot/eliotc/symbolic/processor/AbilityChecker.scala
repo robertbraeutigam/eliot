@@ -2,14 +2,13 @@ package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementation
-import com.vanillasource.eliot.eliotc.core.fact.{Qualifier as CoreQualifier}
+import com.vanillasource.eliot.eliotc.core.fact.Qualifier as CoreQualifier
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.*
-import com.vanillasource.eliot.eliotc.symbolic.types.*
 
 object AbilityChecker {
 
