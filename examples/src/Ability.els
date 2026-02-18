@@ -1,15 +1,11 @@
 ability Show[A] {
    def show(a: A): String
-
-   def b: String
 }
 
 data Hello(name: String)
 
 implement Show[Hello] {
    def show(a: Hello): String = "Hello World!"
-
-   def a: String = "Hello"
 }
 
 def main: IO[Unit] = println(show(Hello("World")))

@@ -82,7 +82,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       .filterNot(m => abilityMethodNames.contains(m.name.value.name))
       .traverse_(m =>
         compilerError(
-          m.name.map(qn => s"${qn.show}: Method '${qn.name}' is not defined in the ability.")
+          m.name.map(qn => s"Method not defined in ability.")
         )
       )
   }
