@@ -66,6 +66,18 @@ class AbilityImplementationCheckProcessorTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  it should "resolve default ability implementation when called" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A\ndef extra(x: A): A = x }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = extra(x)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "resolve default ability implementation that calls another ability method" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A\ndef display(x: A): A = show(x) }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = display(x)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   private def runEngineForErrors(source: String): IO[Seq[String]] =
     runGenerator(
       source,
