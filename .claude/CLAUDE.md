@@ -23,12 +23,12 @@ mill __.compile
 mill __.test
 
 # Run tests for a specific module
-mill base.test
+mill lang.test
 mill jvm.test
 mill eliotc.test
 
 # Run a single test class
-mill base.test -- "com.vanillasource.eliot.eliotc.ProcessorTest"
+mill lang.test -- "com.vanillasource.eliot.eliotc.ProcessorTest"
 
 # Format code with scalafmt
 mill mill.scalalib.scalafmt.ScalafmtModule/reformatAll __
@@ -49,7 +49,7 @@ java -jar target/HelloWorld.jar
 The project is organized into four main modules (defined in `build.mill`):
 
 1. **eliotc** - Core compiler infrastructure (plugins, processors, feedback, utilities)
-2. **base** - Base compiler components (parsing, AST, type system, module system, resolution)
+2. **lang** - Base compiler/language components (parsing, AST, type system, module system, resolution)
 3. **jvm** - JVM backend (bytecode generation using ASM, JAR generation)
 4. **examples** - Example ELIOT programs
 
@@ -77,7 +77,7 @@ The compiler follows a **fact-based compilation model**:
 
 ### Main components of processing pipeline
 
-Each of these is a package in the "base" module, roughly in order of processing:
+Each of these is a package in the "lang" module, roughly in order of processing:
 
 1. source: Reading source files from the filesystem
 2. token: Tokenizer
@@ -92,7 +92,7 @@ Each of these is a package in the "base" module, roughly in order of processing:
 
 ### Error Handling
 
-- Errors are reported through `CompilationIO` monad (in base module)
+- Errors are reported through `CompilationIO` monad (in lang module)
 - `SourcedError` tracks errors with source position information
 - `User` and `Logging` traits provide user-facing messages and debug logging
 

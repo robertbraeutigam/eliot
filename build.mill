@@ -6,7 +6,7 @@ object `package` extends Module {
    object `eliotc` extends DefaultScalaModule {
    }
 
-   object `base` extends DefaultScalaModule {
+   object `lang` extends DefaultScalaModule {
      override def moduleDeps = Seq(eliotc)
 
      override def extraDeps = Seq(
@@ -15,7 +15,7 @@ object `package` extends Module {
    }
 
    object jvm extends DefaultScalaModule {
-     override def moduleDeps = Seq(base)
+     override def moduleDeps = Seq(lang)
 
      override def extraDeps = Seq(
        mvn"org.ow2.asm:asm:9.9",
