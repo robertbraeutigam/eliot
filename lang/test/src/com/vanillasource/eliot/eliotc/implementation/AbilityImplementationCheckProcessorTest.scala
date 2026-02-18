@@ -52,6 +52,12 @@ class AbilityImplementationCheckProcessorTest
     ).asserting(_.exists(e => e.contains("show") && e.contains("does not match the ability definition")) shouldBe true)
   }
 
+  it should "pass when a non-abstract ability method is not present in the implementation" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A\ndef extra(x: A): A = x }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   private def runEngineForErrors(source: String): IO[Seq[String]] =
     runGenerator(
       source,
