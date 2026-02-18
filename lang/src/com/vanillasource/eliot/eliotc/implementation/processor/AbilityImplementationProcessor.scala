@@ -4,31 +4,31 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
-import com.vanillasource.eliot.eliotc.symbolic.fact.{Qualifier as SymbolicQualifier, TypeCheckedValue}
+import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier as SymbolicQualifier}
 
-class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] {
+class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] with Logging {
 
   override protected def generateFact(key: AbilityImplementation.Key): CompilerIO[Unit] = {
     val abstractFQN       = key.abstractFunctionFQN
-    val abilityLocalName  = abstractFQN.name.qualifier match {
-      case Qualifier.Ability(name) => name
-      case other                   => throw IllegalStateException(s"Expected Ability qualifier, got: $other")
-    }
     val functionName      = abstractFQN.name.name
     val abilityModuleName = abstractFQN.moduleName
-    val abilityFQN        = AbilityFQN(abilityModuleName, abilityLocalName)
 
     val candidateModules: Set[ModuleName] =
       Set(abilityModuleName) ++ key.typeArguments.flatMap(moduleOf)
 
     for {
+      abilityFQN  <- abstractFQN.name.qualifier match {
+                       case Qualifier.Ability(name) => AbilityFQN(abilityModuleName, name).pure[CompilerIO]
+                       case other                   => error[CompilerIO](s"expected Ability qualifier, got: $other") >> abort
+                     }
       candidates  <- candidateModules.toSeq.flatTraverse(module =>
-                       findImplementationsInModule(module, functionName, abilityLocalName)
+                       findImplementationsInModule(module, functionName, abilityFQN.abilityName)
                      )
       matching    <- candidates.flatTraverse(vfqn => verifyImplementation(vfqn, abilityFQN, key.typeArguments))
       deduplicated = matching.distinctBy(_.show)
@@ -41,7 +41,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                            _               <-
                              compilerError(
                                abstractChecked.name.map(
-                                 _.show + s": No ability implementation found for ability '$abilityLocalName' with type arguments ${key.typeArguments
+                                 _.show + s": No ability implementation found for ability '${abilityFQN.abilityName}' with type arguments ${key.typeArguments
                                      .map(_.show)
                                      .mkString("[", ", ", "]")}."
                                )
@@ -53,7 +53,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                            _               <-
                              compilerError(
                                abstractChecked.name.map(
-                                 _.show + s": Multiple ability implementations found for ability '$abilityLocalName' with type arguments ${key.typeArguments
+                                 _.show + s": Multiple ability implementations found for ability '${abilityFQN.abilityName}' with type arguments ${key.typeArguments
                                      .map(_.show)
                                      .mkString("[", ", ", "]")}."
                                )
