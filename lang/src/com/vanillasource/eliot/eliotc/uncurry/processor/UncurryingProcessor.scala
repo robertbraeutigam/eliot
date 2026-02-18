@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.uncurry.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.symbolic.fact.QualifiedName
+import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckedValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.expressionValueUserDisplay
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -9,25 +9,27 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
-import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpression}
+import com.vanillasource.eliot.eliotc.symbolic.fact.{QualifiedName, TypedExpression}
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
 
 import scala.annotation.tailrec
 
 /** Processor that uncurries type-checked values to a specific arity.
   *
-  * Input: TypeCheckedValue (curried form with single-argument applications) Output: UncurriedValue (multi-parameter
+  * Input: AbilityCheckedValue (curried form with single-argument applications) Output: UncurriedValue (multi-parameter
   * form with specified arity)
   *
   * The arity is specified in the output key and determines how many parameters to uncurry.
   */
 class UncurryingProcessor
-    extends TransformationProcessor[TypeCheckedValue.Key, UncurriedValue.Key](key => TypeCheckedValue.Key(key.vfqn))
+    extends TransformationProcessor[AbilityCheckedValue.Key, UncurriedValue.Key](key =>
+      AbilityCheckedValue.Key(key.vfqn)
+    )
     with Logging {
 
   override protected def generateFromKeyAndFact(
       key: UncurriedValue.Key,
-      typeCheckedValue: TypeCheckedValue
+      typeCheckedValue: AbilityCheckedValue
   ): CompilerIO[UncurriedValue] = {
     for {
       _                               <- debug[CompilerIO](s"Uncurrying ${key.vfqn} to ${key.arity}")

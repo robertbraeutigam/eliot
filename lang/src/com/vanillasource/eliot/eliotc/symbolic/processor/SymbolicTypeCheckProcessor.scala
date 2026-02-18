@@ -90,12 +90,11 @@ class SymbolicTypeCheckProcessor
         debug[CompilerIO](
           s"Produced symbolic checked (of ${resolvedValue.vfqn.show}) signature: ${signatureType.show}, body: ${resolvedTypedBody.expression.show}"
         )
-      resolvedBodyWithImpls <- AbilityChecker.resolveAbilityRefs(resolvedTypedBody)
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       convertQualifiedName(resolvedValue.name, resolvedQualifierParams),
       signatureType,
-      Some(resolvedValue.typeStack.as(resolvedBodyWithImpls.expression))
+      Some(resolvedValue.typeStack.as(resolvedTypedBody.expression))
     )
 
   private def typeCheckWithoutBody(

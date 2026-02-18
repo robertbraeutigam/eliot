@@ -10,12 +10,13 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
-import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpression}
+import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
+import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckedValue
 
 /** Processor that monomorphizes (specializes) generic functions.
   *
   * Given a MonomorphicValue.Key(vfqn, typeArgs), it:
-  *   1. Fetches the TypeCheckedValue for vfqn 2. Builds substitution from universal type params to concrete args 3.
+  *   1. Fetches the AbilityCheckedValue for vfqn 2. Builds substitution from universal type params to concrete args 3.
   *      Evaluates the signature type to a Value 4. Transforms the runtime body, replacing types and recursively
   *      monomorphizing called functions
   */
@@ -23,7 +24,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
 
   override protected def generateFact(key: MonomorphicValue.Key): CompilerIO[Unit] =
     for {
-      typeChecked <- getFactOrAbort(TypeCheckedValue.Key(key.vfqn))
+      typeChecked <- getFactOrAbort(AbilityCheckedValue.Key(key.vfqn))
       _           <-
         debug[CompilerIO](
           s"Monomorphizing ${key.vfqn.show}, signature: ${typeChecked.signature.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
@@ -100,7 +101,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
-      typeChecked <- getFactOrAbort(TypeCheckedValue.Key(vfqn.value))
+      typeChecked <- getFactOrAbort(AbilityCheckedValue.Key(vfqn.value))
       typeParams   = TypeEvaluator.extractTypeParams(typeChecked.signature)
       typeArgs    <- if (typeParams.nonEmpty) {
                        inferTypeArguments(typeChecked.signature, typeParams, callSiteType, substitution, source)

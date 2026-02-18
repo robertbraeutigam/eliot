@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.plugin
 import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckProcessor
 import com.vanillasource.eliot.eliotc.implementation.processor.AbilityImplementationProcessor
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
@@ -74,6 +75,7 @@ class BasePlugin extends CompilerPlugin {
             ValueResolver(),
             SymbolicTypeCheckProcessor(),
             AbilityImplementationProcessor(),
+            AbilityCheckProcessor(),
             MonomorphicTypeCheckProcessor(),
             UsedNamesProcessor(),
             UncurryingProcessor()
