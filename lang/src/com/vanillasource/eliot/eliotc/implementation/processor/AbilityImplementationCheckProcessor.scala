@@ -67,13 +67,10 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       implMethods: Seq[TypeCheckedValue]
   ): CompilerIO[Unit] = {
     val implMethodNames = implMethods.map(_.name.value.name).toSet
+    val implSource      = implMethods.head.vfqn.name.qualifier.asInstanceOf[Qualifier.AbilityImplementation].name
     abilityMethods
       .filterNot(m => implMethodNames.contains(m.name.value.name))
-      .traverse_(m =>
-        compilerError(
-          m.name.map(qn => s"${qn.show}: Ability implementation is missing method '${qn.name}'.")
-        )
-      )
+      .traverse_(m => compilerError(implSource.as(s"Ability implementation is missing method '${m.name.value.name}'.")))
   }
 
   private def checkNoExtras(
