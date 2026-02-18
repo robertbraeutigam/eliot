@@ -6,9 +6,17 @@ import com.vanillasource.eliot.eliotc.abilitycheck.{AbilityCheckProcessor, Abili
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.implementation.processor.{AbilityImplementationCheckProcessor, AbilityImplementationProcessor}
+import com.vanillasource.eliot.eliotc.implementation.processor.{
+  AbilityImplementationCheckProcessor,
+  AbilityImplementationProcessor
+}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.module.processor.{ModuleNamesProcessor, ModuleValueProcessor, UnifiedModuleNamesProcessor, UnifiedModuleValueProcessor}
+import com.vanillasource.eliot.eliotc.module.processor.{
+  ModuleNamesProcessor,
+  ModuleValueProcessor,
+  UnifiedModuleNamesProcessor,
+  UnifiedModuleValueProcessor
+}
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -37,13 +45,13 @@ class AbilityImplementationCheckProcessorTest
   it should "fail when a required ability method is missing" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A\ndef display(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
-    ).asserting(_ should contain("display^Ability(Show): Ability implementation is missing method 'display'."))
+    ).asserting(_ shouldBe Seq("Ability implementation is missing method 'display'."))
   }
 
   it should "fail when an extra method not in the ability is defined" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x\ndef extra(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
-    ).asserting(_.exists(e => e.contains("extra") && e.contains("not defined in the ability")) shouldBe true)
+    ).asserting(_ shouldBe Seq("Method not defined in ability."))
   }
 
   it should "fail when an implementation method has the wrong signature" in {
