@@ -15,29 +15,26 @@ import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier
 class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] with Logging {
 
   override protected def generateFact(key: AbilityImplementation.Key): CompilerIO[Unit] = {
-    val abstractFQN       = key.abstractFunctionFQN
-    val functionName      = abstractFQN.name.name
-    val abilityModuleName = abstractFQN.moduleName
-
+    val abilityValueFQN                   = key.abstractFunctionFQN
     val candidateModules: Set[ModuleName] =
-      Set(abilityModuleName) ++ key.typeArguments.flatMap(moduleOf)
+      Set(abilityValueFQN.moduleName) ++ key.typeArguments.flatMap(moduleOf)
 
     for {
-      abilityFQN  <- abstractFQN.name.qualifier match {
-                       case Qualifier.Ability(name) => AbilityFQN(abilityModuleName, name).pure[CompilerIO]
+      abilityFQN  <- abilityValueFQN.name.qualifier match {
+                       case Qualifier.Ability(name) => AbilityFQN(abilityValueFQN.moduleName, name).pure[CompilerIO]
                        case other                   => error[CompilerIO](s"expected Ability qualifier, got: $other") >> abort
                      }
       candidates  <- candidateModules.toSeq.flatTraverse(module =>
-                       findImplementationsInModule(module, functionName, abilityFQN.abilityName)
+                       findImplementationsInModule(module, abilityValueFQN.name.name, abilityFQN.abilityName)
                      )
       matching    <- candidates.flatTraverse(vfqn => verifyImplementation(vfqn, abilityFQN, key.typeArguments))
       deduplicated = matching.distinctBy(_.show)
       _           <- deduplicated match {
                        case Seq(implFQN) =>
-                         registerFactIfClear(AbilityImplementation(abstractFQN, key.typeArguments, implFQN))
+                         registerFactIfClear(AbilityImplementation(abilityValueFQN, key.typeArguments, implFQN))
                        case Seq()        =>
                          for {
-                           abstractChecked <- getFactOrAbort(TypeCheckedValue.Key(abstractFQN))
+                           abstractChecked <- getFactOrAbort(TypeCheckedValue.Key(abilityValueFQN))
                            _               <-
                              compilerError(
                                abstractChecked.name.map(
@@ -49,7 +46,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                          } yield ()
                        case multiple     =>
                          for {
-                           abstractChecked <- getFactOrAbort(TypeCheckedValue.Key(abstractFQN))
+                           abstractChecked <- getFactOrAbort(TypeCheckedValue.Key(abilityValueFQN))
                            _               <-
                              compilerError(
                                abstractChecked.name.map(

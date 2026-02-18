@@ -5,12 +5,12 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 case class AbilityImplementation(
-    abstractFunctionFQN: ValueFQN,
+    abilityValueFQN: ValueFQN,
     typeArguments: Seq[Value],
     implementationFQN: ValueFQN
 ) extends CompilerFact {
   override def key(): CompilerFactKey[AbilityImplementation] =
-    AbilityImplementation.Key(abstractFunctionFQN, typeArguments)
+    AbilityImplementation.Key(abilityValueFQN, typeArguments)
 }
 
 object AbilityImplementation {
