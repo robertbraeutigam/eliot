@@ -102,6 +102,24 @@ Each of these is a package in the "base" module, roughly in order of processing:
 - Tests use extend AsyncFlatSpec with AsyncIOSpec with should.Matchers
 - Test files are in `<module>/test/src/` directories
 
+## Language Overview
+
+Eliot is a functional, strongly-typed language, with whole-application compilation
+with monomorphization.
+
+The main building blocks of the language are:
+- Named values: These are a generalization of "functions", because functions are represented in their fully 
+                curried form as "a -> b -> c", so it's a lambda value. They are "named" because they are not
+                anonymous and can be referenced ("called") from elsewhere.
+- Data: Data is completely represented as values in the core model and has no own unique representation. 
+        Data defines a value constructor "function" (if not abstract), and a type constructor function. Both are
+        "normal" values / "functions".
+- Abilities and ability implementations: These are typeclasses and typeclass instances, with multi-parameter capability. Ability implementations
+        must be defined either in the module where the ability is defined or with the type they are defined for.
+        Ability implementations must be unique for a given type combination in the whole search space, with no overlap.
+        References to ability values are fully resolved during monomorphization, they are not passed around in
+        structures as in some other languages.
+
 ## Development Notes
 
 - The language is still in active development (see TODO file for planned features)
