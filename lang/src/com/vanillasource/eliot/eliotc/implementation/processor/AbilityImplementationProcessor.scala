@@ -17,7 +17,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
   override protected def generateFact(key: AbilityImplementation.Key): CompilerIO[Unit] = {
     val abilityValueFQN                   = key.abilityValueFQN
     val candidateModules: Set[ModuleName] =
-      Set(abilityValueFQN.moduleName) ++ key.typeArguments.flatMap(moduleOf)
+      Set(abilityValueFQN.moduleName) ++ key.typeArguments.flatMap(_.typeFQN.map(_.moduleName))
 
     for {
       abilityFQN  <- abilityValueFQN.name.qualifier match {
@@ -93,11 +93,4 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
 
   private def extractValues(params: Seq[ExpressionValue]): Seq[Value] =
     params.collect { case ExpressionValue.ConcreteValue(v) => v }
-
-  private def moduleOf(v: Value): Option[ModuleName] =
-    v match {
-      case Value.Structure(fields, _) =>
-        fields.get("$typeName").collect { case Value.Direct(vfqn: ValueFQN, _) => vfqn.moduleName }
-      case _                          => None
-    }
 }

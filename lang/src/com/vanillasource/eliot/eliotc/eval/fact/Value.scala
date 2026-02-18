@@ -23,6 +23,20 @@ object Value {
     override def valueType: Value       = this
   }
 
+  extension (value: Value) {
+
+    /** If this value represents a type, then return that type's ValueFQN.
+      * @return
+      */
+    def typeFQN: Option[ValueFQN] =
+      value match {
+        case Value.Structure(fields, _) =>
+          fields.get("$typeName").collect { case Value.Direct(vfqn: ValueFQN, _) => vfqn }
+        case Value.Type                 => Some(Types.typeFQN)
+        case _                          => None
+      }
+  }
+
   given Eq[Value] = Eq.fromUniversalEquals
 
   given valueUserDisplay: Show[Value] = {
