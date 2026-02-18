@@ -14,12 +14,12 @@ import com.vanillasource.eliot.eliotc.symbolic.fact.{Qualifier as SymbolicQualif
 class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] {
 
   override protected def generateFact(key: AbilityImplementation.Key): CompilerIO[Unit] = {
-    val abstractFQN     = key.abstractFunctionFQN
-    val abilityLocalName = abstractFQN.name.qualifier match {
+    val abstractFQN       = key.abstractFunctionFQN
+    val abilityLocalName  = abstractFQN.name.qualifier match {
       case Qualifier.Ability(name) => name
       case other                   => throw IllegalStateException(s"Expected Ability qualifier, got: $other")
     }
-    val functionName     = abstractFQN.name.name
+    val functionName      = abstractFQN.name.name
     val abilityModuleName = abstractFQN.moduleName
     val abilityFQN        = AbilityFQN(abilityModuleName, abilityLocalName)
 
@@ -38,16 +38,26 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                        case Seq()        =>
                          for {
                            abstractChecked <- getFactOrAbort(TypeCheckedValue.Key(abstractFQN))
-                           _               <- compilerError(
-                                               abstractChecked.name.map(_.show + s": No ability implementation found for ability '$abilityLocalName' with type arguments ${key.typeArguments.map(showValue).mkString("[", ", ", "]")}.")
-                                             )
+                           _               <-
+                             compilerError(
+                               abstractChecked.name.map(
+                                 _.show + s": No ability implementation found for ability '$abilityLocalName' with type arguments ${key.typeArguments
+                                     .map(_.show)
+                                     .mkString("[", ", ", "]")}."
+                               )
+                             )
                          } yield ()
                        case multiple     =>
                          for {
                            abstractChecked <- getFactOrAbort(TypeCheckedValue.Key(abstractFQN))
-                           _               <- compilerError(
-                                               abstractChecked.name.map(_.show + s": Multiple ability implementations found for ability '$abilityLocalName' with type arguments ${key.typeArguments.map(showValue).mkString("[", ", ", "]")}.")
-                                             )
+                           _               <-
+                             compilerError(
+                               abstractChecked.name.map(
+                                 _.show + s": Multiple ability implementations found for ability '$abilityLocalName' with type arguments ${key.typeArguments
+                                     .map(_.show)
+                                     .mkString("[", ", ", "]")}."
+                               )
+                             )
                          } yield ()
                      }
     } yield ()
@@ -92,16 +102,5 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       case Value.Structure(fields, _) =>
         fields.get("$typeName").collect { case Value.Direct(vfqn: ValueFQN, _) => vfqn.moduleName }
       case _                          => None
-    }
-
-  private def showValue(v: Value): String =
-    v match {
-      case Value.Structure(fields, _) =>
-        fields.get("$typeName") match {
-          case Some(Value.Direct(vfqn: ValueFQN, _)) => vfqn.name.name
-          case _                                      => "<unknown>"
-        }
-      case Value.Type                 => "Type"
-      case _                          => "<value>"
     }
 }
