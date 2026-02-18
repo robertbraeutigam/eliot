@@ -56,7 +56,7 @@ class AbilityCheckProcessorTest
       "ability Show[A] { def show(x: A): A }\ndata Int\ndef f(x: Int): Int = show(x)"
     ).asserting(
       _ shouldBe Seq(
-        "show^Ability(Show): Ability implementation is missing method 'show'."
+        "Ability implementation is missing method 'show'."
       )
     )
   }
