@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.fact.Qualifier.Ability
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.resolve.fact.AbilityName
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 
 case class ValueResolverScope(
     dictionary: Map[QualifiedName, ValueFQN],
@@ -40,14 +40,14 @@ object ValueResolverScope {
           .toSeq
       )
 
-  def getAbility(name: String): ScopedIO[Option[AbilityName]] =
+  def getAbility(name: String): ScopedIO[Option[AbilityFQN]] =
     StateT
       .get[CompilerIO, ValueResolverScope]
       .map(
         _.dictionary.values
           .collectFirst {
             case vfqn @ ValueFQN(_, QualifiedName(_, Ability(abilityName))) if abilityName === name =>
-              AbilityName(vfqn.moduleName, name)
+              AbilityFQN(vfqn.moduleName, name)
           }
       )
 

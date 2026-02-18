@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityName, Expression, QualifiedName, Qualifier, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression, QualifiedName, Qualifier, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolverScope.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
@@ -64,7 +64,7 @@ class ValueResolver
         } yield Qualifier.AbilityImplementation(resolvedName, resolvedTypes)
     }
 
-  private def resolveAbilityName(name: Sourced[String]): ScopedIO[AbilityName] =
+  private def resolveAbilityName(name: Sourced[String]): ScopedIO[AbilityFQN] =
     getAbility(name.value).flatMap {
       case Some(abilityName) => abilityName.pure[ScopedIO]
       case None              => compilerAbort(name.as(s"Ability not found.")).liftToScoped
