@@ -58,7 +58,9 @@ class ValueResolver
       case CoreQualifier.Type                             => (Qualifier.Type: Qualifier).pure[ScopedIO]
       case CoreQualifier.Ability(n)                       => (Qualifier.Ability(n): Qualifier).pure[ScopedIO]
       case CoreQualifier.AbilityImplementation(n, params) =>
-        params.traverse(resolveExpression(_, false)).map(Qualifier.AbilityImplementation(n, _))
+        for {
+          resolvedTypes <- params.traverse(resolveExpression(_, false))
+        } yield Qualifier.AbilityImplementation(n, resolvedTypes)
     }
 
   /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with a kind annotation
