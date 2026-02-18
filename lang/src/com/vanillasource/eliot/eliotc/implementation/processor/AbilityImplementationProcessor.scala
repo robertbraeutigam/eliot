@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.implementation.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
+import com.vanillasource.eliot.eliotc.implementation.fact.{AbilityImplementation, AbilityImplementationCheck}
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -24,6 +24,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                        case Qualifier.Ability(name) => AbilityFQN(abilityValueFQN.moduleName, name).pure[CompilerIO]
                        case other                   => error[CompilerIO](s"expected Ability qualifier, got: $other") >> abort
                      }
+      _           <- getFactOrAbort(AbilityImplementationCheck.Key(abilityFQN, key.typeArguments))
       candidates  <- candidateModules.toSeq.flatTraverse(module =>
                        findImplementationsInModule(module, abilityValueFQN.name.name, abilityFQN.abilityName)
                      )

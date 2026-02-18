@@ -113,30 +113,12 @@ class AbilityCheckProcessor
       concreteSig: ExpressionValue
   ): Seq[ExpressionValue] = {
     val typeParamNames = ExpressionValue.extractLeadingLambdaParams(declarationSig).map(_._1).toSet
-    val pattern        = stripUniversalIntros(declarationSig)
-    val bindings       = matchExpressionValues(pattern, concreteSig, typeParamNames)
+    val pattern        = ExpressionValue.stripUniversalTypeIntros(declarationSig)
+    val bindings       = ExpressionValue.matchTypeVarBindings(pattern, concreteSig, typeParamNames)
     ExpressionValue
       .extractLeadingLambdaParams(declarationSig)
       .map((name, _) => bindings.getOrElse(name, ExpressionValue.ParameterReference(name, Value.Type)))
   }
-
-  /** Match a pattern ExpressionValue (with type parameter placeholders) against a concrete ExpressionValue, returning a
-    * map from type parameter names to their concrete bindings.
-    */
-  private def matchExpressionValues(
-      pattern: ExpressionValue,
-      concrete: ExpressionValue,
-      typeParamNames: Set[String]
-  ): Map[String, ExpressionValue] =
-    (pattern, concrete) match {
-      case (ExpressionValue.ParameterReference(name, _), _) if typeParamNames.contains(name)          =>
-        Map(name -> concrete)
-      case (ExpressionValue.FunctionType(p1, r1), ExpressionValue.FunctionType(p2, r2))               =>
-        matchExpressionValues(p1, p2, typeParamNames) ++ matchExpressionValues(r1, r2, typeParamNames)
-      case (ExpressionValue.FunctionApplication(t1, a1), ExpressionValue.FunctionApplication(t2, a2)) =>
-        matchExpressionValues(t1, t2, typeParamNames) ++ matchExpressionValues(a1, a2, typeParamNames)
-      case _                                                                                          => Map.empty
-    }
 
   /** Returns true if the ExpressionValue contains any ParameterReference node, indicating it depends on a type variable
     * (either a universal from the enclosing function, or an unresolved unification var).
@@ -147,12 +129,5 @@ class AbilityCheckProcessor
       case ExpressionValue.FunctionApplication(t, a)   => containsParameterRef(t) || containsParameterRef(a)
       case ExpressionValue.FunctionLiteral(_, _, body) => containsParameterRef(body)
       case _                                           => false
-    }
-
-  @scala.annotation.tailrec
-  private def stripUniversalIntros(expr: ExpressionValue): ExpressionValue =
-    expr match {
-      case ExpressionValue.FunctionLiteral(_, Value.Type, body) => stripUniversalIntros(body)
-      case other                                                => other
     }
 }

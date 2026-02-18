@@ -5,7 +5,10 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.implementation.processor.AbilityImplementationProcessor
+import com.vanillasource.eliot.eliotc.implementation.processor.{
+  AbilityImplementationCheckProcessor,
+  AbilityImplementationProcessor
+}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.{
   ModuleNamesProcessor,
@@ -14,7 +17,6 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleValueProcessor
 }
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.symbolic.fact.TypeCheckedValue
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
@@ -30,6 +32,7 @@ class AbilityCheckProcessorTest
       ValueResolver(),
       SymbolicTypeCheckProcessor(),
       AbilityImplementationProcessor(),
+      AbilityImplementationCheckProcessor(),
       AbilityCheckProcessor()
     ) {
   "ability calls" should "type check when calling ability with concrete type" in {
@@ -53,7 +56,7 @@ class AbilityCheckProcessorTest
       "ability Show[A] { def show(x: A): A }\ndata Int\ndef f(x: Int): Int = show(x)"
     ).asserting(
       _ shouldBe Seq(
-        "show^Ability(Show): No ability implementation found for ability 'Show' with type arguments [Int]."
+        "show^Ability(Show): Ability implementation is missing method 'show'."
       )
     )
   }

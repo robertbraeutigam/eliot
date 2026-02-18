@@ -4,7 +4,7 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckProcessor
-import com.vanillasource.eliot.eliotc.implementation.processor.AbilityImplementationProcessor
+import com.vanillasource.eliot.eliotc.implementation.processor.{AbilityImplementationCheckProcessor, AbilityImplementationProcessor}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.eval.processor.{
@@ -75,6 +75,7 @@ class LangPlugin extends CompilerPlugin {
             ValueResolver(),
             SymbolicTypeCheckProcessor(),
             AbilityImplementationProcessor(),
+            AbilityImplementationCheckProcessor(),
             AbilityCheckProcessor(),
             MonomorphicTypeCheckProcessor(),
             UsedNamesProcessor(),

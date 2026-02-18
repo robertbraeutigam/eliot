@@ -93,6 +93,32 @@ object ExpressionValue {
       case _                    => None
     }
 
+  /** Strip leading FunctionLiteral wrappers that introduce type variables (parameterType == Value.Type). */
+  @tailrec
+  def stripUniversalTypeIntros(expr: ExpressionValue): ExpressionValue =
+    expr match {
+      case FunctionLiteral(_, Value.Type, body) => stripUniversalTypeIntros(body)
+      case other                                => other
+    }
+
+  /** Match a pattern ExpressionValue (with type variable placeholders) against a concrete ExpressionValue, returning a
+    * map from type variable names to their concrete bindings.
+    */
+  def matchTypeVarBindings(
+      pattern: ExpressionValue,
+      concrete: ExpressionValue,
+      typeParamNames: Set[String]
+  ): Map[String, ExpressionValue] =
+    (pattern, concrete) match {
+      case (ParameterReference(name, _), _) if typeParamNames.contains(name)                          =>
+        Map(name -> concrete)
+      case (FunctionType(p1, r1), FunctionType(p2, r2))                                               =>
+        matchTypeVarBindings(p1, p2, typeParamNames) ++ matchTypeVarBindings(r1, r2, typeParamNames)
+      case (FunctionApplication(t1, a1), FunctionApplication(t2, a2))                                 =>
+        matchTypeVarBindings(t1, t2, typeParamNames) ++ matchTypeVarBindings(a1, a2, typeParamNames)
+      case _                                                                                           => Map.empty
+    }
+
   /** Create a function type: paramType -> returnType. Uses the standard Function^Type representation. */
   def functionType(paramType: ExpressionValue, returnType: ExpressionValue): ExpressionValue =
     FunctionApplication(FunctionApplication(Types.functionDataTypeExpr, paramType), returnType)
