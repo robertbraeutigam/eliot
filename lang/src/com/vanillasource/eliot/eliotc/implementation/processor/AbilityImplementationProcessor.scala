@@ -38,8 +38,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                            abstractChecked <- getFactOrAbort(TypeCheckedValue.Key(abilityValueFQN))
                            _               <-
                              compilerError(
-                               abstractChecked.name.map(
-                                 _.show + s": No ability implementation found for ability '${abilityFQN.abilityName}' with type arguments ${key.typeArguments
+                               abstractChecked.name.as(
+                                 s"No ability implementation found for ability '${abilityFQN.abilityName}' with type arguments ${key.typeArguments
                                      .map(_.show)
                                      .mkString("[", ", ", "]")}."
                                )
@@ -50,8 +50,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                            abstractChecked <- getFactOrAbort(TypeCheckedValue.Key(abilityValueFQN))
                            _               <-
                              compilerError(
-                               abstractChecked.name.map(
-                                 _.show + s": Multiple ability implementations found for ability '${abilityFQN.abilityName}' with type arguments ${key.typeArguments
+                               abstractChecked.name.as(
+                                 s"Multiple ability implementations found for ability '${abilityFQN.abilityName}' with type arguments ${key.typeArguments
                                      .map(_.show)
                                      .mkString("[", ", ", "]")}."
                                )

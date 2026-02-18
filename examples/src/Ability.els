@@ -1,5 +1,7 @@
 ability Show[A] {
    def show(a: A): String
+
+   def show2(a: A): String = show(a)
 }
 
 data Hello(name: String)
@@ -8,4 +10,4 @@ implement Show[Hello] {
    def show(a: Hello): String = "Hello World!"
 }
 
-def main: IO[Unit] = println(show(Hello("World")))
+def main: IO[Unit] = println(show2(Hello("World")))
