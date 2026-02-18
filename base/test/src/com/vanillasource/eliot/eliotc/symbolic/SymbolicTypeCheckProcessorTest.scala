@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
+import com.vanillasource.eliot.eliotc.ability.processor.AbilityImplementationProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypeCheckedValue
@@ -22,7 +23,8 @@ class SymbolicTypeCheckProcessorTest
       ModuleValueProcessor(Seq(ModuleName2.systemFunctionModuleName)),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
-      SymbolicTypeCheckProcessor()
+      SymbolicTypeCheckProcessor(),
+      AbilityImplementationProcessor()
     ) {
   "function call" should "compile if same number of arguments" in {
     runEngineForErrors("data A\ndef f: A = b\ndef b: A")
@@ -226,6 +228,24 @@ class SymbolicTypeCheckProcessorTest
   it should "fail when parameter type does not match return type" in {
     runEngineForErrors("data TypeA(fieldA: TypeA)\ndata TypeB(fieldB: TypeB)\ndef f(x: TypeA): TypeB = x")
       .asserting(_ shouldBe Seq("Return type mismatch."))
+  }
+
+  "ability calls" should "type check when calling ability with concrete type" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail when calling ability with abstract type parameter" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndef f[A](x: A): A = show(x)"
+    ).asserting(_ shouldBe Seq("Cannot call ability 'Show' with abstract type parameter. Ability implementations require concrete types."))
+  }
+
+  it should "fail when no implementation exists for the concrete type" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndata Int\ndef f(x: Int): Int = show(x)"
+    ).asserting(_ shouldBe Seq("show^Ability(Show): No ability implementation found for ability 'Show' with type arguments [Int]."))
   }
 
   // TODO: remove this after module1 is removed
