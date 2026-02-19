@@ -10,7 +10,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import Parser.acceptIfAll
 
-case class GenericParameter(name: Sourced[String], genericParameters: Seq[TypeReference])
+case class GenericParameter(
+    name: Sourced[String],
+    genericParameters: Seq[TypeReference]
+)
 
 object GenericParameter {
   val signatureEquality: Eq[GenericParameter] = (x: GenericParameter, y: GenericParameter) =>
