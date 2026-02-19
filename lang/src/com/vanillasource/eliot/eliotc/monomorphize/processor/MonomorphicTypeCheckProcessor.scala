@@ -1,9 +1,11 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.Qualifier as CoreQualifier
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -108,7 +110,15 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                      } else {
                        Seq.empty[Value].pure[CompilerIO]
                      }
-    } yield MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)
+      result      <- if (isAbilityRef(vfqn.value) && typeArgs.nonEmpty)
+                       getFactOrAbort(AbilityImplementation.Key(vfqn.value, typeArgs))
+                         .map(impl => MonomorphicExpression.MonomorphicValueReference(vfqn.as(impl.implementationFQN), Seq.empty))
+                     else
+                       MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs).pure[CompilerIO]
+    } yield result
+
+  private def isAbilityRef(vfqn: ValueFQN): Boolean =
+    vfqn.name.qualifier.isInstanceOf[CoreQualifier.Ability]
 
   /** Infer concrete type arguments for a referenced value by matching the call-site type against the polymorphic
     * signature.

@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
+import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
@@ -509,6 +510,59 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
         result.runtime.isDefined shouldBe true
 
       }
+  }
+
+  it should "resolve ability ref to concrete implementation when monomorphizing with concrete type" in {
+    // show[A]: A -> A  (abstract ability function)
+    val showVfqn     = ValueFQN(testModuleName, QualifiedName("show", Qualifier.Ability("Show")))
+    val showSig      = FunctionLiteral(
+      "A",
+      Value.Type,
+      ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("A", Value.Type))
+    )
+    val showChecked  = AbilityCheckedValue(showVfqn, sourced(toSymbolic(default("show"))), showSig, None)
+
+    // showImplForInt: Int -> Int  (concrete implementation, no type params)
+    val showImplVfqn    = ValueFQN(testModuleName, QualifiedName("showImplForInt", Qualifier.Default))
+    val showImplSig     = ExpressionValue.functionType(ConcreteValue(intType), ConcreteValue(intType))
+    val showImplChecked = AbilityCheckedValue(showImplVfqn, sourced(toSymbolic(default("showImplForInt"))), showImplSig, None)
+
+    // f[A](x: A): A = show(x)  where show's ref is left as-is (constraint proved it)
+    val fVfqn    = ValueFQN(testModuleName, default("f"))
+    val fSig     = FunctionLiteral(
+      "A",
+      Value.Type,
+      ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("A", Value.Type))
+    )
+    // Body: show(x) — show_ref applied to x_ref
+    val xRef     = typedExpr(ParameterReference("A", Value.Type), TypedExpression.ParameterReference(sourced("x")))
+    val showRef  = typedExpr(
+      ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("A", Value.Type)),
+      TypedExpression.ValueReference(sourced(showVfqn))
+    )
+    val fBody    = TypedExpression.FunctionApplication(sourced(showRef), sourced(xRef))
+    val fChecked = AbilityCheckedValue(fVfqn, sourced(toSymbolic(default("f"))), fSig, Some(sourced(fBody)))
+
+    // AbilityImplementation linking show[Int] -> showImplForInt
+    val abilityImpl = AbilityImplementation(showVfqn, Seq(intType), showImplVfqn)
+
+    runProcessor(
+      MonomorphicValue.Key(fVfqn, Seq(intType)),
+      Seq(fChecked, showChecked, showImplChecked, abilityImpl, functionDataTypeEvaluable)
+    ).asserting { result =>
+      result.runtime.get.value match {
+        case MonomorphicExpression.FunctionApplication(target, _) =>
+          target.value.expression match {
+            case MonomorphicExpression.MonomorphicValueReference(name, typeArgs) =>
+              name.value shouldBe showImplVfqn
+              typeArgs shouldBe Seq.empty
+            case other                                                           =>
+              fail(s"Expected MonomorphicValueReference to impl, got $other")
+          }
+        case other                                                 =>
+          fail(s"Expected FunctionApplication, got $other")
+      }
+    }
   }
 
   private def typedExpr(exprType: ExpressionValue, expr: TypedExpression.Expression): TypedExpression =
