@@ -15,14 +15,19 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   The runtime value expression. This is None if the named value is abstract.
   * @param typeStack
   *   The type levels for this value. The signature is at index 0.
+  * @param paramConstraints
+  *   Ability constraints on generic type parameters, keyed by parameter name. Empty for non-generic values.
   */
 case class NamedValue(
     qualifiedName: Sourced[QualifiedName],
     runtime: Option[Expression],
-    typeStack: TypeStack[Expression]
+    typeStack: TypeStack[Expression],
+    paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]] = Map.empty
 )
 
 object NamedValue {
+  case class CoreAbilityConstraint(abilityName: Sourced[String], typeArgs: Seq[Expression])
+
   val signatureEquality: Eq[NamedValue] = (x: NamedValue, y: NamedValue) =>
     structuralEquality.eqv(x.typeStack.signature, y.typeStack.signature)
 

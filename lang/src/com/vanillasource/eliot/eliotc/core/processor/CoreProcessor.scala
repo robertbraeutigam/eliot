@@ -55,7 +55,15 @@ class CoreProcessor
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
     val curriedValue = function.body.map(body => buildCurriedBody(function.args, body))
     val typeStack    = TypeStack.of(curriedType.value)
-    NamedValue(convertQualifiedName(function.name), curriedValue.map(_.value), typeStack)
+    val constraints  = function.genericParameters
+      .map(gp =>
+        gp.name.value -> gp.abilityConstraints.map(c =>
+          NamedValue.CoreAbilityConstraint(c.abilityName, c.typeParameters.map(toTypeExpression(_).value))
+        )
+      )
+      .filter(_._2.nonEmpty)
+      .toMap
+    NamedValue(convertQualifiedName(function.name), curriedValue.map(_.value), typeStack, constraints)
   }
 
   private def convertQualifiedName(name: Sourced[AstQualifiedName]): Sourced[QualifiedName] =

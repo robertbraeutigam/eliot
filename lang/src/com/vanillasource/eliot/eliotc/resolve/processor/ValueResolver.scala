@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName as CoreQualifiedName, Qualifier as CoreQualifier}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{TypeStack, Expression as CoreExpression}
+import com.vanillasource.eliot.eliotc.core.fact.{NamedValue, TypeStack, Expression as CoreExpression}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
@@ -29,19 +29,21 @@ class ValueResolver
     val scope         = ValueResolverScope(unifiedValue.dictionary, genericParams.toSet)
 
     val resolveProgram = for {
-      resolvedRuntime <-
+      resolvedRuntime     <-
         namedValue.runtime.traverse(expr => resolveExpression(expr, true).map(namedValue.qualifiedName.as))
-      resolvedStack   <- resolveTypeStack(namedValue.qualifiedName.as(namedValue.typeStack), false)
-      resolvedName    <- convertQualifiedName(namedValue.qualifiedName)
-      _               <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedStack.value.show}")
-      _               <- debug[ScopedIO](
-                           s"Resolved ${key.vfqn.show} runtime: ${resolvedRuntime.map(_.value.show).getOrElse("<abstract>")}"
-                         )
+      resolvedStack       <- resolveTypeStack(namedValue.qualifiedName.as(namedValue.typeStack), false)
+      resolvedName        <- convertQualifiedName(namedValue.qualifiedName)
+      resolvedConstraints <- resolveParamConstraints(namedValue.paramConstraints)
+      _                   <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedStack.value.show}")
+      _                   <- debug[ScopedIO](
+                               s"Resolved ${key.vfqn.show} runtime: ${resolvedRuntime.map(_.value.show).getOrElse("<abstract>")}"
+                             )
     } yield ResolvedValue(
       unifiedValue.vfqn,
       resolvedName,
       resolvedRuntime,
-      resolvedStack
+      resolvedStack,
+      resolvedConstraints
     )
 
     resolveProgram.runA(scope)
@@ -69,6 +71,22 @@ class ValueResolver
       case Some(abilityName) => abilityName.pure[ScopedIO]
       case None              => compilerAbort(name.as(s"Ability not found.")).liftToScoped
     }
+
+  private def resolveParamConstraints(
+      paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]]
+  ): ScopedIO[Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]] =
+    paramConstraints.toSeq
+      .traverse { case (paramName, constraints) =>
+        constraints
+          .traverse { c =>
+            for {
+              abilityFQN   <- resolveAbilityName(c.abilityName)
+              resolvedArgs <- c.typeArgs.traverse(resolveExpression(_, false))
+            } yield ResolvedValue.ResolvedAbilityConstraint(abilityFQN, resolvedArgs)
+          }
+          .map(paramName -> _)
+      }
+      .map(_.toMap)
 
   /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with a kind annotation
     * (Type or Function returning Type) as param type.
