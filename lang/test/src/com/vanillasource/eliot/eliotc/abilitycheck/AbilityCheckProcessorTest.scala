@@ -54,11 +54,7 @@ class AbilityCheckProcessorTest
   it should "fail when no implementation exists for the concrete type" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\ndef f(x: Int): Int = show(x)"
-    ).asserting(
-      _ shouldBe Seq(
-        "Ability implementation is missing method 'show'."
-      )
-    )
+    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'."))
   }
 
   private def runEngineForErrors(source: String): IO[Seq[String]] =

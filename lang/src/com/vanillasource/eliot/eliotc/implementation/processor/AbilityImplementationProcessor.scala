@@ -11,7 +11,12 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
-import com.vanillasource.eliot.eliotc.symbolic.fact.{QualifiedName as SymbolicQualifiedName, Qualifier as SymbolicQualifier, TypeCheckedValue, TypedExpression}
+import com.vanillasource.eliot.eliotc.symbolic.fact.{
+  QualifiedName as SymbolicQualifiedName,
+  Qualifier as SymbolicQualifier,
+  TypeCheckedValue,
+  TypedExpression
+}
 
 class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] with Logging {
 
@@ -38,17 +43,17 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                          for {
                            abilityChecked <- getFactOrAbort(TypeCheckedValue.Key(abilityValueFQN))
                            _              <- abilityChecked.runtime match {
-                                              case Some(runtime) =>
-                                                handleDefaultImplementation(abilityChecked, abilityFQN, key, runtime)
-                                              case None          =>
-                                                compilerError(
-                                                  abilityChecked.name.as(
-                                                    s"No ability implementation found for ability '${abilityFQN.abilityName}' with type arguments ${key.typeArguments
-                                                        .map(_.show)
-                                                        .mkString("[", ", ", "]")}."
-                                                  )
-                                                )
-                                            }
+                                               case Some(runtime) =>
+                                                 handleDefaultImplementation(abilityChecked, abilityFQN, key, runtime)
+                                               case None          =>
+                                                 compilerError(
+                                                   abilityChecked.name.as(
+                                                     s"No ability implementation found for ability '${abilityFQN.abilityName}' with type arguments ${key.typeArguments
+                                                         .map(_.show)
+                                                         .mkString("[", ", ", "]")}."
+                                                   )
+                                                 )
+                                             }
                          } yield ()
                        case multiple     =>
                          for {
@@ -72,6 +77,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       key: AbilityImplementation.Key,
       sourcedRuntime: Sourced[TypedExpression.Expression]
   ): CompilerIO[Unit] = {
+    val abilityValueFQN   = key.abilityValueFQN
+    val candidateModules  = Set(abilityValueFQN.moduleName) ++ key.typeArguments.flatMap(_.typeFQN.map(_.moduleName))
     val typeBindings      = computeTypeBindings(abilityChecked.signature, key.typeArguments)
     val typeSubst         = (ev: ExpressionValue) =>
       typeBindings.foldLeft(ev) { case (acc, (name, value)) => ExpressionValue.substitute(acc, name, value) }
@@ -79,19 +86,31 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       case (acc, (name, value)) => ExpressionValue.substitute(acc, name, value)
     }
     val concreteRuntime   = sourcedRuntime.map(substituteTypesInExpression(_, typeSubst))
-    val syntheticFQN      = createSyntheticFQN(key)
     val syntheticName     = abilityChecked.name.as(
-                              SymbolicQualifiedName(
-                                abilityChecked.name.value.name,
-                                SymbolicQualifier.AbilityImplementation(
-                                  abilityFQN,
-                                  key.typeArguments.map(ExpressionValue.ConcreteValue(_))
-                                )
-                              )
-                            )
+      SymbolicQualifiedName(
+        abilityChecked.name.value.name,
+        SymbolicQualifier.AbilityImplementation(
+          abilityFQN,
+          key.typeArguments.map(ExpressionValue.ConcreteValue(_))
+        )
+      )
+    )
     for {
-      _ <- registerFactIfClear(TypeCheckedValue(syntheticFQN, syntheticName, concreteSignature, Some(concreteRuntime)))
-      _ <- registerFactIfClear(AbilityImplementation(key.abilityValueFQN, key.typeArguments, syntheticFQN))
+      allImpls <- candidateModules.toSeq.flatTraverse(findAnyImplementationInModule(_, abilityFQN.abilityName))
+      verified <- allImpls.flatTraverse(verifyImplementation(_, abilityFQN, key.typeArguments))
+      sibling  <- verified.headOption match {
+                    case Some(fqn) => fqn.pure[CompilerIO]
+                    case None      =>
+                      error[CompilerIO](s"Expected sibling for default '${abilityValueFQN.name.name}' but found none") >>
+                        abort[ValueFQN]
+                  }
+      implFQN   =
+        ValueFQN(
+          sibling.moduleName,
+          QualifiedName(abilityValueFQN.name.name, sibling.name.qualifier.asInstanceOf[Qualifier.AbilityImplementation])
+        )
+      _        <- registerFactIfClear(TypeCheckedValue(implFQN, syntheticName, concreteSignature, Some(concreteRuntime)))
+      _        <- registerFactIfClear(AbilityImplementation(key.abilityValueFQN, key.typeArguments, implFQN))
     } yield ()
   }
 
@@ -101,14 +120,6 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       .map(_._1)
       .zip(typeArguments.map(ExpressionValue.ConcreteValue(_)))
       .toMap
-
-  private def createSyntheticFQN(key: AbilityImplementation.Key): ValueFQN = {
-    val typeArgStr = key.typeArguments.map(Value.valueUserDisplay.show).mkString("$$")
-    ValueFQN(
-      key.abilityValueFQN.moduleName,
-      QualifiedName(s"${key.abilityValueFQN.name.name}$$default$$${typeArgStr}", Qualifier.Default)
-    )
-  }
 
   private def substituteTypesInExpression(
       expr: TypedExpression.Expression,
@@ -127,6 +138,18 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
           body.map(_.transformTypes(typeSubst))
         )
       case other                                                       => other
+    }
+
+  private def findAnyImplementationInModule(
+      moduleName: ModuleName,
+      abilityLocalName: String
+  ): CompilerIO[Seq[ValueFQN]] =
+    getFactOrAbort(UnifiedModuleNames.Key(moduleName)).map { names =>
+      names.names.toSeq.collect {
+        case qn @ QualifiedName(_, Qualifier.AbilityImplementation(abilityNameSrc, _))
+            if abilityNameSrc.value == abilityLocalName =>
+          ValueFQN(moduleName, qn)
+      }
     }
 
   private def findImplementationsInModule(

@@ -22,9 +22,20 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
     for {
       abilityMethods <- collectAbilityMethods(abilityFQN)
       implMethods    <- candidateModules.toSeq.flatTraverse(collectImplMethods(_, abilityFQN, typeArguments))
-      _              <- checkCompleteness(abilityMethods, implMethods)
-      _              <- checkNoExtras(abilityMethods, implMethods)
-      _              <- checkSignatures(abilityMethods, implMethods, typeArguments)
+      _              <- implMethods match {
+                          case Nil =>
+                            abilityMethods.headOption.traverse_(m =>
+                              compilerError(
+                                m.name.as(
+                                  s"The type parameter '${typeArguments.map(Value.valueUserDisplay.show).mkString(", ")}' does not implement ability '${abilityFQN.abilityName}'."
+                                )
+                              )
+                            )
+                          case _   =>
+                            checkCompleteness(abilityMethods, implMethods) >>
+                              checkNoExtras(abilityMethods, implMethods) >>
+                              checkSignatures(abilityMethods, implMethods, typeArguments)
+                        }
       _              <- registerFactIfClear(AbilityImplementationCheck(abilityFQN, typeArguments))
     } yield ()
   }
