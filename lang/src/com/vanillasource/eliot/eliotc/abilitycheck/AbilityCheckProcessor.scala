@@ -84,7 +84,7 @@ class AbilityCheckProcessor
                           if (containsParameterRef(arg))
                             compilerAbort[Unit](
                               vfqn.as(
-                                s"Cannot call ability '$abilityLocalName' with abstract type parameter. Ability implementations require concrete types."
+                                s"Cannot prove ability '$abilityLocalName' is available for given type. (Ability implementations require concrete types for now)."
                               )
                             )
                           else ().pure[CompilerIO]

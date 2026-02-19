@@ -46,7 +46,7 @@ class AbilityCheckProcessorTest
       "ability Show[A] { def show(x: A): A }\ndef f[A](x: A): A = show(x)"
     ).asserting(
       _ shouldBe Seq(
-        "Cannot call ability 'Show' with abstract type parameter. Ability implementations require concrete types."
+        "Cannot prove ability 'Show' is available for given type. (Ability implementations require concrete types for now)."
       )
     )
   }
