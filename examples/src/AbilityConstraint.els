@@ -8,6 +8,6 @@ implement Show[Hello] {
    def show(a: Hello): String = "Hello World!"
 }
 
-def showAnything[A ~ Show[A]](thing: A): String = show(thing)
+def showAnything[A ~ Show](thing: A): String = show(thing)
 
 def main: IO[Unit] = println(showAnything(Hello("World")))
