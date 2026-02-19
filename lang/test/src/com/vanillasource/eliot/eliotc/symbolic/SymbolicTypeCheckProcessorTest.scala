@@ -124,7 +124,7 @@ class SymbolicTypeCheckProcessorTest
   }
 
   "higher kind generic types" should "type check through single generic placeholder" in {
-    runEngineForErrors("def id[A](a: A): A\ndef f[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
+    runEngineForErrors("def id[A](a: A): A\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)")
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -132,7 +132,7 @@ class SymbolicTypeCheckProcessorTest
   // Full detection would require tracking type constructor arities during unification.
   // For now, this passes without errors due to how type parameters are instantiated.
   it should "reject different arities of generic parameters" in {
-    runEngineForErrors("def id[B, A[B]](a: A[B]): A[B]\ndef f[A, B, C[A, B]](c: C[A, B]): C[A, B] = id(c)")
+    runEngineForErrors("def id[B, A[_]](a: A[B]): A[B]\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)")
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -145,28 +145,28 @@ class SymbolicTypeCheckProcessorTest
 
   it should "type check higher-kinded parameter returning identity" in {
     runEngineForErrors(
-      "data Int\ndef f[F[A]](x: F[Int]): F[Int] = x"
+      "data Int\ndef f[F[_]](x: F[Int]): F[Int] = x"
     )
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "type check higher-kinded parameter with two type args" in {
     runEngineForErrors(
-      "data Int\ndata String\ndef f[F[A, B]](x: F[Int, String]): F[Int, String] = x"
+      "data Int\ndata String\ndef f[F[_, _]](x: F[Int, String]): F[Int, String] = x"
     )
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail when higher-kinded parameters mismatch" in {
     runEngineForErrors(
-      "data Int\ndata String\ndef f[F[A]](x: F[Int]): F[String] = x"
+      "data Int\ndata String\ndef f[F[_]](x: F[Int]): F[String] = x"
     )
       .asserting(_ shouldBe Seq("Type argument mismatch."))
   }
 
   it should "type check nested higher-kinded parameter" in {
     runEngineForErrors(
-      "data Int\ndef f[G[A], F[G[A]]](x: F[G[Int]]): F[G[Int]] = x"
+      "data Int\ndef f[G[_], F[_[_]]](x: F[G[Int]]): F[G[Int]] = x"
     )
       .asserting(_ shouldBe Seq.empty)
   }

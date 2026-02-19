@@ -21,6 +21,7 @@
            <!-- <Logger name="com.vanillasource.eliot.eliotc.resolve" level="debug"/> -->
            <!-- <Logger name="com.vanillasource.eliot.eliotc.uncurry" level="debug"/> -->
            <!-- <Logger name="com.vanillasource.eliot.eliotc.core" level="debug"/> -->
+           <!-- <Logger name="com.vanillasource.eliot.eliotc.token" level="debug"/> -->
            <!-- <Logger name="com.vanillasource.eliot.eliotc.source.scan" level="debug"/> -->
     </Loggers>
 </Configuration>

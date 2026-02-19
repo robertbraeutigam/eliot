@@ -24,7 +24,7 @@ object Qualifier {
 
   /** Function belongs to the given ability implementation.
     */
-  case class AbilityImplementation(name: Sourced[String], genericParameters: Seq[GenericParameter]) extends Qualifier
+  case class AbilityImplementation(name: Sourced[String], pattern: Seq[TypeReference]) extends Qualifier
 
   given Eq[Qualifier] = Eq.fromUniversalEquals
 }

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.ast.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.fact.{AST, Qualifier, SourceAST}
+import com.vanillasource.eliot.eliotc.ast.fact.{AST, Qualifier, SourceAST, TypeReference}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -142,6 +142,10 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("data A[B, C]\ndef f[B, C](p: A[B, C]): C").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "accept higher kind generics" in {
+    runEngineForErrors("def f[A[_[_], _]]: A").asserting(_ shouldBe Seq.empty)
+  }
+
   it should "not accept data definition with lower case" in {
     runEngineForErrors("data a").asserting(_ shouldBe Seq("Expected type name, but encountered identifier 'a'."))
   }
@@ -228,20 +232,21 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
+  // TODO: this shouldn't be allowed later, {} must be deleted if empty
   it should "accept an empty implement block" in {
-    runEngineForErrors("implement Showable {}").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("implement Show[A] {}").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept an implement block with a function" in {
-    runEngineForErrors("implement Showable { def show: String = a }").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("implement Show[A] { def show: String = a }").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept an implement block with an abstract function" in {
-    runEngineForErrors("implement Showable { def show: String }").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("implement Show[A] { def show: String }").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept an implement block with multiple functions" in {
-    runEngineForErrors("implement Showable { def show: String = a\ndef display: String = b }").asserting(
+    runEngineForErrors("implement Show[A] { def show: String = a\ndef display: String = b }").asserting(
       _ shouldBe Seq.empty
     )
   }
@@ -256,18 +261,22 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
-  it should "reject an implement block without braces" in {
-    runEngineForErrors("implement Showable").asserting(_.size should be > 0)
+  it should "reject an implement block without generic block" in {
+    runEngineForErrors("implement Show").asserting(_.size should be > 0)
+  }
+
+  it should "reject an implement block without generic parameter" in {
+    runEngineForErrors("implement Show[]").asserting(_.size should be > 0)
   }
 
   it should "qualify implement functions with AbilityImplementation qualifier" in {
-    runEngineForFunctions("implement Showable { def show: String = a }").asserting(
+    runEngineForFunctions("implement Show[A] { def show: String = a }").asserting(
       _ shouldBe Seq(
         (
           "show",
           Qualifier.AbilityImplementation(
-            Sourced(file, PositionRange(Position(1, 11), Position(1, 19)), "Showable"),
-            Seq.empty
+            Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
+            Seq(TypeReference(Sourced(file, PositionRange(Position(1, 16), Position(1, 17)), "A"), List()))
           )
         )
       )
@@ -275,20 +284,20 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   }
 
   it should "qualify multiple implement functions with the same qualifier" in {
-    runEngineForFunctions("implement Showable { def show: String\ndef display: String }").asserting(
+    runEngineForFunctions("implement Show[A] { def show: String\ndef display: String }").asserting(
       _ shouldBe Seq(
         (
           "show",
           Qualifier.AbilityImplementation(
-            Sourced(file, PositionRange(Position(1, 11), Position(1, 19)), "Showable"),
-            Seq.empty
+            Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
+            Seq(TypeReference(Sourced(file, PositionRange(Position(1, 16), Position(1, 17)), "A"), List()))
           )
         ),
         (
           "display",
           Qualifier.AbilityImplementation(
-            Sourced(file, PositionRange(Position(1, 11), Position(1, 19)), "Showable"),
-            Seq.empty
+            Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
+            Seq(TypeReference(Sourced(file, PositionRange(Position(1, 16), Position(1, 17)), "A"), List()))
           )
         )
       )
@@ -302,14 +311,14 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   }
 
   it should "not mix implement functions with top-level functions" in {
-    runEngineForFunctions("def f: A = a\nimplement Showable { def show: String = b }").asserting(
+    runEngineForFunctions("def f: A = a\nimplement Show[A]{ def show: String = b }").asserting(
       _ shouldBe Seq(
         ("f", Qualifier.Default),
         (
           "show",
           Qualifier.AbilityImplementation(
-            Sourced(file, PositionRange(Position(2, 11), Position(2, 19)), "Showable"),
-            Seq.empty
+            Sourced(file, PositionRange(Position(2, 11), Position(2, 15)), "Show"),
+            Seq(TypeReference(Sourced(file, PositionRange(Position(2, 16), Position(2, 17)), "A"), List()))
           )
         )
       )

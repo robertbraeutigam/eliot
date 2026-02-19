@@ -1,17 +1,18 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.Arity
 import com.vanillasource.eliot.eliotc.ast.fact.{
   ArgumentDefinition,
   DataDefinition,
   FunctionDefinition,
   GenericParameter,
-  QualifiedName as AstQualifiedName,
-  Qualifier as AstQualifier,
   SourceAST,
   TypeReference,
   ArgumentDefinition as SourceArgument,
-  Expression as SourceExpression
+  Expression as SourceExpression,
+  QualifiedName as AstQualifiedName,
+  Qualifier as AstQualifier
 }
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
@@ -62,13 +63,13 @@ class CoreProcessor
 
   private def convertQualifier(qualifier: AstQualifier): Qualifier =
     qualifier match {
-      case AstQualifier.Default                                  => Qualifier.Default
-      case AstQualifier.Type                                     => Qualifier.Type
-      case AstQualifier.Ability(n)                               => Qualifier.Ability(n)
-      case AstQualifier.AbilityImplementation(n, genericParams)  =>
+      case AstQualifier.Default                           => Qualifier.Default
+      case AstQualifier.Type                              => Qualifier.Type
+      case AstQualifier.Ability(n)                        => Qualifier.Ability(n)
+      case AstQualifier.AbilityImplementation(n, pattern) =>
         Qualifier.AbilityImplementation(
           n,
-          genericParams.map(gp => toTypeExpression(TypeReference(gp.name, gp.genericParameters)).value)
+          pattern.map(toTypeExpression(_).value)
         )
     }
 
@@ -99,7 +100,7 @@ class CoreProcessor
       )
     }
     genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
-      val kindType = toKindExpression(param.name, param.genericParameters)
+      val kindType = toKindExpression(param.name, param.arity)
       param.name.as(FunctionLiteral(param.name, TypeStack.of(kindType.value), acc.map(TypeStack.of)))
     }
   }
@@ -108,27 +109,28 @@ class CoreProcessor
     * types, returns a curried function of kinds ending in Type.
     *
     * Examples:
-    *   - A: Type
-    *   - F[A]: Function[Type, Type]
-    *   - F[A, B]: Function[Type, Function[Type, Type]]
-    *   - F[G[A]]: Function[Function[Type, Type], Type] (F takes a type constructor)
-    *   - F[G[A, B]]: Function[Function[Type, Function[Type, Type]], Type]
+    *   - _: Type
+    *   - F[_]: Function[Type, Type]
+    *   - F[_, _]: Function[Type, Function[Type, Type]]
+    *   - F[_[_]]: Function[Function[Type, Type], Type] (F takes a type constructor)
+    *   - F[_[_, _]]: Function[Function[Type, Function[Type, Type]], Type]
     */
-  private def toKindExpression(source: Sourced[String], genericParams: Seq[TypeReference]): Sourced[Expression] =
-    if (genericParams.isEmpty) {
+  // FIXME: doesn't need empty case
+  private def toKindExpression(source: Sourced[?], arity: Arity): Sourced[Expression] =
+    if (arity.parameters.isEmpty) {
       source.as(NamedValueReference(source.as(QualifiedName("Type", Qualifier.Default))))
     } else {
       val typeRef = source.as(NamedValueReference(source.as(QualifiedName("Type", Qualifier.Default))))
-      genericParams.foldRight[Sourced[Expression]](typeRef) { (param, acc) =>
+      arity.parameters.foldRight[Sourced[Expression]](typeRef) { (param, acc) =>
         // Recursively compute the kind of this parameter based on its own nested generic params
-        val paramKind = toKindExpression(param.typeName, param.genericParameters)
+        val paramKind = toKindExpression(source, param)
         buildFunctionKind(source, paramKind, acc)
       }
     }
 
   /** Builds Function[argKind, resultKind] expression. */
   private def buildFunctionKind(
-      source: Sourced[String],
+      source: Sourced[?],
       argKind: Sourced[Expression],
       resultKind: Sourced[Expression]
   ): Sourced[Expression] = {
@@ -182,11 +184,11 @@ class CoreProcessor
           expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Default)), moduleName)),
           args
         )
-      case SourceExpression.FunctionLiteral(params, body)                          =>
+      case SourceExpression.FunctionLiteral(params, body)                 =>
         curryLambda(params, toBodyExpression(body), expr)
-      case SourceExpression.IntegerLiteral(lit)                                    =>
+      case SourceExpression.IntegerLiteral(lit)                           =>
         expr.as(IntegerLiteral(lit))
-      case SourceExpression.StringLiteral(lit)                                     =>
+      case SourceExpression.StringLiteral(lit)                            =>
         expr.as(StringLiteral(lit))
     }
 

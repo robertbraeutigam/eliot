@@ -15,7 +15,7 @@ object ImplementBlock {
         for {
           _                   <- keyword("implement")
           name                <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
-          genericParameters   <- component[Seq[GenericParameter]]
+          pattern             <- bracketedCommaSeparatedItems("[", component[TypeReference], "]")
           (errors, functions) <- component[FunctionDefinition]
                                    .recoveringAnyTimes(t => isKeyword(t) && hasContent("def")(t))
                                    .between(symbol("{"), symbol("}"))
@@ -26,9 +26,7 @@ object ImplementBlock {
             // and also prepend the common generic parameters.
             // Note: the implement qualifier has to include the instantiation type parameters
             FunctionDefinition(
-              f.name.map(n =>
-                QualifiedName(n.name, Qualifier.AbilityImplementation(name.map(_.content), genericParameters))
-              ),
+              f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.map(_.content), pattern))),
               f.genericParameters, // Don't add parameters to the function, it'll have to have those already
               f.args,
               f.typeDefinition,

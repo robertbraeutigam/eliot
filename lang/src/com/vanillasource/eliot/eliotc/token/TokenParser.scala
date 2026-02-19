@@ -24,7 +24,7 @@ class TokenParser(sourced: Sourced[?]) {
       ),
       SymbolDesc(
         hardKeywords = Set("import", "data", "def", "ability", "implement"),
-        hardOperators = Set("(", ")", "[", "]", "->"),
+        hardOperators = Set("(", ")", "[", "]", "->", "_"),
         caseSensitive = true
       ),
       NumericDesc.plain,
@@ -51,7 +51,7 @@ class TokenParser(sourced: Sourced[?]) {
   )
 
   private lazy val standaloneSymbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
-    character.strings("(", ")", "[", "]", "{", "}", ",", "->").map(Token.Symbol.apply)
+    character.strings("(", ")", "[", "]", "{", "}", ",", "->", "_").map(Token.Symbol.apply)
   ).label("special operator")
 
   private lazy val keyword: Parsley[Sourced[Token.Keyword]] = sourcedLexeme(
