@@ -325,6 +325,30 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
+  it should "accept a single ability constraint with no parameter" in {
+    runEngineForErrors("def f[A ~ Show](a: A): A").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject operator without constraints" in {
+    runEngineForErrors("def f[A ~](a: A): A").asserting(_.length should be > 0)
+  }
+
+  it should "accept a single ability constraint with one type parameter" in {
+    runEngineForErrors("def f[A ~ Show[A]](a: A): A").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a single ability constraint with any number of type parameters" in {
+    runEngineForErrors("def f[A ~ Show[A, B, C[B]]](a: A): A").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a two ability constraints with no parameter" in {
+    runEngineForErrors("def f[A ~ Show & Eq](a: A): A").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a two generic parameters, both with constraints" in {
+    runEngineForErrors("def f[A ~ Show, B ~ Eq](a: A): A").asserting(_ shouldBe Seq.empty)
+  }
+
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
     runGenerator(source, SourceAST.Key(file)).map(_._2)
 
