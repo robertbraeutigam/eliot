@@ -4,7 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.FunctionApplication
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
-import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIfAll, between, recoveringAnyTimes}
+import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIfAll, between, optional, recoveringAnyTimes, recoveringAtLeastOnce}
 import com.vanillasource.eliot.eliotc.ast.parser.{Parser, ParserError}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
@@ -18,8 +18,10 @@ object ImplementBlock {
           name                <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
           pattern             <- bracketedCommaSeparatedItems("[", component[TypeReference], "]")
           (errors, functions) <- component[FunctionDefinition]
-                                   .recoveringAnyTimes(t => isKeyword(t) && hasContent("def")(t))
+                                   .recoveringAtLeastOnce(t => isKeyword(t) && hasContent("def")(t))
                                    .between(symbol("{"), symbol("}"))
+                                   .optional()
+                                   .map(_.getOrElse(Seq.empty, Seq.empty))
         } yield (
           errors,
           functions.map(f =>

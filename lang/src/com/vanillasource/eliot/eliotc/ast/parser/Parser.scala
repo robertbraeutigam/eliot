@@ -139,9 +139,9 @@ object Parser {
       p.run(input) match
         case ParserResult(consume, error, Some((next, value))) =>
           ParserResult(consume, error, Some((next, Right(value))))
-        case ParserResult(NotConsumed, error, None)             =>
+        case ParserResult(NotConsumed, error, None)            =>
           ParserResult(NotConsumed, error, None)
-        case ParserResult(Consumed, error, None)                =>
+        case ParserResult(Consumed, error, None)               =>
           ParserResult(Consumed, ParserError.noError, Some((input.tail.dropWhile(i => !spanStart(i)), Left(error))))
     }
 
@@ -150,6 +150,11 @@ object Parser {
       */
     def recoveringAnyTimes(spanStart: I => Boolean): Parser[I, (Seq[ParserError], Seq[O])] =
       p.recovering(spanStart).anyTimes().map { results =>
+        (results.collect { case Left(e) => e }, results.flatMap(_.toOption))
+      }
+
+    def recoveringAtLeastOnce(spanStart: I => Boolean): Parser[I, (Seq[ParserError], Seq[O])] =
+      p.recovering(spanStart).atLeastOnce().map { results =>
         (results.collect { case Left(e) => e }, results.flatMap(_.toOption))
       }
   }

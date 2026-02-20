@@ -178,8 +178,8 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("def f: A = eliot.lang.String::println()").asserting(_.size should be > 0)
   }
 
-  it should "accept an empty ability" in {
-    runEngineForErrors("ability Showable[A] {}").asserting(_ shouldBe Seq.empty)
+  it should "reject an empty ability with braces" in {
+    runEngineForErrors("ability Showable[A] {}").asserting(_.size should be > 0)
   }
 
   it should "accept an ability with an abstract function" in {
@@ -206,8 +206,8 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
-  it should "reject an ability without braces" in {
-    runEngineForErrors("ability Showable[A]").asserting(_.size should be > 0)
+  it should "accept an ability without braces" in {
+    runEngineForErrors("ability Showable[A]").asserting(_ shouldBe Seq.empty)
   }
 
   it should "qualify ability functions with the ability name" in {
@@ -242,9 +242,8 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
-  // TODO: this shouldn't be allowed later, {} must be deleted if empty
-  it should "accept an empty implement block" in {
-    runEngineForErrors("implement Show[A] {}").asserting(_ shouldBe Seq.empty)
+  it should "reject an empty implement block with braces" in {
+    runEngineForErrors("implement Show[A] {}").asserting(_.size should be > 0)
   }
 
   it should "accept an implement block with a function" in {

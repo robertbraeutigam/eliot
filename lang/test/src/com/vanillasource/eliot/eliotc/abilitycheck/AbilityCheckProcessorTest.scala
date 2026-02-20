@@ -55,7 +55,7 @@ class AbilityCheckProcessorTest
 
   it should "support empty abilities to be declared" in {
     runEngineForErrors(
-      "ability Marker[A] {}\ndef f[A ~ Marker](x: A): A"
+      "ability Marker[A]\ndef f[A ~ Marker](x: A): A"
     ).asserting(_ shouldBe Seq.empty)
   }
 
