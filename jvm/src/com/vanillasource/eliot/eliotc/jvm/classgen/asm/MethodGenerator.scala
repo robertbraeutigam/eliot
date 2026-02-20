@@ -88,6 +88,17 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
     )
   }
 
+  /** Add putting a value into a static field of this class.
+    */
+  def addPutStaticField[F[_]: Sync](fieldName: String, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
+    methodVisitor.visitFieldInsn(
+      Opcodes.PUTSTATIC,
+      moduleName.packages.appended(moduleName.name).mkString("/"),
+      fieldName,
+      javaSignatureName(fieldType)
+    )
+  }
+
   /** Add putting field into local instance variable.
     */
   def addPutField[F[_]: Sync](fieldName: String, fieldType: ValueFQN): F[Unit] = Sync[F].delay {

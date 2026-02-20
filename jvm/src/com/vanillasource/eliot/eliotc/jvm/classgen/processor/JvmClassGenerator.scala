@@ -6,7 +6,9 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.jvm.classgen.AbilityInterfaceGenerator
+import com.vanillasource.eliot.eliotc.jvm.classgen.{AbilityImplGenerator, AbilityInterfaceGenerator}
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
+import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier as SymbolicQualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemUnitValue
@@ -39,6 +41,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           .flatTraverse((vfqn, stats) => createDataFromConstructor(mainClassGenerator, vfqn, stats))
       dataGeneratedFunctions <- usedValues.toSeq.flatTraverse(collectDataGeneratedFunctions)
       abilityInterfaces      <- createAbilityInterfaces(mainClassGenerator, key.moduleName)
+      abilityImpls           <- createAbilityImplSingletons(mainClassGenerator, key.moduleName)
       functionFiles          <-
         usedValues.view
           .filterKeys(k => !dataGeneratedFunctions.contains(k) && !isAbilityMethod(k))
@@ -52,7 +55,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                   GeneratedModule(
                                     key.moduleName,
                                     key.vfqn,
-                                    functionFiles ++ dataClasses ++ abilityInterfaces ++ Seq(mainClass)
+                                    functionFiles ++ dataClasses ++ abilityInterfaces ++ abilityImpls ++ Seq(mainClass)
                                   )
                                 )
     } yield ()
@@ -456,6 +459,60 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     for {
       methods   <- methodVfqns.traverse(vfqn => getFactOrAbort(UncurriedValue.Key(vfqn, 0)))
       classFile <- AbilityInterfaceGenerator.createAbilityInterface[CompilerIO](outerClassGenerator, abilityName, methods)
+    } yield Seq(classFile)
+
+  private def createAbilityImplSingletons(
+      mainClassGenerator: ClassGenerator,
+      moduleName: ModuleName
+  ): CompilerIO[Seq[ClassFile]] =
+    for {
+      unifiedModuleNames <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
+      implNames           = unifiedModuleNames.names.toSeq.collect {
+                              case qn @ QualifiedName(_, Qualifier.AbilityImplementation(_, _)) =>
+                                ValueFQN(moduleName, qn)
+                            }
+      implsWithAbility   <- implNames.flatTraverse { implVfqn =>
+                              getFactOrAbort(TypeCheckedValue.Key(implVfqn)).map { checked =>
+                                checked.name.value.qualifier match {
+                                  case SymbolicQualifier.AbilityImplementation(abilityFQN, typeArgs) =>
+                                    Seq((implVfqn, abilityFQN, typeArgs))
+                                  case _                                                             =>
+                                    Seq.empty
+                                }
+                              }
+                            }
+      grouped             = implsWithAbility
+                              .groupMap { case (_, abilityFQN, typeArgs) => (abilityFQN, typeArgs) } {
+                                case (vfqn, _, _) => vfqn
+                              }
+      classFiles         <- grouped.toSeq.flatTraverse { case ((abilityFQN, typeArgs), implVfqns) =>
+                              createAbilityImplSingleton(mainClassGenerator, abilityFQN, typeArgs, implVfqns)
+                            }
+    } yield classFiles
+
+  private def createAbilityImplSingleton(
+      mainClassGenerator: ClassGenerator,
+      abilityFQN: AbilityFQN,
+      typeArgs: Seq[ExpressionValue],
+      implVfqns: Seq[ValueFQN]
+  ): CompilerIO[Seq[ClassFile]] =
+    for {
+      methodPairs <- implVfqns.traverse { implVfqn =>
+                       val abilityMethodVfqn = ValueFQN(
+                         abilityFQN.moduleName,
+                         QualifiedName(implVfqn.name.name, Qualifier.Ability(abilityFQN.abilityName))
+                       )
+                       for {
+                         abilityMethod <- getFactOrAbort(UncurriedValue.Key(abilityMethodVfqn, 0))
+                         implMethod    <- getFactOrAbort(UncurriedValue.Key(implVfqn, 0))
+                       } yield (abilityMethod, implMethod)
+                     }
+      classFile   <- AbilityImplGenerator.createAbilityImpl[CompilerIO](
+                       mainClassGenerator,
+                       abilityFQN,
+                       typeArgs,
+                       methodPairs
+                     )
     } yield Seq(classFile)
 
   private def isAbilityMethod(valueFQN: ValueFQN): Boolean =

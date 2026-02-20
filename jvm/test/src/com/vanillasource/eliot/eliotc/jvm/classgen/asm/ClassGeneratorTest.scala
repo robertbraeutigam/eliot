@@ -500,6 +500,84 @@ class ClassGeneratorTest extends BytecodeTest {
     } yield output shouldBe "serialize:String(Object)"
   }
 
+  it should "generate a singleton class with a static INSTANCE field" in {
+    val ifaceModule = ModuleName(Seq("test", "pkg"), "TestClass")
+    val implModule  = ModuleName(Seq("test", "pkg"), "ImplClass")
+    val ifaceVfqn   = ValueFQN(ifaceModule, QualifiedName("Show$vtable", Qualifier.Default))
+
+    for {
+      ifaceCg   <- createClassGenerator[IO](ifaceModule)
+      vtableCg  <- ifaceCg.createInnerInterfaceGenerator[IO]("Show$vtable")
+      _         <- vtableCg.createAbstractMethod[IO]("show", Seq(anyType), anyType)
+      ifaceFile <- ifaceCg.generate[IO]()
+      vtableFile <- vtableCg.generate[IO]()
+      implCg    <- createClassGenerator[IO](implModule)
+      singletonCg <- implCg.createInnerClassGenerator[IO]("Show$Any$impl", Seq("test/pkg/TestClass$Show$vtable"))
+      _           <- singletonCg.createStaticFinalField[IO]("INSTANCE", ifaceVfqn)
+      _           <- singletonCg.createCtor[IO](Seq.empty).use { ctor =>
+                       ctor.addLoadThis[IO]() >> ctor.addCallToObjectCtor[IO]()
+                     }
+      _           <- singletonCg.createStaticInit[IO]().use { clinit =>
+                       val singletonType = ValueFQN(implModule, QualifiedName("Show$Any$impl", Qualifier.Default))
+                       clinit.addNew[IO](singletonType) >>
+                         clinit.addCallToCtor[IO](singletonType, Seq.empty) >>
+                         clinit.addPutStaticField[IO]("INSTANCE", ifaceVfqn)
+                     }
+      implFile    <- implCg.generate[IO]()
+      singletonFile <- singletonCg.generate[IO]()
+      output    <- runClasses(Seq(ifaceFile, vtableFile, implFile, singletonFile)) { cl =>
+                     val singletonClazz = cl.loadClass("test.pkg.ImplClass$Show$Any$impl")
+                     val vtableClazz    = cl.loadClass("test.pkg.TestClass$Show$vtable")
+                     val field          = singletonClazz.getField("INSTANCE")
+                     val instance       = field.get(null)
+                     print(vtableClazz.isInstance(instance).toString)
+                   }
+    } yield output shouldBe "true"
+  }
+
+  it should "generate a singleton that implements an interface and delegates to a static method" in {
+    val ifaceModule = ModuleName(Seq("test", "pkg"), "TestClass")
+    val implModule  = ModuleName(Seq("test", "pkg"), "ImplClass")
+    val ifaceVfqn   = ValueFQN(ifaceModule, QualifiedName("Show$vtable", Qualifier.Default))
+
+    for {
+      ifaceCg      <- createClassGenerator[IO](ifaceModule)
+      vtableCg     <- ifaceCg.createInnerInterfaceGenerator[IO]("Show$vtable")
+      _            <- vtableCg.createAbstractMethod[IO]("show", Seq(anyType), anyType)
+      _            <- ifaceCg.createMethod[IO]("showImpl", Seq(anyType), anyType).use { mg =>
+                        mg.addLoadVar[IO](anyType, 0)
+                      }
+      ifaceFile    <- ifaceCg.generate[IO]()
+      vtableFile   <- vtableCg.generate[IO]()
+      implCg       <- createClassGenerator[IO](implModule)
+      singletonCg  <- implCg.createInnerClassGenerator[IO]("Show$Any$impl", Seq("test/pkg/TestClass$Show$vtable"))
+      _            <- singletonCg.createStaticFinalField[IO]("INSTANCE", ifaceVfqn)
+      _            <- singletonCg.createCtor[IO](Seq.empty).use { ctor =>
+                        ctor.addLoadThis[IO]() >> ctor.addCallToObjectCtor[IO]()
+                      }
+      _            <- singletonCg.createStaticInit[IO]().use { clinit =>
+                        val singletonType = ValueFQN(implModule, QualifiedName("Show$Any$impl", Qualifier.Default))
+                        clinit.addNew[IO](singletonType) >>
+                          clinit.addCallToCtor[IO](singletonType, Seq.empty) >>
+                          clinit.addPutStaticField[IO]("INSTANCE", ifaceVfqn)
+                      }
+      implVfqn      = ValueFQN(ifaceModule, QualifiedName("showImpl", Qualifier.Default))
+      _            <- singletonCg.createPublicInstanceMethod[IO]("show", Seq(anyType), anyType).use { bridge =>
+                        bridge.addLoadVar[IO](anyType, 1) >>
+                          bridge.addCallTo[IO](implVfqn, Seq(anyType), anyType)
+                      }
+      implFile     <- implCg.generate[IO]()
+      singletonFile <- singletonCg.generate[IO]()
+      output       <- runClasses(Seq(ifaceFile, vtableFile, implFile, singletonFile)) { cl =>
+                        val singletonClazz = cl.loadClass("test.pkg.ImplClass$Show$Any$impl")
+                        val instanceField  = singletonClazz.getField("INSTANCE")
+                        val instance       = instanceField.get(null)
+                        val showMethod     = instance.getClass.getMethod("show", classOf[Object])
+                        print(showMethod.invoke(instance, "delegated"))
+                      }
+    } yield output shouldBe "delegated"
+  }
+
   it should "generate a method using runNative to access System.out.println" in {
     for {
       cg        <- createClassGenerator[IO](testModule)

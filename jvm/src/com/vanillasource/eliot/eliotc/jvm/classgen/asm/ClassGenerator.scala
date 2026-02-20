@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
-class ClassGenerator(private val moduleName: ModuleName, private val classWriter: ClassWriter) {
+class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassWriter) {
 
   /** Generate the byte-code for the currently created class.
     */
@@ -89,6 +89,70 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
                           )
                         )
     } yield classGenerator
+
+  /** Create a public static final field (for singleton INSTANCE fields).
+    */
+  def createStaticFinalField[F[_]: Sync](name: String, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
+    classWriter
+      .visitField(
+        Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
+        name,
+        javaSignatureName(fieldType),
+        null,
+        null
+      )
+      .visitEnd()
+  }
+
+  /** Create a static initializer block (&lt;clinit&gt;). Ends with RETURN automatically.
+    */
+  def createStaticInit[F[_]: Sync](): Resource[F, MethodGenerator] =
+    Resource.make(Sync[F].delay {
+      val methodVisitor = classWriter.visitMethod(
+        Opcodes.ACC_STATIC,
+        "<clinit>",
+        "()V",
+        null,
+        null
+      )
+
+      methodVisitor.visitCode()
+
+      MethodGenerator(moduleName, methodVisitor)
+    })(methodGenerator =>
+      Sync[F].delay {
+        methodGenerator.methodVisitor.visitInsn(Opcodes.RETURN)
+        methodGenerator.methodVisitor.visitMaxs(0, 0)
+        methodGenerator.methodVisitor.visitEnd()
+      }
+    )
+
+  /** Create a public instance method (non-static). Ends with ARETURN automatically.
+    */
+  def createPublicInstanceMethod[F[_]: Sync](
+      name: String,
+      parameterTypes: Seq[ValueFQN],
+      resultType: ValueFQN
+  ): Resource[F, MethodGenerator] =
+    Resource.make(Sync[F].delay {
+      val methodVisitor = classWriter.visitMethod(
+        Opcodes.ACC_PUBLIC,
+        name,
+        convertToSignatureString(parameterTypes, resultType),
+        null,
+        null
+      )
+
+      methodVisitor.visitCode()
+
+      MethodGenerator(moduleName, methodVisitor)
+    })(methodGenerator =>
+      Sync[F].delay {
+        methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
+        methodGenerator.methodVisitor.visitMaxs(0, 0)
+        methodGenerator.methodVisitor.visitEnd()
+      }
+    )
 
   /** Create the given field with the given type.
     * @param fieldType
