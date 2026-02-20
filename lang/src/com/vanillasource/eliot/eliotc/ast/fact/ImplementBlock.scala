@@ -4,7 +4,13 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.FunctionApplication
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
-import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIfAll, between, optional, recoveringAnyTimes, recoveringAtLeastOnce}
+import com.vanillasource.eliot.eliotc.ast.parser.Parser.{
+  acceptIfAll,
+  between,
+  optional,
+  recoveringAnyTimes,
+  recoveringAtLeastOnce
+}
 import com.vanillasource.eliot.eliotc.ast.parser.{Parser, ParserError}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
@@ -15,6 +21,7 @@ object ImplementBlock {
       override val parser: Parser[Sourced[Token], (Seq[ParserError], Seq[FunctionDefinition])] =
         for {
           _                   <- keyword("implement")
+          genericParameters   <- component[Seq[GenericParameter]]
           name                <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
           pattern             <- bracketedCommaSeparatedItems("[", component[TypeReference], "]")
           (errors, functions) <- component[FunctionDefinition]
@@ -30,7 +37,7 @@ object ImplementBlock {
             // Note: the implement qualifier has to include the instantiation type parameters
             FunctionDefinition(
               f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.map(_.content), pattern))),
-              f.genericParameters, // Don't add parameters to the function, it'll have to have those already
+              genericParameters ++ f.genericParameters,
               f.args,
               f.typeDefinition,
               f.body
@@ -41,7 +48,7 @@ object ImplementBlock {
               name.as(
                 QualifiedName(name.value.content, Qualifier.AbilityImplementation(name.map(_.content), pattern))
               ),
-              Seq.empty, // FIXME: this is wrong, this has generic parameters, if not entierly concrete
+              genericParameters,
               Seq(ArgumentDefinition(name.as("arg"), pattern.head)),
               pattern.head,
               Some(name.as(FunctionApplication(None, name.as("arg"), Seq.empty)))
