@@ -33,21 +33,29 @@ compiling type classes to a type-erased target.
 
 ### 1. Ability → JVM Interface
 
-Each ability becomes a JVM interface with one method per ability member, all types erased to
-`Object`:
+Each ability becomes a JVM interface with one method per ability member. Only generic type
+parameters are erased to `Object`; concrete types retain their JVM representations:
 
 ```java
 // Generated for: ability Show[A] { def show(x: A): A }
+// A is a generic type parameter → erased to Object
 // Inner class of the ability's module's JVM class
 interface Show$vtable {
     Object show(Object x);
+}
+
+// Generated for: ability Serialize[A] { def serialize(x: A): String }
+// A is generic → Object; String is concrete → String
+interface Serialize$vtable {
+    String serialize(Object x);
 }
 ```
 
 ### 2. Ability Implementation → Singleton Class
 
 Each ability implementation becomes a singleton JVM class implementing the interface and
-delegating to the already-generated concrete static method:
+delegating to the already-generated concrete static method. The delegation method signature
+matches the interface (generic params erased, concrete types preserved):
 
 ```java
 // Generated for: implement Show[Int] { def show(x: Int): Int = x }
@@ -148,85 +156,40 @@ static Object h(ShowModule$Show$vtable $Show$A, Object x) {
 For multi-param abilities (`ability Combine[A, B]`) and constraint `A ~ Combine[A, B]`, the
 dictionary parameter is named `$Combine$A$B`.
 
-## New Facts and Processors
-
-### `JvmAbilityInterface` — Interface Class Fact
-
-```
-lang/... (or jvm/...)/fact/JvmAbilityInterface.scala
-```
-
-```scala
-case class JvmAbilityInterface(
-    abilityFQN: AbilityFQN,
-    interfaceInternalName: String,       // e.g. "my/Module$Show$vtable"
-    methods: Seq[JvmAbilityInterface.Method],
-    classFile: ClassFile                 // the generated .class bytes
-) extends CompilerFact
-
-object JvmAbilityInterface {
-  case class Method(name: String, arity: Int)
-  case class Key(abilityFQN: AbilityFQN) extends CompilerFactKey[JvmAbilityInterface]
-}
-```
-
-**Processor**: `JvmAbilityInterfaceProcessor`
-
-- **Input key**: `JvmAbilityInterface.Key(abilityFQN)`
-- **Reads**: All `AbilityCheckedValue` facts for the ability's module whose FQN has
-  `Qualifier.Ability(abilityFQN.abilityName)`. This gives the method names and their uncurried
-  arities.
-- **Generates**: A JVM interface class using `ClassGenerator` with the `interfaces` parameter set
-  appropriately, plus one abstract method per ability method (all params/returns as `Object`).
-- **Output**: `JvmAbilityInterface` fact containing the `ClassFile` bytes.
-
-> **How to enumerate ability methods**: Scan `UnifiedModuleValue` (or `UncurriedValue`) facts for
-> the ability's module. Values with `Qualifier.Ability(name)` that match the ability name are the
-> methods. `UncurriedValue.Key(abilityMethodVfqn, arity)` gives the arity.
-
-### `JvmAbilityImplSingleton` — Implementation Singleton Fact
-
-```
-jvm/src/.../fact/JvmAbilityImplSingleton.scala
-```
-
-```scala
-case class JvmAbilityImplSingleton(
-    abilityFQN: AbilityFQN,
-    typeArgs: Seq[Value],
-    singletonInternalName: String,       // e.g. "my/ImplModule$Show$Int$impl"
-    classFile: ClassFile
-) extends CompilerFact
-
-object JvmAbilityImplSingleton {
-  case class Key(abilityFQN: AbilityFQN, typeArgs: Seq[Value])
-      extends CompilerFactKey[JvmAbilityImplSingleton]
-}
-```
-
-**Processor**: `JvmAbilityImplSingletonProcessor`
-
-- **Input key**: `JvmAbilityImplSingleton.Key(abilityFQN, typeArgs)`
-- **Reads**:
-  - `AbilityImplementation.Key(abilityMethodVfqn, typeArgs)` — maps ability method to concrete
-    implementation FQN
-  - `JvmAbilityInterface.Key(abilityFQN)` — to know the interface and method signatures
-  - `UncurriedValue.Key(implMethodVfqn, arity)` — to know parameter types for the delegation call
-- **Generates**: A JVM class `implementing Show$vtable` with:
-  - `static final Show$vtable INSTANCE = new Show$Int$impl();`
-  - One `@Override` method per ability method, delegating to the concrete `INVOKESTATIC`
-- **Output**: `JvmAbilityImplSingleton` fact containing the `ClassFile` bytes.
-
-> Note: The ability may have multiple methods. The singleton implements ALL of them, each
-> delegating to the corresponding `AbilityImplementation`.
-
 ## Modifications to Existing Code
 
 ### `JvmClassGenerator`
 
-This is the central location for all ability-dispatch logic. The key changes are:
+This is the central location for **all** ability-related generation. Just as it already generates
+data class constructor methods and accessor inner classes, it also generates ability interfaces and
+implementation singletons as part of module code generation. No separate processors are needed.
 
-#### A. Dictionary parameters in method signatures
+#### A. Ability interface generation
+
+When processing a module's values, `JvmClassGenerator` filters for values whose FQN has
+`Qualifier.Ability(abilityName)`. For each distinct ability name it finds, it generates a JVM
+interface inner class using new helper classes in `classgen` (see `AbilityInterfaceGenerator`
+below). Each ability method becomes one abstract interface method. Only generic type parameters
+(those that appear as `ParameterReference` in the `UncurriedValue` signature) are erased to
+`Object`; concrete types use their JVM type directly.
+
+The resulting `ClassFile` is added to the module's output `Seq[ClassFile]`, exactly as data inner
+classes are today.
+
+#### B. Ability implementation singleton generation
+
+When processing a module's values, `JvmClassGenerator` also filters for values whose FQN has
+`Qualifier.Implementation(abilityFQN, typeArgs)`. For each distinct `(abilityFQN, typeArgs)`
+combination it finds, it generates a singleton class using a new helper `AbilityImplGenerator`.
+The singleton:
+- Implements the ability's JVM interface (whose internal name is computed from `abilityFQN`)
+- Has `static final <Interface> INSTANCE = new <Impl>();`
+- Has one `@Override` method per ability method, delegating via `INVOKESTATIC` to the concrete
+  method already generated in the same module
+
+The resulting `ClassFile` is added to the module's output, again exactly as data inner classes.
+
+#### C. Dictionary parameters in method signatures
 
 When `createModuleMethod` builds parameters for an `UncurriedValue`, it first checks
 `ResolvedValue.paramConstraints` for the value's FQN (using `getFact`, not `getFactOrAbort`,
@@ -241,7 +204,7 @@ $Show$A: Show$vtable, x: Object   (instead of just: x: Object)
 Dictionary parameters are tracked in `TypeState` as regular parameters (they have an index and
 a type). Their type is represented as the interface `ValueFQN` (see NativeType changes below).
 
-#### B. Ability ref detection and INVOKEINTERFACE dispatch
+#### D. Ability ref detection and INVOKEINTERFACE dispatch
 
 In `generateFunctionApplication`, when `typedTarget.expression` is
 `ValueReference(sourcedVfqn)` and `sourcedVfqn.value.name.qualifier` is `Qualifier.Ability(name)`:
@@ -251,11 +214,11 @@ In `generateFunctionApplication`, when `typedTarget.expression` is
 3. Look up the dict param's index in `TypeState`
 4. Emit `ALOAD <dictParamIndex>` to load the dictionary
 5. Generate code for arguments (regular `createExpressionCode` calls)
-6. Look up `JvmAbilityInterface.Key(abilityFQN)` to get the interface's internal name and method
-   signature
+6. Compute the interface's internal name from `abilityFQN` using the naming convention; use
+   method signature already known from the enclosing module's generated interface
 7. Emit `INVOKEINTERFACE` to call the method on the dictionary
 
-#### C. Dictionary injection at call sites
+#### E. Dictionary injection at call sites
 
 In `generateFunctionApplication`, when `typedTarget.expression` is `ValueReference(f)` and `f`
 is a regular (non-ability) value: check if `f` has ability constraints.
@@ -269,25 +232,16 @@ Read `ResolvedValue.paramConstraints` for `f`. For each constraint:
    - E.g., if `f`'s first param has type `ParameterReference("A")` and the actual argument has
      `expressionType = ConcreteValue(IntValue)` → `A = Int`
 2. Determine what dictionary to pass:
-   - If binding is `ConcreteValue(v)`: look up `JvmAbilityImplSingleton.Key(abilityFQN, Seq(v))`
-     and emit `GETSTATIC singletonInternalName.INSTANCE`
+   - If binding is `ConcreteValue(v)`: compute the singleton's internal name from `abilityFQN`
+     and type args using the naming convention, and emit `GETSTATIC singletonInternalName.INSTANCE`
    - If binding is `ParameterReference(p)`: find the caller's own dict param for `p`'s ability
      and emit `ALOAD <callerDictParamIndex>` (pass-through)
 3. Inject dictionary arguments **before** the regular argument code
 
-#### D. Collect ability class files in module output
-
-`createModuleMethod` (and related code) must accumulate ability-related `ClassFile` objects
-(from `JvmAbilityInterface` and `JvmAbilityImplSingleton` facts) and include them in the
-final `Seq[ClassFile]` returned for the module. These facts produce the interface and singleton
-class files that must appear in the JAR.
-
 ### `JvmProgramGenerator`
 
-No core changes needed if ability class files are included in the `GeneratedModule` facts (via
-`JvmClassGenerator`). Alternative: add a separate pass collecting all `JvmAbilityInterface` and
-`JvmAbilityImplSingleton` facts encountered during generation and writing them separately to the
-JAR.
+No changes needed. Ability interface and singleton class files are included in `GeneratedModule`
+facts by `JvmClassGenerator` and flow through to the JAR automatically.
 
 ### `NativeType` / Type Mapping
 
@@ -314,8 +268,8 @@ New methods needed on `ClassGenerator`:
 def createInterfaceGenerator[F[_]: Sync](name: String): F[ClassGenerator]
 // (uses ACC_INTERFACE | ACC_ABSTRACT instead of ACC_FINAL | ACC_STATIC)
 
-// Generate an abstract interface method
-def createAbstractMethod[F[_]: Sync](name: String, paramCount: Int): F[Unit]
+// Generate an abstract interface method (with proper JVM types — Object for generic params, concrete otherwise)
+def createAbstractMethod[F[_]: Sync](name: String, paramTypes: Seq[String], returnType: String): F[Unit]
 ```
 
 New method on `MethodGenerator`:
@@ -325,13 +279,27 @@ New method on `MethodGenerator`:
 def addCallToAbilityMethod[F[_]: Sync](
     interfaceInternalName: String,
     methodName: String,
-    arity: Int
+    paramTypes: Seq[String],
+    returnType: String
 ): F[Unit]
-// signature: "(Ljava/lang/Object;...N times...)Ljava/lang/Object;"
 
 // Emit GETSTATIC to load a singleton dictionary instance
 def addGetStaticInstance[F[_]: Sync](singletonInternalName: String): F[Unit]
 ```
+
+### New classgen helpers: `AbilityInterfaceGenerator` and `AbilityImplGenerator`
+
+Two new classes (not processors) in the `classgen` package, used directly by `JvmClassGenerator`:
+
+**`AbilityInterfaceGenerator`**: Given an ability name and its methods (with their
+`UncurriedValue` type information), produces a `ClassFile` for the JVM interface. It maps each
+method's parameter and return types to JVM types — resolving `ParameterReference` to `Object`
+and concrete type FQNs to their JVM internal names.
+
+**`AbilityImplGenerator`**: Given an `(abilityFQN, typeArgs)` combination and the list of
+method implementations, produces a `ClassFile` for the singleton class. It generates the
+`INSTANCE` field, constructor, and one `@Override` method per ability method delegating via
+`INVOKESTATIC`.
 
 ### `TypeState`
 
@@ -344,14 +312,8 @@ To distinguish them from user parameters (for logging / debugging), they can be 
 
 ### `JvmPlugin`
 
-Register the two new processors:
-
-```scala
-JvmAbilityInterfaceProcessor(),
-JvmAbilityImplSingletonProcessor(),
-JvmClassGenerator(),
-JvmProgramGenerator(...)
-```
+No new processors to register. `JvmClassGenerator` already handles ability interface and
+implementation singleton generation internally.
 
 ## Implementation Phases
 
@@ -359,41 +321,49 @@ All phases must individually compile and have all existing tests pass.
 
 ### Phase 1 — Ability Interface Class Generation
 
-**Goal**: Produce correct JVM interface `.class` files for each ability, driven lazily by demand.
+**Goal**: Produce correct JVM interface `.class` files for each ability as part of module
+generation in `JvmClassGenerator`.
 
 **New files**:
-- `jvm/src/.../fact/JvmAbilityInterface.scala`
-- `jvm/src/.../processor/JvmAbilityInterfaceProcessor.scala`
+- `jvm/src/.../classgen/AbilityInterfaceGenerator.scala` — helper class that takes an ability's
+  methods (with their `UncurriedValue` type info) and produces a `ClassFile` for the JVM
+  interface. Concrete types map to their JVM names; `ParameterReference` maps to `Object`.
 
 **Changed files**:
 - `jvm/src/.../classgen/asm/ClassGenerator.scala` — add `createInterfaceGenerator` and
   `createAbstractMethod`
-- `jvm/src/.../plugin/JvmPlugin.scala` — register `JvmAbilityInterfaceProcessor`
+- `jvm/src/.../classgen/JvmClassGenerator.scala` — filter ability interface methods by
+  `Qualifier.Ability`, group by ability name, call `AbilityInterfaceGenerator` per ability,
+  append resulting `ClassFile` objects to module output
 
-**What to test**: Write a unit test or integration test that for an ability definition the
-processor produces a `JvmAbilityInterface` fact with an interface class that, when loaded by the
-JVM, is a valid Java interface with the correct method(s).
+**What to test**: Integration test that for a module containing an ability definition,
+`JvmClassGenerator` produces an additional inner `ClassFile` that is a valid JVM interface with
+the correct method signature(s). Verify that concrete return types (e.g. `String`) are preserved
+and generic params become `Object`.
 
 **Verification**: `mill lang.test && mill jvm.test` — all tests pass.
 
 ### Phase 2 — Ability Implementation Singleton Generation
 
-**Goal**: Produce a singleton `.class` for each ability implementation, implementing the
-interface and delegating to the concrete static method.
+**Goal**: Produce a singleton `.class` for each ability implementation as part of module
+generation in `JvmClassGenerator`.
 
 **New files**:
-- `jvm/src/.../fact/JvmAbilityImplSingleton.scala`
-- `jvm/src/.../processor/JvmAbilityImplSingletonProcessor.scala`
+- `jvm/src/.../classgen/AbilityImplGenerator.scala` — helper class that takes an
+  `(abilityFQN, typeArgs)` combination and the concrete method FQNs, and produces a `ClassFile`
+  for the singleton: `INSTANCE` field, constructor, and `@Override` methods delegating via
+  `INVOKESTATIC`.
 
 **Changed files**:
-- `jvm/src/.../classgen/asm/MethodGenerator.scala` — add `addGetStaticInstance`,
+- `jvm/src/.../classgen/asm/MethodGenerator.scala` — add `addGetStaticInstance` and
   `addCallToAbilityMethod`
-- `jvm/src/.../plugin/JvmPlugin.scala` — register `JvmAbilityImplSingletonProcessor`
+- `jvm/src/.../classgen/JvmClassGenerator.scala` — filter implementation values by
+  `Qualifier.Implementation`, group by `(abilityFQN, typeArgs)`, call `AbilityImplGenerator`
+  per group, append resulting `ClassFile` objects to module output
 
-**What to test**: For a concrete ability implementation, the processor produces a
-`JvmAbilityImplSingleton` whose class implements the ability interface and whose `show` method
-delegates to the concrete impl. Can be verified by loading the bytecode with ASM and inspecting
-instructions, or by running a small integration test.
+**What to test**: Integration test that for a module containing a concrete ability
+implementation, `JvmClassGenerator` produces a singleton inner `ClassFile` that implements the
+ability interface and whose override method delegates to the concrete static method.
 
 **Verification**: `mill lang.test && mill jvm.test` — all tests pass.
 
@@ -422,12 +392,12 @@ yet — just returns x) should generate a JVM method with signature
 `Qualifier.Ability`, emit `INVOKEINTERFACE` on the dictionary instead of `INVOKESTATIC`.
 
 **Changed files**:
-- `jvm/src/.../classgen/processor/JvmClassGenerator.scala` — add ability ref detection in
-  `generateFunctionApplication`; request `JvmAbilityInterface` fact; emit `INVOKEINTERFACE`
+- `jvm/src/.../classgen/JvmClassGenerator.scala` — add ability ref detection in
+  `generateFunctionApplication`; compute interface internal name from `abilityFQN` via naming
+  convention; emit `INVOKEINTERFACE`
 
-**Include interface class file in output**: When the `JvmAbilityInterface` fact is first
-requested for module `M`'s generation, add its `classFile` to the output `ClassFile` sequence
-for that module. Use a `Set` to deduplicate if encountered multiple times.
+**Interface class file in output**: Already handled in Phase 1 — the interface `ClassFile` is
+included in the module output. No additional work needed here.
 
 **What to test**: Full pipeline integration test: `def f[A ~ Show[A]](x: A): A = show(x)` should
 generate a JVM method that calls `INVOKEINTERFACE` on the first parameter, and the ability
@@ -441,19 +411,19 @@ interface class should appear in the generated module's class files.
 before the regular arguments.
 
 **Changed files**:
-- `jvm/src/.../classgen/processor/JvmClassGenerator.scala` — extend `generateFunctionApplication`
+- `jvm/src/.../classgen/JvmClassGenerator.scala` — extend `generateFunctionApplication`
   for the `ValueReference` case: after fetching `UncurriedValue`, check `ResolvedValue.paramConstraints`
   for the called function; match argument types to constrained type params; inject dict args
 
-**Include singleton class file in output**: When a `JvmAbilityImplSingleton` fact is requested,
-add its `classFile` to the current module's output.
+**Singleton class file in output**: Already handled in Phase 2 — singleton `ClassFile` objects
+are included in the module output. No additional work needed here.
 
 **Concrete call site** (e.g., `g(x: Int): Int = f(x)`):
 1. Detect `f` has constraint `A ~ Show[A]`
 2. Match `f`'s first param type `ParameterReference("A")` against argument's `expressionType`
    `ConcreteValue(Int)`
 3. `A = Int`
-4. Request `JvmAbilityImplSingleton.Key(ShowFQN, Seq(IntValue))`
+4. Compute singleton internal name from `(ShowFQN, Seq(IntValue))` using naming convention
 5. Emit `GETSTATIC Show$Int$impl.INSTANCE`
 
 **Generic call site** (e.g., `h[A ~ Show[A]](x: A): A = f(x)`):
@@ -495,18 +465,16 @@ have no corresponding `ResolvedValue`. Always use `getFact` (returns `Option`) f
 
 ### Ability interface class file deduplication
 
-If multiple modules in the same compilation unit use the same ability, multiple `GeneratedModule`
-facts may include the same interface `.class` file (e.g., `ShowModule$Show$vtable.class`). Since
-the bytes are identical (same interface, same module path), the JVM's class loader handles this
-correctly — the last entry in the JAR wins, but since they're identical it doesn't matter. Future
-optimization: deduplicate in `JvmProgramGenerator` before writing.
+The ability interface `ClassFile` is generated as part of the ability's defining module
+(`JvmClassGenerator` processes that module). Since there is exactly one defining module per
+ability, the interface class is only emitted once. No deduplication needed.
 
 ### Singleton class file placement
 
-`JvmAbilityImplSingleton` class files are included in the `GeneratedModule` of whatever module
-**first requests them during code generation**. Their JVM class name already encodes the
-implementation module (e.g., `ImplModule$Show$Int$impl`), so they're correctly scoped regardless
-of where the `.class` file appears in the JAR.
+Singleton `ClassFile` objects are generated as part of the module where the `implement` block
+lives (`JvmClassGenerator` processes that module's implementation values). Their JVM class name
+already encodes the implementation module (e.g., `ImplModule$Show$Int$impl`), so they're
+correctly scoped.
 
 ### Multi-parameter abilities
 
