@@ -15,7 +15,7 @@ object AbilityBlock {
         for {
           _                       <- keyword("ability")
           name                    <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
-          commonGenericParameters <- component[Seq[GenericParameter]]
+          commonGenericParameters <- bracketedCommaSeparatedItems("[", component[GenericParameter], "]")
           (errors, functions)     <- component[FunctionDefinition]
                                        .recoveringAnyTimes(t => isKeyword(t) && hasContent("def")(t))
                                        .between(symbol("{"), symbol("}"))
@@ -31,7 +31,16 @@ object AbilityBlock {
               f.typeDefinition,
               f.body
             )
-          )
+          ) :+
+            // We add a default/invisible function/value to just indicate that this ability exists, even if it is empty.
+            // It is named as the ability (upper case) and uses no additional type dependencies: Ability(a: A): A
+            FunctionDefinition(
+              name.as(QualifiedName(name.value.content, Qualifier.Ability(name.value.content))),
+              commonGenericParameters,
+              Seq(ArgumentDefinition(name.as("arg"), TypeReference(commonGenericParameters.head.name, Seq.empty))),
+              TypeReference(commonGenericParameters.head.name, Seq.empty),
+              None
+            )
         )
     }
 }

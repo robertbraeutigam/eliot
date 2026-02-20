@@ -29,8 +29,10 @@ object GenericParameter {
 
   given ASTComponent[Seq[GenericParameter]] = new ASTComponent[Seq[GenericParameter]] {
     override def parser: Parser[Sourced[Token], Seq[GenericParameter]] =
-      optionalBracketedCommaSeparatedItems("[", genericParameter, "]")
+      optionalBracketedCommaSeparatedItems("[", component[GenericParameter], "]")
+  }
 
+  given ASTComponent[GenericParameter] = new ASTComponent[GenericParameter] {
     private val abilityConstraintsParser =
       for {
         _                  <- symbol("~")
@@ -38,15 +40,16 @@ object GenericParameter {
                                 .atLeastOnceSeparatedBy(symbol("&"))
       } yield abilityConstraints
 
-    private val genericParameter = for {
-      name               <- acceptIfAll(isUpperCase, isIdentifier)("generic type parameter")
-      arity              <- component[Arity]
-      abilityConstraints <- abilityConstraintsParser.optional().map(_.getOrElse(Seq.empty))
-    } yield GenericParameter(
-      name.map(_.content),
-      arity,
-      abilityConstraints.map(ac => extendWithDefault(ac, name.map(_.content)))
-    )
+    override def parser: Parser[Sourced[Token], GenericParameter] =
+      for {
+        name               <- acceptIfAll(isUpperCase, isIdentifier)("generic type parameter")
+        arity              <- component[Arity]
+        abilityConstraints <- abilityConstraintsParser.optional().map(_.getOrElse(Seq.empty))
+      } yield GenericParameter(
+        name.map(_.content),
+        arity,
+        abilityConstraints.map(ac => extendWithDefault(ac, name.map(_.content)))
+      )
 
     /** When an ability constraint is defined [A ~ Show] (with no parameters), we add the generic parameter its declared
       * on as default.

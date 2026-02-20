@@ -53,6 +53,18 @@ class AbilityCheckProcessorTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  it should "support empty abilities to be declared" in {
+    runEngineForErrors(
+      "ability Marker[A] {}\ndef f[A ~ Marker](x: A): A"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "support empty ability implementations" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   it should "fail when calling ability with abstract type parameter not covered by constraint" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndef f[A](x: A): A = show(x)"

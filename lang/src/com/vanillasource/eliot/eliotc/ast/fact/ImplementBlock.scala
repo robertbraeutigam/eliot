@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
+import com.vanillasource.eliot.eliotc.ast.fact.Expression.FunctionApplication
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIfAll, between, recoveringAnyTimes}
 import com.vanillasource.eliot.eliotc.ast.parser.{Parser, ParserError}
@@ -32,7 +33,17 @@ object ImplementBlock {
               f.typeDefinition,
               f.body
             )
-          )
+          ) :+
+            // We add the implementation to the default method as a marker, that this type implements the marker.
+            FunctionDefinition(
+              name.as(
+                QualifiedName(name.value.content, Qualifier.AbilityImplementation(name.map(_.content), pattern))
+              ),
+              Seq.empty, // FIXME: this is wrong, this has generic parameters, if not entierly concrete
+              Seq(ArgumentDefinition(name.as("arg"), pattern.head)),
+              pattern.head,
+              Some(name.as(FunctionApplication(None, name.as("arg"), Seq.empty)))
+            )
         )
     }
 }

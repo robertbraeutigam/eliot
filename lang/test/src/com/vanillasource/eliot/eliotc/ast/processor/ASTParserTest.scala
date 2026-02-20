@@ -179,19 +179,21 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   }
 
   it should "accept an empty ability" in {
-    runEngineForErrors("ability Showable {}").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("ability Showable[A] {}").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept an ability with an abstract function" in {
-    runEngineForErrors("ability Showable { def show: String }").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("ability Showable[A] { def show: String }").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept an ability with a function with body" in {
-    runEngineForErrors("ability Showable { def show: String = a }").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("ability Showable[A] { def show: String = a }").asserting(_ shouldBe Seq.empty)
   }
 
   it should "accept an ability with multiple functions" in {
-    runEngineForErrors("ability Showable { def show: String\ndef display: String = a }").asserting(_ shouldBe Seq.empty)
+    runEngineForErrors("ability Showable[A] { def show: String\ndef display: String = a }").asserting(
+      _ shouldBe Seq.empty
+    )
   }
 
   it should "accept an ability with generic parameters" in {
@@ -205,30 +207,38 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   }
 
   it should "reject an ability without braces" in {
-    runEngineForErrors("ability Showable").asserting(_.size should be > 0)
+    runEngineForErrors("ability Showable[A]").asserting(_.size should be > 0)
   }
 
   it should "qualify ability functions with the ability name" in {
-    runEngineForFunctions("ability Showable { def show: String }").asserting(
-      _ shouldBe Seq(("show", Qualifier.Ability("Showable")))
+    runEngineForFunctions("ability Showable[A] { def show: String }").asserting(
+      _ shouldBe Seq(("show", Qualifier.Ability("Showable")), ("Showable", Qualifier.Ability("Showable")))
     )
   }
 
   it should "qualify multiple ability functions with the ability name" in {
-    runEngineForFunctions("ability Showable { def show: String\ndef display: String }").asserting(
-      _ shouldBe Seq(("show", Qualifier.Ability("Showable")), ("display", Qualifier.Ability("Showable")))
+    runEngineForFunctions("ability Showable[A] { def show: String\ndef display: String }").asserting(
+      _ shouldBe Seq(
+        ("show", Qualifier.Ability("Showable")),
+        ("display", Qualifier.Ability("Showable")),
+        ("Showable", Qualifier.Ability("Showable"))
+      )
     )
   }
 
   it should "prepend ability generic parameters to function generic parameters" in {
     runEngineForFunctionGenericCounts("ability Functor[A] { def map[B]: A }").asserting(
-      _ shouldBe Seq(("map", 2))
+      _ shouldBe Seq(("map", 2), ("Functor", 1))
     )
   }
 
   it should "not mix ability functions with top-level functions" in {
-    runEngineForFunctions("def f: A = a\nability Showable { def show: String }").asserting(
-      _ shouldBe Seq(("f", Qualifier.Default), ("show", Qualifier.Ability("Showable")))
+    runEngineForFunctions("def f: A = a\nability Showable[A] { def show: String }").asserting(
+      _ shouldBe Seq(
+        ("f", Qualifier.Default),
+        ("show", Qualifier.Ability("Showable")),
+        ("Showable", Qualifier.Ability("Showable"))
+      )
     )
   }
 
@@ -256,7 +266,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   }
 
   it should "reject an implement block with lowercase name" in {
-    runEngineForErrors("implement showable {}").asserting(
+    runEngineForErrors("implement showable[A] {}").asserting(
       _ shouldBe Seq("Expected ability name, but encountered identifier 'showable'.")
     )
   }
@@ -271,7 +281,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "qualify implement functions with AbilityImplementation qualifier" in {
     runEngineForFunctions("implement Show[A] { def show: String = a }").asserting(
-      _ shouldBe Seq(
+      _.head shouldBe
         (
           "show",
           Qualifier.AbilityImplementation(
@@ -279,13 +289,12 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
             Seq(TypeReference(Sourced(file, PositionRange(Position(1, 16), Position(1, 17)), "A"), List()))
           )
         )
-      )
     )
   }
 
   it should "qualify multiple implement functions with the same qualifier" in {
     runEngineForFunctions("implement Show[A] { def show: String\ndef display: String }").asserting(
-      _ shouldBe Seq(
+      _.take(2) shouldBe Seq(
         (
           "show",
           Qualifier.AbilityImplementation(
@@ -306,13 +315,13 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "not prepend implement generic parameters to function generic parameters" in {
     runEngineForFunctionGenericCounts("implement Functor[Byte] { def map[B]: Byte }").asserting(
-      _ shouldBe Seq(("map", 1))
+      _ shouldBe Seq(("map", 1), ("Functor", 0))
     )
   }
 
   it should "not mix implement functions with top-level functions" in {
     runEngineForFunctions("def f: A = a\nimplement Show[A]{ def show: String = b }").asserting(
-      _ shouldBe Seq(
+      _.take(2) shouldBe Seq(
         ("f", Qualifier.Default),
         (
           "show",
