@@ -457,6 +457,49 @@ class ClassGeneratorTest extends BytecodeTest {
     } yield output shouldBe "closed-over"
   }
 
+  it should "generate an inner interface class" in {
+    for {
+      cg        <- createClassGenerator[IO](testModule)
+      ifaceCg   <- cg.createInnerInterfaceGenerator[IO]("Show$vtable")
+      classFile <- cg.generate[IO]()
+      ifaceFile <- ifaceCg.generate[IO]()
+      output    <- runClasses(Seq(classFile, ifaceFile)) { cl =>
+                     val iface = cl.loadClass("test.pkg.TestClass$Show$vtable")
+                     print(iface.isInterface.toString)
+                   }
+    } yield output shouldBe "true"
+  }
+
+  it should "generate an interface with an abstract method using Object types for generics" in {
+    for {
+      cg        <- createClassGenerator[IO](testModule)
+      ifaceCg   <- cg.createInnerInterfaceGenerator[IO]("Show$vtable")
+      _         <- ifaceCg.createAbstractMethod[IO]("show", Seq(anyType), anyType)
+      classFile <- cg.generate[IO]()
+      ifaceFile <- ifaceCg.generate[IO]()
+      output    <- runClasses(Seq(classFile, ifaceFile)) { cl =>
+                     val iface  = cl.loadClass("test.pkg.TestClass$Show$vtable")
+                     val method = iface.getMethods.find(_.getName == "show").get
+                     print(s"${method.getName}:${method.getReturnType.getSimpleName}(${method.getParameterTypes.map(_.getSimpleName).mkString})")
+                   }
+    } yield output shouldBe "show:Object(Object)"
+  }
+
+  it should "generate an interface with a concrete return type" in {
+    for {
+      cg        <- createClassGenerator[IO](testModule)
+      ifaceCg   <- cg.createInnerInterfaceGenerator[IO]("Serialize$vtable")
+      _         <- ifaceCg.createAbstractMethod[IO]("serialize", Seq(anyType), stringType)
+      classFile <- cg.generate[IO]()
+      ifaceFile <- ifaceCg.generate[IO]()
+      output    <- runClasses(Seq(classFile, ifaceFile)) { cl =>
+                     val iface  = cl.loadClass("test.pkg.TestClass$Serialize$vtable")
+                     val method = iface.getMethods.find(_.getName == "serialize").get
+                     print(s"${method.getName}:${method.getReturnType.getSimpleName}(${method.getParameterTypes.map(_.getSimpleName).mkString})")
+                   }
+    } yield output shouldBe "serialize:String(Object)"
+  }
+
   it should "generate a method using runNative to access System.out.println" in {
     for {
       cg        <- createClassGenerator[IO](testModule)

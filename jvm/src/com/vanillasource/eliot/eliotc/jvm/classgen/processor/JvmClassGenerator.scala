@@ -6,6 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.jvm.classgen.AbilityInterfaceGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemUnitValue
@@ -13,7 +14,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGe
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -37,14 +38,22 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           .toSeq
           .flatTraverse((vfqn, stats) => createDataFromConstructor(mainClassGenerator, vfqn, stats))
       dataGeneratedFunctions <- usedValues.toSeq.flatTraverse(collectDataGeneratedFunctions)
+      abilityInterfaces      <- createAbilityInterfaces(mainClassGenerator, key.moduleName)
       functionFiles          <-
-        usedValues.view.filterKeys(k => !dataGeneratedFunctions.contains(k)).toSeq.flatTraverse { case (vfqn, stats) =>
-          // Create only non-constructor, non-accessor methods
-          createModuleMethod(mainClassGenerator, vfqn, stats)
-        }
+        usedValues.view
+          .filterKeys(k => !dataGeneratedFunctions.contains(k) && !isAbilityMethod(k))
+          .toSeq
+          .flatTraverse { case (vfqn, stats) =>
+            // Create only non-constructor, non-accessor, non-ability-interface methods
+            createModuleMethod(mainClassGenerator, vfqn, stats)
+          }
       mainClass              <- mainClassGenerator.generate[CompilerIO]()
       _                      <- registerFactIfClear(
-                                  GeneratedModule(key.moduleName, key.vfqn, functionFiles ++ dataClasses ++ Seq(mainClass))
+                                  GeneratedModule(
+                                    key.moduleName,
+                                    key.vfqn,
+                                    functionFiles ++ dataClasses ++ abilityInterfaces ++ Seq(mainClass)
+                                  )
                                 )
     } yield ()
 
@@ -422,6 +431,37 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       } yield Seq(valueFQN) ++ names.map(name => ValueFQN(valueFQN.moduleName, QualifiedName(name, Qualifier.Default)))
     } else {
       Seq.empty.pure[CompilerIO]
+    }
+
+  private def createAbilityInterfaces(
+      mainClassGenerator: ClassGenerator,
+      moduleName: ModuleName
+  ): CompilerIO[Seq[ClassFile]] =
+    for {
+      unifiedModuleNames <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
+      abilityMethodsByAbility = unifiedModuleNames.names.toSeq.collect {
+                                  case qn @ QualifiedName(_, Qualifier.Ability(abilityName)) =>
+                                    (abilityName, ValueFQN(moduleName, qn))
+                                }.groupMap(_._1)(_._2)
+      classFiles         <- abilityMethodsByAbility.toSeq.flatTraverse { (abilityName, methodVfqns) =>
+                              createAbilityInterface(mainClassGenerator, abilityName, methodVfqns)
+                            }
+    } yield classFiles
+
+  private def createAbilityInterface(
+      outerClassGenerator: ClassGenerator,
+      abilityName: String,
+      methodVfqns: Seq[ValueFQN]
+  ): CompilerIO[Seq[ClassFile]] =
+    for {
+      methods   <- methodVfqns.traverse(vfqn => getFactOrAbort(UncurriedValue.Key(vfqn, 0)))
+      classFile <- AbilityInterfaceGenerator.createAbilityInterface[CompilerIO](outerClassGenerator, abilityName, methods)
+    } yield Seq(classFile)
+
+  private def isAbilityMethod(valueFQN: ValueFQN): Boolean =
+    valueFQN.name.qualifier match {
+      case Qualifier.Ability(_) => true
+      case _                    => false
     }
 
   private def isConstructor(valueFQN: ValueFQN): Boolean =

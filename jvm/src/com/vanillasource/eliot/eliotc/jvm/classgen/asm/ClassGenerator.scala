@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 import cats.effect.Sync
 import cats.syntax.all.*
 import cats.effect.kernel.Resource
-import ClassGenerator.createClassGenerator
+import ClassGenerator.{createClassGenerator, createInterfaceGenerator}
 import NativeType.{convertToCtorSignatureString, convertToMainClassName, convertToSignatureString, javaSignatureName}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
@@ -19,6 +19,48 @@ class ClassGenerator(private val moduleName: ModuleName, private val classWriter
       moduleName.name + ".class" // FIXME: same javaname conversion as in class! Use the class moduleName!
 
     Sync[F].delay(classWriter.visitEnd()) >> Sync[F].pure(ClassFile(pathName + entryName, classWriter.toByteArray))
+  }
+
+  /** Create inner interface class with the given non-qualified name.
+    */
+  def createInnerInterfaceGenerator[F[_]: Sync](innerName: String): F[ClassGenerator] =
+    for {
+      interfaceGenerator <-
+        createInterfaceGenerator[F](ModuleName(moduleName.packages, moduleName.name + "$" + innerName))
+      _                  <- Sync[F].delay(
+                              interfaceGenerator.classWriter.visitInnerClass(
+                                moduleName.name + "$" + innerName,
+                                moduleName.name,
+                                innerName,
+                                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_ABSTRACT | Opcodes.ACC_INTERFACE
+                              )
+                            )
+      _                  <- Sync[F].delay(
+                              classWriter.visitInnerClass(
+                                moduleName.name + "$" + innerName,
+                                moduleName.name,
+                                innerName,
+                                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_ABSTRACT | Opcodes.ACC_INTERFACE
+                              )
+                            )
+    } yield interfaceGenerator
+
+  /** Add an abstract method declaration to this class (for use in interfaces).
+    */
+  def createAbstractMethod[F[_]: Sync](
+      name: String,
+      parameterTypes: Seq[ValueFQN],
+      resultType: ValueFQN
+  ): F[Unit] = Sync[F].delay {
+    classWriter
+      .visitMethod(
+        Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT,
+        name,
+        convertToSignatureString(parameterTypes, resultType),
+        null,
+        null
+      )
+      .visitEnd()
   }
 
   /** Create inner class with the given non-qualified moduleName.
@@ -181,6 +223,24 @@ object ClassGenerator {
         null,
         "java/lang/Object",
         if (interfaces.isEmpty) null else interfaces.toArray
+      )
+
+      new ClassGenerator(name, classWriter)
+    }
+
+  /** Generates a JVM interface for the given name.
+    */
+  def createInterfaceGenerator[F[_]: Sync](name: ModuleName): F[ClassGenerator] =
+    Sync[F].delay {
+      val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
+
+      classWriter.visit(
+        Opcodes.V17,
+        Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT | Opcodes.ACC_INTERFACE,
+        convertToMainClassName(name),
+        null,
+        "java/lang/Object",
+        null
       )
 
       new ClassGenerator(name, classWriter)
