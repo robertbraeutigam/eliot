@@ -544,7 +544,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
     val fChecked = AbilityCheckedValue(fVfqn, sourced(toSymbolic(default("f"))), fSig, Some(sourced(fBody)))
 
     // AbilityImplementation linking show[Int] -> showImplForInt
-    val abilityImpl = AbilityImplementation(showVfqn, Seq(intType), showImplVfqn)
+    val abilityImpl = AbilityImplementation(showVfqn, Seq(ExpressionValue.ConcreteValue(intType)), showImplVfqn)
 
     runProcessor(
       MonomorphicValue.Key(fVfqn, Seq(intType)),

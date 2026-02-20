@@ -111,7 +111,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                        Seq.empty[Value].pure[CompilerIO]
                      }
       result      <- if (isAbilityRef(vfqn.value) && typeArgs.nonEmpty)
-                       getFactOrAbort(AbilityImplementation.Key(vfqn.value, typeArgs))
+                       getFactOrAbort(AbilityImplementation.Key(vfqn.value, typeArgs.map(ConcreteValue(_))))
                          .map(impl => MonomorphicExpression.MonomorphicValueReference(vfqn.as(impl.implementationFQN), Seq.empty))
                      else
                        MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs).pure[CompilerIO]

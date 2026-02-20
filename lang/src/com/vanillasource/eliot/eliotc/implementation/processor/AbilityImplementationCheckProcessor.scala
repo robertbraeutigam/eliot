@@ -17,7 +17,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
     val abilityFQN                        = key.abilityFQN
     val typeArguments                     = key.typeArguments
     val candidateModules: Set[ModuleName] =
-      Set(abilityFQN.moduleName) ++ typeArguments.flatMap(_.typeFQN.map(_.moduleName))
+      Set(abilityFQN.moduleName) ++ typeArguments.flatMap(collectExpressionModuleNames)
 
     for {
       abilityMethods <- collectAbilityMethods(abilityFQN)
@@ -27,14 +27,14 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
                             abilityMethods.headOption.traverse_(m =>
                               compilerError(
                                 m.name.as(
-                                  s"The type parameter '${typeArguments.map(Value.valueUserDisplay.show).mkString(", ")}' does not implement ability '${abilityFQN.abilityName}'."
+                                  s"The type parameter '${typeArguments.map(ExpressionValue.expressionValueUserDisplay.show).mkString(", ")}' does not implement ability '${abilityFQN.abilityName}'."
                                 )
                               )
                             )
                           case _   =>
                             checkCompleteness(abilityMethods, implMethods) >>
                               checkNoExtras(abilityMethods, implMethods) >>
-                              checkSignatures(abilityMethods, implMethods, typeArguments)
+                              checkSignatures(abilityMethods, implMethods)
                         }
       _              <- registerFactIfClear(AbilityImplementationCheck(abilityFQN, typeArguments))
     } yield ()
@@ -53,7 +53,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
   private def collectImplMethods(
       moduleName: ModuleName,
       abilityFQN: AbilityFQN,
-      typeArguments: Seq[Value]
+      typeArguments: Seq[ExpressionValue]
   ): CompilerIO[Seq[TypeCheckedValue]] =
     getFactOrAbort(UnifiedModuleNames.Key(moduleName)).flatMap { names =>
       names.names.toSeq
@@ -66,8 +66,9 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
         .map(_.filter { checked =>
           checked.name.value.qualifier match {
             case SymbolicQualifier.AbilityImplementation(resolvedFQN, params)
-                if resolvedFQN == abilityFQN && extractValues(params) == typeArguments =>
-              true
+                if resolvedFQN == abilityFQN =>
+              val freeVarNames = ExpressionValue.extractLeadingLambdaParams(checked.signature).map(_._1).toSet
+              implMatchesQuery(params, freeVarNames, typeArguments)
             case _ => false
           }
         }.toSeq)
@@ -106,26 +107,30 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       )
   }
 
+  /** Check that substituting the impl's qualifier pattern into the ability's declared function signature gives the same
+    * signature as the implementation has. This validates both concrete implementations (pattern = concrete type) and
+    * derived implementations (pattern = type expression with impl's own generic vars).
+    */
   private def checkSignatures(
       abilityMethods: Seq[TypeCheckedValue],
-      implMethods: Seq[TypeCheckedValue],
-      typeArguments: Seq[Value]
+      implMethods: Seq[TypeCheckedValue]
   ): CompilerIO[Unit] = {
     val implByName = implMethods.map(m => m.name.value.name -> m).toMap
     abilityMethods
       .flatMap(abstractMethod => implByName.get(abstractMethod.name.value.name).map(abstractMethod -> _))
       .traverse_ { case (abstractMethod, implMethod) =>
-        val typeParamNames   =
-          ExpressionValue.extractLeadingLambdaParams(abstractMethod.signature).map(_._1).toSet
-        val strippedAbstract = ExpressionValue.stripUniversalTypeIntros(abstractMethod.signature)
-        val bindings         =
-          ExpressionValue.matchTypeVarBindings(strippedAbstract, implMethod.signature, typeParamNames)
-        val expectedArgs     =
-          ExpressionValue
-            .extractLeadingLambdaParams(abstractMethod.signature)
-            .map((name, _) => bindings.getOrElse(name, ExpressionValue.ParameterReference(name, Value.Type)))
-        val concreteArgs     = typeArguments.map(ExpressionValue.ConcreteValue(_))
-        if (expectedArgs != concreteArgs)
+        val abilityTypeParamNames = ExpressionValue.extractLeadingLambdaParams(abstractMethod.signature).map(_._1)
+        val implParams            = implMethod.name.value.qualifier match {
+          case SymbolicQualifier.AbilityImplementation(_, params) => params
+          case _                                                   => Seq.empty
+        }
+        val patternBindings       = abilityTypeParamNames.zip(implParams).toMap
+        val strippedAbstract      = ExpressionValue.stripUniversalTypeIntros(abstractMethod.signature)
+        val expectedImplSig       = patternBindings.foldLeft(strippedAbstract) { case (acc, (name, param)) =>
+          ExpressionValue.substitute(acc, name, param)
+        }
+        val actualImplSig         = ExpressionValue.stripUniversalTypeIntros(implMethod.signature)
+        if (expectedImplSig != actualImplSig)
           compilerError(
             implMethod.name.map(qn => s"${qn.show}: Signature of '${qn.name}' does not match the ability definition.")
           )
@@ -133,6 +138,28 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       }
   }
 
-  private def extractValues(params: Seq[ExpressionValue]): Seq[Value] =
-    params.collect { case ExpressionValue.ConcreteValue(v) => v }
+  private def implMatchesQuery(
+      implParams: Seq[ExpressionValue],
+      freeVarNames: Set[String],
+      queryArgs: Seq[ExpressionValue]
+  ): Boolean = {
+    if (implParams.size != queryArgs.size) false
+    else {
+      val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, ExpressionValue]) { (acc, pair) =>
+        acc ++ ExpressionValue.matchTypeVarBindings(pair._1, pair._2, freeVarNames)
+      }
+      implParams.zip(queryArgs).forall { (implParam, queryArg) =>
+        freeVarNames.foldLeft(implParam) { case (acc, name) =>
+          ExpressionValue.substitute(acc, name, bindings.getOrElse(name, ExpressionValue.ParameterReference(name, Value.Type)))
+        } == queryArg
+      }
+    }
+  }
+
+  private def collectExpressionModuleNames(ev: ExpressionValue): Seq[ModuleName] =
+    ev match {
+      case ExpressionValue.ConcreteValue(v)          => v.typeFQN.map(_.moduleName).toSeq
+      case ExpressionValue.FunctionApplication(t, a) => collectExpressionModuleNames(t) ++ collectExpressionModuleNames(a)
+      case _                                         => Seq.empty
+    }
 }

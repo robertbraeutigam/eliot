@@ -103,16 +103,7 @@ class AbilityCheckProcessor
                              )
                          } else {
                            for {
-                             valueArgs <- typeArgExprs.traverse {
-                                            case ExpressionValue.ConcreteValue(v) => v.pure[CompilerIO]
-                                            case _                                =>
-                                              compilerAbort[Value](
-                                                vfqn.as(
-                                                  s"Ability '$abilityLocalName' type argument could not be evaluated to a concrete type."
-                                                )
-                                              )
-                                          }
-                             impl      <- getFactOrAbort(AbilityImplementation.Key(vfqn.value, valueArgs))
+                             impl <- getFactOrAbort(AbilityImplementation.Key(vfqn.value, typeArgExprs))
                            } yield impl.implementationFQN
                          }
     } yield result
