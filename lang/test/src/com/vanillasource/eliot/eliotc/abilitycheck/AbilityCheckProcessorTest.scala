@@ -81,6 +81,29 @@ class AbilityCheckProcessorTest
     ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'."))
   }
 
+  it should "check derived abilities" in {
+    runEngineForErrors("""
+        data String
+        def someString: String
+
+        ability Show[A] {
+          def show(a: A): String
+        }
+
+        implement Show[String] {
+          def show(str: String): String = str
+        }
+
+        data Box[A](content: A)
+
+        implement[A ~ Show] Show[Box[A]] {
+          def show(box: Box[A]): String = show(content(box))
+        }
+
+        def f: String = show(Box(someString))
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
   private def runEngineForErrors(source: String): IO[Seq[String]] =
     runGenerator(
       source,
