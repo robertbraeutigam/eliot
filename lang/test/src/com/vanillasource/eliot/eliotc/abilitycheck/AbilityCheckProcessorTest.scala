@@ -47,6 +47,12 @@ class AbilityCheckProcessorTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  it should "succeed when calling ability with default generic type parameter covered by constraint" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndef f[A ~ Show](x: A): A = show(x)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   it should "fail when calling ability with abstract type parameter not covered by constraint" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndef f[A](x: A): A = show(x)"

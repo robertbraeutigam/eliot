@@ -42,7 +42,24 @@ object GenericParameter {
       name               <- acceptIfAll(isUpperCase, isIdentifier)("generic type parameter")
       arity              <- component[Arity]
       abilityConstraints <- abilityConstraintsParser.optional().map(_.getOrElse(Seq.empty))
-    } yield GenericParameter(name.map(_.content), arity, abilityConstraints)
+    } yield GenericParameter(
+      name.map(_.content),
+      arity,
+      abilityConstraints.map(ac => extendWithDefault(ac, name.map(_.content)))
+    )
+
+    /** When an ability constraint is defined [A ~ Show] (with no parameters), we add the generic parameter its declared
+      * on as default.
+      */
+    private def extendWithDefault(
+        abilityConstraint: AbilityConstraint,
+        defaultGeneric: Sourced[String]
+    ): AbilityConstraint =
+      if (abilityConstraint.typeParameters.isEmpty) {
+        AbilityConstraint(abilityConstraint.abilityName, Seq(TypeReference(defaultGeneric, Seq.empty)))
+      } else {
+        abilityConstraint
+      }
   }
 
   given ASTComponent[Arity] = new ASTComponent[Arity] {
