@@ -1,0 +1,16 @@
+ability Show[A] {
+  def show(a: A): String
+}
+
+implement Show[String] {
+  def show(str: String): String = str
+}
+
+data Box[A](content: A)
+
+implement[A ~ Show] Show[Box[A]] {
+  def show(box: Box[A]): String = show(content(box))
+}
+
+def main: IO[Unit] = println(show(Box("Hello World!")))
+
