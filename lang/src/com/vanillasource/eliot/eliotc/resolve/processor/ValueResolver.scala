@@ -166,7 +166,7 @@ class ValueResolver
               case None       =>
                 // Not a normal value, it might be coming from an ability
                 searchAbilities(nameSrc.value.name).flatMap {
-                  case Nil         => compilerAbort(nameSrc.as(s"Name not defined: $nameSrc")).liftToScoped
+                  case Nil         => compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
                   case head :: Nil => Expression.ValueReference(nameSrc.as(head)).pure[ScopedIO]
                   case as          =>
                     compilerAbort(

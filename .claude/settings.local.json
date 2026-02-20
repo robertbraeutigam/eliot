@@ -44,7 +44,8 @@
       "Bash(xargs:*)",
       "WebSearch",
       "Bash(mill lang.compile:*)",
-      "Bash(mill lang.test:*)"
+      "Bash(mill lang.test:*)",
+      "Bash(mill lang.test.testForked:*)"
     ]
   }
 }
