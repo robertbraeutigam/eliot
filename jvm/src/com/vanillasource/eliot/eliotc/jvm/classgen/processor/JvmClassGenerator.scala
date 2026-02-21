@@ -7,7 +7,8 @@ import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.{AbilityImplGenerator, AbilityInterfaceGenerator}
-import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
+import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, ResolvedValue}
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier as SymbolicQualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
@@ -85,37 +86,64 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   ): CompilerIO[Seq[ClassFile]] = {
     uncurriedValue.body match {
       case Some(body) =>
-        classGenerator
-          .createMethod[CompilerIO](
-            uncurriedValue.vfqn.name.name,
-            uncurriedValue.parameters.map(p => simpleType(p.parameterType)),
-            simpleType(uncurriedValue.returnType)
-          )
-          .use { methodGenerator =>
-            val bodyExpression = UncurriedExpression(uncurriedValue.returnType, body.value)
-            val program        = for {
-              // FIXME: add parameters dynamically when we encounter them in the body!
-              _       <- uncurriedValue.parameters.traverse_(addParameterDefinition)
-              // Generate code for the body
-              classes <-
-                createExpressionCode(
-                  uncurriedValue.vfqn.moduleName,
-                  classGenerator,
-                  methodGenerator,
-                  bodyExpression
-                )
-              _       <-
-                debug[CompilationTypesIO](
-                  s"From function ${uncurriedValue.vfqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
-                )
-            } yield classes
+        for {
+          dictParams <- computeDictParams(uncurriedValue.vfqn, uncurriedValue.name)
+          classFiles <-
+            classGenerator
+              .createMethod[CompilerIO](
+                uncurriedValue.vfqn.name.name,
+                dictParams.map(p => simpleType(p.parameterType)) ++ uncurriedValue.parameters.map(p =>
+                  simpleType(p.parameterType)
+                ),
+                simpleType(uncurriedValue.returnType)
+              )
+              .use { methodGenerator =>
+                val bodyExpression = UncurriedExpression(uncurriedValue.returnType, body.value)
+                val program        = for {
+                  // FIXME: add parameters dynamically when we encounter them in the body!
+                  _       <- dictParams.traverse_(addParameterDefinition)
+                  _       <- uncurriedValue.parameters.traverse_(addParameterDefinition)
+                  // Generate code for the body
+                  classes <-
+                    createExpressionCode(
+                      uncurriedValue.vfqn.moduleName,
+                      classGenerator,
+                      methodGenerator,
+                      bodyExpression
+                    )
+                  _       <-
+                    debug[CompilationTypesIO](
+                      s"From function ${uncurriedValue.vfqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
+                    )
+                } yield classes
 
-            program.runA(TypeState())
-          }
+                program.runA(TypeState())
+              }
+        } yield classFiles
       case None       =>
         compilerAbort(uncurriedValue.name.as(s"Function not implemented."))
     }
   }
+
+  private def computeDictParams(vfqn: ValueFQN, nameSourced: Sourced[?]): CompilerIO[Seq[ParameterDefinition]] =
+    getFact(ResolvedValue.Key(vfqn)).map {
+      case None               => Seq.empty
+      case Some(resolvedValue) =>
+        resolvedValue.paramConstraints.toSeq.sortBy(_._1).flatMap { (paramName, constraints) =>
+          constraints.map { constraint =>
+            val interfaceVfqn = ValueFQN(
+              constraint.abilityFQN.moduleName,
+              QualifiedName(constraint.abilityFQN.abilityName + "$vtable", Qualifier.Default)
+            )
+            ParameterDefinition(
+              name = nameSourced.as("$" + constraint.abilityFQN.abilityName + "$" + paramName),
+              parameterType = ExpressionValue.ConcreteValue(
+                Value.Structure(Map("$typeName" -> Value.Direct(interfaceVfqn, Value.Type)), Value.Type)
+              )
+            )
+          }
+        }
+    }
 
   private def createExpressionCode(
       moduleName: ModuleName,
