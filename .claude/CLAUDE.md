@@ -124,6 +124,10 @@ The main building blocks of the language are:
         References to ability values are fully resolved during monomorphization, they are not passed around in
         structures as in some other languages.
 
+## Session Hygiene
+
+- When a task appears complete (e.g., bug fixed, feature implemented, significant refactoring done), proactively suggest running `/revise-claude-md` to capture learnings from the session.
+
 ## Development Notes
 
 - The language is still in active development (see TODO file for planned features)
