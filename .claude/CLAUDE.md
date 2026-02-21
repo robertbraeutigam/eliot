@@ -11,7 +11,9 @@ multiple backends (currently JVM).
 
 ## Build System
 
-This project uses **Mill** (version 1.1.0+) as its build tool.
+This project uses **Mill** (version 1.1.0+) as its build tool. Scala version: **3.7.4**.
+
+Key dependencies: `cats-effect` (IO monad), `parsley-cats` (parser combinators), `ASM 9.9` (JVM bytecode in jvm module).
 
 ### Common Commands
 
@@ -63,7 +65,7 @@ The compiler uses a **ServiceLoader-based plugin architecture**:
 - Each plugin implements `CompilerPlugin` (in eliotc module)
 - Plugins can depend on other plugins and configure the compilation pipeline
 - Two main plugins:
-  - `BasePlugin` - Provides core language compilation (tokenization → AST → type checking)
+  - `LangPlugin` - Provides core language compilation (tokenization → AST → type checking)
   - `JvmPlugin` - Provides JVM bytecode generation and executable JAR output
 
 ### Compilation Pipeline
@@ -85,12 +87,13 @@ Each of these is a package in the "lang" module, roughly in order of processing:
 4. core: Building the core language AST
 5. module: Splitting working with modules into working with individual values. It also unifies similarly named modules from different paths.
 6. resolve: Resolve all identifiers to fully qualified names or parameters.
-7. symbolic: Symbolic type checker. Checks types as far as possible with generic parameters (symbols).
-8. implementation: Checks and returns a type-specific ability implementation.
-9. abilitycheck: Check abilities can be proven to exist. Also resolves abilities directly if all types are already known.
-10. monomorphize: Monomorphic type checker. Checks all types at their usage with all instantiated values.
-11. used: Collects all the used value names starting at a given "main".
-12. uncurry: Uncurries function calls, so its easier to generate on the backend.
+7. eval: Evaluate data type and value definitions into typed structures.
+8. symbolic: Symbolic type checker. Checks types as far as possible with generic parameters (symbols).
+9. implementation: Checks and returns a type-specific ability implementation.
+10. abilitycheck: Check abilities can be proven to exist. Also resolves abilities directly if all types are already known.
+11. monomorphize: Monomorphic type checker. Checks all types at their usage with all instantiated values.
+12. used: Collects all the used value names starting at a given "main".
+13. uncurry: Uncurries function calls, so its easier to generate on the backend.
 
 ### Error Handling
 
@@ -100,8 +103,7 @@ Each of these is a package in the "lang" module, roughly in order of processing:
 
 ## Testing
 
-- Tests use ScalaTest with `AnyFunSuite` style
-- Tests use extend AsyncFlatSpec with AsyncIOSpec with should.Matchers
+- Tests extend `AsyncFlatSpec` with `AsyncIOSpec` with `Matchers`
 - Test files are in `<module>/test/src/` directories
 
 ## Language Overview

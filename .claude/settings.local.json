@@ -47,5 +47,8 @@
       "Bash(mill lang.test:*)",
       "Bash(mill lang.test.testForked:*)"
     ]
+  },
+  "enabledPlugins": {
+    "claude-md-management@claude-plugins-official": true
   }
 }
