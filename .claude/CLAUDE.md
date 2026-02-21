@@ -126,6 +126,7 @@ The main building blocks of the language are:
 
 ## Session Hygiene
 
+- When explicitly asked to create a plan, always write the plan as markdown into the "docs" directory.
 - When a task appears complete (e.g., bug fixed, feature implemented, significant refactoring done), proactively suggest running `/revise-claude-md` to capture learnings from the session.
 
 ## Development Notes
