@@ -110,7 +110,7 @@ class ValueResolver
 
   private def isKindExpression(expr: CoreExpression): Boolean =
     expr match {
-      case NamedValueReference(name, None)            =>
+      case NamedValueReference(name, None, _)         =>
         name.value.name === "Type"
       case FunctionApplication(targetStack, argStack) =>
         targetStack.value.signature match {
@@ -125,9 +125,9 @@ class ValueResolver
 
   private def isFunctionReference(expr: CoreExpression): Boolean =
     expr match {
-      case NamedValueReference(name, None) =>
+      case NamedValueReference(name, None, _) =>
         name.value === CoreQualifiedName("Function", CoreQualifier.Type)
-      case _                               => false
+      case _                                  => false
     }
 
   /** Resolves a type stack from top (most abstract) to bottom (signature). Expression variables from above are visible
@@ -153,10 +153,10 @@ class ValueResolver
 
   private def resolveExpression(expression: CoreExpression, runtime: Boolean): ScopedIO[Expression] =
     expression match {
-      case NamedValueReference(nameSrc, None)          =>
+      case NamedValueReference(nameSrc, None, typeArgExprs)          =>
         isParameter(nameSrc.value.name).flatMap { isParam =>
           if (isParam) {
-            // This is a parameter defined in the expression
+            // This is a parameter defined in the expression - parameters can't have explicit type args
             Expression.ParameterReference(nameSrc.map(_.name)).pure[ScopedIO]
           } else if (nameSrc.value.name === "Type") {
             // Type is a special builtin for type-level parameters (same on all plains)
@@ -165,8 +165,10 @@ class ValueResolver
             // This should be a referenced value
             getValue(nameSrc.value).flatMap {
               case Some(vfqn) =>
-                // This is a normal value
-                Expression.ValueReference(nameSrc.as(vfqn)).pure[ScopedIO]
+                // This is a normal value; resolve any explicit type args
+                typeArgExprs
+                  .traverse(arg => resolveExpression(arg.value, false).map(arg.as(_)))
+                  .map(resolvedTypeArgs => Expression.ValueReference(nameSrc.as(vfqn), resolvedTypeArgs))
               case None       =>
                 // Not a normal value, it might be coming from an ability
                 searchAbilities(nameSrc.value.name).flatMap {
@@ -183,13 +185,16 @@ class ValueResolver
             }
           }
         }
-      case NamedValueReference(nameSrc, Some(qualSrc)) =>
+      case NamedValueReference(nameSrc, Some(qualSrc), typeArgExprs) =>
         val moduleName = ModuleName.parse(qualSrc.value)
         val vfqn       = ValueFQN(moduleName, nameSrc.value)
         val outline    = Sourced.outline(Seq(qualSrc, nameSrc))
 
         getFact(UnifiedModuleValue.Key(vfqn)).liftToScoped.flatMap {
-          case Some(_) => Expression.ValueReference(outline.as(vfqn)).pure[ScopedIO]
+          case Some(_) =>
+            typeArgExprs
+              .traverse(arg => resolveExpression(arg.value, false).map(arg.as(_)))
+              .map(resolvedTypeArgs => Expression.ValueReference(outline.as(vfqn), resolvedTypeArgs))
           case None    => compilerAbort(nameSrc.as("Qualified named value not available.")).liftToScoped
         }
       case FunctionApplication(targetStack, argStack)  =>

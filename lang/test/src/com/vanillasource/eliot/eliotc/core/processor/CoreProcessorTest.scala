@@ -318,8 +318,8 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   extension (expr: Expression) {
     def structure: ExprStructure = expr match {
-      case NamedValueReference(name, None)         => Ref(name.value.name, name.value.qualifier)
-      case NamedValueReference(name, Some(qual))   => QualRef(name.value.name, qual.value)
+      case NamedValueReference(name, None, _)       => Ref(name.value.name, name.value.qualifier)
+      case NamedValueReference(name, Some(qual), _) => QualRef(name.value.name, qual.value)
       case FunctionApplication(target, arg)        => App(target.value.firstStructure, arg.value.firstStructure)
       case FunctionLiteral(param, paramType, body) =>
         Lambda(param.value, paramType.map(_.firstStructure).getOrElse(Empty), body.value.firstStructure)

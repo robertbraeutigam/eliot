@@ -54,7 +54,7 @@ object Evaluator {
         case Some(paramType) => ParameterReference(name, paramType).pure[CompilerIO]
         case None            => compilerAbort(s.as(s"Unknown parameter: $name"))
       }
-    case Expression.ValueReference(s)                           =>
+    case Expression.ValueReference(s, _)                        =>
       val vfqn = s.value
       if (evaluating.contains(vfqn)) {
         // Don't allow recursions when evaluating, for now

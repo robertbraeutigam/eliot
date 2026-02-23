@@ -45,8 +45,8 @@ object TypeStackBuilder {
         inferLiteral(value, "String", QualifiedName("String", Qualifier.Type), TypedExpression.StringLiteral(value))
       case Expr.ParameterReference(name)                         =>
         handleParameterReference(name)
-      case Expr.ValueReference(vfqn)                             =>
-        inferValueReference(vfqn)
+      case Expr.ValueReference(vfqn, typeArgs)                   =>
+        inferValueReference(vfqn, typeArgs)
       case Expr.FunctionApplication(target, arg)                 =>
         inferFunctionApplication(body, target, arg)
       case Expr.FunctionLiteral(paramName, paramType, bodyStack) =>
@@ -64,20 +64,32 @@ object TypeStackBuilder {
       typedExpr
     ).pure[TypeGraphIO]
 
-  private def inferValueReference(vfqn: Sourced[ValueFQN]): TypeGraphIO[TypedExpression] = {
+  private def inferValueReference(
+      vfqn: Sourced[ValueFQN],
+      typeArgs: Seq[Sourced[Expression]] = Seq.empty
+  ): TypeGraphIO[TypedExpression] = {
     if (vfqn.value === typeFQN) {
       val exprValue = ConcreteValue(Types.dataType(vfqn.value))
       TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
     } else {
-
       for {
-        resolved <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)))
-        // Use instantiation mode so type parameters become unification vars
-        result   <- withInstantiationMode {
-                      processStack(resolved.typeStack).map { case (signatureType, _) =>
-                        TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
-                      }
-                    }
+        resolved         <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)))
+        evaluatedTypeArgs <- typeArgs.traverse(arg => buildExpression(arg.value).map(_.expressionType))
+        result           <- withInstantiationMode {
+                              withPendingTypeArgs(evaluatedTypeArgs) {
+                                for {
+                                  typed     <- processStack(resolved.typeStack).map { case (signatureType, _) =>
+                                                 TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
+                                               }
+                                  remaining <- getRemainingPendingTypeArgCount
+                                  _         <- if (remaining > 0)
+                                                 StateT.liftF(
+                                                   compilerError(vfqn.as("Too many explicit type arguments."))
+                                                 )
+                                               else ().pure[TypeGraphIO]
+                                } yield typed
+                              }
+                            }
       } yield result
     }
   }
@@ -125,16 +137,9 @@ object TypeStackBuilder {
       TypedExpression.FunctionLiteral(paramName, typedParamType, bodyStack.as(bodyResult))
     )
 
-  /** Build from a body stack. If the stack has a kind annotation (multiple levels), use processStack to derive the
-    * concrete type from the annotation (e.g., for explicit type arguments like f[String]). Otherwise, infer via body
-    * expression.
-    */
+  /** Build from a body stack by extracting and processing the signature expression. */
   private def inferBodyStack(stack: Sourced[TypeStack[Expression]]): TypeGraphIO[TypedExpression] =
-    if (stack.value.levels.length > 1) {
-      processStack(stack).map { case (_, typedStack) => typedStack.value.signature }
-    } else {
-      inferBody(stack.as(stack.value.signature))
-    }
+    inferBody(stack.as(stack.value.signature))
 
   /** Shared handling for parameter references in both type-level and body-level contexts. */
   private def handleParameterReference(name: Sourced[String]): TypeGraphIO[TypedExpression] =
@@ -185,7 +190,7 @@ object TypeStackBuilder {
 
   private def isKindExpression(expr: Expression): Boolean =
     expr match {
-      case Expr.ValueReference(vfqn)                       =>
+      case Expr.ValueReference(vfqn, _)                    =>
         vfqn.value === typeFQN
       case Expr.FunctionApplication(targetStack, argStack) =>
         // Check if this is Function(<kind>, <kind>) - a function from kinds to kinds
@@ -201,8 +206,8 @@ object TypeStackBuilder {
 
   private def isFunctionReference(expr: Expression): Boolean =
     expr match {
-      case Expr.ValueReference(vfqn) => vfqn.value === functionDataTypeFQN
-      case _                         => false
+      case Expr.ValueReference(vfqn, _) => vfqn.value === functionDataTypeFQN
+      case _                            => false
     }
 
   /** Build a typed expression from a single type expression. */
@@ -219,7 +224,7 @@ object TypeStackBuilder {
           TypedExpression(ParameterReference(paramName.value, Value.Type), TypedExpression.ParameterReference(paramName))
             .pure[TypeGraphIO]
 
-      case Expr.ValueReference(vfqn) =>
+      case Expr.ValueReference(vfqn, _) =>
         buildValueReference(vfqn)
 
       case Expr.ParameterReference(name) =>
@@ -254,8 +259,14 @@ object TypeStackBuilder {
     for {
       inInstMode                        <- isInstantiationMode
       _                                 <- if (inInstMode) {
-                                             // Generate fresh unification var and bind it so later references find it
-                                             generateUnificationVar(paramName).flatMap(uniVar => bindParameter(paramName.value, uniVar))
+                                             // Use explicit type arg if available, otherwise generate a fresh unification var
+                                             consumeNextPendingTypeArg.flatMap {
+                                               case Some(explicitType) => bindParameter(paramName.value, explicitType)
+                                               case None               =>
+                                                 generateUnificationVar(paramName).flatMap(uniVar =>
+                                                   bindParameter(paramName.value, uniVar)
+                                                 )
+                                             }
                                            } else {
                                              addUniversalVar(paramName.value)
                                            }

@@ -8,9 +8,12 @@ trait Expression
 
 object Expression {
 
-  // Reference to a named value
-  case class NamedValueReference(valueName: Sourced[QualifiedName], moduleName: Option[Sourced[String]] = None)
-      extends Expression
+  // Reference to a named value, with optional explicit type arguments
+  case class NamedValueReference(
+      valueName: Sourced[QualifiedName],
+      moduleName: Option[Sourced[String]] = None,
+      typeArgs: Seq[Sourced[Expression]] = Seq.empty
+  ) extends Expression
   // Apply an argument to an expression (assumed to be a function)
   case class FunctionApplication(
       target: Sourced[TypeStack[Expression]],
@@ -32,7 +35,7 @@ object Expression {
     */
   def structuralEquality: Eq[Expression] = (x: Expression, y: Expression) =>
     (x, y) match {
-      case (NamedValueReference(n1, q1), NamedValueReference(n2, q2))   =>
+      case (NamedValueReference(n1, q1, _), NamedValueReference(n2, q2, _)) =>
         n1.value == n2.value && q1.map(_.value) == q2.map(_.value)
       case (FunctionApplication(t1, a1), FunctionApplication(t2, a2))   =>
         structuralEquality.eqv(t1.value.signature, t2.value.signature) &&
@@ -51,7 +54,8 @@ object Expression {
     case FunctionApplication(Sourced(_, _, targetValue), Sourced(_, _, argumentValue)) =>
       s"${targetValue.show}(${argumentValue.show})"
     case FunctionLiteral(param, _, body)                                               => s"${param.value} -> ${body.value.show}"
-    case NamedValueReference(valueName, qualifier)                                     =>
-      qualifier.map(q => s"${q.value}::").getOrElse("") + valueName.value
+    case NamedValueReference(valueName, qualifier, typeArgs)                           =>
+      qualifier.map(q => s"${q.value}::").getOrElse("") + valueName.value +
+        (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.show).mkString("[", ", ", "]"))
   }
 }

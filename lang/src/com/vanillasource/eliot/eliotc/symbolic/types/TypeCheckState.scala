@@ -13,6 +13,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param instantiationMode
   *   When true, type parameters in referenced values become fresh unification vars instead of universal vars. This
   *   allows type inference at call sites.
+  * @param pendingTypeArgs
+  *   Explicit type arguments to consume (in order) when instantiating type parameters during instantiation mode.
+  *   Consumed one-by-one by `buildUniversalIntro`; any remaining after processing signals too many type args.
   */
 case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
@@ -20,7 +23,8 @@ case class TypeCheckState(
     universalVars: Set[String] = Set.empty,
     unificationVars: Set[String] = Set.empty,
     constraints: SymbolicUnification = SymbolicUnification.empty,
-    instantiationMode: Boolean = false
+    instantiationMode: Boolean = false,
+    pendingTypeArgs: List[ExpressionValue] = List.empty
 )
 
 object TypeCheckState {
@@ -70,4 +74,27 @@ object TypeCheckState {
 
   def isInstantiationMode: TypeGraphIO[Boolean] =
     StateT.inspect(_.instantiationMode)
+
+  /** Run a computation with the given explicit type arguments pending for consumption by `buildUniversalIntro`. Restores
+    * previous pending args on exit.
+    */
+  def withPendingTypeArgs[T](args: Seq[ExpressionValue])(computation: TypeGraphIO[T]): TypeGraphIO[T] =
+    for {
+      original <- StateT.inspect[CompilerIO, TypeCheckState, List[ExpressionValue]](_.pendingTypeArgs)
+      _        <- StateT.modify[CompilerIO, TypeCheckState](_.copy(pendingTypeArgs = args.toList))
+      result   <- computation
+      _        <- StateT.modify[CompilerIO, TypeCheckState](_.copy(pendingTypeArgs = original))
+    } yield result
+
+  /** Consume the next pending type argument, returning None if none remain. */
+  def consumeNextPendingTypeArg: TypeGraphIO[Option[ExpressionValue]] =
+    StateT { state =>
+      state.pendingTypeArgs match {
+        case head :: tail => (state.copy(pendingTypeArgs = tail), Some(head)).pure[CompilerIO]
+        case Nil          => (state, None).pure[CompilerIO]
+      }
+    }
+
+  def getRemainingPendingTypeArgCount: TypeGraphIO[Int] =
+    StateT.inspect(_.pendingTypeArgs.length)
 }

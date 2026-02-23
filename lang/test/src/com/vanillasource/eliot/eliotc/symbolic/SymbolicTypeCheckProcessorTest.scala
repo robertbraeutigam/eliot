@@ -242,6 +242,60 @@ class SymbolicTypeCheckProcessorTest
       .asserting(_ shouldBe Seq("Return type mismatch."))
   }
 
+  "explicit type arguments" should "type check when the explicit arg matches usage" in {
+    runEngineForErrors(
+      "def id[A](a: A): A = a\ndata String\ndef f(s: String): String = id[String](s)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail when the explicit type arg conflicts with the value argument" in {
+    runEngineForErrors(
+      "def id[A](a: A): A = a\ndata String\ndata Int\ndef f(s: String): String = id[Int](s)"
+    ).asserting(_ shouldBe Seq("Argument type mismatch.", "Return type mismatch."))
+  }
+
+  it should "fail when the explicit type arg conflicts with the declared return type" in {
+    runEngineForErrors(
+      "def id[A](a: A): A = a\ndata String\ndata Int\ndef i: Int\ndef f(s: String): String = id[Int](i)"
+    ).asserting(_ shouldBe Seq("Return type mismatch."))
+  }
+
+  it should "fail with too many type arguments" in {
+    runEngineForErrors(
+      "def id[A](a: A): A = a\ndata String\ndef f(s: String): String = id[String, String](s)"
+    ).asserting(_ shouldBe Seq("Too many explicit type arguments."))
+  }
+
+  it should "type check with too few explicit type args by inferring the rest" in {
+    runEngineForErrors(
+      "def f2[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = f2[String](s, i)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail with too few explicit type args that conflict with usage" in {
+    runEngineForErrors(
+      "def f2[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = f2[Int](s, i)"
+    ).asserting(_ shouldBe Seq("Argument type mismatch.", "Return type mismatch."))
+  }
+
+  it should "type check with explicit type args and multiple type params" in {
+    runEngineForErrors(
+      "def g[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = g[String, Int](s, i)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail when explicit type args are in the wrong order" in {
+    runEngineForErrors(
+      "def g[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = g[Int, String](s, i)"
+    ).asserting(_ shouldBe Seq("Argument type mismatch.", "Argument type mismatch.", "Return type mismatch."))
+  }
+
+  it should "type check with an applied generic type as a type argument" in {
+    runEngineForErrors(
+      "def id[A](a: A): A = a\ndata String\ndata Box(s: String)\ndef f(b: Box): Box = id[Box](b)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   private def runEngineForErrors(source: String): IO[Seq[String]] =
     runGenerator(
       source,

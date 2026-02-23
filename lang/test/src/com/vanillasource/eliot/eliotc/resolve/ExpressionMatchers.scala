@@ -28,7 +28,7 @@ object ExpressionMatchers {
   object ValRef {
     def unapply(expr: Expression): Option[ValueFQN] =
       expr match {
-        case ValueReference(Sourced(_, _, vfqn)) => Some(vfqn)
+        case ValueReference(Sourced(_, _, vfqn), _) => Some(vfqn)
         case _                                   => None
       }
   }

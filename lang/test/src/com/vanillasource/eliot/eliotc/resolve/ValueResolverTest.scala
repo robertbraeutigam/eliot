@@ -49,7 +49,7 @@ class ValueResolverTest
 
   it should "resolve value references" in {
     runEngineForValue("data T\ndef b: T\ndef a: T = b").flatMap {
-      case Some(ValueReference(Sourced(_, _, vfqn))) =>
+      case Some(ValueReference(Sourced(_, _, vfqn), _)) =>
         IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
       case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
     }
@@ -84,7 +84,7 @@ class ValueResolverTest
     runEngineForValue("data T\ndef f: T\ndef b: T\ndef a: T = f(b)").flatMap {
       case Some(FunctionApplication(Sourced(_, _, target), _)) =>
         target.signature match {
-          case ValueReference(_) => IO.pure(succeed)
+          case ValueReference(_, _) => IO.pure(succeed)
           case _                 => IO.delay(fail(s"target was not a value reference"))
         }
       case x                                                   =>
@@ -94,7 +94,7 @@ class ValueResolverTest
 
   it should "resolve qualified value reference" in {
     runEngineForValue("data T\ndef b: T\ndef a: T = Test::b").flatMap {
-      case Some(ValueReference(Sourced(_, _, vfqn))) =>
+      case Some(ValueReference(Sourced(_, _, vfqn), _)) =>
         IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
       case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
     }
@@ -139,7 +139,7 @@ class ValueResolverTest
 
   it should "resolve type expressions" in {
     runEngineForTypeExpression("data SomeType(s: SomeType)\ndef a: SomeType").flatMap {
-      case ValueReference(Sourced(_, _, vfqn)) =>
+      case ValueReference(Sourced(_, _, vfqn), _) =>
         IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("SomeType", Qualifier.Type)))
       case x                                   => IO.delay(fail(s"type was not resolved to value reference, instead: $x"))
     }
