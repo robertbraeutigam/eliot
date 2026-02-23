@@ -51,7 +51,7 @@ object ImplementBlock {
               genericParameters,
               Seq(ArgumentDefinition(name.as("arg"), pattern.head)),
               pattern.head,
-              Some(name.as(FunctionApplication(None, name.as("arg"), Seq.empty)))
+              Some(name.as(FunctionApplication(None, name.as("arg"), Seq.empty, Seq.empty)))
             )
         )
     }

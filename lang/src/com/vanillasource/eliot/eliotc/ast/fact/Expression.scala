@@ -15,6 +15,7 @@ object Expression {
   case class FunctionApplication(
       moduleName: Option[Sourced[String]],
       functionName: Sourced[String],
+      genericArguments: Seq[TypeReference],
       arguments: Seq[Sourced[Expression]]
   ) extends Expression
   case class FunctionLiteral(parameters: Seq[LambdaParameterDefinition], body: Sourced[Expression]) extends Expression
@@ -22,15 +23,15 @@ object Expression {
   case class StringLiteral(stringLiteral: Sourced[String])                                          extends Expression
 
   given Show[Expression] = {
-    case IntegerLiteral(Sourced(_, _, value))                                             => value
-    case StringLiteral(Sourced(_, _, value))                                              => value
-    case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ns @ _ :: _) =>
+    case IntegerLiteral(Sourced(_, _, value))                                                 => value
+    case StringLiteral(Sourced(_, _, value))                                                  => value
+    case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ga, ns @ _ :: _) =>
       s"$module::$fn(${ns.map(_.value.show).mkString(", ")})"
-    case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), _)           => s"$module::$fn"
-    case FunctionApplication(None, Sourced(_, _, value), ns @ _ :: _)                     =>
+    case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ga, _)           => s"$module::$fn"
+    case FunctionApplication(None, Sourced(_, _, value), ga, ns @ _ :: _)                     =>
       s"$value(${ns.map(_.value.show).mkString(", ")})"
-    case FunctionApplication(None, Sourced(_, _, value), _)                               => value
-    case FunctionLiteral(parameters, body)                                                => parameters.map(_.show).mkString("(", ", ", ")") + " -> " + body.show
+    case FunctionApplication(None, Sourced(_, _, value), ga, _)                               => value
+    case FunctionLiteral(parameters, body)                                                    => parameters.map(_.show).mkString("(", ", ", ")") + " -> " + body.show
   }
 
   given ASTComponent[Expression] = new ASTComponent[Expression] {
@@ -48,10 +49,11 @@ object Expression {
       }
 
     private val functionApplication: Parser[Sourced[Token], Expression] = for {
-      module <- (moduleParser <* symbol("::")).atomic().optional()
-      fnName <- acceptIf(isIdentifier, "function name")
-      args   <- optionalArgumentListOf(sourced(parser))
-    } yield FunctionApplication(module, fnName.map(_.content), args)
+      module           <- (moduleParser <* symbol("::")).atomic().optional()
+      fnName           <- acceptIf(isIdentifier, "function name")
+      genericArguments <- optionalBracketedCommaSeparatedItems("[", component[TypeReference], "]")
+      args             <- optionalArgumentListOf(sourced(parser))
+    } yield FunctionApplication(module, fnName.map(_.content), genericArguments, args)
 
     private val functionLiteral: Parser[Sourced[Token], Expression] = for {
       parameters <-

@@ -1,0 +1,5 @@
+data Something
+
+def main: IO[Unit] = println(f[Something]("Hello World!"))
+
+def f[A](a: A): A = a
