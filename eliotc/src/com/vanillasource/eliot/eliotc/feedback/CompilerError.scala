@@ -42,7 +42,7 @@ case class CompilerError(
               // Multi line error
               s"$MAGENTA$lineMarker |$RESET ${line.substring(0, fromCol - 1)}$BOLD$RED${line.substring(fromCol - 1)}$RESET"
             },
-            s"$MAGENTA$markerSpaces | ${" ".repeat(fromCol - 1)}$BOLD$RED${"^".repeat(toCol - fromCol)}$multiLinePoints$RESET"
+            s"$MAGENTA$markerSpaces | ${" ".repeat(fromCol - 1)}$BOLD$RED${"^".repeat(line.length() + 1 - fromCol)}$multiLinePoints$RESET"
           ) ++ (if (description.isEmpty) Seq.empty
                 else (description ++ Seq("")).map(d => s"$MAGENTA$markerSpaces |$RESET  $d"))
         }
