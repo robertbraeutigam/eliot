@@ -35,24 +35,23 @@ object Expression {
 
   given ASTComponent[Expression] = new ASTComponent[Expression] {
     override def parser: Parser[Sourced[Token], Expression] =
-      functionLiteral.atomic() or qualifiedFunctionApplication
-        .atomic() or functionApplication or integerLiteral or stringLiteral
+      functionLiteral.atomic() or functionApplication or integerLiteral or stringLiteral
 
-    private val qualifiedFunctionApplication: Parser[Sourced[Token], Expression] = for {
-      moduleParts <- acceptIf(isIdentifier, "module name").atLeastOnceSeparatedBy(symbol("."))
-      _           <- symbol("::")
-      fnName      <- acceptIf(isIdentifier, "function name")
-      args        <- optionalArgumentListOf(sourced(parser))
-    } yield {
-      val moduleString = moduleParts.map(_.value.content).mkString(".")
-      val outline      = Sourced.outline(moduleParts)
-      FunctionApplication(Some(outline.as(moduleString)), fnName.map(_.content), args)
-    }
+    private val moduleParser: Parser[Sourced[Token], Sourced[String]] =
+      for {
+        moduleParts <- acceptIf(isIdentifier, "module name").atLeastOnceSeparatedBy(symbol("."))
+      } yield {
+        val moduleString = moduleParts.map(_.value.content).mkString(".")
+        val outline      = Sourced.outline(moduleParts)
+
+        outline.as(moduleString)
+      }
 
     private val functionApplication: Parser[Sourced[Token], Expression] = for {
-      name <- acceptIf(isIdentifier, "function name")
-      args <- optionalArgumentListOf(sourced(parser))
-    } yield FunctionApplication(None, name.map(_.content), args)
+      module <- (moduleParser <* symbol("::")).atomic().optional()
+      fnName <- acceptIf(isIdentifier, "function name")
+      args   <- optionalArgumentListOf(sourced(parser))
+    } yield FunctionApplication(module, fnName.map(_.content), args)
 
     private val functionLiteral: Parser[Sourced[Token], Expression] = for {
       parameters <-
