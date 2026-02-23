@@ -80,7 +80,49 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       errors    <- generator.currentErrors()
     } yield (errors, facts)
 
-  "jvm class generator" should "add a dictionary parameter for a constrained function" in {
+  "jvm class generator" should "dispatch ability call through dictionary with INVOKEINTERFACE" in {
+    runGenerator(
+      """ability Show[A] { def show(x: A): A }
+        |data MyStr
+        |implement Show[MyStr] { def show(x: MyStr): MyStr = x }
+        |def someValue: MyStr = someValue
+        |def main: MyStr = f(someValue)
+        |def f[A ~ Show[A]](x: A): A = show(x)""".stripMargin,
+      moduleKey
+    ).map { case (_, facts) =>
+      val generatedModule      = facts(moduleKey).asInstanceOf[GeneratedModule]
+      val testClassBytes       = generatedModule.classFiles.find(_.fileName == "Test.class").get.bytecode
+      val classReader          = new ClassReader(testClassBytes)
+      var invokeInterfaceOwner = Option.empty[String]
+      classReader.accept(
+        new ClassVisitor(Opcodes.ASM9) {
+          override def visitMethod(
+              access: Int,
+              name: String,
+              descriptor: String,
+              signature: String,
+              exceptions: Array[String]
+          ): MethodVisitor =
+            if (name == "f")
+              new MethodVisitor(Opcodes.ASM9) {
+                override def visitMethodInsn(
+                    opcode: Int,
+                    owner: String,
+                    name: String,
+                    descriptor: String,
+                    isInterface: Boolean
+                ): Unit =
+                  if (opcode == Opcodes.INVOKEINTERFACE) invokeInterfaceOwner = Some(owner)
+              }
+            else null
+        },
+        0
+      )
+      invokeInterfaceOwner
+    }.asserting(_ shouldBe Some("Test$Show$vtable"))
+  }
+
+  it should "add a dictionary parameter for a constrained function" in {
     runGenerator(
       """ability Show[A] { def show(x: A): A }
         |data MyStr

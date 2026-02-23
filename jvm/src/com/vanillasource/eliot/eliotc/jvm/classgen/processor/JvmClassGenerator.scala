@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
-import cats.data.IndexedStateT
+import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, ResolvedValue}
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier as SymbolicQualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemUnitValue
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{convertToNestedClassName, systemUnitValue}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
@@ -219,36 +219,96 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       case ValueReference(sourcedCalledVfqn)       =>
         // Calling a function
         val calledVfqn = sourcedCalledVfqn.value
-        for {
-          // FIXME: calls with different currying may generate different methods here
-          uncurriedMaybe <- getFact(UncurriedValue.Key(calledVfqn, arguments.length)).liftToTypes
-          resultClasses  <- uncurriedMaybe match
-                              case Some(uncurriedValue) =>
-                                val parameterTypes = uncurriedValue.parameters.map(p => simpleType(p.parameterType))
-                                val returnType     = simpleType(uncurriedValue.returnType)
-                                // FIXME: this doesn't seem to check whether arguments match either
-                                for {
-                                  classes <-
-                                    arguments.flatTraverse(expression =>
-                                      createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
-                                    )
-                                  _       <- methodGenerator.addCallTo[CompilationTypesIO](
-                                               calledVfqn,
-                                               parameterTypes,
-                                               returnType
-                                             )
-                                  _       <- methodGenerator
-                                               .addCastTo[CompilationTypesIO](
-                                                 simpleType(expectedResultType)
-                                               )
-                                               .whenA(simpleType(expectedResultType) =!= returnType)
-                                } yield classes
-                              case None                 =>
-                                compilerError(
-                                  sourcedCalledVfqn.as("Could not find uncurried function."),
-                                  Seq(s"Looking for function: ${calledVfqn.show}")
-                                ).liftToTypes.as(Seq.empty)
-        } yield resultClasses
+        calledVfqn.name.qualifier match {
+          case Qualifier.Ability(abilityName) =>
+            // Ability method call - dispatch via INVOKEINTERFACE on the dictionary parameter
+            val interfaceVfqn         = ValueFQN(
+              calledVfqn.moduleName,
+              QualifiedName(abilityName + "$vtable", Qualifier.Default)
+            )
+            val interfaceInternalName = convertToNestedClassName(interfaceVfqn)
+            for {
+              uncurriedMaybe <- getFact(UncurriedValue.Key(calledVfqn, arguments.length)).liftToTypes
+              resultClasses  <- uncurriedMaybe match {
+                                  case Some(uncurriedValue) =>
+                                    val parameterTypes = uncurriedValue.parameters.map(p => simpleType(p.parameterType))
+                                    val returnType     = simpleType(uncurriedValue.returnType)
+                                    for {
+                                      state         <- StateT.get[CompilerIO, TypeState]
+                                      dictParamName  = state.typeMap.keys.find(_.startsWith("$" + abilityName + "$"))
+                                      _             <- compilerAbort(
+                                                         sourcedCalledVfqn.as(
+                                                           s"Could not find dictionary parameter for ability $abilityName."
+                                                         )
+                                                       ).liftToTypes
+                                                         .whenA(dictParamName.isEmpty)
+                                      dictParamIndex <- getParameterIndex(dictParamName.get)
+                                      _             <- compilerAbort(
+                                                         sourcedCalledVfqn.as(
+                                                           s"Dictionary parameter ${dictParamName.get} not in scope."
+                                                         )
+                                                       ).liftToTypes
+                                                         .whenA(dictParamIndex.isEmpty)
+                                      _             <- methodGenerator
+                                                         .addLoadVar[CompilationTypesIO](interfaceVfqn, dictParamIndex.get)
+                                      classes       <- arguments.flatTraverse(expression =>
+                                                         createExpressionCode(
+                                                           moduleName,
+                                                           outerClassGenerator,
+                                                           methodGenerator,
+                                                           expression
+                                                         )
+                                                       )
+                                      _             <- methodGenerator.addCallToAbilityMethod[CompilationTypesIO](
+                                                         interfaceInternalName,
+                                                         calledVfqn.name.name,
+                                                         parameterTypes,
+                                                         returnType
+                                                       )
+                                      _             <- methodGenerator
+                                                         .addCastTo[CompilationTypesIO](simpleType(expectedResultType))
+                                                         .whenA(simpleType(expectedResultType) =!= returnType)
+                                    } yield classes
+                                  case None                 =>
+                                    compilerError(
+                                      sourcedCalledVfqn.as("Could not find uncurried ability method."),
+                                      Seq(s"Looking for method: ${calledVfqn.show}")
+                                    ).liftToTypes.as(Seq.empty)
+                                }
+            } yield resultClasses
+          case _                              =>
+            // Normal function call
+            for {
+              // FIXME: calls with different currying may generate different methods here
+              uncurriedMaybe <- getFact(UncurriedValue.Key(calledVfqn, arguments.length)).liftToTypes
+              resultClasses  <- uncurriedMaybe match
+                                  case Some(uncurriedValue) =>
+                                    val parameterTypes = uncurriedValue.parameters.map(p => simpleType(p.parameterType))
+                                    val returnType     = simpleType(uncurriedValue.returnType)
+                                    // FIXME: this doesn't seem to check whether arguments match either
+                                    for {
+                                      classes <-
+                                        arguments.flatTraverse(expression =>
+                                          createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                        )
+                                      _       <- methodGenerator.addCallTo[CompilationTypesIO](
+                                                   calledVfqn,
+                                                   parameterTypes,
+                                                   returnType
+                                                 )
+                                      _       <- methodGenerator
+                                                   .addCastTo[CompilationTypesIO](
+                                                     simpleType(expectedResultType)
+                                                   )
+                                                   .whenA(simpleType(expectedResultType) =!= returnType)
+                                    } yield classes
+                                  case None                 =>
+                                    compilerError(
+                                      sourcedCalledVfqn.as("Could not find uncurried function."),
+                                      Seq(s"Looking for function: ${calledVfqn.show}")
+                                    ).liftToTypes.as(Seq.empty)
+            } yield resultClasses
+        }
       case FunctionLiteral(parameters, body)       => ??? // FIXME: applying lambda immediately
       case FunctionApplication(target, arguments2) => ??? // FIXME: applying on a result function?
     }

@@ -135,4 +135,19 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
       true
     )
   }
+
+  def addCallToAbilityMethod[F[_]: Sync](
+      interfaceInternalName: String,
+      methodName: String,
+      parameterTypes: Seq[ValueFQN],
+      resultType: ValueFQN
+  ): F[Unit] = Sync[F].delay {
+    methodVisitor.visitMethodInsn(
+      Opcodes.INVOKEINTERFACE,
+      interfaceInternalName,
+      methodName,
+      convertToSignatureString(parameterTypes, resultType),
+      true
+    )
+  }
 }
