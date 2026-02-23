@@ -1,6 +1,14 @@
 /**
- * A build-in abstraction over functions, function literals.
+ * A function with exactly one parameter that can be applied
+ * to produce a single value as a result.
+ * Function literals (lambdas) also produce this data.
+ * Multi-parameter functions are represented with their curried form, where
+ * applying the first parameter produces the next Function, applying the
+ * parameter there produces the next, and so on, until all parameters are applied.
  */
 data Function[A, B]
 
+/**
+ * Apply the single parameter to a function to produce the resulting value.
+ */
 def apply[A, B](f: Function[A, B], a: A): B = f(a)
