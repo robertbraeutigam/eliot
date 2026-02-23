@@ -29,8 +29,8 @@ mill lang.test
 mill jvm.test
 mill eliotc.test
 
-# Run a single test class
-mill lang.test -- "com.vanillasource.eliot.eliotc.ProcessorTest"
+# Filter test output by class name (the -- flag is rejected by ScalaTest)
+mill lang.test 2>&1 | grep -v DEBUG | grep "ClassName"
 
 # Format code with scalafmt
 mill mill.scalalib.scalafmt.ScalafmtModule/reformatAll __
@@ -128,6 +128,14 @@ The main building blocks of the language are:
 
 - When explicitly asked to create a plan, always write the plan as markdown into the "docs" directory.
 - When a task appears complete (e.g., bug fixed, feature implemented, significant refactoring done), proactively suggest running `/revise-claude-md` to capture learnings from the session.
+
+## Compiler Change Patterns
+
+- When making a field optional in `resolve.fact.Expression` case classes, update ALL pattern matches across
+  the codebase (symbolic, eval, monomorphize phases) **and** test files that directly construct those cases.
+- `Evaluator` (eval/compile-time phase) cannot do type inference; use `compilerAbort` for types it can't resolve.
+- Symbolic phase type inference: generate unification variables (`generateUnificationVar`) for unknown types;
+  they resolve via constraint solving after all constraints are collected.
 
 ## Development Notes
 
