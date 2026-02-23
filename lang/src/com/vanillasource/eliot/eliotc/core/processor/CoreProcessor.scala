@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   GenericParameter,
   SourceAST,
   TypeReference,
+  LambdaParameterDefinition as SourceLambdaParameter,
   ArgumentDefinition as SourceArgument,
   Expression as SourceExpression,
   QualifiedName as AstQualifiedName,
@@ -109,7 +110,7 @@ class CoreProcessor
     }
     genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
       val kindType = toKindExpression(param.name, param.arity)
-      param.name.as(FunctionLiteral(param.name, TypeStack.of(kindType.value), acc.map(TypeStack.of)))
+      param.name.as(FunctionLiteral(param.name, Some(TypeStack.of(kindType.value)), acc.map(TypeStack.of)))
     }
   }
 
@@ -179,7 +180,7 @@ class CoreProcessor
       arg.name.as(
         FunctionLiteral(
           arg.name,
-          TypeStack.of(toTypeExpression(arg.typeReference).value),
+          Some(TypeStack.of(toTypeExpression(arg.typeReference).value)),
           acc.map(TypeStack.of)
         )
       )
@@ -204,7 +205,7 @@ class CoreProcessor
     * body, needs to be converted into: a -> b -> c -> body.
     */
   private def curryLambda(
-      params: Seq[SourceArgument],
+      params: Seq[SourceLambdaParameter],
       body: Sourced[Expression],
       sourcedContext: Sourced[?]
   ): Sourced[Expression] =
@@ -212,7 +213,7 @@ class CoreProcessor
       param.name.as(
         FunctionLiteral(
           param.name,
-          TypeStack.of(toTypeExpression(param.typeReference).value),
+          param.typeReference.map(toTypeExpression(_).value).map(TypeStack.of),
           acc.map(TypeStack.of)
         )
       )

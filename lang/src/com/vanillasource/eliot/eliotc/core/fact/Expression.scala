@@ -19,7 +19,7 @@ object Expression {
   // Function literal, i.e. a lambda expression, i.e. an ad-hoc function, i.e. an unnamed function
   case class FunctionLiteral(
       parameterName: Sourced[String],
-      parameterType: TypeStack[Expression],
+      parameterType: Option[TypeStack[Expression]],
       body: Sourced[TypeStack[Expression]]
   ) extends Expression
   // Integer literal
@@ -38,7 +38,7 @@ object Expression {
         structuralEquality.eqv(t1.value.signature, t2.value.signature) &&
         structuralEquality.eqv(a1.value.signature, a2.value.signature)
       case (FunctionLiteral(p1, pt1, b1), FunctionLiteral(p2, pt2, b2)) =>
-        p1.value == p2.value && structuralEquality.eqv(pt1.signature, pt2.signature) &&
+        p1.value == p2.value && // Leave the type here, it does not contribute to structure (?)
         structuralEquality.eqv(b1.value.signature, b2.value.signature)
       case (IntegerLiteral(i1), IntegerLiteral(i2))                     => i1.value == i2.value
       case (StringLiteral(s1), StringLiteral(s2))                       => s1.value == s2.value

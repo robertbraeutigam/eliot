@@ -19,7 +19,7 @@ object Expression {
   case class ValueReference(valueName: Sourced[ValueFQN])       extends Expression
   case class FunctionLiteral(
       parameterName: Sourced[String],
-      parameterType: Sourced[TypeStack[Expression]],
+      parameterType: Option[Sourced[TypeStack[Expression]]],
       body: Sourced[TypeStack[Expression]]
   ) extends Expression
 
@@ -28,7 +28,8 @@ object Expression {
     case StringLiteral(Sourced(_, _, value))                                           => s"\"$value\""
     case FunctionApplication(Sourced(_, _, targetValue), Sourced(_, _, argumentValue)) =>
       s"${targetValue.show}(${argumentValue.show})"
-    case FunctionLiteral(param, paramType, body)                                       => s"(${paramType.value.show} :: ${param.value}) -> ${body.value.show}"
+    case FunctionLiteral(param, paramType, body)                                       =>
+      s"(${paramType.map(_.value.show).getOrElse("<n/a>")} :: ${param.value}) -> ${body.value.show}"
     case ParameterReference(name)                                                      => name.value
     case ValueReference(name)                                                          => name.value.show
   }

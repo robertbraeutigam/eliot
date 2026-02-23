@@ -154,6 +154,10 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("def f: A = a:A -> a").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "parse function literal with one parameter without parenthesis and without type" in {
+    runEngineForErrors("def f: A = a -> a").asserting(_ shouldBe Seq.empty)
+  }
+
   it should "parse function literal with one parameter with parenthesis" in {
     runEngineForErrors("def f: A = (a:A) -> a").asserting(_ shouldBe Seq.empty)
   }

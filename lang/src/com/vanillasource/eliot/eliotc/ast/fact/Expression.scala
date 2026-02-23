@@ -2,13 +2,12 @@ package com.vanillasource.eliot.eliotc.ast.fact
 
 import cats.Show
 import cats.syntax.all.*
-import ASTComponent.component
-import com.vanillasource.eliot.eliotc.ast.fact.Expression
-import Primitives.*
+import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
+import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
+import com.vanillasource.eliot.eliotc.ast.parser.Parser.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
-import Parser.*
 
 sealed trait Expression
 
@@ -18,20 +17,20 @@ object Expression {
       functionName: Sourced[String],
       arguments: Seq[Sourced[Expression]]
   ) extends Expression
-  case class FunctionLiteral(parameters: Seq[ArgumentDefinition], body: Sourced[Expression])         extends Expression
-  case class IntegerLiteral(integerLiteral: Sourced[String])                                         extends Expression
-  case class StringLiteral(stringLiteral: Sourced[String])                                           extends Expression
+  case class FunctionLiteral(parameters: Seq[LambdaParameterDefinition], body: Sourced[Expression]) extends Expression
+  case class IntegerLiteral(integerLiteral: Sourced[String])                                        extends Expression
+  case class StringLiteral(stringLiteral: Sourced[String])                                          extends Expression
 
   given Show[Expression] = {
-    case IntegerLiteral(Sourced(_, _, value))                                                => value
-    case StringLiteral(Sourced(_, _, value))                                                 => value
+    case IntegerLiteral(Sourced(_, _, value))                                             => value
+    case StringLiteral(Sourced(_, _, value))                                              => value
     case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ns @ _ :: _) =>
       s"$module::$fn(${ns.map(_.value.show).mkString(", ")})"
-    case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), _)          => s"$module::$fn"
-    case FunctionApplication(None, Sourced(_, _, value), ns @ _ :: _)                    =>
+    case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), _)           => s"$module::$fn"
+    case FunctionApplication(None, Sourced(_, _, value), ns @ _ :: _)                     =>
       s"$value(${ns.map(_.value.show).mkString(", ")})"
-    case FunctionApplication(None, Sourced(_, _, value), _)                              => value
-    case FunctionLiteral(parameters, body)                                                   => parameters.map(_.show).mkString("(", ", ", ")") + " -> " + body.show
+    case FunctionApplication(None, Sourced(_, _, value), _)                               => value
+    case FunctionLiteral(parameters, body)                                                => parameters.map(_.show).mkString("(", ", ", ")") + " -> " + body.show
   }
 
   given ASTComponent[Expression] = new ASTComponent[Expression] {
@@ -57,8 +56,8 @@ object Expression {
 
     private val functionLiteral: Parser[Sourced[Token], Expression] = for {
       parameters <-
-        bracketedCommaSeparatedItems("(", component[ArgumentDefinition], ")") or
-          component[ArgumentDefinition].map(Seq(_))
+        bracketedCommaSeparatedItems("(", component[LambdaParameterDefinition], ")") or
+          component[LambdaParameterDefinition].map(Seq(_))
       _          <- symbol("->")
       body       <- sourced(parser)
     } yield FunctionLiteral(parameters, body)

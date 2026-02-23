@@ -101,8 +101,12 @@ class ValueResolver
       case _                                                                          => Seq.empty
     }
 
-  private def isKindAnnotation(stack: TypeStack[CoreExpression]): Boolean =
-    stack.levels.length == 1 && isKindExpression(stack.signature)
+  private def isKindAnnotation(stackMaybe: Option[TypeStack[CoreExpression]]): Boolean = {
+    stackMaybe match {
+      case Some(stack) => stack.levels.length == 1 && isKindExpression(stack.signature)
+      case None        => false
+    }
+  }
 
   private def isKindExpression(expr: CoreExpression): Boolean =
     expr match {
@@ -195,7 +199,7 @@ class ValueResolver
         } yield Expression.FunctionApplication(resolvedTarget, resolvedArg)
       case FunctionLiteral(paramName, paramType, body) =>
         for {
-          resolvedParamType <- resolveTypeStack(paramName.as(paramType), false)
+          resolvedParamType <- paramType.traverse(t => resolveTypeStack(paramName.as(t), false))
           resolvedBody      <- withLocalScope {
                                  for {
                                    _    <- addParameter(paramName.value)
