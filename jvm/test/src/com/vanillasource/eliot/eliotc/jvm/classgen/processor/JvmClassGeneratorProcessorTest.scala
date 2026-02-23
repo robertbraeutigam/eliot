@@ -80,7 +80,98 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       errors    <- generator.currentErrors()
     } yield (errors, facts)
 
-  "jvm class generator" should "dispatch ability call through dictionary with INVOKEINTERFACE" in {
+  "jvm class generator" should "inject concrete dictionary singleton at call site" in {
+    runGenerator(
+      """ability Show[A] { def show(x: A): A }
+        |data MyStr
+        |implement Show[MyStr] { def show(x: MyStr): MyStr = x }
+        |def someValue: MyStr = someValue
+        |def main: MyStr = g(someValue)
+        |def g(x: MyStr): MyStr = f(x)
+        |def f[A ~ Show[A]](x: A): A = show(x)""".stripMargin,
+      moduleKey
+    ).map { case (errors, facts) =>
+      val generatedModule  = facts(moduleKey).asInstanceOf[GeneratedModule]
+      val testClassBytes   = generatedModule.classFiles.find(_.fileName == "Test.class").get.bytecode
+      val classReader      = new ClassReader(testClassBytes)
+      var gCallsFWithDict  = false
+      classReader.accept(
+        new ClassVisitor(Opcodes.ASM9) {
+          override def visitMethod(
+              access: Int,
+              name: String,
+              descriptor: String,
+              signature: String,
+              exceptions: Array[String]
+          ): MethodVisitor =
+            if (name == "g")
+              new MethodVisitor(Opcodes.ASM9) {
+                override def visitMethodInsn(
+                    opcode: Int,
+                    owner: String,
+                    name: String,
+                    descriptor: String,
+                    isInterface: Boolean
+                ): Unit =
+                  if (opcode == Opcodes.INVOKESTATIC && name == "f")
+                    gCallsFWithDict =
+                      descriptor == "(LTest$Show$vtable;Ljava/lang/Object;)Ljava/lang/Object;"
+              }
+            else null
+        },
+        0
+      )
+      gCallsFWithDict
+    }.asserting(_ shouldBe true)
+  }
+
+  it should "pass through dictionary for generic call site" in {
+    runGenerator(
+      """ability Show[A] { def show(x: A): A }
+        |data MyStr
+        |implement Show[MyStr] { def show(x: MyStr): MyStr = x }
+        |def someValue: MyStr = someValue
+        |def main: MyStr = g(someValue)
+        |def g(x: MyStr): MyStr = h(x)
+        |def h[A ~ Show[A]](x: A): A = f(x)
+        |def f[A ~ Show[A]](x: A): A = show(x)""".stripMargin,
+      moduleKey
+    ).map { case (errors, facts) =>
+      val generatedModule  = facts(moduleKey).asInstanceOf[GeneratedModule]
+      val testClassBytes   = generatedModule.classFiles.find(_.fileName == "Test.class").get.bytecode
+      val classReader      = new ClassReader(testClassBytes)
+      var hCallsFWithDict  = false
+      classReader.accept(
+        new ClassVisitor(Opcodes.ASM9) {
+          override def visitMethod(
+              access: Int,
+              name: String,
+              descriptor: String,
+              signature: String,
+              exceptions: Array[String]
+          ): MethodVisitor =
+            if (name == "h")
+              new MethodVisitor(Opcodes.ASM9) {
+                override def visitMethodInsn(
+                    opcode: Int,
+                    owner: String,
+                    name: String,
+                    descriptor: String,
+                    isInterface: Boolean
+                ): Unit =
+                  if (opcode == Opcodes.INVOKESTATIC && name == "f")
+                    hCallsFWithDict =
+                      descriptor == "(LTest$Show$vtable;Ljava/lang/Object;)Ljava/lang/Object;"
+              }
+            else null
+        },
+        0
+      )
+      hCallsFWithDict
+    }.asserting(_ shouldBe true)
+  }
+
+  it should "dispatch ability call through dictionary with INVOKEINTERFACE" in {
     runGenerator(
       """ability Show[A] { def show(x: A): A }
         |data MyStr

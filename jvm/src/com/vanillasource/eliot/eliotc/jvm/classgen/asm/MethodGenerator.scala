@@ -136,6 +136,16 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
     )
   }
 
+  def addGetStaticInstance[F[_]: Sync](singletonInternalName: String, interfaceDescriptor: String): F[Unit] =
+    Sync[F].delay {
+      methodVisitor.visitFieldInsn(
+        Opcodes.GETSTATIC,
+        singletonInternalName,
+        "INSTANCE",
+        interfaceDescriptor
+      )
+    }
+
   def addCallToAbilityMethod[F[_]: Sync](
       interfaceInternalName: String,
       methodName: String,

@@ -8,7 +8,8 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.{AbilityImplGenerator, AbilityInterfaceGenerator}
 import com.vanillasource.eliot.eliotc.eval.fact.Value
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, ResolvedValue}
+import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression as ResolveExpression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier as SymbolicQualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
@@ -277,36 +278,140 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 }
             } yield resultClasses
           case _                              =>
-            // Normal function call
+            // Normal function call - with dictionary injection for constrained functions
             for {
               // FIXME: calls with different currying may generate different methods here
-              uncurriedMaybe <- getFact(UncurriedValue.Key(calledVfqn, arguments.length)).liftToTypes
-              resultClasses  <- uncurriedMaybe match
-                                  case Some(uncurriedValue) =>
-                                    val parameterTypes = uncurriedValue.parameters.map(p => simpleType(p.parameterType))
-                                    val returnType     = simpleType(uncurriedValue.returnType)
-                                    // FIXME: this doesn't seem to check whether arguments match either
-                                    for {
-                                      classes <-
-                                        arguments.flatTraverse(expression =>
-                                          createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
-                                        )
-                                      _       <- methodGenerator.addCallTo[CompilationTypesIO](
-                                                   calledVfqn,
-                                                   parameterTypes,
-                                                   returnType
+              uncurriedMaybe     <- getFact(UncurriedValue.Key(calledVfqn, arguments.length)).liftToTypes
+              resolvedValueMaybe <- getFact(ResolvedValue.Key(calledVfqn)).liftToTypes
+              resultClasses      <- uncurriedMaybe match
+                                      case Some(uncurriedValue) =>
+                                        val parameterTypes    = uncurriedValue.parameters.map(p => simpleType(p.parameterType))
+                                        val returnType        = simpleType(uncurriedValue.returnType)
+                                        val sortedConstraints = resolvedValueMaybe
+                                                                  .map(_.paramConstraints.toSeq.sortBy(_._1))
+                                                                  .getOrElse(Seq.empty)
+                                        // Binding: constrained type param name → actual argument ExpressionValue
+                                        val paramBindings     = uncurriedValue.parameters
+                                                                  .zip(arguments)
+                                                                  .flatMap { (pd, arg) =>
+                                                                    pd.parameterType match {
+                                                                      case ExpressionValue.ParameterReference(name, _) =>
+                                                                        Seq(name -> arg.expressionType)
+                                                                      case _                                           => Seq.empty
+                                                                    }
+                                                                  }
+                                                                  .toMap
+                                        // Map each constraint's typeArgs to concrete ExpressionValues
+                                        val sortedConstraintExprs = sortedConstraints.flatMap { (_, constraints) =>
+                                                                      constraints.map { constraint =>
+                                                                        val typeArgExprs = constraint.typeArgs.map {
+                                                                          case ResolveExpression.ParameterReference(nameSrc) =>
+                                                                            paramBindings.getOrElse(
+                                                                              nameSrc.value,
+                                                                              ExpressionValue.ParameterReference(nameSrc.value, Value.Type)
+                                                                            )
+                                                                          case _ =>
+                                                                            ExpressionValue.ParameterReference("?", Value.Type)
+                                                                        }
+                                                                        (constraint.abilityFQN, typeArgExprs)
+                                                                      }
+                                                                    }
+                                        // Dict param types for INVOKESTATIC signature (same order as computeDictParams)
+                                        val dictParamTypes = sortedConstraintExprs.map { (abilityFQN, _) =>
+                                                               ValueFQN(
+                                                                 abilityFQN.moduleName,
+                                                                 QualifiedName(abilityFQN.abilityName + "$vtable", Qualifier.Default)
+                                                               )
+                                                             }
+                                        // FIXME: this doesn't seem to check whether arguments match either
+                                        for {
+                                          // Inject dictionary arguments before regular arguments
+                                          _ <- sortedConstraintExprs.traverse_ { (abilityFQN, typeArgExprs) =>
+                                                 val interfaceVfqn = ValueFQN(
+                                                   abilityFQN.moduleName,
+                                                   QualifiedName(abilityFQN.abilityName + "$vtable", Qualifier.Default)
                                                  )
-                                      _       <- methodGenerator
-                                                   .addCastTo[CompilationTypesIO](
-                                                     simpleType(expectedResultType)
-                                                   )
-                                                   .whenA(simpleType(expectedResultType) =!= returnType)
-                                    } yield classes
-                                  case None                 =>
-                                    compilerError(
-                                      sourcedCalledVfqn.as("Could not find uncurried function."),
-                                      Seq(s"Looking for function: ${calledVfqn.show}")
-                                    ).liftToTypes.as(Seq.empty)
+                                                 val hasParamRef   = typeArgExprs.exists {
+                                                   case ExpressionValue.ParameterReference(_, _) => true
+                                                   case _                                        => false
+                                                 }
+                                                 if (hasParamRef) {
+                                                   // Generic call site: pass through caller's dict param
+                                                   val firstParamRefName = typeArgExprs.collectFirst {
+                                                     case ExpressionValue.ParameterReference(name, _) => name
+                                                   }.getOrElse("")
+                                                   val dictParamName     = "$" + abilityFQN.abilityName + "$" + firstParamRefName
+                                                   for {
+                                                     dictParamIndex <- getParameterIndex(dictParamName)
+                                                     _              <- compilerAbort(
+                                                                         sourcedCalledVfqn.as(
+                                                                           s"Could not find dictionary parameter $dictParamName to pass through."
+                                                                         )
+                                                                       ).liftToTypes.whenA(dictParamIndex.isEmpty)
+                                                     _              <- methodGenerator.addLoadVar[CompilationTypesIO](
+                                                                         interfaceVfqn,
+                                                                         dictParamIndex.get
+                                                                       )
+                                                   } yield ()
+                                                 } else {
+                                                   // Concrete call site: inject singleton INSTANCE
+                                                   for {
+                                                     abilityModuleNames   <- getFactOrAbort(
+                                                                               UnifiedModuleNames.Key(abilityFQN.moduleName)
+                                                                             ).liftToTypes
+                                                     abilityMethodVfqnOpt  = abilityModuleNames.names.toSeq.collectFirst {
+                                                                               case qn @ QualifiedName(_, Qualifier.Ability(aName))
+                                                                                   if aName == abilityFQN.abilityName =>
+                                                                                 ValueFQN(abilityFQN.moduleName, qn)
+                                                                             }
+                                                     _                    <- compilerAbort(
+                                                                               sourcedCalledVfqn.as(
+                                                                                 s"Could not find any method for ability ${abilityFQN.abilityName}."
+                                                                               )
+                                                                             ).liftToTypes.whenA(abilityMethodVfqnOpt.isEmpty)
+                                                     impl                 <- getFactOrAbort(
+                                                                               AbilityImplementation.Key(
+                                                                                 abilityMethodVfqnOpt.get,
+                                                                                 typeArgExprs
+                                                                               )
+                                                                             ).liftToTypes
+                                                     singletonInnerName    = abilityFQN.abilityName + "$" +
+                                                                               typeArgExprs.map(simpleType).map(_.name.name).mkString("$") +
+                                                                               "$impl"
+                                                     singletonVfqn         = ValueFQN(
+                                                                               impl.implementationFQN.moduleName,
+                                                                               QualifiedName(singletonInnerName, Qualifier.Default)
+                                                                             )
+                                                     singletonInternalName = convertToNestedClassName(singletonVfqn)
+                                                     interfaceInternalName = convertToNestedClassName(interfaceVfqn)
+                                                     _                    <- methodGenerator.addGetStaticInstance[CompilationTypesIO](
+                                                                               singletonInternalName,
+                                                                               "L" + interfaceInternalName + ";"
+                                                                             )
+                                                   } yield ()
+                                                 }
+                                               }
+                                          // Generate regular arguments
+                                          classes <- arguments.flatTraverse(expression =>
+                                                       createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                                     )
+                                          // Call with full signature: dict params + regular params
+                                          _       <- methodGenerator.addCallTo[CompilationTypesIO](
+                                                       calledVfqn,
+                                                       dictParamTypes ++ parameterTypes,
+                                                       returnType
+                                                     )
+                                          _       <- methodGenerator
+                                                       .addCastTo[CompilationTypesIO](
+                                                         simpleType(expectedResultType)
+                                                       )
+                                                       .whenA(simpleType(expectedResultType) =!= returnType)
+                                        } yield classes
+                                      case None                 =>
+                                        compilerError(
+                                          sourcedCalledVfqn.as("Could not find uncurried function."),
+                                          Seq(s"Looking for function: ${calledVfqn.show}")
+                                        ).liftToTypes.as(Seq.empty)
             } yield resultClasses
         }
       case FunctionLiteral(parameters, body)       => ??? // FIXME: applying lambda immediately
