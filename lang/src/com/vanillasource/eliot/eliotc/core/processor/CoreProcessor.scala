@@ -188,16 +188,16 @@ class CoreProcessor
 
   private def toBodyExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
     expr.value match {
-      case SourceExpression.FunctionApplication(moduleName, fnName, args) =>
+      case SourceExpression.FunctionApplication(moduleName, fnName, genericArgs, args) =>
         curryApplication(
           expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Default)), moduleName)),
           args
         )
-      case SourceExpression.FunctionLiteral(params, body)                 =>
+      case SourceExpression.FunctionLiteral(params, body)                              =>
         curryLambda(params, toBodyExpression(body), expr)
-      case SourceExpression.IntegerLiteral(lit)                           =>
+      case SourceExpression.IntegerLiteral(lit)                                        =>
         expr.as(IntegerLiteral(lit))
-      case SourceExpression.StringLiteral(lit)                            =>
+      case SourceExpression.StringLiteral(lit)                                         =>
         expr.as(StringLiteral(lit))
     }
 
@@ -283,7 +283,8 @@ class CoreProcessor
                   SourceExpression.FunctionApplication(
                     None,
                     definition.name,
-                    fields.map(f => f.name.as(SourceExpression.FunctionApplication(None, f.name, Seq.empty)))
+                    Seq.empty,
+                    fields.map(f => f.name.as(SourceExpression.FunctionApplication(None, f.name, Seq.empty, Seq.empty)))
                   )
                 )
               )
