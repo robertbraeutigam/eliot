@@ -66,7 +66,9 @@ object Evaluator {
             compilerAbort(sourced.as("Could not evaluate expression."), Seq(s"Named value '${vfqn.show}' not found."))
         }
       }
-    case Expression.FunctionLiteral(paramName, paramType, body) =>
+    case Expression.FunctionLiteral(paramName, None, _) =>
+      compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated."))
+    case Expression.FunctionLiteral(paramName, Some(paramType), body) =>
       for {
         // TODO: Is it ok to ignore the type stack here?
         evaluatedParamTypeFull <- toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType)

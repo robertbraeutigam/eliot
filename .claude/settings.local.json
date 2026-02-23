@@ -17,7 +17,8 @@
       "Bash(timeout:*)",
       "Bash(done)",
       "mcp__ide__getDiagnostics",
-      "WebSearch"
+      "WebSearch",
+      "Bash(wc:*)"
     ]
   },
   "enabledPlugins": {

@@ -109,17 +109,20 @@ object TypeStackBuilder {
 
   private def inferFunctionLiteral(
       paramName: Sourced[String],
-      paramType: Sourced[TypeStack[Expression]],
+      paramType: Option[Sourced[TypeStack[Expression]]],
       bodyStack: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
-      (paramTypeValue, _) <- processStack(paramType)
-      _                   <- bindParameter(paramName.value, paramTypeValue)
-      bodyResult          <- inferBodyStack(bodyStack)
-      funcType             = functionType(paramTypeValue, bodyResult.expressionType)
+      typedParamType <- paramType match {
+                          case Some(pt) => processStack(pt).map { case (v, _) => pt.as(v) }
+                          case None     => generateUnificationVar(paramName).map(v => paramName.as(v: ExpressionValue))
+                        }
+      _              <- bindParameter(paramName.value, typedParamType.value)
+      bodyResult     <- inferBodyStack(bodyStack)
+      funcType        = functionType(typedParamType.value, bodyResult.expressionType)
     } yield TypedExpression(
       funcType,
-      TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), bodyStack.as(bodyResult))
+      TypedExpression.FunctionLiteral(paramName, typedParamType, bodyStack.as(bodyResult))
     )
 
   /** Build from a body stack by extracting and processing the signature expression. */
@@ -198,11 +201,16 @@ object TypeStackBuilder {
   /** Build a typed expression from a single type expression. */
   private def buildExpression(expression: Expression): TypeGraphIO[TypedExpression] =
     expression match {
-      case Expr.FunctionLiteral(paramName, paramType, body) if isKindAnnotation(paramType.value) =>
+      case Expr.FunctionLiteral(paramName, Some(paramType), body) if isKindAnnotation(paramType.value) =>
         buildUniversalIntro(paramName, paramType, body)
 
-      case Expr.FunctionLiteral(paramName, paramType, body) =>
+      case Expr.FunctionLiteral(paramName, Some(paramType), body) =>
         buildFunctionType(paramName, paramType, body)
+
+      case Expr.FunctionLiteral(paramName, None, _) =>
+        StateT.liftF(compilerError(paramName.as("Lambda parameter in type annotation must have an explicit type."))) *>
+          TypedExpression(ParameterReference(paramName.value, Value.Type), TypedExpression.ParameterReference(paramName))
+            .pure[TypeGraphIO]
 
       case Expr.ValueReference(vfqn) =>
         buildValueReference(vfqn)

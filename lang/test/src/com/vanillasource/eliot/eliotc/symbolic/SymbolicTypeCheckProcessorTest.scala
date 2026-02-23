@@ -184,6 +184,18 @@ class SymbolicTypeCheckProcessorTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  "lambda type inference" should "infer parameter type for unannotated lambda from context" in {
+    runEngineForErrors(
+      "data String\ndata Unit\ndata Foo(l: Function[Unit, String])\ndef g: String\ndef f: Foo = Foo(unit -> g)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject unannotated lambda when inferred type conflicts" in {
+    runEngineForErrors(
+      "data String\ndata Unit\ndata Foo(l: Function[Unit, String])\ndef g(u: Unit): String\ndef f: Foo = Foo(unit -> g(unit))"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   "apply" should "type check and return B" in {
     runEngineForErrors(
       "def f[A, B](g: Function[A, B], a: A): B = g(a)"

@@ -134,7 +134,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
     // Build: (a: Type -> a)(Type)
     val innerLambda   = Expression.FunctionLiteral(
       sourced("a"),
-      sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn))))),
+      Some(sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn)))))),
       sourced(TypeStack(NonEmptySeq.of(Expression.ParameterReference(sourced("a")))))
     )
     val appliedExpr   = Expression.FunctionApplication(
@@ -174,7 +174,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
     val typeExpr = typeParams.foldRight[Expression](Expression.ValueReference(sourced(typeVfqn))) { (param, body) =>
       Expression.FunctionLiteral(
         sourced(param),
-        sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn))))),
+        Some(sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn)))))),
         sourced(TypeStack(NonEmptySeq.of(body)))
       )
     }

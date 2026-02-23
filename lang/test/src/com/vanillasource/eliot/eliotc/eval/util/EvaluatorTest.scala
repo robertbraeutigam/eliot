@@ -254,7 +254,7 @@ class EvaluatorTest extends ProcessorTest() {
   private def funLit(param: String, paramTypeExpr: Expression, body: Expression): Expression =
     Expression.FunctionLiteral(
       sourced(param),
-      sourced(TypeStack(NonEmptySeq.of(paramTypeExpr))),
+      Some(sourced(TypeStack(NonEmptySeq.of(paramTypeExpr)))),
       sourced(TypeStack(NonEmptySeq.of(body)))
     )
 
