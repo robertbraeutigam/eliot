@@ -291,14 +291,17 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                                                   .map(_.paramConstraints.toSeq.sortBy(_._1))
                                                                   .getOrElse(Seq.empty)
                                         // Binding: constrained type param name → actual argument ExpressionValue
+                                        val freeTypeVarNames  = resolvedValueMaybe
+                                                                  .map(_.paramConstraints.keys.toSet)
+                                                                  .getOrElse(Set.empty)
                                         val paramBindings     = uncurriedValue.parameters
                                                                   .zip(arguments)
                                                                   .flatMap { (pd, arg) =>
-                                                                    pd.parameterType match {
-                                                                      case ExpressionValue.ParameterReference(name, _) =>
-                                                                        Seq(name -> arg.expressionType)
-                                                                      case _                                           => Seq.empty
-                                                                    }
+                                                                    ExpressionValue.matchTypeVarBindings(
+                                                                      pd.parameterType,
+                                                                      arg.expressionType,
+                                                                      freeTypeVarNames
+                                                                    )
                                                                   }
                                                                   .toMap
                                         // Map each constraint's typeArgs to concrete ExpressionValues

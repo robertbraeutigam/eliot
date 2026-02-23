@@ -70,6 +70,6 @@ object AbilityImplGenerator {
         case ExpressionValue.FunctionType(paramType, returnType) => loop(returnType, acc :+ paramType)
         case _                                                   => (acc, expr)
       }
-    loop(signature, Seq.empty)
+    loop(ExpressionValue.stripUniversalTypeIntros(signature), Seq.empty)
   }
 }
