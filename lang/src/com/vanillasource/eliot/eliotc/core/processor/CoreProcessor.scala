@@ -189,6 +189,7 @@ class CoreProcessor
   private def toBodyExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
     expr.value match {
       case SourceExpression.FunctionApplication(moduleName, fnName, genericArgs, args) =>
+        // TODO: apply generic args!
         curryApplication(
           expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Default)), moduleName)),
           args
