@@ -21,6 +21,8 @@ case class TypeStack[E](levels: NonEmptySeq[E]) {
 object TypeStack {
   def of[E](expression: E): TypeStack[E] = TypeStack(NonEmptySeq.of(expression))
 
+  def annotated[E](signature: E, kind: E): TypeStack[E] = TypeStack(NonEmptySeq.of(signature, kind))
+
   given [E: Show]: Show[TypeStack[E]] = stack =>
     if (stack.levels.size <= 1) stack.levels.map(_.show).toSeq.mkString
     else s"(${stack.levels.reverse.map(_.show).toSeq.mkString(" :: ")})"

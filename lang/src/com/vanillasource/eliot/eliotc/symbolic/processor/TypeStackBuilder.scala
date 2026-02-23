@@ -125,9 +125,16 @@ object TypeStackBuilder {
       TypedExpression.FunctionLiteral(paramName, typedParamType, bodyStack.as(bodyResult))
     )
 
-  /** Build from a body stack by extracting and processing the signature expression. */
+  /** Build from a body stack. If the stack has a kind annotation (multiple levels), use processStack to derive the
+    * concrete type from the annotation (e.g., for explicit type arguments like f[String]). Otherwise, infer via body
+    * expression.
+    */
   private def inferBodyStack(stack: Sourced[TypeStack[Expression]]): TypeGraphIO[TypedExpression] =
-    inferBody(stack.as(stack.value.signature))
+    if (stack.value.levels.length > 1) {
+      processStack(stack).map { case (_, typedStack) => typedStack.value.signature }
+    } else {
+      inferBody(stack.as(stack.value.signature))
+    }
 
   /** Shared handling for parameter references in both type-level and body-level contexts. */
   private def handleParameterReference(name: Sourced[String]): TypeGraphIO[TypedExpression] =
