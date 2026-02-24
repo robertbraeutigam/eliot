@@ -114,6 +114,46 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("def a: Byte = b(c, 1)").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "accept a space-based function application with 1 argument" in {
+    runEngineForErrors("def a: Byte = b c").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a space-based function application with 2 arguments" in {
+    runEngineForErrors("def a: Byte = b c d").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a space-based function application with 3 arguments" in {
+    runEngineForErrors("def a: Byte = b c d e").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a space-based function application with an integer literal argument" in {
+    runEngineForErrors("def a: Byte = b 1").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a space-based function application with a string literal argument" in {
+    runEngineForErrors("def a: Byte = b \"hello\"").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a space-based function application with mixed identifier and literal arguments" in {
+    runEngineForErrors("def a: Byte = b c 1").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a qualified space-based function application" in {
+    runEngineForErrors("def f: A = eliot.lang.String::println a").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a space-based function application with generic arguments on target" in {
+    runEngineForErrors("def f[C]: A = b[C] a").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a lambda whose body is a space-based function application" in {
+    runEngineForErrors("def f: A = a -> b a").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a space-based function application inside paren arguments" in {
+    runEngineForErrors("def f: A = b(c d)").asserting(_ shouldBe Seq.empty)
+  }
+
   it should "accept one generic type parameter" in {
     runEngineForErrors("def a[A]: A").asserting(_ shouldBe Seq.empty)
   }

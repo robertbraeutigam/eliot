@@ -18,7 +18,8 @@
       "Bash(done)",
       "mcp__ide__getDiagnostics",
       "WebSearch",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(tail:*)"
     ]
   },
   "enabledPlugins": {

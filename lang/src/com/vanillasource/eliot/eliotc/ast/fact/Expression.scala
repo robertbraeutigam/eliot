@@ -36,7 +36,7 @@ object Expression {
 
   given ASTComponent[Expression] = new ASTComponent[Expression] {
     override def parser: Parser[Sourced[Token], Expression] =
-      functionLiteral.atomic() or functionApplication or integerLiteral or stringLiteral
+      functionLiteral.atomic() or namedApplication or integerLiteral or stringLiteral
 
     private val moduleParser: Parser[Sourced[Token], Sourced[String]] =
       for {
@@ -48,12 +48,22 @@ object Expression {
         outline.as(moduleString)
       }
 
-    private val functionApplication: Parser[Sourced[Token], Expression] = for {
+    private val integerLiteral: Parser[Sourced[Token], Expression] = for {
+      lit <- acceptIf(isIntegerLiteral, "integer literal")
+    } yield IntegerLiteral(lit.map(_.content))
+
+    private val stringLiteral: Parser[Sourced[Token], Expression] = for {
+      lit <- acceptIf(isStringLiteral, "string literal")
+    } yield StringLiteral(lit.map(_.content))
+
+    private val simpleRef: Parser[Sourced[Token], Expression] = for {
       module           <- (moduleParser <* symbol("::")).atomic().optional()
       fnName           <- acceptIf(isIdentifier, "function name")
       genericArguments <- optionalBracketedCommaSeparatedItems("[", component[TypeReference], "]")
-      args             <- optionalArgumentListOf(sourced(parser))
-    } yield FunctionApplication(module, fnName.map(_.content), genericArguments, args)
+    } yield FunctionApplication(module, fnName.map(_.content), genericArguments, Seq.empty)
+
+    private val spaceArg: Parser[Sourced[Token], Sourced[Expression]] =
+      sourced(simpleRef or integerLiteral or stringLiteral)
 
     private val functionLiteral: Parser[Sourced[Token], Expression] = for {
       parameters <-
@@ -63,13 +73,15 @@ object Expression {
       body       <- sourced(parser)
     } yield FunctionLiteral(parameters, body)
 
-    private val integerLiteral: Parser[Sourced[Token], Expression] = for {
-      lit <- acceptIf(isIntegerLiteral, "integer literal")
-    } yield IntegerLiteral(lit.map(_.content))
-
-    private val stringLiteral: Parser[Sourced[Token], Expression] = for {
-      lit <- acceptIf(isStringLiteral, "string literal")
-    } yield StringLiteral(lit.map(_.content))
+    private val namedApplication: Parser[Sourced[Token], Expression] = for {
+      module           <- (moduleParser <* symbol("::")).atomic().optional()
+      fnName           <- acceptIf(isIdentifier, "function name")
+      genericArguments <- optionalBracketedCommaSeparatedItems("[", component[TypeReference], "]")
+      args             <- bracketedCommaSeparatedItems("(", sourced(parser), ")").optional().flatMap {
+                            case Some(result) => result.pure
+                            case None         => spaceArg.anyTimes()
+                          }
+    } yield FunctionApplication(module, fnName.map(_.content), genericArguments, args)
 
   }
 }
