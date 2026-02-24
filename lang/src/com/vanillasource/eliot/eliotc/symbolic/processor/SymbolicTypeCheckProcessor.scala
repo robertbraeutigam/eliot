@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.symbolic.processor
 
+import cats.data.NonEmptySeq
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
@@ -32,6 +33,16 @@ class SymbolicTypeCheckProcessor
     extends TransformationProcessor[ResolvedValue.Key, TypeCheckedValue.Key](key => ResolvedValue.Key(key.vfqn))
     with Logging {
 
+  private case class TypeCheckResult(
+      declaredType: ExpressionValue,
+      typedLevels: NonEmptySeq[TypedExpression],
+      typedBody: TypedExpression,
+      constraints: SymbolicUnification,
+      universalVars: Set[String],
+      unificationVars: Set[String],
+      qualifierParams: Seq[ExpressionValue]
+  )
+
   override protected def generateFromKeyAndFact(
       key: TypeCheckedValue.Key,
       resolvedValue: ResolvedValue
@@ -48,10 +59,10 @@ class SymbolicTypeCheckProcessor
     for {
       result <- (for {
                   (declaredType, typedLevels) <-
-                    TypeStackBuilder.processStack(resolvedValue.typeStack).map { case (signatureType, typedStack) =>
+                    TypeExpressionEvaluator.processStackForDeclaration(resolvedValue.typeStack).map { case (signatureType, typedStack) =>
                       (signatureType, typedStack.value.levels)
                     }
-                  bodyResult                  <- TypeStackBuilder.inferBody(body)
+                  bodyResult                  <- BodyTypeInferrer.inferBody(body)
                   // For constraint building, strip universal intros (type params) from declared type
                   // since the body's type won't have them - they're handled via universalVars
                   strippedDeclaredType         = stripUniversalIntros(declaredType)
@@ -62,30 +73,28 @@ class SymbolicTypeCheckProcessor
                                                      "Type mismatch."
                                                    )
                                                  )
-                  resolvedQualifierParams     <- resolveQualifierParams(resolvedValue.name)
+                  qualifierParams             <- resolveQualifierParams(resolvedValue.name)
                   constraints                 <- getConstraints
                   universalVars               <- getUniversalVars
                   unificationVars             <- getUnificationVars
-                } yield (
+                } yield TypeCheckResult(
                   declaredType,
                   typedLevels,
                   bodyResult,
                   constraints,
                   universalVars,
                   unificationVars,
-                  resolvedQualifierParams
+                  qualifierParams
                 ))
                   .runA(TypeCheckState())
 
-      (declaredType, typedLevels, typedBody, constraints, universalVars, unificationVars, qualifierParams) = result
-
-      _                   <- debug[CompilerIO](s"Constraints (of ${resolvedValue.vfqn.show}): ${constraints.show}")
-      solution            <- constraints.solve(universalVars, unificationVars)
+      _                   <- debug[CompilerIO](s"Constraints (of ${resolvedValue.vfqn.show}): ${result.constraints.show}")
+      solution            <- ConstraintSolver.solve(result.constraints, result.universalVars, result.unificationVars)
       _                   <- debug[CompilerIO](s"Solution (of ${resolvedValue.vfqn.show}): ${solution.show}")
-      resolvedTypedLevels  = typedLevels.map(_.transformTypes(solution.substitute))
-      resolvedTypedBody    = typedBody.transformTypes(solution.substitute)
+      resolvedTypedLevels  = result.typedLevels.map(_.transformTypes(solution.substitute))
+      resolvedTypedBody    = result.typedBody.transformTypes(solution.substitute)
       signatureType        = resolvedTypedLevels.head.expressionType
-      resolvedQualifierParams = qualifierParams.map(solution.substitute)
+      resolvedQualifierParams = result.qualifierParams.map(solution.substitute)
       _                   <-
         debug[CompilerIO](
           s"Produced symbolic checked (of ${resolvedValue.vfqn.show}) signature: ${signatureType.show}, body: ${resolvedTypedBody.expression.show}"
@@ -102,8 +111,8 @@ class SymbolicTypeCheckProcessor
   ): CompilerIO[TypeCheckedValue] =
     for {
       result <- (for {
-                  (signatureType, _) <- TypeStackBuilder
-                                          .processStack(resolvedValue.typeStack)
+                  (signatureType, _) <- TypeExpressionEvaluator
+                                          .processStackForDeclaration(resolvedValue.typeStack)
                                           .map { case (signatureType, typedStack) =>
                                             (signatureType, typedStack.value.levels)
                                           }
@@ -124,7 +133,7 @@ class SymbolicTypeCheckProcessor
     name.value.qualifier match {
       case ResolveQualifier.AbilityImplementation(_, params) =>
         params.traverse { param =>
-          TypeStackBuilder.processStack(name.as(TypeStack.of(param))).map(_._1)
+          TypeExpressionEvaluator.processStackForDeclaration(name.as(TypeStack.of(param))).map(_._1)
         }
       case _                                                 => Seq.empty[ExpressionValue].pure[TypeGraphIO]
     }

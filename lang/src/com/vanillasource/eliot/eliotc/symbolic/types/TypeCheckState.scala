@@ -9,12 +9,10 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 
 /** Combined state for type checking, including constraint accumulation.
   *
-  * @param instantiationMode
-  *   When true, type parameters in referenced values become fresh unification vars instead of universal vars. This
-  *   allows type inference at call sites.
-  * @param pendingTypeArgs
-  *   Explicit type arguments to consume (in order) when instantiating type parameters during instantiation mode.
-  *   Consumed one-by-one by `buildUniversalIntro`; any remaining after processing signals too many type args.
+  * @param remainingExplicitTypeArgs
+  *   Counts how many explicit type arguments remain unconsumed during instantiation. Set by BodyTypeInferrer before
+  *   calling TypeExpressionEvaluator.processStackForInstantiation, decremented each time a universal intro consumes an
+  *   explicit arg. After instantiation, BodyTypeInferrer checks this to detect too-many-args errors.
   */
 case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
@@ -22,8 +20,7 @@ case class TypeCheckState(
     universalVars: Set[String] = Set.empty,
     unificationVars: Set[String] = Set.empty,
     constraints: SymbolicUnification = SymbolicUnification.empty,
-    instantiationMode: Boolean = false,
-    pendingTypeArgs: List[ExpressionValue] = List.empty
+    remainingExplicitTypeArgs: Int = 0
 )
 
 object TypeCheckState {
@@ -60,37 +57,15 @@ object TypeCheckState {
   def isUniversalVar(name: String): TypeGraphIO[Boolean] =
     StateT.inspect(_.universalVars.contains(name))
 
-  def withInstantiationMode[T](computation: TypeGraphIO[T]): TypeGraphIO[T] =
-    for {
-      original <- StateT.inspect[CompilerIO, TypeCheckState, Boolean](_.instantiationMode)
-      _        <- StateT.modify[CompilerIO, TypeCheckState](_.copy(instantiationMode = true))
-      result   <- computation
-      _        <- StateT.modify[CompilerIO, TypeCheckState](_.copy(instantiationMode = original))
-    } yield result
+  /** Set the explicit type arg counter before processing an instantiation. */
+  def setExplicitTypeArgCount(n: Int): TypeGraphIO[Unit] =
+    StateT.modify(_.copy(remainingExplicitTypeArgs = n))
 
-  def isInstantiationMode: TypeGraphIO[Boolean] =
-    StateT.inspect(_.instantiationMode)
+  /** Consume one explicit type arg from the counter. Called by buildUniversalIntro when an explicit arg is used. */
+  def decrementExplicitTypeArgCount: TypeGraphIO[Unit] =
+    StateT.modify(s => s.copy(remainingExplicitTypeArgs = s.remainingExplicitTypeArgs - 1))
 
-  /** Run a computation with the given explicit type arguments pending for consumption by `buildUniversalIntro`. Restores
-    * previous pending args on exit.
-    */
-  def withPendingTypeArgs[T](args: Seq[ExpressionValue])(computation: TypeGraphIO[T]): TypeGraphIO[T] =
-    for {
-      original <- StateT.inspect[CompilerIO, TypeCheckState, List[ExpressionValue]](_.pendingTypeArgs)
-      _        <- StateT.modify[CompilerIO, TypeCheckState](_.copy(pendingTypeArgs = args.toList))
-      result   <- computation
-      _        <- StateT.modify[CompilerIO, TypeCheckState](_.copy(pendingTypeArgs = original))
-    } yield result
-
-  /** Consume the next pending type argument, returning None if none remain. */
-  def consumeNextPendingTypeArg: TypeGraphIO[Option[ExpressionValue]] =
-    StateT { state =>
-      state.pendingTypeArgs match {
-        case head :: tail => (state.copy(pendingTypeArgs = tail), Some(head)).pure[CompilerIO]
-        case Nil          => (state, None).pure[CompilerIO]
-      }
-    }
-
-  def getRemainingPendingTypeArgCount: TypeGraphIO[Int] =
-    StateT.inspect(_.pendingTypeArgs.length)
+  /** Read how many explicit type args are still unconsumed after instantiation. */
+  def getExplicitTypeArgCount: TypeGraphIO[Int] =
+    StateT.inspect(_.remainingExplicitTypeArgs)
 }
