@@ -1,25 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mill:*)",
-      "Bash(git:*)",
-      "Bash(java:*)",
-      "Bash(javap:*)",
-      "Bash(jar:*)",
-      "Bash(cat:*)",
-      "Bash(find:*)",
-      "Bash(grep:*)",
-      "Bash(xargs:*)",
-      "Bash(tree:*)",
-      "Bash(tee:*)",
-      "Bash(bc:*)",
-      "Bash(scala-cli:*)",
-      "Bash(timeout:*)",
-      "Bash(done)",
+      "Bash(*)",
       "mcp__ide__getDiagnostics",
-      "WebSearch",
-      "Bash(wc:*)",
-      "Bash(tail:*)"
+      "WebSearch"
     ]
   },
   "enabledPlugins": {
