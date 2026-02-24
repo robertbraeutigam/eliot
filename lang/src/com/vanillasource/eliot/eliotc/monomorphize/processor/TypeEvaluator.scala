@@ -34,7 +34,7 @@ object TypeEvaluator extends Logging {
       source: Sourced[?]
   ): CompilerIO[Value] =
     for {
-      resolvedArgs <- typeArgs.traverse(resolveTypeArgConstructor(_, source))
+      resolvedArgs <- typeArgs.traverse(resolveTypeArgConstructor)
       applied       = resolvedArgs.foldLeft(expr)((e, arg) => FunctionApplication(e, arg))
       _            <- debug[CompilerIO](s"Applied: ${expr.show} to: ${applied.show} ")
       resolved     <- resolveDataTypeRefs(applied, source)
@@ -49,16 +49,12 @@ object TypeEvaluator extends Logging {
     * (like parameterized types IO, List, etc.) are resolved to their NativeFunction constructor, so that applying them
     * as functions works naturally during reduction. Non-constructor types are wrapped as ConcreteValue.
     */
-  private def resolveTypeArgConstructor(arg: Value, source: Sourced[?]): CompilerIO[ExpressionValue] =
+  private def resolveTypeArgConstructor(arg: Value): CompilerIO[ExpressionValue] =
     arg match {
       case Value.Structure(fields, Value.Type) if isDataTypeRef(fields) =>
-        fields("$typeName") match {
-          case Value.Direct(vfqn: ValueFQN, _) =>
-            getFact(NamedEvaluable.Key(vfqn)).map {
-              case Some(evaluable) => evaluable.value
-              case None            => ConcreteValue(arg)
-            }
-          case _                               => ConcreteValue(arg).pure[CompilerIO]
+        getDataTypeVfqn(fields) match {
+          case Some(vfqn) => getFact(NamedEvaluable.Key(vfqn)).map(_.map(_.value).getOrElse(ConcreteValue(arg)))
+          case None       => ConcreteValue(arg).pure[CompilerIO]
         }
       case _                                                           => ConcreteValue(arg).pure[CompilerIO]
     }
@@ -85,18 +81,15 @@ object TypeEvaluator extends Logging {
   private def resolveTargetIfNeeded(target: ExpressionValue, source: Sourced[?]): CompilerIO[ExpressionValue] =
     target match {
       case ConcreteValue(Value.Structure(fields, Value.Type)) if isDataTypeRef(fields) =>
-        fields("$typeName") match {
-          case Value.Direct(vfqn: ValueFQN, _) =>
+        getDataTypeVfqn(fields) match {
+          case Some(vfqn) =>
             getFact(NamedEvaluable.Key(vfqn)).flatMap {
               case Some(value) => value.value.pure[CompilerIO]
               case None        => compilerAbort(source.as(s"Could not resolve type."), Seq(s"Looking for ${vfqn.show}."))
             }
-          case _                               =>
-            target.pure[CompilerIO]
+          case None       => target.pure[CompilerIO]
         }
-      case FunctionApplication(_, _)                                                   =>
-        resolveDataTypeRefs(target, source)
-      case FunctionLiteral(_, _, _)                                                    =>
+      case FunctionApplication(_, _) | FunctionLiteral(_, _, _)                       =>
         resolveDataTypeRefs(target, source)
       case _                                                                           =>
         target.pure[CompilerIO]
@@ -105,6 +98,13 @@ object TypeEvaluator extends Logging {
   /** Check if fields represent a data type reference (only has $typeName, no type parameters). */
   private def isDataTypeRef(fields: Map[String, Value]): Boolean =
     fields.size == 1 && fields.contains("$typeName")
+
+  /** Extract the ValueFQN from a $typeName field, if present and valid. */
+  private def getDataTypeVfqn(fields: Map[String, Value]): Option[ValueFQN] =
+    fields("$typeName") match {
+      case Value.Direct(vfqn: ValueFQN, _) => Some(vfqn)
+      case _                               => None
+    }
 
   /** Extract a Value from the reduced ExpressionValue. */
   private def extractValue(reduced: ExpressionValue, source: Sourced[?]): CompilerIO[Value] =

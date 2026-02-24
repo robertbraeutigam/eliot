@@ -85,9 +85,9 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       case TypedExpression.ValueReference(vfqn)                        =>
         transformValueReference(vfqn, callSiteType, substitution, source)
       case TypedExpression.FunctionApplication(target, arg)            =>
-        transformFunctionApplication(target, arg, substitution, source)
+        transformFunctionApplication(target, arg, substitution)
       case TypedExpression.FunctionLiteral(paramName, paramType, body) =>
-        transformFunctionLiteral(paramName, paramType, body, substitution, source)
+        transformFunctionLiteral(paramName, paramType, body, substitution)
     }
 
   /** Transform a value reference by determining concrete type arguments for the referenced value.
@@ -182,8 +182,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
   private def transformFunctionApplication(
       target: Sourced[TypedExpression],
       arg: Sourced[TypedExpression],
-      substitution: Map[String, Value],
-      source: Sourced[?]
+      substitution: Map[String, Value]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
       transformedTarget <- transformTypedExpression(target, substitution)
@@ -196,8 +195,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       paramName: Sourced[String],
       paramType: Sourced[ExpressionValue],
       body: Sourced[TypedExpression],
-      substitution: Map[String, Value],
-      source: Sourced[?]
+      substitution: Map[String, Value]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
       concreteParamType <- TypeEvaluator.evaluateWithSubstitution(paramType.value, substitution, paramType)
