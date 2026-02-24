@@ -124,11 +124,6 @@ The main building blocks of the language are:
         References to ability values are fully resolved during monomorphization, they are not passed around in
         structures as in some other languages.
 
-## Session Hygiene
-
-- When explicitly asked to create a plan, always write the plan as markdown into the "docs" directory.
-- When a task appears complete (e.g., bug fixed, feature implemented, significant refactoring done), proactively suggest running `/revise-claude-md` to capture learnings from the session.
-
 ## Compiler Change Patterns
 
 - When making a field optional in `resolve.fact.Expression` case classes, update ALL pattern matches across
