@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.symbolic.fact
 
-import cats.Show
+import cats.{Monad, Show}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -35,6 +35,27 @@ case class TypedExpression(
 }
 
 object TypedExpression {
+
+  /** Dispatch over the six expression cases. Each callback receives the raw children (not pre-folded), allowing callers
+    * to control recursion themselves. Use cats.Id as F for pure callers.
+    */
+  def foldExpression[F[_]: Monad, A](
+      onIntLit: Sourced[BigInt] => F[A],
+      onStrLit: Sourced[String] => F[A],
+      onParamRef: Sourced[String] => F[A],
+      onValRef: Sourced[ValueFQN] => F[A],
+      onFunApp: (Sourced[TypedExpression], Sourced[TypedExpression]) => F[A],
+      onFunLit: (Sourced[String], Sourced[ExpressionValue], Sourced[TypedExpression]) => F[A]
+  )(self: Expression): F[A] =
+    self match {
+      case IntegerLiteral(v)                       => onIntLit(v)
+      case StringLiteral(v)                        => onStrLit(v)
+      case ParameterReference(name)                => onParamRef(name)
+      case ValueReference(vfqn)                    => onValRef(vfqn)
+      case FunctionApplication(target, arg)        => onFunApp(target, arg)
+      case FunctionLiteral(paramName, paramType, body) => onFunLit(paramName, paramType, body)
+    }
+
   sealed trait Expression
 
   case class FunctionApplication(target: Sourced[TypedExpression], argument: Sourced[TypedExpression])

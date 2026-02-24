@@ -144,7 +144,7 @@ class AbilityCheckProcessor
   ): Seq[ExpressionValue] = {
     val typeParamNames = ExpressionValue.extractLeadingLambdaParams(declarationSig).map(_._1).toSet
     val pattern        = ExpressionValue.stripUniversalTypeIntros(declarationSig)
-    val bindings       = ExpressionValue.matchTypeVarBindings(pattern, concreteSig, typeParamNames)
+    val bindings       = ExpressionValue.matchTypes(pattern, concreteSig, typeParamNames.contains)
     ExpressionValue
       .extractLeadingLambdaParams(declarationSig)
       .map((name, _) => bindings.getOrElse(name, ExpressionValue.ParameterReference(name, Value.Type)))

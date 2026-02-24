@@ -297,10 +297,10 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                         val paramBindings     = uncurriedValue.parameters
                                                                   .zip(arguments)
                                                                   .flatMap { (pd, arg) =>
-                                                                    ExpressionValue.matchTypeVarBindings(
+                                                                    ExpressionValue.matchTypes(
                                                                       pd.parameterType,
                                                                       arg.expressionType,
-                                                                      freeTypeVarNames
+                                                                      freeTypeVarNames.contains
                                                                     )
                                                                   }
                                                                   .toMap
