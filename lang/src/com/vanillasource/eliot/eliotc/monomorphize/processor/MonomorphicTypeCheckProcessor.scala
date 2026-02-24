@@ -75,20 +75,14 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
-    expr match {
-      case TypedExpression.IntegerLiteral(value)                       =>
-        MonomorphicExpression.IntegerLiteral(value).pure[CompilerIO]
-      case TypedExpression.StringLiteral(value)                        =>
-        MonomorphicExpression.StringLiteral(value).pure[CompilerIO]
-      case TypedExpression.ParameterReference(name)                    =>
-        MonomorphicExpression.ParameterReference(name).pure[CompilerIO]
-      case TypedExpression.ValueReference(vfqn)                        =>
-        transformValueReference(vfqn, callSiteType, substitution, source)
-      case TypedExpression.FunctionApplication(target, arg)            =>
-        transformFunctionApplication(target, arg, substitution)
-      case TypedExpression.FunctionLiteral(paramName, paramType, body) =>
-        transformFunctionLiteral(paramName, paramType, body, substitution)
-    }
+    TypedExpression.foldExpression[CompilerIO, MonomorphicExpression.Expression](
+      value => MonomorphicExpression.IntegerLiteral(value).pure[CompilerIO],
+      value => MonomorphicExpression.StringLiteral(value).pure[CompilerIO],
+      name => MonomorphicExpression.ParameterReference(name).pure[CompilerIO],
+      vfqn => transformValueReference(vfqn, callSiteType, substitution, source),
+      (target, arg) => transformFunctionApplication(target, arg, substitution),
+      (paramName, paramType, body) => transformFunctionLiteral(paramName, paramType, body, substitution)
+    )(expr)
 
   /** Transform a value reference by determining concrete type arguments for the referenced value.
     *
@@ -138,7 +132,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       source: Sourced[?]
   ): CompilerIO[Seq[Value]] = {
     val strippedSignature = stripLeadingLambdas(signature)
-    val bindings          = matchTypes(strippedSignature, callSiteType)
+    val bindings          = ExpressionValue.matchTypes(strippedSignature, callSiteType)
 
     typeParams.traverse { param =>
       bindings.get(param) match {
@@ -154,28 +148,6 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       }
     }
   }
-
-  /** Match a polymorphic type pattern against a concrete (or partially concrete) type to extract bindings for type
-    * parameters.
-    */
-  private def matchTypes(
-      pattern: ExpressionValue,
-      target: ExpressionValue
-  ): Map[String, ExpressionValue] =
-    (pattern, target) match {
-      case (ParameterReference(name, _), _)                                                 =>
-        // Universal type parameter matches the target type
-        Map(name -> target)
-      case (FunctionType(patParam, patRet), FunctionType(tgtParam, tgtRet))                 =>
-        matchTypes(patParam, tgtParam) ++ matchTypes(patRet, tgtRet)
-      case (FunctionApplication(patTarget, patArg), FunctionApplication(tgtTarget, tgtArg)) =>
-        matchTypes(patTarget, tgtTarget) ++ matchTypes(patArg, tgtArg)
-      case (FunctionLiteral(_, _, patBody), FunctionLiteral(_, _, tgtBody))                 =>
-        matchTypes(patBody, tgtBody)
-      case _                                                                                =>
-        // Concrete types or no match
-        Map.empty
-    }
 
   /** Transform a function application.
     */

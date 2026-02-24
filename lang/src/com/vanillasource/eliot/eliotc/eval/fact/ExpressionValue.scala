@@ -12,15 +12,30 @@ sealed trait ExpressionValue
 
 object ExpressionValue {
 
+  /** Generic fold over an ExpressionValue tree. Recurses into children first (bottom-up), then combines with the
+    * provided functions.
+    */
+  def fold[A](
+      onConcrete: Value => A,
+      onNative: Value => A,
+      onParamRef: (String, Value) => A,
+      onFunApp: (A, A) => A,
+      onFunLit: (String, Value, A) => A
+  )(expr: ExpressionValue): A =
+    expr match {
+      case ConcreteValue(v)                       => onConcrete(v)
+      case NativeFunction(paramType, _)           => onNative(paramType)
+      case ParameterReference(name, paramType)    => onParamRef(name, paramType)
+      case FunctionApplication(target, arg)       =>
+        onFunApp(fold(onConcrete, onNative, onParamRef, onFunApp, onFunLit)(target),
+                 fold(onConcrete, onNative, onParamRef, onFunApp, onFunLit)(arg))
+      case FunctionLiteral(name, paramType, body) =>
+        onFunLit(name, paramType, fold(onConcrete, onNative, onParamRef, onFunApp, onFunLit)(body))
+    }
+
   /** Check if an expression contains a variable with the given name. Used for occurs check in unification. */
   def containsVar(expr: ExpressionValue, varName: String): Boolean =
-    expr match {
-      case ParameterReference(name, _)      => name == varName
-      case FunctionApplication(target, arg) => containsVar(target, varName) || containsVar(arg, varName)
-      case FunctionLiteral(_, _, body)      => containsVar(body, varName)
-      case ConcreteValue(_)                 => false
-      case NativeFunction(_, _)             => false
-    }
+    fold(_ => false, _ => false, (name, _) => name == varName, _ || _, (_, _, inBody) => inBody)(expr)
 
   /** Strip all leading FunctionLiteral wrappers, returning the innermost body. */
   @tailrec
@@ -102,20 +117,23 @@ object ExpressionValue {
     }
 
   /** Match a pattern ExpressionValue (with type variable placeholders) against a concrete ExpressionValue, returning a
-    * map from type variable names to their concrete bindings.
+    * map from type variable names to their concrete bindings. Type variable names are ParameterReferences accepted by
+    * the given predicate (default: all).
     */
-  def matchTypeVarBindings(
+  def matchTypes(
       pattern: ExpressionValue,
       concrete: ExpressionValue,
-      typeParamNames: Set[String]
+      isTypeVar: String => Boolean = _ => true
   ): Map[String, ExpressionValue] =
     (pattern, concrete) match {
-      case (ParameterReference(name, _), _) if typeParamNames.contains(name)                          =>
+      case (ParameterReference(name, _), _) if isTypeVar(name)                                        =>
         Map(name -> concrete)
       case (FunctionType(p1, r1), FunctionType(p2, r2))                                               =>
-        matchTypeVarBindings(p1, p2, typeParamNames) ++ matchTypeVarBindings(r1, r2, typeParamNames)
+        matchTypes(p1, p2, isTypeVar) ++ matchTypes(r1, r2, isTypeVar)
       case (FunctionApplication(t1, a1), FunctionApplication(t2, a2))                                 =>
-        matchTypeVarBindings(t1, t2, typeParamNames) ++ matchTypeVarBindings(a1, a2, typeParamNames)
+        matchTypes(t1, t2, isTypeVar) ++ matchTypes(a1, a2, isTypeVar)
+      case (FunctionLiteral(_, _, patBody), FunctionLiteral(_, _, tgtBody))                           =>
+        matchTypes(patBody, tgtBody, isTypeVar)
       case _                                                                                           => Map.empty
     }
 

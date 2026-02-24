@@ -146,7 +146,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
     if (implParams.size != queryArgs.size) false
     else {
       val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, ExpressionValue]) { (acc, pair) =>
-        acc ++ ExpressionValue.matchTypeVarBindings(pair._1, pair._2, freeVarNames)
+        acc ++ ExpressionValue.matchTypes(pair._1, pair._2, freeVarNames.contains)
       }
       implParams.zip(queryArgs).forall { (implParam, queryArg) =>
         freeVarNames.foldLeft(implParam) { case (acc, name) =>
