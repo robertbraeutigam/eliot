@@ -69,7 +69,7 @@ object TypedExpression {
       case FunctionLiteral(name, parameterType, body) =>
         Seq(s"${name.value}: ${parameterType.value.show}", showTyped(body.value)) ++ showLevel1(body.value.expression)
       case FunctionApplication(target, argument)      =>
-        Seq(showTyped(target.value), showTyped(target.value)) ++
+        Seq(showTyped(target.value), showTyped(argument.value)) ++
           showLevel1(target.value.expression) ++ showLevel1(argument.value.expression)
       case _                                          => Seq.empty
     }

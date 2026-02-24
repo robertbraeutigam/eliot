@@ -100,8 +100,8 @@ object TypeStackBuilder {
       arg: Sourced[TypeStack[Expression]]
   ): TypeGraphIO[TypedExpression] =
     for {
-      argTypeVar      <- generateUnificationVar(arg)
-      retTypeVar      <- generateUnificationVar(body)
+      argTypeVar      <- generateUnificationVar
+      retTypeVar      <- generateUnificationVar
       targetResult    <- inferBodyStack(target)
       argResult       <- inferBodyStack(arg)
       expectedFuncType = functionType(argTypeVar, retTypeVar)
@@ -127,7 +127,7 @@ object TypeStackBuilder {
     for {
       typedParamType <- paramType match {
                           case Some(pt) => processStack(pt).map { case (v, _) => pt.as(v) }
-                          case None     => generateUnificationVar(paramName).map(v => paramName.as(v: ExpressionValue))
+                          case None     => generateUnificationVar.map(v => paramName.as(v: ExpressionValue))
                         }
       _              <- bindParameter(paramName.value, typedParamType.value)
       bodyResult     <- inferBodyStack(bodyStack)
@@ -166,7 +166,7 @@ object TypeStackBuilder {
   ): TypeGraphIO[(ExpressionValue, Seq[TypedExpression])] =
     levels match {
       case Nil =>
-        generateUnificationVar(source).map((_, Seq.empty))
+        generateUnificationVar.map((_, Seq.empty))
 
       case head :: Nil =>
         buildExpression(head).map(typeResult => (typeResult.expressionType, Seq(typeResult)))
@@ -263,7 +263,7 @@ object TypeStackBuilder {
                                              consumeNextPendingTypeArg.flatMap {
                                                case Some(explicitType) => bindParameter(paramName.value, explicitType)
                                                case None               =>
-                                                 generateUnificationVar(paramName).flatMap(uniVar =>
+                                                 generateUnificationVar.flatMap(uniVar =>
                                                    bindParameter(paramName.value, uniVar)
                                                  )
                                              }
@@ -315,7 +315,7 @@ object TypeStackBuilder {
     for {
       (targetTypeValue, typedTargetStack) <- processStack(target)
       (argTypeValue, typedArgStack)       <- processStack(arg)
-      resultType                           = applyTypeApplication(targetTypeValue, argTypeValue)
+      resultType                           = FunctionApplication(targetTypeValue, argTypeValue)
     } yield TypedExpression(
       resultType,
       TypedExpression.FunctionApplication(
@@ -323,13 +323,6 @@ object TypeStackBuilder {
         arg.as(typedArgStack.value.signature)
       )
     )
-
-  /** Apply a type constructor to an argument. */
-  private def applyTypeApplication(
-      target: ExpressionValue,
-      arg: ExpressionValue
-  ): ExpressionValue =
-    FunctionApplication(target, arg)
 
   private def extractConcreteValue(
       typeResult: TypedExpression,

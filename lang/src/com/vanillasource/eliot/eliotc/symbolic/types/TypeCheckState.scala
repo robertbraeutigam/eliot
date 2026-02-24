@@ -6,7 +6,6 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
-import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Combined state for type checking, including constraint accumulation.
   *
@@ -30,13 +29,10 @@ case class TypeCheckState(
 object TypeCheckState {
   type TypeGraphIO[T] = StateT[CompilerIO, TypeCheckState, T]
 
-  def generateUnificationVar(source: Sourced[?]): TypeGraphIO[ParameterReference] =
+  def generateUnificationVar: TypeGraphIO[ParameterReference] =
     StateT { state =>
-      val id       = state.shortIds.generateCurrentIdentifier()
-      val newState = state.copy(
-        shortIds = state.shortIds.advanceIdentifierIndex(),
-        unificationVars = state.unificationVars + id
-      )
+      val (id, newShortIds) = state.shortIds.generateNext()
+      val newState          = state.copy(shortIds = newShortIds, unificationVars = state.unificationVars + id)
       (newState, ParameterReference(id, Value.Type)).pure[CompilerIO]
     }
 
