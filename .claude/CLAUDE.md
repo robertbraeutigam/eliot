@@ -19,28 +19,28 @@ Key dependencies: `cats-effect` (IO monad), `parsley-cats` (parser combinators),
 
 ```bash
 # Compile all modules
-mill __.compile
+./mill __.compile
 
 # Run tests for all modules
-mill __.test
+./mill __.test
 
 # Run tests for a specific module
-mill lang.test
-mill jvm.test
-mill eliotc.test
+./mill lang.test
+./mill jvm.test
+./mill eliotc.test
 
 # Filter test output by class name (the -- flag is rejected by ScalaTest)
-mill lang.test 2>&1 | grep -v DEBUG | grep "ClassName"
+./mill lang.test 2>&1 | grep -v DEBUG | grep "ClassName"
 
 # Format code with scalafmt
-mill mill.scalalib.scalafmt.ScalafmtModule/reformatAll __
+./mill mill.scalalib.scalafmt.ScalafmtModule/reformatAll __
 
 # Clean build artifacts
-mill clean
+./mill clean
 
 # Run the compiler and generate and executable JAR file from the HelloWorld example
 # The generate jar file will be under target/HelloWorld.jar
-mill examples.run jvm exe-jar examples/src/ -m HelloWorld
+./mill examples.run jvm exe-jar examples/src/ -m HelloWorld
 
 # To run the generated file, use java
 java -jar target/HelloWorld.jar
