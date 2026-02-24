@@ -7,56 +7,13 @@ import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 
-class TypeEvaluatorTest extends ProcessorTest() {
-  private val intVfqn    = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Default))
-  private val stringVfqn = ValueFQN(testModuleName, QualifiedName("String", Qualifier.Default))
-  private val boolVfqn   = ValueFQN(testModuleName, QualifiedName("Bool", Qualifier.Default))
-  private val intType    = Types.dataType(intVfqn)
-  private val stringType = Types.dataType(stringVfqn)
-  private val boolType   = Types.dataType(boolVfqn)
-
-  private val functionDataTypeVfqn =
-    ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
-
-  private def functionType(paramType: Value, returnType: Value): Value =
-    Value.Structure(
-      Map(
-        "$typeName" -> Value.Direct(functionDataTypeVfqn, Types.fullyQualifiedNameType),
-        "A"         -> paramType,
-        "B"         -> returnType
-      ),
-      Value.Type
-    )
+class TypeEvaluatorTest extends ProcessorTest() with MonomorphizeTestFixtures {
 
   /** Create a NamedEvaluable for a 0-arity data type (just returns ConcreteValue of itself). */
   private def simpleDataTypeEvaluable(vfqn: ValueFQN): NamedEvaluable =
     NamedEvaluable(vfqn, ConcreteValue(Types.dataType(vfqn)))
-
-  /** Create the NamedEvaluable for Function^Type (a curried NativeFunction). */
-  private def functionDataTypeEvaluable: NamedEvaluable =
-    NamedEvaluable(
-      functionDataTypeVfqn,
-      NativeFunction(
-        Value.Type,
-        paramA =>
-          NativeFunction(
-            Value.Type,
-            paramB =>
-              ConcreteValue(
-                Value.Structure(
-                  Map(
-                    "$typeName" -> Value.Direct(functionDataTypeVfqn, Types.fullyQualifiedNameType),
-                    "A"         -> paramA,
-                    "B"         -> paramB
-                  ),
-                  Value.Type
-                )
-              )
-          )
-      )
-    )
 
   "TypeEvaluator" should "evaluate concrete value to type ref" in {
     val expr = ConcreteValue(Types.dataType(intVfqn))

@@ -6,57 +6,16 @@ import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckedValue
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
 
-class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeCheckProcessor()) {
-  private val intVfqn    = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Default))
-  private val stringVfqn = ValueFQN(testModuleName, QualifiedName("String", Qualifier.Default))
-  private val boolVfqn   = ValueFQN(testModuleName, QualifiedName("Bool", Qualifier.Default))
-  private val intType    = Types.dataType(intVfqn)
-  private val stringType = Types.dataType(stringVfqn)
-  private val boolType   = Types.dataType(boolVfqn)
-
-  private val functionDataTypeVfqn =
-    ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
-
-  private def functionType(paramType: Value, returnType: Value): Value =
-    Value.Structure(
-      Map(
-        "$typeName" -> Value.Direct(functionDataTypeVfqn, Types.fullyQualifiedNameType),
-        "A"         -> paramType,
-        "B"         -> returnType
-      ),
-      Value.Type
-    )
-
-  /** Create the NamedEvaluable for Function^Type (a curried NativeFunction). */
-  private def functionDataTypeEvaluable: NamedEvaluable =
-    NamedEvaluable(
-      functionDataTypeVfqn,
-      NativeFunction(
-        Value.Type,
-        paramA =>
-          NativeFunction(
-            Value.Type,
-            paramB =>
-              ConcreteValue(
-                Value.Structure(
-                  Map(
-                    "$typeName" -> Value.Direct(functionDataTypeVfqn, Types.fullyQualifiedNameType),
-                    "A"         -> paramA,
-                    "B"         -> paramB
-                  ),
-                  Value.Type
-                )
-              )
-          )
-      )
-    )
+class MonomorphicTypeCheckProcessorTest
+    extends ProcessorTest(MonomorphicTypeCheckProcessor())
+    with MonomorphizeTestFixtures {
 
   "MonomorphicTypeCheckProcessor" should "monomorphize non-generic value" in {
     // value: Int (no type params, no body)
@@ -109,7 +68,6 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
         result.vfqn shouldBe idVfqn
         result.typeArguments shouldBe Seq(intType)
         result.signature shouldBe functionType(intType, intType)
-        result.runtime.isDefined shouldBe true
         result.runtime.get.value match {
           case MonomorphicExpression.ParameterReference(name) =>
             name.value shouldBe "a"
@@ -455,17 +413,13 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
     runProcessorWithTimeout(MonomorphicValue.Key(fVfqn, Seq.empty), Seq(typeChecked, functionDataTypeEvaluable))
       .asserting { result =>
         result.vfqn shouldBe fVfqn
-        result.runtime.isDefined shouldBe true
         result.runtime.get.value match {
           case MonomorphicExpression.MonomorphicValueReference(name, typeArgs) =>
             name.value shouldBe fVfqn
             typeArgs shouldBe Seq.empty
-
-          case other =>
+          case other                                                            =>
             fail(s"Expected MonomorphicValueReference, got $other")
-
         }
-
       }
   }
 
@@ -507,8 +461,7 @@ class MonomorphicTypeCheckProcessorTest extends ProcessorTest(MonomorphicTypeChe
     )
       .asserting { result =>
         result.vfqn shouldBe fVfqn
-        result.runtime.isDefined shouldBe true
-
+        result.runtime shouldBe defined
       }
   }
 
