@@ -24,7 +24,7 @@ class TokenParser(sourced: Sourced[?]) {
       ),
       SymbolDesc(
         hardKeywords = Set("import", "data", "def", "ability", "implement"),
-        hardOperators = Set("(", ")", "[", "]", "->", "_"),
+        hardOperators = Set("(", ")", "[", "]", "->", "_", "::"),
         caseSensitive = true
       ),
       NumericDesc.plain,
@@ -44,14 +44,14 @@ class TokenParser(sourced: Sourced[?]) {
   lazy val fullParser: Parsley[List[Sourced[Token]]] = lexer.fully(Parsley.many(tokenParser))
 
   private lazy val tokenParser: Parsley[Sourced[Token]] =
-    identifier <|> symbolParser <|> standaloneSymbolParser <|> keyword <|> integerLiteral <|> stringLiteral
+    identifier <|> standaloneSymbolParser <|> symbolParser <|> keyword <|> integerLiteral <|> stringLiteral
 
   private lazy val symbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
     lexer.nonlexeme.names.userDefinedOperator.map(Token.Symbol.apply)
   )
 
   private lazy val standaloneSymbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
-    character.strings("(", ")", "[", "]", "{", "}", ",", "->", "_").map(Token.Symbol.apply)
+    Parsley.atomic(character.strings("(", ")", "[", "]", "{", "}", ",", "->", "_", "::")).map(Token.Symbol.apply)
   ).label("special operator")
 
   private lazy val keyword: Parsley[Sourced[Token.Keyword]] = sourcedLexeme(

@@ -84,6 +84,12 @@ class TokenizerTest extends ProcessorTest(new Tokenizer()) {
     )
   }
 
+  it should "tokenize :: as a standalone symbol separate from surrounding operators" in {
+    runEngineForTokens("Module::+").asserting(
+      _ shouldBe Seq(Identifier("Module"), Token.Symbol("::"), Token.Symbol("+"))
+    )
+  }
+
   private def runEngineForErrors(source: String): IO[Seq[String]] =
     runGenerator(source, SourceTokens.Key(file)).map(_._1.map(_.message))
 
