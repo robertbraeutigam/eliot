@@ -29,6 +29,8 @@ object Expression {
   case class IntegerLiteral(integerLiteral: Sourced[String]) extends Expression
   // String literal
   case class StringLiteral(stringLiteral: Sourced[String])   extends Expression
+  // Flat sequence of expression parts, to be resolved by OperatorResolverProcessor
+  case class FlatExpression(parts: Seq[Sourced[TypeStack[Expression]]]) extends Expression
 
   /** Structural equality means that the expression contains the same building blocks in the same order / structure. No
     * type information is used, i.e. not higher levels of expressions.
@@ -37,15 +39,19 @@ object Expression {
     (x, y) match {
       case (NamedValueReference(n1, q1, _), NamedValueReference(n2, q2, _)) =>
         n1.value == n2.value && q1.map(_.value) == q2.map(_.value)
-      case (FunctionApplication(t1, a1), FunctionApplication(t2, a2))   =>
+      case (FunctionApplication(t1, a1), FunctionApplication(t2, a2))       =>
         structuralEquality.eqv(t1.value.signature, t2.value.signature) &&
         structuralEquality.eqv(a1.value.signature, a2.value.signature)
-      case (FunctionLiteral(p1, pt1, b1), FunctionLiteral(p2, pt2, b2)) =>
+      case (FunctionLiteral(p1, pt1, b1), FunctionLiteral(p2, pt2, b2))     =>
         p1.value == p2.value && // Leave the type here, it does not contribute to structure (?)
         structuralEquality.eqv(b1.value.signature, b2.value.signature)
-      case (IntegerLiteral(i1), IntegerLiteral(i2))                     => i1.value == i2.value
-      case (StringLiteral(s1), StringLiteral(s2))                       => s1.value == s2.value
-      case _                                                            => false
+      case (IntegerLiteral(i1), IntegerLiteral(i2))                         => i1.value == i2.value
+      case (StringLiteral(s1), StringLiteral(s2))                           => s1.value == s2.value
+      case (FlatExpression(p1), FlatExpression(p2))                         =>
+        p1.length == p2.length && (p1 zip p2).forall { case (a, b) =>
+          structuralEquality.eqv(a.value.signature, b.value.signature)
+        }
+      case _                                                                => false
     }
 
   given Show[Expression] = {
@@ -57,5 +63,6 @@ object Expression {
     case NamedValueReference(valueName, qualifier, typeArgs)                           =>
       qualifier.map(q => s"${q.value}::").getOrElse("") + valueName.value +
         (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.show).mkString("[", ", ", "]"))
+    case FlatExpression(parts)                                                         => parts.map(_.value.show).mkString(" ")
   }
 }

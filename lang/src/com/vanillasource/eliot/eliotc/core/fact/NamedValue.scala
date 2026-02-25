@@ -22,7 +22,9 @@ case class NamedValue(
     qualifiedName: Sourced[QualifiedName],
     runtime: Option[Expression],
     typeStack: TypeStack[Expression],
-    paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]] = Map.empty
+    paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]] = Map.empty,
+    fixity: Option[Fixity] = None,
+    precedence: Seq[PrecedenceDeclaration] = Seq.empty
 )
 
 object NamedValue {
