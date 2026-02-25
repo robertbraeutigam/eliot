@@ -21,6 +21,7 @@ object Expression {
   case class FunctionLiteral(parameters: Seq[LambdaParameterDefinition], body: Sourced[Expression]) extends Expression
   case class IntegerLiteral(integerLiteral: Sourced[String])                                        extends Expression
   case class StringLiteral(stringLiteral: Sourced[String])                                          extends Expression
+  case class FlatExpression(parts: Seq[Sourced[Expression]])                                        extends Expression
 
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                                                 => value
@@ -32,11 +33,12 @@ object Expression {
       s"$value(${ns.map(_.value.show).mkString(", ")})"
     case FunctionApplication(None, Sourced(_, _, value), ga, _)                               => value
     case FunctionLiteral(parameters, body)                                                    => parameters.map(_.show).mkString("(", ", ", ")") + " -> " + body.show
+    case FlatExpression(parts)                                                                => parts.map(_.value.show).mkString(" ")
   }
 
   given ASTComponent[Expression] = new ASTComponent[Expression] {
     override def parser: Parser[Sourced[Token], Expression] =
-      functionLiteral.atomic() or namedApplication or integerLiteral or stringLiteral
+      sourced(atom).atLeastOnce().map(FlatExpression(_))
 
     private val moduleParser: Parser[Sourced[Token], Sourced[String]] =
       for {
@@ -56,14 +58,15 @@ object Expression {
       lit <- acceptIf(isStringLiteral, "string literal")
     } yield StringLiteral(lit.map(_.content))
 
-    private val simpleRef: Parser[Sourced[Token], Expression] = for {
-      module           <- (moduleParser <* symbol("::")).atomic().optional()
-      fnName           <- acceptIf(isIdentifier, "function name")
-      genericArguments <- optionalBracketedCommaSeparatedItems("[", component[TypeReference], "]")
-    } yield FunctionApplication(module, fnName.map(_.content), genericArguments, Seq.empty)
+    private val namedRefOrCall: Parser[Sourced[Token], Expression] = for {
+      module   <- (moduleParser <* symbol("::")).atomic().optional()
+      name     <- acceptIf(isIdentifierOrSymbol, "name")
+      typeArgs <- optionalBracketedCommaSeparatedItems("[", component[TypeReference], "]")
+      args     <- bracketedCommaSeparatedItems("(", sourced(parser), ")").optional()
+    } yield FunctionApplication(module, name.map(_.content), typeArgs, args.getOrElse(Seq.empty))
 
-    private val spaceArg: Parser[Sourced[Token], Sourced[Expression]] =
-      sourced(simpleRef or integerLiteral or stringLiteral)
+    private val parenthesizedExpr: Parser[Sourced[Token], Expression] =
+      parser.between(symbol("("), symbol(")"))
 
     private val functionLiteral: Parser[Sourced[Token], Expression] = for {
       parameters <-
@@ -73,15 +76,11 @@ object Expression {
       body       <- sourced(parser)
     } yield FunctionLiteral(parameters, body)
 
-    private val namedApplication: Parser[Sourced[Token], Expression] = for {
-      module           <- (moduleParser <* symbol("::")).atomic().optional()
-      fnName           <- acceptIf(isIdentifier, "function name")
-      genericArguments <- optionalBracketedCommaSeparatedItems("[", component[TypeReference], "]")
-      args             <- bracketedCommaSeparatedItems("(", sourced(parser), ")").optional().flatMap {
-                            case Some(result) => result.pure
-                            case None         => spaceArg.anyTimes()
-                          }
-    } yield FunctionApplication(module, fnName.map(_.content), genericArguments, args)
-
+    private val atom: Parser[Sourced[Token], Expression] =
+      functionLiteral.atomic() or
+        parenthesizedExpr.atomic() or
+        namedRefOrCall or
+        integerLiteral or
+        stringLiteral
   }
 }

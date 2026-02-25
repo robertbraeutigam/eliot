@@ -77,5 +77,7 @@ object Primitives {
 
   def isUserOperator(st: Sourced[Token]): Boolean = isSymbol(st) && !structuralSymbols.contains(st.value.content)
 
+  def isIdentifierOrSymbol(st: Sourced[Token]): Boolean = isIdentifier(st) || isUserOperator(st)
+
   def identifierWith(name: String) = acceptIfAll(isIdentifier, hasContent(name))(s"identifier '$name'")
 }

@@ -98,7 +98,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "reject a function application with empty parameter list" in {
     runEngineForErrors("def a: Byte = b()").asserting(
-      _ shouldBe Seq("Expected function name, integer literal or string literal, but encountered symbol ')'.")
+      _ shouldBe Seq("Expected name, integer literal or string literal, but encountered symbol ')'.")
     )
   }
 
@@ -445,6 +445,22 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   it should "parse no fixity as prefix by default" in {
     runEngineForFunctionFixities("def a: Bool")
       .asserting(_ shouldBe Seq("a" -> Fixity.Prefix))
+  }
+
+  it should "parse flat expression with symbol operator" in {
+    runEngineForErrors("def a: T = b + c").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "parse flat expression with identifier operator" in {
+    runEngineForErrors("def a: T = a or b").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "parse flat expression with parenthesized grouping" in {
+    runEngineForErrors("def a: T = (a + b) * c").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "parse flat expression inside parenthesized call arguments" in {
+    runEngineForErrors("def a: T = f(a + b)").asserting(_ shouldBe Seq.empty)
   }
 
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
