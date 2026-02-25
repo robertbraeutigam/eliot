@@ -13,9 +13,9 @@ import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{fullyQualifiedNameType, functionDataTypeFQN}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.OperatorResolvedValue
 
 /** Processor that provides NamedEvaluable facts for data type constructors (values with Type qualifier).
   *

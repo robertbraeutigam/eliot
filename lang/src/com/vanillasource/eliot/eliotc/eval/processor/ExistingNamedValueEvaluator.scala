@@ -4,9 +4,9 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.NamedEvaluable
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{functionDataTypeFQN, typeFQN}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator.evaluate
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.{CompilerIO, abort}
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 

@@ -10,7 +10,8 @@ import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.fullyQualifiedNameType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 
 class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   private val typeVfqn      = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), QualifiedName("Type", Qualifier.Default))

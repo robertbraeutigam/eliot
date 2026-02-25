@@ -19,12 +19,13 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleValueProcessor
 }
 import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
+import com.vanillasource.eliot.eliotc.operator.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.pathKey
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
-import com.vanillasource.eliot.eliotc.resolve.processor.{OperatorResolverProcessor, ValueResolver}
+import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.file.FileContentReader
 import com.vanillasource.eliot.eliotc.source.resource.ResourceContentReader

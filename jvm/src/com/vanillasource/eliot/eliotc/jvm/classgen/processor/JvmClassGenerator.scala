@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.{AbilityImplGenerator, AbilityInterfaceGenerator}
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression as ResolveExpression, OperatorResolvedValue, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression as ResolveExpression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier as SymbolicQualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
@@ -19,6 +19,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedMod
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced

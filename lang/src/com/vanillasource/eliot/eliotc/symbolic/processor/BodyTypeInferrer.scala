@@ -8,8 +8,9 @@ import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression as Expr
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError

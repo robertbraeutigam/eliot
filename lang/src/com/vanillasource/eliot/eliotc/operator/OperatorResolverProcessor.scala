@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.resolve.processor
+package com.vanillasource.eliot.eliotc.operator
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
@@ -6,9 +6,10 @@ import com.vanillasource.eliot.eliotc.ast.fact.Fixity.Associativity
 import com.vanillasource.eliot.eliotc.ast.fact.PrecedenceDeclaration.Relation
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, OperatorResolvedValue, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 

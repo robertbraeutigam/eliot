@@ -1,16 +1,17 @@
-package com.vanillasource.eliot.eliotc.resolve
+package com.vanillasource.eliot.eliotc.operator
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, ModuleName as ModuleName2}
 import com.vanillasource.eliot.eliotc.module.processor.*
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, OperatorResolvedValue}
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
-import com.vanillasource.eliot.eliotc.resolve.processor.{OperatorResolverProcessor, ValueResolver}
+import com.vanillasource.eliot.eliotc.operator.{OperatorResolvedValue, OperatorResolverProcessor}
 import com.vanillasource.eliot.eliotc.resolve.ExpressionMatchers.*
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression
+import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
+import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
