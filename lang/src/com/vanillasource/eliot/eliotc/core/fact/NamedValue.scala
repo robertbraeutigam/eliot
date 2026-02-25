@@ -23,7 +23,7 @@ case class NamedValue(
     runtime: Option[Expression],
     typeStack: TypeStack[Expression],
     paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]] = Map.empty,
-    fixity: Option[Fixity] = None,
+    fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty
 )
 
