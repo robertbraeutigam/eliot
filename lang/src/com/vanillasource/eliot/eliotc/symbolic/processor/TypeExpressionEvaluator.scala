@@ -3,12 +3,10 @@ package com.vanillasource.eliot.eliotc.symbolic.processor
 import cats.data.{NonEmptySeq, StateT}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{functionDataTypeFQN, typeFQN}
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression as Expr
 import com.vanillasource.eliot.eliotc.source.content.Sourced
