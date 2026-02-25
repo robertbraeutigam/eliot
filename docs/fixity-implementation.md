@@ -8,14 +8,14 @@ ELIOT currently has no operator precedence or fixity system. All functions use p
 
 ## Defaults and Built-in Rules
 
-- **Default fixity**: None (regular function, callable only via prefix `f a b` or parenthesized `f(a, b)`)
+- **Default fixity**: `Application` (regular function, callable via prefix `f a b` or parenthesized `f(a, b)`)
 - **Default associativity**: `left` (when `infix` is declared without `left`/`right`/`none`)
 - **Built-in precedence hierarchy** (strongest first): `postfix` > `prefix` > `infix` — no `above`/`below` needed to mix fixity types
 
 ## Syntax Examples
 
 ```eliot
-def +(a: Int, b: Int): Int                          // symbol name, no fixity
+def +(a: Int, b: Int): Int                          // symbol name, default application fixity
 prefix def !(a: Bool): Bool                         // explicit prefix (enables operator syntax)
 infix left def +(a: Int, b: Int): Int               // infix left-associative
 infix def or(a: Bool, b: Bool): Bool                // identifier infix, default left-assoc
@@ -67,6 +67,7 @@ The **OperatorResolverProcessor** (new, dedicated) resolves flat expressions by:
 ```scala
 sealed trait Fixity
 object Fixity {
+  case object Application extends Fixity
   case object Prefix extends Fixity
   case class Infix(associativity: Associativity) extends Fixity
   case object Postfix extends Fixity
@@ -100,7 +101,7 @@ Add `isUserOperator` (symbols excluding structural: `( ) [ ] { } , -> _ :: : ~ &
 
 **File**: `lang/src/.../ast/fact/FunctionDefinition.scala`
 
-1. Add `fixity: Option[Fixity]` and `precedence: Seq[PrecedenceDeclaration]` fields
+1. Add `fixity: Fixity` (default `Fixity.Application`) and `precedence: Seq[PrecedenceDeclaration]` fields
 2. Parse optional fixity before `def`, wrapped in `.atomic()`:
    - `prefix | infix [left|right|none] | postfix` (identifiers matched by content, not keywords)
    - Then `above|below|at name|(name, name, ...)` zero or more times
@@ -153,7 +154,7 @@ Key behaviors:
 **New files**: `core/fact/Fixity.scala`, `core/fact/PrecedenceDeclaration.scala` — mirror AST types
 
 **File**: `lang/src/.../core/fact/NamedValue.scala`
-- Add `fixity: Option[Fixity]`, `precedence: Seq[PrecedenceDeclaration]`
+- Add `fixity: Fixity`, `precedence: Seq[PrecedenceDeclaration]`
 
 **File**: `lang/src/.../core/fact/Expression.scala`
 - Add `FlatExpression(parts: Seq[Sourced[TypeStack[Expression]]])` case
@@ -171,7 +172,7 @@ Key behaviors:
 **New files**: `resolve/fact/Fixity.scala`, `resolve/fact/PrecedenceDeclaration.scala` (uses `ValueFQN` for targets)
 
 **File**: `lang/src/.../resolve/fact/ResolvedValue.scala`
-- Add `fixity: Option[Fixity]`, `precedence: Seq[ResolvedPrecedenceDeclaration]`
+- Add `fixity: Fixity`, `precedence: Seq[ResolvedPrecedenceDeclaration]`
 
 **File**: `lang/src/.../resolve/processor/ValueResolver.scala`
 - Pass through `FlatExpression`: resolve each part's sub-expressions but keep flat structure
@@ -204,7 +205,7 @@ class OperatorResolverProcessor
      - Atom with `infix` fixity → InfixOp, switch to ExpectingOperand
      - Atom with `postfix` fixity → PostfixOp, stay in ExpectingOperatorOrMore
      - Atom with `prefix` fixity → close operand group, PrefixOp, switch to ExpectingOperand
-     - Atom with no fixity → accumulate into current operand group
+     - Atom with `application` fixity → accumulate into current operand group
 
 3. **Group consecutive operands** into function applications (curried): `[f, a, b]` → `f(a)(b)`
 
@@ -275,7 +276,6 @@ No changes needed to: monomorphize, implementation, used, uncurry, JVM. These co
 ## Known Limitations (v1)
 
 1. **Same name can't have both prefix and infix fixity**: Use different names.
-2. **No fixity = only prefix/parenthesized call**: Must declare fixity to use as operator.
 
 ## Verification
 
