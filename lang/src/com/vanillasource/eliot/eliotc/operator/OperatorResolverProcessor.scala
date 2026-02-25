@@ -13,7 +13,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
-import scala.collection.mutable
+import scala.annotation.tailrec
 
 class OperatorResolverProcessor
     extends TransformationProcessor[ResolvedValue.Key, OperatorResolvedValue.Key](key => ResolvedValue.Key(key.vfqn)) {
@@ -87,52 +87,42 @@ class OperatorResolverProcessor
       extends Token
   private case class Operand(part: Sourced[TypeStack[Expression]])   extends Token
 
-  private def classifyTokens(parts: Seq[AnnotatedPart]): Seq[Token] = {
-    var expectingOperand = true
-    val tokens           = Seq.newBuilder[Token]
-    val operandGroup     = Seq.newBuilder[Sourced[TypeStack[Expression]]]
-    var hasOperandGroup  = false
+  private case class ClassifyState(
+      tokens: Vector[Token],
+      operandGroup: Vector[Sourced[TypeStack[Expression]]],
+      expectingOperand: Boolean
+  ) {
+    def flushGroup: ClassifyState =
+      if (operandGroup.isEmpty) this
+      else copy(tokens = tokens :+ Operand(curriedApplication(operandGroup)), operandGroup = Vector.empty)
 
-    def flushOperandGroup(): Unit =
-      if (hasOperandGroup) {
-        tokens += Operand(curriedApplication(operandGroup.result()))
-        operandGroup.clear()
-        hasOperandGroup = false
-      }
-
-    for (ap <- parts) {
-      if (expectingOperand) {
-        ap.fixity match {
-          case Fixity.Prefix =>
-            flushOperandGroup()
-            tokens += PrefixOp(ap.part)
-          case _             =>
-            operandGroup += ap.part
-            hasOperandGroup = true
-            expectingOperand = false
-        }
-      } else {
-        ap.fixity match {
-          case Fixity.Infix(assoc) =>
-            flushOperandGroup()
-            tokens += InfixOp(ap.part, assoc, ap.vfqn.get)
-            expectingOperand = true
-          case Fixity.Postfix      =>
-            flushOperandGroup()
-            tokens += PostfixOp(ap.part)
-          case Fixity.Prefix       =>
-            flushOperandGroup()
-            tokens += PrefixOp(ap.part)
-            expectingOperand = true
-          case Fixity.Application  =>
-            operandGroup += ap.part
-            hasOperandGroup = true
-        }
-      }
+    def addToken(token: Token, nowExpecting: Boolean): ClassifyState = {
+      val flushed = flushGroup
+      flushed.copy(tokens = flushed.tokens :+ token, expectingOperand = nowExpecting)
     }
-    flushOperandGroup()
-    tokens.result()
+
+    def addOperand(part: Sourced[TypeStack[Expression]], nowExpecting: Boolean): ClassifyState =
+      copy(operandGroup = operandGroup :+ part, expectingOperand = nowExpecting)
   }
+
+  private def classifyTokens(parts: Seq[AnnotatedPart]): Seq[Token] =
+    parts
+      .foldLeft(ClassifyState(Vector.empty, Vector.empty, expectingOperand = true)) { (state, ap) =>
+        if (state.expectingOperand)
+          ap.fixity match {
+            case Fixity.Prefix => state.addToken(PrefixOp(ap.part), nowExpecting = true)
+            case _             => state.addOperand(ap.part, nowExpecting = false)
+          }
+        else
+          ap.fixity match {
+            case Fixity.Infix(assoc) => state.addToken(InfixOp(ap.part, assoc, ap.vfqn.get), nowExpecting = true)
+            case Fixity.Postfix      => state.addToken(PostfixOp(ap.part), nowExpecting = false)
+            case Fixity.Prefix       => state.addToken(PrefixOp(ap.part), nowExpecting = true)
+            case Fixity.Application  => state.addOperand(ap.part, nowExpecting = false)
+          }
+      }
+      .flushGroup
+      .tokens
 
   private def curriedApplication(parts: Seq[Sourced[TypeStack[Expression]]]): Sourced[TypeStack[Expression]] =
     parts.reduceLeft { (acc, arg) =>
@@ -190,21 +180,24 @@ class OperatorResolverProcessor
 
     private def isHigher(a: ValueFQN, b: ValueFQN): Boolean = {
       val bTargets = sameAs.getOrElse(b, Set.empty) + b
-      val visited  = mutable.Set.empty[ValueFQN]
-      val queue    = mutable.Queue.from(sameAs.getOrElse(a, Set.empty) + a)
 
-      while (queue.nonEmpty) {
-        val current = queue.dequeue()
-        if (visited.add(current)) {
-          val lower = higherThan.getOrElse(current, Set.empty)
-          if (lower.exists(bTargets.contains)) return true
-          (lower -- visited).foreach { l =>
-            queue.enqueue(l)
-            queue.enqueueAll(sameAs.getOrElse(l, Set.empty) -- visited)
-          }
+      @tailrec
+      def bfs(queue: List[ValueFQN], visited: Set[ValueFQN]): Boolean =
+        queue match {
+          case Nil             => false
+          case current :: rest =>
+            if (visited.contains(current)) bfs(rest, visited)
+            else {
+              val lower = higherThan.getOrElse(current, Set.empty)
+              if (lower.exists(bTargets.contains)) true
+              else {
+                val newNodes = (lower ++ lower.flatMap(l => sameAs.getOrElse(l, Set.empty))) -- visited - current
+                bfs(rest ++ newNodes, visited + current)
+              }
+            }
         }
-      }
-      false
+
+      bfs((sameAs.getOrElse(a, Set.empty) + a).toList, Set.empty)
     }
   }
 
@@ -286,24 +279,18 @@ class OperatorResolverProcessor
     }
 
   private def pickSplitByAssociativity(operators: Seq[InfixOp], sameLevelIndices: Seq[Int]): CompilerIO[Int] =
-    if (sameLevelIndices.length == 1) {
-      sameLevelIndices.head.pure[CompilerIO]
-    } else {
-      val associativities = sameLevelIndices.map(i => operators(i).associativity).distinct
-      if (associativities.length > 1) {
+    sameLevelIndices.map(i => operators(i).associativity).distinct match {
+      case Seq(Associativity.Left)  => sameLevelIndices.last.pure[CompilerIO]
+      case Seq(Associativity.Right) => sameLevelIndices.head.pure[CompilerIO]
+      case Seq(Associativity.None) if sameLevelIndices.length == 1 => sameLevelIndices.head.pure[CompilerIO]
+      case Seq(Associativity.None)  =>
+        compilerAbort(
+          operators(sameLevelIndices.head).part.as(
+            s"Non-associative operator '${operators(sameLevelIndices.head).vfqn.name.name}' cannot be chained."
+          )
+        )
+      case _                        =>
         compilerAbort(operators(sameLevelIndices.head).part.as("Operators at same precedence level have different associativity."))
-      } else {
-        associativities.head match {
-          case Associativity.Left  => sameLevelIndices.last.pure[CompilerIO]
-          case Associativity.Right => sameLevelIndices.head.pure[CompilerIO]
-          case Associativity.None  =>
-            compilerAbort(
-              operators(sameLevelIndices.head).part.as(
-                s"Non-associative operator '${operators(sameLevelIndices.head).vfqn.name.name}' cannot be chained."
-              )
-            )
-        }
-      }
     }
 
   private def makeCurriedInfix(
