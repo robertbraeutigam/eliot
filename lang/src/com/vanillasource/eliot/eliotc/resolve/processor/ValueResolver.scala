@@ -3,13 +3,25 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName as CoreQualifiedName, Qualifier as CoreQualifier}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{Fixity as CoreFixity, NamedValue, PrecedenceDeclaration as CorePrecedenceDeclaration, TypeStack, Expression as CoreExpression}
+import com.vanillasource.eliot.eliotc.core.fact.{
+  NamedValue,
+  PrecedenceDeclaration as CorePrecedenceDeclaration,
+  TypeStack,
+  Expression as CoreExpression
+}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression, Fixity, PrecedenceDeclaration, QualifiedName, Qualifier, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{
+  AbilityFQN,
+  Expression,
+  PrecedenceDeclaration,
+  QualifiedName,
+  Qualifier,
+  ResolvedValue
+}
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolverScope.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
@@ -45,7 +57,7 @@ class ValueResolver
       resolvedRuntime,
       resolvedStack,
       resolvedConstraints,
-      convertFixity(namedValue.fixity),
+      namedValue.fixity,
       resolvedPrecedence
     )
 
@@ -200,12 +212,12 @@ class ValueResolver
               .map(resolvedTypeArgs => Expression.ValueReference(outline.as(vfqn), resolvedTypeArgs))
           case None    => compilerAbort(nameSrc.as("Qualified named value not available.")).liftToScoped
         }
-      case FunctionApplication(targetStack, argStack)  =>
+      case FunctionApplication(targetStack, argStack)                =>
         for {
           resolvedTarget <- resolveTypeStack(targetStack, runtime)
           resolvedArg    <- resolveTypeStack(argStack, runtime)
         } yield Expression.FunctionApplication(resolvedTarget, resolvedArg)
-      case FunctionLiteral(paramName, paramType, body) =>
+      case FunctionLiteral(paramName, paramType, body)               =>
         for {
           resolvedParamType <- paramType.traverse(t => resolveTypeStack(paramName.as(t), false))
           resolvedBody      <- withLocalScope {
@@ -215,26 +227,13 @@ class ValueResolver
                                  } yield body
                                }
         } yield Expression.FunctionLiteral(paramName, resolvedParamType, resolvedBody)
-      case IntegerLiteral(s @ Sourced(_, _, value))    =>
+      case IntegerLiteral(s @ Sourced(_, _, value))                  =>
         Expression.IntegerLiteral(s.as(BigInt(value))).pure[ScopedIO]
-      case StringLiteral(s @ Sourced(_, _, value))     =>
+      case StringLiteral(s @ Sourced(_, _, value))                   =>
         Expression.StringLiteral(s.as(value)).pure[ScopedIO]
-      case FlatExpression(parts)                       =>
+      case FlatExpression(parts)                                     =>
         parts.traverse(part => resolveTypeStack(part, runtime)).map(Expression.FlatExpression(_))
     }
-
-  private def convertFixity(fixity: CoreFixity): Fixity = fixity match {
-    case CoreFixity.Application    => Fixity.Application
-    case CoreFixity.Prefix         => Fixity.Prefix
-    case CoreFixity.Infix(assoc)   => Fixity.Infix(convertAssociativity(assoc))
-    case CoreFixity.Postfix        => Fixity.Postfix
-  }
-
-  private def convertAssociativity(assoc: CoreFixity.Associativity): Fixity.Associativity = assoc match {
-    case CoreFixity.Associativity.Left  => Fixity.Associativity.Left
-    case CoreFixity.Associativity.Right => Fixity.Associativity.Right
-    case CoreFixity.Associativity.None  => Fixity.Associativity.None
-  }
 
   private def resolvePrecedenceDeclarations(
       decls: Seq[CorePrecedenceDeclaration]
@@ -251,12 +250,5 @@ class ValueResolver
           case None       => compilerAbort(target.as("Precedence target name not defined.")).liftToScoped
         }
       )
-      .map(resolvedTargets => PrecedenceDeclaration(convertRelation(decl.relation), resolvedTargets))
-
-  private def convertRelation(rel: CorePrecedenceDeclaration.Relation): PrecedenceDeclaration.Relation =
-    rel match {
-      case CorePrecedenceDeclaration.Relation.Above => PrecedenceDeclaration.Relation.Above
-      case CorePrecedenceDeclaration.Relation.Below => PrecedenceDeclaration.Relation.Below
-      case CorePrecedenceDeclaration.Relation.At    => PrecedenceDeclaration.Relation.At
-    }
+      .map(resolvedTargets => PrecedenceDeclaration(decl.relation, resolvedTargets))
 }

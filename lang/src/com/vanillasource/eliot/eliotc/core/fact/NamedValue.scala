@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.core.fact
 
 import cats.{Eq, Show}
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.core.fact
 import com.vanillasource.eliot.eliotc.core.fact.Expression.structuralEquality
 import com.vanillasource.eliot.eliotc.source.content.Sourced

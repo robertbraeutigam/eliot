@@ -71,7 +71,7 @@ class CoreProcessor
       curriedValue.map(_.value),
       typeStack,
       constraints,
-      convertFixity(function.fixity),
+      function.fixity,
       function.precedence.map(convertPrecedenceDeclaration)
     )
   }
@@ -214,34 +214,14 @@ class CoreProcessor
         expr.as(IntegerLiteral(lit))
       case SourceExpression.StringLiteral(lit)                                         =>
         expr.as(StringLiteral(lit))
-      case SourceExpression.FlatExpression(Seq(single))                               =>
+      case SourceExpression.FlatExpression(Seq(single))                                =>
         toBodyExpression(single)
       case SourceExpression.FlatExpression(parts)                                      =>
         expr.as(FlatExpression(parts.map(p => p.as(TypeStack.of(toBodyExpression(p).value)))))
     }
 
-  private def convertFixity(fixity: AstFixity): Fixity = fixity match {
-    case AstFixity.Application  => Fixity.Application
-    case AstFixity.Prefix       => Fixity.Prefix
-    case AstFixity.Infix(assoc) => Fixity.Infix(convertAssociativity(assoc))
-    case AstFixity.Postfix      => Fixity.Postfix
-  }
-
-  private def convertAssociativity(assoc: AstFixity.Associativity): Fixity.Associativity = assoc match {
-    case AstFixity.Associativity.Left  => Fixity.Associativity.Left
-    case AstFixity.Associativity.Right => Fixity.Associativity.Right
-    case AstFixity.Associativity.None  => Fixity.Associativity.None
-  }
-
   private def convertPrecedenceDeclaration(pd: AstPrecedenceDeclaration): PrecedenceDeclaration =
-    PrecedenceDeclaration(convertPrecedenceRelation(pd.relation), pd.targets)
-
-  private def convertPrecedenceRelation(r: AstPrecedenceDeclaration.Relation): PrecedenceDeclaration.Relation =
-    r match {
-      case AstPrecedenceDeclaration.Relation.Above => PrecedenceDeclaration.Relation.Above
-      case AstPrecedenceDeclaration.Relation.Below => PrecedenceDeclaration.Relation.Below
-      case AstPrecedenceDeclaration.Relation.At    => PrecedenceDeclaration.Relation.At
-    }
+    PrecedenceDeclaration(pd.relation, pd.targets)
 
   /** Curries lambda expressions into core format. In core, lambdas have exactly one argument, so a lambda: (a,b,c) ->
     * body, needs to be converted into: a -> b -> c -> body.

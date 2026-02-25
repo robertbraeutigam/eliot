@@ -4,11 +4,12 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
+import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Fixity, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.resolve.ExpressionMatchers.*
@@ -51,7 +52,7 @@ class ValueResolverTest
     runEngineForValue("data T\ndef b: T\ndef a: T = b").flatMap {
       case Some(ValueReference(Sourced(_, _, vfqn), _)) =>
         IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
-      case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
+      case x                                            => IO.delay(fail(s"was not a value reference, instead: $x"))
     }
   }
 
@@ -85,7 +86,7 @@ class ValueResolverTest
       case Some(FunctionApplication(Sourced(_, _, target), _)) =>
         target.signature match {
           case ValueReference(_, _) => IO.pure(succeed)
-          case _                 => IO.delay(fail(s"target was not a value reference"))
+          case _                    => IO.delay(fail(s"target was not a value reference"))
         }
       case x                                                   =>
         IO.delay(fail(s"was not a function application, instead: $x"))
@@ -96,7 +97,7 @@ class ValueResolverTest
     runEngineForValue("data T\ndef b: T\ndef a: T = Test::b").flatMap {
       case Some(ValueReference(Sourced(_, _, vfqn), _)) =>
         IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
-      case x                                         => IO.delay(fail(s"was not a value reference, instead: $x"))
+      case x                                            => IO.delay(fail(s"was not a value reference, instead: $x"))
     }
   }
 
@@ -141,7 +142,7 @@ class ValueResolverTest
     runEngineForTypeExpression("data SomeType(s: SomeType)\ndef a: SomeType").flatMap {
       case ValueReference(Sourced(_, _, vfqn), _) =>
         IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("SomeType", Qualifier.Type)))
-      case x                                   => IO.delay(fail(s"type was not resolved to value reference, instead: $x"))
+      case x                                      => IO.delay(fail(s"type was not resolved to value reference, instead: $x"))
     }
   }
 
@@ -163,7 +164,7 @@ class ValueResolverTest
   "flat expressions" should "pass through as FlatExpression in resolved value" in {
     runEngineForValue("data T\ndef b: T\ndef c: T\ndef a: T = b c").flatMap {
       case Some(FlatExpression(parts)) => IO.pure(parts.length shouldBe 2)
-      case x                          => IO.delay(fail(s"was not a FlatExpression, instead: $x"))
+      case x                           => IO.delay(fail(s"was not a FlatExpression, instead: $x"))
     }
   }
 
