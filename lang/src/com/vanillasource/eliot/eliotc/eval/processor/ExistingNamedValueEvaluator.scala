@@ -6,12 +6,14 @@ import com.vanillasource.eliot.eliotc.eval.fact.Types.{functionDataTypeFQN, type
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator.evaluate
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.{CompilerIO, abort}
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
+import com.vanillasource.eliot.eliotc.resolve.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 class ExistingNamedValueEvaluator
-    extends TransformationProcessor[ResolvedValue.Key, NamedEvaluable.Key](key => ResolvedValue.Key(key.vfqn)) {
+    extends TransformationProcessor[OperatorResolvedValue.Key, NamedEvaluable.Key](key =>
+      OperatorResolvedValue.Key(key.vfqn)
+    ) {
 
   override protected def generateFact(key: NamedEvaluable.Key): CompilerIO[Unit] =
     if (key.vfqn === typeFQN || key.vfqn === functionDataTypeFQN)

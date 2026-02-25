@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.{AbilityImplGenerator, AbilityInterfaceGenerator}
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression as ResolveExpression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression as ResolveExpression, OperatorResolvedValue, ResolvedValue}
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier as SymbolicQualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
@@ -127,7 +127,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   }
 
   private def computeDictParams(vfqn: ValueFQN, nameSourced: Sourced[?]): CompilerIO[Seq[ParameterDefinition]] =
-    getFact(ResolvedValue.Key(vfqn)).map {
+    getFact(OperatorResolvedValue.Key(vfqn)).map {
       case None               => Seq.empty
       case Some(resolvedValue) =>
         resolvedValue.paramConstraints.toSeq.sortBy(_._1).flatMap { (paramName, constraints) =>
@@ -282,7 +282,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
             for {
               // FIXME: calls with different currying may generate different methods here
               uncurriedMaybe     <- getFact(UncurriedValue.Key(calledVfqn, arguments.length)).liftToTypes
-              resolvedValueMaybe <- getFact(ResolvedValue.Key(calledVfqn)).liftToTypes
+              resolvedValueMaybe <- getFact(OperatorResolvedValue.Key(calledVfqn)).liftToTypes
               resultClasses      <- uncurriedMaybe match
                                       case Some(uncurriedValue) =>
                                         val parameterTypes    = uncurriedValue.parameters.map(p => simpleType(p.parameterType))

@@ -18,7 +18,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeChec
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.resolve.processor.{OperatorResolverProcessor, ValueResolver}
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
@@ -51,6 +51,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       UnifiedModuleNamesProcessor(),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
+      OperatorResolverProcessor(),
       SymbolicTypeCheckProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),

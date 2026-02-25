@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression as Expr
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -61,7 +61,7 @@ object BodyTypeInferrer {
       TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
     } else {
       for {
-        resolved          <- StateT.liftF(getFactOrAbort(ResolvedValue.Key(vfqn.value)))
+        resolved          <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
         evaluatedTypeArgs <- typeArgs.traverse(arg => TypeExpressionEvaluator.evaluateTypeExpression(arg.value).map(_.expressionType))
         _                 <- setExplicitTypeArgCount(evaluatedTypeArgs.length)
         (signatureType, _) <- TypeExpressionEvaluator.processStackForInstantiation(resolved.typeStack, evaluatedTypeArgs)

@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.fullyQualifiedNameType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, OperatorResolvedValue}
 
 class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   private val typeVfqn      = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), QualifiedName("Type", Qualifier.Default))
@@ -141,7 +141,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
       sourced(TypeStack(NonEmptySeq.of(innerLambda))),
       sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn)))))
     )
-    val resolvedValue = ResolvedValue(
+    val resolvedValue = OperatorResolvedValue(
       selfVfqn,
       sourced(toResolve(selfVfqn.name)),
       None,
@@ -169,7 +169,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   /** Creates a ResolvedValue with the given type parameters. Signatures are FunctionLiterals ending in Type (not
     * self-reference), matching what CoreProcessor produces.
     */
-  private def createResolvedValue(vfqn: ValueFQN, typeParams: Seq[String]): ResolvedValue = {
+  private def createResolvedValue(vfqn: ValueFQN, typeParams: Seq[String]): OperatorResolvedValue = {
     // Signature ends in Type (not self-reference)
     val typeExpr = typeParams.foldRight[Expression](Expression.ValueReference(sourced(typeVfqn))) { (param, body) =>
       Expression.FunctionLiteral(
@@ -178,7 +178,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
         sourced(TypeStack(NonEmptySeq.of(body)))
       )
     }
-    ResolvedValue(
+    OperatorResolvedValue(
       vfqn,
       sourced(toResolve(vfqn.name)),
       None,
@@ -188,13 +188,13 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
 
   private def runDataTypeEvaluator(
       vfqn: ValueFQN,
-      resolvedValue: ResolvedValue
+      resolvedValue: OperatorResolvedValue
   ): IO[InitialExpressionValue] =
     runDataTypeEvaluatorWithFacts(vfqn, Seq(resolvedValue))
 
   private def runDataTypeEvaluatorWithFacts(
       vfqn: ValueFQN,
-      resolvedValues: Seq[ResolvedValue]
+      resolvedValues: Seq[OperatorResolvedValue]
   ): IO[InitialExpressionValue] =
     runGeneratorWithFacts(typeEvaluable +: resolvedValues, NamedEvaluable.Key(vfqn)).map {
       case (Some(namedEvaluable), _) => namedEvaluable.value
@@ -206,7 +206,7 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
 
   private def runDataTypeEvaluatorExpectNoneWithFacts(
       vfqn: ValueFQN,
-      resolvedValues: Seq[ResolvedValue]
+      resolvedValues: Seq[OperatorResolvedValue]
   ): IO[Option[NamedEvaluable]] =
     runGeneratorWithFacts(typeEvaluable +: resolvedValues, NamedEvaluable.Key(vfqn)).map(_._1)
 }

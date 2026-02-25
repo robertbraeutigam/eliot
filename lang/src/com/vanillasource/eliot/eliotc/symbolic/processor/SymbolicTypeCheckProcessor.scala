@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.{
   Expression,
-  ResolvedValue,
+  OperatorResolvedValue,
   QualifiedName as ResolveQualifiedName,
   Qualifier as ResolveQualifier
 }
@@ -30,7 +30,9 @@ import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
   * If an ability is called with abstract type parameters, a compiler error is emitted.
   */
 class SymbolicTypeCheckProcessor
-    extends TransformationProcessor[ResolvedValue.Key, TypeCheckedValue.Key](key => ResolvedValue.Key(key.vfqn))
+    extends TransformationProcessor[OperatorResolvedValue.Key, TypeCheckedValue.Key](key =>
+      OperatorResolvedValue.Key(key.vfqn)
+    )
     with Logging {
 
   private case class TypeCheckResult(
@@ -45,7 +47,7 @@ class SymbolicTypeCheckProcessor
 
   override protected def generateFromKeyAndFact(
       key: TypeCheckedValue.Key,
-      resolvedValue: ResolvedValue
+      resolvedValue: OperatorResolvedValue
   ): CompilerIO[TypeCheckedValue] =
     resolvedValue.runtime match {
       case Some(body) => typeCheckWithBody(resolvedValue, body)
@@ -53,7 +55,7 @@ class SymbolicTypeCheckProcessor
     }
 
   private def typeCheckWithBody(
-      resolvedValue: ResolvedValue,
+      resolvedValue: OperatorResolvedValue,
       body: Sourced[Expression]
   ): CompilerIO[TypeCheckedValue] =
     for {
@@ -107,7 +109,7 @@ class SymbolicTypeCheckProcessor
     )
 
   private def typeCheckWithoutBody(
-      resolvedValue: ResolvedValue
+      resolvedValue: OperatorResolvedValue
   ): CompilerIO[TypeCheckedValue] =
     for {
       result <- (for {

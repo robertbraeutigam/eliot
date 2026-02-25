@@ -24,7 +24,7 @@ import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.resolve.processor.{OperatorResolverProcessor, ValueResolver}
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.file.FileContentReader
 import com.vanillasource.eliot.eliotc.source.resource.ResourceContentReader
@@ -73,6 +73,7 @@ class LangPlugin extends CompilerPlugin {
             UnifiedModuleNamesProcessor(),
             UnifiedModuleValueProcessor(),
             ValueResolver(),
+            OperatorResolverProcessor(),
             SymbolicTypeCheckProcessor(),
             AbilityImplementationProcessor(),
             AbilityImplementationCheckProcessor(),
