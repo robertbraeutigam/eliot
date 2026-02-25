@@ -36,7 +36,7 @@ class SymbolicTypeCheckProcessorTest
   it should "not compile if call site has arguments, but definition doesn't" in {
     runEngineForErrors("data A\ndef f: A = b(1)\ndef b: A")
       .asserting(
-        _ shouldBe Seq("Target of function application is not a Function. Possibly too many arguments." at "b(1)\ndef b: A")
+        _ shouldBe Seq("Target of function application is not a Function. Possibly too many arguments." at "b(1)")
       )
   }
 
@@ -48,7 +48,7 @@ class SymbolicTypeCheckProcessorTest
   it should "not compile if call site has no arguments, but definition has one" in {
     runEngineForErrors("data A\ndef f: A = b\ndef b(x: A): A")
       .asserting(
-        _ shouldBe Seq("Type mismatch." at "f")
+        _ shouldBe Seq("Type mismatch." at "b")
       )
   }
 
@@ -64,17 +64,17 @@ class SymbolicTypeCheckProcessorTest
 
   it should "fail only once when a function is used wrong" in {
     runEngineForErrors("data A\ndata B\ndef a: A\ndef f: B = a")
-      .asserting(_ shouldBe Seq("Type mismatch." at "f"))
+      .asserting(_ shouldBe Seq("Type mismatch." at "a"))
   }
 
   it should "fail if parameter is of wrong type" in {
     runEngineForErrors("data A\ndata B\ndef f(b: B): A = b")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "f"))
+      .asserting(_ shouldBe Seq("Return type mismatch." at "b"))
   }
 
   it should "fail if parameter is used as a wrong parameter in another function" in {
     runEngineForErrors("data A\ndata B\ndef a(b: B): A\ndef f(x: A): A = a(x)")
-      .asserting(_ shouldBe Seq("Argument type mismatch." at "x)"))
+      .asserting(_ shouldBe Seq("Argument type mismatch." at "x"))
   }
 
   "generic types" should "type check when returning itself from a parameter" in {
@@ -84,7 +84,7 @@ class SymbolicTypeCheckProcessorTest
 
   it should "type check when returning different, but non-constrained generic" in {
     runEngineForErrors("def f[A, B](a: A, b: B): A = b")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "f"))
+      .asserting(_ shouldBe Seq("Return type mismatch." at "a"))
   }
 
   it should "forward unification to concrete types" in {
@@ -101,14 +101,14 @@ class SymbolicTypeCheckProcessorTest
 
   it should "fail if forward unification to concrete types produces conflict" in {
     runEngineForErrors("def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(i)")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "f"))
+      .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
   }
 
   it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
     runEngineForErrors(
       "def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(id(id(i)))"
     )
-      .asserting(_ shouldBe Seq("Return type mismatch." at "f"))
+      .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
   }
 
   it should "unify on multiple parameters" in {
@@ -122,7 +122,7 @@ class SymbolicTypeCheckProcessorTest
     runEngineForErrors(
       "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndata String\ndata Int\ndef f(i: Int, s: String): String = g(someA, someA, i)"
     )
-      .asserting(_ shouldBe Seq("Return type mismatch." at "f"))
+      .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
   }
 
   "higher kind generic types" should "type check through single generic placeholder" in {
@@ -142,7 +142,7 @@ class SymbolicTypeCheckProcessorTest
     runEngineForErrors(
       "data Foo\ndata Bar\ndef id[A](a: A): A\ndef f(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)"
     )
-      .asserting(_ shouldBe Seq("Parameter type mismatch." at "f", "Return type mismatch." at "f"))
+      .asserting(_ shouldBe Seq("Parameter type mismatch." at "p", "Return type mismatch." at "p"))
   }
 
   it should "type check higher-kinded parameter returning identity" in {
@@ -163,7 +163,7 @@ class SymbolicTypeCheckProcessorTest
     runEngineForErrors(
       "data Int\ndata String\ndef f[F[_]](x: F[Int]): F[String] = x"
     )
-      .asserting(_ shouldBe Seq("Type argument mismatch." at "f"))
+      .asserting(_ shouldBe Seq("Type argument mismatch." at "x"))
   }
 
   it should "type check nested higher-kinded parameter" in {
@@ -241,7 +241,7 @@ class SymbolicTypeCheckProcessorTest
 
   it should "fail when parameter type does not match return type" in {
     runEngineForErrors("data TypeA(fieldA: TypeA)\ndata TypeB(fieldB: TypeB)\ndef f(x: TypeA): TypeB = x")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "f"))
+      .asserting(_ shouldBe Seq("Return type mismatch." at "x"))
   }
 
   "explicit type arguments" should "type check when the explicit arg matches usage" in {
@@ -253,13 +253,13 @@ class SymbolicTypeCheckProcessorTest
   it should "fail when the explicit type arg conflicts with the value argument" in {
     runEngineForErrors(
       "def id[A](a: A): A = a\ndata String\ndata Int\ndef f(s: String): String = id[Int](s)"
-    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s)", "Return type mismatch." at "f"))
+    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s", "Return type mismatch." at "s"))
   }
 
   it should "fail when the explicit type arg conflicts with the declared return type" in {
     runEngineForErrors(
       "def id[A](a: A): A = a\ndata String\ndata Int\ndef i: Int\ndef f(s: String): String = id[Int](i)"
-    ).asserting(_ shouldBe Seq("Return type mismatch." at "f"))
+    ).asserting(_ shouldBe Seq("Return type mismatch." at "s"))
   }
 
   it should "fail with too many type arguments" in {
@@ -277,7 +277,7 @@ class SymbolicTypeCheckProcessorTest
   it should "fail with too few explicit type args that conflict with usage" in {
     runEngineForErrors(
       "def f2[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = f2[Int](s, i)"
-    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s, i)", "Return type mismatch." at "f"))
+    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s", "Return type mismatch." at "s"))
   }
 
   it should "type check with explicit type args and multiple type params" in {
@@ -289,7 +289,7 @@ class SymbolicTypeCheckProcessorTest
   it should "fail when explicit type args are in the wrong order" in {
     runEngineForErrors(
       "def g[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = g[Int, String](s, i)"
-    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s, i)", "Argument type mismatch." at "i)", "Return type mismatch." at "f"))
+    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s", "Argument type mismatch." at "i", "Return type mismatch." at "s"))
   }
 
   it should "type check with an applied generic type as a type argument" in {

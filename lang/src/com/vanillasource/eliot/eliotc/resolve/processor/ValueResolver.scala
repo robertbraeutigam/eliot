@@ -42,7 +42,7 @@ class ValueResolver
 
     val resolveProgram = for {
       resolvedRuntime     <-
-        namedValue.runtime.traverse(expr => resolveExpression(expr, true).map(namedValue.qualifiedName.as))
+        namedValue.runtime.traverse(expr => resolveExpression(expr.value, true).map(expr.as))
       resolvedStack       <- resolveTypeStack(namedValue.qualifiedName.as(namedValue.typeStack), false)
       resolvedName        <- convertQualifiedName(namedValue.qualifiedName)
       resolvedConstraints <- resolveParamConstraints(namedValue.paramConstraints)

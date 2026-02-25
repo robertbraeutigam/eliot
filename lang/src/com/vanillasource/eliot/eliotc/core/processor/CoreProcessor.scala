@@ -68,7 +68,7 @@ class CoreProcessor
       .toMap
     NamedValue(
       convertQualifiedName(function.name),
-      curriedValue.map(_.value),
+      curriedValue,
       typeStack,
       constraints,
       function.fixity,

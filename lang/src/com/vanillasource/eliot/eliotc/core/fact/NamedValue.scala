@@ -21,7 +21,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 case class NamedValue(
     qualifiedName: Sourced[QualifiedName],
-    runtime: Option[Expression],
+    runtime: Option[Sourced[Expression]],
     typeStack: TypeStack[Expression],
     paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]] = Map.empty,
     fixity: Fixity = Fixity.Application,

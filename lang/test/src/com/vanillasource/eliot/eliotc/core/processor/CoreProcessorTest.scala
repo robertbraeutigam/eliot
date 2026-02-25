@@ -349,7 +349,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   case object Empty                                                               extends ExprStructure
 
   extension (nv: NamedValue) {
-    def runtimeStructure: Option[ExprStructure] = nv.runtime.map(_.structure)
+    def runtimeStructure: Option[ExprStructure] = nv.runtime.map(_.value.structure)
   }
 
   extension (stack: TypeStack[Expression]) {

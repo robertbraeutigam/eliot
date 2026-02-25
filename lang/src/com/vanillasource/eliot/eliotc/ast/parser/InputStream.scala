@@ -10,7 +10,7 @@ case class InputStream[I](remainder: Seq[I], pos: Int) {
     InputStream(remainder.drop(dropped), pos + dropped)
   }
 
-  def lastBefore(maxPos: Int): I = remainder.apply(math.min(remainder.length - 1, maxPos - 1))
+  def lastBefore(maxPos: Int): I = remainder.apply(math.min(remainder.length - 1, maxPos - pos - 1))
 }
 
 object InputStream {
