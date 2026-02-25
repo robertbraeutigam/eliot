@@ -5,21 +5,20 @@ import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity.Associativity
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 object TokenClassifier {
-  case class AnnotatedPart(part: Sourced[TypeStack[Expression]], fixity: Fixity, vfqn: Option[ValueFQN])
+  case class AnnotatedPart(part: Sourced[TypeStack[OperatorResolvedExpression]], fixity: Fixity, vfqn: Option[ValueFQN])
 
   sealed trait Token
-  case class PrefixOp(part: Sourced[TypeStack[Expression]])                                            extends Token
-  case class PostfixOp(part: Sourced[TypeStack[Expression]])                                           extends Token
-  case class InfixOp(part: Sourced[TypeStack[Expression]], associativity: Associativity, vfqn: ValueFQN) extends Token
-  case class Operand(part: Sourced[TypeStack[Expression]])                                             extends Token
+  case class PrefixOp(part: Sourced[TypeStack[OperatorResolvedExpression]])                                            extends Token
+  case class PostfixOp(part: Sourced[TypeStack[OperatorResolvedExpression]])                                           extends Token
+  case class InfixOp(part: Sourced[TypeStack[OperatorResolvedExpression]], associativity: Associativity, vfqn: ValueFQN) extends Token
+  case class Operand(part: Sourced[TypeStack[OperatorResolvedExpression]])                                             extends Token
 
   private case class ClassifyState(
       tokens: Vector[Token],
-      operandGroup: Vector[Sourced[TypeStack[Expression]]],
+      operandGroup: Vector[Sourced[TypeStack[OperatorResolvedExpression]]],
       expectingOperand: Boolean
   ) {
     def flushGroup: ClassifyState =
@@ -31,7 +30,7 @@ object TokenClassifier {
       flushed.copy(tokens = flushed.tokens :+ token, expectingOperand = nowExpecting)
     }
 
-    def addOperand(part: Sourced[TypeStack[Expression]], nowExpecting: Boolean): ClassifyState =
+    def addOperand(part: Sourced[TypeStack[OperatorResolvedExpression]], nowExpecting: Boolean): ClassifyState =
       copy(operandGroup = operandGroup :+ part, expectingOperand = nowExpecting)
   }
 
@@ -58,7 +57,7 @@ object TokenClassifier {
     tokens.foldLeft(Vector.empty[Token]) { (acc, token) =>
       (acc.lastOption, token) match {
         case (Some(Operand(operand)), PostfixOp(op)) =>
-          acc.init :+ Operand(outlinedStack(Seq(operand, op), Expression.FunctionApplication(op, operand)))
+          acc.init :+ Operand(outlinedStack(Seq(operand, op), OperatorResolvedExpression.FunctionApplication(op, operand)))
         case _                                       => acc :+ token
       }
     }
@@ -67,19 +66,21 @@ object TokenClassifier {
     tokens.foldRight(List.empty[Token]) { (token, acc) =>
       (token, acc) match {
         case (PrefixOp(op), Operand(operand) :: rest) =>
-          Operand(outlinedStack(Seq(op, operand), Expression.FunctionApplication(op, operand))) :: rest
+          Operand(outlinedStack(Seq(op, operand), OperatorResolvedExpression.FunctionApplication(op, operand))) :: rest
         case _                                        => token :: acc
       }
     }
 
-  def curriedApplication(parts: Seq[Sourced[TypeStack[Expression]]]): Sourced[TypeStack[Expression]] =
+  def curriedApplication(
+      parts: Seq[Sourced[TypeStack[OperatorResolvedExpression]]]
+  ): Sourced[TypeStack[OperatorResolvedExpression]] =
     parts.reduceLeft { (acc, arg) =>
-      outlinedStack(Seq(acc, arg), Expression.FunctionApplication(acc, arg))
+      outlinedStack(Seq(acc, arg), OperatorResolvedExpression.FunctionApplication(acc, arg))
     }
 
   def outlinedStack(
       parts: Seq[Sourced[?]],
-      expr: Expression
-  ): Sourced[TypeStack[Expression]] =
+      expr: OperatorResolvedExpression
+  ): Sourced[TypeStack[OperatorResolvedExpression]] =
     Sourced.outline(parts).as(TypeStack.of(expr))
 }

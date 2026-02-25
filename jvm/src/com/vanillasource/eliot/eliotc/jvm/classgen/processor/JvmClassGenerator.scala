@@ -9,7 +9,8 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.{AbilityImplGenerator, AbilityInterfaceGenerator}
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression as ResolveExpression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier as SymbolicQualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
@@ -309,7 +310,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                         val sortedConstraintExprs = sortedConstraints.flatMap { (_, constraints) =>
                                                                       constraints.map { constraint =>
                                                                         val typeArgExprs = constraint.typeArgs.map {
-                                                                          case ResolveExpression.ParameterReference(nameSrc) =>
+                                                                          case OperatorResolvedExpression.ParameterReference(nameSrc) =>
                                                                             paramBindings.getOrElse(
                                                                               nameSrc.value,
                                                                               ExpressionValue.ParameterReference(nameSrc.value, Value.Type)

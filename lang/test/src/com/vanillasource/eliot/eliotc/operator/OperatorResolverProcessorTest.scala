@@ -8,9 +8,7 @@ import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, ModuleName as ModuleName2}
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.operator.{OperatorResolvedValue, OperatorResolverProcessor}
-import com.vanillasource.eliot.eliotc.resolve.ExpressionMatchers.*
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedExpressionMatchers.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -187,7 +185,7 @@ class OperatorResolverProcessorTest
   private def vfqn(name: String): ValueFQN =
     ValueFQN(testModuleName2, QualifiedName(name, Qualifier.Default))
 
-  private def runEngineForValue(source: String): IO[Option[Expression]] =
+  private def runEngineForValue(source: String): IO[Option[OperatorResolvedExpression]] =
     runGenerator(
       source,
       OperatorResolvedValue.Key(ValueFQN(testModuleName2, QualifiedName("main", Qualifier.Default))),

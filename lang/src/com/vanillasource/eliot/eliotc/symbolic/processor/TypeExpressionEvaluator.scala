@@ -7,8 +7,8 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{functionDataTypeFQN, typeFQN}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression as Expr
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedExpression as Expr
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
@@ -39,7 +39,7 @@ object TypeExpressionEvaluator {
     *   Tuple of (signatureType, typedStack)
     */
   def processStackForDeclaration(
-      stack: Sourced[TypeStack[Expression]]
+      stack: Sourced[TypeStack[OperatorResolvedExpression]]
   ): TypeGraphIO[(ExpressionValue, Sourced[TypeStack[TypedExpression]])] =
     processStack(stack, Declaration)
 
@@ -55,7 +55,7 @@ object TypeExpressionEvaluator {
     *   Tuple of (signatureType, typedStack)
     */
   def processStackForInstantiation(
-      stack: Sourced[TypeStack[Expression]],
+      stack: Sourced[TypeStack[OperatorResolvedExpression]],
       explicitTypeArgs: Seq[ExpressionValue] = Seq.empty
   ): TypeGraphIO[(ExpressionValue, Sourced[TypeStack[TypedExpression]])] =
     processStack(stack, Instantiation(explicitTypeArgs.toList))
@@ -68,7 +68,7 @@ object TypeExpressionEvaluator {
     }
 
   private def processStack(
-      stack: Sourced[TypeStack[Expression]],
+      stack: Sourced[TypeStack[OperatorResolvedExpression]],
       mode: InstantiationMode
   ): TypeGraphIO[(ExpressionValue, Sourced[TypeStack[TypedExpression]])] =
     for {
@@ -89,7 +89,7 @@ object TypeExpressionEvaluator {
     *   Tuple of (signatureType, typedLevels in reverse order)
     */
   private def processLevels(
-      levels: List[Expression],
+      levels: List[OperatorResolvedExpression],
       expectedType: Value,
       source: Sourced[?],
       mode: InstantiationMode
@@ -115,10 +115,10 @@ object TypeExpressionEvaluator {
     *   - Function(Type, Function(Type, Type)) (for type constructors of arity 2)
     *   - etc.
     */
-  private def isKindAnnotation(stack: TypeStack[Expression]): Boolean =
+  private def isKindAnnotation(stack: TypeStack[OperatorResolvedExpression]): Boolean =
     stack.levels.length == 1 && isKindExpression(stack.levels.head)
 
-  private def isKindExpression(expr: Expression): Boolean =
+  private def isKindExpression(expr: OperatorResolvedExpression): Boolean =
     expr match {
       case Expr.ValueReference(vfqn, _)                    =>
         vfqn.value === typeFQN
@@ -134,7 +134,7 @@ object TypeExpressionEvaluator {
       case _                                               => false
     }
 
-  private def isFunctionReference(expr: Expression): Boolean =
+  private def isFunctionReference(expr: OperatorResolvedExpression): Boolean =
     expr match {
       case Expr.ValueReference(vfqn, _) => vfqn.value === functionDataTypeFQN
       case _                            => false
@@ -143,11 +143,11 @@ object TypeExpressionEvaluator {
   /** Evaluate a single type-position expression in declaration context. Used by BodyTypeInferrer for evaluating explicit
     * type arguments.
     */
-  def evaluateTypeExpression(expression: Expression): TypeGraphIO[TypedExpression] =
+  def evaluateTypeExpression(expression: OperatorResolvedExpression): TypeGraphIO[TypedExpression] =
     buildExpression(expression, Declaration)
 
   /** Build a typed expression from a single type expression. */
-  private def buildExpression(expression: Expression, mode: InstantiationMode): TypeGraphIO[TypedExpression] =
+  private def buildExpression(expression: OperatorResolvedExpression, mode: InstantiationMode): TypeGraphIO[TypedExpression] =
     expression match {
       case Expr.FunctionLiteral(paramName, Some(paramType), body) if isKindAnnotation(paramType.value) =>
         buildUniversalIntro(paramName, paramType, body, mode)
@@ -189,8 +189,8 @@ object TypeExpressionEvaluator {
     */
   private def buildUniversalIntro(
       paramName: Sourced[String],
-      paramType: Sourced[TypeStack[Expression]],
-      body: Sourced[TypeStack[Expression]],
+      paramType: Sourced[TypeStack[OperatorResolvedExpression]],
+      body: Sourced[TypeStack[OperatorResolvedExpression]],
       mode: InstantiationMode
   ): TypeGraphIO[TypedExpression] =
     mode match {
@@ -226,8 +226,8 @@ object TypeExpressionEvaluator {
   /** Regular function literal (lambda type): (a: A) -> B becomes FunctionType */
   private def buildFunctionType(
       paramName: Sourced[String],
-      paramType: Sourced[TypeStack[Expression]],
-      body: Sourced[TypeStack[Expression]],
+      paramType: Sourced[TypeStack[OperatorResolvedExpression]],
+      body: Sourced[TypeStack[OperatorResolvedExpression]],
       mode: InstantiationMode
   ): TypeGraphIO[TypedExpression] =
     for {
@@ -253,8 +253,8 @@ object TypeExpressionEvaluator {
 
   /** Function application in type position: A(B) means A parameterized by B */
   private def buildTypeApplication(
-      target: Sourced[TypeStack[Expression]],
-      arg: Sourced[TypeStack[Expression]],
+      target: Sourced[TypeStack[OperatorResolvedExpression]],
+      arg: Sourced[TypeStack[OperatorResolvedExpression]],
       mode: InstantiationMode
   ): TypeGraphIO[TypedExpression] =
     for {

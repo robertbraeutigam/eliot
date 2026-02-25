@@ -6,10 +6,10 @@ import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.operator.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.{CompilerIO, getFact, getFactOrAbort}
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression as ResolveExpression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpression}
@@ -47,7 +47,7 @@ class AbilityCheckProcessor
     */
   private def resolveAbilityRefs(
       typedExpr: TypedExpression,
-      paramConstraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
   ): CompilerIO[TypedExpression] =
     typedExpr.expression match {
       case TypedExpression.FunctionApplication(target, arg) =>
@@ -76,7 +76,7 @@ class AbilityCheckProcessor
 
   private def resolveAbilityRefsInSourced(
       sourced: Sourced[TypedExpression],
-      paramConstraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
   ): CompilerIO[Sourced[TypedExpression]] =
     resolveAbilityRefs(sourced.value, paramConstraints).map(sourced.as)
 
@@ -86,7 +86,7 @@ class AbilityCheckProcessor
   private def resolveAbilityRef(
       vfqn: Sourced[ValueFQN],
       concreteType: ExpressionValue,
-      paramConstraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
   ): CompilerIO[ValueFQN] = {
     val abilityLocalName = vfqn.value.name.qualifier.asInstanceOf[CoreQualifier.Ability].name
     for {
@@ -116,7 +116,7 @@ class AbilityCheckProcessor
   private def isProvedByConstraint(
       vfqn: ValueFQN,
       typeArgExprs: Seq[ExpressionValue],
-      paramConstraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
   ): Boolean = {
     val calledAbilityFQN = AbilityFQN(
       vfqn.moduleName,
@@ -126,7 +126,7 @@ class AbilityCheckProcessor
       c.abilityFQN == calledAbilityFQN &&
       c.typeArgs.length == typeArgExprs.length &&
       c.typeArgs.zip(typeArgExprs).forall {
-        case (ResolveExpression.ParameterReference(nameSrc), ExpressionValue.ParameterReference(evName, _)) =>
+        case (OperatorResolvedExpression.ParameterReference(nameSrc), ExpressionValue.ParameterReference(evName, _)) =>
           nameSrc.value == evName
         case _ => false
       }

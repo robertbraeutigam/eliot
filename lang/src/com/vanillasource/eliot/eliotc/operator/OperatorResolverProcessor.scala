@@ -22,11 +22,11 @@ class OperatorResolverProcessor
       resolvedValue.vfqn,
       resolvedValue.name,
       resolvedRuntime,
-      resolvedValue.typeStack,
-      resolvedValue.paramConstraints
+      convertTypeStack(resolvedValue.typeStack),
+      convertParamConstraints(resolvedValue.paramConstraints)
     )
 
-  private def resolveInExpression(expr: Expression): CompilerIO[Expression] =
+  private def resolveInExpression(expr: Expression): CompilerIO[OperatorResolvedExpression] =
     expr match {
       case Expression.FlatExpression(parts)                       =>
         for {
@@ -37,18 +37,27 @@ class OperatorResolverProcessor
         for {
           resolvedTarget <- resolveInTypeStack(target)
           resolvedArg    <- resolveInTypeStack(arg)
-        } yield Expression.FunctionApplication(resolvedTarget, resolvedArg)
+        } yield OperatorResolvedExpression.FunctionApplication(resolvedTarget, resolvedArg)
       case Expression.FunctionLiteral(paramName, paramType, body) =>
-        resolveInTypeStack(body).map(Expression.FunctionLiteral(paramName, paramType, _))
-      case _                                                      => expr.pure[CompilerIO]
+        resolveInTypeStack(body).map(OperatorResolvedExpression.FunctionLiteral(paramName, paramType.map(convertTypeStack), _))
+      case Expression.IntegerLiteral(v)                           =>
+        OperatorResolvedExpression.IntegerLiteral(v).pure[CompilerIO]
+      case Expression.StringLiteral(v)                            =>
+        OperatorResolvedExpression.StringLiteral(v).pure[CompilerIO]
+      case Expression.ParameterReference(v)                       =>
+        OperatorResolvedExpression.ParameterReference(v).pure[CompilerIO]
+      case Expression.ValueReference(name, typeArgs)              =>
+        OperatorResolvedExpression.ValueReference(name, typeArgs.map(ta => ta.map(OperatorResolvedExpression.fromExpression))).pure[CompilerIO]
     }
 
   private def resolveInTypeStack(
       stack: Sourced[TypeStack[Expression]]
-  ): CompilerIO[Sourced[TypeStack[Expression]]] =
+  ): CompilerIO[Sourced[TypeStack[OperatorResolvedExpression]]] =
     stack.value.levels.traverse(resolveInExpression).map(levels => stack.as(TypeStack(levels)))
 
-  private def resolveFlatExpression(parts: Seq[Sourced[TypeStack[Expression]]]): CompilerIO[Expression] =
+  private def resolveFlatExpression(
+      parts: Seq[Sourced[TypeStack[OperatorResolvedExpression]]]
+  ): CompilerIO[OperatorResolvedExpression] =
     for {
       annotated <- parts.traverse(annotatePart)
       tokens     = TokenClassifier.classifyTokens(annotated)
@@ -57,12 +66,29 @@ class OperatorResolverProcessor
       result    <- InfixPrecedenceResolver.resolve(afterPre)
     } yield result
 
-  private def annotatePart(part: Sourced[TypeStack[Expression]]): CompilerIO[AnnotatedPart] =
+  private def annotatePart(part: Sourced[TypeStack[OperatorResolvedExpression]]): CompilerIO[AnnotatedPart] =
     part.value.signature match {
-      case Expression.ValueReference(vfqnSrc, _) =>
+      case OperatorResolvedExpression.ValueReference(vfqnSrc, _) =>
         for {
           resolved <- getFactOrAbort(ResolvedValue.Key(vfqnSrc.value))
         } yield AnnotatedPart(part, resolved.fixity, Some(vfqnSrc.value))
-      case _                                     => AnnotatedPart(part, Fixity.Application, None).pure[CompilerIO]
+      case _                                                     => AnnotatedPart(part, Fixity.Application, None).pure[CompilerIO]
+    }
+
+  private def convertTypeStack(
+      stack: Sourced[TypeStack[Expression]]
+  ): Sourced[TypeStack[OperatorResolvedExpression]] =
+    stack.map(ts => TypeStack(ts.levels.map(OperatorResolvedExpression.fromExpression)))
+
+  private def convertParamConstraints(
+      constraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]
+  ): Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] =
+    constraints.map { (key, cs) =>
+      key -> cs.map(c =>
+        OperatorResolvedValue.ResolvedAbilityConstraint(
+          c.abilityFQN,
+          c.typeArgs.map(OperatorResolvedExpression.fromExpression)
+        )
+      )
     }
 }

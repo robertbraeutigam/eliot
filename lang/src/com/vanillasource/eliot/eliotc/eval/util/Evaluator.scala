@@ -6,8 +6,8 @@ import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType, typeFQN}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
@@ -23,7 +23,7 @@ object Evaluator {
     *   The evaluated value or abort if evaluation fails.
     */
   def evaluate(
-      expression: Sourced[Expression],
+      expression: Sourced[OperatorResolvedExpression],
       evaluating: Set[ValueFQN] = Set.empty
   ): CompilerIO[InitialExpressionValue] =
     for {
@@ -39,22 +39,22 @@ object Evaluator {
     } yield result
 
   private def toExpressionValue(
-      expression: Expression,
+      expression: OperatorResolvedExpression,
       evaluating: Set[ValueFQN],
       paramContext: Map[String, Value],
       sourced: Sourced[?]
   ): CompilerIO[ExpressionValue] = expression match {
-    case Expression.IntegerLiteral(s)                           =>
+    case OperatorResolvedExpression.IntegerLiteral(s)                           =>
       ConcreteValue(Value.Direct(s.value, bigIntType)).pure[CompilerIO]
-    case Expression.StringLiteral(s)                            =>
+    case OperatorResolvedExpression.StringLiteral(s)                            =>
       ConcreteValue(Value.Direct(s.value, stringType)).pure[CompilerIO]
-    case Expression.ParameterReference(s)                       =>
+    case OperatorResolvedExpression.ParameterReference(s)                       =>
       val name = s.value
       paramContext.get(name) match {
         case Some(paramType) => ParameterReference(name, paramType).pure[CompilerIO]
         case None            => compilerAbort(s.as(s"Unknown parameter: $name"))
       }
-    case Expression.ValueReference(s, _)                        =>
+    case OperatorResolvedExpression.ValueReference(s, _)                        =>
       val vfqn = s.value
       if (evaluating.contains(vfqn)) {
         // Don't allow recursions when evaluating, for now
@@ -66,9 +66,9 @@ object Evaluator {
             compilerAbort(sourced.as("Could not evaluate expression."), Seq(s"Named value '${vfqn.show}' not found."))
         }
       }
-    case Expression.FunctionLiteral(paramName, None, _) =>
+    case OperatorResolvedExpression.FunctionLiteral(paramName, None, _) =>
       compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated."))
-    case Expression.FunctionLiteral(paramName, Some(paramType), body) =>
+    case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramType), body) =>
       for {
         // TODO: Is it ok to ignore the type stack here?
         evaluatedParamTypeFull <- toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType)
@@ -79,7 +79,7 @@ object Evaluator {
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
         evaluatedBody          <- toExpressionValue(body.value.signature, evaluating, newContext, body)
       } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
-    case Expression.FunctionApplication(target, argument)       =>
+    case OperatorResolvedExpression.FunctionApplication(target, argument)       =>
       for {
         // TODO: Is it ok to ignore the type stack here?
         targetValue <- toExpressionValue(target.value.signature, evaluating, paramContext, target)

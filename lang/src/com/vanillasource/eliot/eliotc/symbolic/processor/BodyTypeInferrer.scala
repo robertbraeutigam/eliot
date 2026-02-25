@@ -8,10 +8,10 @@ import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedExpression as Expr
 import com.vanillasource.eliot.eliotc.operator.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression as Expr
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
@@ -26,7 +26,7 @@ import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
 object BodyTypeInferrer {
 
   /** Build constraints from a body expression, inferring types. */
-  def inferBody(body: Sourced[Expression]): TypeGraphIO[TypedExpression] =
+  def inferBody(body: Sourced[OperatorResolvedExpression]): TypeGraphIO[TypedExpression] =
     body.value match {
       case Expr.IntegerLiteral(value)                            =>
         inferLiteral(value, "Number", QualifiedName("Int", Qualifier.Type), TypedExpression.IntegerLiteral(value))
@@ -55,7 +55,7 @@ object BodyTypeInferrer {
 
   private def inferValueReference(
       vfqn: Sourced[ValueFQN],
-      typeArgs: Seq[Sourced[Expression]] = Seq.empty
+      typeArgs: Seq[Sourced[OperatorResolvedExpression]] = Seq.empty
   ): TypeGraphIO[TypedExpression] = {
     if (vfqn.value === typeFQN) {
       val exprValue = ConcreteValue(Types.dataType(vfqn.value))
@@ -75,9 +75,9 @@ object BodyTypeInferrer {
   }
 
   private def inferFunctionApplication(
-      body: Sourced[Expression],
-      target: Sourced[TypeStack[Expression]],
-      arg: Sourced[TypeStack[Expression]]
+      body: Sourced[OperatorResolvedExpression],
+      target: Sourced[TypeStack[OperatorResolvedExpression]],
+      arg: Sourced[TypeStack[OperatorResolvedExpression]]
   ): TypeGraphIO[TypedExpression] =
     for {
       argTypeVar      <- generateUnificationVar
@@ -101,8 +101,8 @@ object BodyTypeInferrer {
 
   private def inferFunctionLiteral(
       paramName: Sourced[String],
-      paramType: Option[Sourced[TypeStack[Expression]]],
-      bodyStack: Sourced[TypeStack[Expression]]
+      paramType: Option[Sourced[TypeStack[OperatorResolvedExpression]]],
+      bodyStack: Sourced[TypeStack[OperatorResolvedExpression]]
   ): TypeGraphIO[TypedExpression] =
     for {
       typedParamType <- paramType match {
@@ -118,6 +118,6 @@ object BodyTypeInferrer {
     )
 
   /** Build from a body stack by extracting and processing the signature expression. */
-  private def inferBodyStack(stack: Sourced[TypeStack[Expression]]): TypeGraphIO[TypedExpression] =
+  private def inferBodyStack(stack: Sourced[TypeStack[OperatorResolvedExpression]]): TypeGraphIO[TypedExpression] =
     inferBody(stack.as(stack.value.signature))
 }

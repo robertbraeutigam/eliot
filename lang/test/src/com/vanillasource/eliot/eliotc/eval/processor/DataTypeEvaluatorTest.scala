@@ -10,8 +10,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.fullyQualifiedNameType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.operator.OperatorResolvedValue
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression
+import com.vanillasource.eliot.eliotc.operator.{OperatorResolvedExpression, OperatorResolvedValue}
 
 class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   private val typeVfqn      = ValueFQN(ModuleName(Seq("eliot", "compile"), "Type"), QualifiedName("Type", Qualifier.Default))
@@ -133,14 +132,14 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
     val selfVfqn = ValueFQN(testModuleName, QualifiedName("Self", Qualifier.Type))
 
     // Build: (a: Type -> a)(Type)
-    val innerLambda   = Expression.FunctionLiteral(
+    val innerLambda   = OperatorResolvedExpression.FunctionLiteral(
       sourced("a"),
-      Some(sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn)))))),
-      sourced(TypeStack(NonEmptySeq.of(Expression.ParameterReference(sourced("a")))))
+      Some(sourced(TypeStack(NonEmptySeq.of(OperatorResolvedExpression.ValueReference(sourced(typeVfqn)))))),
+      sourced(TypeStack(NonEmptySeq.of(OperatorResolvedExpression.ParameterReference(sourced("a")))))
     )
-    val appliedExpr   = Expression.FunctionApplication(
+    val appliedExpr   = OperatorResolvedExpression.FunctionApplication(
       sourced(TypeStack(NonEmptySeq.of(innerLambda))),
-      sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn)))))
+      sourced(TypeStack(NonEmptySeq.of(OperatorResolvedExpression.ValueReference(sourced(typeVfqn)))))
     )
     val resolvedValue = OperatorResolvedValue(
       selfVfqn,
@@ -172,12 +171,13 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
     */
   private def createResolvedValue(vfqn: ValueFQN, typeParams: Seq[String]): OperatorResolvedValue = {
     // Signature ends in Type (not self-reference)
-    val typeExpr = typeParams.foldRight[Expression](Expression.ValueReference(sourced(typeVfqn))) { (param, body) =>
-      Expression.FunctionLiteral(
-        sourced(param),
-        Some(sourced(TypeStack(NonEmptySeq.of(Expression.ValueReference(sourced(typeVfqn)))))),
-        sourced(TypeStack(NonEmptySeq.of(body)))
-      )
+    val typeExpr = typeParams.foldRight[OperatorResolvedExpression](OperatorResolvedExpression.ValueReference(sourced(typeVfqn))) {
+      (param, body) =>
+        OperatorResolvedExpression.FunctionLiteral(
+          sourced(param),
+          Some(sourced(TypeStack(NonEmptySeq.of(OperatorResolvedExpression.ValueReference(sourced(typeVfqn)))))),
+          sourced(TypeStack(NonEmptySeq.of(body)))
+        )
     }
     OperatorResolvedValue(
       vfqn,

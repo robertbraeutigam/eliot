@@ -9,8 +9,8 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.operator.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 
 class EvaluatorTest extends ProcessorTest() {
   // Type facts for use in function parameter types
@@ -243,36 +243,36 @@ class EvaluatorTest extends ProcessorTest() {
     runEvaluatorWithTracking(expr, Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }
 
-  private def intLit(value: BigInt): Expression = Expression.IntegerLiteral(sourced(value))
+  private def intLit(value: BigInt): OperatorResolvedExpression = OperatorResolvedExpression.IntegerLiteral(sourced(value))
 
-  private def strLit(value: String): Expression = Expression.StringLiteral(sourced(value))
+  private def strLit(value: String): OperatorResolvedExpression = OperatorResolvedExpression.StringLiteral(sourced(value))
 
-  private def paramRef(name: String): Expression = Expression.ParameterReference(sourced(name))
+  private def paramRef(name: String): OperatorResolvedExpression = OperatorResolvedExpression.ParameterReference(sourced(name))
 
-  private def valueRef(vfqn: ValueFQN): Expression = Expression.ValueReference(sourced(vfqn))
+  private def valueRef(vfqn: ValueFQN): OperatorResolvedExpression = OperatorResolvedExpression.ValueReference(sourced(vfqn))
 
-  private def funLit(param: String, paramTypeExpr: Expression, body: Expression): Expression =
-    Expression.FunctionLiteral(
+  private def funLit(param: String, paramTypeExpr: OperatorResolvedExpression, body: OperatorResolvedExpression): OperatorResolvedExpression =
+    OperatorResolvedExpression.FunctionLiteral(
       sourced(param),
       Some(sourced(TypeStack(NonEmptySeq.of(paramTypeExpr)))),
       sourced(TypeStack(NonEmptySeq.of(body)))
     )
 
   /** Function literal with BigInt parameter type */
-  private def intFunLit(param: String, body: Expression): Expression =
+  private def intFunLit(param: String, body: OperatorResolvedExpression): OperatorResolvedExpression =
     funLit(param, valueRef(bigIntTypeVfqn), body)
 
-  private def funApp(target: Expression, arg: Expression): Expression =
-    Expression.FunctionApplication(
+  private def funApp(target: OperatorResolvedExpression, arg: OperatorResolvedExpression): OperatorResolvedExpression =
+    OperatorResolvedExpression.FunctionApplication(
       sourced(TypeStack(NonEmptySeq.of(target))),
       sourced(TypeStack(NonEmptySeq.of(arg)))
     )
 
-  private def runEvaluator(expression: Expression): IO[InitialExpressionValue] =
+  private def runEvaluator(expression: OperatorResolvedExpression): IO[InitialExpressionValue] =
     runEvaluatorWithFacts(expression, Seq.empty)
 
   private def runEvaluatorWithFacts(
-      expression: Expression,
+      expression: OperatorResolvedExpression,
       facts: Seq[CompilerFact]
   ): IO[InitialExpressionValue] =
     for {
@@ -283,11 +283,11 @@ class EvaluatorTest extends ProcessorTest() {
       case Left(errors)      => throw new Exception(s"Evaluation failed: ${errors.map(_.message).toList.mkString(", ")}")
     }
 
-  private def runEvaluatorForError(expression: Expression): IO[String] =
+  private def runEvaluatorForError(expression: OperatorResolvedExpression): IO[String] =
     runEvaluatorWithFactsForError(expression, Seq.empty)
 
   private def runEvaluatorWithFactsForError(
-      expression: Expression,
+      expression: OperatorResolvedExpression,
       facts: Seq[CompilerFact]
   ): IO[String] =
     for {
@@ -300,13 +300,13 @@ class EvaluatorTest extends ProcessorTest() {
     }
 
   private def runEvaluatorWithTracking(
-      expression: Expression,
+      expression: OperatorResolvedExpression,
       evaluating: Set[ValueFQN]
   ): IO[Either[String, InitialExpressionValue]] =
     runEvaluatorWithFactsAndTracking(expression, Seq.empty, evaluating)
 
   private def runEvaluatorWithFactsAndTracking(
-      expression: Expression,
+      expression: OperatorResolvedExpression,
       facts: Seq[CompilerFact],
       evaluating: Set[ValueFQN]
   ): IO[Either[String, InitialExpressionValue]] =

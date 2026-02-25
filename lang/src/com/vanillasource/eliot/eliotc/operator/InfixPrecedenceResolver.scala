@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.TokenClassifier.{InfixOp, Operand, Token, outlinedStack}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity.Associativity
@@ -15,7 +15,7 @@ import scala.annotation.tailrec
 
 object InfixPrecedenceResolver {
 
-  def resolve(tokens: Seq[Token]): CompilerIO[Expression] = {
+  def resolve(tokens: Seq[Token]): CompilerIO[OperatorResolvedExpression] = {
     val operands  = tokens.collect { case Operand(p) => p }
     val operators = tokens.collect { case i: InfixOp => i }
 
@@ -94,10 +94,10 @@ object InfixPrecedenceResolver {
   }
 
   private def resolveInfixRecursive(
-      operands: Seq[Sourced[TypeStack[Expression]]],
+      operands: Seq[Sourced[TypeStack[OperatorResolvedExpression]]],
       operators: Seq[InfixOp],
       order: PrecedenceOrder
-  ): CompilerIO[Expression] =
+  ): CompilerIO[OperatorResolvedExpression] =
     if (operators.isEmpty) {
       operands.head.value.signature.pure[CompilerIO]
     } else if (operators.length == 1) {
@@ -156,12 +156,12 @@ object InfixPrecedenceResolver {
     }
 
   private def makeCurriedInfix(
-      op: Sourced[TypeStack[Expression]],
-      left: Sourced[TypeStack[Expression]],
-      right: Sourced[TypeStack[Expression]]
-  ): Expression = {
-    val app1     = Expression.FunctionApplication(op, left)
+      op: Sourced[TypeStack[OperatorResolvedExpression]],
+      left: Sourced[TypeStack[OperatorResolvedExpression]],
+      right: Sourced[TypeStack[OperatorResolvedExpression]]
+  ): OperatorResolvedExpression = {
+    val app1     = OperatorResolvedExpression.FunctionApplication(op, left)
     val combined = outlinedStack(Seq(op, left), app1)
-    Expression.FunctionApplication(combined, right)
+    OperatorResolvedExpression.FunctionApplication(combined, right)
   }
 }
