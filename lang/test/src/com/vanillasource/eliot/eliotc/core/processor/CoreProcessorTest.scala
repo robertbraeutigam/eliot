@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, Expression, TypeStack, NamedValue}
+import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, Expression, Fixity, TypeStack, NamedValue}
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProcessor()) {
@@ -261,6 +261,46 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  "flat expressions" should "pass through as FlatExpression in core" in {
+    namedValue("def f: T = b + c").asserting { nv =>
+      nv.runtimeStructure shouldBe Some(Flat(Seq(Ref("b"), Ref("+"), Ref("c"))))
+    }
+  }
+
+  it should "pass through multi-atom expression" in {
+    namedValue("def f: T = g x y").asserting { nv =>
+      nv.runtimeStructure shouldBe Some(Flat(Seq(Ref("g"), Ref("x"), Ref("y"))))
+    }
+  }
+
+  "fixity" should "be None for plain def" in {
+    namedValue("def f: T = b").asserting(_.fixity shouldBe None)
+  }
+
+  it should "be Some(Prefix) for prefix def" in {
+    namedValue("prefix def !(a: T): T = a", QualifiedName("!", Qualifier.Default)).asserting {
+      _.fixity shouldBe Some(Fixity.Prefix)
+    }
+  }
+
+  it should "be Some(Infix(Left)) for infix left def" in {
+    namedValue("infix left def +(a: T, b: T): T = a", QualifiedName("+", Qualifier.Default)).asserting {
+      _.fixity shouldBe Some(Fixity.Infix(Fixity.Associativity.Left))
+    }
+  }
+
+  it should "be Some(Infix(Left)) for infix def with default associativity" in {
+    namedValue("infix def or(a: T, b: T): T = a", QualifiedName("or", Qualifier.Default)).asserting {
+      _.fixity shouldBe Some(Fixity.Infix(Fixity.Associativity.Left))
+    }
+  }
+
+  it should "be Some(Postfix) for postfix def" in {
+    namedValue("postfix def ++(a: T): T = a", QualifiedName("++", Qualifier.Default)).asserting {
+      _.fixity shouldBe Some(Fixity.Postfix)
+    }
+  }
+
   "complex scenarios" should "handle mixed functions and data" in {
     runEngineForCoreAST("data A\ndef f: A").asserting { ast =>
       ast.namedValues.map(_.qualifiedName.value) should contain allOf (QualifiedName(
@@ -304,6 +344,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   case class Lambda(param: String, paramType: ExprStructure, body: ExprStructure) extends ExprStructure
   case class IntLit(value: String)                                                extends ExprStructure
   case class StrLit(value: String)                                                extends ExprStructure
+  case class Flat(parts: Seq[ExprStructure])                                      extends ExprStructure
   case object Empty                                                               extends ExprStructure
 
   extension (nv: NamedValue) {
@@ -320,11 +361,12 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     def structure: ExprStructure = expr match {
       case NamedValueReference(name, None, _)       => Ref(name.value.name, name.value.qualifier)
       case NamedValueReference(name, Some(qual), _) => QualRef(name.value.name, qual.value)
-      case FunctionApplication(target, arg)        => App(target.value.firstStructure, arg.value.firstStructure)
-      case FunctionLiteral(param, paramType, body) =>
+      case FunctionApplication(target, arg)         => App(target.value.firstStructure, arg.value.firstStructure)
+      case FunctionLiteral(param, paramType, body)  =>
         Lambda(param.value, paramType.map(_.firstStructure).getOrElse(Empty), body.value.firstStructure)
-      case IntegerLiteral(lit)                     => IntLit(lit.value)
-      case StringLiteral(lit)                      => StrLit(lit.value)
+      case IntegerLiteral(lit)                      => IntLit(lit.value)
+      case StringLiteral(lit)                       => StrLit(lit.value)
+      case FlatExpression(parts)                    => Flat(parts.map(_.value.signature.structure))
     }
   }
 

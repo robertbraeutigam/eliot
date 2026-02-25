@@ -9,6 +9,8 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   GenericParameter,
   SourceAST,
   TypeReference,
+  Fixity as AstFixity,
+  PrecedenceDeclaration as AstPrecedenceDeclaration,
   LambdaParameterDefinition as SourceLambdaParameter,
   ArgumentDefinition as SourceArgument,
   Expression as SourceExpression,
@@ -64,7 +66,14 @@ class CoreProcessor
       )
       .filter(_._2.nonEmpty)
       .toMap
-    NamedValue(convertQualifiedName(function.name), curriedValue.map(_.value), typeStack, constraints)
+    NamedValue(
+      convertQualifiedName(function.name),
+      curriedValue.map(_.value),
+      typeStack,
+      constraints,
+      function.fixity.map(convertFixity),
+      function.precedence.map(convertPrecedenceDeclaration)
+    )
   }
 
   private def convertQualifiedName(name: Sourced[AstQualifiedName]): Sourced[QualifiedName] =
@@ -205,6 +214,32 @@ class CoreProcessor
         expr.as(IntegerLiteral(lit))
       case SourceExpression.StringLiteral(lit)                                         =>
         expr.as(StringLiteral(lit))
+      case SourceExpression.FlatExpression(Seq(single))                               =>
+        toBodyExpression(single)
+      case SourceExpression.FlatExpression(parts)                                      =>
+        expr.as(FlatExpression(parts.map(p => p.as(TypeStack.of(toBodyExpression(p).value)))))
+    }
+
+  private def convertFixity(fixity: AstFixity): Fixity = fixity match {
+    case AstFixity.Prefix       => Fixity.Prefix
+    case AstFixity.Infix(assoc) => Fixity.Infix(convertAssociativity(assoc))
+    case AstFixity.Postfix      => Fixity.Postfix
+  }
+
+  private def convertAssociativity(assoc: AstFixity.Associativity): Fixity.Associativity = assoc match {
+    case AstFixity.Associativity.Left  => Fixity.Associativity.Left
+    case AstFixity.Associativity.Right => Fixity.Associativity.Right
+    case AstFixity.Associativity.None  => Fixity.Associativity.None
+  }
+
+  private def convertPrecedenceDeclaration(pd: AstPrecedenceDeclaration): PrecedenceDeclaration =
+    PrecedenceDeclaration(convertPrecedenceRelation(pd.relation), pd.targets)
+
+  private def convertPrecedenceRelation(r: AstPrecedenceDeclaration.Relation): PrecedenceDeclaration.Relation =
+    r match {
+      case AstPrecedenceDeclaration.Relation.Above => PrecedenceDeclaration.Relation.Above
+      case AstPrecedenceDeclaration.Relation.Below => PrecedenceDeclaration.Relation.Below
+      case AstPrecedenceDeclaration.Relation.At    => PrecedenceDeclaration.Relation.At
     }
 
   /** Curries lambda expressions into core format. In core, lambdas have exactly one argument, so a lambda: (a,b,c) ->
