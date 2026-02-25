@@ -71,7 +71,7 @@ class CoreProcessor
       curriedValue.map(_.value),
       typeStack,
       constraints,
-      function.fixity.map(convertFixity),
+      convertFixity(function.fixity),
       function.precedence.map(convertPrecedenceDeclaration)
     )
   }
@@ -221,6 +221,7 @@ class CoreProcessor
     }
 
   private def convertFixity(fixity: AstFixity): Fixity = fixity match {
+    case AstFixity.Application  => Fixity.Application
     case AstFixity.Prefix       => Fixity.Prefix
     case AstFixity.Infix(assoc) => Fixity.Infix(convertAssociativity(assoc))
     case AstFixity.Postfix      => Fixity.Postfix

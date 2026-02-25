@@ -273,31 +273,31 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  "fixity" should "be None for plain def" in {
-    namedValue("def f: T = b").asserting(_.fixity shouldBe None)
+  "fixity" should "be Application for plain def" in {
+    namedValue("def f: T = b").asserting(_.fixity shouldBe Fixity.Application)
   }
 
-  it should "be Some(Prefix) for prefix def" in {
+  it should "be Prefix for prefix def" in {
     namedValue("prefix def !(a: T): T = a", QualifiedName("!", Qualifier.Default)).asserting {
-      _.fixity shouldBe Some(Fixity.Prefix)
+      _.fixity shouldBe Fixity.Prefix
     }
   }
 
-  it should "be Some(Infix(Left)) for infix left def" in {
+  it should "be Infix(Left) for infix left def" in {
     namedValue("infix left def +(a: T, b: T): T = a", QualifiedName("+", Qualifier.Default)).asserting {
-      _.fixity shouldBe Some(Fixity.Infix(Fixity.Associativity.Left))
+      _.fixity shouldBe Fixity.Infix(Fixity.Associativity.Left)
     }
   }
 
-  it should "be Some(Infix(Left)) for infix def with default associativity" in {
+  it should "be Infix(Left) for infix def with default associativity" in {
     namedValue("infix def or(a: T, b: T): T = a", QualifiedName("or", Qualifier.Default)).asserting {
-      _.fixity shouldBe Some(Fixity.Infix(Fixity.Associativity.Left))
+      _.fixity shouldBe Fixity.Infix(Fixity.Associativity.Left)
     }
   }
 
-  it should "be Some(Postfix) for postfix def" in {
+  it should "be Postfix for postfix def" in {
     namedValue("postfix def ++(a: T): T = a", QualifiedName("++", Qualifier.Default)).asserting {
-      _.fixity shouldBe Some(Fixity.Postfix)
+      _.fixity shouldBe Fixity.Postfix
     }
   }
 
