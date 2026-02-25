@@ -14,9 +14,9 @@
             <AppenderRef ref="Console"/>
          </Root>
            <!-- <Logger name="com.vanillasource.eliot.eliotc.jvm.JvmClassGenerator" level="debug"/> -->
-         <Logger name="com.vanillasource.eliot.eliotc.symbolic" level="debug"/>
-            <Logger name="com.vanillasource.eliot.eliotc.resolve" level="debug"/>
-            <Logger name="com.vanillasource.eliot.eliotc.core" level="debug"/>
+           <!-- <Logger name="com.vanillasource.eliot.eliotc.symbolic" level="debug"/> -->
+           <!-- <Logger name="com.vanillasource.eliot.eliotc.resolve" level="debug"/> -->
+           <!-- <Logger name="com.vanillasource.eliot.eliotc.core" level="debug"/> -->
     </Loggers>
 </Configuration>
 
