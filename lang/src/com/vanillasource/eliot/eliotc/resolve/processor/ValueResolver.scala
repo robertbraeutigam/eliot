@@ -3,13 +3,13 @@ package com.vanillasource.eliot.eliotc.resolve.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName as CoreQualifiedName, Qualifier as CoreQualifier}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
-import com.vanillasource.eliot.eliotc.core.fact.{NamedValue, TypeStack, Expression as CoreExpression}
+import com.vanillasource.eliot.eliotc.core.fact.{Fixity as CoreFixity, NamedValue, PrecedenceDeclaration as CorePrecedenceDeclaration, TypeStack, Expression as CoreExpression}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression, QualifiedName, Qualifier, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Expression, Fixity, PrecedenceDeclaration, QualifiedName, Qualifier, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolverScope.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
@@ -34,6 +34,7 @@ class ValueResolver
       resolvedStack       <- resolveTypeStack(namedValue.qualifiedName.as(namedValue.typeStack), false)
       resolvedName        <- convertQualifiedName(namedValue.qualifiedName)
       resolvedConstraints <- resolveParamConstraints(namedValue.paramConstraints)
+      resolvedPrecedence  <- resolvePrecedenceDeclarations(namedValue.precedence)
       _                   <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedStack.value.show}")
       _                   <- debug[ScopedIO](
                                s"Resolved ${key.vfqn.show} runtime: ${resolvedRuntime.map(_.value.show).getOrElse("<abstract>")}"
@@ -43,7 +44,9 @@ class ValueResolver
       resolvedName,
       resolvedRuntime,
       resolvedStack,
-      resolvedConstraints
+      resolvedConstraints,
+      convertFixity(namedValue.fixity),
+      resolvedPrecedence
     )
 
     resolveProgram.runA(scope)
@@ -216,5 +219,44 @@ class ValueResolver
         Expression.IntegerLiteral(s.as(BigInt(value))).pure[ScopedIO]
       case StringLiteral(s @ Sourced(_, _, value))     =>
         Expression.StringLiteral(s.as(value)).pure[ScopedIO]
+      case FlatExpression(parts)                       =>
+        parts.traverse(part => resolveTypeStack(part, runtime)).map(Expression.FlatExpression(_))
+    }
+
+  private def convertFixity(fixity: CoreFixity): Fixity = fixity match {
+    case CoreFixity.Application    => Fixity.Application
+    case CoreFixity.Prefix         => Fixity.Prefix
+    case CoreFixity.Infix(assoc)   => Fixity.Infix(convertAssociativity(assoc))
+    case CoreFixity.Postfix        => Fixity.Postfix
+  }
+
+  private def convertAssociativity(assoc: CoreFixity.Associativity): Fixity.Associativity = assoc match {
+    case CoreFixity.Associativity.Left  => Fixity.Associativity.Left
+    case CoreFixity.Associativity.Right => Fixity.Associativity.Right
+    case CoreFixity.Associativity.None  => Fixity.Associativity.None
+  }
+
+  private def resolvePrecedenceDeclarations(
+      decls: Seq[CorePrecedenceDeclaration]
+  ): ScopedIO[Seq[PrecedenceDeclaration]] =
+    decls.traverse(resolvePrecedenceDeclaration)
+
+  private def resolvePrecedenceDeclaration(
+      decl: CorePrecedenceDeclaration
+  ): ScopedIO[PrecedenceDeclaration] =
+    decl.targets
+      .traverse(target =>
+        getValue(CoreQualifiedName(target.value, CoreQualifier.Default)).flatMap {
+          case Some(vfqn) => target.as(vfqn).pure[ScopedIO]
+          case None       => compilerAbort(target.as("Precedence target name not defined.")).liftToScoped
+        }
+      )
+      .map(resolvedTargets => PrecedenceDeclaration(convertRelation(decl.relation), resolvedTargets))
+
+  private def convertRelation(rel: CorePrecedenceDeclaration.Relation): PrecedenceDeclaration.Relation =
+    rel match {
+      case CorePrecedenceDeclaration.Relation.Above => PrecedenceDeclaration.Relation.Above
+      case CorePrecedenceDeclaration.Relation.Below => PrecedenceDeclaration.Relation.Below
+      case CorePrecedenceDeclaration.Relation.At    => PrecedenceDeclaration.Relation.At
     }
 }

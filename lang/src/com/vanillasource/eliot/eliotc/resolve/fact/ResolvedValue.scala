@@ -10,7 +10,9 @@ case class ResolvedValue(
     name: Sourced[QualifiedName],
     runtime: Option[Sourced[Expression]],
     typeStack: Sourced[TypeStack[Expression]],
-    paramConstraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]] = Map.empty
+    paramConstraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
+    fixity: Fixity = Fixity.Application,
+    precedence: Seq[PrecedenceDeclaration] = Seq.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[ResolvedValue] = ResolvedValue.Key(vfqn)
 }
