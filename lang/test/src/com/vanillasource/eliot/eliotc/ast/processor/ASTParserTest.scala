@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.ast.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.fact.{AST, Qualifier, SourceAST, TypeReference}
+import com.vanillasource.eliot.eliotc.ast.fact.{AST, Fixity, Qualifier, SourceAST, TypeReference}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -403,6 +403,50 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("def f[A ~ Show, B ~ Eq](a: A): A").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "accept a function definition with a symbol name" in {
+    runEngineForErrors("def +(a: Int, b: Int): Int = a").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an infix left function definition" in {
+    runEngineForErrors("infix left def +(a: Int, b: Int): Int = a").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an infix function definition with default left associativity" in {
+    runEngineForErrors("infix def or(a: Bool, b: Bool): Bool").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a prefix function definition" in {
+    runEngineForErrors("prefix def !(a: Bool): Bool").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a postfix function definition" in {
+    runEngineForErrors("postfix def ++(x: Int): Int").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an infix right function definition with precedence" in {
+    runEngineForErrors("infix right above(+, -) def **(a: Int, b: Int): Int = a").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "parse infix left fixity correctly" in {
+    runEngineForFunctionFixities("infix left def +(a: Int, b: Int): Int = a")
+      .asserting(_ shouldBe Seq(("+" -> Some(Fixity.Infix(Fixity.Associativity.Left)))))
+  }
+
+  it should "parse infix default associativity as left" in {
+    runEngineForFunctionFixities("infix def or(a: Bool, b: Bool): Bool")
+      .asserting(_ shouldBe Seq(("or" -> Some(Fixity.Infix(Fixity.Associativity.Left)))))
+  }
+
+  it should "parse prefix fixity correctly" in {
+    runEngineForFunctionFixities("prefix def !(a: Bool): Bool")
+      .asserting(_ shouldBe Seq(("!" -> Some(Fixity.Prefix))))
+  }
+
+  it should "parse no fixity as None" in {
+    runEngineForFunctionFixities("def a: Bool")
+      .asserting(_ shouldBe Seq(("a" -> None)))
+  }
+
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
     runGenerator(source, SourceAST.Key(file)).map(_._2)
 
@@ -428,6 +472,18 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results.values
         .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
           functions.map(f => (f.name.value.name, f.name.value.qualifier))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctionFixities(source: String): IO[Seq[(String, Option[Fixity])]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.fixity))
         }
         .toSeq
         .flatten
