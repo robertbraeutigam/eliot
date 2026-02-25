@@ -15,9 +15,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import scala.collection.mutable
 
 class OperatorResolverProcessor
-    extends TransformationProcessor[ResolvedValue.Key, OperatorResolvedValue.Key](key =>
-      ResolvedValue.Key(key.vfqn)
-    ) {
+    extends TransformationProcessor[ResolvedValue.Key, OperatorResolvedValue.Key](key => ResolvedValue.Key(key.vfqn)) {
 
   override protected def generateFromKeyAndFact(
       key: OperatorResolvedValue.Key,
@@ -77,16 +75,17 @@ class OperatorResolverProcessor
         for {
           resolved <- getFactOrAbort(ResolvedValue.Key(vfqnSrc.value))
         } yield AnnotatedPart(part, resolved.fixity, Some(vfqnSrc.value))
-      case _                                      => AnnotatedPart(part, Fixity.Application, None).pure[CompilerIO]
+      case _                                     => AnnotatedPart(part, Fixity.Application, None).pure[CompilerIO]
     }
 
   // --- Phase B: Classify into operator/operand tokens ---
 
   private sealed trait Token
-  private case class PrefixOp(part: Sourced[TypeStack[Expression]])                                              extends Token
-  private case class PostfixOp(part: Sourced[TypeStack[Expression]])                                             extends Token
-  private case class InfixOp(part: Sourced[TypeStack[Expression]], associativity: Associativity, vfqn: ValueFQN) extends Token
-  private case class Operand(part: Sourced[TypeStack[Expression]])                                               extends Token
+  private case class PrefixOp(part: Sourced[TypeStack[Expression]])  extends Token
+  private case class PostfixOp(part: Sourced[TypeStack[Expression]]) extends Token
+  private case class InfixOp(part: Sourced[TypeStack[Expression]], associativity: Associativity, vfqn: ValueFQN)
+      extends Token
+  private case class Operand(part: Sourced[TypeStack[Expression]])   extends Token
 
   private def classifyTokens(parts: Seq[AnnotatedPart]): Seq[Token] = {
     var expectingOperand = true
@@ -145,7 +144,7 @@ class OperatorResolverProcessor
 
     def flushGroup(): Unit =
       if (groupNonEmpty) {
-        val parts   = group.result()
+        val parts    = group.result()
         val combined = curriedApplication(parts)
         result += Operand(combined)
         group.clear()
@@ -174,12 +173,12 @@ class OperatorResolverProcessor
   // --- Phase D: Apply postfix operators (bind tightest) ---
 
   private def applyPostfix(tokens: Seq[Token]): Seq[Token] = {
-    var result = tokens
+    var result  = tokens
     var changed = true
     while (changed) {
       changed = false
       val newResult = Seq.newBuilder[Token]
-      var i = 0
+      var i         = 0
       while (i < result.length) {
         if (i + 1 < result.length) {
           (result(i), result(i + 1)) match {
@@ -187,7 +186,7 @@ class OperatorResolverProcessor
               newResult += Operand(outlinedStack(Seq(operand, op), Expression.FunctionApplication(op, operand)))
               i += 2
               changed = true
-            case _ =>
+            case _                                 =>
               newResult += result(i)
               i += 1
           }
@@ -204,12 +203,12 @@ class OperatorResolverProcessor
   // --- Phase E: Apply prefix operators ---
 
   private def applyPrefix(tokens: Seq[Token]): Seq[Token] = {
-    var result = tokens
+    var result  = tokens
     var changed = true
     while (changed) {
       changed = false
-      val newResult = Seq.newBuilder[Token]
-      var i = result.length - 1
+      val newResult    = Seq.newBuilder[Token]
+      var i            = result.length - 1
       val tempReversed = mutable.ArrayDeque.empty[Token]
       while (i >= 0) {
         if (i >= 1) {
@@ -220,7 +219,7 @@ class OperatorResolverProcessor
               )
               i -= 2
               changed = true
-            case _ =>
+            case _                                =>
               tempReversed.prepend(result(i))
               i -= 1
           }
@@ -319,14 +318,14 @@ class OperatorResolverProcessor
       makeCurriedInfix(operators.head.part, operands.head, operands(1)).pure[CompilerIO]
     } else {
       for {
-        splitIdx      <- findSplitPoint(operators, order)
-        splitOp        = operators(splitIdx)
-        leftOperands   = operands.take(splitIdx + 1)
-        rightOperands  = operands.drop(splitIdx + 1)
-        leftOps        = operators.take(splitIdx)
-        rightOps       = operators.drop(splitIdx + 1)
-        left          <- resolveInfixRecursive(leftOperands, leftOps, order)
-        right         <- resolveInfixRecursive(rightOperands, rightOps, order)
+        splitIdx     <- findSplitPoint(operators, order)
+        splitOp       = operators(splitIdx)
+        leftOperands  = operands.take(splitIdx + 1)
+        rightOperands = operands.drop(splitIdx + 1)
+        leftOps       = operators.take(splitIdx)
+        rightOps      = operators.drop(splitIdx + 1)
+        left         <- resolveInfixRecursive(leftOperands, leftOps, order)
+        right        <- resolveInfixRecursive(rightOperands, rightOps, order)
       } yield {
         val leftStack  = outlinedStack(leftOperands, left)
         val rightStack = outlinedStack(rightOperands, right)
@@ -336,7 +335,7 @@ class OperatorResolverProcessor
 
   private def findSplitPoint(operators: Seq[InfixOp], order: PrecedenceOrder): CompilerIO[Int] = {
     // Find the weakest precedence level, then pick split point by associativity
-    var weakestIdx = 0
+    var weakestIdx                            = 0
     var compareError: Option[CompilerIO[Int]] = None
 
     for (i <- 1 until operators.length) {
@@ -358,7 +357,7 @@ class OperatorResolverProcessor
     }
 
     compareError.getOrElse {
-      val weakestVfqn = operators(weakestIdx).vfqn
+      val weakestVfqn      = operators(weakestIdx).vfqn
       val sameLevelIndices = operators.indices.filter { i =>
         order.compare(operators(i).vfqn, weakestVfqn).contains(0)
       }
