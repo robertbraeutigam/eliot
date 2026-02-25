@@ -40,7 +40,7 @@ class UnifiedModuleValueProcessorTest
   }
 
   it should "abort if value not found" in {
-    runEngineForErrors("def a: A", "nonexistent").asserting(_ shouldBe Seq("Could not find 'nonexistent'."))
+    runEngineForErrors("def a: A", "nonexistent").asserting(_ shouldBe Seq("Could not find 'nonexistent'." at ""))
   }
 
   private def runEngineForValue(source: String, name: String): IO[UnifiedModuleValue] =
@@ -51,7 +51,7 @@ class UnifiedModuleValueProcessorTest
         }.get
       }
 
-  private def runEngineForErrors(source: String, name: String): IO[Seq[String]] =
+  private def runEngineForErrors(source: String, name: String): IO[Seq[TestError]] =
     runGenerator(source, UnifiedModuleValue.Key(ValueFQN(testModuleName2, QualifiedName(name, Qualifier.Default))))
-      .map(_._1.map(_.message))
+      .map(result => toTestErrors(result._1))
 }

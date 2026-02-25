@@ -72,7 +72,7 @@ class AbilityCheckProcessorTest
       "ability Show[A] { def show(x: A): A }\ndef f[A](x: A): A = show(x)"
     ).asserting(
       _ shouldBe Seq(
-        "Cannot prove ability 'Show' is available for given type. (Ability implementations require concrete types for now)."
+        "Cannot prove ability 'Show' is available for given type. (Ability implementations require concrete types for now)." at "show"
       )
     )
   }
@@ -80,7 +80,7 @@ class AbilityCheckProcessorTest
   it should "fail when no implementation exists for the concrete type" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\ndef f(x: Int): Int = show(x)"
-    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'."))
+    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'." at "show"))
   }
 
   it should "check derived abilities" in {
@@ -106,10 +106,10 @@ class AbilityCheckProcessorTest
     """).asserting(_ shouldBe Seq.empty)
   }
 
-  private def runEngineForErrors(source: String): IO[Seq[String]] =
+  private def runEngineForErrors(source: String): IO[Seq[TestError]] =
     runGenerator(
       source,
       AbilityCheckedValue.Key(ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))),
       systemImports
-    ).map(_._1.map(_.message))
+    ).map(result => toTestErrors(result._1))
 }

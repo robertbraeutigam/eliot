@@ -42,7 +42,7 @@ class ModuleNamesProcessorTest
   }
 
   it should "detect duplicate names" in {
-    runEngineForErrors("def a: A\ndef a: B").asserting(_ shouldBe Seq("Name was already defined in this module."))
+    runEngineForErrors("def a: A\ndef a: B").asserting(_ shouldBe Seq("Name was already defined in this module." at "a"))
   }
 
   it should "return empty set for empty module" in {
@@ -54,6 +54,6 @@ class ModuleNamesProcessorTest
       facts.values.collectFirst { case ModuleNames(_, names) => names.value }.getOrElse(Set.empty)
     }
 
-  private def runEngineForErrors(source: String): IO[Seq[String]] =
-    runGenerator(source, ModuleNames.Key(file)).map(_._1.map(_.message))
+  private def runEngineForErrors(source: String): IO[Seq[TestError]] =
+    runGenerator(source, ModuleNames.Key(file)).map(result => toTestErrors(result._1))
 }

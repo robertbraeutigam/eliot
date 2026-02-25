@@ -41,11 +41,11 @@ class ModuleValueProcessorTest
   }
 
   it should "detect duplicate names" in {
-    runEngineForErrors("def a: A\ndef a: B").asserting(_ shouldBe Seq("Name was already defined in this module."))
+    runEngineForErrors("def a: A\ndef a: B").asserting(_ shouldBe Seq("Name was already defined in this module." at "a"))
   }
 
   it should "report error for missing imported module" in {
-    runEngineForErrors("import a.b.C").asserting(_ shouldBe Seq("Could not find imported module."))
+    runEngineForErrors("import a.b.C").asserting(_ shouldBe Seq("Could not find imported module." at "a.b.C"))
   }
 
   it should "include imported names in dictionary" in {
@@ -62,14 +62,18 @@ class ModuleValueProcessorTest
   it should "detect imported names shadowing local names" in {
     val imp = SystemImport("Imported", "def a: A")
     runEngineForErrors("import eliot.lang.Imported\ndef a: A", Seq(imp))
-      .asserting(_ shouldBe Seq("Imported names shadow local names: a"))
+      .asserting(_ shouldBe Seq("Imported names shadow local names: a" at "eliot.lang.Imported"))
   }
 
   it should "detect imported names shadowing other imported names" in {
     val imp1 = SystemImport("Imported1", "def shared: A")
     val imp2 = SystemImport("Imported2", "def shared: B")
     runEngineForErrors("import eliot.lang.Imported1\nimport eliot.lang.Imported2\ndef a: A", Seq(imp1, imp2))
-      .asserting(errors => errors.head should include("Imported names shadow other imported names"))
+      .asserting { errors =>
+        errors.length shouldBe 1
+        errors.head.message should include("Imported names shadow other imported names")
+        errors.head.highlight shouldBe "eliot.lang.Imported2"
+      }
   }
 
   private def runEngineForValue(
@@ -87,10 +91,10 @@ class ModuleValueProcessorTest
       }.get
     }
 
-  private def runEngineForErrors(source: String, imports: Seq[SystemImport] = Seq.empty): IO[Seq[String]] =
+  private def runEngineForErrors(source: String, imports: Seq[SystemImport] = Seq.empty): IO[Seq[TestError]] =
     runGenerator(
       source,
       ModuleValue.Key(file, ValueFQN(testModuleName2, QualifiedName("a", Qualifier.Default))),
       imports
-    ).map(_._1.map(_.message))
+    ).map(result => toTestErrors(result._1))
 }

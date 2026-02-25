@@ -47,19 +47,23 @@ class AbilityImplementationCheckProcessorTest
   it should "fail when a required ability method is missing" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A\ndef display(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
-    ).asserting(_ shouldBe Seq("Ability implementation is missing method 'display'."))
+    ).asserting(_ shouldBe Seq("Ability implementation is missing method 'display'." at "Show"))
   }
 
   it should "fail when an extra method not in the ability is defined" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x\ndef extra(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
-    ).asserting(_ shouldBe Seq("Method not defined in ability."))
+    ).asserting(_ shouldBe Seq("Method not defined in ability." at "extra"))
   }
 
   it should "fail when an implementation method has the wrong signature" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\ndata Bool\nimplement Show[Int] { def show(x: Bool): Bool = x }\ndef f(x: Int): Int = show(x)"
-    ).asserting(_.exists(e => e.contains("show") && e.contains("does not match the ability definition")) shouldBe true)
+    ).asserting { errors =>
+        errors.length shouldBe 1
+        errors.head.message should include("Signature of 'show' does not match the ability definition")
+        errors.head.highlight shouldBe "show"
+      }
   }
 
   it should "pass when a non-abstract ability method is not present in the implementation" in {
@@ -83,7 +87,7 @@ class AbilityImplementationCheckProcessorTest
   it should "fail when no implementations are provided at all for an ability with all-default methods" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A = x }\ndata Int\ndef f(x: Int): Int = show(x)"
-    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'."))
+    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'." at "show"))
   }
 
   it should "resolve default ability implementation that calls another default ability implementation" in {
@@ -92,10 +96,10 @@ class AbilityImplementationCheckProcessorTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
-  private def runEngineForErrors(source: String): IO[Seq[String]] =
+  private def runEngineForErrors(source: String): IO[Seq[TestError]] =
     runGenerator(
       source,
       AbilityCheckedValue.Key(ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))),
       systemImports
-    ).map(_._1.map(_.message))
+    ).map(result => toTestErrors(result._1))
 }

@@ -148,13 +148,13 @@ class OperatorResolverProcessorTest
   it should "error on two infix ops without relative precedence" in {
     runEngineForErrors(
       "data T\ninfix left def +(x: T, y: T): T\ninfix left def *(x: T, y: T): T\ndef a: T\ndef b: T\ndef c: T\ndef main: T = a + b * c"
-    ).asserting(_.head should include("no defined relative precedence"))
+    ).asserting(_ shouldBe Seq("Operators '*' and '+' have no defined relative precedence." at "*"))
   }
 
   it should "error on non-associative operator chained" in {
     runEngineForErrors(
       "data T\ninfix none def ==(x: T, y: T): T\ndef a: T\ndef b: T\ndef c: T\ndef main: T = a == b == c"
-    ).asserting(_.head should include("cannot be chained"))
+    ).asserting(_ shouldBe Seq("Non-associative operator '==' cannot be chained." at "=="))
   }
 
   it should "resolve parenthesized call regardless of fixity" in {
@@ -197,10 +197,10 @@ class OperatorResolverProcessorTest
         .flatMap(_.runtime.map(_.value))
     }
 
-  private def runEngineForErrors(source: String): IO[Seq[String]] =
+  private def runEngineForErrors(source: String): IO[Seq[TestError]] =
     runGenerator(
       source,
       OperatorResolvedValue.Key(ValueFQN(testModuleName2, QualifiedName("main", Qualifier.Default))),
       systemImports
-    ).map(_._1.map(_.message))
+    ).map(result => toTestErrors(result._1))
 }
