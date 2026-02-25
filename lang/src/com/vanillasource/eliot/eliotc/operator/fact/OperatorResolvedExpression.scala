@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.operator
+package com.vanillasource.eliot.eliotc.operator.fact
 
 import cats.Show
 import cats.syntax.all.*
@@ -17,8 +17,10 @@ object OperatorResolvedExpression {
   case class IntegerLiteral(integerLiteral: Sourced[BigInt])    extends OperatorResolvedExpression
   case class StringLiteral(stringLiteral: Sourced[String])      extends OperatorResolvedExpression
   case class ParameterReference(parameterName: Sourced[String]) extends OperatorResolvedExpression
-  case class ValueReference(valueName: Sourced[ValueFQN], typeArgs: Seq[Sourced[OperatorResolvedExpression]] = Seq.empty)
-      extends OperatorResolvedExpression
+  case class ValueReference(
+      valueName: Sourced[ValueFQN],
+      typeArgs: Seq[Sourced[OperatorResolvedExpression]] = Seq.empty
+  ) extends OperatorResolvedExpression
   case class FunctionLiteral(
       parameterName: Sourced[String],
       parameterType: Option[Sourced[TypeStack[OperatorResolvedExpression]]],
@@ -51,8 +53,8 @@ object OperatorResolvedExpression {
       s"${targetValue.show}(${argumentValue.show})"
     case FunctionLiteral(param, paramType, body)                                       =>
       s"(${paramType.map(_.value.show).getOrElse("<n/a>")} :: ${param.value}) -> ${body.value.show}"
-    case ParameterReference(name)                => name.value
-    case ValueReference(name, typeArgs)          =>
+    case ParameterReference(name)                                                      => name.value
+    case ValueReference(name, typeArgs)                                                =>
       name.value.show +
         (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.show).mkString("[", ", ", "]"))
   }

@@ -1,7 +1,8 @@
-package com.vanillasource.eliot.eliotc.operator
+package com.vanillasource.eliot.eliotc.operator.processor
 
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.operator.OperatorResolvedExpression.*
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 object OperatorResolvedExpressionMatchers {

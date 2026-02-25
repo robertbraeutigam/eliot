@@ -1,9 +1,10 @@
-package com.vanillasource.eliot.eliotc.operator
+package com.vanillasource.eliot.eliotc.operator.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
-import com.vanillasource.eliot.eliotc.operator.TokenClassifier.AnnotatedPart
+import TokenClassifier.AnnotatedPart
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}

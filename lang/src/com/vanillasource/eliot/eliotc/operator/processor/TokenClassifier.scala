@@ -1,10 +1,11 @@
-package com.vanillasource.eliot.eliotc.operator
+package com.vanillasource.eliot.eliotc.operator.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity.Associativity
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 object TokenClassifier {

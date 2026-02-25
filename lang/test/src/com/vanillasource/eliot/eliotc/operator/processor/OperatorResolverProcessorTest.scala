@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.operator
+package com.vanillasource.eliot.eliotc.operator.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
@@ -7,8 +7,9 @@ import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, ModuleName as ModuleName2}
 import com.vanillasource.eliot.eliotc.module.processor.*
-import com.vanillasource.eliot.eliotc.operator.{OperatorResolvedValue, OperatorResolverProcessor}
-import com.vanillasource.eliot.eliotc.operator.OperatorResolvedExpressionMatchers.*
+import OperatorResolvedExpressionMatchers.*
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
