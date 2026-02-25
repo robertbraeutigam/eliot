@@ -60,8 +60,7 @@ class OperatorResolverProcessor
     for {
       annotated <- parts.traverse(annotatePart)
       tokens     = classifyTokens(annotated)
-      grouped    = groupOperands(tokens)
-      afterPost  = applyPostfix(grouped)
+      afterPost  = applyPostfix(tokens)
       afterPre   = applyPrefix(afterPost)
       result    <- applyInfix(afterPre)
     } yield result
@@ -79,7 +78,7 @@ class OperatorResolverProcessor
       case _                                     => AnnotatedPart(part, Fixity.Application, None).pure[CompilerIO]
     }
 
-  // --- Phase B: Classify into operator/operand tokens ---
+  // --- Phase B: Classify into operator/operand tokens and group consecutive operands ---
 
   private sealed trait Token
   private case class PrefixOp(part: Sourced[TypeStack[Expression]])  extends Token
@@ -96,8 +95,7 @@ class OperatorResolverProcessor
 
     def flushOperandGroup(): Unit =
       if (hasOperandGroup) {
-        val group = operandGroup.result()
-        group.foreach(p => tokens += Operand(p))
+        tokens += Operand(curriedApplication(operandGroup.result()))
         operandGroup.clear()
         hasOperandGroup = false
       }
@@ -136,36 +134,6 @@ class OperatorResolverProcessor
     tokens.result()
   }
 
-  // --- Phase C: Group consecutive operands into curried applications ---
-
-  private def groupOperands(tokens: Seq[Token]): Seq[Token] = {
-    val result        = Seq.newBuilder[Token]
-    val group         = Seq.newBuilder[Sourced[TypeStack[Expression]]]
-    var groupNonEmpty = false
-
-    def flushGroup(): Unit =
-      if (groupNonEmpty) {
-        val parts    = group.result()
-        val combined = curriedApplication(parts)
-        result += Operand(combined)
-        group.clear()
-        groupNonEmpty = false
-      }
-
-    for (token <- tokens) {
-      token match {
-        case Operand(part) =>
-          group += part
-          groupNonEmpty = true
-        case other         =>
-          flushGroup()
-          result += other
-      }
-    }
-    flushGroup()
-    result.result()
-  }
-
   private def curriedApplication(parts: Seq[Sourced[TypeStack[Expression]]]): Sourced[TypeStack[Expression]] =
     parts.reduceLeft { (acc, arg) =>
       outlinedStack(Seq(acc, arg), Expression.FunctionApplication(acc, arg))
@@ -173,66 +141,25 @@ class OperatorResolverProcessor
 
   // --- Phase D: Apply postfix operators (bind tightest) ---
 
-  private def applyPostfix(tokens: Seq[Token]): Seq[Token] = {
-    var result  = tokens
-    var changed = true
-    while (changed) {
-      changed = false
-      val newResult = Seq.newBuilder[Token]
-      var i         = 0
-      while (i < result.length) {
-        if (i + 1 < result.length) {
-          (result(i), result(i + 1)) match {
-            case (Operand(operand), PostfixOp(op)) =>
-              newResult += Operand(outlinedStack(Seq(operand, op), Expression.FunctionApplication(op, operand)))
-              i += 2
-              changed = true
-            case _                                 =>
-              newResult += result(i)
-              i += 1
-          }
-        } else {
-          newResult += result(i)
-          i += 1
-        }
+  private def applyPostfix(tokens: Seq[Token]): Seq[Token] =
+    tokens.foldLeft(Vector.empty[Token]) { (acc, token) =>
+      (acc.lastOption, token) match {
+        case (Some(Operand(operand)), PostfixOp(op)) =>
+          acc.init :+ Operand(outlinedStack(Seq(operand, op), Expression.FunctionApplication(op, operand)))
+        case _                                       => acc :+ token
       }
-      result = newResult.result()
     }
-    result
-  }
 
   // --- Phase E: Apply prefix operators ---
 
-  private def applyPrefix(tokens: Seq[Token]): Seq[Token] = {
-    var result  = tokens
-    var changed = true
-    while (changed) {
-      changed = false
-      val newResult    = Seq.newBuilder[Token]
-      var i            = result.length - 1
-      val tempReversed = mutable.ArrayDeque.empty[Token]
-      while (i >= 0) {
-        if (i >= 1) {
-          (result(i - 1), result(i)) match {
-            case (PrefixOp(op), Operand(operand)) =>
-              tempReversed.prepend(
-                Operand(outlinedStack(Seq(op, operand), Expression.FunctionApplication(op, operand)))
-              )
-              i -= 2
-              changed = true
-            case _                                =>
-              tempReversed.prepend(result(i))
-              i -= 1
-          }
-        } else {
-          tempReversed.prepend(result(i))
-          i -= 1
-        }
+  private def applyPrefix(tokens: Seq[Token]): Seq[Token] =
+    tokens.foldRight(List.empty[Token]) { (token, acc) =>
+      (token, acc) match {
+        case (PrefixOp(op), Operand(operand) :: rest) =>
+          Operand(outlinedStack(Seq(op, operand), Expression.FunctionApplication(op, operand))) :: rest
+        case _                                        => token :: acc
       }
-      result = tempReversed.toSeq
     }
-    result
-  }
 
   // --- Phase F: Apply infix operators with precedence ---
 
@@ -271,9 +198,9 @@ class OperatorResolverProcessor
         if (visited.add(current)) {
           val lower = higherThan.getOrElse(current, Set.empty)
           if (lower.exists(bTargets.contains)) return true
-          lower.filterNot(visited.contains).foreach { l =>
+          (lower -- visited).foreach { l =>
             queue.enqueue(l)
-            queue.enqueueAll(sameAs.getOrElse(l, Set.empty).filterNot(visited.contains))
+            queue.enqueueAll(sameAs.getOrElse(l, Set.empty) -- visited)
           }
         }
       }
@@ -286,25 +213,28 @@ class OperatorResolverProcessor
     for {
       rvs <- vfqns.traverse(v => getFactOrAbort(ResolvedValue.Key(v)).map(v -> _))
     } yield {
-      val higherThan = mutable.Map.empty[ValueFQN, Set[ValueFQN]]
-      val sameAs     = mutable.Map.empty[ValueFQN, Set[ValueFQN]]
-
-      for ((vfqn, rv) <- rvs; decl <- rv.precedence) {
-        val targets = decl.targets.map(_.value)
-        decl.relation match {
-          case Relation.Above =>
-            higherThan(vfqn) = higherThan.getOrElse(vfqn, Set.empty) ++ targets
-          case Relation.Below =>
-            targets.foreach(t => higherThan(t) = higherThan.getOrElse(t, Set.empty) + vfqn)
-          case Relation.At    =>
-            targets.foreach { t =>
-              sameAs(vfqn) = sameAs.getOrElse(vfqn, Set.empty) + t
-              sameAs(t) = sameAs.getOrElse(t, Set.empty) + vfqn
-            }
+      val higherPairs = rvs.flatMap { (vfqn, rv) =>
+        rv.precedence.flatMap { decl =>
+          val targets = decl.targets.map(_.value)
+          decl.relation match {
+            case Relation.Above => targets.map(vfqn -> _)
+            case Relation.Below => targets.map(_ -> vfqn)
+            case Relation.At    => Seq.empty
+          }
         }
       }
-
-      PrecedenceOrder(higherThan.toMap, sameAs.toMap)
+      val samePairs = rvs.flatMap { (vfqn, rv) =>
+        rv.precedence.flatMap { decl =>
+          decl.relation match {
+            case Relation.At => decl.targets.flatMap(t => Seq(vfqn -> t.value, t.value -> vfqn))
+            case _           => Seq.empty
+          }
+        }
+      }
+      PrecedenceOrder(
+        higherPairs.groupMap(_._1)(_._2).map((k, v) => k -> v.toSet),
+        samePairs.groupMap(_._1)(_._2).map((k, v) => k -> v.toSet)
+      )
     }
   }
 
@@ -334,60 +264,47 @@ class OperatorResolverProcessor
       }
     }
 
-  private def findSplitPoint(operators: Seq[InfixOp], order: PrecedenceOrder): CompilerIO[Int] = {
-    // Find the weakest precedence level, then pick split point by associativity
-    var weakestIdx                            = 0
-    var compareError: Option[CompilerIO[Int]] = None
+  private def findSplitPoint(operators: Seq[InfixOp], order: PrecedenceOrder): CompilerIO[Int] =
+    for {
+      weakestIdx      <- findWeakestOperator(operators, order)
+      sameLevelIndices = operators.indices.filter(i => order.compare(operators(i).vfqn, operators(weakestIdx).vfqn).contains(0))
+      splitIdx        <- pickSplitByAssociativity(operators, sameLevelIndices)
+    } yield splitIdx
 
-    for (i <- 1 until operators.length) {
-      if (compareError.isEmpty) {
-        val cmp = order.compare(operators(i).vfqn, operators(weakestIdx).vfqn)
-        cmp match {
-          case Some(c) if c < 0 => weakestIdx = i
-          case Some(_)          => // same or higher, keep current weakest
-          case None             =>
-            compareError = Some(
-              compilerAbort(
-                operators(i).part.as(
-                  s"Operators '${operators(i).vfqn.name.name}' and '${operators(weakestIdx).vfqn.name.name}' have no defined relative precedence."
-                )
-              )
-            )
-        }
-      }
-    }
-
-    compareError.getOrElse {
-      val weakestVfqn      = operators(weakestIdx).vfqn
-      val sameLevelIndices = operators.indices.filter { i =>
-        order.compare(operators(i).vfqn, weakestVfqn).contains(0)
-      }
-
-      if (sameLevelIndices.length == 1) {
-        sameLevelIndices.head.pure[CompilerIO]
-      } else {
-        val associativities = sameLevelIndices.map(i => operators(i).associativity).distinct
-        if (associativities.length > 1) {
+  private def findWeakestOperator(operators: Seq[InfixOp], order: PrecedenceOrder): CompilerIO[Int] =
+    (1 until operators.length).toList.foldM(0) { (weakestIdx, i) =>
+      order.compare(operators(i).vfqn, operators(weakestIdx).vfqn) match {
+        case Some(c) if c < 0 => i.pure[CompilerIO]
+        case Some(_)          => weakestIdx.pure[CompilerIO]
+        case None             =>
           compilerAbort(
-            operators(sameLevelIndices.head).part.as(
-              "Operators at same precedence level have different associativity."
+            operators(i).part.as(
+              s"Operators '${operators(i).vfqn.name.name}' and '${operators(weakestIdx).vfqn.name.name}' have no defined relative precedence."
             )
           )
-        } else {
-          associativities.head match {
-            case Associativity.Left  => sameLevelIndices.last.pure[CompilerIO]
-            case Associativity.Right => sameLevelIndices.head.pure[CompilerIO]
-            case Associativity.None  =>
-              compilerAbort(
-                operators(sameLevelIndices.head).part.as(
-                  s"Non-associative operator '${operators(sameLevelIndices.head).vfqn.name.name}' cannot be chained."
-                )
+      }
+    }
+
+  private def pickSplitByAssociativity(operators: Seq[InfixOp], sameLevelIndices: Seq[Int]): CompilerIO[Int] =
+    if (sameLevelIndices.length == 1) {
+      sameLevelIndices.head.pure[CompilerIO]
+    } else {
+      val associativities = sameLevelIndices.map(i => operators(i).associativity).distinct
+      if (associativities.length > 1) {
+        compilerAbort(operators(sameLevelIndices.head).part.as("Operators at same precedence level have different associativity."))
+      } else {
+        associativities.head match {
+          case Associativity.Left  => sameLevelIndices.last.pure[CompilerIO]
+          case Associativity.Right => sameLevelIndices.head.pure[CompilerIO]
+          case Associativity.None  =>
+            compilerAbort(
+              operators(sameLevelIndices.head).part.as(
+                s"Non-associative operator '${operators(sameLevelIndices.head).vfqn.name.name}' cannot be chained."
               )
-          }
+            )
         }
       }
     }
-  }
 
   private def makeCurriedInfix(
       op: Sourced[TypeStack[Expression]],
