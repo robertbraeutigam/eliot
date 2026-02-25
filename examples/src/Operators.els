@@ -1,0 +1,7 @@
+def main: IO[Unit] = println(content(Bool("Hello") | Bool("World") | Bool("!")))
+
+data Bool(content: String)
+
+infix left
+def |(lhs: Bool, rhs: Bool): Bool = rhs
+
