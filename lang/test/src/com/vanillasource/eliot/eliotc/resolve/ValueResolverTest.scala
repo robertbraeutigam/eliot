@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Fixity, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.resolve.ExpressionMatchers.*
@@ -159,6 +159,42 @@ class ValueResolverTest
     runEngineForErrors("data T(t: T)\ndef f: T\ndef a: T = f(x: T -> x, x)")
       .asserting(_ shouldBe Seq("Name not defined."))
   }
+
+  "flat expressions" should "pass through as FlatExpression in resolved value" in {
+    runEngineForValue("data T\ndef b: T\ndef c: T\ndef a: T = b c").flatMap {
+      case Some(FlatExpression(parts)) => IO.pure(parts.length shouldBe 2)
+      case x                          => IO.delay(fail(s"was not a FlatExpression, instead: $x"))
+    }
+  }
+
+  "fixity" should "be Application by default" in {
+    runEngineForFixity("data T\ndef b: T\ndef a: T = b").asserting(_ shouldBe Fixity.Application)
+  }
+
+  it should "be Prefix when declared with prefix" in {
+    runEngineForFixity("data T\ndef b: T\nprefix def a: T = b").asserting(_ shouldBe Fixity.Prefix)
+  }
+
+  it should "be Infix Left when declared with infix" in {
+    runEngineForFixity("data T\ndef b: T\ninfix def a: T = b")
+      .asserting(_ shouldBe Fixity.Infix(Fixity.Associativity.Left))
+  }
+
+  it should "be Postfix when declared with postfix" in {
+    runEngineForFixity("data T\ndef b: T\npostfix def a: T = b").asserting(_ shouldBe Fixity.Postfix)
+  }
+
+  private def runEngineForFixity(source: String): IO[Fixity] =
+    runGenerator(
+      source,
+      ResolvedValue.Key(ValueFQN(testModuleName2, QualifiedName("a", Qualifier.Default))),
+      systemImports
+    ).map { case (_, facts) =>
+      facts.values
+        .collectFirst { case rv: ResolvedValue if rv.vfqn.name == QualifiedName("a", Qualifier.Default) => rv }
+        .map(_.fixity)
+        .get
+    }
 
   private def runEngineForValue(source: String): IO[Option[Expression]] =
     runGenerator(

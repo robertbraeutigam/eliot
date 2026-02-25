@@ -23,6 +23,7 @@ object Expression {
       parameterType: Option[Sourced[TypeStack[Expression]]],
       body: Sourced[TypeStack[Expression]]
   ) extends Expression
+  case class FlatExpression(parts: Seq[Sourced[TypeStack[Expression]]]) extends Expression
 
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                                          => value.toString()
@@ -35,5 +36,6 @@ object Expression {
     case ValueReference(name, typeArgs)          =>
       name.value.show +
         (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.show).mkString("[", ", ", "]"))
+    case FlatExpression(parts)                   => parts.map(_.value.show).mkString(" ")
   }
 }
