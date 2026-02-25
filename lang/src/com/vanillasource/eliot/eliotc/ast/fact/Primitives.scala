@@ -72,4 +72,10 @@ object Primitives {
     case Sourced(_, _, Symbol(_)) => true
     case _                        => false
   }
+
+  private val structuralSymbols = Set("(", ")", "[", "]", "{", "}", ",", "->", "_", "::", ":", "~", "&", ".", "=")
+
+  def isUserOperator(st: Sourced[Token]): Boolean = isSymbol(st) && !structuralSymbols.contains(st.value.content)
+
+  def identifierWith(name: String) = acceptIfAll(isIdentifier, hasContent(name))(s"identifier '$name'")
 }
