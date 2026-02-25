@@ -429,22 +429,22 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "parse infix left fixity correctly" in {
     runEngineForFunctionFixities("infix left def +(a: Int, b: Int): Int = a")
-      .asserting(_ shouldBe Seq(("+" -> Some(Fixity.Infix(Fixity.Associativity.Left)))))
+      .asserting(_ shouldBe Seq("+" -> Fixity.Infix(Fixity.Associativity.Left)))
   }
 
   it should "parse infix default associativity as left" in {
     runEngineForFunctionFixities("infix def or(a: Bool, b: Bool): Bool")
-      .asserting(_ shouldBe Seq(("or" -> Some(Fixity.Infix(Fixity.Associativity.Left)))))
+      .asserting(_ shouldBe Seq("or" -> Fixity.Infix(Fixity.Associativity.Left)))
   }
 
   it should "parse prefix fixity correctly" in {
     runEngineForFunctionFixities("prefix def !(a: Bool): Bool")
-      .asserting(_ shouldBe Seq(("!" -> Some(Fixity.Prefix))))
+      .asserting(_ shouldBe Seq("!" -> Fixity.Prefix))
   }
 
-  it should "parse no fixity as None" in {
+  it should "parse no fixity as prefix by default" in {
     runEngineForFunctionFixities("def a: Bool")
-      .asserting(_ shouldBe Seq(("a" -> None)))
+      .asserting(_ shouldBe Seq("a" -> Fixity.Prefix))
   }
 
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
@@ -477,7 +477,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
         .flatten
     }
 
-  private def runEngineForFunctionFixities(source: String): IO[Seq[(String, Option[Fixity])]] =
+  private def runEngineForFunctionFixities(source: String): IO[Seq[(String, Fixity)]] =
     for {
       results <- runEngine(source)
     } yield {

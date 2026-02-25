@@ -16,7 +16,7 @@ case class FunctionDefinition(
     args: Seq[ArgumentDefinition],
     typeDefinition: TypeReference,
     body: Option[Sourced[Expression]], // Can be empty for abstract functions
-    fixity: Option[Fixity] = None,
+    fixity: Fixity = Fixity.Prefix,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty
 )
 
@@ -66,21 +66,21 @@ object FunctionDefinition {
         (identifierWith("infix") *> infixAssociativity).map(a => Fixity.Infix(a): Fixity) or
         identifierWith("postfix").as(Fixity.Postfix: Fixity)
 
-    private val fixityWithDef: Parser[Sourced[Token], (Option[Fixity], Seq[PrecedenceDeclaration])] =
+    private val fixityWithDef: Parser[Sourced[Token], (Fixity, Seq[PrecedenceDeclaration])] =
       (for {
         fixity <- fixityDecl
         prec   <- precedenceDeclaration.anyTimes()
         _      <- keyword("def")
-      } yield (Some(fixity): Option[Fixity], prec)).atomic()
+      } yield (fixity, prec)).atomic()
 
-    private val plainDef: Parser[Sourced[Token], (Option[Fixity], Seq[PrecedenceDeclaration])] =
-      keyword("def").map(_ => (None: Option[Fixity], Seq.empty: Seq[PrecedenceDeclaration]))
+    private val plainDef: Parser[Sourced[Token], (Fixity, Seq[PrecedenceDeclaration])] =
+      keyword("def").map(_ => (Fixity.Prefix: Fixity, Seq.empty: Seq[PrecedenceDeclaration]))
 
     private val functionName: Parser[Sourced[Token], Sourced[Token]] =
       acceptIfAll(isIdentifier, isLowerCase)("function name") or acceptIf(isUserOperator, "function name")
 
     override val parser: Parser[Sourced[Token], FunctionDefinition] = for {
-      (fixity, prec)    <- fixityWithDef or plainDef
+      (fixity, prec) <- fixityWithDef or plainDef
       name              <- functionName
       genericParameters <- component[Seq[GenericParameter]]
       args              <- optionalArgumentListOf(component[ArgumentDefinition])
