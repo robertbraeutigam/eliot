@@ -83,4 +83,24 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     } yield (errors, facts)
 
   case class SystemImport(module: String, content: String)
+
+  case class TestError(message: String, highlight: String)
+
+  extension (message: String) infix def at(highlight: String): TestError = TestError(message, highlight)
+
+  def toTestErrors(errors: Seq[CompilerError]): Seq[TestError] =
+    errors.map { error =>
+      val lines     = error.content.linesIterator.toSeq
+      val from      = error.sourceRange.from
+      val to        = error.sourceRange.to
+      val highlight =
+        if (from.line == to.line) lines(from.line - 1).substring(from.col - 1, to.col - 1)
+        else {
+          val firstLine   = lines(from.line - 1).substring(from.col - 1)
+          val lastLine    = lines(to.line - 1).substring(0, to.col - 1)
+          val middleLines = lines.slice(from.line, to.line - 1)
+          (firstLine +: middleLines :+ lastLine).mkString("\n")
+        }
+      TestError(error.message, highlight)
+    }
 }
