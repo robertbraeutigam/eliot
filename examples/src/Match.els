@@ -1,0 +1,8 @@
+data Maybe[A] = Nothing | Just(value: A)
+
+def describe(m: Maybe[String]): String = m match {
+  case Nothing -> "empty"
+  case Just(v) -> v
+}
+
+def main: IO[Unit] = println(describe(Just("hello")))

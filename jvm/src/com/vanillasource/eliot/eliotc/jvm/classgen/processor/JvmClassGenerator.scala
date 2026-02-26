@@ -507,13 +507,21 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     val returnType      = simpleType(body.value.expressionType)
 
     for {
-      _                <- addParameterDefinition(definition)
       closedOverArgs   <- closedOverNames.traverse(getParameterType).map(_.sequence)
       _                <- compilerAbort(body.as("Could not find all types for closed over arguments."))
                             .whenA(closedOverArgs.isEmpty)
                             .liftToTypes
       lambdaIndex      <- incLambdaCount
       lambdaFnParams    = closedOverArgs.get ++ parameters
+      // Save outer state and set up a fresh TypeState for the lambda body.
+      // The lambdaFn static method only has lambdaFnParams as its JVM parameters,
+      // so parameter indices must be relative to that, not the outer scope.
+      outerState       <- StateT.get[CompilerIO, TypeState]
+      _                <- StateT.set[CompilerIO, TypeState](TypeState(
+                            typeMap = lambdaFnParams.map(p => p.name.value -> p).toMap,
+                            parameters = lambdaFnParams.map(_.name.value),
+                            lambdaCount = outerState.lambdaCount
+                          ))
       cls1             <-
         outerClassGenerator
           .createMethod[CompilationTypesIO](
@@ -524,6 +532,9 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           .use { fnGenerator =>
             createExpressionCode(moduleName, outerClassGenerator, fnGenerator, body.value)
           }
+      // Restore outer state, preserving lambdaCount from inner (nested lambdas may have incremented it)
+      innerState       <- StateT.get[CompilerIO, TypeState]
+      _                <- StateT.set[CompilerIO, TypeState](outerState.copy(lambdaCount = innerState.lambdaCount))
       innerClassWriter <-
         outerClassGenerator
           .createInnerClassGenerator[CompilationTypesIO]("lambda$" + lambdaIndex, Seq("java/util/function/Function"))

@@ -17,6 +17,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleValueProcessor
 }
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -31,6 +32,7 @@ class AbilityCheckProcessorTest
       ModuleValueProcessor(Seq(ModuleName.systemFunctionModuleName)),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
+      MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
       SymbolicTypeCheckProcessor(),
       AbilityImplementationProcessor(),

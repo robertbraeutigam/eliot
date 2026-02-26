@@ -39,6 +39,8 @@ object OperatorResolvedExpression {
       FunctionLiteral(paramName, paramType.map(convertTypeStack), convertTypeStack(body))
     case Expression.FlatExpression(_)                           =>
       throw IllegalStateException("FlatExpression should not exist after operator resolution")
+    case Expression.MatchExpression(_, _)                      =>
+      throw IllegalStateException("MatchExpression should not exist after match desugaring")
   }
 
   private def convertTypeStack(

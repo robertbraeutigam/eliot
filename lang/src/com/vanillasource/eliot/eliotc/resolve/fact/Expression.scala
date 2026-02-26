@@ -24,6 +24,15 @@ object Expression {
       body: Sourced[TypeStack[Expression]]
   ) extends Expression
   case class FlatExpression(parts: Seq[Sourced[TypeStack[Expression]]]) extends Expression
+  case class MatchExpression(
+      scrutinee: Sourced[TypeStack[Expression]],
+      cases: Seq[MatchCase]
+  ) extends Expression
+
+  case class MatchCase(
+      pattern: Sourced[Pattern],
+      body: Sourced[TypeStack[Expression]]
+  )
 
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                                          => value.toString()
@@ -37,5 +46,7 @@ object Expression {
       name.value.show +
         (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.show).mkString("[", ", ", "]"))
     case FlatExpression(parts)                   => parts.map(_.value.show).mkString(" ")
+    case MatchExpression(scrutinee, cases)        =>
+      s"${scrutinee.value.show} match { ${cases.map(c => s"case ${c.pattern.value.show} -> ${c.body.value.show}").mkString(" ")} }"
   }
 }

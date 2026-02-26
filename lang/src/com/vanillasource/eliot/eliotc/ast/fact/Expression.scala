@@ -22,6 +22,9 @@ object Expression {
   case class IntegerLiteral(integerLiteral: Sourced[String])                                        extends Expression
   case class StringLiteral(stringLiteral: Sourced[String])                                          extends Expression
   case class FlatExpression(parts: Seq[Sourced[Expression]])                                        extends Expression
+  case class MatchExpression(scrutinee: Sourced[Expression], cases: Seq[MatchCase])                 extends Expression
+
+  case class MatchCase(pattern: Sourced[Pattern], body: Sourced[Expression])
 
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                                                 => value
@@ -34,11 +37,31 @@ object Expression {
     case FunctionApplication(None, Sourced(_, _, value), ga, _)                               => value
     case FunctionLiteral(parameters, body)                                                    => parameters.map(_.show).mkString("(", ", ", ")") + " -> " + body.show
     case FlatExpression(parts)                                                                => parts.map(_.value.show).mkString(" ")
+    case MatchExpression(scrutinee, cases)                                                    =>
+      s"${scrutinee.value.show} match { ${cases.map(c => s"case ${c.pattern.value.show} -> ${c.body.value.show}").mkString(" ")} }"
   }
 
   given ASTComponent[Expression] = new ASTComponent[Expression] {
     override def parser: Parser[Sourced[Token], Expression] =
-      sourced(atom).atLeastOnce().map(FlatExpression(_))
+      for {
+        parts      <- sourced(atom).atLeastOnce()
+        matchBlock <- matchExpression.optional()
+      } yield matchBlock match {
+        case Some(cases) =>
+          val scrutinee = if (parts.size == 1) parts.head else Sourced.outline(parts).as(FlatExpression(parts))
+          MatchExpression(scrutinee, cases)
+        case None        => FlatExpression(parts)
+      }
+
+    private val matchCase: Parser[Sourced[Token], MatchCase] = for {
+      _       <- keyword("case")
+      pattern <- sourced(component[Pattern])
+      _       <- symbol("->")
+      body    <- sourced(parser)
+    } yield MatchCase(pattern, body)
+
+    private val matchExpression: Parser[Sourced[Token], Seq[MatchCase]] =
+      matchCase.atLeastOnce().between(keyword("match") *> symbol("{"), symbol("}"))
 
     private val moduleParser: Parser[Sourced[Token], Sourced[String]] =
       for {

@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.implementation.processor.AbilityImplementationProcessor
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypeCheckedValue
@@ -24,6 +25,7 @@ class SymbolicTypeCheckProcessorTest
       ModuleValueProcessor(Seq(ModuleName.systemFunctionModuleName)),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
+      MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
       SymbolicTypeCheckProcessor(),
       AbilityImplementationProcessor()

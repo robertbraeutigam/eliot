@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.module.processor.*
 import OperatorResolvedExpressionMatchers.*
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -24,6 +25,7 @@ class OperatorResolverProcessorTest
       ModuleValueProcessor(Seq(ModuleName2.systemFunctionModuleName)),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
+      MatchDesugaringProcessor(),
       OperatorResolverProcessor()
     ) {
   private val testModuleName2    = ModuleName2(Seq.empty, "Test")

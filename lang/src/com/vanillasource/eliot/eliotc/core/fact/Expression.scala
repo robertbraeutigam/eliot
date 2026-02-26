@@ -31,6 +31,16 @@ object Expression {
   case class StringLiteral(stringLiteral: Sourced[String])   extends Expression
   // Flat sequence of expression parts, to be resolved by OperatorResolverProcessor
   case class FlatExpression(parts: Seq[Sourced[TypeStack[Expression]]]) extends Expression
+  // Match expression with scrutinee and cases, to be desugared by MatchDesugaringProcessor
+  case class MatchExpression(
+      scrutinee: Sourced[TypeStack[Expression]],
+      cases: Seq[MatchCase]
+  ) extends Expression
+
+  case class MatchCase(
+      pattern: Sourced[Pattern],
+      body: Sourced[TypeStack[Expression]]
+  )
 
   /** Structural equality means that the expression contains the same building blocks in the same order / structure. No
     * type information is used, i.e. not higher levels of expressions.
@@ -51,6 +61,11 @@ object Expression {
         p1.length == p2.length && (p1 zip p2).forall { case (a, b) =>
           structuralEquality.eqv(a.value.signature, b.value.signature)
         }
+      case (MatchExpression(s1, c1), MatchExpression(s2, c2))              =>
+        structuralEquality.eqv(s1.value.signature, s2.value.signature) &&
+        c1.length == c2.length && (c1 zip c2).forall { case (a, b) =>
+          structuralEquality.eqv(a.body.value.signature, b.body.value.signature)
+        }
       case _                                                                => false
     }
 
@@ -64,5 +79,7 @@ object Expression {
       qualifier.map(q => s"${q.value}::").getOrElse("") + valueName.value +
         (if (typeArgs.isEmpty) "" else typeArgs.map(ta => ta.value.show).mkString("[", ", ", "]"))
     case FlatExpression(parts)                                                         => parts.map(_.value.show).mkString(" ")
+    case MatchExpression(scrutinee, cases)                                               =>
+      s"${scrutinee.value.show} match { ${cases.map(c => s"case ${c.pattern.value.show} -> ${c.body.value.show}").mkString(" ")} }"
   }
 }

@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.core.fact.{
   NamedValue,
   TypeStack,
   Expression as CoreExpression,
+  Pattern as CorePattern,
   PrecedenceDeclaration as CorePrecedenceDeclaration,
   QualifiedName as CoreQualifiedName,
   Qualifier as CoreQualifier
@@ -238,6 +239,48 @@ class ValueResolver
         Expression.StringLiteral(s.as(value)).pure[ScopedIO]
       case FlatExpression(parts)                                     =>
         parts.traverse(part => resolveTypeStack(part, runtime)).map(Expression.FlatExpression(_))
+      case CoreExpression.MatchExpression(scrutinee, cases)          =>
+        for {
+          resolvedScrutinee <- resolveTypeStack(scrutinee, runtime)
+          resolvedCases     <- cases.traverse { c =>
+                                 withLocalScope {
+                                   for {
+                                     resolvedPattern <- resolvePattern(c.pattern)
+                                     resolvedBody    <- resolveTypeStack(c.body, runtime)
+                                   } yield Expression.MatchCase(resolvedPattern, resolvedBody)
+                                 }
+                               }
+        } yield Expression.MatchExpression(resolvedScrutinee, resolvedCases)
+    }
+
+  private def resolvePattern(pattern: Sourced[CorePattern]): ScopedIO[Sourced[Pattern]] =
+    pattern.value match {
+      case CorePattern.ConstructorPattern(None, nameSrc, subPatterns)          =>
+        getValue(nameSrc.value).flatMap {
+          case Some(vfqn) =>
+            subPatterns
+              .traverse(resolvePattern)
+              .map(resolved => pattern.as(Pattern.ConstructorPattern(nameSrc.as(vfqn), resolved)))
+          case None       =>
+            compilerAbort(nameSrc.as("Constructor not defined.")).liftToScoped
+        }
+      case CorePattern.ConstructorPattern(Some(qualSrc), nameSrc, subPatterns) =>
+        val moduleName = ModuleName.parse(qualSrc.value)
+        val vfqn       = ValueFQN(moduleName, nameSrc.value)
+        val outline    = Sourced.outline(Seq(qualSrc, nameSrc))
+
+        getFact(UnifiedModuleValue.Key(vfqn)).liftToScoped.flatMap {
+          case Some(_) =>
+            subPatterns
+              .traverse(resolvePattern)
+              .map(resolved => pattern.as(Pattern.ConstructorPattern(outline.as(vfqn), resolved)))
+          case None    =>
+            compilerAbort(nameSrc.as("Qualified constructor not available.")).liftToScoped
+        }
+      case CorePattern.VariablePattern(name)                                   =>
+        addParameter(name.value).as(pattern.as(Pattern.VariablePattern(name)))
+      case CorePattern.WildcardPattern(source)                                 =>
+        (pattern.as(Pattern.WildcardPattern(source)): Sourced[Pattern]).pure[ScopedIO]
     }
 
   private def resolvePrecedenceDeclarations(

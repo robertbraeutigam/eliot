@@ -16,7 +16,8 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   LambdaParameterDefinition as SourceLambdaParameter,
   PrecedenceDeclaration as AstPrecedenceDeclaration,
   QualifiedName as AstQualifiedName,
-  Qualifier as AstQualifier
+  Qualifier as AstQualifier,
+  Pattern as SourcePattern
 }
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
@@ -220,6 +221,32 @@ class CoreProcessor
         toBodyExpression(single)
       case SourceExpression.FlatExpression(parts)                                      =>
         expr.as(FlatExpression(parts.map(p => p.as(TypeStack.of(toBodyExpression(p).value)))))
+      case SourceExpression.MatchExpression(scrutinee, cases)                          =>
+        expr.as(
+          MatchExpression(
+            scrutinee.as(TypeStack.of(toBodyExpression(scrutinee).value)),
+            cases.map(c =>
+              MatchCase(
+                c.pattern.map(toPattern),
+                c.body.as(TypeStack.of(toBodyExpression(c.body).value))
+              )
+            )
+          )
+        )
+    }
+
+  private def toPattern(pattern: SourcePattern): Pattern =
+    pattern match {
+      case SourcePattern.ConstructorPattern(moduleName, constructorName, subPatterns) =>
+        Pattern.ConstructorPattern(
+          moduleName,
+          constructorName.map(n => QualifiedName(n, Qualifier.Default)),
+          subPatterns.map(_.map(toPattern))
+        )
+      case SourcePattern.VariablePattern(name)                                       =>
+        Pattern.VariablePattern(name)
+      case SourcePattern.WildcardPattern(source)                                     =>
+        Pattern.WildcardPattern(source)
     }
 
   private def convertPrecedenceDeclaration(pd: AstPrecedenceDeclaration): PrecedenceDeclaration =

@@ -18,6 +18,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleNamesProcessor,
   UnifiedModuleValueProcessor
 }
+import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.pathKey
@@ -74,6 +75,7 @@ class LangPlugin extends CompilerPlugin {
             UnifiedModuleNamesProcessor(),
             UnifiedModuleValueProcessor(),
             ValueResolver(),
+            MatchDesugaringProcessor(),
             OperatorResolverProcessor(),
             SymbolicTypeCheckProcessor(),
             AbilityImplementationProcessor(),

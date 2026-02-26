@@ -6,25 +6,28 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import TokenClassifier.AnnotatedPart
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 class OperatorResolverProcessor
-    extends TransformationProcessor[ResolvedValue.Key, OperatorResolvedValue.Key](key => ResolvedValue.Key(key.vfqn)) {
+    extends TransformationProcessor[MatchDesugaredValue.Key, OperatorResolvedValue.Key](key =>
+      MatchDesugaredValue.Key(key.vfqn)
+    ) {
 
   override protected def generateFromKeyAndFact(
       key: OperatorResolvedValue.Key,
-      resolvedValue: ResolvedValue
+      desugaredValue: MatchDesugaredValue
   ): CompilerIO[OperatorResolvedValue] =
     for {
-      resolvedRuntime <- resolvedValue.runtime.traverse(expr => resolveInExpression(expr.value).map(expr.as))
+      resolvedRuntime <- desugaredValue.runtime.traverse(expr => resolveInExpression(expr.value).map(expr.as))
     } yield OperatorResolvedValue(
-      resolvedValue.vfqn,
-      resolvedValue.name,
+      desugaredValue.vfqn,
+      desugaredValue.name,
       resolvedRuntime,
-      convertTypeStack(resolvedValue.typeStack),
-      convertParamConstraints(resolvedValue.paramConstraints)
+      convertTypeStack(desugaredValue.typeStack),
+      convertParamConstraints(desugaredValue.paramConstraints)
     )
 
   private def resolveInExpression(expr: Expression): CompilerIO[OperatorResolvedExpression] =
@@ -49,6 +52,8 @@ class OperatorResolverProcessor
         OperatorResolvedExpression.ParameterReference(v).pure[CompilerIO]
       case Expression.ValueReference(name, typeArgs)              =>
         OperatorResolvedExpression.ValueReference(name, typeArgs.map(ta => ta.map(OperatorResolvedExpression.fromExpression))).pure[CompilerIO]
+      case Expression.MatchExpression(_, _)                       =>
+        throw IllegalStateException("MatchExpression should not exist after match desugaring")
     }
 
   private def resolveInTypeStack(
@@ -71,7 +76,7 @@ class OperatorResolverProcessor
     part.value.signature match {
       case OperatorResolvedExpression.ValueReference(vfqnSrc, _) =>
         for {
-          resolved <- getFactOrAbort(ResolvedValue.Key(vfqnSrc.value))
+          resolved <- getFactOrAbort(MatchDesugaredValue.Key(vfqnSrc.value))
         } yield AnnotatedPart(part, resolved.fixity, Some(vfqnSrc.value))
       case _                                                     => AnnotatedPart(part, Fixity.Application, None).pure[CompilerIO]
     }
