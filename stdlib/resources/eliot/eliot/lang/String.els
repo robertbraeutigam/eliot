@@ -1,0 +1,9 @@
+/**
+ * Unicode compatible character Strings. The stored format is implementation dependent.
+ */
+data String
+
+/**
+ * Print a string to the standard output.
+ */
+def println(s: String): IO[Unit]
