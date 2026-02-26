@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.Arity
 import com.vanillasource.eliot.eliotc.ast.fact.{
   ArgumentDefinition,
+  DataConstructor,
   DataDefinition,
   FunctionDefinition,
   GenericParameter,
@@ -258,14 +259,14 @@ class CoreProcessor
     definitions.flatMap(transformDataDefinition)
 
   /** Transform data definitions into the core model. Data definitions don't have any special mechanisms in the core
-    * model, they need to be translated into "normal" named values. Specifically 3 things:
+    * model, they need to be translated into "normal" named values. Specifically:
     *   - Abstract function that returns the type of the type. Example: IO[A] will have type: A -> Type
-    *   - Abstract constructor function. So "data Person(name: String, age: Int)" type becomes: Function(String,
-    *     Function(Int, DataType))
-    *   - Abstract accessor functions for all fields. Types are Function(DataType, FieldType)
+    *   - Constructor functions for each constructor. So "data Maybe[A] = Nothing | Just(value: A)" generates
+    *     Nothing: A -> Maybe^Type(A) and Just: A -> Function(A, Maybe^Type(A))
+    *   - Accessor functions for each field (only if there is exactly one constructor)
     */
   private def transformDataDefinition(definition: DataDefinition): Seq[NamedValue] =
-    createTypeFunction(definition) ++ createConstructor(definition) ++ createAccessors(definition)
+    createTypeFunction(definition) ++ createConstructors(definition) ++ createAccessors(definition)
 
   private def createTypeFunction(definition: DataDefinition): Seq[NamedValue] =
     Seq(
@@ -280,46 +281,56 @@ class CoreProcessor
       )
     )
 
-  /** Note: we only create a constructor if fields are present. Else the data type is abstract and we can't create it
-    * anyway.
+  /** Create constructor functions for each constructor in the data definition.
     *
-    * The body is a self-referential call: Box(fieldA)(fieldB)... This is never evaluated - JvmClassGenerator recognizes
+    * The body is a self-referential call: Just(value)... This is never evaluated - JvmClassGenerator recognizes
     * constructors and generates native bytecode. The purpose is to preserve field names as lambda parameter names
     * through the pipeline.
     */
-  private def createConstructor(definition: DataDefinition): Seq[NamedValue] = {
-    definition.fields
-      .map(fields =>
-        Seq(
-          transformFunction(
-            FunctionDefinition(
-              definition.name.map(n => AstQualifiedName(n, AstQualifier.Default)), // Constructor name
-              definition.genericParameters,
-              fields,
-              TypeReference(
-                definition.name, // Type name
-                definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
-              ),
-              Some(
-                definition.name.as(
-                  SourceExpression.FunctionApplication(
-                    None,
-                    definition.name,
-                    Seq.empty,
-                    fields.map(f => f.name.as(SourceExpression.FunctionApplication(None, f.name, Seq.empty, Seq.empty)))
-                  )
-                )
-              )
-            )
+  private def createConstructors(definition: DataDefinition): Seq[NamedValue] =
+    definition.constructors
+      .getOrElse(Seq.empty)
+      .map(ctor => createConstructor(definition, ctor))
+
+  private def createConstructor(definition: DataDefinition, ctor: DataConstructor): NamedValue = {
+    val body = if (ctor.fields.isEmpty) {
+      Some(
+        ctor.name.as(
+          SourceExpression.FunctionApplication(None, ctor.name, Seq.empty, Seq.empty)
+        )
+      )
+    } else {
+      Some(
+        ctor.name.as(
+          SourceExpression.FunctionApplication(
+            None,
+            ctor.name,
+            Seq.empty,
+            ctor.fields.map(f => f.name.as(SourceExpression.FunctionApplication(None, f.name, Seq.empty, Seq.empty)))
           )
         )
       )
-      .getOrElse(Seq.empty)
+    }
+    transformFunction(
+      FunctionDefinition(
+        ctor.name.map(n => AstQualifiedName(n, AstQualifier.Default)),
+        definition.genericParameters,
+        ctor.fields,
+        TypeReference(
+          definition.name,
+          definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
+        ),
+        body
+      )
+    )
   }
 
+  /** Accessors are only created when there is exactly one constructor. */
   private def createAccessors(definition: DataDefinition): Seq[NamedValue] =
-    definition.fields
+    definition.constructors
+      .filter(_.size === 1)
       .getOrElse(Seq.empty)
+      .flatMap(_.fields)
       .map { field =>
         transformFunction(
           FunctionDefinition(

@@ -37,12 +37,31 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       usedNames              <- getFactOrAbort(UsedNames.Key(key.vfqn))
       usedValues              = usedNames.usedNames.filter((vfqn, _) => vfqn.moduleName === key.moduleName)
       mainClassGenerator     <- createClassGenerator[CompilerIO](key.moduleName)
-      dataClasses            <-
-        usedValues
-          .filter((vfqn, _) => isConstructor(vfqn))
-          .toSeq
-          .flatTraverse((vfqn, stats) => createDataFromConstructor(mainClassGenerator, vfqn, stats))
-      dataGeneratedFunctions <- usedValues.toSeq.flatTraverse(collectDataGeneratedFunctions)
+      // Collect constructors and group by return type for union data support
+      constructorEntries      = usedValues.filter((vfqn, _) => isConstructor(vfqn)).toSeq
+      constructorsWithInfo   <- constructorEntries.traverseFilter { (vfqn, stats) =>
+                                  getFact(UncurriedValue.Key(vfqn, stats.highestArity.getOrElse(0)))
+                                    .map(_.map((vfqn, stats, _)))
+                                }
+      constructorGroups       = constructorsWithInfo.groupBy((_, _, uv) => simpleType(uv.returnType))
+      dataClasses            <- constructorGroups.toSeq.flatTraverse { (typeVFQ, ctors) =>
+                                  if (ctors.size === 1) {
+                                    val (vfqn, stats, _) = ctors.head
+                                    createSingleConstructorData(mainClassGenerator, vfqn, stats)
+                                  } else {
+                                    createMultiConstructorData(mainClassGenerator, typeVFQ, ctors)
+                                  }
+                                }
+      dataGeneratedFunctions  = constructorGroups.toSeq.flatMap { (_, ctors) =>
+                                  if (ctors.size === 1) {
+                                    val (vfqn, _, uv) = ctors.head
+                                    Seq(vfqn) ++ uv.parameters.map(p =>
+                                      ValueFQN(vfqn.moduleName, QualifiedName(p.name.value, Qualifier.Default))
+                                    )
+                                  } else {
+                                    ctors.map(_._1)
+                                  }
+                                }
       abilityInterfaces      <- createAbilityInterfaces(mainClassGenerator, key.moduleName)
       abilityImpls           <- createAbilityImplSingletons(mainClassGenerator, key.moduleName)
       functionFiles          <-
@@ -543,7 +562,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   private def isMain(uncurriedValue: UncurriedValue): Boolean =
     uncurriedValue.name.value.name === "main" && uncurriedValue.parameters.isEmpty
 
-  private def createDataFromConstructor(
+  /** Single-constructor data: generates a concrete class, factory method, and accessors. */
+  private def createSingleConstructorData(
       outerClassGenerator: ClassGenerator,
       valueFQN: ValueFQN,
       stats: UsageStats
@@ -559,20 +579,17 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                    _  <-
                                      outerClassGenerator
                                        .createMethod[CompilerIO](
-                                         valueFQN.name.name, // TODO: is name legal?
+                                         valueFQN.name.name,
                                          uncurriedValue.parameters.map(_.parameterType).map(simpleType),
                                          valueFQN
                                        )
                                        .use { methodGenerator =>
                                          for {
-                                           // Allocate new data object
                                            _ <- methodGenerator.addNew[CompilerIO](valueFQN)
-                                           // Load constructor arguments
                                            _ <- uncurriedValue.parameters.zipWithIndex.traverse_ { (fieldDefinition, index) =>
                                                   methodGenerator
                                                     .addLoadVar[CompilerIO](simpleType(fieldDefinition.parameterType), index)
                                                 }
-                                           // Call constructor
                                            _ <- methodGenerator.addCallToCtor[CompilerIO](
                                                   valueFQN,
                                                   uncurriedValue.parameters
@@ -594,7 +611,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                                  _ <- accessorGenerator
                                                         .addLoadVar[CompilerIO](
                                                           valueFQN,
-                                                          0 // The data object is the parameter
+                                                          0
                                                         )
                                                  _ <- accessorGenerator.addGetField[CompilerIO](
                                                         argumentDefinition.name.value,
@@ -606,10 +623,56 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                          }
                                  } yield cs
                                case None                 =>
-                                 // compilerError(sourced.as("Could not find resolved type.")).as(Seq.empty)
                                  error[CompilerIO](s"Could not resolve '${valueFQN.show}'.") >> Seq.empty.pure[CompilerIO]
                              }
     } yield classes
+
+  /** Multi-constructor (union) data: generates an empty interface + implementation classes + factory methods. */
+  private def createMultiConstructorData(
+      outerClassGenerator: ClassGenerator,
+      typeVFQ: ValueFQN,
+      ctors: Seq[(ValueFQN, UsageStats, UncurriedValue)]
+  ): CompilerIO[Seq[ClassFile]] =
+    for {
+      _              <- debug[CompilerIO](s"Creating union data type '${typeVFQ.show}' with ${ctors.size} constructors")
+      // Create the interface for the data type
+      interfaceGen   <- outerClassGenerator.createInnerInterfaceGenerator[CompilerIO](typeVFQ.name.name)
+      interfaceClass <- interfaceGen.generate[CompilerIO]()
+      interfaceName   = convertToNestedClassName(typeVFQ)
+      // Create implementation classes and factory methods for each constructor
+      implClasses    <- ctors.flatTraverse { (vfqn, _, uncurriedValue) =>
+                          for {
+                            _  <- debug[CompilerIO](s"Creating union constructor '${vfqn.show}' implementing '${typeVFQ.show}'")
+                            cs <- createDataClass(
+                                    outerClassGenerator,
+                                    vfqn.name.name,
+                                    uncurriedValue.parameters,
+                                    Seq(interfaceName)
+                                  )
+                            // Factory method returns the interface type
+                            _  <-
+                              outerClassGenerator
+                                .createMethod[CompilerIO](
+                                  vfqn.name.name,
+                                  uncurriedValue.parameters.map(_.parameterType).map(simpleType),
+                                  typeVFQ
+                                )
+                                .use { methodGenerator =>
+                                  for {
+                                    _ <- methodGenerator.addNew[CompilerIO](vfqn)
+                                    _ <- uncurriedValue.parameters.zipWithIndex.traverse_ { (fieldDef, index) =>
+                                           methodGenerator
+                                             .addLoadVar[CompilerIO](simpleType(fieldDef.parameterType), index)
+                                         }
+                                    _ <- methodGenerator.addCallToCtor[CompilerIO](
+                                           vfqn,
+                                           uncurriedValue.parameters.map(_.parameterType).map(simpleType)
+                                         )
+                                  } yield ()
+                                }
+                          } yield cs
+                        }
+    } yield Seq(interfaceClass) ++ implClasses
 
   private def createDataClass(
       outerClassGenerator: ClassGenerator,
@@ -623,15 +686,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       classFile        <- innerClassWriter.generate[CompilerIO]()
     } yield Seq(classFile)
 
-  private def collectDataGeneratedFunctions(valueFQN: ValueFQN, stats: UsageStats): CompilerIO[Seq[ValueFQN]] =
-    if (isConstructor(valueFQN)) {
-      for {
-        uncurriedValue <- getFactOrAbort(UncurriedValue.Key(valueFQN, stats.highestArity.getOrElse(0)))
-        names           = uncurriedValue.parameters.map(_.name.value)
-      } yield Seq(valueFQN) ++ names.map(name => ValueFQN(valueFQN.moduleName, QualifiedName(name, Qualifier.Default)))
-    } else {
-      Seq.empty.pure[CompilerIO]
-    }
+
 
   private def createAbilityInterfaces(
       mainClassGenerator: ClassGenerator,

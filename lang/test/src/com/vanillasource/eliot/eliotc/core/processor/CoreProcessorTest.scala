@@ -262,6 +262,71 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  "union data definitions" should "generate constructor for each variant" in {
+    namedValues("data Maybe = Nothing | Just(value: A)").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should contain allOf (
+        QualifiedName("Maybe", Qualifier.Type),
+        QualifiedName("Nothing", Qualifier.Default),
+        QualifiedName("Just", Qualifier.Default)
+      )
+    }
+  }
+
+  it should "not generate accessors for multi-constructor data" in {
+    namedValues("data Maybe = Nothing | Just(value: A)").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should not contain QualifiedName("value", Qualifier.Default)
+    }
+  }
+
+  it should "generate fieldless constructor returning data type" in {
+    namedValue("data Maybe = Nothing | Just(value: A)", QualifiedName("Nothing", Qualifier.Default)).asserting { nv =>
+      nv.typeStack.signatureStructure shouldBe Ref("Maybe", Qualifier.Type)
+    }
+  }
+
+  it should "generate constructor with fields returning data type" in {
+    namedValue("data Maybe = Nothing | Just(value: A)", QualifiedName("Just", Qualifier.Default)).asserting { nv =>
+      nv.typeStack.signatureStructure shouldBe
+        App(App(Ref("Function", T), Ref("A", T)), Ref("Maybe", Qualifier.Type))
+    }
+  }
+
+  it should "generate generic union constructors with shared type params" in {
+    namedValue("data Maybe[A] = Nothing | Just(value: A)", QualifiedName("Just", Qualifier.Default)).asserting { nv =>
+      nv.typeStack.signatureStructure shouldBe
+        Lambda(
+          "A",
+          Ref("Type"),
+          App(App(Ref("Function", T), Ref("A", T)), App(Ref("Maybe", Qualifier.Type), Ref("A", T)))
+        )
+    }
+  }
+
+  it should "generate generic fieldless constructor with type params" in {
+    namedValue("data Maybe[A] = Nothing | Just(value: A)", QualifiedName("Nothing", Qualifier.Default)).asserting {
+      nv =>
+        nv.typeStack.signatureStructure shouldBe
+          Lambda("A", Ref("Type"), App(Ref("Maybe", Qualifier.Type), Ref("A", T)))
+    }
+  }
+
+  it should "generate accessors for single constructor with = syntax" in {
+    namedValues("data Box[A] = Box(value: A)").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should contain(QualifiedName("value", Qualifier.Default))
+    }
+  }
+
+  it should "generate three fieldless constructors" in {
+    namedValues("data Color = Red | Green | Blue").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should contain allOf (
+        QualifiedName("Color", Qualifier.Type),
+        QualifiedName("Red", Qualifier.Default),
+        QualifiedName("Green", Qualifier.Default),
+        QualifiedName("Blue", Qualifier.Default)
+      )
+    }
+  }
+
   "flat expressions" should "pass through as FlatExpression in core" in {
     namedValue("def f: T = b + c").asserting { nv =>
       nv.runtimeStructure shouldBe Some(Flat(Seq(Ref("b"), Ref("+"), Ref("c"))))

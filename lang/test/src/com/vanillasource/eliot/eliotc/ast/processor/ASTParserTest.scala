@@ -190,6 +190,22 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("data a").asserting(_ shouldBe Seq("Expected type name, but encountered identifier 'a'."))
   }
 
+  it should "accept a union data definition with two constructors" in {
+    runEngineForErrors("data Maybe = Nothing | Just(value: A)").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a union data definition with generics" in {
+    runEngineForErrors("data Maybe[A] = Nothing | Just(value: A)").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a union data definition with fieldless constructors" in {
+    runEngineForErrors("data Color = Red | Green | Blue").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a single constructor with = syntax" in {
+    runEngineForErrors("data Box[A] = Box(value: A)").asserting(_ shouldBe Seq.empty)
+  }
+
   it should "parse function literal with one parameter without parenthesis" in {
     runEngineForErrors("def f: A = a:A -> a").asserting(_ shouldBe Seq.empty)
   }
