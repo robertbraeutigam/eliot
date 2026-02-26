@@ -42,7 +42,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
 
   private def collectAbilityMethods(abilityFQN: AbilityFQN): CompilerIO[Seq[TypeCheckedValue]] =
     getFactOrAbort(UnifiedModuleNames.Key(abilityFQN.moduleName)).flatMap { names =>
-      names.names.toSeq
+      names.names.keys.toSeq
         .collect {
           case qn @ QualifiedName(_, Qualifier.Ability(name)) if name == abilityFQN.abilityName =>
             ValueFQN(abilityFQN.moduleName, qn)
@@ -56,7 +56,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       typeArguments: Seq[ExpressionValue]
   ): CompilerIO[Seq[TypeCheckedValue]] =
     getFactOrAbort(UnifiedModuleNames.Key(moduleName)).flatMap { names =>
-      names.names.toSeq
+      names.names.keys.toSeq
         .collect {
           case qn @ QualifiedName(_, Qualifier.AbilityImplementation(abilityNameSrc, _))
               if abilityNameSrc.value == abilityFQN.abilityName =>

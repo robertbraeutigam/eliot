@@ -10,16 +10,15 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   GenericParameter,
   SourceAST,
   TypeReference,
-  Fixity as AstFixity,
-  PrecedenceDeclaration as AstPrecedenceDeclaration,
-  LambdaParameterDefinition as SourceLambdaParameter,
   ArgumentDefinition as SourceArgument,
   Expression as SourceExpression,
+  LambdaParameterDefinition as SourceLambdaParameter,
+  PrecedenceDeclaration as AstPrecedenceDeclaration,
   QualifiedName as AstQualifiedName,
   Qualifier as AstQualifier
 }
-import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
+import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -73,7 +72,8 @@ class CoreProcessor
       typeStack,
       constraints,
       function.fixity,
-      function.precedence.map(convertPrecedenceDeclaration)
+      function.precedence.map(convertPrecedenceDeclaration),
+      function.visibility
     )
   }
 
@@ -266,7 +266,8 @@ class CoreProcessor
     *   - Accessor functions for each field (only if there is exactly one constructor)
     */
   private def transformDataDefinition(definition: DataDefinition): Seq[NamedValue] =
-    createTypeFunction(definition) ++ createConstructors(definition) ++ createAccessors(definition)
+    (createTypeFunction(definition) ++ createConstructors(definition) ++ createAccessors(definition))
+      .map(_.copy(visibility = definition.visibility))
 
   private def createTypeFunction(definition: DataDefinition): Seq[NamedValue] =
     Seq(

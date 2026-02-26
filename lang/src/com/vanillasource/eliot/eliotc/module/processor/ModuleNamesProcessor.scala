@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.module.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.Visibility
 import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, NamedValue}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleNames
@@ -16,14 +17,14 @@ class ModuleNamesProcessor extends TransformationProcessor[CoreAST.Key, ModuleNa
   ): CompilerIO[ModuleNames] =
     extractNames(fact.ast.value.namedValues).map(names => ModuleNames(key.uri, fact.ast.as(names)))
 
-  private def extractNames(namedValues: Seq[NamedValue]): CompilerIO[Set[QualifiedName]] =
-    namedValues.foldLeftM(Set.empty[QualifiedName]) { (acc, nv) =>
+  private def extractNames(namedValues: Seq[NamedValue]): CompilerIO[Map[QualifiedName, Visibility]] =
+    namedValues.foldLeftM(Map.empty[QualifiedName, Visibility]) { (acc, nv) =>
       val name = nv.qualifiedName.value
 
       if (acc.contains(name)) {
         compilerError(nv.qualifiedName.as("Name was already defined in this module.")).as(acc)
       } else {
-        (acc + name).pure[CompilerIO]
+        (acc + (name -> nv.visibility)).pure[CompilerIO]
       }
     }
 }

@@ -36,7 +36,8 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
       UnifiedModuleValue(
         implementedValue.vfqn,
         implementedValue.dictionary,
-        implementedValue.namedValue
+        implementedValue.namedValue,
+        implementedValue.privateNames
       ).pure[CompilerIO]
     }
 

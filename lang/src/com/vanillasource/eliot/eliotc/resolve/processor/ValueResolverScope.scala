@@ -4,12 +4,14 @@ import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.fact.Qualifier.Ability
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 
 case class ValueResolverScope(
+    currentModule: ModuleName,
     dictionary: Map[QualifiedName, ValueFQN],
+    privateNames: Map[QualifiedName, ValueFQN],
     parameters: Set[String]
 )
 
@@ -28,6 +30,9 @@ object ValueResolverScope {
 
   def getValue(name: QualifiedName): ScopedIO[Option[ValueFQN]] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.dictionary.get(name))
+
+  def getPrivateName(name: QualifiedName): ScopedIO[Option[ValueFQN]] =
+    StateT.get[CompilerIO, ValueResolverScope].map(_.privateNames.get(name))
 
   def searchAbilities(searchingValueName: String): ScopedIO[Seq[ValueFQN]] =
     StateT
@@ -50,6 +55,9 @@ object ValueResolverScope {
               AbilityFQN(vfqn.moduleName, name)
           }
       )
+
+  def getCurrentModule: ScopedIO[ModuleName] =
+    StateT.get[CompilerIO, ValueResolverScope].map(_.currentModule)
 
   def withLocalScope[T](computation: ScopedIO[T]): ScopedIO[T] =
     for {

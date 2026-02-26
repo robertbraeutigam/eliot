@@ -12,7 +12,8 @@ import Parser.{acceptIfAll, optional, atLeastOnceSeparatedBy, xor}
 case class DataDefinition(
     name: Sourced[String],
     genericParameters: Seq[GenericParameter],
-    constructors: Option[Seq[DataConstructor]]
+    constructors: Option[Seq[DataConstructor]],
+    visibility: Visibility = Visibility.Public
 )
 
 object DataDefinition {
@@ -24,6 +25,7 @@ object DataDefinition {
 
   given ASTComponent[DataDefinition] = new ASTComponent[DataDefinition] {
     override val parser: Parser[Sourced[Token], DataDefinition] = for {
+      vis               <- component[Visibility].optional().map(_.getOrElse(Visibility.Public))
       _                 <- keyword("data")
       name              <- acceptIfAll(isIdentifier, isUpperCase)("type name")
       genericParameters <- component[Seq[GenericParameter]]
@@ -35,7 +37,7 @@ object DataDefinition {
         case Left(ctors)   => ctors
         case Right(fields) => Seq(DataConstructor(name.map(_.content), fields))
       }
-      DataDefinition(name.map(_.content), genericParameters, constructors)
+      DataDefinition(name.map(_.content), genericParameters, constructors, vis)
     }
   }
 }

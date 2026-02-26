@@ -161,6 +161,56 @@ class ValueResolverTest
       .asserting(_ shouldBe Seq("Name not defined."))
   }
 
+  "visibility" should "resolve private value in same module" in {
+    runEngineForValue("data T\nprivate def b: T\ndef a: T = b").flatMap {
+      case Some(ValueReference(Sourced(_, _, vfqn), _)) =>
+        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
+      case x                                            => IO.delay(fail(s"was not a value reference, instead: $x"))
+    }
+  }
+
+  it should "resolve qualified value via module prefix" in {
+    runEngineForValue("data T\nqualified def b: T\ndef a: T = Test::b").flatMap {
+      case Some(ValueReference(Sourced(_, _, vfqn), _)) =>
+        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
+      case x                                            => IO.delay(fail(s"was not a value reference, instead: $x"))
+    }
+  }
+
+  it should "report error for unqualified reference to qualified value" in {
+    runEngineForErrors("data T\nqualified def b: T\ndef a: T = b")
+      .asserting(_ shouldBe Seq("Name not defined."))
+  }
+
+  it should "resolve private value via module prefix in same module" in {
+    runEngineForValue("data T\nprivate def b: T\ndef a: T = Test::b").flatMap {
+      case Some(ValueReference(Sourced(_, _, vfqn), _)) =>
+        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
+      case x                                            => IO.delay(fail(s"was not a value reference, instead: $x"))
+    }
+  }
+
+  it should "report error for private value from imported module" in {
+    runEngineForErrors(
+      "import eliot.lang.Other\ndata T\ndef a: T = secret",
+      Seq(SystemImport("Other", "data OtherT\nprivate def secret: OtherT"))
+    ).asserting(_ shouldBe Seq("Name is private."))
+  }
+
+  it should "report error for private value via module prefix from different module" in {
+    runEngineForErrors(
+      "import eliot.lang.Other\ndata T\ndef a: T = eliot.lang.Other::secret",
+      Seq(SystemImport("Other", "data OtherT\nprivate def secret: OtherT"))
+    ).asserting(_ shouldBe Seq("Name is private."))
+  }
+
+  it should "not export qualified values to importing modules" in {
+    runEngineForErrors(
+      "import eliot.lang.Other\ndata T\ndef a: T = qval",
+      Seq(SystemImport("Other", "data OtherT\nqualified def qval: OtherT"))
+    ).asserting(_ shouldBe Seq("Name not defined."))
+  }
+
   "flat expressions" should "pass through as FlatExpression in resolved value" in {
     runEngineForValue("data T\ndef b: T\ndef c: T\ndef a: T = b c").flatMap {
       case Some(FlatExpression(parts)) => IO.pure(parts.length shouldBe 2)
@@ -231,10 +281,10 @@ class ValueResolverTest
         .get
     }
 
-  private def runEngineForErrors(source: String): IO[Seq[String]] =
+  private def runEngineForErrors(source: String, extraImports: Seq[SystemImport] = Seq.empty): IO[Seq[String]] =
     runGenerator(
       source,
       ResolvedValue.Key(ValueFQN(testModuleName2, QualifiedName("a", Qualifier.Default))),
-      systemImports
+      systemImports ++ extraImports
     ).map(_._1.map(_.message))
 }

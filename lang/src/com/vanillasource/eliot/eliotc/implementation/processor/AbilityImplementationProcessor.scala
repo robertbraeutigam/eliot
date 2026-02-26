@@ -148,7 +148,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       abilityLocalName: String
   ): CompilerIO[Seq[ValueFQN]] =
     getFactOrAbort(UnifiedModuleNames.Key(moduleName)).map { names =>
-      names.names.toSeq.collect {
+      names.names.keys.toSeq.collect {
         case qn @ QualifiedName(_, Qualifier.AbilityImplementation(abilityNameSrc, _))
             if abilityNameSrc.value == abilityLocalName =>
           ValueFQN(moduleName, qn)
@@ -163,7 +163,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     getFact(UnifiedModuleNames.Key(moduleName)).map {
       case None        => Seq.empty
       case Some(names) =>
-        names.names.toSeq.collect {
+        names.names.keys.toSeq.collect {
           case qn @ QualifiedName(`functionName`, Qualifier.AbilityImplementation(abilityNameSrc, _))
               if abilityNameSrc.value == abilityLocalName =>
             ValueFQN(moduleName, qn)

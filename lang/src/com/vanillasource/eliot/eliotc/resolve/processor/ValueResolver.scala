@@ -1,32 +1,25 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName as CoreQualifiedName, Qualifier as CoreQualifier}
+import com.vanillasource.eliot.eliotc.ast.fact.Visibility
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.{
   NamedValue,
-  PrecedenceDeclaration as CorePrecedenceDeclaration,
   TypeStack,
-  Expression as CoreExpression
+  Expression as CoreExpression,
+  PrecedenceDeclaration as CorePrecedenceDeclaration,
+  QualifiedName as CoreQualifiedName,
+  Qualifier as CoreQualifier
 }
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{
-  AbilityFQN,
-  Expression,
-  PrecedenceDeclaration,
-  QualifiedName,
-  Qualifier,
-  ResolvedValue
-}
+import com.vanillasource.eliot.eliotc.resolve.fact.*
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolverScope.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
-
-import scala.collection.immutable.{AbstractSeq, LinearSeq}
 
 class ValueResolver
     extends TransformationProcessor[UnifiedModuleValue.Key, ResolvedValue.Key](key => UnifiedModuleValue.Key(key.vfqn))
@@ -38,7 +31,8 @@ class ValueResolver
   ): CompilerIO[ResolvedValue] = {
     val namedValue    = unifiedValue.namedValue
     val genericParams = collectGenericParams(namedValue.typeStack)
-    val scope         = ValueResolverScope(unifiedValue.dictionary, genericParams.toSet)
+    val scope         =
+      ValueResolverScope(key.vfqn.moduleName, unifiedValue.dictionary, unifiedValue.privateNames, genericParams.toSet)
 
     val resolveProgram = for {
       resolvedRuntime     <-
@@ -187,7 +181,12 @@ class ValueResolver
               case None       =>
                 // Not a normal value, it might be coming from an ability
                 searchAbilities(nameSrc.value.name).flatMap {
-                  case Nil         => compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
+                  case Nil         =>
+                    // Check if the name exists as a private import
+                    getPrivateName(nameSrc.value).flatMap {
+                      case Some(_) => compilerAbort(nameSrc.as("Name is private.")).liftToScoped
+                      case None    => compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
+                    }
                   case head :: Nil => Expression.ValueReference(nameSrc.as(head)).pure[ScopedIO]
                   case as          =>
                     compilerAbort(
@@ -206,11 +205,17 @@ class ValueResolver
         val outline    = Sourced.outline(Seq(qualSrc, nameSrc))
 
         getFact(UnifiedModuleValue.Key(vfqn)).liftToScoped.flatMap {
-          case Some(_) =>
-            typeArgExprs
-              .traverse(arg => resolveExpression(arg.value, false).map(arg.as(_)))
-              .map(resolvedTypeArgs => Expression.ValueReference(outline.as(vfqn), resolvedTypeArgs))
-          case None    => compilerAbort(nameSrc.as("Qualified named value not available.")).liftToScoped
+          case Some(umv) =>
+            getCurrentModule.flatMap { currentMod =>
+              if (umv.namedValue.visibility == Visibility.Private && moduleName != currentMod) {
+                compilerAbort(nameSrc.as("Name is private.")).liftToScoped
+              } else {
+                typeArgExprs
+                  .traverse(arg => resolveExpression(arg.value, false).map(arg.as(_)))
+                  .map(resolvedTypeArgs => Expression.ValueReference(outline.as(vfqn), resolvedTypeArgs))
+              }
+            }
+          case None      => compilerAbort(nameSrc.as("Qualified named value not available.")).liftToScoped
         }
       case FunctionApplication(targetStack, argStack)                =>
         for {

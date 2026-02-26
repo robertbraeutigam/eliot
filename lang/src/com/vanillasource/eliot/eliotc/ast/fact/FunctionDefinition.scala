@@ -17,7 +17,8 @@ case class FunctionDefinition(
     typeDefinition: TypeReference,
     body: Option[Sourced[Expression]], // Can be empty for abstract functions
     fixity: Fixity = Fixity.Application,
-    precedence: Seq[PrecedenceDeclaration] = Seq.empty
+    precedence: Seq[PrecedenceDeclaration] = Seq.empty,
+    visibility: Visibility = Visibility.Public
 )
 
 object FunctionDefinition {
@@ -80,7 +81,8 @@ object FunctionDefinition {
       acceptIfAll(isIdentifier, isLowerCase)("function name") or acceptIf(isUserOperator, "function name")
 
     override val parser: Parser[Sourced[Token], FunctionDefinition] = for {
-      (fixity, prec) <- fixityWithDef or plainDef
+      vis               <- component[Visibility].optional().map(_.getOrElse(Visibility.Public))
+      (fixity, prec)    <- fixityWithDef or plainDef
       name              <- functionName
       genericParameters <- component[Seq[GenericParameter]]
       args              <- optionalArgumentListOf(component[ArgumentDefinition])
@@ -94,7 +96,8 @@ object FunctionDefinition {
       typeReference,
       functionBody,
       fixity,
-      prec
+      prec,
+      vis
     )
   }
 }

@@ -7,7 +7,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 case class UnifiedModuleValue(
     vfqn: ValueFQN,
     dictionary: Map[QualifiedName, ValueFQN],
-    namedValue: NamedValue
+    namedValue: NamedValue,
+    privateNames: Map[QualifiedName, ValueFQN] = Map.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[UnifiedModuleValue] = UnifiedModuleValue.Key(vfqn)
 }

@@ -382,7 +382,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                                      abilityModuleNames   <- getFactOrAbort(
                                                                                UnifiedModuleNames.Key(abilityFQN.moduleName)
                                                                              ).liftToTypes
-                                                     abilityMethodVfqnOpt  = abilityModuleNames.names.toSeq.collectFirst {
+                                                     abilityMethodVfqnOpt  = abilityModuleNames.names.keys.toSeq.collectFirst {
                                                                                case qn @ QualifiedName(_, Qualifier.Ability(aName))
                                                                                    if aName == abilityFQN.abilityName =>
                                                                                  ValueFQN(abilityFQN.moduleName, qn)
@@ -694,7 +694,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   ): CompilerIO[Seq[ClassFile]] =
     for {
       unifiedModuleNames <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
-      abilityMethodsByAbility = unifiedModuleNames.names.toSeq.collect {
+      abilityMethodsByAbility = unifiedModuleNames.names.keys.toSeq.collect {
                                   case qn @ QualifiedName(_, Qualifier.Ability(abilityName)) =>
                                     (abilityName, ValueFQN(moduleName, qn))
                                 }.groupMap(_._1)(_._2)
@@ -719,7 +719,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   ): CompilerIO[Seq[ClassFile]] =
     for {
       unifiedModuleNames <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
-      implNames           = unifiedModuleNames.names.toSeq.collect {
+      implNames           = unifiedModuleNames.names.keys.toSeq.collect {
                               case qn @ QualifiedName(_, Qualifier.AbilityImplementation(_, _)) =>
                                 ValueFQN(moduleName, qn)
                             }

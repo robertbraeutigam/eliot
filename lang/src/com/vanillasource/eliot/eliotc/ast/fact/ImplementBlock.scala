@@ -35,12 +35,14 @@ object ImplementBlock {
             // Transform the function into an "implement" function. Change name into implement qualifier,
             // and also prepend the common generic parameters.
             // Note: the implement qualifier has to include the instantiation type parameters
+            // Visibility is always public for implementation functions.
             FunctionDefinition(
               f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.map(_.content), pattern))),
               genericParameters ++ f.genericParameters,
               f.args,
               f.typeDefinition,
-              f.body
+              f.body,
+              visibility = Visibility.Public
             )
           ) :+
             // We add the implementation to the default method as a marker, that this type implements the marker.

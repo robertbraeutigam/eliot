@@ -10,7 +10,8 @@ case class ModuleValue(
     uri: URI,
     vfqn: ValueFQN,
     dictionary: Map[QualifiedName, ValueFQN],
-    namedValue: NamedValue
+    namedValue: NamedValue,
+    privateNames: Map[QualifiedName, ValueFQN] = Map.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[ModuleValue] = ModuleValue.Key(uri, vfqn)
 }

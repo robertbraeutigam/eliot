@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.core.fact
 
 import cats.{Eq, Show}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.Fixity
+import com.vanillasource.eliot.eliotc.ast.fact.{Fixity, Visibility}
 import com.vanillasource.eliot.eliotc.core.fact
 import com.vanillasource.eliot.eliotc.core.fact.Expression.structuralEquality
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -25,7 +25,8 @@ case class NamedValue(
     typeStack: TypeStack[Expression],
     paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]] = Map.empty,
     fixity: Fixity = Fixity.Application,
-    precedence: Seq[PrecedenceDeclaration] = Seq.empty
+    precedence: Seq[PrecedenceDeclaration] = Seq.empty,
+    visibility: Visibility = Visibility.Public
 )
 
 object NamedValue {

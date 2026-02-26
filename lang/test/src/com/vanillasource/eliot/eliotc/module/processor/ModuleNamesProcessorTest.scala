@@ -51,7 +51,7 @@ class ModuleNamesProcessorTest
 
   private def runEngineForNames(source: String): IO[Set[QualifiedName]] =
     runGenerator(source, ModuleNames.Key(file)).map { case (_, facts) =>
-      facts.values.collectFirst { case ModuleNames(_, names) => names.value }.getOrElse(Set.empty)
+      facts.values.collectFirst { case ModuleNames(_, names) => names.value.keySet }.getOrElse(Set.empty)
     }
 
   private def runEngineForErrors(source: String): IO[Seq[TestError]] =

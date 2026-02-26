@@ -31,13 +31,14 @@ object AbilityBlock {
           errors,
           functions.map(f =>
             // Transform the function into an "ability" function. Change name into ability qualifier,
-            // and also prepend the common generic parameters.
+            // and also prepend the common generic parameters. Visibility is always public for ability functions.
             FunctionDefinition(
               f.name.map(n => QualifiedName(n.name, Qualifier.Ability(name.value.content))),
               commonGenericParameters ++ f.genericParameters,
               f.args,
               f.typeDefinition,
-              f.body
+              f.body,
+              visibility = Visibility.Public
             )
           ) :+
             // We add a default/invisible function/value to just indicate that this ability exists, even if it is empty.
