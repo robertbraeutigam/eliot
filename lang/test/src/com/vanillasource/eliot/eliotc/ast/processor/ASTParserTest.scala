@@ -206,6 +206,10 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("data Box[A] = Box(value: A)").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "not accept both = constructors and direct fields" in {
+    runEngineForErrors("data A = B(x: X)(y: Y)").asserting(_.size should be > 0)
+  }
+
   it should "parse function literal with one parameter without parenthesis" in {
     runEngineForErrors("def f: A = a:A -> a").asserting(_ shouldBe Seq.empty)
   }

@@ -7,7 +7,7 @@ import Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
-import Parser.{acceptIfAll, optional, atLeastOnceSeparatedBy}
+import Parser.{acceptIfAll, optional, atLeastOnceSeparatedBy, xor}
 
 case class DataDefinition(
     name: Sourced[String],
@@ -27,11 +27,14 @@ object DataDefinition {
       _                 <- keyword("data")
       name              <- acceptIfAll(isIdentifier, isUpperCase)("type name")
       genericParameters <- component[Seq[GenericParameter]]
-      unionConstructors <- (symbol("=") >> component[DataConstructor].atLeastOnceSeparatedBy(symbol("|"))).optional()
-      fields            <- bracketedCommaSeparatedItems("(", component[ArgumentDefinition], ")").optional()
+      constructorsOrFields <-
+        ((symbol("=") >> component[DataConstructor].atLeastOnceSeparatedBy(symbol("|"))) xor
+          bracketedCommaSeparatedItems("(", component[ArgumentDefinition], ")")).optional()
     } yield {
-      val constructors = unionConstructors
-        .orElse(fields.map(fs => Seq(DataConstructor(name.map(_.content), fs))))
+      val constructors = constructorsOrFields.map {
+        case Left(ctors)   => ctors
+        case Right(fields) => Seq(DataConstructor(name.map(_.content), fields))
+      }
       DataDefinition(name.map(_.content), genericParameters, constructors)
     }
   }
