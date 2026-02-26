@@ -1,9 +1,0 @@
-/**
- * Data that has exactly one value.
- */
-data Unit
-
-/**
- * The single value of Unit.
- */
-def unit: Unit
