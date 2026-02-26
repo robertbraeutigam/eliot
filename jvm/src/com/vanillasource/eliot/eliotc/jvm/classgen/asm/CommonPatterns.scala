@@ -41,6 +41,15 @@ object CommonPatterns {
   private def stripDataTypeSuffix(valueFQN: ValueFQN): ValueFQN =
     ValueFQN(valueFQN.moduleName, QualifiedName(valueFQN.name.name, Qualifier.Default))
 
+  def extractSignatureTypes(signature: ExpressionValue): (Seq[ExpressionValue], ExpressionValue) = {
+    def loop(expr: ExpressionValue, acc: Seq[ExpressionValue]): (Seq[ExpressionValue], ExpressionValue) =
+      expr match {
+        case ExpressionValue.FunctionType(paramType, returnType) => loop(returnType, acc :+ paramType)
+        case _                                                   => (acc, expr)
+      }
+    loop(ExpressionValue.stripUniversalTypeIntros(signature), Seq.empty)
+  }
+
   extension (classGenerator: ClassGenerator) {
     def addDataFieldsAndCtor[F[_]: Sync](fields: Seq[ParameterDefinition]): F[Unit] =
       for {

@@ -4,7 +4,7 @@ import cats.effect.Sync
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.simpleType
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{extractSignatureTypes, simpleType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, NativeType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -57,18 +57,9 @@ object AbilityImplGenerator {
     } yield classFile
   }
 
-  private def abilityInterfaceVfqn(abilityFQN: AbilityFQN): ValueFQN =
+  def abilityInterfaceVfqn(abilityFQN: AbilityFQN): ValueFQN =
     ValueFQN(abilityFQN.moduleName, QualifiedName(abilityFQN.abilityName + "$vtable", Qualifier.Default))
 
-  private def singletonInnerName(abilityFQN: AbilityFQN, typeArgs: Seq[ExpressionValue]): String =
+  def singletonInnerName(abilityFQN: AbilityFQN, typeArgs: Seq[ExpressionValue]): String =
     abilityFQN.abilityName + "$" + typeArgs.map(arg => simpleType(arg).name.name).mkString("$") + "$impl"
-
-  private def extractSignatureTypes(signature: ExpressionValue): (Seq[ExpressionValue], ExpressionValue) = {
-    def loop(expr: ExpressionValue, acc: Seq[ExpressionValue]): (Seq[ExpressionValue], ExpressionValue) =
-      expr match {
-        case ExpressionValue.FunctionType(paramType, returnType) => loop(returnType, acc :+ paramType)
-        case _                                                   => (acc, expr)
-      }
-    loop(ExpressionValue.stripUniversalTypeIntros(signature), Seq.empty)
-  }
 }
