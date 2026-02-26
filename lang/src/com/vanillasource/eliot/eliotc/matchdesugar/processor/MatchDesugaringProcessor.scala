@@ -443,26 +443,28 @@ class MatchDesugaringProcessor
     }
   }
 
-  /** Count the number of fields a constructor has by analyzing its type signature.
-    * Constructor type is of the form: A -> B -> ... -> DataType, where each A -> is a field.
-    * For data with generic params, it's: GenParam -> ... -> Field1 -> ... -> DataType.
-    * We count the number of FunctionLiteral wrappers in the body (which are the curried params).
+  /** Count the number of fields a constructor has from its type signature.
+    * The type has the form: GenParam -> ... -> Function^Type(Field1, Function^Type(Field2, ... DataType)).
+    * We skip leading FunctionLiterals (generic params) then count Function^Type applications.
     */
-  private def countConstructorFields(umv: UnifiedModuleValue): Int = {
-    val namedValue = umv.namedValue
-    // Count leading FunctionLiteral wrappers in the runtime body
-    // For constructors, the body preserves field structure
-    namedValue.runtime match {
-      case Some(body) => countLeadingLambdas(body.value)
-      case None       => 0
-    }
-  }
+  private def countConstructorFields(umv: UnifiedModuleValue): Int =
+    countFieldsInType(umv.namedValue.typeStack.signature)
 
-  private def countLeadingLambdas(expr: CoreExpression): Int =
+  private def countFieldsInType(expr: CoreExpression): Int =
     expr match {
-      case CoreExpression.FunctionLiteral(_, _, body) =>
-        1 + countLeadingLambdas(body.value.signature)
-      case _ => 0
+      case CoreExpression.FunctionLiteral(_, _, body)      =>
+        countFieldsInType(body.value.signature)
+      case CoreExpression.FunctionApplication(target, arg) =>
+        target.value.signature match {
+          case CoreExpression.FunctionApplication(innerTarget, _) =>
+            innerTarget.value.signature match {
+              case CoreExpression.NamedValueReference(qn, _, _) if qn.value == QualifiedName("Function", Qualifier.Type) =>
+                1 + countFieldsInType(arg.value.signature)
+              case _ => 0
+            }
+          case _ => 0
+        }
+      case _                                               => 0
     }
 
   /** Extract the data type name from a constructor's core type signature.

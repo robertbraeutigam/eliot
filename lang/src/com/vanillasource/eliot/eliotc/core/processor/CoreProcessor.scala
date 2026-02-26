@@ -313,36 +313,12 @@ class CoreProcessor
       )
     )
 
-  /** Create constructor functions for each constructor in the data definition.
-    *
-    * The body is a self-referential call: Just(value)... This is never evaluated - JvmClassGenerator recognizes
-    * constructors and generates native bytecode. The purpose is to preserve field names as lambda parameter names
-    * through the pipeline.
-    */
   private def createConstructors(definition: DataDefinition): Seq[NamedValue] =
     definition.constructors
       .getOrElse(Seq.empty)
       .map(ctor => createConstructor(definition, ctor))
 
-  private def createConstructor(definition: DataDefinition, ctor: DataConstructor): NamedValue = {
-    val body = if (ctor.fields.isEmpty) {
-      Some(
-        ctor.name.as(
-          SourceExpression.FunctionApplication(None, ctor.name, Seq.empty, Seq.empty)
-        )
-      )
-    } else {
-      Some(
-        ctor.name.as(
-          SourceExpression.FunctionApplication(
-            None,
-            ctor.name,
-            Seq.empty,
-            ctor.fields.map(f => f.name.as(SourceExpression.FunctionApplication(None, f.name, Seq.empty, Seq.empty)))
-          )
-        )
-      )
-    }
+  private def createConstructor(definition: DataDefinition, ctor: DataConstructor): NamedValue =
     transformFunction(
       FunctionDefinition(
         ctor.name.map(n => AstQualifiedName(n, AstQualifier.Default)),
@@ -352,10 +328,9 @@ class CoreProcessor
           definition.name,
           definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
         ),
-        body
+        None
       )
     )
-  }
 
   /** Accessors are only created when there is exactly one constructor. Each accessor is implemented as a match
     * expression that deconstructs the object and returns the target field.
