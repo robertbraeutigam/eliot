@@ -8,7 +8,8 @@ import com.vanillasource.eliot.eliotc.uncurry.fact.ParameterDefinition
 case class TypeState(
     typeMap: Map[String, ParameterDefinition] = Map.empty,
     parameters: Seq[String] = Seq.empty,
-    lambdaCount: Int = 0
+    lambdaCount: Int = 0,
+    methodName: String = ""
 )
 
 object TypeState {
@@ -33,6 +34,9 @@ object TypeState {
     StateT.modify[CompilerIO, TypeState] { state =>
       state.copy(lambdaCount = state.lambdaCount + 1)
     } >> StateT.get[CompilerIO, TypeState].map(_.lambdaCount)
+
+  def getMethodName: CompilationTypesIO[String] =
+    StateT.get[CompilerIO, TypeState].map(_.methodName)
 
   def getParameterType(name: String): CompilationTypesIO[Option[ParameterDefinition]] =
     StateT.get[CompilerIO, TypeState].map(_.typeMap.get(name))

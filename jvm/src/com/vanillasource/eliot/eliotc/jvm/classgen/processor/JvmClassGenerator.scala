@@ -180,7 +180,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                     )
                 } yield classes
 
-                program.runA(TypeState())
+                program.runA(TypeState(methodName = uncurriedValue.vfqn.name.name))
               }
         } yield classFiles
       case None       =>
@@ -519,6 +519,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                             .whenA(closedOverArgs.isEmpty)
                             .liftToTypes
       lambdaIndex      <- incLambdaCount
+      methodName       <- getMethodName
+      lambdaPrefix      = methodName + "$lambda$"
       lambdaFnParams    = closedOverArgs.get ++ parameters
       // Save outer state and set up a fresh TypeState for the lambda body.
       // The lambdaFn static method only has lambdaFnParams as its JVM parameters,
@@ -527,12 +529,13 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       _                <- StateT.set[CompilerIO, TypeState](TypeState(
                             typeMap = lambdaFnParams.map(p => p.name.value -> p).toMap,
                             parameters = lambdaFnParams.map(_.name.value),
-                            lambdaCount = outerState.lambdaCount
+                            lambdaCount = outerState.lambdaCount,
+                            methodName = methodName
                           ))
       cls1             <-
         outerClassGenerator
           .createMethod[CompilationTypesIO](
-            "lambdaFn$" + lambdaIndex,
+            lambdaPrefix + "fn$" + lambdaIndex,
             lambdaFnParams.map(_.parameterType).map(simpleType),
             simpleType(body.value.expressionType)
           )
@@ -544,7 +547,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       _                <- StateT.set[CompilerIO, TypeState](outerState.copy(lambdaCount = innerState.lambdaCount))
       innerClassWriter <-
         outerClassGenerator
-          .createInnerClassGenerator[CompilationTypesIO]("lambda$" + lambdaIndex, Seq("java/util/function/Function"))
+          .createInnerClassGenerator[CompilationTypesIO](lambdaPrefix + lambdaIndex, Seq("java/util/function/Function"))
       _                <- innerClassWriter.addDataFieldsAndCtor[CompilationTypesIO](closedOverArgs.get)
       _                <- innerClassWriter
                             .createApplyMethod[CompilationTypesIO](
@@ -557,13 +560,13 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                        for {
                                          _ <- applyGenerator
                                                 .addLoadVar[CompilationTypesIO](
-                                                  ValueFQN(moduleName, QualifiedName("lambda$" + lambdaIndex, Qualifier.Default)),
+                                                  ValueFQN(moduleName, QualifiedName(lambdaPrefix + lambdaIndex, Qualifier.Default)),
                                                   0 // The data object is the parameter
                                                 )
                                          _ <- applyGenerator.addGetField[CompilationTypesIO](
                                                 argument.name.value,
                                                 simpleType(argument.parameterType),
-                                                ValueFQN(moduleName, QualifiedName("lambda$" + lambdaIndex, Qualifier.Default))
+                                                ValueFQN(moduleName, QualifiedName(lambdaPrefix + lambdaIndex, Qualifier.Default))
                                               )
                                        } yield ()
                                      }
@@ -577,14 +580,14 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                      )
                                 // Call the static lambdaFn
                                 _ <- applyGenerator.addCallTo[CompilationTypesIO](
-                                       ValueFQN(moduleName, QualifiedName("lambdaFn$" + lambdaIndex, Qualifier.Default)),
+                                       ValueFQN(moduleName, QualifiedName(lambdaPrefix + "fn$" + lambdaIndex, Qualifier.Default)),
                                        lambdaFnParams.map(_.parameterType).map(simpleType),
                                        simpleType(body.value.expressionType)
                                      )
                               } yield ()
                             }
       classFile        <- innerClassWriter.generate[CompilationTypesIO]()
-      _                <- methodGenerator.addNew[CompilationTypesIO](ValueFQN(moduleName, QualifiedName("lambda$" + lambdaIndex, Qualifier.Default)))
+      _                <- methodGenerator.addNew[CompilationTypesIO](ValueFQN(moduleName, QualifiedName(lambdaPrefix + lambdaIndex, Qualifier.Default)))
       _                <- closedOverArgs.get.traverse_ { argument =>
                             for {
                               argIndex <- getParameterIndex(argument.name.value)
@@ -594,7 +597,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                             } yield ()
                           }
       _                <- methodGenerator.addCallToCtor[CompilationTypesIO]( // Call constructor
-                            ValueFQN(moduleName, QualifiedName("lambda$" + lambdaIndex, Qualifier.Default)),
+                            ValueFQN(moduleName, QualifiedName(lambdaPrefix + lambdaIndex, Qualifier.Default)),
                             closedOverArgs.get.map(_.parameterType).map(simpleType)
                           )
       // FIXME: add apply: calling the static method
