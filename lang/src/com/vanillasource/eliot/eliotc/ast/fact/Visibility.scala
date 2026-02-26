@@ -10,13 +10,11 @@ import com.vanillasource.eliot.eliotc.token.Token
 sealed trait Visibility
 
 object Visibility {
-  case object Public    extends Visibility
-  case object Qualified extends Visibility
-  case object Private   extends Visibility
+  case object Public  extends Visibility
+  case object Private extends Visibility
 
   given ASTComponent[Visibility] = new ASTComponent[Visibility] {
     override val parser: Parser[Sourced[Token], Visibility] =
-      identifierWith("qualified").as(Visibility.Qualified: Visibility) or
-        identifierWith("private").as(Visibility.Private: Visibility)
+      identifierWith("private").as(Visibility.Private: Visibility)
   }
 }

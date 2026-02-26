@@ -426,7 +426,7 @@ class CoreProcessor
             allArgs,
             returnType,
             None,
-            visibility = Visibility.Qualified
+            visibility = Visibility.Public
           )
         )
       }

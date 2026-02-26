@@ -169,19 +169,6 @@ class ValueResolverTest
     }
   }
 
-  it should "resolve qualified value via module prefix" in {
-    runEngineForValue("data T\nqualified def b: T\ndef a: T = Test::b").flatMap {
-      case Some(ValueReference(Sourced(_, _, vfqn), _)) =>
-        IO.delay(vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("b", Qualifier.Default)))
-      case x                                            => IO.delay(fail(s"was not a value reference, instead: $x"))
-    }
-  }
-
-  it should "report error for unqualified reference to qualified value" in {
-    runEngineForErrors("data T\nqualified def b: T\ndef a: T = b")
-      .asserting(_ shouldBe Seq("Name not defined."))
-  }
-
   it should "resolve private value via module prefix in same module" in {
     runEngineForValue("data T\nprivate def b: T\ndef a: T = Test::b").flatMap {
       case Some(ValueReference(Sourced(_, _, vfqn), _)) =>
@@ -202,13 +189,6 @@ class ValueResolverTest
       "import eliot.lang.Other\ndata T\ndef a: T = eliot.lang.Other::secret",
       Seq(SystemImport("Other", "data OtherT\nprivate def secret: OtherT"))
     ).asserting(_ shouldBe Seq("Name is private."))
-  }
-
-  it should "not export qualified values to importing modules" in {
-    runEngineForErrors(
-      "import eliot.lang.Other\ndata T\ndef a: T = qval",
-      Seq(SystemImport("Other", "data OtherT\nqualified def qval: OtherT"))
-    ).asserting(_ shouldBe Seq("Name not defined."))
   }
 
   "flat expressions" should "pass through as FlatExpression in resolved value" in {

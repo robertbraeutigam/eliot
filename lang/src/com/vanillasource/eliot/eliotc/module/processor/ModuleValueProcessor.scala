@@ -27,7 +27,7 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
         extractImportedModules(key.vfqn.moduleName, coreAST.ast.as(coreAST.ast.value.importStatements), systemModules)
       importResult   <- extractImportedNames(importedModules, moduleNames.names.value.keySet)
       localDictionary = moduleNames.names.value.collect {
-                          case (name, vis) if vis != Visibility.Qualified => (name, ValueFQN(key.vfqn.moduleName, name))
+                          case (name, _) => (name, ValueFQN(key.vfqn.moduleName, name))
                         }
       dictionary      = importResult.dictionary ++ localDictionary
       namedValuesMap  = coreAST.ast.value.namedValues.map(nv => nv.qualifiedName.value -> nv).toMap

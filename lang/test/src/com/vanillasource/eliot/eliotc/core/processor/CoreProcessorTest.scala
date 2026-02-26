@@ -346,9 +346,9 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "have qualified visibility" in {
+  it should "have public visibility" in {
     namedValue("data Box[A](value: A)", QualifiedName("handleBoxWith", Qualifier.Default)).asserting { nv =>
-      nv.visibility shouldBe Visibility.Qualified
+      nv.visibility shouldBe Visibility.Public
     }
   }
 
