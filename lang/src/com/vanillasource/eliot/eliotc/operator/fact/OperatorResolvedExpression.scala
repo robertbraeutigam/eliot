@@ -3,8 +3,8 @@ package com.vanillasource.eliot.eliotc.operator.fact
 import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.resolve.fact.Expression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 sealed trait OperatorResolvedExpression
@@ -27,24 +27,22 @@ object OperatorResolvedExpression {
       body: Sourced[TypeStack[OperatorResolvedExpression]]
   ) extends OperatorResolvedExpression
 
-  def fromExpression(expr: Expression): OperatorResolvedExpression = expr match {
-    case Expression.FunctionApplication(target, arg)            =>
+  def fromExpression(expr: MatchDesugaredExpression): OperatorResolvedExpression = expr match {
+    case MatchDesugaredExpression.FunctionApplication(target, arg)            =>
       FunctionApplication(convertTypeStack(target), convertTypeStack(arg))
-    case Expression.IntegerLiteral(v)                           => IntegerLiteral(v)
-    case Expression.StringLiteral(v)                            => StringLiteral(v)
-    case Expression.ParameterReference(v)                       => ParameterReference(v)
-    case Expression.ValueReference(name, typeArgs)              =>
+    case MatchDesugaredExpression.IntegerLiteral(v)                           => IntegerLiteral(v)
+    case MatchDesugaredExpression.StringLiteral(v)                            => StringLiteral(v)
+    case MatchDesugaredExpression.ParameterReference(v)                       => ParameterReference(v)
+    case MatchDesugaredExpression.ValueReference(name, typeArgs)              =>
       ValueReference(name, typeArgs.map(ta => ta.map(fromExpression)))
-    case Expression.FunctionLiteral(paramName, paramType, body) =>
+    case MatchDesugaredExpression.FunctionLiteral(paramName, paramType, body) =>
       FunctionLiteral(paramName, paramType.map(convertTypeStack), convertTypeStack(body))
-    case Expression.FlatExpression(_)                           =>
+    case MatchDesugaredExpression.FlatExpression(_)                           =>
       throw IllegalStateException("FlatExpression should not exist after operator resolution")
-    case Expression.MatchExpression(_, _)                      =>
-      throw IllegalStateException("MatchExpression should not exist after match desugaring")
   }
 
   private def convertTypeStack(
-      stack: Sourced[TypeStack[Expression]]
+      stack: Sourced[TypeStack[MatchDesugaredExpression]]
   ): Sourced[TypeStack[OperatorResolvedExpression]] =
     stack.map(ts => TypeStack(ts.levels.map(fromExpression)))
 

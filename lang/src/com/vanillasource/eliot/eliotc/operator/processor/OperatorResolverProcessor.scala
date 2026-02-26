@@ -6,9 +6,8 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import TokenClassifier.AnnotatedPart
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue
+import com.vanillasource.eliot.eliotc.matchdesugar.fact.{MatchDesugaredExpression, MatchDesugaredValue}
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 class OperatorResolverProcessor
@@ -30,34 +29,32 @@ class OperatorResolverProcessor
       convertParamConstraints(desugaredValue.paramConstraints)
     )
 
-  private def resolveInExpression(expr: Expression): CompilerIO[OperatorResolvedExpression] =
+  private def resolveInExpression(expr: MatchDesugaredExpression): CompilerIO[OperatorResolvedExpression] =
     expr match {
-      case Expression.FlatExpression(parts)                       =>
+      case MatchDesugaredExpression.FlatExpression(parts)                       =>
         for {
           resolvedParts <- parts.traverse(resolveInTypeStack)
           result        <- resolveFlatExpression(resolvedParts)
         } yield result
-      case Expression.FunctionApplication(target, arg)            =>
+      case MatchDesugaredExpression.FunctionApplication(target, arg)            =>
         for {
           resolvedTarget <- resolveInTypeStack(target)
           resolvedArg    <- resolveInTypeStack(arg)
         } yield OperatorResolvedExpression.FunctionApplication(resolvedTarget, resolvedArg)
-      case Expression.FunctionLiteral(paramName, paramType, body) =>
+      case MatchDesugaredExpression.FunctionLiteral(paramName, paramType, body) =>
         resolveInTypeStack(body).map(OperatorResolvedExpression.FunctionLiteral(paramName, paramType.map(convertTypeStack), _))
-      case Expression.IntegerLiteral(v)                           =>
+      case MatchDesugaredExpression.IntegerLiteral(v)                           =>
         OperatorResolvedExpression.IntegerLiteral(v).pure[CompilerIO]
-      case Expression.StringLiteral(v)                            =>
+      case MatchDesugaredExpression.StringLiteral(v)                            =>
         OperatorResolvedExpression.StringLiteral(v).pure[CompilerIO]
-      case Expression.ParameterReference(v)                       =>
+      case MatchDesugaredExpression.ParameterReference(v)                       =>
         OperatorResolvedExpression.ParameterReference(v).pure[CompilerIO]
-      case Expression.ValueReference(name, typeArgs)              =>
+      case MatchDesugaredExpression.ValueReference(name, typeArgs)              =>
         OperatorResolvedExpression.ValueReference(name, typeArgs.map(ta => ta.map(OperatorResolvedExpression.fromExpression))).pure[CompilerIO]
-      case Expression.MatchExpression(_, _)                       =>
-        throw IllegalStateException("MatchExpression should not exist after match desugaring")
     }
 
   private def resolveInTypeStack(
-      stack: Sourced[TypeStack[Expression]]
+      stack: Sourced[TypeStack[MatchDesugaredExpression]]
   ): CompilerIO[Sourced[TypeStack[OperatorResolvedExpression]]] =
     stack.value.levels.traverse(resolveInExpression).map(levels => stack.as(TypeStack(levels)))
 
@@ -82,12 +79,12 @@ class OperatorResolverProcessor
     }
 
   private def convertTypeStack(
-      stack: Sourced[TypeStack[Expression]]
+      stack: Sourced[TypeStack[MatchDesugaredExpression]]
   ): Sourced[TypeStack[OperatorResolvedExpression]] =
     stack.map(ts => TypeStack(ts.levels.map(OperatorResolvedExpression.fromExpression)))
 
   private def convertParamConstraints(
-      constraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]
+      constraints: Map[String, Seq[MatchDesugaredValue.ResolvedAbilityConstraint]]
   ): Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] =
     constraints.map { (key, cs) =>
       key -> cs.map(c =>

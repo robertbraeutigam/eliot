@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -135,7 +136,7 @@ class SymbolicTypeCheckProcessor
       case ResolveQualifier.AbilityImplementation(_, params) =>
         params.traverse { param =>
           TypeExpressionEvaluator
-            .processStackForDeclaration(name.as(TypeStack.of(OperatorResolvedExpression.fromExpression(param))))
+            .processStackForDeclaration(name.as(TypeStack.of(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(param)))))
             .map(_._1)
         }
       case _                                                 => Seq.empty[ExpressionValue].pure[TypeGraphIO]

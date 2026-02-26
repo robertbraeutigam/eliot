@@ -4,7 +4,7 @@ import cats.kernel.Order.catsKernelOrderingForOrder
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredValue
+import com.vanillasource.eliot.eliotc.matchdesugar.fact.{MatchDesugaredExpression, MatchDesugaredValue}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -27,35 +27,29 @@ class MatchDesugaringProcessor
     } yield MatchDesugaredValue(
       resolvedValue.vfqn,
       resolvedValue.name,
-      desugaredRuntime,
-      desugarTypeStack(resolvedValue.typeStack),
-      resolvedValue.paramConstraints,
+      desugaredRuntime.map(_.map(MatchDesugaredExpression.fromExpression)),
+      convertTypeStack(resolvedValue.typeStack),
+      convertParamConstraints(resolvedValue.paramConstraints),
       resolvedValue.fixity,
       resolvedValue.precedence
     )
 
-  private def desugarTypeStack(
+  private def convertTypeStack(
       stack: Sourced[TypeStack[Expression]]
-  ): Sourced[TypeStack[Expression]] =
-    stack.map(ts => TypeStack(ts.levels.map(desugarExpressionPure)))
+  ): Sourced[TypeStack[MatchDesugaredExpression]] =
+    stack.map(ts => TypeStack(ts.levels.map(MatchDesugaredExpression.fromExpression)))
 
-  private def desugarExpressionPure(expr: Expression): Expression =
-    expr match {
-      case Expression.MatchExpression(_, _)                          =>
-        throw IllegalStateException("MatchExpression in type position is not supported")
-      case Expression.FunctionApplication(target, arg)               =>
-        Expression.FunctionApplication(desugarTypeStackPure(target), desugarTypeStackPure(arg))
-      case Expression.FunctionLiteral(paramName, paramType, body)    =>
-        Expression.FunctionLiteral(paramName, paramType.map(desugarTypeStackPure), desugarTypeStackPure(body))
-      case Expression.FlatExpression(parts)                          =>
-        Expression.FlatExpression(parts.map(desugarTypeStackPure))
-      case other                                                     => other
+  private def convertParamConstraints(
+      constraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]
+  ): Map[String, Seq[MatchDesugaredValue.ResolvedAbilityConstraint]] =
+    constraints.map { (key, cs) =>
+      key -> cs.map(c =>
+        MatchDesugaredValue.ResolvedAbilityConstraint(
+          c.abilityFQN,
+          c.typeArgs.map(MatchDesugaredExpression.fromExpression)
+        )
+      )
     }
-
-  private def desugarTypeStackPure(
-      stack: Sourced[TypeStack[Expression]]
-  ): Sourced[TypeStack[Expression]] =
-    stack.map(ts => TypeStack(ts.levels.map(desugarExpressionPure)))
 
   private def desugarExpression(expr: Expression): CompilerIO[Expression] =
     expr match {
