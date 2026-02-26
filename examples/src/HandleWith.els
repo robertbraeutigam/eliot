@@ -1,5 +1,17 @@
+data Something = Else | Other
+
 data Greeting = Hello | Goodbye
 
-def greet(g: Greeting): String = HandleWith::handleWith(g, (u: Unit) -> "Hello!", (u: Unit) -> "Goodbye!")
+def greet(g: Greeting): String = g match {
+  case Hello -> "Hello!"
+  case Goodbye -> "Goodbye!"
+}
 
-def main: IO[Unit] = println(greet(Goodbye))
+def something(s: Something): String = s match {
+  case Else -> "Else!"
+  case Other -> "Other!"
+}
+
+infix def or(s1: String, s2: String): String = s1
+
+def main: IO[Unit] = println(something(Else) or greet(Goodbye))

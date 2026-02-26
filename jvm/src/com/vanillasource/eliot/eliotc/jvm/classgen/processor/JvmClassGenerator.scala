@@ -39,66 +39,71 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       usedNames              <- getFactOrAbort(UsedNames.Key(key.vfqn))
       usedValues              = usedNames.usedNames.filter((vfqn, _) => vfqn.moduleName === key.moduleName)
       mainClassGenerator     <- createClassGenerator[CompilerIO](key.moduleName)
-      // Check if handleWith eliminator is used
-      handleWithVfqn          = ValueFQN(key.moduleName, QualifiedName("handleWith", Qualifier.Default))
-      handleWithUsed          = usedValues.contains(handleWithVfqn)
-      handleWithUncurried    <- if (handleWithUsed) {
-                                  val stats = usedValues(handleWithVfqn)
-                                  getFact(UncurriedValue.Key(handleWithVfqn, stats.highestArity.getOrElse(0)))
-                                } else {
-                                  Option.empty[UncurriedValue].pure[CompilerIO]
+      // Get all module constructor names for per-data-type processing
+      moduleNames            <- getFactOrAbort(UnifiedModuleNames.Key(key.moduleName))
+      allCtorNames            = moduleNames.names.keys.toSeq.filter(qn => isConstructor(ValueFQN(key.moduleName, qn)))
+      allCtorsWithUv         <- allCtorNames.traverseFilter { qn =>
+                                  val vfqn = ValueFQN(key.moduleName, qn)
+                                  getFact(UncurriedValue.Key(vfqn, 0)).map(_.map(uv => (vfqn, uv)))
                                 }
-      // Collect constructors and group by return type for union data support.
-      // When handleWith is used, we need ALL constructors of the data type (not just used ones),
-      // because the virtual dispatch needs every constructor class to exist.
-      allModuleConstructors  <- if (handleWithUsed) {
-                                  for {
-                                    moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(key.moduleName))
-                                    allCtorNames = moduleNames.names.keys.toSeq.filter(qn =>
-                                                     isConstructor(ValueFQN(key.moduleName, qn))
-                                                   )
-                                    ctorsWithUv <- allCtorNames.traverseFilter { qn =>
-                                                     val vfqn = ValueFQN(key.moduleName, qn)
-                                                     getFact(UncurriedValue.Key(vfqn, 0)).map(_.map { uv =>
-                                                       val stats = usedValues.getOrElse(vfqn, UsageStats(Seq.empty, Map(0 -> 1)))
-                                                       (vfqn, stats, uv)
-                                                     })
-                                                   }
-                                  } yield ctorsWithUv
-                                } else {
-                                  Seq.empty.pure[CompilerIO]
-                                }
-      constructorEntries      = usedValues.filter((vfqn, _) => isConstructor(vfqn)).toSeq
-      constructorsWithInfo   <- constructorEntries.traverseFilter { (vfqn, stats) =>
+      allCtorGroups           = allCtorsWithUv.groupBy((_, uv) => simpleType(constructorDataType(uv.returnType)))
+      // Get used constructors with actual arity stats
+      usedCtorEntries         = usedValues.filter((vfqn, _) => isConstructor(vfqn)).toSeq
+      usedCtorsInfo          <- usedCtorEntries.traverseFilter { (vfqn, stats) =>
                                   getFact(UncurriedValue.Key(vfqn, stats.highestArity.getOrElse(0)))
                                     .map(_.map((vfqn, stats, _)))
                                 }
-      // Merge: when handleWith is used, include all module constructors
-      mergedConstructors      = if (handleWithUsed) {
-                                  val usedVfqns = constructorsWithInfo.map(_._1).toSet
-                                  constructorsWithInfo ++ allModuleConstructors.filterNot(c => usedVfqns.contains(c._1))
-                                } else {
-                                  constructorsWithInfo
-                                }
-      constructorGroups       = mergedConstructors.groupBy((_, _, uv) => simpleType(constructorDataType(uv.returnType)))
-      dataClasses            <- constructorGroups.toSeq.flatTraverse { (typeVFQ, ctors) =>
-                                  if (ctors.size === 1) {
-                                    val (vfqn, stats, _) = ctors.head
-                                    createSingleConstructorData(mainClassGenerator, vfqn, stats, handleWithUncurried)
+      // Process each data type: check per-type eliminator usage, merge constructors, generate classes
+      dataResults            <- allCtorGroups.toSeq.traverse { (typeVFQ, allTypeCtors) =>
+                                  val typeName       = typeVFQ.name.name
+                                  val eliminatorName = s"handle${typeName}With"
+                                  val eliminatorVfqn = ValueFQN(key.moduleName, QualifiedName(eliminatorName, Qualifier.Default))
+                                  val eliminatorUsed = usedValues.contains(eliminatorVfqn)
+                                  val usedFromType   = usedCtorsInfo.filter(c => allTypeCtors.exists(_._1 === c._1))
+                                  if (!eliminatorUsed && usedFromType.isEmpty) {
+                                    (Seq.empty[ClassFile], Seq.empty[ValueFQN]).pure[CompilerIO]
                                   } else {
-                                    createMultiConstructorData(mainClassGenerator, typeVFQ, ctors, handleWithUncurried)
+                                    for {
+                                      eliminatorUncurried <- if (eliminatorUsed) {
+                                                               val stats = usedValues(eliminatorVfqn)
+                                                               getFact(UncurriedValue.Key(eliminatorVfqn, stats.highestArity.getOrElse(0)))
+                                                             } else {
+                                                               Option.empty[UncurriedValue].pure[CompilerIO]
+                                                             }
+                                      // When eliminator is used, include ALL constructors for virtual dispatch
+                                      ctors                = if (eliminatorUsed) {
+                                                               val usedVfqns = usedFromType.map(_._1).toSet
+                                                               usedFromType ++ allTypeCtors
+                                                                 .filterNot((vfqn, _) => usedVfqns.contains(vfqn))
+                                                                 .map { (vfqn, uv) =>
+                                                                   val stats = usedValues.getOrElse(vfqn, UsageStats(Seq.empty, Map(0 -> 1)))
+                                                                   (vfqn, stats, uv)
+                                                                 }
+                                                             } else {
+                                                               usedFromType
+                                                             }
+                                      classes             <- if (ctors.size === 1) {
+                                                               val (vfqn, stats, _) = ctors.head
+                                                               createSingleConstructorData(mainClassGenerator, vfqn, stats, eliminatorUncurried, eliminatorName)
+                                                             } else {
+                                                               createMultiConstructorData(mainClassGenerator, typeVFQ, ctors, eliminatorUncurried, eliminatorName)
+                                                             }
+                                      generatedFunctions   = {
+                                                               val ctorFunctions = if (ctors.size === 1) {
+                                                                 val (vfqn, _, uv) = ctors.head
+                                                                 Seq(vfqn) ++ uv.parameters.map(p =>
+                                                                   ValueFQN(vfqn.moduleName, QualifiedName(p.name.value, Qualifier.Default))
+                                                                 )
+                                                               } else {
+                                                                 ctors.map(_._1)
+                                                               }
+                                                               ctorFunctions ++ (if (eliminatorUsed) Seq(eliminatorVfqn) else Seq.empty)
+                                                             }
+                                    } yield (classes, generatedFunctions)
                                   }
                                 }
-      dataGeneratedFunctions  = constructorGroups.toSeq.flatMap { (_, ctors) =>
-                                  if (ctors.size === 1) {
-                                    val (vfqn, _, uv) = ctors.head
-                                    Seq(vfqn) ++ uv.parameters.map(p =>
-                                      ValueFQN(vfqn.moduleName, QualifiedName(p.name.value, Qualifier.Default))
-                                    )
-                                  } else {
-                                    ctors.map(_._1)
-                                  }
-                                } ++ (if (handleWithUsed) Seq(handleWithVfqn) else Seq.empty)
+      dataClasses             = dataResults.flatMap(_._1)
+      dataGeneratedFunctions  = dataResults.flatMap(_._2)
       abilityInterfaces      <- createAbilityInterfaces(mainClassGenerator, key.moduleName)
       abilityImpls           <- createAbilityImplSingletons(mainClassGenerator, key.moduleName)
       functionFiles          <-
@@ -622,12 +627,13 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       case other                                  => other
     }
 
-  /** Single-constructor data: generates a concrete class, factory method, accessors, and optional handleWith. */
+  /** Single-constructor data: generates a concrete class, factory method, accessors, and optional eliminator. */
   private def createSingleConstructorData(
       outerClassGenerator: ClassGenerator,
       valueFQN: ValueFQN,
       stats: UsageStats,
-      handleWithUncurried: Option[UncurriedValue]
+      handleWithUncurried: Option[UncurriedValue],
+      eliminatorName: String
   ): CompilerIO[Seq[ClassFile]] =
     for {
       uncurriedValueMaybe <- getFact(UncurriedValue.Key(valueFQN, stats.highestArity.getOrElse(0)))
@@ -640,7 +646,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                            valueFQN.name.name,
                                            uncurriedValue.parameters,
                                            Seq.empty,
-                                           handleWithUncurried.map(hw => Seq((0, uncurriedValue.parameters, hw)))
+                                           handleWithUncurried.map(hw => Seq((0, uncurriedValue.parameters, hw))),
+                                           eliminatorName
                                          )
                                    // Define data function
                                    _  <-
@@ -688,9 +695,9 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                                } yield ()
                                              }
                                          }
-                                   // Generate static handleWith method (delegates to virtual call on the class)
+                                   // Generate static eliminator method (delegates to virtual call on the class)
                                    _  <- handleWithUncurried.traverse_ { hw =>
-                                           generateStaticHandleWith(outerClassGenerator, hw, valueFQN, isInterface = false)
+                                           generateStaticHandleWith(outerClassGenerator, hw, valueFQN, isInterface = false, eliminatorName)
                                          }
                                  } yield cs
                                case None                 =>
@@ -698,22 +705,23 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                              }
     } yield classes
 
-  /** Multi-constructor (union) data: generates an interface + implementation classes + factory methods + handleWith. */
+  /** Multi-constructor (union) data: generates an interface + implementation classes + factory methods + eliminator. */
   private def createMultiConstructorData(
       outerClassGenerator: ClassGenerator,
       typeVFQ: ValueFQN,
       ctors: Seq[(ValueFQN, UsageStats, UncurriedValue)],
-      handleWithUncurried: Option[UncurriedValue]
+      handleWithUncurried: Option[UncurriedValue],
+      eliminatorName: String
   ): CompilerIO[Seq[ClassFile]] =
     for {
       _              <- debug[CompilerIO](s"Creating union data type '${typeVFQ.show}' with ${ctors.size} constructors")
       // Create the interface for the data type
       interfaceGen   <- outerClassGenerator.createInnerInterfaceGenerator[CompilerIO](typeVFQ.name.name)
-      // Add abstract handleWith to the interface if used
+      // Add abstract eliminator method to the interface if used
       _              <- handleWithUncurried.traverse_ { hw =>
                           val handlerParams = hw.parameters.drop(1) // skip 'obj' parameter
                           interfaceGen.createAbstractMethod[CompilerIO](
-                            "handleWith",
+                            eliminatorName,
                             handlerParams.map(_.parameterType).map(simpleType),
                             simpleType(hw.returnType)
                           )
@@ -733,7 +741,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                     vfqn.name.name,
                                     uncurriedValue.parameters,
                                     Seq(interfaceName),
-                                    handleWithUncurried.map(hw => Seq((ctorIndex, uncurriedValue.parameters, hw)))
+                                    handleWithUncurried.map(hw => Seq((ctorIndex, uncurriedValue.parameters, hw))),
+                                    eliminatorName
                                   )
                             // Factory method returns the interface type
                             _  <-
@@ -758,15 +767,15 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 }
                           } yield cs
                         }
-      // Generate static handleWith method (delegates to INVOKEINTERFACE)
+      // Generate static eliminator method (delegates to INVOKEINTERFACE)
       _              <- handleWithUncurried.traverse_ { hw =>
-                          generateStaticHandleWith(outerClassGenerator, hw, typeVFQ, isInterface = true)
+                          generateStaticHandleWith(outerClassGenerator, hw, typeVFQ, isInterface = true, eliminatorName)
                         }
     } yield Seq(interfaceClass) ++ implClasses
 
-  /** Create a data class with fields, constructor, and optionally a handleWith instance method.
+  /** Create a data class with fields, constructor, and optionally an eliminator instance method.
     * @param handleWithInfo
-    *   If present, Seq of (constructorIndex, constructorFields, handleWithUncurried) for generating handleWith override.
+    *   If present, Seq of (constructorIndex, constructorFields, handleWithUncurried) for generating eliminator override.
     *   For single-constructor data, this is Seq((0, fields, hw)). For union constructors, each gets its own index.
     */
   private def createDataClassWithHandleWith(
@@ -774,18 +783,19 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       innerClassName: String,
       fields: Seq[ParameterDefinition],
       javaInterfaces: Seq[String] = Seq.empty,
-      handleWithInfo: Option[Seq[(Int, Seq[ParameterDefinition], UncurriedValue)]] = None
+      handleWithInfo: Option[Seq[(Int, Seq[ParameterDefinition], UncurriedValue)]] = None,
+      eliminatorName: String = ""
   ): CompilerIO[Seq[ClassFile]] =
     for {
       innerClassWriter <- outerClassGenerator.createInnerClassGenerator[CompilerIO](innerClassName, javaInterfaces)
       _                <- innerClassWriter.addDataFieldsAndCtor[CompilerIO](fields)
-      // Generate handleWith instance method override if requested
+      // Generate eliminator instance method override if requested
       _                <- handleWithInfo.traverse_ { infos =>
                             infos.traverse_ { case (ctorIndex, ctorFields, hw) =>
                               val handlerParams = hw.parameters.drop(1) // skip 'obj' parameter
                               innerClassWriter
                                 .createPublicInstanceMethod[CompilerIO](
-                                  "handleWith",
+                                  eliminatorName,
                                   handlerParams.map(_.parameterType).map(simpleType),
                                   simpleType(hw.returnType)
                                 )
@@ -831,19 +841,20 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       classFile        <- innerClassWriter.generate[CompilerIO]()
     } yield Seq(classFile)
 
-  /** Generate a static handleWith method on the module class that delegates to virtual/interface dispatch. */
+  /** Generate a static eliminator method on the module class that delegates to virtual/interface dispatch. */
   private def generateStaticHandleWith(
       outerClassGenerator: ClassGenerator,
       hw: UncurriedValue,
       dataTypeVfqn: ValueFQN,
-      isInterface: Boolean
+      isInterface: Boolean,
+      eliminatorName: String
   ): CompilerIO[Unit] = {
     val allParamTypes = hw.parameters.map(_.parameterType).map(simpleType)
     val returnType    = simpleType(hw.returnType)
     val handlerParams = hw.parameters.drop(1) // skip 'obj'
     outerClassGenerator
       .createMethod[CompilerIO](
-        "handleWith",
+        eliminatorName,
         allParamTypes,
         returnType
       )
@@ -860,14 +871,14 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
             if (isInterface) {
               methodGenerator.addCallToAbilityMethod[CompilerIO](
                 convertToNestedClassName(dataTypeVfqn),
-                "handleWith",
+                eliminatorName,
                 handlerParams.map(_.parameterType).map(simpleType),
                 returnType
               )
             } else {
               methodGenerator.addCallToVirtualMethod[CompilerIO](
                 convertToNestedClassName(dataTypeVfqn),
-                "handleWith",
+                eliminatorName,
                 handlerParams.map(_.parameterType).map(simpleType),
                 returnType
               )

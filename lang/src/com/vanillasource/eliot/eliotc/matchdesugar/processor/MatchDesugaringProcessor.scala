@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.kernel.Order.catsKernelOrderingForOrder
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.{Expression => CoreExpression, QualifiedName, Qualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.{MatchDesugaredExpression, MatchDesugaredValue}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, UnifiedModuleValue, ValueFQN}
@@ -78,21 +78,30 @@ class MatchDesugaringProcessor
       cases: Seq[Expression.MatchCase]
   ): CompilerIO[Expression] =
     for {
-      constructorModule <- findConstructorModule(cases)
-      allConstructors   <- findAllConstructors(constructorModule)
-      _                 <- checkExhaustiveness(cases, allConstructors)
-      orderedHandlers   <- buildOrderedHandlers(scrutinee, cases, allConstructors)
-      handleWithVfqn     = ValueFQN(constructorModule, QualifiedName("handleWith", Qualifier.Default))
+      moduleAndType   <- findConstructorModuleAndTypeName(cases)
+      (constructorModule, dataTypeName) = moduleAndType
+      allConstructors <- findAllConstructors(constructorModule, dataTypeName)
+      _               <- checkExhaustiveness(cases, allConstructors)
+      orderedHandlers <- buildOrderedHandlers(scrutinee, cases, allConstructors)
+      eliminatorName   = s"handle${dataTypeName}With"
+      handleWithVfqn   = ValueFQN(constructorModule, QualifiedName(eliminatorName, Qualifier.Default))
     } yield buildHandleWithCall(scrutinee, handleWithVfqn, orderedHandlers)
 
-  /** Find the module that defines the data type from the first constructor pattern in the cases. */
-  private def findConstructorModule(
+  /** Find the module and data type name from the first constructor pattern in the cases. */
+  private def findConstructorModuleAndTypeName(
       cases: Seq[Expression.MatchCase]
-  ): CompilerIO[ModuleName] =
+  ): CompilerIO[(ModuleName, String)] =
     cases
       .flatMap(c => collectConstructorPatterns(c.pattern.value))
       .headOption match {
-      case Some(vfqn) => vfqn.moduleName.pure[CompilerIO]
+      case Some(vfqn) =>
+        for {
+          umv          <- getFactOrAbort(UnifiedModuleValue.Key(vfqn))
+          dataTypeName <- extractDataTypeName(umv.namedValue.typeStack.signature) match {
+                            case Some(name) => name.pure[CompilerIO]
+                            case None       => compilerAbort(umv.namedValue.qualifiedName.as("Could not determine data type for constructor."))
+                          }
+        } yield (vfqn.moduleName, dataTypeName)
       case None       =>
         cases.headOption match {
           case Some(c) => compilerAbort(c.pattern.as("Match expression must have at least one constructor pattern."))
@@ -107,9 +116,10 @@ class MatchDesugaringProcessor
       case _                                      => Seq.empty
     }
 
-  /** Find all constructors of the data type in definition order. */
+  /** Find all constructors of the given data type in definition order. */
   private def findAllConstructors(
-      moduleName: ModuleName
+      moduleName: ModuleName,
+      dataTypeName: String
   ): CompilerIO[Seq[ValueFQN]] =
     for {
       moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
@@ -117,10 +127,13 @@ class MatchDesugaringProcessor
                            .filter(qn => qn.qualifier == Qualifier.Default && qn.name.head.isUpper)
                            .toSeq
       constructorVfqns = constructorNames.map(qn => ValueFQN(moduleName, qn))
-      ordered <- constructorVfqns.traverse { vfqn =>
-                   getFactOrAbort(UnifiedModuleValue.Key(vfqn)).map(umv =>
-                     (vfqn, umv.namedValue.qualifiedName.range.from)
-                   )
+      ordered <- constructorVfqns.traverseFilter { vfqn =>
+                   getFactOrAbort(UnifiedModuleValue.Key(vfqn)).map { umv =>
+                     val typeName = extractDataTypeName(umv.namedValue.typeStack.signature)
+                     Option.when(typeName.contains(dataTypeName))(
+                       (vfqn, umv.namedValue.qualifiedName.range.from)
+                     )
+                   }
                  }
     } yield ordered.sortBy(_._2).map(_._1)
 
@@ -445,11 +458,37 @@ class MatchDesugaringProcessor
     }
   }
 
-  private def countLeadingLambdas(expr: com.vanillasource.eliot.eliotc.core.fact.Expression): Int =
+  private def countLeadingLambdas(expr: CoreExpression): Int =
     expr match {
-      case com.vanillasource.eliot.eliotc.core.fact.Expression.FunctionLiteral(_, _, body) =>
+      case CoreExpression.FunctionLiteral(_, _, body) =>
         1 + countLeadingLambdas(body.value.signature)
       case _ => 0
+    }
+
+  /** Extract the data type name from a constructor's core type signature.
+    * Walks through FunctionLiteral (generic param lambdas) and Function type applications
+    * to find the return type's NamedValueReference with Type qualifier.
+    */
+  private def extractDataTypeName(expr: CoreExpression): Option[String] =
+    expr match {
+      case CoreExpression.FunctionLiteral(_, _, body)      =>
+        extractDataTypeName(body.value.signature)
+      case CoreExpression.FunctionApplication(target, arg) =>
+        target.value.signature match {
+          case CoreExpression.FunctionApplication(innerTarget, _) =>
+            innerTarget.value.signature match {
+              case CoreExpression.NamedValueReference(qn, _, _) if qn.value == QualifiedName("Function", Qualifier.Type) =>
+                extractDataTypeName(arg.value.signature)
+              case _ =>
+                extractDataTypeName(target.value.signature)
+            }
+          case CoreExpression.NamedValueReference(qn, _, _) if qn.value.qualifier == Qualifier.Type && qn.value.name != "Function" =>
+            Some(qn.value.name)
+          case _ => None
+        }
+      case CoreExpression.NamedValueReference(qn, _, _) if qn.value.qualifier == Qualifier.Type && qn.value.name != "Function" =>
+        Some(qn.value.name)
+      case _                                               => None
     }
 
   /** Build the curried handleWith call: Module::handleWith(scrutinee)(handler1)(handler2)... */

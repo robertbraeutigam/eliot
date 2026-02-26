@@ -383,11 +383,11 @@ class CoreProcessor
         )
       }
 
-  /** Create an eliminator function "handleWith" for data types with constructors. The eliminator takes the data
-    * object and one handler function per constructor. Each handler takes the constructor's fields (curried) and
+  /** Create an eliminator function "handle<TypeName>With" for data types with constructors. The eliminator takes the
+    * data object and one handler function per constructor. Each handler takes the constructor's fields (curried) and
     * returns a result of type R. The eliminator always has qualified visibility to avoid name collisions.
     *
-    * Example: data Option[A] = None | Some(a: A) generates: handleWith[A, R](obj: Option[A], noneCase:
+    * Example: data Option[A] = None | Some(a: A) generates: handleOptionWith[A, R](obj: Option[A], noneCase:
     * Function[Unit, R], someCase: Function[A, R]): R
     *
     * The body is a self-referential call, like constructors. JvmClassGenerator recognizes eliminators and generates
@@ -421,7 +421,7 @@ class CoreProcessor
         val returnType = TypeReference(definition.name.as("R"), Seq.empty)
         transformFunction(
           FunctionDefinition(
-            definition.name.map(_ => AstQualifiedName("handleWith", AstQualifier.Default)),
+            definition.name.map(_ => AstQualifiedName(s"handle${definition.name.value}With", AstQualifier.Default)),
             allGenericParams,
             allArgs,
             returnType,
