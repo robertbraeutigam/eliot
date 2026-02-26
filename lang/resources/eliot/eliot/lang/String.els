@@ -1,9 +1,5 @@
 /**
  * Unicode compatible character Strings. The stored format is implementation dependent.
+ * Reason for being in lang: String literals have this type.
  */
 data String
-
-/**
- * Print a string to the standard output.
- */
-def println(s: String): IO[Unit]

@@ -5,6 +5,7 @@
  * Multi-parameter functions are represented with their curried form, where
  * applying the first parameter produces the next Function, applying the
  * parameter there produces the next, and so on, until all parameters are applied.
+ * Reason for being in lang: Lambdas on all levels are of this type.
  */
 data Function[A, B]
 
