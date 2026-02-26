@@ -29,6 +29,8 @@ import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedExpression.*
 import com.vanillasource.eliot.eliotc.used.UsedNames
 import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
 
+import scala.annotation.tailrec
+
 class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with Logging {
 
   override protected def generateFact(key: GeneratedModule.Key): CompilerIO[Unit] =
@@ -78,7 +80,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 } else {
                                   constructorsWithInfo
                                 }
-      constructorGroups       = mergedConstructors.groupBy((_, _, uv) => simpleType(uv.returnType))
+      constructorGroups       = mergedConstructors.groupBy((_, _, uv) => simpleType(constructorDataType(uv.returnType)))
       dataClasses            <- constructorGroups.toSeq.flatTraverse { (typeVFQ, ctors) =>
                                   if (ctors.size === 1) {
                                     val (vfqn, stats, _) = ctors.head
@@ -607,6 +609,18 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     */
   private def isMain(uncurriedValue: UncurriedValue): Boolean =
     uncurriedValue.name.value.name === "main" && uncurriedValue.parameters.isEmpty
+
+  /** Extract the actual data type from a constructor's return type by stripping function type wrappers.
+    * Nullary constructors return the data type directly (e.g. `Maybe[String]`), while constructors with
+    * fields return a function type (e.g. `String -> Maybe[String]`). This strips the function types
+    * to get the underlying data type in both cases.
+    */
+  @tailrec
+  private def constructorDataType(returnType: ExpressionValue): ExpressionValue =
+    returnType match {
+      case ExpressionValue.FunctionType(_, inner) => constructorDataType(inner)
+      case other                                  => other
+    }
 
   /** Single-constructor data: generates a concrete class, factory method, accessors, and optional handleWith. */
   private def createSingleConstructorData(
