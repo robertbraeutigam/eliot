@@ -1,12 +1,11 @@
-package com.vanillasource.eliot.eliotc.jvm.classgen
+package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import cats.effect.Sync
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.simpleType
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, NativeType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
