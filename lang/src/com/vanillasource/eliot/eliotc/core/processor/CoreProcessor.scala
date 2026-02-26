@@ -357,31 +357,56 @@ class CoreProcessor
     )
   }
 
-  /** Accessors are only created when there is exactly one constructor. */
+  /** Accessors are only created when there is exactly one constructor. Each accessor is implemented as a match
+    * expression that deconstructs the object and returns the target field.
+    */
   private def createAccessors(definition: DataDefinition): Seq[NamedValue] =
     definition.constructors
       .filter(_.size === 1)
       .getOrElse(Seq.empty)
-      .flatMap(_.fields)
-      .map { field =>
-        transformFunction(
-          FunctionDefinition(
-            field.name.map(n => AstQualifiedName(n, AstQualifier.Default)),
-            definition.genericParameters,
-            Seq(
-              ArgumentDefinition(
-                field.name.as("obj"),
-                TypeReference(
-                  definition.name,
-                  definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
-                )
-              )
-            ),
-            field.typeReference,
-            None
-          )
+      .flatMap(ctor => ctor.fields.map(field => createAccessor(definition, ctor, field)))
+
+  private def createAccessor(
+      definition: DataDefinition,
+      ctor: DataConstructor,
+      field: ArgumentDefinition
+  ): NamedValue = {
+    val matchBody = SourceExpression.MatchExpression(
+      field.name.as(SourceExpression.FunctionApplication(None, field.name.as("obj"), Seq.empty, Seq.empty)),
+      Seq(
+        SourceExpression.MatchCase(
+          field.name.as(SourcePattern.ConstructorPattern(
+            None,
+            ctor.name,
+            ctor.fields.map { f =>
+              if (f.name.value == field.name.value)
+                f.name.as(SourcePattern.VariablePattern(field.name))
+              else
+                f.name.as(SourcePattern.WildcardPattern(f.name.as("_")))
+            }
+          )),
+          field.name.as(SourceExpression.FunctionApplication(None, field.name, Seq.empty, Seq.empty))
         )
-      }
+      )
+    )
+    transformFunction(
+      FunctionDefinition(
+        field.name.map(n => AstQualifiedName(n, AstQualifier.Default)),
+        definition.genericParameters,
+        Seq(
+          ArgumentDefinition(
+            field.name.as("obj"),
+            TypeReference(
+              definition.name,
+              definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
+            )
+          )
+        ),
+        field.typeReference,
+        Some(field.name.as(matchBody))
+      )
+    )
+  }
 
   /** Create an eliminator function "handle<TypeName>With" for data types with constructors. The eliminator takes the
     * data object and one handler function per constructor. Each handler takes the constructor's fields (curried) and

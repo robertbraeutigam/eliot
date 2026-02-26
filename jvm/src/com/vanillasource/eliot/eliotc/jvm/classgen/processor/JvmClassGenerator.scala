@@ -89,14 +89,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                                                createMultiConstructorData(mainClassGenerator, typeVFQ, ctors, eliminatorUncurried, eliminatorName)
                                                              }
                                       generatedFunctions   = {
-                                                               val ctorFunctions = if (ctors.size === 1) {
-                                                                 val (vfqn, _, uv) = ctors.head
-                                                                 Seq(vfqn) ++ uv.parameters.map(p =>
-                                                                   ValueFQN(vfqn.moduleName, QualifiedName(p.name.value, Qualifier.Default))
-                                                                 )
-                                                               } else {
-                                                                 ctors.map(_._1)
-                                                               }
+                                                               val ctorFunctions = ctors.map(_._1)
                                                                ctorFunctions ++ (if (eliminatorUsed) Seq(eliminatorVfqn) else Seq.empty)
                                                              }
                                     } yield (classes, generatedFunctions)
@@ -111,7 +104,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           .filterKeys(k => !dataGeneratedFunctions.contains(k) && !isAbilityMethod(k))
           .toSeq
           .flatTraverse { case (vfqn, stats) =>
-            // Create only non-constructor, non-accessor, non-ability-interface methods
+            // Create only non-constructor, non-ability-interface methods
             createModuleMethod(mainClassGenerator, vfqn, stats)
           }
       mainClass              <- mainClassGenerator.generate[CompilerIO]()
@@ -630,7 +623,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       case other                                  => other
     }
 
-  /** Single-constructor data: generates a concrete class, factory method, accessors, and optional eliminator. */
+  /** Single-constructor data: generates a concrete class, factory method, and optional eliminator. */
   private def createSingleConstructorData(
       outerClassGenerator: ClassGenerator,
       valueFQN: ValueFQN,
@@ -675,29 +668,6 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                                 )
                                          } yield ()
                                        }
-                                   // Define accessors
-                                   _  <- uncurriedValue.parameters.traverse_ { argumentDefinition =>
-                                           outerClassGenerator
-                                             .createMethod[CompilerIO](
-                                               argumentDefinition.name.value,
-                                               Seq(valueFQN),
-                                               simpleType(argumentDefinition.parameterType)
-                                             )
-                                             .use { accessorGenerator =>
-                                               for {
-                                                 _ <- accessorGenerator
-                                                        .addLoadVar[CompilerIO](
-                                                          valueFQN,
-                                                          0
-                                                        )
-                                                 _ <- accessorGenerator.addGetField[CompilerIO](
-                                                        argumentDefinition.name.value,
-                                                        simpleType(argumentDefinition.parameterType),
-                                                        valueFQN
-                                                      )
-                                               } yield ()
-                                             }
-                                         }
                                    // Generate static eliminator method (delegates to virtual call on the class)
                                    _  <- handleWithUncurried.traverse_ { hw =>
                                            generateStaticHandleWith(outerClassGenerator, hw, valueFQN, isInterface = false, eliminatorName)
