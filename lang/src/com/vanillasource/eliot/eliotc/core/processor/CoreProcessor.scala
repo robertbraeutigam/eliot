@@ -398,8 +398,10 @@ class CoreProcessor
       .filter(_.nonEmpty)
       .toSeq
       .map { ctors =>
-        val resultParam = GenericParameter(
-          definition.name.as("R"),
+        val existingNames    = definition.genericParameters.map(_.name.value).toSet
+        val resultParamName  = freshName("R", existingNames)
+        val resultParam      = GenericParameter(
+          definition.name.as(resultParamName),
           GenericParameter.Arity(Seq.empty),
           Seq.empty
         )
@@ -414,11 +416,11 @@ class CoreProcessor
         )
         val handlerArgs = ctors.map { ctor =>
           val handlerName = definition.name.as((ctor.name.value.head.toLower +: ctor.name.value.tail) + "Case")
-          val handlerType = eliminatorHandlerType(definition, ctor)
+          val handlerType = eliminatorHandlerType(definition, ctor, resultParamName)
           ArgumentDefinition(handlerName, handlerType)
         }
         val allArgs    = Seq(objArg) ++ handlerArgs
-        val returnType = TypeReference(definition.name.as("R"), Seq.empty)
+        val returnType = TypeReference(definition.name.as(resultParamName), Seq.empty)
         transformFunction(
           FunctionDefinition(
             definition.name.map(_ => AstQualifiedName(s"handle${definition.name.value}With", AstQualifier.Default)),
@@ -434,14 +436,22 @@ class CoreProcessor
   /** Build the handler type for an eliminator. Zero fields: Function[Unit, R]. One field: Function[FieldType, R].
     * Multiple fields: curried Function[Field1, Function[Field2, ..., R]].
     */
-  private def eliminatorHandlerType(definition: DataDefinition, ctor: DataConstructor): TypeReference =
+  private def freshName(base: String, existingNames: Set[String]): String =
+    if (!existingNames.contains(base)) base
+    else Iterator.from(0).map(i => s"$base$i").find(!existingNames.contains(_)).get
+
+  private def eliminatorHandlerType(
+      definition: DataDefinition,
+      ctor: DataConstructor,
+      resultParamName: String
+  ): TypeReference =
     if (ctor.fields.isEmpty) {
       TypeReference(definition.name.as("Function"), Seq(
         TypeReference(definition.name.as("Unit"), Seq.empty),
-        TypeReference(definition.name.as("R"), Seq.empty)
+        TypeReference(definition.name.as(resultParamName), Seq.empty)
       ))
     } else {
-      ctor.fields.foldRight(TypeReference(definition.name.as("R"), Seq.empty)) { (field, acc) =>
+      ctor.fields.foldRight(TypeReference(definition.name.as(resultParamName), Seq.empty)) { (field, acc) =>
         TypeReference(definition.name.as("Function"), Seq(field.typeReference, acc))
       }
     }

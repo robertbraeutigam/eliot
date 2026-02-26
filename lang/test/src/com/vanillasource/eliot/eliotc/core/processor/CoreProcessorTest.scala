@@ -412,6 +412,24 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  it should "avoid clashing result parameter name with existing generic parameter R" in {
+    namedValue("data Foo[R](value: R)", QualifiedName("handleFooWith", Qualifier.Default)).asserting { nv =>
+      // handleFooWith[R, R0](obj: Foo[R], fooCase: Function[R, R0]): R0
+      nv.typeStack.signatureStructure shouldBe Lambda(
+        "R",
+        Ref("Type"),
+        Lambda(
+          "R0",
+          Ref("Type"),
+          App(
+            App(Ref("Function", T), App(Ref("Foo", T), Ref("R", T))),
+            App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("R", T)), Ref("R0", T))), Ref("R0", T))
+          )
+        )
+      )
+    }
+  }
+
   it should "have abstract body" in {
     namedValue("data Box[A](value: A)", QualifiedName("handleBoxWith", Qualifier.Default)).asserting { nv =>
       nv.runtime shouldBe None
