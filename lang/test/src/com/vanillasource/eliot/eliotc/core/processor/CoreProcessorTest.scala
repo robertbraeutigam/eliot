@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.{CoreAST, Expression, TypeStack, NamedValue}
+import com.vanillasource.eliot.eliotc.ast.fact.Visibility
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProcessor()) {
@@ -324,6 +325,96 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
         QualifiedName("Green", Qualifier.Default),
         QualifiedName("Blue", Qualifier.Default)
       )
+    }
+  }
+
+  "handleWith eliminator" should "be generated for union data" in {
+    namedValues("data Maybe = Nothing | Just(value: A)").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should contain(QualifiedName("handleWith", Qualifier.Default))
+    }
+  }
+
+  it should "be generated for single-constructor data with fields" in {
+    namedValues("data Box[A](value: A)").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should contain(QualifiedName("handleWith", Qualifier.Default))
+    }
+  }
+
+  it should "not be generated for abstract data" in {
+    namedValues("data Abstract").asserting { nvs =>
+      nvs.map(_.qualifiedName.value) should not contain QualifiedName("handleWith", Qualifier.Default)
+    }
+  }
+
+  it should "have qualified visibility" in {
+    namedValue("data Box[A](value: A)", QualifiedName("handleWith", Qualifier.Default)).asserting { nv =>
+      nv.visibility shouldBe Visibility.Qualified
+    }
+  }
+
+  it should "have correct type for single-constructor data" in {
+    namedValue("data Box[A](value: A)", QualifiedName("handleWith", Qualifier.Default)).asserting { nv =>
+      // handleWith[A, R](obj: Box[A], boxCase: Function[A, R]): R
+      nv.typeStack.signatureStructure shouldBe Lambda(
+        "A",
+        Ref("Type"),
+        Lambda(
+          "R",
+          Ref("Type"),
+          App(
+            App(Ref("Function", T), App(Ref("Box", T), Ref("A", T))),
+            App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("A", T)), Ref("R", T))), Ref("R", T))
+          )
+        )
+      )
+    }
+  }
+
+  it should "have correct type for union data with fieldless constructor" in {
+    namedValue("data Maybe[A] = Nothing | Just(value: A)", QualifiedName("handleWith", Qualifier.Default)).asserting {
+      nv =>
+        // handleWith[A, R](obj: Maybe[A], nothingCase: Function[Unit, R], justCase: Function[A, R]): R
+        nv.typeStack.signatureStructure shouldBe Lambda(
+          "A",
+          Ref("Type"),
+          Lambda(
+            "R",
+            Ref("Type"),
+            App(
+              App(Ref("Function", T), App(Ref("Maybe", T), Ref("A", T))),
+              App(
+                App(Ref("Function", T), App(App(Ref("Function", T), Ref("Unit", T)), Ref("R", T))),
+                App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("A", T)), Ref("R", T))), Ref("R", T))
+              )
+            )
+          )
+        )
+    }
+  }
+
+  it should "have correct type for enum-like data" in {
+    namedValue("data Color = Red | Green | Blue", QualifiedName("handleWith", Qualifier.Default)).asserting { nv =>
+      // handleWith[R](obj: Color, redCase: Function[Unit, R], greenCase: Function[Unit, R], blueCase: Function[Unit, R]): R
+      nv.typeStack.signatureStructure shouldBe Lambda(
+        "R",
+        Ref("Type"),
+        App(
+          App(Ref("Function", T), Ref("Color", T)),
+          App(
+            App(Ref("Function", T), App(App(Ref("Function", T), Ref("Unit", T)), Ref("R", T))),
+            App(
+              App(Ref("Function", T), App(App(Ref("Function", T), Ref("Unit", T)), Ref("R", T))),
+              App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("Unit", T)), Ref("R", T))), Ref("R", T))
+            )
+          )
+        )
+      )
+    }
+  }
+
+  it should "have abstract body" in {
+    namedValue("data Box[A](value: A)", QualifiedName("handleWith", Qualifier.Default)).asserting { nv =>
+      nv.runtime shouldBe None
     }
   }
 

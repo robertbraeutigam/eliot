@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   GenericParameter,
   SourceAST,
   TypeReference,
+  Visibility,
   ArgumentDefinition as SourceArgument,
   Expression as SourceExpression,
   LambdaParameterDefinition as SourceLambdaParameter,
@@ -264,10 +265,13 @@ class CoreProcessor
     *   - Constructor functions for each constructor. So "data Maybe[A] = Nothing | Just(value: A)" generates
     *     Nothing: A -> Maybe^Type(A) and Just: A -> Function(A, Maybe^Type(A))
     *   - Accessor functions for each field (only if there is exactly one constructor)
+    *   - Eliminator function "handleWith" for pattern-matching dispatch (always qualified visibility)
     */
-  private def transformDataDefinition(definition: DataDefinition): Seq[NamedValue] =
-    (createTypeFunction(definition) ++ createConstructors(definition) ++ createAccessors(definition))
+  private def transformDataDefinition(definition: DataDefinition): Seq[NamedValue] = {
+    val mainValues = (createTypeFunction(definition) ++ createConstructors(definition) ++ createAccessors(definition))
       .map(_.copy(visibility = definition.visibility))
+    mainValues ++ createEliminator(definition)
+  }
 
   private def createTypeFunction(definition: DataDefinition): Seq[NamedValue] =
     Seq(
@@ -351,4 +355,67 @@ class CoreProcessor
           )
         )
       }
+
+  /** Create an eliminator function "handleWith" for data types with constructors. The eliminator takes the data
+    * object and one handler function per constructor. Each handler takes the constructor's fields (curried) and
+    * returns a result of type R. The eliminator always has qualified visibility to avoid name collisions.
+    *
+    * Example: data Option[A] = None | Some(a: A) generates: handleWith[A, R](obj: Option[A], noneCase:
+    * Function[Unit, R], someCase: Function[A, R]): R
+    *
+    * The body is a self-referential call, like constructors. JvmClassGenerator recognizes eliminators and generates
+    * virtual dispatch bytecode.
+    */
+  private def createEliminator(definition: DataDefinition): Seq[NamedValue] =
+    definition.constructors
+      .filter(_.nonEmpty)
+      .toSeq
+      .map { ctors =>
+        val resultParam = GenericParameter(
+          definition.name.as("R"),
+          GenericParameter.Arity(Seq.empty),
+          Seq.empty
+        )
+        val allGenericParams = definition.genericParameters :+ resultParam
+        val dataTypeRef = TypeReference(
+          definition.name,
+          definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
+        )
+        val objArg = ArgumentDefinition(
+          definition.name.as("obj"),
+          dataTypeRef
+        )
+        val handlerArgs = ctors.map { ctor =>
+          val handlerName = definition.name.as((ctor.name.value.head.toLower +: ctor.name.value.tail) + "Case")
+          val handlerType = eliminatorHandlerType(definition, ctor)
+          ArgumentDefinition(handlerName, handlerType)
+        }
+        val allArgs    = Seq(objArg) ++ handlerArgs
+        val returnType = TypeReference(definition.name.as("R"), Seq.empty)
+        transformFunction(
+          FunctionDefinition(
+            definition.name.map(_ => AstQualifiedName("handleWith", AstQualifier.Default)),
+            allGenericParams,
+            allArgs,
+            returnType,
+            None,
+            visibility = Visibility.Qualified
+          )
+        )
+      }
+
+  /** Build the handler type for an eliminator. Zero fields: Function[Unit, R]. One field: Function[FieldType, R].
+    * Multiple fields: curried Function[Field1, Function[Field2, ..., R]].
+    */
+  private def eliminatorHandlerType(definition: DataDefinition, ctor: DataConstructor): TypeReference =
+    if (ctor.fields.isEmpty) {
+      TypeReference(definition.name.as("Function"), Seq(
+        TypeReference(definition.name.as("Unit"), Seq.empty),
+        TypeReference(definition.name.as("R"), Seq.empty)
+      ))
+    } else {
+      ctor.fields.foldRight(TypeReference(definition.name.as("R"), Seq.empty)) { (field, acc) =>
+        TypeReference(definition.name.as("Function"), Seq(field.typeReference, acc))
+      }
+    }
 }

@@ -160,4 +160,23 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
       true
     )
   }
+
+  def addCallToVirtualMethod[F[_]: Sync](
+      className: String,
+      methodName: String,
+      parameterTypes: Seq[ValueFQN],
+      resultType: ValueFQN
+  ): F[Unit] = Sync[F].delay {
+    methodVisitor.visitMethodInsn(
+      Opcodes.INVOKEVIRTUAL,
+      className,
+      methodName,
+      convertToSignatureString(parameterTypes, resultType),
+      false
+    )
+  }
+
+  def addConstNull[F[_]: Sync](): F[Unit] = Sync[F].delay {
+    methodVisitor.visitInsn(Opcodes.ACONST_NULL)
+  }
 }

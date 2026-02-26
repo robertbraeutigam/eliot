@@ -30,7 +30,8 @@ class ModuleNamesProcessorTest
       _ shouldBe Set(
         QualifiedName("Person", Qualifier.Type),
         QualifiedName("Person", Qualifier.Default),
-        QualifiedName("name", Qualifier.Default)
+        QualifiedName("name", Qualifier.Default),
+        QualifiedName("handleWith", Qualifier.Default)
       )
     )
   }

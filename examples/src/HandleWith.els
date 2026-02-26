@@ -1,0 +1,5 @@
+data Greeting = Hello | Goodbye
+
+def greet(g: Greeting): String = HandleWith::handleWith(g, (u: Unit) -> "Hello!", (u: Unit) -> "Goodbye!")
+
+def main: IO[Unit] = println(greet(Goodbye))

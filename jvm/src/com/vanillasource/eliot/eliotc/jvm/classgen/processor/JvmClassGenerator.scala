@@ -13,7 +13,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier as SymbolicQualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{convertToNestedClassName, systemUnitValue}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{convertToNestedClassName, systemFunctionValue, systemUnitValue}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
@@ -37,19 +37,54 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       usedNames              <- getFactOrAbort(UsedNames.Key(key.vfqn))
       usedValues              = usedNames.usedNames.filter((vfqn, _) => vfqn.moduleName === key.moduleName)
       mainClassGenerator     <- createClassGenerator[CompilerIO](key.moduleName)
-      // Collect constructors and group by return type for union data support
+      // Check if handleWith eliminator is used
+      handleWithVfqn          = ValueFQN(key.moduleName, QualifiedName("handleWith", Qualifier.Default))
+      handleWithUsed          = usedValues.contains(handleWithVfqn)
+      handleWithUncurried    <- if (handleWithUsed) {
+                                  val stats = usedValues(handleWithVfqn)
+                                  getFact(UncurriedValue.Key(handleWithVfqn, stats.highestArity.getOrElse(0)))
+                                } else {
+                                  Option.empty[UncurriedValue].pure[CompilerIO]
+                                }
+      // Collect constructors and group by return type for union data support.
+      // When handleWith is used, we need ALL constructors of the data type (not just used ones),
+      // because the virtual dispatch needs every constructor class to exist.
+      allModuleConstructors  <- if (handleWithUsed) {
+                                  for {
+                                    moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(key.moduleName))
+                                    allCtorNames = moduleNames.names.keys.toSeq.filter(qn =>
+                                                     isConstructor(ValueFQN(key.moduleName, qn))
+                                                   )
+                                    ctorsWithUv <- allCtorNames.traverseFilter { qn =>
+                                                     val vfqn = ValueFQN(key.moduleName, qn)
+                                                     getFact(UncurriedValue.Key(vfqn, 0)).map(_.map { uv =>
+                                                       val stats = usedValues.getOrElse(vfqn, UsageStats(Seq.empty, Map(0 -> 1)))
+                                                       (vfqn, stats, uv)
+                                                     })
+                                                   }
+                                  } yield ctorsWithUv
+                                } else {
+                                  Seq.empty.pure[CompilerIO]
+                                }
       constructorEntries      = usedValues.filter((vfqn, _) => isConstructor(vfqn)).toSeq
       constructorsWithInfo   <- constructorEntries.traverseFilter { (vfqn, stats) =>
                                   getFact(UncurriedValue.Key(vfqn, stats.highestArity.getOrElse(0)))
                                     .map(_.map((vfqn, stats, _)))
                                 }
-      constructorGroups       = constructorsWithInfo.groupBy((_, _, uv) => simpleType(uv.returnType))
+      // Merge: when handleWith is used, include all module constructors
+      mergedConstructors      = if (handleWithUsed) {
+                                  val usedVfqns = constructorsWithInfo.map(_._1).toSet
+                                  constructorsWithInfo ++ allModuleConstructors.filterNot(c => usedVfqns.contains(c._1))
+                                } else {
+                                  constructorsWithInfo
+                                }
+      constructorGroups       = mergedConstructors.groupBy((_, _, uv) => simpleType(uv.returnType))
       dataClasses            <- constructorGroups.toSeq.flatTraverse { (typeVFQ, ctors) =>
                                   if (ctors.size === 1) {
                                     val (vfqn, stats, _) = ctors.head
-                                    createSingleConstructorData(mainClassGenerator, vfqn, stats)
+                                    createSingleConstructorData(mainClassGenerator, vfqn, stats, handleWithUncurried)
                                   } else {
-                                    createMultiConstructorData(mainClassGenerator, typeVFQ, ctors)
+                                    createMultiConstructorData(mainClassGenerator, typeVFQ, ctors, handleWithUncurried)
                                   }
                                 }
       dataGeneratedFunctions  = constructorGroups.toSeq.flatMap { (_, ctors) =>
@@ -61,7 +96,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                   } else {
                                     ctors.map(_._1)
                                   }
-                                }
+                                } ++ (if (handleWithUsed) Seq(handleWithVfqn) else Seq.empty)
       abilityInterfaces      <- createAbilityInterfaces(mainClassGenerator, key.moduleName)
       abilityImpls           <- createAbilityImplSingletons(mainClassGenerator, key.moduleName)
       functionFiles          <-
@@ -562,11 +597,12 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   private def isMain(uncurriedValue: UncurriedValue): Boolean =
     uncurriedValue.name.value.name === "main" && uncurriedValue.parameters.isEmpty
 
-  /** Single-constructor data: generates a concrete class, factory method, and accessors. */
+  /** Single-constructor data: generates a concrete class, factory method, accessors, and optional handleWith. */
   private def createSingleConstructorData(
       outerClassGenerator: ClassGenerator,
       valueFQN: ValueFQN,
-      stats: UsageStats
+      stats: UsageStats,
+      handleWithUncurried: Option[UncurriedValue]
   ): CompilerIO[Seq[ClassFile]] =
     for {
       uncurriedValueMaybe <- getFact(UncurriedValue.Key(valueFQN, stats.highestArity.getOrElse(0)))
@@ -574,7 +610,13 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                case Some(uncurriedValue) =>
                                  for {
                                    _  <- debug[CompilerIO](s"Creating data type from constructor '${valueFQN.show}'")
-                                   cs <- createDataClass(outerClassGenerator, valueFQN.name.name, uncurriedValue.parameters)
+                                   cs <- createDataClassWithHandleWith(
+                                           outerClassGenerator,
+                                           valueFQN.name.name,
+                                           uncurriedValue.parameters,
+                                           Seq.empty,
+                                           handleWithUncurried.map(hw => Seq((0, uncurriedValue.parameters, hw)))
+                                         )
                                    // Define data function
                                    _  <-
                                      outerClassGenerator
@@ -621,33 +663,52 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                                } yield ()
                                              }
                                          }
+                                   // Generate static handleWith method (delegates to virtual call on the class)
+                                   _  <- handleWithUncurried.traverse_ { hw =>
+                                           generateStaticHandleWith(outerClassGenerator, hw, valueFQN, isInterface = false)
+                                         }
                                  } yield cs
                                case None                 =>
                                  error[CompilerIO](s"Could not resolve '${valueFQN.show}'.") >> Seq.empty.pure[CompilerIO]
                              }
     } yield classes
 
-  /** Multi-constructor (union) data: generates an empty interface + implementation classes + factory methods. */
+  /** Multi-constructor (union) data: generates an interface + implementation classes + factory methods + handleWith. */
   private def createMultiConstructorData(
       outerClassGenerator: ClassGenerator,
       typeVFQ: ValueFQN,
-      ctors: Seq[(ValueFQN, UsageStats, UncurriedValue)]
+      ctors: Seq[(ValueFQN, UsageStats, UncurriedValue)],
+      handleWithUncurried: Option[UncurriedValue]
   ): CompilerIO[Seq[ClassFile]] =
     for {
       _              <- debug[CompilerIO](s"Creating union data type '${typeVFQ.show}' with ${ctors.size} constructors")
       // Create the interface for the data type
       interfaceGen   <- outerClassGenerator.createInnerInterfaceGenerator[CompilerIO](typeVFQ.name.name)
+      // Add abstract handleWith to the interface if used
+      _              <- handleWithUncurried.traverse_ { hw =>
+                          val handlerParams = hw.parameters.drop(1) // skip 'obj' parameter
+                          interfaceGen.createAbstractMethod[CompilerIO](
+                            "handleWith",
+                            handlerParams.map(_.parameterType).map(simpleType),
+                            simpleType(hw.returnType)
+                          )
+                        }
       interfaceClass <- interfaceGen.generate[CompilerIO]()
       interfaceName   = convertToNestedClassName(typeVFQ)
       // Create implementation classes and factory methods for each constructor
-      implClasses    <- ctors.flatTraverse { (vfqn, _, uncurriedValue) =>
+      // Sort constructors by source position to match definition order (= handleWith handler order)
+      sortedCtors     = ctors.sortBy { case (_, _, uv) => (uv.name.range.from.line, uv.name.range.from.col) }
+      ctorIndexMap     = sortedCtors.zipWithIndex.map { case ((vfqn, _, _), idx) => vfqn -> idx }.toMap
+      implClasses    <- ctors.flatTraverse { case (vfqn, _, uncurriedValue) =>
+                          val ctorIndex = ctorIndexMap.getOrElse(vfqn, 0)
                           for {
                             _  <- debug[CompilerIO](s"Creating union constructor '${vfqn.show}' implementing '${typeVFQ.show}'")
-                            cs <- createDataClass(
+                            cs <- createDataClassWithHandleWith(
                                     outerClassGenerator,
                                     vfqn.name.name,
                                     uncurriedValue.parameters,
-                                    Seq(interfaceName)
+                                    Seq(interfaceName),
+                                    handleWithUncurried.map(hw => Seq((ctorIndex, uncurriedValue.parameters, hw)))
                                   )
                             // Factory method returns the interface type
                             _  <-
@@ -672,19 +733,123 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 }
                           } yield cs
                         }
+      // Generate static handleWith method (delegates to INVOKEINTERFACE)
+      _              <- handleWithUncurried.traverse_ { hw =>
+                          generateStaticHandleWith(outerClassGenerator, hw, typeVFQ, isInterface = true)
+                        }
     } yield Seq(interfaceClass) ++ implClasses
 
-  private def createDataClass(
+  /** Create a data class with fields, constructor, and optionally a handleWith instance method.
+    * @param handleWithInfo
+    *   If present, Seq of (constructorIndex, constructorFields, handleWithUncurried) for generating handleWith override.
+    *   For single-constructor data, this is Seq((0, fields, hw)). For union constructors, each gets its own index.
+    */
+  private def createDataClassWithHandleWith(
       outerClassGenerator: ClassGenerator,
       innerClassName: String,
       fields: Seq[ParameterDefinition],
-      javaInterfaces: Seq[String] = Seq.empty
+      javaInterfaces: Seq[String] = Seq.empty,
+      handleWithInfo: Option[Seq[(Int, Seq[ParameterDefinition], UncurriedValue)]] = None
   ): CompilerIO[Seq[ClassFile]] =
     for {
       innerClassWriter <- outerClassGenerator.createInnerClassGenerator[CompilerIO](innerClassName, javaInterfaces)
       _                <- innerClassWriter.addDataFieldsAndCtor[CompilerIO](fields)
+      // Generate handleWith instance method override if requested
+      _                <- handleWithInfo.traverse_ { infos =>
+                            infos.traverse_ { case (ctorIndex, ctorFields, hw) =>
+                              val handlerParams = hw.parameters.drop(1) // skip 'obj' parameter
+                              innerClassWriter
+                                .createPublicInstanceMethod[CompilerIO](
+                                  "handleWith",
+                                  handlerParams.map(_.parameterType).map(simpleType),
+                                  simpleType(hw.returnType)
+                                )
+                                .use { methodGenerator =>
+                                  // Load this constructor's handler (at param index ctorIndex + 1, since 0 is 'this')
+                                  val handlerLocalIndex = ctorIndex + 1
+                                  for {
+                                    _ <- methodGenerator.addLoadVar[CompilerIO](systemFunctionValue, handlerLocalIndex)
+                                    // Apply handler to fields (or unit for zero fields)
+                                    _ <-
+                                      if (ctorFields.isEmpty) {
+                                        // Zero fields: handler is Function[Unit, R], call apply(null)
+                                        for {
+                                          _ <- methodGenerator.addConstNull[CompilerIO]()
+                                          _ <- methodGenerator.addCallToApply[CompilerIO]()
+                                        } yield ()
+                                      } else {
+                                        // One or more fields: curried application handler(field1)(field2)...
+                                        ctorFields.zipWithIndex.traverse_ { (fieldDef, fieldIndex) =>
+                                          val vfqn = ValueFQN(
+                                            outerClassGenerator.moduleName,
+                                            QualifiedName(innerClassName, Qualifier.Default)
+                                          )
+                                          for {
+                                            _ <- methodGenerator.addLoadThis[CompilerIO]()
+                                            _ <- methodGenerator.addGetField[CompilerIO](
+                                                   fieldDef.name.value,
+                                                   simpleType(fieldDef.parameterType),
+                                                   vfqn
+                                                 )
+                                            _ <- methodGenerator.addCallToApply[CompilerIO]()
+                                            // Cast intermediate results to Function for subsequent curried calls
+                                            _ <- methodGenerator
+                                                   .addCastTo[CompilerIO](systemFunctionValue)
+                                                   .whenA(fieldIndex < ctorFields.size - 1)
+                                          } yield ()
+                                        }
+                                      }
+                                  } yield ()
+                                }
+                            }
+                          }
       classFile        <- innerClassWriter.generate[CompilerIO]()
     } yield Seq(classFile)
+
+  /** Generate a static handleWith method on the module class that delegates to virtual/interface dispatch. */
+  private def generateStaticHandleWith(
+      outerClassGenerator: ClassGenerator,
+      hw: UncurriedValue,
+      dataTypeVfqn: ValueFQN,
+      isInterface: Boolean
+  ): CompilerIO[Unit] = {
+    val allParamTypes = hw.parameters.map(_.parameterType).map(simpleType)
+    val returnType    = simpleType(hw.returnType)
+    val handlerParams = hw.parameters.drop(1) // skip 'obj'
+    outerClassGenerator
+      .createMethod[CompilerIO](
+        "handleWith",
+        allParamTypes,
+        returnType
+      )
+      .use { methodGenerator =>
+        for {
+          // Load obj (static method param 0)
+          _ <- methodGenerator.addLoadVar[CompilerIO](simpleType(hw.parameters.head.parameterType), 0)
+          // Load all handler params (starting at 1)
+          _ <- handlerParams.zipWithIndex.traverse_ { (param, index) =>
+                 methodGenerator.addLoadVar[CompilerIO](simpleType(param.parameterType), index + 1)
+               }
+          // Dispatch: INVOKEINTERFACE for union types, INVOKEVIRTUAL for single-constructor
+          _ <-
+            if (isInterface) {
+              methodGenerator.addCallToAbilityMethod[CompilerIO](
+                convertToNestedClassName(dataTypeVfqn),
+                "handleWith",
+                handlerParams.map(_.parameterType).map(simpleType),
+                returnType
+              )
+            } else {
+              methodGenerator.addCallToVirtualMethod[CompilerIO](
+                convertToNestedClassName(dataTypeVfqn),
+                "handleWith",
+                handlerParams.map(_.parameterType).map(simpleType),
+                returnType
+              )
+            }
+        } yield ()
+      }
+  }
 
 
 

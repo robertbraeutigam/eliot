@@ -240,7 +240,7 @@ class SymbolicTypeCheckProcessorTest
   }
 
   it should "fail when parameter type does not match return type" in {
-    runEngineForErrors("data TypeA(fieldA: TypeA)\ndata TypeB(fieldB: TypeB)\ndef f(x: TypeA): TypeB = x")
+    runEngineForErrors("data TypeA(fieldA: TypeA)\ndata TypeB\ndef f(x: TypeA): TypeB = x")
       .asserting(_ shouldBe Seq("Return type mismatch." at "x"))
   }
 
