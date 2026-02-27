@@ -1,5 +1,3 @@
-infix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)
-
 data Box[A](content: A)
 
 def filter[A](expr: String, box: Box[A]): Box[A] = box
@@ -10,7 +8,7 @@ def flatMap[A, B](f: Function[A, Box[B]], box: Box[A]): Box[B] = f(content(box))
 
 def as[A, B](b: B, box: Box[A]): Box[B] = box.map(_ -> b)
 
-def logic: Box[String] = Box("Hello").filter("Expr").as(x).map(_ -> "Earth!")
+def logic: Box[String] = Box("Hello").filter("Expr").map(_ -> "Earth!").as("World!")
 
 def main: IO[Unit] = println(content(logic))
 

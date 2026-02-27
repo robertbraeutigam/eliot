@@ -1,0 +1,6 @@
+data Function[A, B]
+
+def apply[A, B](f: Function[A, B], a: A): B
+
+infix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)
+
