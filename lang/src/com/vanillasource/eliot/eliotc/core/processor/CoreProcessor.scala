@@ -156,16 +156,26 @@ class CoreProcessor
   private def toBodyExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
     expr.value match {
       case SourceExpression.FunctionApplication(moduleName, fnName, genericArgs, args) =>
-        curryApplication(
-          expr.as(
-            NamedValueReference(
-              fnName.map(n => QualifiedName(n, Qualifier.Default)),
-              moduleName,
-              genericArgs.map(toTypeExpression)
-            )
-          ),
-          args
-        )
+        val isUpper = fnName.value.charAt(0).isUpper
+        if (isUpper && genericArgs.nonEmpty && args.isEmpty) {
+          // Type application: Box[A] → FunctionApplication(Box^Type, A^Type)
+          curryTypeArgApplication(
+            expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName)),
+            genericArgs
+          )
+        } else {
+          // Value call: f[Int](x), f(x), Box(x), f, Box
+          curryApplication(
+            expr.as(
+              NamedValueReference(
+                fnName.map(n => QualifiedName(n, Qualifier.Default)),
+                moduleName,
+                genericArgs.map(toTypeArgumentExpression)
+              )
+            ),
+            args
+          )
+        }
       case SourceExpression.FunctionLiteral(params, body)                              =>
         curryLambda(params, toBodyExpression(body), expr)
       case SourceExpression.IntegerLiteral(lit)                                        =>
@@ -188,6 +198,74 @@ class CoreProcessor
             )
           )
         )
+    }
+
+  /** Converts an expression from inside [] brackets to a core expression. Bare uppercase names get Qualifier.Type
+    * (type constructors), bare lowercase names get Qualifier.Default. Uppercase names with only [] args become
+    * type-level FunctionApplications. Names with () args are Default (value-level calls).
+    */
+  private def toTypeArgumentExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
+    expr.value match {
+      case SourceExpression.FunctionApplication(moduleName, fnName, genericArgs, args) =>
+        val isUpper = fnName.value.charAt(0).isUpper
+        if (isUpper && args.isEmpty) {
+          if (genericArgs.nonEmpty) {
+            // Type application: Box[A] → Box^Type(A^Type)
+            curryTypeArgApplication(
+              expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName)),
+              genericArgs
+            )
+          } else {
+            // Bare uppercase in [] → Type
+            expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName))
+          }
+        } else {
+          // Lowercase or has (): Default
+          curryApplication(
+            expr.as(
+              NamedValueReference(
+                fnName.map(n => QualifiedName(n, Qualifier.Default)),
+                moduleName,
+                genericArgs.map(toTypeArgumentExpression)
+              )
+            ),
+            args
+          )
+        }
+      case SourceExpression.FunctionLiteral(params, body)                              =>
+        curryLambda(params, toTypeArgumentExpression(body), expr)
+      case SourceExpression.IntegerLiteral(lit)                                        =>
+        expr.as(IntegerLiteral(lit))
+      case SourceExpression.StringLiteral(lit)                                         =>
+        expr.as(StringLiteral(lit))
+      case SourceExpression.FlatExpression(Seq(single))                                =>
+        toTypeArgumentExpression(single)
+      case SourceExpression.FlatExpression(parts)                                      =>
+        expr.as(FlatExpression(parts.map(p => p.as(TypeStack.of(toTypeArgumentExpression(p).value)))))
+      case SourceExpression.MatchExpression(scrutinee, cases)                          =>
+        expr.as(
+          MatchExpression(
+            scrutinee.as(TypeStack.of(toTypeArgumentExpression(scrutinee).value)),
+            cases.map(c =>
+              MatchCase(
+                c.pattern.map(toPattern),
+                c.body.as(TypeStack.of(toTypeArgumentExpression(c.body).value))
+              )
+            )
+          )
+        )
+    }
+
+  /** Curries type argument expressions into FunctionApplications. Used for uppercase names with only [] args,
+    * converting Box[A, B] into FunctionApplication(FunctionApplication(Box^Type, A^Type), B^Type).
+    */
+  private def curryTypeArgApplication(
+      target: Sourced[Expression],
+      typeArgs: Seq[Sourced[SourceExpression]]
+  ): Sourced[Expression] =
+    typeArgs.foldLeft(target) { (acc, arg) =>
+      val converted = toTypeArgumentExpression(arg)
+      arg.as(FunctionApplication(acc.map(TypeStack.of), converted.map(TypeStack.of)))
     }
 
   private def toPattern(pattern: SourcePattern): Pattern =

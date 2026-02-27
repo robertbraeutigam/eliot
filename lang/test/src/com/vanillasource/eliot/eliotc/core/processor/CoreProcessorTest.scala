@@ -449,6 +449,48 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  "bracket-aware qualifiers" should "make uppercase-only-brackets a type application" in {
+    namedValue("data Box[A]\ndef f: R = Box[A]").asserting { nv =>
+      nv.runtimeStructure shouldBe Some(App(Ref("Box", T), Ref("A", T)))
+    }
+  }
+
+  it should "keep lowercase with brackets as Default with type args" in {
+    namedValue("def f[C]: A = b[C]", QualifiedName("f", Qualifier.Default)).asserting { nv =>
+      nv.runtimeStructure shouldBe Some(Ref("b", Qualifier.Default, Seq(Ref("C", T))))
+    }
+  }
+
+  it should "make lowercase with brackets and parens Default with type args and value args" in {
+    namedValue("def f: R = g[A](x)").asserting { nv =>
+      nv.runtimeStructure shouldBe Some(App(Ref("g", Qualifier.Default, Seq(Ref("A", T))), Ref("x")))
+    }
+  }
+
+  it should "make uppercase with parens Default" in {
+    namedValue("data Box[A](value: A)\ndef f: R = Box(x)").asserting { nv =>
+      nv.runtimeStructure shouldBe Some(App(Ref("Box"), Ref("x")))
+    }
+  }
+
+  it should "convert nested type application in brackets" in {
+    namedValue("data Box[A]\ndef f: R = g[Box[A]]").asserting { nv =>
+      nv.runtimeStructure shouldBe Some(Ref("g", Qualifier.Default, Seq(App(Ref("Box", T), Ref("A", T)))))
+    }
+  }
+
+  it should "convert integer literal as type argument" in {
+    namedValue("def f: R = g[1]").asserting { nv =>
+      nv.runtimeStructure shouldBe Some(Ref("g", Qualifier.Default, Seq(IntLit("1"))))
+    }
+  }
+
+  it should "convert multi-arg type application" in {
+    namedValue("data Map[A, B]\ndef f: R = Map[A, B]").asserting { nv =>
+      nv.runtimeStructure shouldBe Some(App(App(Ref("Map", T), Ref("A", T)), Ref("B", T)))
+    }
+  }
+
   "flat expressions" should "pass through as FlatExpression in core" in {
     namedValue("def f: T = b + c").asserting { nv =>
       nv.runtimeStructure shouldBe Some(Flat(Seq(Ref("b"), Ref("+"), Ref("c"))))
@@ -526,7 +568,8 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   // Structural representation of expressions (ignores source positions)
   sealed trait ExprStructure
-  case class Ref(name: String, qualifier: Qualifier = Qualifier.Default)          extends ExprStructure
+  case class Ref(name: String, qualifier: Qualifier = Qualifier.Default, typeArgs: Seq[ExprStructure] = Seq.empty)
+      extends ExprStructure
   case class QualRef(name: String, module: String)                                extends ExprStructure
   case class App(target: ExprStructure, arg: ExprStructure)                       extends ExprStructure
   case class Lambda(param: String, paramType: ExprStructure, body: ExprStructure) extends ExprStructure
@@ -547,7 +590,8 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   extension (expr: Expression) {
     def structure: ExprStructure = expr match {
-      case NamedValueReference(name, None, _)       => Ref(name.value.name, name.value.qualifier)
+      case NamedValueReference(name, None, typeArgs)  =>
+        Ref(name.value.name, name.value.qualifier, typeArgs.map(_.value.structure))
       case NamedValueReference(name, Some(qual), _) => QualRef(name.value.name, qual.value)
       case FunctionApplication(target, arg)         => App(target.value.firstStructure, arg.value.firstStructure)
       case FunctionLiteral(param, paramType, body)  =>

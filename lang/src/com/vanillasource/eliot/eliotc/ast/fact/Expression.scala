@@ -15,7 +15,7 @@ object Expression {
   case class FunctionApplication(
       moduleName: Option[Sourced[String]],
       functionName: Sourced[String],
-      genericArguments: Seq[TypeReference],
+      genericArguments: Seq[Sourced[Expression]],
       arguments: Seq[Sourced[Expression]]
   ) extends Expression
   case class FunctionLiteral(parameters: Seq[LambdaParameterDefinition], body: Sourced[Expression]) extends Expression
@@ -30,11 +30,17 @@ object Expression {
     case IntegerLiteral(Sourced(_, _, value))                                                 => value
     case StringLiteral(Sourced(_, _, value))                                                  => value
     case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ga, ns @ _ :: _) =>
-      s"$module::$fn(${ns.map(_.value.show).mkString(", ")})"
-    case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ga, _)           => s"$module::$fn"
+      val gaStr = if (ga.isEmpty) "" else ga.map(_.value.show).mkString("[", ", ", "]")
+      s"$module::$fn$gaStr(${ns.map(_.value.show).mkString(", ")})"
+    case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ga, _)           =>
+      val gaStr = if (ga.isEmpty) "" else ga.map(_.value.show).mkString("[", ", ", "]")
+      s"$module::$fn$gaStr"
     case FunctionApplication(None, Sourced(_, _, value), ga, ns @ _ :: _)                     =>
-      s"$value(${ns.map(_.value.show).mkString(", ")})"
-    case FunctionApplication(None, Sourced(_, _, value), ga, _)                               => value
+      val gaStr = if (ga.isEmpty) "" else ga.map(_.value.show).mkString("[", ", ", "]")
+      s"$value$gaStr(${ns.map(_.value.show).mkString(", ")})"
+    case FunctionApplication(None, Sourced(_, _, value), ga, _)                               =>
+      val gaStr = if (ga.isEmpty) "" else ga.map(_.value.show).mkString("[", ", ", "]")
+      s"$value$gaStr"
     case FunctionLiteral(parameters, body)                                                    => parameters.map(_.show).mkString("(", ", ", ")") + " -> " + body.show
     case FlatExpression(parts)                                                                => parts.map(_.value.show).mkString(" ")
     case MatchExpression(scrutinee, cases)                                                    =>
@@ -84,7 +90,7 @@ object Expression {
     private val namedRefOrCall: Parser[Sourced[Token], Expression] = for {
       module   <- (moduleParser <* symbol("::")).atomic().optional()
       name     <- acceptIf(isIdentifierOrSymbol, "name")
-      typeArgs <- optionalBracketedCommaSeparatedItems("[", component[TypeReference], "]")
+      typeArgs <- optionalBracketedCommaSeparatedItems("[", sourced(parser), "]")
       args     <- bracketedCommaSeparatedItems("(", sourced(parser), ")").optional()
     } yield FunctionApplication(module, name.map(_.content), typeArgs, args.getOrElse(Seq.empty))
 
