@@ -26,8 +26,8 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
       importedModules =
         extractImportedModules(key.vfqn.moduleName, coreAST.ast.as(coreAST.ast.value.importStatements), systemModules)
       importResult   <- extractImportedNames(importedModules, moduleNames.names.value.keySet)
-      localDictionary = moduleNames.names.value.collect {
-                          case (name, _) => (name, ValueFQN(key.vfqn.moduleName, name))
+      localDictionary = moduleNames.names.value.collect { case (name, _) =>
+                          (name, ValueFQN(key.vfqn.moduleName, name))
                         }
       dictionary      = importResult.dictionary ++ localDictionary
       namedValuesMap  = coreAST.ast.value.namedValues.map(nv => nv.qualifiedName.value -> nv).toMap
@@ -71,11 +71,11 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
       maybeModuleNames <- getFact(UnifiedModuleNames.Key(module.value))
       result           <- maybeModuleNames match {
                             case Some(moduleNames) =>
-                              val publicNames       = moduleNames.names.collect {
-                                case (name, Visibility.Public) => name
+                              val publicNames       = moduleNames.names.collect { case (name, Visibility.Public) =>
+                                name
                               }.toSet
-                              val privateNameSet    = moduleNames.names.collect {
-                                case (name, Visibility.Private) => name
+                              val privateNameSet    = moduleNames.names.collect { case (name, Visibility.Private) =>
+                                name
                               }.toSet
                               val shadowingLocal    = publicNames.intersect(localNames)
                               val shadowingImported = publicNames.intersect(accumulated.dictionary.keySet)

@@ -25,7 +25,8 @@ object AbilityImplGenerator {
     val singletonVfqn  = ValueFQN(outerClassGenerator.moduleName, QualifiedName(innerClassName, Qualifier.Default))
 
     for {
-      singletonCg <- outerClassGenerator.createInnerClassGenerator[F](JvmIdentifier.encode(innerClassName), Seq(interfaceName))
+      singletonCg <-
+        outerClassGenerator.createInnerClassGenerator[F](JvmIdentifier.encode(innerClassName), Seq(interfaceName))
       _           <- singletonCg.createStaticFinalField[F](JvmIdentifier("INSTANCE"), interfaceVfqn)
       _           <- singletonCg.createCtor[F](Seq.empty).use { ctor =>
                        ctor.addLoadThis[F]() >> ctor.addCallToObjectCtor[F]()

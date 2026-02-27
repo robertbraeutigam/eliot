@@ -44,17 +44,17 @@ object Evaluator {
       paramContext: Map[String, Value],
       sourced: Sourced[?]
   ): CompilerIO[ExpressionValue] = expression match {
-    case OperatorResolvedExpression.IntegerLiteral(s)                           =>
+    case OperatorResolvedExpression.IntegerLiteral(s)                                 =>
       ConcreteValue(Value.Direct(s.value, bigIntType)).pure[CompilerIO]
-    case OperatorResolvedExpression.StringLiteral(s)                            =>
+    case OperatorResolvedExpression.StringLiteral(s)                                  =>
       ConcreteValue(Value.Direct(s.value, stringType)).pure[CompilerIO]
-    case OperatorResolvedExpression.ParameterReference(s)                       =>
+    case OperatorResolvedExpression.ParameterReference(s)                             =>
       val name = s.value
       paramContext.get(name) match {
         case Some(paramType) => ParameterReference(name, paramType).pure[CompilerIO]
         case None            => compilerAbort(s.as(s"Unknown parameter: $name"))
       }
-    case OperatorResolvedExpression.ValueReference(s, _)                        =>
+    case OperatorResolvedExpression.ValueReference(s, _)                              =>
       val vfqn = s.value
       if (evaluating.contains(vfqn)) {
         // Don't allow recursions when evaluating, for now
@@ -66,7 +66,7 @@ object Evaluator {
             compilerAbort(sourced.as("Could not evaluate expression."), Seq(s"Named value '${vfqn.show}' not found."))
         }
       }
-    case OperatorResolvedExpression.FunctionLiteral(paramName, None, _) =>
+    case OperatorResolvedExpression.FunctionLiteral(paramName, None, _)               =>
       compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated."))
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramType), body) =>
       for {
@@ -79,7 +79,7 @@ object Evaluator {
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
         evaluatedBody          <- toExpressionValue(body.value.signature, evaluating, newContext, body)
       } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
-    case OperatorResolvedExpression.FunctionApplication(target, argument)       =>
+    case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
       for {
         // TODO: Is it ok to ignore the type stack here?
         targetValue <- toExpressionValue(target.value.signature, evaluating, paramContext, target)

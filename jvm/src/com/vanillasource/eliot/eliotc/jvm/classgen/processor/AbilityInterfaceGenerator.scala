@@ -16,7 +16,8 @@ object AbilityInterfaceGenerator {
       methods: Seq[UncurriedValue]
   ): F[ClassFile] =
     for {
-      interfaceGenerator <- outerClassGenerator.createInnerInterfaceGenerator[F](JvmIdentifier.encode(abilityName + "$vtable"))
+      interfaceGenerator <-
+        outerClassGenerator.createInnerInterfaceGenerator[F](JvmIdentifier.encode(abilityName + "$vtable"))
       _                  <- methods.traverse_ { method =>
                               val (paramTypes, returnType) = extractSignatureTypes(method.signature)
                               interfaceGenerator.createAbstractMethod[F](

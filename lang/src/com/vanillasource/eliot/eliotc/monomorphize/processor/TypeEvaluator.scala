@@ -56,7 +56,7 @@ object TypeEvaluator extends Logging {
           case Some(vfqn) => getFact(NamedEvaluable.Key(vfqn)).map(_.map(_.value).getOrElse(ConcreteValue(arg)))
           case None       => ConcreteValue(arg).pure[CompilerIO]
         }
-      case _                                                           => ConcreteValue(arg).pure[CompilerIO]
+      case _                                                            => ConcreteValue(arg).pure[CompilerIO]
     }
 
   /** Resolve data type references that are targets of FunctionApplication. Only targets need resolution because they
@@ -89,7 +89,7 @@ object TypeEvaluator extends Logging {
             }
           case None       => target.pure[CompilerIO]
         }
-      case FunctionApplication(_, _) | FunctionLiteral(_, _, _)                       =>
+      case FunctionApplication(_, _) | FunctionLiteral(_, _, _)                        =>
         resolveDataTypeRefs(target, source)
       case _                                                                           =>
         target.pure[CompilerIO]

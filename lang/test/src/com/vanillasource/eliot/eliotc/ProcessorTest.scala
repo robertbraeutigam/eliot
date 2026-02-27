@@ -4,8 +4,14 @@ import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.resolve.fact.{QualifiedName as ResolveQualifiedName, Qualifier as ResolveQualifier}
-import com.vanillasource.eliot.eliotc.symbolic.fact.{QualifiedName as SymbolicQualifiedName, Qualifier as SymbolicQualifier}
+import com.vanillasource.eliot.eliotc.resolve.fact.{
+  QualifiedName as ResolveQualifiedName,
+  Qualifier as ResolveQualifier
+}
+import com.vanillasource.eliot.eliotc.symbolic.fact.{
+  QualifiedName as SymbolicQualifiedName,
+  Qualifier as SymbolicQualifier
+}
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
@@ -31,20 +37,26 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
   def default(name: String): QualifiedName = QualifiedName(name, Qualifier.Default)
 
   def toResolve(qn: QualifiedName): ResolveQualifiedName =
-    ResolveQualifiedName(qn.name, qn.qualifier match {
-      case Qualifier.Default    => ResolveQualifier.Default
-      case Qualifier.Type       => ResolveQualifier.Type
-      case Qualifier.Ability(n) => ResolveQualifier.Ability(n)
-      case _                    => throw IllegalArgumentException("Cannot convert AbilityImplementation in test helper")
-    })
+    ResolveQualifiedName(
+      qn.name,
+      qn.qualifier match {
+        case Qualifier.Default    => ResolveQualifier.Default
+        case Qualifier.Type       => ResolveQualifier.Type
+        case Qualifier.Ability(n) => ResolveQualifier.Ability(n)
+        case _                    => throw IllegalArgumentException("Cannot convert AbilityImplementation in test helper")
+      }
+    )
 
   def toSymbolic(qn: QualifiedName): SymbolicQualifiedName =
-    SymbolicQualifiedName(qn.name, qn.qualifier match {
-      case Qualifier.Default    => SymbolicQualifier.Default
-      case Qualifier.Type       => SymbolicQualifier.Type
-      case Qualifier.Ability(n) => SymbolicQualifier.Ability(n)
-      case _                    => throw IllegalArgumentException("Cannot convert AbilityImplementation in test helper")
-    })
+    SymbolicQualifiedName(
+      qn.name,
+      qn.qualifier match {
+        case Qualifier.Default    => SymbolicQualifier.Default
+        case Qualifier.Type       => SymbolicQualifier.Type
+        case Qualifier.Ability(n) => SymbolicQualifier.Ability(n)
+        case _                    => throw IllegalArgumentException("Cannot convert AbilityImplementation in test helper")
+      }
+    )
 
   def createGenerator(facts: Seq[CompilerFact]): IO[FactGenerator] =
     for {

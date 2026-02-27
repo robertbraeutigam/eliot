@@ -47,12 +47,14 @@ object LambdaGenerator {
       lambdaFnParams    = closedOverArgs.get ++ parameters
       // Save outer state and set up a fresh TypeState for the lambda body.
       outerState       <- StateT.get[CompilerIO, TypeState]
-      _                <- StateT.set[CompilerIO, TypeState](TypeState(
-                            typeMap = lambdaFnParams.map(p => p.name.value -> p).toMap,
-                            parameters = lambdaFnParams.map(_.name.value),
-                            lambdaCount = outerState.lambdaCount,
-                            methodName = methodName
-                          ))
+      _                <- StateT.set[CompilerIO, TypeState](
+                            TypeState(
+                              typeMap = lambdaFnParams.map(p => p.name.value -> p).toMap,
+                              parameters = lambdaFnParams.map(_.name.value),
+                              lambdaCount = outerState.lambdaCount,
+                              methodName = methodName
+                            )
+                          )
       cls1             <-
         outerClassGenerator
           .createMethod[CompilationTypesIO](
@@ -68,7 +70,10 @@ object LambdaGenerator {
       _                <- StateT.set[CompilerIO, TypeState](outerState.copy(lambdaCount = innerState.lambdaCount))
       innerClassWriter <-
         outerClassGenerator
-          .createInnerClassGenerator[CompilationTypesIO](JvmIdentifier.encode(lambdaPrefix + lambdaIndex), Seq("java/util/function/Function"))
+          .createInnerClassGenerator[CompilationTypesIO](
+            JvmIdentifier.encode(lambdaPrefix + lambdaIndex),
+            Seq("java/util/function/Function")
+          )
       _                <- innerClassWriter.addDataFieldsAndCtor[CompilationTypesIO](closedOverArgs.get)
       _                <- innerClassWriter
                             .createApplyMethod[CompilationTypesIO](
@@ -106,7 +111,9 @@ object LambdaGenerator {
                               } yield ()
                             }
       classFile        <- innerClassWriter.generate[CompilationTypesIO]()
-      _                <- methodGenerator.addNew[CompilationTypesIO](ValueFQN(moduleName, QualifiedName(lambdaPrefix + lambdaIndex, Qualifier.Default)))
+      _                <- methodGenerator.addNew[CompilationTypesIO](
+                            ValueFQN(moduleName, QualifiedName(lambdaPrefix + lambdaIndex, Qualifier.Default))
+                          )
       _                <- closedOverArgs.get.traverse_ { argument =>
                             for {
                               argIndex <- getParameterIndex(argument.name.value)

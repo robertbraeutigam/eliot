@@ -78,14 +78,15 @@ class MethodGenerator(private val internalName: String, val methodVisitor: Metho
 
   /** Add getting the instance field from a data object.
     */
-  def addGetField[F[_]: Sync](fieldName: JvmIdentifier, fieldType: ValueFQN, target: ValueFQN): F[Unit] = Sync[F].delay {
-    methodVisitor.visitFieldInsn(
-      Opcodes.GETFIELD,
-      convertToNestedClassName(target),
-      fieldName.value,
-      javaSignatureName(fieldType)
-    )
-  }
+  def addGetField[F[_]: Sync](fieldName: JvmIdentifier, fieldType: ValueFQN, target: ValueFQN): F[Unit] =
+    Sync[F].delay {
+      methodVisitor.visitFieldInsn(
+        Opcodes.GETFIELD,
+        convertToNestedClassName(target),
+        fieldName.value,
+        javaSignatureName(fieldType)
+      )
+    }
 
   /** Add putting a value into a static field of this class.
     */

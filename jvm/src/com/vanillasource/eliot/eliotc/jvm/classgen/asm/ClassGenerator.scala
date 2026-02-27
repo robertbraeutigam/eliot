@@ -22,7 +22,10 @@ class ClassGenerator(val moduleName: ModuleName, val internalName: String, priva
     val innerInternalName = internalName + "$" + innerName.value
     for {
       interfaceGenerator <-
-        createInterfaceGenerator[F](ModuleName(moduleName.packages, moduleName.name + "$" + innerName.value), innerInternalName)
+        createInterfaceGenerator[F](
+          ModuleName(moduleName.packages, moduleName.name + "$" + innerName.value),
+          innerInternalName
+        )
       _                  <- Sync[F].delay(
                               interfaceGenerator.classWriter.visitInnerClass(
                                 innerInternalName,
@@ -63,11 +66,18 @@ class ClassGenerator(val moduleName: ModuleName, val internalName: String, priva
     * @param innerName
     *   The plain non-qualified and non-embedded name of the inner class.
     */
-  def createInnerClassGenerator[F[_]: Sync](innerName: JvmIdentifier, interfaces: Seq[String] = Seq.empty): F[ClassGenerator] =
+  def createInnerClassGenerator[F[_]: Sync](
+      innerName: JvmIdentifier,
+      interfaces: Seq[String] = Seq.empty
+  ): F[ClassGenerator] =
     val innerInternalName = internalName + "$" + innerName.value
     for {
       classGenerator <-
-        createClassGenerator[F](ModuleName(moduleName.packages, moduleName.name + "$" + innerName.value), innerInternalName, interfaces)
+        createClassGenerator[F](
+          ModuleName(moduleName.packages, moduleName.name + "$" + innerName.value),
+          innerInternalName,
+          interfaces
+        )
       _              <- Sync[F].delay(
                           classGenerator.classWriter.visitInnerClass(
                             innerInternalName,
@@ -276,7 +286,11 @@ object ClassGenerator {
     val className = convertToMainClassName(name)
     createClassGenerator(name, className, interfaces)
 
-  private def createClassGenerator[F[_]: Sync](name: ModuleName, className: String, interfaces: Seq[String]): F[ClassGenerator] =
+  private def createClassGenerator[F[_]: Sync](
+      name: ModuleName,
+      className: String,
+      interfaces: Seq[String]
+  ): F[ClassGenerator] =
     Sync[F].delay {
       val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
 

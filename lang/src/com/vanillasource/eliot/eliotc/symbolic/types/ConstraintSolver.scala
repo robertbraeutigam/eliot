@@ -8,8 +8,8 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
 
-/** Solves a set of unification constraints using Robinson's algorithm. Keeps constraint solving separate from constraint
-  * accumulation (SymbolicUnification).
+/** Solves a set of unification constraints using Robinson's algorithm. Keeps constraint solving separate from
+  * constraint accumulation (SymbolicUnification).
   */
 object ConstraintSolver {
 

@@ -72,7 +72,7 @@ object DataClassGenerator {
       interfaceName   = convertToNestedClassName(typeVFQ)
       // Sort constructors by source position to match definition order (= handleWith handler order)
       sortedCtors     = ctors.sortBy { case (_, uv) => (uv.name.range.from.line, uv.name.range.from.col) }
-      ctorIndexMap     = sortedCtors.zipWithIndex.map { case ((vfqn, _), idx) => vfqn -> idx }.toMap
+      ctorIndexMap    = sortedCtors.zipWithIndex.map { case ((vfqn, _), idx) => vfqn -> idx }.toMap
       // Create implementation classes and factory methods for each constructor
       implClasses    <- ctors.flatTraverse { case (vfqn, uncurriedValue) =>
                           val ctorIndex = ctorIndexMap.getOrElse(vfqn, 0)
@@ -123,7 +123,8 @@ object DataClassGenerator {
     * @param innerClassName
     *   The raw (un-encoded) inner class name. Will be encoded when passed to ASM.
     * @param handleWithInfo
-    *   If present, Seq of (constructorIndex, constructorFields, handleWithUncurried) for generating eliminator override.
+    *   If present, Seq of (constructorIndex, constructorFields, handleWithUncurried) for generating eliminator
+    *   override.
     */
   private def createDataClassWithHandleWith[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
@@ -134,7 +135,8 @@ object DataClassGenerator {
       eliminatorName: String = ""
   ): F[Seq[ClassFile]] =
     for {
-      innerClassWriter <- outerClassGenerator.createInnerClassGenerator[F](JvmIdentifier.encode(innerClassName), javaInterfaces)
+      innerClassWriter <-
+        outerClassGenerator.createInnerClassGenerator[F](JvmIdentifier.encode(innerClassName), javaInterfaces)
       _                <- innerClassWriter.addDataFieldsAndCtor[F](fields)
       // Generate eliminator instance method override if requested
       _                <- handleWithInfo.traverse_ { infos =>

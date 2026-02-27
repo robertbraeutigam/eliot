@@ -79,7 +79,7 @@ object InfixPrecedenceResolver {
           }
         }
       }
-      val samePairs = rvs.flatMap { (vfqn, rv) =>
+      val samePairs   = rvs.flatMap { (vfqn, rv) =>
         rv.precedence.flatMap { decl =>
           decl.relation match {
             case Relation.At => decl.targets.flatMap(t => Seq(vfqn -> t.value, t.value -> vfqn))
@@ -123,7 +123,8 @@ object InfixPrecedenceResolver {
   private def findSplitPoint(operators: Seq[InfixOp], order: PrecedenceOrder): CompilerIO[Int] =
     for {
       weakestIdx      <- findWeakestOperator(operators, order)
-      sameLevelIndices = operators.indices.filter(i => order.compare(operators(i).vfqn, operators(weakestIdx).vfqn).contains(0))
+      sameLevelIndices =
+        operators.indices.filter(i => order.compare(operators(i).vfqn, operators(weakestIdx).vfqn).contains(0))
       splitIdx        <- pickSplitByAssociativity(operators, sameLevelIndices)
     } yield splitIdx
 
@@ -143,17 +144,19 @@ object InfixPrecedenceResolver {
 
   private def pickSplitByAssociativity(operators: Seq[InfixOp], sameLevelIndices: Seq[Int]): CompilerIO[Int] =
     sameLevelIndices.map(i => operators(i).associativity).distinct match {
-      case Seq(Associativity.Left)  => sameLevelIndices.last.pure[CompilerIO]
-      case Seq(Associativity.Right) => sameLevelIndices.head.pure[CompilerIO]
+      case Seq(Associativity.Left)                                 => sameLevelIndices.last.pure[CompilerIO]
+      case Seq(Associativity.Right)                                => sameLevelIndices.head.pure[CompilerIO]
       case Seq(Associativity.None) if sameLevelIndices.length == 1 => sameLevelIndices.head.pure[CompilerIO]
-      case Seq(Associativity.None)  =>
+      case Seq(Associativity.None)                                 =>
         compilerAbort(
           operators(sameLevelIndices.head).part.as(
             s"Non-associative operator '${operators(sameLevelIndices.head).vfqn.name.name}' cannot be chained."
           )
         )
-      case _                        =>
-        compilerAbort(operators(sameLevelIndices.head).part.as("Operators at same precedence level have different associativity."))
+      case _                                                       =>
+        compilerAbort(
+          operators(sameLevelIndices.head).part.as("Operators at same precedence level have different associativity.")
+        )
     }
 
   private def makeCurriedInfix(

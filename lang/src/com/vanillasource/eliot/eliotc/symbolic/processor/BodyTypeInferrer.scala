@@ -19,8 +19,8 @@ import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
 
 /** Infers types of runtime body expressions by generating unification variables and emitting constraints.
   *
-  * Depends on TypeExpressionEvaluator for evaluating type annotations encountered in the body (parameter types, explicit
-  * type arguments). TypeExpressionEvaluator has no dependency on BodyTypeInferrer.
+  * Depends on TypeExpressionEvaluator for evaluating type annotations encountered in the body (parameter types,
+  * explicit type arguments). TypeExpressionEvaluator has no dependency on BodyTypeInferrer.
   */
 object BodyTypeInferrer {
 
@@ -61,14 +61,16 @@ object BodyTypeInferrer {
       TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
     } else {
       for {
-        resolved          <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-        evaluatedTypeArgs <- typeArgs.traverse(arg => TypeExpressionEvaluator.evaluateTypeExpression(arg.value).map(_.expressionType))
-        _                 <- setExplicitTypeArgCount(evaluatedTypeArgs.length)
-        (signatureType, _) <- TypeExpressionEvaluator.processStackForInstantiation(resolved.typeStack, evaluatedTypeArgs)
-        remaining         <- getExplicitTypeArgCount
-        _                 <- if (remaining > 0)
-                               StateT.liftF(compilerError(vfqn.as("Too many explicit type arguments.")))
-                             else ().pure[TypeGraphIO]
+        resolved           <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
+        evaluatedTypeArgs  <-
+          typeArgs.traverse(arg => TypeExpressionEvaluator.evaluateTypeExpression(arg.value).map(_.expressionType))
+        _                  <- setExplicitTypeArgCount(evaluatedTypeArgs.length)
+        (signatureType, _) <-
+          TypeExpressionEvaluator.processStackForInstantiation(resolved.typeStack, evaluatedTypeArgs)
+        remaining          <- getExplicitTypeArgCount
+        _                  <- if (remaining > 0)
+                                StateT.liftF(compilerError(vfqn.as("Too many explicit type arguments.")))
+                              else ().pure[TypeGraphIO]
       } yield TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
     }
   }
@@ -105,7 +107,8 @@ object BodyTypeInferrer {
   ): TypeGraphIO[TypedExpression] =
     for {
       typedParamType <- paramType match {
-                          case Some(pt) => TypeExpressionEvaluator.processStackForDeclaration(pt).map { case (v, _) => pt.as(v) }
+                          case Some(pt) =>
+                            TypeExpressionEvaluator.processStackForDeclaration(pt).map { case (v, _) => pt.as(v) }
                           case None     => generateUnificationVar.map(v => paramName.as(v: ExpressionValue))
                         }
       _              <- bindParameter(paramName.value, typedParamType.value)

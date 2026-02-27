@@ -25,10 +25,10 @@ object DataDefinition {
 
   given ASTComponent[DataDefinition] = new ASTComponent[DataDefinition] {
     override val parser: Parser[Sourced[Token], DataDefinition] = for {
-      vis               <- component[Visibility].optional().map(_.getOrElse(Visibility.Public))
-      _                 <- keyword("data")
-      name              <- acceptIfAll(isIdentifier, isUpperCase)("type name")
-      genericParameters <- component[Seq[GenericParameter]]
+      vis                  <- component[Visibility].optional().map(_.getOrElse(Visibility.Public))
+      _                    <- keyword("data")
+      name                 <- acceptIfAll(isIdentifier, isUpperCase)("type name")
+      genericParameters    <- component[Seq[GenericParameter]]
       constructorsOrFields <-
         ((symbol("=") >> component[DataConstructor].atLeastOnceSeparatedBy(symbol("|"))) xor
           bracketedCommaSeparatedItems("(", component[ArgumentDefinition], ")")).optional()
