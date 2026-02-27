@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.feedback
 
 import cats.effect.IO
+import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.User.compilerGenericError
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -14,7 +15,7 @@ case class CompilerError(
     content: String,
     sourceRange: PositionRange
 ) {
-  def print(): IO[Unit] = {
+  def print()(using Console[IO]): IO[Unit] = {
     val fromLine        = sourceRange.from.line
     val fromCol         = sourceRange.from.col
     val toLine          = sourceRange.to.line
@@ -42,7 +43,11 @@ case class CompilerError(
               // Multi line error
               s"$MAGENTA$lineMarker |$RESET ${line.substring(0, fromCol - 1)}$BOLD$RED${line.substring(fromCol - 1)}$RESET"
             },
-            s"$MAGENTA$markerSpaces | ${" ".repeat(fromCol - 1)}$BOLD$RED${"^".repeat(line.length() + 1 - fromCol)}$multiLinePoints$RESET"
+            if (fromLine === toLine) {
+              s"$MAGENTA$markerSpaces | ${" ".repeat(fromCol - 1)}$BOLD$RED${"^".repeat(toCol - fromCol)}$RESET"
+            } else {
+              s"$MAGENTA$markerSpaces | ${" ".repeat(fromCol - 1)}$BOLD$RED${"^".repeat(line.length() + 1 - fromCol)}$multiLinePoints$RESET"
+            }
           ) ++ (if (description.isEmpty) Seq.empty
                 else (description ++ Seq("")).map(d => s"$MAGENTA$markerSpaces |$RESET  $d"))
         }
