@@ -249,4 +249,54 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       fDescriptor
     }.asserting(_ shouldBe Some("(LTest$Show$vtable;Ljava/lang/Object;)Ljava/lang/Object;"))
   }
+
+  it should "generate methods for all used arities of a data accessor" in {
+    runGenerator(
+      """data MyVal
+        |data Box[A](content: A)
+        |def someValue: MyVal = someValue
+        |def applyFn[A, B](f: Function[A, B], a: A): B = f(a)
+        |def main: MyVal = applyFn(content, Box(content(Box(someValue))))""".stripMargin,
+      moduleKey
+    ).map { case (_, facts) =>
+      val generatedModule    = facts(moduleKey).asInstanceOf[GeneratedModule]
+      val testClassBytes     = generatedModule.classFiles.find(_.fileName == "Test.class").get.bytecode
+      val classReader        = new ClassReader(testClassBytes)
+      var contentDescriptors = Set.empty[String]
+      classReader.accept(
+        new ClassVisitor(Opcodes.ASM9) {
+          override def visitMethod(
+              access: Int,
+              name: String,
+              descriptor: String,
+              signature: String,
+              exceptions: Array[String]
+          ): MethodVisitor = {
+            if (name == "content") contentDescriptors = contentDescriptors + descriptor
+            null
+          }
+        },
+        0
+      )
+      contentDescriptors
+    }.asserting(_ shouldBe Set(
+      "(LTest$Box;)Ljava/lang/Object;",
+      "()Ljava/util/function/Function;"
+    ))
+  }
+
+  it should "generate unique lambda class names across arities" in {
+    runGenerator(
+      """data MyVal
+        |data Box[A](content: A)
+        |def someValue: MyVal = someValue
+        |def applyFn[A, B](f: Function[A, B], a: A): B = f(a)
+        |def main: MyVal = applyFn(content, Box(content(Box(someValue))))""".stripMargin,
+      moduleKey
+    ).map { case (_, facts) =>
+      val generatedModule = facts(moduleKey).asInstanceOf[GeneratedModule]
+      val lambdaFiles     = generatedModule.classFiles.filter(_.fileName.contains("content$lambda"))
+      lambdaFiles.map(_.fileName)
+    }.asserting(fileNames => fileNames.distinct shouldBe fileNames)
+  }
 }
