@@ -135,7 +135,8 @@ object LambdaGenerator {
         collectParameterReferences(target.value.expression) ++
           arguments.flatMap(arg => collectParameterReferences(arg.value.expression))
       case FunctionLiteral(parameters, body)      =>
-        collectParameterReferences(body.value.expression)
+        val boundNames = parameters.map(_.name.value).toSet
+        collectParameterReferences(body.value.expression).filterNot(boundNames.contains)
       case IntegerLiteral(_)                      => Seq.empty
       case StringLiteral(_)                       => Seq.empty
       case ParameterReference(parameterName)      => Seq(parameterName.value)
