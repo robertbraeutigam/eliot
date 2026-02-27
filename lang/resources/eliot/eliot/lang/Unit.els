@@ -3,8 +3,3 @@
  * Reason for being in lang: handleWith refers to it in empty handlers.
  */
 data Unit
-
-/**
- * The single value of Unit.
- */
-def unit: Unit
