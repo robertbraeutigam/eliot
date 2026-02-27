@@ -10,7 +10,7 @@ def as[A, B](b: B, box: Box[A]): Box[B] = box.map(_ -> b)
 
 def logic: Box[String] = Box("Hello").filter("Expr").map(_ -> "Earth!").as("World!")
 
-def content2[A](b: Box[A]) = b match { case Box(c) -> c }
+def content2[A](b: Box[A]): A = b match { case Box(c) -> c }
 
 def main: IO[Unit] = println(logic.content2)
 
