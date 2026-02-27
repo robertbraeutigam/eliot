@@ -9,16 +9,16 @@ class JvmIdentifierTest extends AnyFlatSpec with Matchers {
     JvmIdentifier.encode("hello").value shouldBe "hello"
   }
 
-  it should "encode dot to _002E_" in {
-    JvmIdentifier.encode(".").value shouldBe "_002E_"
+  it should "encode dot to named encoding" in {
+    JvmIdentifier.encode(".").value shouldBe "_dot_"
   }
 
-  it should "encode plus to _002B_" in {
-    JvmIdentifier.encode("+").value shouldBe "_002B_"
+  it should "encode plus to named encoding" in {
+    JvmIdentifier.encode("+").value shouldBe "_plus_"
   }
 
-  it should "encode underscore to _005F_" in {
-    JvmIdentifier.encode("_").value shouldBe "_005F_"
+  it should "encode underscore to named encoding" in {
+    JvmIdentifier.encode("_").value shouldBe "_us_"
   }
 
   it should "leave dollar sign unchanged" in {
@@ -26,19 +26,19 @@ class JvmIdentifierTest extends AnyFlatSpec with Matchers {
   }
 
   it should "encode mixed names correctly" in {
-    JvmIdentifier.encode("a.b_c+d").value shouldBe "a_002E_b_005F_c_002B_d"
+    JvmIdentifier.encode("a.b_c+d").value shouldBe "a_dot_b_us_c_plus_d"
   }
 
-  it should "encode semicolon to _003B_" in {
+  it should "encode semicolon to hex" in {
     JvmIdentifier.encode(";").value shouldBe "_003B_"
   }
 
-  it should "encode bracket to _005B_" in {
+  it should "encode bracket to hex" in {
     JvmIdentifier.encode("[").value shouldBe "_005B_"
   }
 
-  it should "encode slash to _002F_" in {
-    JvmIdentifier.encode("/").value shouldBe "_002F_"
+  it should "encode slash to named encoding" in {
+    JvmIdentifier.encode("/").value shouldBe "_slash_"
   }
 
   it should "pass through digits" in {

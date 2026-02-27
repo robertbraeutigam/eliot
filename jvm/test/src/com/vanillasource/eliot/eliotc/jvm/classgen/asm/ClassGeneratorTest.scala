@@ -614,7 +614,7 @@ class ClassGeneratorTest extends BytecodeTest {
       classFile <- cg.generate[IO]()
       output    <- runClasses(Seq(classFile)) { cl =>
                      val clazz  = cl.loadClass("test.pkg.TestClass")
-                     val method = clazz.getMethod("_002E_", classOf[String])
+                     val method = clazz.getMethod("_dot_", classOf[String])
                      print(method.invoke(null, "dotted"))
                    }
     } yield output shouldBe "dotted"

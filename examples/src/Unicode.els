@@ -1,0 +1,4 @@
+def main: IO[Unit] = println(<===>)
+
+def <===>: String = "Hello World!"
+
