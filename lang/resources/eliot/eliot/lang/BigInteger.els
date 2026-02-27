@@ -1,0 +1,5 @@
+/**
+ * Any integer number without restrictions.
+ * Reason for being in lang: Integer literals have this type.
+ */
+data BigInteger

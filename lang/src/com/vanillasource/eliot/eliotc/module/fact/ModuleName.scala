@@ -27,6 +27,7 @@ object ModuleName {
     "Function",
     "Unit",
     "String",
+    "BigInteger",
     "IO"
   ).map(ModuleName(defaultSystemPackage, _))
 

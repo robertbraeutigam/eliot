@@ -1,0 +1,3 @@
+def hello[I: BigInteger]: String = "Hello World!"
+
+def main: IO[Unit] = println(hello)
