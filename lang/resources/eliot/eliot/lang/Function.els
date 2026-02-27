@@ -11,5 +11,6 @@ data Function[A, B]
 
 /**
  * Apply the single parameter to a function to produce the resulting value.
+ * Reason for being in lang: Referred to by precedence as a stand-in for function application.
  */
 def apply[A, B](f: Function[A, B], a: A): B = f(a)
