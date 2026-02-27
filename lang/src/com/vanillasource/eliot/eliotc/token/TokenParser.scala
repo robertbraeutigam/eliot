@@ -19,12 +19,12 @@ class TokenParser(sourced: Sourced[?]) {
       NameDesc(
         identifierStart = Basic(_.isLetter),
         identifierLetter = Basic(c => c.isLetterOrDigit),
-        operatorStart = Basic(":!#$%&*+./<=>?@\\^|-~;".contains(_)),
-        operatorLetter = Basic(":!#$%&*+./<=>?@\\^|-~;".contains(_))
+        operatorStart = Basic("!#$%&*+./<=>?@\\^|-~;".contains(_)),
+        operatorLetter = Basic("!#$%&*+./<=>?@\\^|-~;".contains(_))
       ),
       SymbolDesc(
         hardKeywords = Set("import", "data", "def", "ability", "implement", "match", "case"),
-        hardOperators = Set("(", ")", "[", "]", "->", "_", "::"),
+        hardOperators = Set("(", ")", "[", "]", "->", "_", "::", ":"),
         caseSensitive = true
       ),
       NumericDesc.plain,
@@ -51,7 +51,7 @@ class TokenParser(sourced: Sourced[?]) {
   )
 
   private lazy val standaloneSymbolParser: Parsley[Sourced[Token.Symbol]] = sourcedLexeme(
-    Parsley.atomic(character.strings("(", ")", "[", "]", "{", "}", ",", "->", "_", "::")).map(Token.Symbol.apply)
+    Parsley.atomic(character.strings("(", ")", "[", "]", "{", "}", ",", "->", "_", "::", ":")).map(Token.Symbol.apply)
   ).label("special operator")
 
   private lazy val keyword: Parsley[Sourced[Token.Keyword]] = sourcedLexeme(
