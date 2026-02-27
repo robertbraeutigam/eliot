@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
+import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
@@ -124,23 +125,31 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       case Some(nativeImplementation) =>
         nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty)
       case None                       =>
+        val arities = stats.directCallApplications.keys.toSeq.sorted
         for {
-          uncurriedValue <- getFactOrAbort(UncurriedValue.Key(vfqn, stats.highestArity.getOrElse(0)))
-          classFiles     <- createModuleMethod(mainClassGenerator, uncurriedValue)
-          _              <- createApplicationMain(vfqn, mainClassGenerator).whenA(isMain(uncurriedValue))
+          result           <- arities.foldLeftM((Seq.empty[ClassFile], 0)) { case ((accFiles, lambdaCount), arity) =>
+                                for {
+                                  uncurriedValue          <- getFactOrAbort(UncurriedValue.Key(vfqn, arity))
+                                  (files, newLambdaCount) <- createModuleMethod(mainClassGenerator, uncurriedValue, lambdaCount)
+                                } yield (accFiles ++ files, newLambdaCount)
+                              }
+          (classFiles, _)   = result
+          highestUncurried <- getFactOrAbort(UncurriedValue.Key(vfqn, stats.highestArity.getOrElse(0)))
+          _                <- createApplicationMain(vfqn, mainClassGenerator).whenA(isMain(highestUncurried))
         } yield classFiles
     }
   }
 
   private def createModuleMethod(
       classGenerator: ClassGenerator,
-      uncurriedValue: UncurriedValue
-  ): CompilerIO[Seq[ClassFile]] = {
+      uncurriedValue: UncurriedValue,
+      initialLambdaCount: Int = 0
+  ): CompilerIO[(Seq[ClassFile], Int)] = {
     uncurriedValue.body match {
       case Some(body) =>
         for {
           dictParams <- computeDictParams(uncurriedValue.vfqn, uncurriedValue.name)
-          classFiles <-
+          result     <-
             classGenerator
               .createMethod[CompilerIO](
                 JvmIdentifier.encode(uncurriedValue.vfqn.name.name),
@@ -165,11 +174,14 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                     debug[CompilationTypesIO](
                       s"From function ${uncurriedValue.vfqn.show}, created: ${classes.map(_.fileName).mkString(", ")}"
                     )
-                } yield classes
+                  state   <- StateT.get[CompilerIO, TypeState]
+                } yield (classes, state.lambdaCount)
 
-                program.runA(TypeState(methodName = uncurriedValue.vfqn.name.name))
+                program
+                  .run(TypeState(methodName = uncurriedValue.vfqn.name.name, lambdaCount = initialLambdaCount))
+                  .map(_._2)
               }
-        } yield classFiles
+        } yield result
       case None       =>
         compilerAbort(uncurriedValue.name.as(s"Function not implemented."))
     }
