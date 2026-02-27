@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.resolve.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.Visibility
+import com.vanillasource.eliot.eliotc.ast.fact.{PrecedenceDeclaration as AstPrecedenceDeclaration, Visibility}
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.{
   NamedValue,
@@ -298,5 +298,18 @@ class ValueResolver
           case None       => compilerAbort(target.as("Precedence target name not defined.")).liftToScoped
         }
       )
-      .map(resolvedTargets => PrecedenceDeclaration(decl.relation, resolvedTargets))
+      .flatMap(validateApplyPrecedence(decl.relation, _))
+
+  private def validateApplyPrecedence(
+      relation: AstPrecedenceDeclaration.Relation,
+      resolvedTargets: Seq[Sourced[ValueFQN]]
+  ): ScopedIO[PrecedenceDeclaration] =
+    resolvedTargets.find(_.value === ValueFQN.applyFQN) match {
+      case Some(applyTarget) if relation == AstPrecedenceDeclaration.Relation.Above =>
+        compilerAbort(applyTarget.as("Infix operator cannot have higher precedence than application.")).liftToScoped
+      case Some(applyTarget) if relation == AstPrecedenceDeclaration.Relation.At    =>
+        compilerAbort(applyTarget.as("Infix operator cannot have the same precedence as application.")).liftToScoped
+      case _                                                                        =>
+        PrecedenceDeclaration(relation, resolvedTargets).pure[ScopedIO]
+    }
 }

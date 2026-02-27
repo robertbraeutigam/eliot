@@ -185,6 +185,77 @@ class OperatorResolverProcessorTest
     }
   }
 
+  it should "resolve operator declared below apply" in {
+    runEngineForValue(
+      "data T\ninfix left below apply def +(x: T, y: T): T\ndef a: T\ndef b: T\ndef main: T = a + b"
+    ).asserting {
+      case Some(FunApp(FunApp(ValRef(opVfqn), ValRef(aVfqn)), ValRef(bVfqn))) =>
+        opVfqn shouldBe vfqn("+")
+        aVfqn shouldBe vfqn("a")
+        bVfqn shouldBe vfqn("b")
+      case x => fail(s"unexpected: $x")
+    }
+  }
+
+  it should "error on two operators both below apply without relative precedence" in {
+    runEngineForErrors(
+      "data T\ninfix left below apply def +(x: T, y: T): T\ninfix left below apply def *(x: T, y: T): T\ndef a: T\ndef b: T\ndef c: T\ndef main: T = a + b * c"
+    ).asserting(_ shouldBe Seq("Operators '*' and '+' have no defined relative precedence." at "*"))
+  }
+
+  it should "resolve below apply combined with above(+)" in {
+    runEngineForValue(
+      "data T\ninfix left below apply def +(x: T, y: T): T\ninfix left above(+) def *(x: T, y: T): T\ndef a: T\ndef b: T\ndef c: T\ndef main: T = a + b * c"
+    ).asserting {
+      case Some(FunApp(FunApp(ValRef(plusVfqn), ValRef(aVfqn)), FunApp(FunApp(ValRef(timesVfqn), ValRef(bVfqn)), ValRef(cVfqn)))) =>
+        plusVfqn shouldBe vfqn("+")
+        timesVfqn shouldBe vfqn("*")
+        aVfqn shouldBe vfqn("a")
+        bVfqn shouldBe vfqn("b")
+        cVfqn shouldBe vfqn("c")
+      case x => fail(s"unexpected: $x")
+    }
+  }
+
+  it should "error on above apply" in {
+    runEngineForErrors(
+      "data T\ninfix left above apply def +(x: T, y: T): T\ndef a: T\ndef main: T = a + a"
+    ).asserting(_ shouldBe Seq("Infix operator cannot have higher precedence than application." at "apply"))
+  }
+
+  it should "error on at apply" in {
+    runEngineForErrors(
+      "data T\ninfix left at apply def +(x: T, y: T): T\ndef a: T\ndef main: T = a + a"
+    ).asserting(_ shouldBe Seq("Infix operator cannot have the same precedence as application." at "apply"))
+  }
+
+  it should "resolve application higher than below-apply infix" in {
+    runEngineForValue(
+      "data T\ninfix left below apply def +(x: T, y: T): T\ndef f: T\ndef a: T\ndef b: T\ndef main: T = f a + b"
+    ).asserting {
+      case Some(FunApp(FunApp(ValRef(plusVfqn), FunApp(ValRef(fVfqn), ValRef(aVfqn))), ValRef(bVfqn))) =>
+        plusVfqn shouldBe vfqn("+")
+        fVfqn shouldBe vfqn("f")
+        aVfqn shouldBe vfqn("a")
+        bVfqn shouldBe vfqn("b")
+      case x => fail(s"unexpected: $x")
+    }
+  }
+
+  it should "resolve below apply with precedence chain" in {
+    runEngineForValue(
+      "data T\ninfix left below apply def +(x: T, y: T): T\ninfix left below apply above(+) def *(x: T, y: T): T\ndef a: T\ndef b: T\ndef c: T\ndef main: T = a + b * c"
+    ).asserting {
+      case Some(FunApp(FunApp(ValRef(plusVfqn), ValRef(aVfqn)), FunApp(FunApp(ValRef(timesVfqn), ValRef(bVfqn)), ValRef(cVfqn)))) =>
+        plusVfqn shouldBe vfqn("+")
+        timesVfqn shouldBe vfqn("*")
+        aVfqn shouldBe vfqn("a")
+        bVfqn shouldBe vfqn("b")
+        cVfqn shouldBe vfqn("c")
+      case x => fail(s"unexpected: $x")
+    }
+  }
+
   private def vfqn(name: String): ValueFQN =
     ValueFQN(testModuleName2, QualifiedName(name, Qualifier.Default))
 
