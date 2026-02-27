@@ -137,4 +137,31 @@ object TypeEvaluator extends Logging {
     */
   def extractTypeParams(signature: ExpressionValue): Seq[String] =
     extractLeadingLambdaParams(signature).map(_._1)
+
+  /** Extract only type parameter names that appear in the signature body (after stripping leading lambdas). Type
+    * parameters that only appear in constraints (e.g. `[I: BigInteger]` where `I` is not used in the return type) are
+    * excluded, as they are irrelevant for code generation after ability checking.
+    */
+  def extractBodyTypeParams(signature: ExpressionValue): Seq[String] = {
+    val allParams = extractTypeParams(signature)
+    val body      = ExpressionValue.stripLeadingLambdas(signature)
+    allParams.filter(ExpressionValue.containsVar(body, _))
+  }
+
+  /** Strip leading FunctionLiteral wrappers whose parameters do not appear in the signature body. Preserves
+    * FunctionLiterals for parameters that are used in the body type.
+    */
+  def stripNonBodyUniversals(signature: ExpressionValue): ExpressionValue = {
+    val bodyParams = extractBodyTypeParams(signature).toSet
+    stripNonBodyUniversalsRec(signature, bodyParams)
+  }
+
+  private def stripNonBodyUniversalsRec(sig: ExpressionValue, keep: Set[String]): ExpressionValue =
+    sig match {
+      case FunctionLiteral(name, paramType, body) if keep.contains(name) =>
+        FunctionLiteral(name, paramType, stripNonBodyUniversalsRec(body, keep))
+      case FunctionLiteral(_, _, body)                                   =>
+        stripNonBodyUniversalsRec(body, keep)
+      case other                                                         => other
+    }
 }

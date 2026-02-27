@@ -31,7 +31,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
         debug[CompilerIO](
           s"Monomorphizing ${key.vfqn.show}, signature: ${typeChecked.signature.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
         )
-      typeParams   = TypeEvaluator.extractTypeParams(typeChecked.signature)
+      typeParams   = TypeEvaluator.extractBodyTypeParams(typeChecked.signature)
       _           <- if (typeParams.length != key.typeArguments.length)
                        compilerAbort(
                          typeChecked.name.as(
@@ -46,7 +46,11 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
               .map((param, paramType) => s"$param <- ${paramType.show}")
               .mkString(", ")}"
         )
-      signature   <- TypeEvaluator.evaluate(typeChecked.signature, key.typeArguments, typeChecked.name)
+      signature   <- TypeEvaluator.evaluate(
+                       TypeEvaluator.stripNonBodyUniversals(typeChecked.signature),
+                       key.typeArguments,
+                       typeChecked.name
+                     )
       _           <- debug[CompilerIO](s"Monomorphized ${key.vfqn.show} to: ${signature.show}")
       runtime     <- typeChecked.runtime.traverse { body =>
                        transformExpression(body.value, typeChecked.signature, substitution, body).map(body.as)
@@ -98,7 +102,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
       typeChecked <- getFactOrAbort(AbilityCheckedValue.Key(vfqn.value))
-      typeParams   = TypeEvaluator.extractTypeParams(typeChecked.signature)
+      typeParams   = TypeEvaluator.extractBodyTypeParams(typeChecked.signature)
       typeArgs    <- if (typeParams.nonEmpty) {
                        inferTypeArguments(typeChecked.signature, typeParams, callSiteType, substitution, source)
                      } else {

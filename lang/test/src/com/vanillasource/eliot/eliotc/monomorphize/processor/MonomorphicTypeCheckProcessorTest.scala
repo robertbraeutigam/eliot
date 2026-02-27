@@ -32,7 +32,8 @@ class MonomorphicTypeCheckProcessorTest
         Seq(
           ModuleName.systemFunctionModuleName,
           ModuleName(ModuleName.defaultSystemPackage, "Number"),
-          ModuleName(ModuleName.defaultSystemPackage, "String")
+          ModuleName(ModuleName.defaultSystemPackage, "String"),
+          ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
         )
       ),
       UnifiedModuleValueProcessor(),
@@ -49,7 +50,8 @@ class MonomorphicTypeCheckProcessorTest
   override val systemImports: Seq[SystemImport] = Seq(
     SystemImport("Function", "data Function[A, B]"),
     SystemImport("Number", "data Int"),
-    SystemImport("String", "data String")
+    SystemImport("String", "data String"),
+    SystemImport("BigInteger", "data BigInteger")
   )
 
   private val intType: Value =
@@ -80,6 +82,14 @@ class MonomorphicTypeCheckProcessorTest
   it should "monomorphize identity function with String" in {
     runEngineForMonomorphicValue("def id[A](a: A): A = a", "id", Seq(stringType))
       .asserting(result => showType(result.signature) shouldBe "Function[String, String]")
+  }
+
+  it should "monomorphize value with phantom type parameter" in {
+    runEngineForMonomorphicValue("def f[I: BigInteger]: String")
+      .asserting { result =>
+        result.typeArguments shouldBe Seq.empty
+        showType(result.signature) shouldBe "String"
+      }
   }
 
   it should "monomorphize function with multiple type parameters" in {
