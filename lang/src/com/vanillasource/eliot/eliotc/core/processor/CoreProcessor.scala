@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.Arity
 import com.vanillasource.eliot.eliotc.ast.fact.{
   ArgumentDefinition,
   DataConstructor,
@@ -121,53 +120,9 @@ class CoreProcessor
       )
     }
     genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
-      val kindType = toKindExpression(param.name, param.arity)
+      val kindType = toTypeExpression(param.typeRestriction)
       param.name.as(FunctionLiteral(param.name, Some(TypeStack.of(kindType.value)), acc.map(TypeStack.of)))
     }
-  }
-
-  /** Builds a kind expression for a generic parameter. For simple types (no params), returns Type. For higher-kinded
-    * types, returns a curried function of kinds ending in Type.
-    *
-    * Examples:
-    *   - _: Type
-    *   - F[_]: Function[Type, Type]
-    *   - F[_, _]: Function[Type, Function[Type, Type]]
-    *   - F[_[_]]: Function[Function[Type, Type], Type] (F takes a type constructor)
-    *   - F[_[_, _]]: Function[Function[Type, Function[Type, Type]], Type]
-    */
-  // FIXME: doesn't need empty case
-  private def toKindExpression(source: Sourced[?], arity: Arity): Sourced[Expression] =
-    if (arity.parameters.isEmpty) {
-      source.as(NamedValueReference(source.as(QualifiedName("Type", Qualifier.Default))))
-    } else {
-      val typeRef = source.as(NamedValueReference(source.as(QualifiedName("Type", Qualifier.Default))))
-      arity.parameters.foldRight[Sourced[Expression]](typeRef) { (param, acc) =>
-        // Recursively compute the kind of this parameter based on its own nested generic params
-        val paramKind = toKindExpression(source, param)
-        buildFunctionKind(source, paramKind, acc)
-      }
-    }
-
-  /** Builds Function[argKind, resultKind] expression. */
-  private def buildFunctionKind(
-      source: Sourced[?],
-      argKind: Sourced[Expression],
-      resultKind: Sourced[Expression]
-  ): Sourced[Expression] = {
-    val functionRef = source.as(NamedValueReference(source.as(QualifiedName("Function", Qualifier.Type))))
-    val withArgType = source.as(
-      FunctionApplication(
-        functionRef.map(TypeStack.of),
-        argKind.map(TypeStack.of)
-      )
-    )
-    source.as(
-      FunctionApplication(
-        withArgType.map(TypeStack.of),
-        resultKind.map(TypeStack.of)
-      )
-    )
   }
 
   /** Converts type references to type expressions. Type references are in the form of: A[B[C...],...], which is
@@ -402,7 +357,7 @@ class CoreProcessor
         val resultParamName  = freshName("R", existingNames)
         val resultParam      = GenericParameter(
           definition.name.as(resultParamName),
-          GenericParameter.Arity(Seq.empty),
+          TypeReference(definition.name.as("Type"), Seq.empty),
           Seq.empty
         )
         val allGenericParams = definition.genericParameters :+ resultParam

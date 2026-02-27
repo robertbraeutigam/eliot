@@ -186,6 +186,18 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("def f[A[_[_], _]]: A").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "accept explicit type restriction on generic parameter" in {
+    runEngineForErrors("def f[A: Type]: A").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept explicit higher-kinded type restriction" in {
+    runEngineForErrors("def f[M: Function[Type, Type]]: M").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept explicit type restriction with ability constraint" in {
+    runEngineForErrors("ability Show[A]\ndef f[A: Type ~ Show]: A").asserting(_ shouldBe Seq.empty)
+  }
+
   it should "not accept data definition with lower case" in {
     runEngineForErrors("data a").asserting(_ shouldBe Seq("Expected type name, but encountered identifier 'a'."))
   }

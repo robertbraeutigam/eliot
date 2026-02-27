@@ -98,46 +98,17 @@ class ValueResolver
       }
       .map(_.toMap)
 
-  /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with a kind annotation
-    * (Type or Function returning Type) as param type.
+  /** Collects generic parameter names from the signature. Generic params are FunctionLiterals with a type annotation
+    * (paramType is Some). All FunctionLiterals in type position are universal intros.
     */
   private def collectGenericParams(stack: TypeStack[CoreExpression]): Seq[String] =
     collectGenericParamsFromExpr(stack.signature)
 
   private def collectGenericParamsFromExpr(expr: CoreExpression): Seq[String] =
     expr match {
-      case FunctionLiteral(paramName, paramType, body) if isKindAnnotation(paramType) =>
+      case FunctionLiteral(paramName, Some(_), body) =>
         paramName.value +: collectGenericParamsFromExpr(body.value.signature)
-      case _                                                                          => Seq.empty
-    }
-
-  private def isKindAnnotation(stackMaybe: Option[TypeStack[CoreExpression]]): Boolean = {
-    stackMaybe match {
-      case Some(stack) => stack.levels.length == 1 && isKindExpression(stack.signature)
-      case None        => false
-    }
-  }
-
-  private def isKindExpression(expr: CoreExpression): Boolean =
-    expr match {
-      case NamedValueReference(name, None, _)         =>
-        name.value.name === "Type"
-      case FunctionApplication(targetStack, argStack) =>
-        targetStack.value.signature match {
-          case FunctionApplication(fnStack, argKindStack) =>
-            isFunctionReference(fnStack.value.signature) &&
-            isKindExpression(argKindStack.value.signature) &&
-            isKindExpression(argStack.value.signature)
-          case _                                          => false
-        }
-      case _                                          => false
-    }
-
-  private def isFunctionReference(expr: CoreExpression): Boolean =
-    expr match {
-      case NamedValueReference(name, None, _) =>
-        name.value === CoreQualifiedName("Function", CoreQualifier.Type)
-      case _                                  => false
+      case _                                         => Seq.empty
     }
 
   /** Resolves a type stack from top (most abstract) to bottom (signature). Expression variables from above are visible

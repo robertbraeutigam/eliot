@@ -4,7 +4,7 @@ import cats.data.{NonEmptySeq, StateT}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.Types.{functionDataTypeFQN, typeFQN}
+import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
@@ -109,37 +109,6 @@ object TypeExpressionEvaluator {
         } yield (signatureType, typeResult +: restTypedLevels)
     }
 
-  /** Check if a type stack represents a kind annotation (for universal introductions). A kind annotation is:
-    *   - Type (for simple type parameters)
-    *   - Function(Type, Type) (for type constructors of arity 1)
-    *   - Function(Type, Function(Type, Type)) (for type constructors of arity 2)
-    *   - etc.
-    */
-  private def isKindAnnotation(stack: TypeStack[OperatorResolvedExpression]): Boolean =
-    stack.levels.length == 1 && isKindExpression(stack.levels.head)
-
-  private def isKindExpression(expr: OperatorResolvedExpression): Boolean =
-    expr match {
-      case Expr.ValueReference(vfqn, _)                    =>
-        vfqn.value === typeFQN
-      case Expr.FunctionApplication(targetStack, argStack) =>
-        // Check if this is Function(<kind>, <kind>) - a function from kinds to kinds
-        targetStack.value.signature match {
-          case Expr.FunctionApplication(fnStack, argKindStack) =>
-            isFunctionReference(fnStack.value.signature) &&
-            isKindExpression(argKindStack.value.signature) &&
-            isKindExpression(argStack.value.signature)
-          case _                                               => false
-        }
-      case _                                               => false
-    }
-
-  private def isFunctionReference(expr: OperatorResolvedExpression): Boolean =
-    expr match {
-      case Expr.ValueReference(vfqn, _) => vfqn.value === functionDataTypeFQN
-      case _                            => false
-    }
-
   /** Evaluate a single type-position expression in declaration context. Used by BodyTypeInferrer for evaluating explicit
     * type arguments.
     */
@@ -149,11 +118,8 @@ object TypeExpressionEvaluator {
   /** Build a typed expression from a single type expression. */
   private def buildExpression(expression: OperatorResolvedExpression, mode: InstantiationMode): TypeGraphIO[TypedExpression] =
     expression match {
-      case Expr.FunctionLiteral(paramName, Some(paramType), body) if isKindAnnotation(paramType.value) =>
-        buildUniversalIntro(paramName, paramType, body, mode)
-
       case Expr.FunctionLiteral(paramName, Some(paramType), body) =>
-        buildFunctionType(paramName, paramType, body, mode)
+        buildUniversalIntro(paramName, paramType, body, mode)
 
       case Expr.FunctionLiteral(paramName, None, _) =>
         StateT.liftF(compilerError(paramName.as("Lambda parameter in type annotation must have an explicit type."))) *>
@@ -222,23 +188,6 @@ object TypeExpressionEvaluator {
           TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), body.as(typedBodyStack.value.signature))
         )
     }
-
-  /** Regular function literal (lambda type): (a: A) -> B becomes FunctionType */
-  private def buildFunctionType(
-      paramName: Sourced[String],
-      paramType: Sourced[TypeStack[OperatorResolvedExpression]],
-      body: Sourced[TypeStack[OperatorResolvedExpression]],
-      mode: InstantiationMode
-  ): TypeGraphIO[TypedExpression] =
-    for {
-      (paramTypeValue, typedParamStack) <- processStack(paramType, mode)
-      _                                 <- bindParameter(paramName.value, paramTypeValue)
-      (bodyTypeValue, typedBodyStack)   <- processStack(body, mode)
-      funcType                           = functionType(paramTypeValue, bodyTypeValue)
-    } yield TypedExpression(
-      funcType,
-      TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), body.as(typedBodyStack.value.signature))
-    )
 
   /** Value reference - could be a type like Int, String, or a universal var */
   private def buildValueReference(

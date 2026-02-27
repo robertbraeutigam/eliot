@@ -60,20 +60,20 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   "generic parameters" should "become outer lambdas with Type reference in typeStack" in {
     namedValue("def f[A]: R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type"), Ref("R", T))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type", T), Ref("R", T))
     }
   }
 
   it should "preserve order for multiple generic parameters" in {
     namedValue("def f[A, B]: R").asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type"), Lambda("B", Ref("Type"), Ref("R", T)))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type", T), Lambda("B", Ref("Type", T), Ref("R", T)))
     }
   }
 
   it should "place generics then function args in typeStack" in {
     namedValue("def f[A](x: X): R").asserting { nv =>
       nv.typeStack.signatureStructure shouldBe
-        Lambda("A", Ref("Type"), App(App(Ref("Function", T), Ref("X", T)), Ref("R", T)))
+        Lambda("A", Ref("Type", T), App(App(Ref("Function", T), Ref("X", T)), Ref("R", T)))
     }
   }
 
@@ -88,10 +88,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       nv.typeStack.signatureStructure shouldBe
         Lambda(
           "A",
-          Ref("Type"),
+          Ref("Type", T),
           Lambda(
             "B",
-            Ref("Type"),
+            Ref("Type", T),
             App(App(Ref("Function", T), Ref("X", T)), App(App(Ref("Function", T), Ref("Y", T)), Ref("R", T)))
           )
         )
@@ -101,6 +101,19 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   it should "nest function args in value for generic functions" in {
     namedValue("def f[A, B](x: X, y: Y): R = z").asserting { nv =>
       nv.runtimeStructure shouldBe Some(Lambda("x", Ref("X", T), Lambda("y", Ref("Y", T), Ref("z"))))
+    }
+  }
+
+  it should "produce same structure with explicit Type restriction as implicit" in {
+    namedValue("def f[A: Type]: R").asserting { nv =>
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type", T), Ref("R", T))
+    }
+  }
+
+  it should "produce same structure with explicit Function restriction as arity syntax" in {
+    namedValue("def f[M: Function[Type, Type]]: R").asserting { nv =>
+      nv.typeStack.signatureStructure shouldBe
+        Lambda("M", App(App(Ref("Function", T), Ref("Type", T)), Ref("Type", T)), Ref("R", T))
     }
   }
 
@@ -209,7 +222,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   // Note: Signature uses FunctionLiteral to preserve parameter names (A: Type -> Type)
   it should "generate type function with generic param and argument in typeStack" in {
     namedValue("data Box[A]", QualifiedName("Box", Qualifier.Type)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type"), Ref("Type", T))
+      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type", T), Ref("Type", T))
     }
   }
 
@@ -257,7 +270,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       // The accessor type is (A :: Type) -> Function(Box^Type(A), A)
       nv.typeStack.signatureStructure shouldBe Lambda(
         "A",
-        Ref("Type"),
+        Ref("Type", T),
         App(App(Ref("Function", T), App(Ref("Box", Qualifier.Type), Ref("A", T))), Ref("A", T))
       )
     }
@@ -297,7 +310,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       nv.typeStack.signatureStructure shouldBe
         Lambda(
           "A",
-          Ref("Type"),
+          Ref("Type", T),
           App(App(Ref("Function", T), Ref("A", T)), App(Ref("Maybe", Qualifier.Type), Ref("A", T)))
         )
     }
@@ -307,7 +320,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     namedValue("data Maybe[A] = Nothing | Just(value: A)", QualifiedName("Nothing", Qualifier.Default)).asserting {
       nv =>
         nv.typeStack.signatureStructure shouldBe
-          Lambda("A", Ref("Type"), App(Ref("Maybe", Qualifier.Type), Ref("A", T)))
+          Lambda("A", Ref("Type", T), App(Ref("Maybe", Qualifier.Type), Ref("A", T)))
     }
   }
 
@@ -357,10 +370,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       // handleBoxWith[A, R](obj: Box[A], boxCase: Function[A, R]): R
       nv.typeStack.signatureStructure shouldBe Lambda(
         "A",
-        Ref("Type"),
+        Ref("Type", T),
         Lambda(
           "R",
-          Ref("Type"),
+          Ref("Type", T),
           App(
             App(Ref("Function", T), App(Ref("Box", T), Ref("A", T))),
             App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("A", T)), Ref("R", T))), Ref("R", T))
@@ -376,10 +389,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
         // handleMaybeWith[A, R](obj: Maybe[A], nothingCase: Function[Unit, R], justCase: Function[A, R]): R
         nv.typeStack.signatureStructure shouldBe Lambda(
           "A",
-          Ref("Type"),
+          Ref("Type", T),
           Lambda(
             "R",
-            Ref("Type"),
+            Ref("Type", T),
             App(
               App(Ref("Function", T), App(Ref("Maybe", T), Ref("A", T))),
               App(
@@ -397,7 +410,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       // handleColorWith[R](obj: Color, redCase: Function[Unit, R], greenCase: Function[Unit, R], blueCase: Function[Unit, R]): R
       nv.typeStack.signatureStructure shouldBe Lambda(
         "R",
-        Ref("Type"),
+        Ref("Type", T),
         App(
           App(Ref("Function", T), Ref("Color", T)),
           App(
@@ -417,10 +430,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       // handleFooWith[R, R0](obj: Foo[R], fooCase: Function[R, R0]): R0
       nv.typeStack.signatureStructure shouldBe Lambda(
         "R",
-        Ref("Type"),
+        Ref("Type", T),
         Lambda(
           "R0",
-          Ref("Type"),
+          Ref("Type", T),
           App(
             App(Ref("Function", T), App(Ref("Foo", T), Ref("R", T))),
             App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("R", T)), Ref("R0", T))), Ref("R0", T))
@@ -491,10 +504,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       nv.typeStack.signatureStructure shouldBe
         Lambda(
           "A",
-          Ref("Type"),
+          Ref("Type", T),
           Lambda(
             "B",
-            Ref("Type"),
+            Ref("Type", T),
             App(
               App(Ref("Function", T), Ref("A", T)),
               App(App(Ref("Function", T), Ref("B", T)), App(App(Ref("Pair", Qualifier.Type), Ref("A", T)), Ref("B", T)))

@@ -175,6 +175,32 @@ class SymbolicTypeCheckProcessorTest
       .asserting(_ shouldBe Seq.empty)
   }
 
+  "explicit type restrictions" should "type check with explicit Type restriction like implicit" in {
+    runEngineForErrors("def f[A: Type](a: A): A = a")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit Function restriction like arity syntax" in {
+    runEngineForErrors(
+      "data Int\ndef f[F: Function[Type, Type]](x: F[Int]): F[Int] = x"
+    )
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit two-arg Function restriction" in {
+    runEngineForErrors(
+      "data Int\ndata String\ndef f[F: Function[Type, Function[Type, Type]]](x: F[Int, String]): F[Int, String] = x"
+    )
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit nested higher-kinded restriction" in {
+    runEngineForErrors(
+      "data Int\ndef f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G[Int]]): F[G[Int]] = x"
+    )
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   "top level functions" should "be assignable to function types" in {
     runEngineForErrors(
       "data Foo\ndef g(a: Foo): Foo\ndef f: Function[Foo, Foo] = g"
