@@ -143,7 +143,7 @@ class CoreProcessor
       args: Seq[SourceArgument],
       value: Sourced[SourceExpression]
   ): Sourced[Expression] =
-    args.foldRight(toBodyExpression(value)) { (arg, acc) =>
+    args.foldRight(convertExpression(value, typeContext = false)) { (arg, acc) =>
       arg.name.as(
         FunctionLiteral(
           arg.name,
@@ -153,119 +153,52 @@ class CoreProcessor
       )
     }
 
-  private def toBodyExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
+  /** Converts a source expression to a core expression. In type context, bare uppercase names get Qualifier.Type;
+    * in body context, they get Qualifier.Default (unless they have [] args, which always implies type-level).
+    * Value-level () args are always converted in body context, [] args always in type context.
+    */
+  private def convertExpression(expr: Sourced[SourceExpression], typeContext: Boolean): Sourced[Expression] =
     expr.value match {
       case SourceExpression.FunctionApplication(moduleName, fnName, genericArgs, args) =>
         val isUpper = fnName.value.charAt(0).isUpper
-        if (isUpper && genericArgs.nonEmpty && args.isEmpty) {
-          // Type application: Box[A] → FunctionApplication(Box^Type, A^Type)
-          curryTypeArgApplication(
-            expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName)),
-            genericArgs
-          )
+        if (isUpper && args.isEmpty && (typeContext || genericArgs.nonEmpty)) {
+          val base = expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName))
+          curryApplicationWith(base, genericArgs, convertExpression(_, typeContext = true))
         } else {
-          // Value call: f[Int](x), f(x), Box(x), f, Box
-          curryApplication(
+          curryApplicationWith(
             expr.as(
               NamedValueReference(
                 fnName.map(n => QualifiedName(n, Qualifier.Default)),
                 moduleName,
-                genericArgs.map(toTypeArgumentExpression)
+                genericArgs.map(convertExpression(_, typeContext = true))
               )
             ),
-            args
+            args,
+            convertExpression(_, typeContext = false)
           )
         }
       case SourceExpression.FunctionLiteral(params, body)                              =>
-        curryLambda(params, toBodyExpression(body), expr)
+        curryLambda(params, convertExpression(body, typeContext), expr)
       case SourceExpression.IntegerLiteral(lit)                                        =>
         expr.as(IntegerLiteral(lit))
       case SourceExpression.StringLiteral(lit)                                         =>
         expr.as(StringLiteral(lit))
       case SourceExpression.FlatExpression(Seq(single))                                =>
-        toBodyExpression(single)
+        convertExpression(single, typeContext)
       case SourceExpression.FlatExpression(parts)                                      =>
-        expr.as(FlatExpression(parts.map(p => p.as(TypeStack.of(toBodyExpression(p).value)))))
+        expr.as(FlatExpression(parts.map(p => p.as(TypeStack.of(convertExpression(p, typeContext).value)))))
       case SourceExpression.MatchExpression(scrutinee, cases)                          =>
         expr.as(
           MatchExpression(
-            scrutinee.as(TypeStack.of(toBodyExpression(scrutinee).value)),
+            scrutinee.as(TypeStack.of(convertExpression(scrutinee, typeContext).value)),
             cases.map(c =>
               MatchCase(
                 c.pattern.map(toPattern),
-                c.body.as(TypeStack.of(toBodyExpression(c.body).value))
+                c.body.as(TypeStack.of(convertExpression(c.body, typeContext).value))
               )
             )
           )
         )
-    }
-
-  /** Converts an expression from inside [] brackets to a core expression. Bare uppercase names get Qualifier.Type
-    * (type constructors), bare lowercase names get Qualifier.Default. Uppercase names with only [] args become
-    * type-level FunctionApplications. Names with () args are Default (value-level calls).
-    */
-  private def toTypeArgumentExpression(expr: Sourced[SourceExpression]): Sourced[Expression] =
-    expr.value match {
-      case SourceExpression.FunctionApplication(moduleName, fnName, genericArgs, args) =>
-        val isUpper = fnName.value.charAt(0).isUpper
-        if (isUpper && args.isEmpty) {
-          if (genericArgs.nonEmpty) {
-            // Type application: Box[A] → Box^Type(A^Type)
-            curryTypeArgApplication(
-              expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName)),
-              genericArgs
-            )
-          } else {
-            // Bare uppercase in [] → Type
-            expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName))
-          }
-        } else {
-          // Lowercase or has (): Default
-          curryApplication(
-            expr.as(
-              NamedValueReference(
-                fnName.map(n => QualifiedName(n, Qualifier.Default)),
-                moduleName,
-                genericArgs.map(toTypeArgumentExpression)
-              )
-            ),
-            args
-          )
-        }
-      case SourceExpression.FunctionLiteral(params, body)                              =>
-        curryLambda(params, toTypeArgumentExpression(body), expr)
-      case SourceExpression.IntegerLiteral(lit)                                        =>
-        expr.as(IntegerLiteral(lit))
-      case SourceExpression.StringLiteral(lit)                                         =>
-        expr.as(StringLiteral(lit))
-      case SourceExpression.FlatExpression(Seq(single))                                =>
-        toTypeArgumentExpression(single)
-      case SourceExpression.FlatExpression(parts)                                      =>
-        expr.as(FlatExpression(parts.map(p => p.as(TypeStack.of(toTypeArgumentExpression(p).value)))))
-      case SourceExpression.MatchExpression(scrutinee, cases)                          =>
-        expr.as(
-          MatchExpression(
-            scrutinee.as(TypeStack.of(toTypeArgumentExpression(scrutinee).value)),
-            cases.map(c =>
-              MatchCase(
-                c.pattern.map(toPattern),
-                c.body.as(TypeStack.of(toTypeArgumentExpression(c.body).value))
-              )
-            )
-          )
-        )
-    }
-
-  /** Curries type argument expressions into FunctionApplications. Used for uppercase names with only [] args,
-    * converting Box[A, B] into FunctionApplication(FunctionApplication(Box^Type, A^Type), B^Type).
-    */
-  private def curryTypeArgApplication(
-      target: Sourced[Expression],
-      typeArgs: Seq[Sourced[SourceExpression]]
-  ): Sourced[Expression] =
-    typeArgs.foldLeft(target) { (acc, arg) =>
-      val converted = toTypeArgumentExpression(arg)
-      arg.as(FunctionApplication(acc.map(TypeStack.of), converted.map(TypeStack.of)))
     }
 
   private def toPattern(pattern: SourcePattern): Pattern =
@@ -303,17 +236,16 @@ class CoreProcessor
       )
     }
 
-  /** Convert function applications into core format. Applications need to be curried, so: f(a, b, c) becomes:
-    * f(a)(b)(c)
+  /** Curries applications into core format. f(a, b, c) becomes f(a)(b)(c). The convert function determines how each
+    * argument is converted (body context for () args, type context for [] args).
     */
-  private def curryApplication(
+  private def curryApplicationWith(
       target: Sourced[Expression],
-      args: Seq[Sourced[SourceExpression]]
+      args: Seq[Sourced[SourceExpression]],
+      convert: Sourced[SourceExpression] => Sourced[Expression]
   ): Sourced[Expression] =
     args.foldLeft(target) { (acc, arg) =>
-      arg.as(
-        FunctionApplication(acc.map(TypeStack.of), toBodyExpression(arg).map(TypeStack.of))
-      )
+      arg.as(FunctionApplication(acc.map(TypeStack.of), convert(arg).map(TypeStack.of)))
     }
 
   private def transformDataDefinitions(definitions: Seq[DataDefinition]): Seq[NamedValue] =
