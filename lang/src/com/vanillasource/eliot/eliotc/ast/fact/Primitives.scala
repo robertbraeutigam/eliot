@@ -73,9 +73,9 @@ object Primitives {
     case _                        => false
   }
 
-  private val structuralSymbols = Set("(", ")", "[", "]", "{", "}", ",", "->", "_", "::", ":", "~", "&", ".", "=")
+  private val reservedSymbols = Set("(", ")", "[", "]", "{", "}", ",", "->", "_", "::", ":", "~", "&", "=")
 
-  def isUserOperator(st: Sourced[Token]): Boolean = isSymbol(st) && !structuralSymbols.contains(st.value.content)
+  def isUserOperator(st: Sourced[Token]): Boolean = isSymbol(st) && !reservedSymbols.contains(st.value.content)
 
   def isIdentifierOrSymbol(st: Sourced[Token]): Boolean = isIdentifier(st) || isUserOperator(st)
 
