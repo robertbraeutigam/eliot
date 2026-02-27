@@ -42,10 +42,10 @@ object NativeType {
     "L" + convertToNestedClassName(vfqn) + ";"
 
   def convertToMainClassName(moduleName: ModuleName): String =
-    moduleName.packages.appended(moduleName.name).mkString("/")
+    moduleName.packages.appended(moduleName.name).map(JvmIdentifier.encode(_).value).mkString("/")
 
   def convertToNestedClassName(vfqn: ValueFQN): String =
-    convertToMainClassName(vfqn.moduleName) + "$" + vfqn.name.name
+    convertToMainClassName(vfqn.moduleName) + "$" + JvmIdentifier.encode(vfqn.name.name).value
 
   def convertToSignatureString(parameterTypes: Seq[ValueFQN], resultType: ValueFQN): String =
     s"(${parameterTypes.map(javaSignatureName).mkString})${javaSignatureName(resultType)}"

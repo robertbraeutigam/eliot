@@ -54,7 +54,7 @@ object CommonPatterns {
     def addDataFieldsAndCtor[F[_]: Sync](fields: Seq[ParameterDefinition]): F[Unit] =
       for {
         _ <- fields.traverse_ { paramDefinition =>
-               classGenerator.createField[F](paramDefinition.name.value, simpleType(paramDefinition.parameterType))
+               classGenerator.createField[F](JvmIdentifier.encode(paramDefinition.name.value), simpleType(paramDefinition.parameterType))
              }
         // Define constructor
         _ <-
@@ -73,7 +73,7 @@ object CommonPatterns {
                            methodGenerator
                              .addLoadVar[F](simpleType(fieldDefinition.parameterType), index + 1)
                          _ <- methodGenerator.addPutField[F](
-                                fieldDefinition.name.value,
+                                JvmIdentifier.encode(fieldDefinition.name.value),
                                 simpleType(fieldDefinition.parameterType)
                               )
                        } yield ()

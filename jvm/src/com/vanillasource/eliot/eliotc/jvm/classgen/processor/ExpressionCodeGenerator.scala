@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.simpleType
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.convertToNestedClassName
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.AbilityImplGenerator.{abilityInterfaceVfqn, singletonInnerName}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
@@ -174,7 +174,7 @@ object ExpressionCodeGenerator {
                                                )
                               _             <- methodGenerator.addCallToAbilityMethod[CompilationTypesIO](
                                                  interfaceInternalName,
-                                                 calledVfqn.name.name,
+                                                 JvmIdentifier.encode(calledVfqn.name.name),
                                                  parameterTypes,
                                                  returnType
                                                )

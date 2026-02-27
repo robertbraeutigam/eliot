@@ -4,7 +4,7 @@ import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, MethodGenerator}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
@@ -56,7 +56,7 @@ object LambdaGenerator {
       cls1             <-
         outerClassGenerator
           .createMethod[CompilationTypesIO](
-            lambdaPrefix + "fn$" + lambdaIndex,
+            JvmIdentifier.encode(lambdaPrefix + "fn$" + lambdaIndex),
             lambdaFnParams.map(_.parameterType).map(simpleType),
             simpleType(body.value.expressionType)
           )
@@ -68,7 +68,7 @@ object LambdaGenerator {
       _                <- StateT.set[CompilerIO, TypeState](outerState.copy(lambdaCount = innerState.lambdaCount))
       innerClassWriter <-
         outerClassGenerator
-          .createInnerClassGenerator[CompilationTypesIO](lambdaPrefix + lambdaIndex, Seq("java/util/function/Function"))
+          .createInnerClassGenerator[CompilationTypesIO](JvmIdentifier.encode(lambdaPrefix + lambdaIndex), Seq("java/util/function/Function"))
       _                <- innerClassWriter.addDataFieldsAndCtor[CompilationTypesIO](closedOverArgs.get)
       _                <- innerClassWriter
                             .createApplyMethod[CompilationTypesIO](
@@ -85,7 +85,7 @@ object LambdaGenerator {
                                                   0
                                                 )
                                          _ <- applyGenerator.addGetField[CompilationTypesIO](
-                                                argument.name.value,
+                                                JvmIdentifier.encode(argument.name.value),
                                                 simpleType(argument.parameterType),
                                                 ValueFQN(moduleName, QualifiedName(lambdaPrefix + lambdaIndex, Qualifier.Default))
                                               )

@@ -4,7 +4,7 @@ import cats.effect.Sync
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{convertToNestedClassName, systemFunctionValue}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
@@ -58,12 +58,12 @@ object DataClassGenerator {
   ): F[Seq[ClassFile]] =
     for {
       // Create the interface for the data type
-      interfaceGen   <- outerClassGenerator.createInnerInterfaceGenerator[F](typeVFQ.name.name)
+      interfaceGen   <- outerClassGenerator.createInnerInterfaceGenerator[F](JvmIdentifier.encode(typeVFQ.name.name))
       // Add abstract eliminator method to the interface if used
       _              <- handleWithUncurried.traverse_ { hw =>
                           val handlerParams = hw.parameters.drop(1)
                           interfaceGen.createAbstractMethod[F](
-                            eliminatorName,
+                            JvmIdentifier.encode(eliminatorName),
                             handlerParams.map(_.parameterType).map(simpleType),
                             simpleType(hw.returnType)
                           )
@@ -102,7 +102,7 @@ object DataClassGenerator {
   ): F[Unit] =
     outerClassGenerator
       .createMethod[F](
-        constructorVfqn.name.name,
+        JvmIdentifier.encode(constructorVfqn.name.name),
         parameters.map(_.parameterType).map(simpleType),
         returnType
       )
@@ -120,6 +120,8 @@ object DataClassGenerator {
       }
 
   /** Create a data class with fields, constructor, and optionally an eliminator instance method.
+    * @param innerClassName
+    *   The raw (un-encoded) inner class name. Will be encoded when passed to ASM.
     * @param handleWithInfo
     *   If present, Seq of (constructorIndex, constructorFields, handleWithUncurried) for generating eliminator override.
     */
@@ -132,7 +134,7 @@ object DataClassGenerator {
       eliminatorName: String = ""
   ): F[Seq[ClassFile]] =
     for {
-      innerClassWriter <- outerClassGenerator.createInnerClassGenerator[F](innerClassName, javaInterfaces)
+      innerClassWriter <- outerClassGenerator.createInnerClassGenerator[F](JvmIdentifier.encode(innerClassName), javaInterfaces)
       _                <- innerClassWriter.addDataFieldsAndCtor[F](fields)
       // Generate eliminator instance method override if requested
       _                <- handleWithInfo.traverse_ { infos =>
@@ -140,7 +142,7 @@ object DataClassGenerator {
                               val handlerParams = hw.parameters.drop(1)
                               innerClassWriter
                                 .createPublicInstanceMethod[F](
-                                  eliminatorName,
+                                  JvmIdentifier.encode(eliminatorName),
                                   handlerParams.map(_.parameterType).map(simpleType),
                                   simpleType(hw.returnType)
                                 )
@@ -163,7 +165,7 @@ object DataClassGenerator {
                                           for {
                                             _ <- methodGenerator.addLoadThis[F]()
                                             _ <- methodGenerator.addGetField[F](
-                                                   fieldDef.name.value,
+                                                   JvmIdentifier.encode(fieldDef.name.value),
                                                    simpleType(fieldDef.parameterType),
                                                    vfqn
                                                  )
@@ -194,7 +196,7 @@ object DataClassGenerator {
     val handlerParams = hw.parameters.drop(1)
     outerClassGenerator
       .createMethod[F](
-        eliminatorName,
+        JvmIdentifier.encode(eliminatorName),
         allParamTypes,
         returnType
       )
@@ -208,14 +210,14 @@ object DataClassGenerator {
             if (isInterface) {
               methodGenerator.addCallToAbilityMethod[F](
                 convertToNestedClassName(dataTypeVfqn),
-                eliminatorName,
+                JvmIdentifier.encode(eliminatorName),
                 handlerParams.map(_.parameterType).map(simpleType),
                 returnType
               )
             } else {
               methodGenerator.addCallToVirtualMethod[F](
                 convertToNestedClassName(dataTypeVfqn),
-                eliminatorName,
+                JvmIdentifier.encode(eliminatorName),
                 handlerParams.map(_.parameterType).map(simpleType),
                 returnType
               )

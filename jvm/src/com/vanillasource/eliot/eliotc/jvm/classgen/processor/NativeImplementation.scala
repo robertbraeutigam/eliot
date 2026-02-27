@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemLangType
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
@@ -27,7 +27,7 @@ object NativeImplementation {
   private def eliot_lang_Unit_unit: NativeImplementation = new NativeImplementation {
     override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
       classGenerator
-        .createMethod[CompilerIO]("unit", Seq.empty, systemLangType("Unit"))
+        .createMethod[CompilerIO](JvmIdentifier("unit"), Seq.empty, systemLangType("Unit"))
         .use { methodGenerator =>
           methodGenerator.runNative { methodVisitor =>
             methodVisitor.visitInsn(Opcodes.ACONST_NULL)
@@ -39,7 +39,7 @@ object NativeImplementation {
   private def eliot_lang_String_printlnInternal: NativeImplementation = new NativeImplementation {
     override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
       classGenerator
-        .createMethod[CompilerIO]("printlnInternal", Seq(systemLangType("String")), systemLangType("Unit"))
+        .createMethod[CompilerIO](JvmIdentifier("printlnInternal"), Seq(systemLangType("String")), systemLangType("Unit"))
         .use { methodGenerator =>
           methodGenerator.runNative { methodVisitor =>
             methodVisitor.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;")

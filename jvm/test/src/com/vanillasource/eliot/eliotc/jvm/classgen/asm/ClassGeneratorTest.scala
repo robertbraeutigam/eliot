@@ -13,6 +13,8 @@ class ClassGeneratorTest extends BytecodeTest {
   private val stringType = NativeType.systemLangType("String")
   private val anyType    = systemAnyValue
 
+  private def jid(name: String): JvmIdentifier = JvmIdentifier(name)
+
   "class generator" should "generate a class that can be loaded" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
@@ -46,7 +48,7 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate a static method that returns a string" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.createMethod[IO]("greet", Seq.empty, stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("greet"), Seq.empty, stringType).use { mg =>
                      mg.addLdcInsn[IO]("hi there")
                    }
       classFile <- cg.generate[IO]()
@@ -61,7 +63,7 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate a static method with parameters" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.createMethod[IO]("echo", Seq(stringType), stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("echo"), Seq(stringType), stringType).use { mg =>
                      mg.addLoadVar[IO](stringType, 0)
                    }
       classFile <- cg.generate[IO]()
@@ -76,10 +78,10 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate multiple methods in the same class" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.createMethod[IO]("first", Seq.empty, stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("first"), Seq.empty, stringType).use { mg =>
                      mg.addLdcInsn[IO]("one")
                    }
-      _         <- cg.createMethod[IO]("second", Seq.empty, stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("second"), Seq.empty, stringType).use { mg =>
                      mg.addLdcInsn[IO]("two")
                    }
       classFile <- cg.generate[IO]()
@@ -95,10 +97,10 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate methods that call other static methods" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.createMethod[IO]("inner", Seq.empty, stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("inner"), Seq.empty, stringType).use { mg =>
                      mg.addLdcInsn[IO]("from inner")
                    }
-      _         <- cg.createMethod[IO]("outer", Seq.empty, stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("outer"), Seq.empty, stringType).use { mg =>
                      val innerVfqn = ValueFQN(testModule, QualifiedName("inner", Qualifier.Default))
                      mg.addCallTo[IO](innerVfqn, Seq.empty, stringType)
                    }
@@ -114,10 +116,10 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate a method that passes arguments to another method" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.createMethod[IO]("identity", Seq(stringType), stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("identity"), Seq(stringType), stringType).use { mg =>
                      mg.addLoadVar[IO](stringType, 0)
                    }
-      _         <- cg.createMethod[IO]("callIdentity", Seq.empty, stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("callIdentity"), Seq.empty, stringType).use { mg =>
                      val identityVfqn = ValueFQN(testModule, QualifiedName("identity", Qualifier.Default))
                      mg.addLdcInsn[IO]("passed") >>
                        mg.addCallTo[IO](identityVfqn, Seq(stringType), stringType)
@@ -134,8 +136,8 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate an inner class that can be loaded" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      innerCg   <- cg.createInnerClassGenerator[IO]("Inner")
-      _         <- innerCg.createMethod[IO]("value", Seq.empty, stringType).use { mg =>
+      innerCg   <- cg.createInnerClassGenerator[IO](jid("Inner"))
+      _         <- innerCg.createMethod[IO](jid("value"), Seq.empty, stringType).use { mg =>
                      mg.addLdcInsn[IO]("inner value")
                    }
       classFile <- cg.generate[IO]()
@@ -151,14 +153,14 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate a class with fields and a constructor" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.createField[IO]("name", stringType)
+      _         <- cg.createField[IO](jid("name"), stringType)
       _         <- cg.createCtor[IO](Seq(stringType)).use { mg =>
                      for {
                        _ <- mg.addLoadThis[IO]()
                        _ <- mg.addCallToObjectCtor[IO]()
                        _ <- mg.addLoadThis[IO]()
                        _ <- mg.addLoadVar[IO](stringType, 1)
-                       _ <- mg.addPutField[IO]("name", stringType)
+                       _ <- mg.addPutField[IO](jid("name"), stringType)
                      } yield ()
                    }
       classFile <- cg.generate[IO]()
@@ -175,18 +177,18 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate a constructor with multiple fields" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.createField[IO]("first", stringType)
-      _         <- cg.createField[IO]("second", stringType)
+      _         <- cg.createField[IO](jid("first"), stringType)
+      _         <- cg.createField[IO](jid("second"), stringType)
       _         <- cg.createCtor[IO](Seq(stringType, stringType)).use { mg =>
                      for {
                        _ <- mg.addLoadThis[IO]()
                        _ <- mg.addCallToObjectCtor[IO]()
                        _ <- mg.addLoadThis[IO]()
                        _ <- mg.addLoadVar[IO](stringType, 1)
-                       _ <- mg.addPutField[IO]("first", stringType)
+                       _ <- mg.addPutField[IO](jid("first"), stringType)
                        _ <- mg.addLoadThis[IO]()
                        _ <- mg.addLoadVar[IO](stringType, 2)
-                       _ <- mg.addPutField[IO]("second", stringType)
+                       _ <- mg.addPutField[IO](jid("second"), stringType)
                      } yield ()
                    }
       classFile <- cg.generate[IO]()
@@ -247,18 +249,18 @@ class ClassGeneratorTest extends BytecodeTest {
 
     for {
       cg        <- createClassGenerator[IO](testModule)
-      innerCg   <- cg.createInnerClassGenerator[IO]("Box")
-      _         <- innerCg.createField[IO]("content", stringType)
+      innerCg   <- cg.createInnerClassGenerator[IO](jid("Box"))
+      _         <- innerCg.createField[IO](jid("content"), stringType)
       _         <- innerCg.createCtor[IO](Seq(stringType)).use { mg =>
                      for {
                        _ <- mg.addLoadThis[IO]()
                        _ <- mg.addCallToObjectCtor[IO]()
                        _ <- mg.addLoadThis[IO]()
                        _ <- mg.addLoadVar[IO](stringType, 1)
-                       _ <- mg.addPutField[IO]("content", stringType)
+                       _ <- mg.addPutField[IO](jid("content"), stringType)
                      } yield ()
                    }
-      _         <- cg.createMethod[IO]("makeBox", Seq(stringType), anyType).use { mg =>
+      _         <- cg.createMethod[IO](jid("makeBox"), Seq(stringType), anyType).use { mg =>
                      for {
                        _ <- mg.addNew[IO](boxType)
                        _ <- mg.addLoadVar[IO](stringType, 0)
@@ -283,22 +285,22 @@ class ClassGeneratorTest extends BytecodeTest {
 
     for {
       cg        <- createClassGenerator[IO](testModule)
-      innerCg   <- cg.createInnerClassGenerator[IO]("Box")
-      _         <- innerCg.createField[IO]("value", stringType)
+      innerCg   <- cg.createInnerClassGenerator[IO](jid("Box"))
+      _         <- innerCg.createField[IO](jid("value"), stringType)
       _         <- innerCg.createCtor[IO](Seq(stringType)).use { mg =>
                      for {
                        _ <- mg.addLoadThis[IO]()
                        _ <- mg.addCallToObjectCtor[IO]()
                        _ <- mg.addLoadThis[IO]()
                        _ <- mg.addLoadVar[IO](stringType, 1)
-                       _ <- mg.addPutField[IO]("value", stringType)
+                       _ <- mg.addPutField[IO](jid("value"), stringType)
                      } yield ()
                    }
-      _         <- cg.createMethod[IO]("unbox", Seq(anyType), stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("unbox"), Seq(anyType), stringType).use { mg =>
                      for {
                        _ <- mg.addLoadVar[IO](anyType, 0)
                        _ <- mg.addCastTo[IO](boxType)
-                       _ <- mg.addGetField[IO]("value", stringType, boxType)
+                       _ <- mg.addGetField[IO](jid("value"), stringType, boxType)
                      } yield ()
                    }
       classFile <- cg.generate[IO]()
@@ -317,7 +319,7 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate a method that invokes apply on a Function parameter" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.createMethod[IO]("callFn", Seq(systemFunctionValue, anyType), anyType).use { mg =>
+      _         <- cg.createMethod[IO](jid("callFn"), Seq(systemFunctionValue, anyType), anyType).use { mg =>
                      for {
                        _ <- mg.addLoadVar[IO](systemFunctionValue, 0)
                        _ <- mg.addLoadVar[IO](anyType, 1)
@@ -337,7 +339,7 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate a method that casts and accesses a typed value" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.createMethod[IO]("castToString", Seq(anyType), stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("castToString"), Seq(anyType), stringType).use { mg =>
                      for {
                        _ <- mg.addLoadVar[IO](anyType, 0)
                        _ <- mg.addCastTo[IO](stringType)
@@ -357,12 +359,12 @@ class ClassGeneratorTest extends BytecodeTest {
 
     for {
       otherCg   <- createClassGenerator[IO](otherModule)
-      _         <- otherCg.createMethod[IO]("provide", Seq.empty, stringType).use { mg =>
+      _         <- otherCg.createMethod[IO](jid("provide"), Seq.empty, stringType).use { mg =>
                      mg.addLdcInsn[IO]("from other")
                    }
       otherFile <- otherCg.generate[IO]()
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.createMethod[IO]("fetch", Seq.empty, stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("fetch"), Seq.empty, stringType).use { mg =>
                      val otherVfqn = ValueFQN(otherModule, QualifiedName("provide", Qualifier.Default))
                      mg.addCallTo[IO](otherVfqn, Seq.empty, stringType)
                    }
@@ -380,7 +382,7 @@ class ClassGeneratorTest extends BytecodeTest {
 
     for {
       cg        <- createClassGenerator[IO](simpleModule)
-      _         <- cg.createMethod[IO]("hello", Seq.empty, stringType).use { mg =>
+      _         <- cg.createMethod[IO](jid("hello"), Seq.empty, stringType).use { mg =>
                      mg.addLdcInsn[IO]("no package")
                    }
       classFile <- cg.generate[IO]()
@@ -395,14 +397,14 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate a lambda-like inner class implementing Function" in {
     for {
       cg         <- createClassGenerator[IO](testModule)
-      lambdaCg   <- cg.createInnerClassGenerator[IO]("lambda$0", interfaces = Seq("java/util/function/Function"))
+      lambdaCg   <- cg.createInnerClassGenerator[IO](jid("lambda$0"), interfaces = Seq("java/util/function/Function"))
       _          <- lambdaCg.createCtor[IO](Seq.empty).use { mg =>
                       mg.addLoadThis[IO]() >> mg.addCallToObjectCtor[IO]()
                     }
       _          <- lambdaCg.createApplyMethod[IO](Seq(anyType), anyType).use { mg =>
                       mg.addLdcInsn[IO]("lambda result")
                     }
-      _          <- cg.createMethod[IO]("makeLambda", Seq.empty, systemFunctionValue).use { mg =>
+      _          <- cg.createMethod[IO](jid("makeLambda"), Seq.empty, systemFunctionValue).use { mg =>
                       val lambdaType = ValueFQN(testModule, QualifiedName("lambda$0", Qualifier.Default))
                       for {
                         _ <- mg.addNew[IO](lambdaType)
@@ -423,23 +425,23 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate a closure that captures a value" in {
     for {
       cg         <- createClassGenerator[IO](testModule)
-      lambdaCg   <- cg.createInnerClassGenerator[IO]("lambda$0", interfaces = Seq("java/util/function/Function"))
-      _          <- lambdaCg.createField[IO]("captured", stringType)
+      lambdaCg   <- cg.createInnerClassGenerator[IO](jid("lambda$0"), interfaces = Seq("java/util/function/Function"))
+      _          <- lambdaCg.createField[IO](jid("captured"), stringType)
       _          <- lambdaCg.createCtor[IO](Seq(stringType)).use { mg =>
                       for {
                         _ <- mg.addLoadThis[IO]()
                         _ <- mg.addCallToObjectCtor[IO]()
                         _ <- mg.addLoadThis[IO]()
                         _ <- mg.addLoadVar[IO](stringType, 1)
-                        _ <- mg.addPutField[IO]("captured", stringType)
+                        _ <- mg.addPutField[IO](jid("captured"), stringType)
                       } yield ()
                     }
       lambdaType  = ValueFQN(testModule, QualifiedName("lambda$0", Qualifier.Default))
       _          <- lambdaCg.createApplyMethod[IO](Seq(anyType), anyType).use { mg =>
                       mg.addLoadThis[IO]() >>
-                        mg.addGetField[IO]("captured", stringType, lambdaType)
+                        mg.addGetField[IO](jid("captured"), stringType, lambdaType)
                     }
-      _          <- cg.createMethod[IO]("makeClosure", Seq(stringType), systemFunctionValue).use { mg =>
+      _          <- cg.createMethod[IO](jid("makeClosure"), Seq(stringType), systemFunctionValue).use { mg =>
                       for {
                         _ <- mg.addNew[IO](lambdaType)
                         _ <- mg.addLoadVar[IO](stringType, 0)
@@ -460,7 +462,7 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate an inner interface class" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      ifaceCg   <- cg.createInnerInterfaceGenerator[IO]("Show$vtable")
+      ifaceCg   <- cg.createInnerInterfaceGenerator[IO](jid("Show$vtable"))
       classFile <- cg.generate[IO]()
       ifaceFile <- ifaceCg.generate[IO]()
       output    <- runClasses(Seq(classFile, ifaceFile)) { cl =>
@@ -473,8 +475,8 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate an interface with an abstract method using Object types for generics" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      ifaceCg   <- cg.createInnerInterfaceGenerator[IO]("Show$vtable")
-      _         <- ifaceCg.createAbstractMethod[IO]("show", Seq(anyType), anyType)
+      ifaceCg   <- cg.createInnerInterfaceGenerator[IO](jid("Show$vtable"))
+      _         <- ifaceCg.createAbstractMethod[IO](jid("show"), Seq(anyType), anyType)
       classFile <- cg.generate[IO]()
       ifaceFile <- ifaceCg.generate[IO]()
       output    <- runClasses(Seq(classFile, ifaceFile)) { cl =>
@@ -488,8 +490,8 @@ class ClassGeneratorTest extends BytecodeTest {
   it should "generate an interface with a concrete return type" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      ifaceCg   <- cg.createInnerInterfaceGenerator[IO]("Serialize$vtable")
-      _         <- ifaceCg.createAbstractMethod[IO]("serialize", Seq(anyType), stringType)
+      ifaceCg   <- cg.createInnerInterfaceGenerator[IO](jid("Serialize$vtable"))
+      _         <- ifaceCg.createAbstractMethod[IO](jid("serialize"), Seq(anyType), stringType)
       classFile <- cg.generate[IO]()
       ifaceFile <- ifaceCg.generate[IO]()
       output    <- runClasses(Seq(classFile, ifaceFile)) { cl =>
@@ -507,13 +509,13 @@ class ClassGeneratorTest extends BytecodeTest {
 
     for {
       ifaceCg   <- createClassGenerator[IO](ifaceModule)
-      vtableCg  <- ifaceCg.createInnerInterfaceGenerator[IO]("Show$vtable")
-      _         <- vtableCg.createAbstractMethod[IO]("show", Seq(anyType), anyType)
+      vtableCg  <- ifaceCg.createInnerInterfaceGenerator[IO](jid("Show$vtable"))
+      _         <- vtableCg.createAbstractMethod[IO](jid("show"), Seq(anyType), anyType)
       ifaceFile <- ifaceCg.generate[IO]()
       vtableFile <- vtableCg.generate[IO]()
       implCg    <- createClassGenerator[IO](implModule)
-      singletonCg <- implCg.createInnerClassGenerator[IO]("Show$Any$impl", Seq("test/pkg/TestClass$Show$vtable"))
-      _           <- singletonCg.createStaticFinalField[IO]("INSTANCE", ifaceVfqn)
+      singletonCg <- implCg.createInnerClassGenerator[IO](jid("Show$Any$impl"), Seq("test/pkg/TestClass$Show$vtable"))
+      _           <- singletonCg.createStaticFinalField[IO](jid("INSTANCE"), ifaceVfqn)
       _           <- singletonCg.createCtor[IO](Seq.empty).use { ctor =>
                        ctor.addLoadThis[IO]() >> ctor.addCallToObjectCtor[IO]()
                      }
@@ -521,7 +523,7 @@ class ClassGeneratorTest extends BytecodeTest {
                        val singletonType = ValueFQN(implModule, QualifiedName("Show$Any$impl", Qualifier.Default))
                        clinit.addNew[IO](singletonType) >>
                          clinit.addCallToCtor[IO](singletonType, Seq.empty) >>
-                         clinit.addPutStaticField[IO]("INSTANCE", ifaceVfqn)
+                         clinit.addPutStaticField[IO](jid("INSTANCE"), ifaceVfqn)
                      }
       implFile    <- implCg.generate[IO]()
       singletonFile <- singletonCg.generate[IO]()
@@ -542,16 +544,16 @@ class ClassGeneratorTest extends BytecodeTest {
 
     for {
       ifaceCg      <- createClassGenerator[IO](ifaceModule)
-      vtableCg     <- ifaceCg.createInnerInterfaceGenerator[IO]("Show$vtable")
-      _            <- vtableCg.createAbstractMethod[IO]("show", Seq(anyType), anyType)
-      _            <- ifaceCg.createMethod[IO]("showImpl", Seq(anyType), anyType).use { mg =>
+      vtableCg     <- ifaceCg.createInnerInterfaceGenerator[IO](jid("Show$vtable"))
+      _            <- vtableCg.createAbstractMethod[IO](jid("show"), Seq(anyType), anyType)
+      _            <- ifaceCg.createMethod[IO](jid("showImpl"), Seq(anyType), anyType).use { mg =>
                         mg.addLoadVar[IO](anyType, 0)
                       }
       ifaceFile    <- ifaceCg.generate[IO]()
       vtableFile   <- vtableCg.generate[IO]()
       implCg       <- createClassGenerator[IO](implModule)
-      singletonCg  <- implCg.createInnerClassGenerator[IO]("Show$Any$impl", Seq("test/pkg/TestClass$Show$vtable"))
-      _            <- singletonCg.createStaticFinalField[IO]("INSTANCE", ifaceVfqn)
+      singletonCg  <- implCg.createInnerClassGenerator[IO](jid("Show$Any$impl"), Seq("test/pkg/TestClass$Show$vtable"))
+      _            <- singletonCg.createStaticFinalField[IO](jid("INSTANCE"), ifaceVfqn)
       _            <- singletonCg.createCtor[IO](Seq.empty).use { ctor =>
                         ctor.addLoadThis[IO]() >> ctor.addCallToObjectCtor[IO]()
                       }
@@ -559,10 +561,10 @@ class ClassGeneratorTest extends BytecodeTest {
                         val singletonType = ValueFQN(implModule, QualifiedName("Show$Any$impl", Qualifier.Default))
                         clinit.addNew[IO](singletonType) >>
                           clinit.addCallToCtor[IO](singletonType, Seq.empty) >>
-                          clinit.addPutStaticField[IO]("INSTANCE", ifaceVfqn)
+                          clinit.addPutStaticField[IO](jid("INSTANCE"), ifaceVfqn)
                       }
       implVfqn      = ValueFQN(ifaceModule, QualifiedName("showImpl", Qualifier.Default))
-      _            <- singletonCg.createPublicInstanceMethod[IO]("show", Seq(anyType), anyType).use { bridge =>
+      _            <- singletonCg.createPublicInstanceMethod[IO](jid("show"), Seq(anyType), anyType).use { bridge =>
                         bridge.addLoadVar[IO](anyType, 1) >>
                           bridge.addCallTo[IO](implVfqn, Seq(anyType), anyType)
                       }
@@ -601,5 +603,20 @@ class ClassGeneratorTest extends BytecodeTest {
                      method.invoke(null, Array.empty[String])
                    }
     } yield output shouldBe "native println"
+  }
+
+  it should "generate a method with an operator name" in {
+    for {
+      cg        <- createClassGenerator[IO](testModule)
+      _         <- cg.createMethod[IO](JvmIdentifier.encode("."), Seq(stringType), stringType).use { mg =>
+                     mg.addLoadVar[IO](stringType, 0)
+                   }
+      classFile <- cg.generate[IO]()
+      output    <- runClasses(Seq(classFile)) { cl =>
+                     val clazz  = cl.loadClass("test.pkg.TestClass")
+                     val method = clazz.getMethod("_002E_", classOf[String])
+                     print(method.invoke(null, "dotted"))
+                   }
+    } yield output shouldBe "dotted"
   }
 }

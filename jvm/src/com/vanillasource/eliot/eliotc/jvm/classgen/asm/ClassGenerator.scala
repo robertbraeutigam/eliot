@@ -9,37 +9,33 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
-class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassWriter) {
+class ClassGenerator(val moduleName: ModuleName, val internalName: String, private val classWriter: ClassWriter) {
 
   /** Generate the byte-code for the currently created class.
     */
-  def generate[F[_]: Sync](): F[ClassFile] = {
-    val pathName  = if (moduleName.packages.isEmpty) "" else moduleName.packages.mkString("", "/", "/")
-    val entryName =
-      moduleName.name + ".class" // FIXME: same javaname conversion as in class! Use the class moduleName!
-
-    Sync[F].delay(classWriter.visitEnd()) >> Sync[F].pure(ClassFile(pathName + entryName, classWriter.toByteArray))
-  }
+  def generate[F[_]: Sync](): F[ClassFile] =
+    Sync[F].delay(classWriter.visitEnd()) >> Sync[F].pure(ClassFile(internalName + ".class", classWriter.toByteArray))
 
   /** Create inner interface class with the given non-qualified name.
     */
-  def createInnerInterfaceGenerator[F[_]: Sync](innerName: String): F[ClassGenerator] =
+  def createInnerInterfaceGenerator[F[_]: Sync](innerName: JvmIdentifier): F[ClassGenerator] =
+    val innerInternalName = internalName + "$" + innerName.value
     for {
       interfaceGenerator <-
-        createInterfaceGenerator[F](ModuleName(moduleName.packages, moduleName.name + "$" + innerName))
+        createInterfaceGenerator[F](ModuleName(moduleName.packages, moduleName.name + "$" + innerName.value), innerInternalName)
       _                  <- Sync[F].delay(
                               interfaceGenerator.classWriter.visitInnerClass(
-                                moduleName.name + "$" + innerName,
-                                moduleName.name,
-                                innerName,
+                                innerInternalName,
+                                internalName,
+                                innerName.value,
                                 Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_ABSTRACT | Opcodes.ACC_INTERFACE
                               )
                             )
       _                  <- Sync[F].delay(
                               classWriter.visitInnerClass(
-                                moduleName.name + "$" + innerName,
-                                moduleName.name,
-                                innerName,
+                                innerInternalName,
+                                internalName,
+                                innerName.value,
                                 Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_ABSTRACT | Opcodes.ACC_INTERFACE
                               )
                             )
@@ -48,14 +44,14 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
   /** Add an abstract method declaration to this class (for use in interfaces).
     */
   def createAbstractMethod[F[_]: Sync](
-      name: String,
+      name: JvmIdentifier,
       parameterTypes: Seq[ValueFQN],
       resultType: ValueFQN
   ): F[Unit] = Sync[F].delay {
     classWriter
       .visitMethod(
         Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT,
-        name,
+        name.value,
         convertToSignatureString(parameterTypes, resultType),
         null,
         null
@@ -63,28 +59,28 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
       .visitEnd()
   }
 
-  /** Create inner class with the given non-qualified moduleName.
+  /** Create inner class with the given non-qualified name.
     * @param innerName
-    *   The plain non-qualified and non-embedded moduleName of the inner class.
-    * @return
+    *   The plain non-qualified and non-embedded name of the inner class.
     */
-  def createInnerClassGenerator[F[_]: Sync](innerName: String, interfaces: Seq[String] = Seq.empty): F[ClassGenerator] =
+  def createInnerClassGenerator[F[_]: Sync](innerName: JvmIdentifier, interfaces: Seq[String] = Seq.empty): F[ClassGenerator] =
+    val innerInternalName = internalName + "$" + innerName.value
     for {
       classGenerator <-
-        createClassGenerator[F](ModuleName(moduleName.packages, moduleName.name + "$" + innerName), interfaces)
+        createClassGenerator[F](ModuleName(moduleName.packages, moduleName.name + "$" + innerName.value), innerInternalName, interfaces)
       _              <- Sync[F].delay(
                           classGenerator.classWriter.visitInnerClass(
-                            moduleName.name + "$" + innerName,
-                            moduleName.name,
-                            innerName,
+                            innerInternalName,
+                            internalName,
+                            innerName.value,
                             Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL
                           )
                         )
       _              <- Sync[F].delay(
                           classWriter.visitInnerClass(
-                            moduleName.name + "$" + innerName,
-                            moduleName.name,
-                            innerName,
+                            innerInternalName,
+                            internalName,
+                            innerName.value,
                             Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL
                           )
                         )
@@ -92,11 +88,11 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
 
   /** Create a public static final field (for singleton INSTANCE fields).
     */
-  def createStaticFinalField[F[_]: Sync](name: String, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
+  def createStaticFinalField[F[_]: Sync](name: JvmIdentifier, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
     classWriter
       .visitField(
         Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
-        name,
+        name.value,
         javaSignatureName(fieldType),
         null,
         null
@@ -118,7 +114,7 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
 
       methodVisitor.visitCode()
 
-      MethodGenerator(moduleName, methodVisitor)
+      MethodGenerator(internalName, methodVisitor)
     })(methodGenerator =>
       Sync[F].delay {
         methodGenerator.methodVisitor.visitInsn(Opcodes.RETURN)
@@ -130,14 +126,14 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
   /** Create a public instance method (non-static). Ends with ARETURN automatically.
     */
   def createPublicInstanceMethod[F[_]: Sync](
-      name: String,
+      name: JvmIdentifier,
       parameterTypes: Seq[ValueFQN],
       resultType: ValueFQN
   ): Resource[F, MethodGenerator] =
     Resource.make(Sync[F].delay {
       val methodVisitor = classWriter.visitMethod(
         Opcodes.ACC_PUBLIC,
-        name,
+        name.value,
         convertToSignatureString(parameterTypes, resultType),
         null,
         null
@@ -145,7 +141,7 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
 
       methodVisitor.visitCode()
 
-      MethodGenerator(moduleName, methodVisitor)
+      MethodGenerator(internalName, methodVisitor)
     })(methodGenerator =>
       Sync[F].delay {
         methodGenerator.methodVisitor.visitInsn(Opcodes.ARETURN)
@@ -158,11 +154,11 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
     * @param fieldType
     *   The type of the field.
     */
-  def createField[F[_]: Sync](name: String, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
+  def createField[F[_]: Sync](name: JvmIdentifier, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
     classWriter
       .visitField(
         Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL,
-        name, // TODO: check moduleName
+        name.value,
         javaSignatureName(fieldType),
         null,
         null
@@ -173,14 +169,14 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
   /** Create the given method with the given signature.
     */
   def createMethod[F[_]: Sync](
-      name: String,
+      name: JvmIdentifier,
       parameterTypes: Seq[ValueFQN],
       resultType: ValueFQN
   ): Resource[F, MethodGenerator] =
     Resource.make(Sync[F].delay {
       val methodVisitor = classWriter.visitMethod(
         Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL,
-        name, // TODO: can every method moduleName be converted to Java?
+        name.value,
         convertToSignatureString(parameterTypes, resultType),
         null,
         null
@@ -188,7 +184,7 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
 
       methodVisitor.visitCode()
 
-      MethodGenerator(moduleName, methodVisitor)
+      MethodGenerator(internalName, methodVisitor)
     })(methodGenerator =>
       Sync[F].delay {
         // TODO: add more types (primitives)
@@ -214,7 +210,7 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
 
       methodVisitor.visitCode()
 
-      MethodGenerator(moduleName, methodVisitor)
+      MethodGenerator(internalName, methodVisitor)
     })(methodGenerator =>
       Sync[F].delay {
         methodGenerator.methodVisitor.visitInsn(Opcodes.RETURN)
@@ -235,7 +231,7 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
 
       methodVisitor.visitCode()
 
-      MethodGenerator(moduleName, methodVisitor)
+      MethodGenerator(internalName, methodVisitor)
     })(methodGenerator =>
       Sync[F].delay {
         methodGenerator.methodVisitor.visitInsn(Opcodes.RETURN)
@@ -259,7 +255,7 @@ class ClassGenerator(val moduleName: ModuleName, private val classWriter: ClassW
 
       methodVisitor.visitCode()
 
-      MethodGenerator(moduleName, methodVisitor)
+      MethodGenerator(internalName, methodVisitor)
     })(methodGenerator =>
       Sync[F].delay {
         // TODO: add more types (primitives)
@@ -277,36 +273,44 @@ object ClassGenerator {
   /** Generates an empty class for the given module. Each module has exactly one class generated for it.
     */
   def createClassGenerator[F[_]: Sync](name: ModuleName, interfaces: Seq[String] = Seq.empty): F[ClassGenerator] =
+    val className = convertToMainClassName(name)
+    createClassGenerator(name, className, interfaces)
+
+  private def createClassGenerator[F[_]: Sync](name: ModuleName, className: String, interfaces: Seq[String]): F[ClassGenerator] =
     Sync[F].delay {
       val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
 
       classWriter.visit(
         Opcodes.V17,
         Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
-        convertToMainClassName(name), // TODO: all class names are legal here?
+        className,
         null,
         "java/lang/Object",
         if (interfaces.isEmpty) null else interfaces.toArray
       )
 
-      new ClassGenerator(name, classWriter)
+      new ClassGenerator(name, className, classWriter)
     }
 
   /** Generates a JVM interface for the given name.
     */
   def createInterfaceGenerator[F[_]: Sync](name: ModuleName): F[ClassGenerator] =
+    val className = convertToMainClassName(name)
+    createInterfaceGenerator(name, className)
+
+  private def createInterfaceGenerator[F[_]: Sync](name: ModuleName, className: String): F[ClassGenerator] =
     Sync[F].delay {
       val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
 
       classWriter.visit(
         Opcodes.V17,
         Opcodes.ACC_PUBLIC | Opcodes.ACC_ABSTRACT | Opcodes.ACC_INTERFACE,
-        convertToMainClassName(name),
+        className,
         null,
         "java/lang/Object",
         null
       )
 
-      new ClassGenerator(name, classWriter)
+      new ClassGenerator(name, className, classWriter)
     }
 }

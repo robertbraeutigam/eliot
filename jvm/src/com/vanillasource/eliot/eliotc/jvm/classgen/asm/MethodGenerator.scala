@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 import cats.effect.Sync
 import NativeType.{
   convertToCtorSignatureString,
+  convertToMainClassName,
   convertToNestedClassName,
   convertToSignatureString,
   javaInternalName,
@@ -11,7 +12,7 @@ import NativeType.{
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import org.objectweb.asm.{MethodVisitor, Opcodes}
 
-class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: MethodVisitor) {
+class MethodGenerator(private val internalName: String, val methodVisitor: MethodVisitor) {
 
   /** Add calling the given function with the given signature.
     * @param calledVfqn
@@ -21,10 +22,8 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
     Sync[F].delay {
       methodVisitor.visitMethodInsn(
         Opcodes.INVOKESTATIC,
-        calledVfqn.moduleName.packages
-          .appended(calledVfqn.moduleName.name)
-          .mkString("/"),
-        calledVfqn.name.name,
+        convertToMainClassName(calledVfqn.moduleName),
+        JvmIdentifier.encode(calledVfqn.name.name).value,
         convertToSignatureString(parameterTypes, resultType),
         false
       )
@@ -79,33 +78,33 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
 
   /** Add getting the instance field from a data object.
     */
-  def addGetField[F[_]: Sync](fieldName: String, fieldType: ValueFQN, target: ValueFQN): F[Unit] = Sync[F].delay {
+  def addGetField[F[_]: Sync](fieldName: JvmIdentifier, fieldType: ValueFQN, target: ValueFQN): F[Unit] = Sync[F].delay {
     methodVisitor.visitFieldInsn(
       Opcodes.GETFIELD,
       convertToNestedClassName(target),
-      fieldName,
+      fieldName.value,
       javaSignatureName(fieldType)
     )
   }
 
   /** Add putting a value into a static field of this class.
     */
-  def addPutStaticField[F[_]: Sync](fieldName: String, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
+  def addPutStaticField[F[_]: Sync](fieldName: JvmIdentifier, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
     methodVisitor.visitFieldInsn(
       Opcodes.PUTSTATIC,
-      moduleName.packages.appended(moduleName.name).mkString("/"),
-      fieldName,
+      internalName,
+      fieldName.value,
       javaSignatureName(fieldType)
     )
   }
 
   /** Add putting field into local instance variable.
     */
-  def addPutField[F[_]: Sync](fieldName: String, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
+  def addPutField[F[_]: Sync](fieldName: JvmIdentifier, fieldType: ValueFQN): F[Unit] = Sync[F].delay {
     methodVisitor.visitFieldInsn(
       Opcodes.PUTFIELD,
-      moduleName.packages.appended(moduleName.name).mkString("/"), // TODO: use some existing naming method here
-      fieldName,
+      internalName,
+      fieldName.value,
       javaSignatureName(fieldType)
     )
   }
@@ -148,14 +147,14 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
 
   def addCallToAbilityMethod[F[_]: Sync](
       interfaceInternalName: String,
-      methodName: String,
+      methodName: JvmIdentifier,
       parameterTypes: Seq[ValueFQN],
       resultType: ValueFQN
   ): F[Unit] = Sync[F].delay {
     methodVisitor.visitMethodInsn(
       Opcodes.INVOKEINTERFACE,
       interfaceInternalName,
-      methodName,
+      methodName.value,
       convertToSignatureString(parameterTypes, resultType),
       true
     )
@@ -163,14 +162,14 @@ class MethodGenerator(private val moduleName: ModuleName, val methodVisitor: Met
 
   def addCallToVirtualMethod[F[_]: Sync](
       className: String,
-      methodName: String,
+      methodName: JvmIdentifier,
       parameterTypes: Seq[ValueFQN],
       resultType: ValueFQN
   ): F[Unit] = Sync[F].delay {
     methodVisitor.visitMethodInsn(
       Opcodes.INVOKEVIRTUAL,
       className,
-      methodName,
+      methodName.value,
       convertToSignatureString(parameterTypes, resultType),
       false
     )

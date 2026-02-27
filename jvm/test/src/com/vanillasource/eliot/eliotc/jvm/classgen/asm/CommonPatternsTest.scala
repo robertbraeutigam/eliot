@@ -113,10 +113,10 @@ class CommonPatternsTest extends BytecodeTest {
 
     for {
       cg        <- createClassGenerator[IO](testModule)
-      innerCg   <- cg.createInnerClassGenerator[IO]("Data")
+      innerCg   <- cg.createInnerClassGenerator[IO](JvmIdentifier("Data"))
       _         <- innerCg.addDataFieldsAndCtor[IO](fields)
       boxType    = ValueFQN(testModule, QualifiedName("Data", Qualifier.Default))
-      _         <- cg.createMethod[IO]("wrap", Seq(stringType), anyType).use { mg =>
+      _         <- cg.createMethod[IO](JvmIdentifier("wrap"), Seq(stringType), anyType).use { mg =>
                      for {
                        _ <- mg.addNew[IO](boxType)
                        _ <- mg.addLoadVar[IO](stringType, 0)

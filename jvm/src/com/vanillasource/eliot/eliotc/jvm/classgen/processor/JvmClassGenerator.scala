@@ -4,7 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.simpleType
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemUnitValue
@@ -143,7 +143,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           classFiles <-
             classGenerator
               .createMethod[CompilerIO](
-                uncurriedValue.vfqn.name.name,
+                JvmIdentifier.encode(uncurriedValue.vfqn.name.name),
                 dictParams.map(p => simpleType(p.parameterType)) ++ uncurriedValue.parameters.map(p =>
                   simpleType(p.parameterType)
                 ),
