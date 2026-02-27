@@ -1,0 +1,4 @@
+data Unit
+
+def unit: Unit
+
