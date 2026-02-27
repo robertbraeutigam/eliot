@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.operator.fact
 
-import cats.Show
+import cats.{Applicative, Show}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
@@ -26,6 +26,25 @@ object OperatorResolvedExpression {
       parameterType: Option[Sourced[TypeStack[OperatorResolvedExpression]]],
       body: Sourced[TypeStack[OperatorResolvedExpression]]
   ) extends OperatorResolvedExpression
+
+  def mapChildrenM[F[_]: Applicative](f: OperatorResolvedExpression => F[OperatorResolvedExpression])(
+      expr: OperatorResolvedExpression
+  ): F[OperatorResolvedExpression] = {
+    def traverseStack(
+        stack: Sourced[TypeStack[OperatorResolvedExpression]]
+    ): F[Sourced[TypeStack[OperatorResolvedExpression]]] =
+      stack.value.levels.traverse(f).map(levels => stack.as(TypeStack(levels)))
+
+    expr match {
+      case FunctionApplication(target, arg)            =>
+        (traverseStack(target), traverseStack(arg)).mapN(FunctionApplication.apply)
+      case FunctionLiteral(paramName, paramType, body) =>
+        (paramType.traverse(traverseStack), traverseStack(body)).mapN(FunctionLiteral(paramName, _, _))
+      case ValueReference(name, typeArgs)              =>
+        typeArgs.traverse(ta => f(ta.value).map(ta.as)).map(ValueReference(name, _))
+      case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr.pure[F]
+    }
+  }
 
   def fromExpression(expr: MatchDesugaredExpression): OperatorResolvedExpression = expr match {
     case MatchDesugaredExpression.FunctionApplication(target, arg)            =>

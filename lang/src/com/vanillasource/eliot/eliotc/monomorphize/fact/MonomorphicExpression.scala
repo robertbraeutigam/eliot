@@ -1,5 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
+import cats.Applicative
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -13,6 +15,15 @@ case class MonomorphicExpression(
 )
 
 object MonomorphicExpression {
+  def mapChildrenM[F[_]: Applicative](
+      f: Sourced[MonomorphicExpression] => F[Sourced[MonomorphicExpression]]
+  )(expr: Expression): F[Expression] =
+    expr match {
+      case FunctionApplication(target, arg)        => (f(target), f(arg)).mapN(FunctionApplication.apply)
+      case FunctionLiteral(paramName, paramType, body) => f(body).map(FunctionLiteral(paramName, paramType, _))
+      case _: IntegerLiteral | _: StringLiteral | _: ParameterReference | _: MonomorphicValueReference => expr.pure[F]
+    }
+
   sealed trait Expression
 
   case class FunctionApplication(

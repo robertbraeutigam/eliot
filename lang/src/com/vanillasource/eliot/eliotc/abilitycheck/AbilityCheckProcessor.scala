@@ -50,35 +50,16 @@ class AbilityCheckProcessor
       paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
   ): CompilerIO[TypedExpression] =
     typedExpr.expression match {
-      case TypedExpression.FunctionApplication(target, arg) =>
-        for {
-          newTarget <- resolveAbilityRefsInSourced(target, paramConstraints)
-          newArg    <- resolveAbilityRefsInSourced(arg, paramConstraints)
-        } yield TypedExpression(
-          typedExpr.expressionType,
-          TypedExpression.FunctionApplication(newTarget, newArg)
-        )
-
-      case TypedExpression.FunctionLiteral(paramName, paramType, body) =>
-        for {
-          newBody <- resolveAbilityRefsInSourced(body, paramConstraints)
-        } yield TypedExpression(
-          typedExpr.expressionType,
-          TypedExpression.FunctionLiteral(paramName, paramType, newBody)
-        )
-
       case TypedExpression.ValueReference(vfqn) if isAbilityRef(vfqn.value) =>
         resolveAbilityRef(vfqn, typedExpr.expressionType, paramConstraints)
           .map(implFQN => TypedExpression(typedExpr.expressionType, TypedExpression.ValueReference(vfqn.as(implFQN))))
-
-      case _ => typedExpr.pure[CompilerIO]
+      case _                                                                =>
+        TypedExpression
+          .mapChildrenM[CompilerIO](s => resolveAbilityRefs(s.value, paramConstraints).map(s.as))(
+            typedExpr.expression
+          )
+          .map(TypedExpression(typedExpr.expressionType, _))
     }
-
-  private def resolveAbilityRefsInSourced(
-      sourced: Sourced[TypedExpression],
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
-  ): CompilerIO[Sourced[TypedExpression]] =
-    resolveAbilityRefs(sourced.value, paramConstraints).map(sourced.as)
 
   private def isAbilityRef(vfqn: ValueFQN): Boolean =
     vfqn.name.qualifier.isInstanceOf[CoreQualifier.Ability]

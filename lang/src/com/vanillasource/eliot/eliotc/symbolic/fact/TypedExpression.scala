@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.symbolic.fact
 
-import cats.{Monad, Show}
+import cats.{Applicative, Monad, Show}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -35,6 +35,15 @@ case class TypedExpression(
 }
 
 object TypedExpression {
+
+  def mapChildrenM[F[_]: Applicative](f: Sourced[TypedExpression] => F[Sourced[TypedExpression]])(
+      expr: Expression
+  ): F[Expression] =
+    expr match {
+      case FunctionApplication(target, arg)        => (f(target), f(arg)).mapN(FunctionApplication.apply)
+      case FunctionLiteral(paramName, paramType, body) => f(body).map(FunctionLiteral(paramName, paramType, _))
+      case _: IntegerLiteral | _: StringLiteral | _: ParameterReference | _: ValueReference => expr.pure[F]
+    }
 
   /** Dispatch over the six expression cases. Each callback receives the raw children (not pre-folded), allowing callers
     * to control recursion themselves. Use cats.Id as F for pure callers.

@@ -53,19 +53,8 @@ class MatchDesugaringProcessor
 
   private def desugarExpression(expr: Expression): CompilerIO[Expression] =
     expr match {
-      case Expression.MatchExpression(scrutinee, cases) =>
-        desugarMatch(scrutinee, cases)
-      case Expression.FunctionApplication(target, arg)  =>
-        for {
-          desugaredTarget <- desugarInTypeStack(target)
-          desugaredArg    <- desugarInTypeStack(arg)
-        } yield Expression.FunctionApplication(desugaredTarget, desugaredArg)
-      case Expression.FunctionLiteral(paramName, paramType, body) =>
-        desugarInTypeStack(body).map(Expression.FunctionLiteral(paramName, paramType, _))
-      case Expression.FlatExpression(parts)             =>
-        parts.traverse(desugarInTypeStack).map(Expression.FlatExpression(_))
-      case other                                        =>
-        other.pure[CompilerIO]
+      case Expression.MatchExpression(scrutinee, cases) => desugarMatch(scrutinee, cases)
+      case other                                        => Expression.mapChildrenM(desugarExpression)(other)
     }
 
   private def desugarInTypeStack(

@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.resolve.fact
 
+import cats.Applicative
 import cats.syntax.all.*
 import cats.Show
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
@@ -33,6 +34,28 @@ object Expression {
       pattern: Sourced[Pattern],
       body: Sourced[TypeStack[Expression]]
   )
+
+  def mapChildrenM[F[_]: Applicative](f: Expression => F[Expression])(expr: Expression): F[Expression] = {
+    def traverseStack(stack: Sourced[TypeStack[Expression]]): F[Sourced[TypeStack[Expression]]] =
+      stack.value.levels.traverse(f).map(levels => stack.as(TypeStack(levels)))
+
+    expr match {
+      case FunctionApplication(target, arg)                =>
+        (traverseStack(target), traverseStack(arg)).mapN(FunctionApplication.apply)
+      case FunctionLiteral(paramName, paramType, body)     =>
+        (paramType.traverse(traverseStack), traverseStack(body)).mapN(FunctionLiteral(paramName, _, _))
+      case FlatExpression(parts)                           =>
+        parts.traverse(traverseStack).map(FlatExpression.apply)
+      case MatchExpression(scrutinee, cases)               =>
+        (
+          traverseStack(scrutinee),
+          cases.traverse(mc => traverseStack(mc.body).map(MatchCase(mc.pattern, _)))
+        ).mapN(MatchExpression.apply)
+      case ValueReference(name, typeArgs)                  =>
+        typeArgs.traverse(ta => f(ta.value).map(ta.as)).map(ValueReference(name, _))
+      case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr.pure[F]
+    }
+  }
 
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                                          => value.toString()
