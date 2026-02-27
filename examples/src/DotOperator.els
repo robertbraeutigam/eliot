@@ -1,18 +1,16 @@
-infix left def .[A, B](a: A, f: Function[A, B]): B = f(a)
+infix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)
 
 data Box[A](content: A)
 
-def filter[A](b: Box[A], expr: String): Box[A]
+def filter[A](expr: String, box: Box[A]): Box[A] = box
 
-def map[A, B](b: Box[A], f: Function[A, B]): Box[B] = Box(f(content(b)))
+def map[A, B](f: Function[A, B], box: Box[A]): Box[B] = Box(f(content(box)))
 
-def flatMap[A, B](b: Box[A], f: Function[A, Box[B]]): Box[B]
+def flatMap[A, B](f: Function[A, Box[B]], box: Box[A]): Box[B] = f(content(box))
 
-def as[A, B](b: B, box: Box[A]): Box[B] = map(box, _ -> b)
+def as[A, B](b: B, box: Box[A]): Box[B] = box.map(_ -> b)
 
-//def logic: Box[String] = Box("Hello").filter(_ -> "Expr").map(_ -> "Earth!").as("World!")
+def logic: Box[String] = Box("Hello").filter("Expr").map(_ -> "Earth!").as("World!")
 
-def logic: Box[String] = Box("Hello").as("World!")
-
-def main: IO[Unit] = println(logic.content)
+def main: IO[Unit] = println(content(logic))
 
