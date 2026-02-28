@@ -131,10 +131,11 @@ object CoreExpressionConverter {
 
   def toPattern(pattern: SourcePattern): Pattern =
     pattern match {
-      case SourcePattern.ConstructorPattern(moduleName, constructorName, subPatterns) =>
+      case SourcePattern.ConstructorPattern(moduleName, constructorName, subPatterns, isTypePattern) =>
+        val qualifier = if (isTypePattern) Qualifier.Type else Qualifier.Default
         Pattern.ConstructorPattern(
           moduleName,
-          constructorName.map(n => QualifiedName(n, Qualifier.Default)),
+          constructorName.map(n => QualifiedName(n, qualifier)),
           subPatterns.map(_.map(toPattern))
         )
       case SourcePattern.VariablePattern(name)                                       =>

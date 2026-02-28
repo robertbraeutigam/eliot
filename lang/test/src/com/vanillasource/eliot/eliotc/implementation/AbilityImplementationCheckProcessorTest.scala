@@ -89,7 +89,7 @@ class AbilityImplementationCheckProcessorTest
   it should "fail when no implementations are provided at all for an ability with all-default methods" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A = x }\ndata Int\ndef f(x: Int): Int = show(x)"
-    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'." at "show"))
+    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'." at "Show"))
   }
 
   it should "resolve default ability implementation that calls another default ability implementation" in {

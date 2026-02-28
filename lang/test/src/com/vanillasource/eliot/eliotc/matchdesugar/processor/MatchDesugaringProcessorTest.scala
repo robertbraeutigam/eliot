@@ -169,6 +169,57 @@ class MatchDesugaringProcessorTest
     ).asserting(_ shouldBe Seq("Match expression must have at least one constructor pattern." at "_"))
   }
 
+  it should "desugar type match with single constructor to typeMatch call" in {
+    runEngineForValue(
+      "data Type\ndata S\ndata Person[NAME: S]\ndef main: S = t: Type -> t match { case Person[name] -> name case _ -> 1 }"
+    ).asserting {
+      case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tm), ParamRef(scrutinee)), FunLit("name", ParamRef(nameParam))), FunLit("_", IntLit(fallback))))) =>
+        tm shouldBe vfqn("typeMatchPerson")
+        scrutinee shouldBe "t"
+        nameParam shouldBe "name"
+        fallback shouldBe BigInt(1)
+      case x =>
+        fail(s"unexpected: $x")
+    }
+  }
+
+  it should "desugar type match with multiple constructors as chained typeMatch calls" in {
+    runEngineForValue(
+      "data Type\ndata S\ndata A[X: S]\ndata B[Y: S]\ndef main: S = t: Type -> t match { case A[x] -> x case B[y] -> y case _ -> 1 }"
+    ).asserting {
+      case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tmA), ParamRef(scrutineeA)), FunLit("x", ParamRef(xParam))), FunLit("_", FunApp(FunApp(FunApp(ValRef(tmB), ParamRef(scrutineeB)), FunLit("y", ParamRef(yParam))), FunLit("_", IntLit(fallback))))))) =>
+        tmA shouldBe vfqn("typeMatchA")
+        scrutineeA shouldBe "t"
+        xParam shouldBe "x"
+        tmB shouldBe vfqn("typeMatchB")
+        scrutineeB shouldBe "t"
+        yParam shouldBe "y"
+        fallback shouldBe BigInt(1)
+      case x =>
+        fail(s"unexpected: $x")
+    }
+  }
+
+  it should "desugar type match with nullary type constructor" in {
+    runEngineForValue(
+      "data Type\ndata S\ndata Foo\ndef main: S = t: Type -> t match { case Foo[] -> 1 case _ -> 2 }"
+    ).asserting {
+      case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tm), ParamRef(scrutinee)), FunLit("_", IntLit(matchBody))), FunLit("_", IntLit(fallback))))) =>
+        tm shouldBe vfqn("typeMatchFoo")
+        scrutinee shouldBe "t"
+        matchBody shouldBe BigInt(1)
+        fallback shouldBe BigInt(2)
+      case x =>
+        fail(s"unexpected: $x")
+    }
+  }
+
+  it should "report error when type match has no wildcard case" in {
+    runEngineForErrors(
+      "data Type\ndata S\ndata Person[NAME: S]\ndef main: S = t: Type -> t match { case Person[name] -> name }"
+    ).asserting(_ shouldBe Seq("Type match must have a wildcard case." at "Person"))
+  }
+
   private def vfqn(name: String): ValueFQN =
     ValueFQN(testMN, QualifiedName(name, Qualifier.Default))
 

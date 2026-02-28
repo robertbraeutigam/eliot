@@ -22,7 +22,12 @@ class ModuleNamesProcessorTest
   }
 
   it should "extract names from data definitions" in {
-    runEngineForNames("data Person").asserting(_ shouldBe Set(QualifiedName("Person", Qualifier.Type)))
+    runEngineForNames("data Person").asserting(
+      _ shouldBe Set(
+        QualifiedName("Person", Qualifier.Type),
+        QualifiedName("typeMatchPerson", Qualifier.Default)
+      )
+    )
   }
 
   it should "extract constructor and accessor names from data with fields" in {
@@ -31,14 +36,19 @@ class ModuleNamesProcessorTest
         QualifiedName("Person", Qualifier.Type),
         QualifiedName("Person", Qualifier.Default),
         QualifiedName("name", Qualifier.Default),
-        QualifiedName("handlePersonWith", Qualifier.Default)
+        QualifiedName("handlePersonWith", Qualifier.Default),
+        QualifiedName("typeMatchPerson", Qualifier.Default)
       )
     )
   }
 
   it should "extract mixed function and data names" in {
     runEngineForNames("data A\ndef f: A").asserting(
-      _ shouldBe Set(QualifiedName("A", Qualifier.Type), QualifiedName("f", Qualifier.Default))
+      _ shouldBe Set(
+        QualifiedName("A", Qualifier.Type),
+        QualifiedName("typeMatchA", Qualifier.Default),
+        QualifiedName("f", Qualifier.Default)
+      )
     )
   }
 

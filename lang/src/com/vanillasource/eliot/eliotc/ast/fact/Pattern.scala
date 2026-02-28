@@ -15,7 +15,8 @@ object Pattern {
   case class ConstructorPattern(
       moduleName: Option[Sourced[String]],
       constructorName: Sourced[String],
-      subPatterns: Seq[Sourced[Pattern]]
+      subPatterns: Seq[Sourced[Pattern]],
+      isTypePattern: Boolean = false
   ) extends Pattern
 
   case class VariablePattern(name: Sourced[String]) extends Pattern
@@ -23,11 +24,13 @@ object Pattern {
   case class WildcardPattern(source: Sourced[String]) extends Pattern
 
   given Show[Pattern] = {
-    case ConstructorPattern(Some(mod), name, pats) =>
-      s"${mod.value}::${name.value}(${pats.map(_.value.show).mkString(", ")})"
-    case ConstructorPattern(None, name, pats) if pats.isEmpty => name.value
-    case ConstructorPattern(None, name, pats) =>
-      s"${name.value}(${pats.map(_.value.show).mkString(", ")})"
+    case ConstructorPattern(Some(mod), name, pats, isType) =>
+      val (open, close) = if (isType) ("[", "]") else ("(", ")")
+      s"${mod.value}::${name.value}$open${pats.map(_.value.show).mkString(", ")}$close"
+    case ConstructorPattern(None, name, pats, _) if pats.isEmpty => name.value
+    case ConstructorPattern(None, name, pats, isType) =>
+      val (open, close) = if (isType) ("[", "]") else ("(", ")")
+      s"${name.value}$open${pats.map(_.value.show).mkString(", ")}$close"
     case VariablePattern(name)  => name.value
     case WildcardPattern(_)     => "_"
   }
@@ -49,10 +52,17 @@ object Pattern {
       }
 
     private val constructorPattern: Parser[Sourced[Token], Pattern] = for {
-      module      <- (moduleParser <* symbol("::")).atomic().optional()
-      name        <- acceptIfAll(isIdentifier, isUpperCase)("constructor name")
-      subPatterns <- bracketedCommaSeparatedItems("(", sourced(parser), ")").optional()
-    } yield ConstructorPattern(module, name.map(_.content), subPatterns.getOrElse(Seq.empty))
+      module         <- (moduleParser <* symbol("::")).atomic().optional()
+      name           <- acceptIfAll(isIdentifier, isUpperCase)("constructor name")
+      subPatternsOpt <- (
+                          (symbol("[") *> symbol("]")).atomic().as((Seq.empty[Sourced[Pattern]], true)) or
+                            bracketedCommaSeparatedItems("[", sourced(parser), "]").map((_, true)) or
+                            bracketedCommaSeparatedItems("(", sourced(parser), ")").map((_, false))
+                        ).optional()
+    } yield {
+      val (subPatterns, isType) = subPatternsOpt.getOrElse((Seq.empty, false))
+      ConstructorPattern(module, name.map(_.content), subPatterns, isType)
+    }
 
     private val variablePattern: Parser[Sourced[Token], Pattern] =
       acceptIfAll(isIdentifier, isLowerCase)("variable name").map(s => VariablePattern(s.map(_.content)))

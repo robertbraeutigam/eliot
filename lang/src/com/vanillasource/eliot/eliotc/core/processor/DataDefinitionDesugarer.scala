@@ -30,7 +30,7 @@ object DataDefinitionDesugarer {
     val mainFunctions =
       (createTypeFunction(definition) ++ createConstructors(definition) ++ createAccessors(definition))
         .map(_.copy(visibility = definition.visibility))
-    mainFunctions ++ createEliminator(definition)
+    mainFunctions ++ createEliminator(definition) ++ createTypeMatch(definition)
   }
 
   private def createTypeFunction(definition: DataDefinition): Seq[FunctionDefinition] =
@@ -154,6 +154,68 @@ object DataDefinitionDesugarer {
           visibility = Visibility.Public
         )
       }
+
+  /** Create a type match discriminator "typeMatch<TypeName>" for each data definition. This is a binary discriminator
+    * that checks if a Type value was constructed by this data type's type constructor. It takes the Type object, a match
+    * handler (curried over the generic parameters), and an else handler for when the type doesn't match.
+    *
+    * Example: data Person[NAME: String](content: String) generates: typeMatchPerson[R](obj: Type, personCase:
+    * Function[String, R], elseCase: Function[Unit, R]): R
+    */
+  private def createTypeMatch(definition: DataDefinition): Seq[FunctionDefinition] = {
+    val existingNames   = definition.genericParameters.map(_.name.value).toSet
+    val resultParamName = freshName("R", existingNames)
+    val resultParam     = GenericParameter(
+      definition.name.as(resultParamName),
+      TypeReference(definition.name.as("Type"), Seq.empty),
+      Seq.empty
+    )
+    val allGenericParams = definition.genericParameters :+ resultParam
+    val objArg           = ArgumentDefinition(
+      definition.name.as("obj"),
+      TypeReference(definition.name.as("Type"), Seq.empty)
+    )
+    val matchCaseType = typeMatchHandlerType(definition, resultParamName)
+    val matchCaseArg  = ArgumentDefinition(definition.name.as("matchCase"), matchCaseType)
+    val elseCaseType  = TypeReference(
+      definition.name.as("Function"),
+      Seq(
+        TypeReference(definition.name.as("Unit"), Seq.empty),
+        TypeReference(definition.name.as(resultParamName), Seq.empty)
+      )
+    )
+    val elseCaseArg = ArgumentDefinition(definition.name.as("elseCase"), elseCaseType)
+    val returnType  = TypeReference(definition.name.as(resultParamName), Seq.empty)
+    Seq(
+      FunctionDefinition(
+        definition.name.map(_ => AstQualifiedName(s"typeMatch${definition.name.value}", AstQualifier.Default)),
+        allGenericParams,
+        Seq(objArg, matchCaseArg, elseCaseArg),
+        returnType,
+        None,
+        visibility = Visibility.Public
+      )
+    )
+  }
+
+  /** Build the match case handler type for a type match. Zero generic params: Function[Unit, R]. Otherwise: curried
+    * Function[GP1.typeRestriction, Function[GP2.typeRestriction, ..., R]].
+    */
+  private def typeMatchHandlerType(definition: DataDefinition, resultParamName: String): TypeReference =
+    if (definition.genericParameters.isEmpty) {
+      TypeReference(
+        definition.name.as("Function"),
+        Seq(
+          TypeReference(definition.name.as("Unit"), Seq.empty),
+          TypeReference(definition.name.as(resultParamName), Seq.empty)
+        )
+      )
+    } else {
+      definition.genericParameters.foldRight(TypeReference(definition.name.as(resultParamName), Seq.empty)) {
+        (gp, acc) =>
+          TypeReference(definition.name.as("Function"), Seq(gp.typeRestriction, acc))
+      }
+    }
 
   private def freshName(base: String, existingNames: Set[String]): String =
     if (!existingNames.contains(base)) base

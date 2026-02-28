@@ -66,15 +66,114 @@ class MatchDesugaringProcessor
       scrutinee: Sourced[TypeStack[Expression]],
       cases: Seq[Expression.MatchCase]
   ): CompilerIO[Expression] =
+    if (isTypeMatch(cases)) desugarTypeMatch(scrutinee, cases)
+    else
+      for {
+        moduleAndType   <- findConstructorModuleAndTypeName(cases)
+        (constructorModule, dataTypeName) = moduleAndType
+        allConstructors <- findAllConstructors(constructorModule, dataTypeName)
+        _               <- checkExhaustiveness(cases, allConstructors)
+        orderedHandlers <- buildOrderedHandlers(scrutinee, cases, allConstructors)
+        eliminatorName   = s"handle${dataTypeName}With"
+        handleWithVfqn   = ValueFQN(constructorModule, QualifiedName(eliminatorName, Qualifier.Default))
+      } yield buildHandleWithCall(scrutinee, handleWithVfqn, orderedHandlers)
+
+  private def isTypeMatch(cases: Seq[Expression.MatchCase]): Boolean =
+    cases
+      .flatMap(c => collectConstructorPatterns(c.pattern.value))
+      .headOption
+      .exists(_.name.qualifier == Qualifier.Type)
+
+  /** Desugar a type match expression using binary discriminator chaining. Each constructor case becomes a
+    * typeMatchX(scrutinee)(handler)(elseCase) call, chained from right to left with the wildcard as the innermost
+    * fallback.
+    */
+  private def desugarTypeMatch(
+      scrutinee: Sourced[TypeStack[Expression]],
+      cases: Seq[Expression.MatchCase]
+  ): CompilerIO[Expression] = {
+    val constructorCases = cases.filter(_.pattern.value.isInstanceOf[Pattern.ConstructorPattern])
+    val wildcardCase     = cases.find(c =>
+      c.pattern.value.isInstanceOf[Pattern.WildcardPattern] || c.pattern.value.isInstanceOf[Pattern.VariablePattern]
+    )
+
+    wildcardCase match {
+      case None     =>
+        val Pattern.ConstructorPattern(ctorName, _) = constructorCases.head.pattern.value: @unchecked
+        compilerAbort(ctorName.as("Type match must have a wildcard case."))
+      case Some(wc) =>
+        for {
+          wildcardBody <- desugarInTypeStack(wc.body)
+          initialElse   = scrutinee.as(
+                            TypeStack.of(Expression.FunctionLiteral(scrutinee.as("_"), None, wildcardBody): Expression)
+                          )
+          chainedElse  <- constructorCases.tail.foldRight(initialElse.pure[CompilerIO]) { (ctorCase, elseCaseIO) =>
+                            for {
+                              elseCase <- elseCaseIO
+                              handler  <- buildTypeMatchHandler(scrutinee, ctorCase)
+                              ctorVfqn  = extractConstructorVfqn(ctorCase)
+                              callExpr  = buildTypeMatchExpression(scrutinee, ctorVfqn, handler, elseCase)
+                            } yield scrutinee.as(
+                              TypeStack.of(
+                                Expression.FunctionLiteral(
+                                  scrutinee.as("_"),
+                                  None,
+                                  scrutinee.as(TypeStack.of(callExpr))
+                                ): Expression
+                              )
+                            )
+                          }
+          firstHandler <- buildTypeMatchHandler(scrutinee, constructorCases.head)
+          firstCtorVfqn = extractConstructorVfqn(constructorCases.head)
+        } yield buildTypeMatchExpression(scrutinee, firstCtorVfqn, firstHandler, chainedElse)
+    }
+  }
+
+  private def extractConstructorVfqn(ctorCase: Expression.MatchCase): ValueFQN = {
+    val Pattern.ConstructorPattern(ctor, _) = ctorCase.pattern.value: @unchecked
+    ctor.value
+  }
+
+  /** Build the handler for a type match constructor case. */
+  private def buildTypeMatchHandler(
+      scrutinee: Sourced[TypeStack[Expression]],
+      ctorCase: Expression.MatchCase
+  ): CompilerIO[Sourced[TypeStack[Expression]]] = {
+    val Pattern.ConstructorPattern(_, subPatterns) = ctorCase.pattern.value: @unchecked
     for {
-      moduleAndType   <- findConstructorModuleAndTypeName(cases)
-      (constructorModule, dataTypeName) = moduleAndType
-      allConstructors <- findAllConstructors(constructorModule, dataTypeName)
-      _               <- checkExhaustiveness(cases, allConstructors)
-      orderedHandlers <- buildOrderedHandlers(scrutinee, cases, allConstructors)
-      eliminatorName   = s"handle${dataTypeName}With"
-      handleWithVfqn   = ValueFQN(constructorModule, QualifiedName(eliminatorName, Qualifier.Default))
-    } yield buildHandleWithCall(scrutinee, handleWithVfqn, orderedHandlers)
+      desugaredBody <- desugarInTypeStack(ctorCase.body)
+      handler       <- if (subPatterns.isEmpty) {
+                          val h = Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody)
+                          scrutinee.as(TypeStack.of(h: Expression)).pure[CompilerIO]
+                        } else {
+                          buildFieldLambdas(scrutinee, subPatterns, desugaredBody)
+                        }
+    } yield handler
+  }
+
+  /** Build a typeMatchX(scrutinee)(handler)(elseCase) expression. */
+  private def buildTypeMatchExpression(
+      scrutinee: Sourced[TypeStack[Expression]],
+      ctorVfqn: ValueFQN,
+      handler: Sourced[TypeStack[Expression]],
+      elseCase: Sourced[TypeStack[Expression]]
+  ): Expression = {
+    val typeMatchName = s"typeMatch${ctorVfqn.name.name}"
+    val typeMatchVfqn = ValueFQN(ctorVfqn.moduleName, QualifiedName(typeMatchName, Qualifier.Default))
+    val typeMatchRef  = Expression.ValueReference(scrutinee.as(typeMatchVfqn))
+    val withScrutinee = Expression.FunctionApplication(
+      scrutinee.as(TypeStack.of(typeMatchRef)),
+      scrutinee
+    )
+    val withHandler = Expression.FunctionApplication(
+      scrutinee.as(TypeStack.of(withScrutinee)),
+      handler
+    )
+    Expression.FunctionApplication(
+      scrutinee.as(TypeStack.of(withHandler)),
+      elseCase
+    )
+  }
 
   /** Find the module and data type name from the first constructor pattern in the cases. */
   private def findConstructorModuleAndTypeName(
