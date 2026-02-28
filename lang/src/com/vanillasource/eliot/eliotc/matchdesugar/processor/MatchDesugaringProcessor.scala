@@ -139,22 +139,17 @@ class MatchDesugaringProcessor
     }.toSet
     val hasWildcard          = cases.exists { c =>
       c.pattern.value match {
-        case Pattern.WildcardPattern(_) | Pattern.VariablePattern(_) => true
+        case _: Pattern.WildcardPattern | _: Pattern.VariablePattern => true
         case _                                                       => false
       }
     }
+    val missing              = allConstructors.filterNot(explicitConstructors.contains)
 
-    if (!hasWildcard) {
-      val missing = allConstructors.filterNot(explicitConstructors.contains)
-      if (missing.nonEmpty) {
-        val firstCase   = cases.head.pattern
-        val missingText = missing.map(_.name.name).mkString(", ")
-        Sourced
-          .compilerError(firstCase.as(s"Non-exhaustive match. Missing constructors: $missingText."))
-          .flatMap(_ => abort)
-      } else {
-        ().pure[CompilerIO]
-      }
+    if (!hasWildcard && missing.nonEmpty) {
+      val missingText = missing.map(_.name.name).mkString(", ")
+      Sourced
+        .compilerError(cases.head.pattern.as(s"Non-exhaustive match. Missing constructors: $missingText."))
+        .flatMap(_ => abort)
     } else {
       ().pure[CompilerIO]
     }
@@ -167,20 +162,16 @@ class MatchDesugaringProcessor
       allConstructors: Seq[ValueFQN]
   ): CompilerIO[Seq[Sourced[TypeStack[Expression]]]] = {
     val casesByConstructor: Map[ValueFQN, Seq[Expression.MatchCase]] =
-      cases
-        .filter(c =>
-          c.pattern.value match {
-            case Pattern.ConstructorPattern(_, _) => true
-            case _                                => false
-          }
-        )
-        .groupBy(c =>
-          c.pattern.value.asInstanceOf[Pattern.ConstructorPattern].constructor.value
-        )
+      cases.flatMap { c =>
+        c.pattern.value match {
+          case Pattern.ConstructorPattern(ctor, _) => Some(ctor.value -> c)
+          case _                                   => None
+        }
+      }.groupMap(_._1)(_._2)
 
-    val wildcardCases: Seq[Expression.MatchCase] = cases.filter { c =>
+    val wildcardCase: Option[Expression.MatchCase] = cases.find { c =>
       c.pattern.value match {
-        case Pattern.WildcardPattern(_) | Pattern.VariablePattern(_) => true
+        case _: Pattern.WildcardPattern | _: Pattern.VariablePattern => true
         case _                                                       => false
       }
     }
@@ -190,7 +181,7 @@ class MatchDesugaringProcessor
         case Some(ctorCases) =>
           buildConstructorHandler(scrutinee, ctorVfqn, ctorCases)
         case None            =>
-          wildcardCases.headOption match {
+          wildcardCase match {
             case Some(wc) => buildWildcardHandler(scrutinee, ctorVfqn, wc)
             case None     => compilerAbort(scrutinee.as(s"No handler for constructor ${ctorVfqn.name.name}."))
           }
@@ -204,7 +195,7 @@ class MatchDesugaringProcessor
       ctorVfqn: ValueFQN,
       cases: Seq[Expression.MatchCase]
   ): CompilerIO[Sourced[TypeStack[Expression]]] = {
-    val ctorFields = cases.head.pattern.value.asInstanceOf[Pattern.ConstructorPattern].subPatterns
+    val Pattern.ConstructorPattern(_, ctorFields) = cases.head.pattern.value: @unchecked
 
     if (ctorFields.isEmpty) {
       // Nullary constructor: handler takes Unit parameter
@@ -222,19 +213,11 @@ class MatchDesugaringProcessor
   private def buildNullaryHandler(
       scrutinee: Sourced[TypeStack[Expression]],
       cases: Seq[Expression.MatchCase]
-  ): CompilerIO[Sourced[TypeStack[Expression]]] = {
-    val firstCase = cases.head
-    for {
-      desugaredBody <- desugarInTypeStack(firstCase.body)
-    } yield {
-      val handler = Expression.FunctionLiteral(
-        scrutinee.as("_"),
-        None,
-        desugaredBody
-      )
+  ): CompilerIO[Sourced[TypeStack[Expression]]] =
+    desugarInTypeStack(cases.head.body).map { desugaredBody =>
+      val handler = Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody)
       scrutinee.as(TypeStack.of(handler))
     }
-  }
 
   /** Build handler for single case with field patterns. */
   private def buildSingleCaseHandler(
@@ -242,10 +225,7 @@ class MatchDesugaringProcessor
       matchCase: Expression.MatchCase,
       fieldPatterns: Seq[Sourced[Pattern]]
   ): CompilerIO[Sourced[TypeStack[Expression]]] =
-    for {
-      desugaredBody <- desugarInTypeStack(matchCase.body)
-      handler       <- buildFieldLambdas(scrutinee, fieldPatterns, desugaredBody)
-    } yield handler
+    desugarInTypeStack(matchCase.body).flatMap(buildFieldLambdas(scrutinee, fieldPatterns, _))
 
   /** Build curried lambdas for field patterns, handling embedded constructor patterns recursively. */
   private def buildFieldLambdas(
@@ -315,7 +295,8 @@ class MatchDesugaringProcessor
 
     // Build the inner body by finding the first field with constructor patterns and matching on it
     val fieldPatternRows: Seq[Seq[Sourced[Pattern]]] = cases.map { c =>
-      c.pattern.value.asInstanceOf[Pattern.ConstructorPattern].subPatterns
+      val Pattern.ConstructorPattern(_, subs) = c.pattern.value: @unchecked
+      subs
     }
 
     for {
@@ -403,34 +384,18 @@ class MatchDesugaringProcessor
       scrutinee: Sourced[TypeStack[Expression]],
       ctorVfqn: ValueFQN,
       wildcardCase: Expression.MatchCase
-  ): CompilerIO[Sourced[TypeStack[Expression]]] = {
-    // Look up the constructor to determine its arity
-    val ctorModule = ctorVfqn.moduleName
+  ): CompilerIO[Sourced[TypeStack[Expression]]] =
     for {
       umv           <- getFactOrAbort(UnifiedModuleValue.Key(ctorVfqn))
       arity          = countConstructorFields(umv)
       desugaredBody <- desugarInTypeStack(wildcardCase.body)
     } yield {
-      if (arity == 0) {
-        // Nullary: handler takes Unit
-        wildcardCase.pattern.value match {
-          case Pattern.VariablePattern(varName) =>
-            // Can't meaningfully bind the whole value to a name for nullary constructors
-            val handler = Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody)
-            scrutinee.as(TypeStack.of(handler))
-          case _                                =>
-            val handler = Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody)
-            scrutinee.as(TypeStack.of(handler))
-        }
-      } else {
-        // N-ary: handler takes N curried parameters, all ignored
-        val handler = (0 until arity).foldRight(desugaredBody) { (_, body) =>
-          scrutinee.as(TypeStack.of(Expression.FunctionLiteral(scrutinee.as("_"), None, body)))
-        }
-        handler
+      // Nullary constructors still need one lambda for the Unit parameter
+      val lambdaCount = math.max(1, arity)
+      (0 until lambdaCount).foldRight(desugaredBody) { (_, body) =>
+        scrutinee.as(TypeStack.of(Expression.FunctionLiteral(scrutinee.as("_"), None, body)))
       }
     }
-  }
 
   /** Count the number of fields a constructor has from its type signature.
     * The type has the form: GenParam -> ... -> Function^Type(Field1, Function^Type(Field2, ... DataType)).
