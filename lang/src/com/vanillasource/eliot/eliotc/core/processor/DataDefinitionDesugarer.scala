@@ -37,8 +37,8 @@ object DataDefinitionDesugarer {
     Seq(
       FunctionDefinition(
         definition.name.map(n => AstQualifiedName(n, AstQualifier.Type)),
-        definition.genericParameters,
         Seq.empty,
+        definition.genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction)),
         TypeReference(definition.name.as("Type"), Seq.empty),
         None
       )

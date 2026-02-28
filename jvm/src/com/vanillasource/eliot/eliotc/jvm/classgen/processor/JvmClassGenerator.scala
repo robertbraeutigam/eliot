@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClas
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.simpleType
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemUnitValue
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
-import com.vanillasource.eliot.eliotc.jvm.classgen.processor.DataClassGenerator.{constructorDataType, isConstructor}
+import com.vanillasource.eliot.eliotc.jvm.classgen.processor.DataClassGenerator.{constructorArity, constructorDataType, isConstructor, isTypeConstructor}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.ExpressionCodeGenerator.{computeDictParams, createExpressionCode}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
@@ -97,11 +97,62 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 }
       dataClasses             = dataResults.flatMap(_._1)
       dataGeneratedFunctions  = dataResults.flatMap(_._2)
+      // Get all type constructor names at arity 0 (for identification and arity computation)
+      allTypeCtorNames        = moduleNames.names.keys.toSeq.filter(qn =>
+                                  isTypeConstructor(ValueFQN(key.moduleName, qn))
+                                )
+      allTypeCtorsArityZero  <- allTypeCtorNames.traverseFilter { qn =>
+                                  val vfqn = ValueFQN(key.moduleName, qn)
+                                  getFact(UncurriedValue.Key(vfqn, 0)).map(_.map(uv => (vfqn, uv)))
+                                }
+      // Determine which type constructors need data classes (used directly or via typeMatch)
+      neededTypeCtors         = allTypeCtorsArityZero.filter { (vfqn, _) =>
+                                  val typeMatchName = s"typeMatch${vfqn.name.name}"
+                                  val typeMatchVfqn =
+                                    ValueFQN(key.moduleName, QualifiedName(typeMatchName, Qualifier.Default))
+                                  usedValues.contains(vfqn) || usedValues.contains(typeMatchVfqn)
+                                }
+      // Get each type constructor at its proper arity (from usage stats or computed from signature)
+      usedTypeCtorsWithUv    <- neededTypeCtors.traverse { (vfqn, uvZero) =>
+                                  val arity = usedValues.get(vfqn) match {
+                                    case Some(stats) => stats.highestArity.getOrElse(constructorArity(uvZero.returnType))
+                                    case None        => constructorArity(uvZero.returnType)
+                                  }
+                                  getFactOrAbort(UncurriedValue.Key(vfqn, arity)).map((vfqn, _))
+                                }
+      // Generate type constructor data classes and factory methods
+      typeCtorClasses        <- usedTypeCtorsWithUv.flatTraverse { (vfqn, uv) =>
+                                  DataClassGenerator.createTypeConstructorData[CompilerIO](mainClassGenerator, vfqn, uv)
+                                }
+      // Generate typeMatch methods for used typeMatch functions
+      typeMatchGenerated     <- usedTypeCtorsWithUv.traverseFilter { (vfqn, uv) =>
+                                  val typeMatchName = s"typeMatch${vfqn.name.name}"
+                                  val typeMatchVfqn =
+                                    ValueFQN(key.moduleName, QualifiedName(typeMatchName, Qualifier.Default))
+                                  usedValues.get(typeMatchVfqn) match {
+                                    case Some(stats) =>
+                                      for {
+                                        tmUv <- getFactOrAbort(
+                                                  UncurriedValue.Key(typeMatchVfqn, stats.highestArity.getOrElse(0))
+                                                )
+                                        _    <- DataClassGenerator.generateTypeMatch[CompilerIO](
+                                                  mainClassGenerator, tmUv, vfqn, uv.parameters
+                                                )
+                                      } yield Some(typeMatchVfqn)
+                                    case None        => Option.empty[ValueFQN].pure[CompilerIO]
+                                  }
+                                }
+      // Generate Type marker interface if any type constructors are used
+      typeInterfaceClass     <- if (usedTypeCtorsWithUv.nonEmpty) {
+                                  DataClassGenerator.generateTypeInterface[CompilerIO]().map(Seq(_))
+                                } else Seq.empty[ClassFile].pure[CompilerIO]
+      typeCtorGeneratedFns    = usedTypeCtorsWithUv.map(_._1) ++ typeMatchGenerated
+      allGeneratedFunctions   = dataGeneratedFunctions ++ typeCtorGeneratedFns
       abilityInterfaces      <- createAbilityInterfaces(mainClassGenerator, key.moduleName)
       abilityImpls           <- createAbilityImplSingletons(mainClassGenerator, key.moduleName)
       functionFiles          <-
         usedValues.view
-          .filterKeys(k => !dataGeneratedFunctions.contains(k) && !isAbilityMethod(k))
+          .filterKeys(k => !allGeneratedFunctions.contains(k) && !isAbilityMethod(k))
           .toSeq
           .flatTraverse { case (vfqn, stats) =>
             createModuleMethod(mainClassGenerator, vfqn, stats)
@@ -111,7 +162,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                   GeneratedModule(
                                     key.moduleName,
                                     key.vfqn,
-                                    functionFiles ++ dataClasses ++ abilityInterfaces ++ abilityImpls ++ Seq(mainClass)
+                                    functionFiles ++ dataClasses ++ typeCtorClasses ++ typeInterfaceClass ++
+                                      abilityInterfaces ++ abilityImpls ++ Seq(mainClass)
                                   )
                                 )
     } yield ()

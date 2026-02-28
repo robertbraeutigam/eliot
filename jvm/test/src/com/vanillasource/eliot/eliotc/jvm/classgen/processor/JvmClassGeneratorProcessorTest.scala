@@ -74,7 +74,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       generator <- FactGenerator.create(processors)
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
-      _         <- Seq("Function" -> "data Function[A, B]").traverse { (module, content) =>
+      _         <- Seq("Function" -> "data Function[A, B]", "Type" -> "data Type").traverse { (module, content) =>
                      val impFile = URI.create(s"eliot/lang/$module.els")
                      generator.registerFact(PathScan(Path.of(s"eliot/lang/$module.els"), Seq(impFile))) >>
                        generator.registerFact(SourceContent(impFile, Sourced(impFile, PositionRange.zero, content)))

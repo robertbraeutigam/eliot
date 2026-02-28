@@ -10,7 +10,7 @@ import NativeType.{
   javaSignatureName
 }
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import org.objectweb.asm.{MethodVisitor, Opcodes}
+import org.objectweb.asm.{Label, MethodVisitor, Opcodes}
 
 class MethodGenerator(private val internalName: String, val methodVisitor: MethodVisitor) {
 
@@ -179,4 +179,22 @@ class MethodGenerator(private val internalName: String, val methodVisitor: Metho
   def addConstNull[F[_]: Sync](): F[Unit] = Sync[F].delay {
     methodVisitor.visitInsn(Opcodes.ACONST_NULL)
   }
+
+  def addInstanceOf[F[_]: Sync](className: String): F[Unit] = Sync[F].delay {
+    methodVisitor.visitTypeInsn(Opcodes.INSTANCEOF, className)
+  }
+
+  def addIfEq[F[_]: Sync](label: Label): F[Unit] = Sync[F].delay {
+    methodVisitor.visitJumpInsn(Opcodes.IFEQ, label)
+  }
+
+  def addGoto[F[_]: Sync](label: Label): F[Unit] = Sync[F].delay {
+    methodVisitor.visitJumpInsn(Opcodes.GOTO, label)
+  }
+
+  def addLabel[F[_]: Sync](label: Label): F[Unit] = Sync[F].delay {
+    methodVisitor.visitLabel(label)
+  }
+
+  def createLabel(): Label = new Label()
 }

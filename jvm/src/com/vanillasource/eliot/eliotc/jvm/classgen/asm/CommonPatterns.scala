@@ -15,6 +15,8 @@ object CommonPatterns {
     stripLeadingFunctionApplications(expressionValue) match {
       case ExpressionValue.FunctionType(_, _)               =>
         systemFunctionValue
+      case ExpressionValue.ConcreteValue(Value.Type)        =>
+        NativeType.systemTypeValue
       case ExpressionValue.ConcreteValue(value)             =>
         stripDataTypeSuffix(valueToValueFQN(value))
       case ExpressionValue.ParameterReference(_, paramType) =>
@@ -32,8 +34,6 @@ object CommonPatterns {
           case _                                     =>
             systemAnyValue
         }
-      case Value.Type                 =>
-        systemAnyValue
       case _                          =>
         systemAnyValue
     }

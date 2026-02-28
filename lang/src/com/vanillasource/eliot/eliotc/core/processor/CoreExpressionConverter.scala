@@ -33,13 +33,8 @@ object CoreExpressionConverter {
           val base = expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName))
           curryApplicationWith(base, genericArgs, convertExpression(_, typeContext = true))
         } else if (isUpper && args.isEmpty && genericArgs.nonEmpty) {
-          expr.as(
-            NamedValueReference(
-              fnName.map(n => QualifiedName(n, Qualifier.Type)),
-              moduleName,
-              genericArgs.map(convertExpression(_, typeContext = true))
-            )
-          )
+          val base = expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName))
+          curryApplicationWith(base, genericArgs, convertExpression(_, typeContext = true))
         } else {
           curryApplicationWith(
             expr.as(

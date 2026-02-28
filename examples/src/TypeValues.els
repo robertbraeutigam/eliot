@@ -1,0 +1,10 @@
+data Person[NAME: String](content: String)
+
+data Box[A](a: A)
+
+def personName(t: Type): String = t match {
+   case Person[name] -> name
+   case _            -> "<not a person>"
+}
+
+def main: IO[Unit] = println(personName(Box[String]))

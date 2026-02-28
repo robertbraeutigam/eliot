@@ -18,6 +18,7 @@ object NativeType {
   val systemFunctionValue: ValueFQN = systemLangType("Function")
   val systemAnyValue: ValueFQN      = systemLangType("Any")
   val systemUnitValue: ValueFQN     = systemLangType("Unit")
+  val systemTypeValue: ValueFQN     = systemLangType("Type")
 
   val types: Map[ValueFQN, NativeType] = Map.from(
     Seq(
@@ -44,8 +45,13 @@ object NativeType {
   def convertToMainClassName(moduleName: ModuleName): String =
     moduleName.packages.appended(moduleName.name).map(JvmIdentifier.encode(_).value).mkString("/")
 
-  def convertToNestedClassName(vfqn: ValueFQN): String =
-    convertToMainClassName(vfqn.moduleName) + "$" + JvmIdentifier.encode(vfqn.name.name).value
+  def convertToNestedClassName(vfqn: ValueFQN): String = {
+    val prefix = vfqn.name.qualifier match {
+      case Qualifier.Type => "type$"
+      case _              => ""
+    }
+    convertToMainClassName(vfqn.moduleName) + "$" + prefix + JvmIdentifier.encode(vfqn.name.name).value
+  }
 
   def convertToSignatureString(parameterTypes: Seq[ValueFQN], resultType: ValueFQN): String =
     s"(${parameterTypes.map(javaSignatureName).mkString})${javaSignatureName(resultType)}"

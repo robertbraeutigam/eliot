@@ -59,6 +59,26 @@ object ExpressionValue {
       case _                                      => Seq.empty
     }
 
+  /** Extract parameter types from a fully-evaluated function type structure. After evaluation, Function[A, B] becomes
+    * ConcreteValue(Structure(Map("$typeName"->Function, "A"->paramType, "B"->returnType), Type)). This method extracts
+    * parameter types from such structures.
+    */
+  def extractFunctionTypeParams(expr: ExpressionValue): Seq[Value] =
+    expr match {
+      case ConcreteValue(Value.Structure(fields, Value.Type))
+          if fields.get("$typeName").exists(isFunctionTypeName) =>
+        val paramType  = fields("A")
+        val returnType = fields("B")
+        paramType +: extractFunctionTypeParams(ConcreteValue(returnType))
+      case _ => Seq.empty
+    }
+
+  private def isFunctionTypeName(value: Value): Boolean =
+    value match {
+      case Value.Direct(vfqn: ValueFQN, _) => vfqn === Types.functionDataTypeFQN
+      case _                               => false
+    }
+
   /** Capture-avoiding substitution: replace all free occurrences of paramName with argValue. */
   def substitute(body: ExpressionValue, paramName: String, argValue: ExpressionValue): ExpressionValue =
     body match {

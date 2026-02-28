@@ -39,7 +39,14 @@ class DataTypeEvaluator
     if (fact.runtime.isEmpty) {
       for {
         evaluated <- Evaluator.evaluate(fact.typeStack.map(_.signature))
-        typeParams = ExpressionValue.extractLeadingLambdaParams(evaluated)
+        typeParams = ExpressionValue.extractLeadingLambdaParams(evaluated) match {
+                       case Seq() =>
+                         ExpressionValue
+                           .extractFunctionTypeParams(evaluated)
+                           .zipWithIndex
+                           .map((v, i) => (s"$$$i", v))
+                       case params => params
+                     }
         result     = NamedEvaluable(key.vfqn, createDataTypeEvaluable(key.vfqn, typeParams))
       } yield result
     } else {

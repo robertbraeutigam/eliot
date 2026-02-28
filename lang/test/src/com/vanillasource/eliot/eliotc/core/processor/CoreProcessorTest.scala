@@ -219,10 +219,11 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  // Note: Signature uses FunctionLiteral to preserve parameter names (A: Type -> Type)
-  it should "generate type function with generic param and argument in typeStack" in {
+  // Note: Type constructor generic params are now runtime arguments, so signature is Function[Type, Type]
+  it should "generate type function with generic param as argument in typeStack" in {
     namedValue("data Box[A]", QualifiedName("Box", Qualifier.Type)).asserting { nv =>
-      nv.typeStack.signatureStructure shouldBe Lambda("A", Ref("Type", T), Ref("Type", T))
+      nv.typeStack.signatureStructure shouldBe
+        App(App(Ref("Function", T), Ref("Type", T)), Ref("Type", T))
     }
   }
 
