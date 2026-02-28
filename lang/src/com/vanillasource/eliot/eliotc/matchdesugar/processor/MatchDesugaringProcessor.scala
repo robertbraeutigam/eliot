@@ -84,18 +84,12 @@ class MatchDesugaringProcessor
       .headOption
       .exists(_.name.qualifier == Qualifier.Type)
 
-  /** Desugar a type match expression using binary discriminator chaining. Each constructor case becomes a
-    * typeMatchX(scrutinee)(handler)(elseCase) call, chained from right to left with the wildcard as the innermost
-    * fallback.
-    */
   private def desugarTypeMatch(
       scrutinee: Sourced[TypeStack[Expression]],
       cases: Seq[Expression.MatchCase]
   ): CompilerIO[Expression] = {
     val constructorCases = cases.filter(_.pattern.value.isInstanceOf[Pattern.ConstructorPattern])
-    val wildcardCase     = cases.find(c =>
-      c.pattern.value.isInstanceOf[Pattern.WildcardPattern] || c.pattern.value.isInstanceOf[Pattern.VariablePattern]
-    )
+    val wildcardCase     = cases.find(c => bindingName(c.pattern.value).isDefined)
 
     wildcardCase match {
       case None     =>
@@ -104,37 +98,27 @@ class MatchDesugaringProcessor
       case Some(wc) =>
         for {
           wildcardBody <- desugarInTypeStack(wc.body)
-          initialElse   = scrutinee.as(
-                            TypeStack.of(Expression.FunctionLiteral(scrutinee.as("_"), None, wildcardBody): Expression)
-                          )
-          chainedElse  <- constructorCases.tail.foldRight(initialElse.pure[CompilerIO]) { (ctorCase, elseCaseIO) =>
-                            for {
-                              elseCase <- elseCaseIO
-                              handler  <- buildTypeMatchHandler(scrutinee, ctorCase)
-                              ctorVfqn  = extractConstructorVfqn(ctorCase)
-                              callExpr  = buildTypeMatchExpression(scrutinee, ctorVfqn, handler, elseCase)
-                            } yield scrutinee.as(
-                              TypeStack.of(
-                                Expression.FunctionLiteral(
-                                  scrutinee.as("_"),
-                                  None,
-                                  scrutinee.as(TypeStack.of(callExpr))
-                                ): Expression
-                              )
-                            )
+          handlers     <- constructorCases.traverse { ctorCase =>
+                            val Pattern.ConstructorPattern(ctor, _) = ctorCase.pattern.value: @unchecked
+                            buildTypeMatchHandler(scrutinee, ctorCase).map(h => (ctor.value, h))
                           }
-          firstHandler <- buildTypeMatchHandler(scrutinee, constructorCases.head)
-          firstCtorVfqn = extractConstructorVfqn(constructorCases.head)
-        } yield buildTypeMatchExpression(scrutinee, firstCtorVfqn, firstHandler, chainedElse)
+        } yield chainTypeMatches(scrutinee, handlers, wildcardBody)
     }
   }
 
-  private def extractConstructorVfqn(ctorCase: Expression.MatchCase): ValueFQN = {
-    val Pattern.ConstructorPattern(ctor, _) = ctorCase.pattern.value: @unchecked
-    ctor.value
+  /** Chain type match expressions left to right with the wildcard body as the innermost fallback. */
+  private def chainTypeMatches(
+      scrutinee: Sourced[TypeStack[Expression]],
+      cases: Seq[(ValueFQN, Sourced[TypeStack[Expression]])],
+      wildcardBody: Sourced[TypeStack[Expression]]
+  ): Expression = {
+    val (vfqn, handler) = cases.head
+    val elseLambdaBody  = if (cases.tail.isEmpty) wildcardBody
+                          else wrapExpr(scrutinee, chainTypeMatches(scrutinee, cases.tail, wildcardBody))
+    val elseCase        = wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, elseLambdaBody))
+    buildTypeMatchExpression(scrutinee, vfqn, handler, elseCase)
   }
 
-  /** Build the handler for a type match constructor case. */
   private def buildTypeMatchHandler(
       scrutinee: Sourced[TypeStack[Expression]],
       ctorCase: Expression.MatchCase
@@ -142,16 +126,13 @@ class MatchDesugaringProcessor
     val Pattern.ConstructorPattern(_, subPatterns) = ctorCase.pattern.value: @unchecked
     for {
       desugaredBody <- desugarInTypeStack(ctorCase.body)
-      handler       <- if (subPatterns.isEmpty) {
-                          val h = Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody)
-                          scrutinee.as(TypeStack.of(h: Expression)).pure[CompilerIO]
-                        } else {
+      handler       <- if (subPatterns.isEmpty)
+                          wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody)).pure[CompilerIO]
+                        else
                           buildFieldLambdas(scrutinee, subPatterns, desugaredBody)
-                        }
     } yield handler
   }
 
-  /** Build a typeMatchX(scrutinee)(handler)(elseCase) expression. */
   private def buildTypeMatchExpression(
       scrutinee: Sourced[TypeStack[Expression]],
       ctorVfqn: ValueFQN,
@@ -159,20 +140,8 @@ class MatchDesugaringProcessor
       elseCase: Sourced[TypeStack[Expression]]
   ): Expression = {
     val typeMatchName = s"typeMatch${ctorVfqn.name.name}"
-    val typeMatchVfqn = ValueFQN(ctorVfqn.moduleName, QualifiedName(typeMatchName, Qualifier.Default))
-    val typeMatchRef  = Expression.ValueReference(scrutinee.as(typeMatchVfqn))
-    val withScrutinee = Expression.FunctionApplication(
-      scrutinee.as(TypeStack.of(typeMatchRef)),
-      scrutinee
-    )
-    val withHandler = Expression.FunctionApplication(
-      scrutinee.as(TypeStack.of(withScrutinee)),
-      handler
-    )
-    Expression.FunctionApplication(
-      scrutinee.as(TypeStack.of(withHandler)),
-      elseCase
-    )
+    val typeMatchFqn  = ValueFQN(ctorVfqn.moduleName, QualifiedName(typeMatchName, Qualifier.Default))
+    buildCurriedCall(scrutinee, Expression.ValueReference(scrutinee.as(typeMatchFqn)), Seq(scrutinee, handler, elseCase))
   }
 
   /** Find the module and data type name from the first constructor pattern in the cases. */
@@ -236,12 +205,7 @@ class MatchDesugaringProcessor
         case _                                   => None
       }
     }.toSet
-    val hasWildcard          = cases.exists { c =>
-      c.pattern.value match {
-        case _: Pattern.WildcardPattern | _: Pattern.VariablePattern => true
-        case _                                                       => false
-      }
-    }
+    val hasWildcard          = cases.exists(c => bindingName(c.pattern.value).isDefined)
     val missing              = allConstructors.filterNot(explicitConstructors.contains)
 
     if (!hasWildcard && missing.nonEmpty) {
@@ -268,12 +232,7 @@ class MatchDesugaringProcessor
         }
       }.groupMap(_._1)(_._2)
 
-    val wildcardCase: Option[Expression.MatchCase] = cases.find { c =>
-      c.pattern.value match {
-        case _: Pattern.WildcardPattern | _: Pattern.VariablePattern => true
-        case _                                                       => false
-      }
-    }
+    val wildcardCase = cases.find(c => bindingName(c.pattern.value).isDefined)
 
     allConstructors.traverse { ctorVfqn =>
       casesByConstructor.get(ctorVfqn) match {
@@ -314,8 +273,7 @@ class MatchDesugaringProcessor
       cases: Seq[Expression.MatchCase]
   ): CompilerIO[Sourced[TypeStack[Expression]]] =
     desugarInTypeStack(cases.head.body).map { desugaredBody =>
-      val handler = Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody)
-      scrutinee.as(TypeStack.of(handler))
+      wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody))
     }
 
   /** Build handler for single case with field patterns. */
@@ -345,38 +303,14 @@ class MatchDesugaringProcessor
       fieldPat: Sourced[Pattern],
       innerBody: Sourced[TypeStack[Expression]]
   ): CompilerIO[Sourced[TypeStack[Expression]]] =
-    fieldPat.value match {
-      case Pattern.VariablePattern(name) =>
-        val lambda = Expression.FunctionLiteral(name, None, innerBody)
-        scrutinee.as(TypeStack.of(lambda)).pure[CompilerIO]
-
-      case Pattern.WildcardPattern(source) =>
-        val lambda = Expression.FunctionLiteral(source, None, innerBody)
-        scrutinee.as(TypeStack.of(lambda)).pure[CompilerIO]
-
-      case Pattern.ConstructorPattern(_, _) =>
-        // Generate fresh name for the field, then nested match
+    bindingName(fieldPat.value) match {
+      case Some(name) =>
+        wrapExpr(scrutinee, Expression.FunctionLiteral(name, None, innerBody)).pure[CompilerIO]
+      case None       =>
         val freshName = fieldPat.as("$match_field")
-        val fieldRef  = scrutinee.as(
-          TypeStack.of(Expression.ParameterReference(freshName): Expression)
-        )
-        for {
-          nestedMatch <- desugarMatch(
-                           fieldRef,
-                           Seq(
-                             Expression.MatchCase(
-                               fieldPat,
-                               innerBody
-                             )
-                           )
-                         )
-        } yield {
-          val lambda = Expression.FunctionLiteral(
-            freshName,
-            None,
-            scrutinee.as(TypeStack.of(nestedMatch))
-          )
-          scrutinee.as(TypeStack.of(lambda))
+        val fieldRef  = wrapExpr(scrutinee, Expression.ParameterReference(freshName))
+        desugarMatch(fieldRef, Seq(Expression.MatchCase(fieldPat, innerBody))).map { nestedMatch =>
+          wrapExpr(scrutinee, Expression.FunctionLiteral(freshName, None, wrapExpr(scrutinee, nestedMatch)))
         }
     }
 
@@ -401,7 +335,7 @@ class MatchDesugaringProcessor
     for {
       innerBody <- buildMultiCaseBody(scrutinee, freshNames, fieldPatternRows, cases.map(_.body))
       handler    = freshNames.foldRight(innerBody) { (name, body) =>
-                     scrutinee.as(TypeStack.of(Expression.FunctionLiteral(name, None, body)))
+                     wrapExpr(scrutinee, Expression.FunctionLiteral(name, None, body))
                    }
     } yield handler
   }
@@ -415,42 +349,20 @@ class MatchDesugaringProcessor
       patternRows: Seq[Seq[Sourced[Pattern]]],
       bodies: Seq[Sourced[TypeStack[Expression]]]
   ): CompilerIO[Sourced[TypeStack[Expression]]] = {
-    // Find first column with a constructor pattern
     val constructorColumnIdx = patternRows.head.indices.find { col =>
-      patternRows.exists(row =>
-        row(col).value match {
-          case Pattern.ConstructorPattern(_, _) => true
-          case _                                => false
-        }
-      )
+      patternRows.exists(_(col).value.isInstanceOf[Pattern.ConstructorPattern])
     }
 
     constructorColumnIdx match {
       case Some(colIdx) =>
-        // Generate a match on this column's field
-        val fieldRef = scrutinee.as(
-          TypeStack.of(Expression.ParameterReference(freshNames(colIdx)): Expression)
-        )
-
-        // Build cases for the nested match, binding remaining columns
+        val fieldRef    = wrapExpr(scrutinee, Expression.ParameterReference(freshNames(colIdx)))
         val nestedCases = patternRows.zip(bodies).map { case (row, body) =>
-          val fieldPattern = row(colIdx)
-          // Wrap the body with let-bindings for the variable columns
-          val wrappedBody = wrapWithBindings(scrutinee, freshNames, row, colIdx, body)
-          Expression.MatchCase(fieldPattern, wrappedBody)
+          Expression.MatchCase(row(colIdx), wrapWithBindings(scrutinee, freshNames, row, colIdx, body))
         }
-
-        for {
-          desugaredMatch <- desugarMatch(fieldRef, nestedCases)
-        } yield scrutinee.as(TypeStack.of(desugaredMatch))
+        desugarMatch(fieldRef, nestedCases).map(wrapExpr(scrutinee, _))
 
       case None =>
-        // All patterns are variables/wildcards - use the first matching case
-        // Wrap with variable bindings
-        val firstBody = wrapWithBindings(scrutinee, freshNames, patternRows.head, -1, bodies.head)
-        for {
-          desugared <- desugarInTypeStack(firstBody)
-        } yield desugared
+        desugarInTypeStack(wrapWithBindings(scrutinee, freshNames, patternRows.head, -1, bodies.head))
     }
   }
 
@@ -467,13 +379,12 @@ class MatchDesugaringProcessor
       else
         pat.value match {
           case Pattern.VariablePattern(varName) if varName.value != freshNames(idx).value =>
-            // Bind the variable: ((varName -> body)(freshName))
             val lambda = Expression.FunctionLiteral(varName, None, innerBody)
             val app    = Expression.FunctionApplication(
-              scrutinee.as(TypeStack.of(lambda)),
-              scrutinee.as(TypeStack.of(Expression.ParameterReference(freshNames(idx))))
+              wrapExpr(scrutinee, lambda),
+              wrapExpr(scrutinee, Expression.ParameterReference(freshNames(idx)))
             )
-            scrutinee.as(TypeStack.of(app))
+            wrapExpr(scrutinee, app)
           case _                                                                          => innerBody
         }
     }
@@ -489,10 +400,9 @@ class MatchDesugaringProcessor
       arity          = countConstructorFields(umv)
       desugaredBody <- desugarInTypeStack(wildcardCase.body)
     } yield {
-      // Nullary constructors still need one lambda for the Unit parameter
       val lambdaCount = math.max(1, arity)
       (0 until lambdaCount).foldRight(desugaredBody) { (_, body) =>
-        scrutinee.as(TypeStack.of(Expression.FunctionLiteral(scrutinee.as("_"), None, body)))
+        wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, body))
       }
     }
 
@@ -505,63 +415,68 @@ class MatchDesugaringProcessor
 
   private def countFieldsInType(expr: CoreExpression): Int =
     expr match {
-      case CoreExpression.FunctionLiteral(_, _, body)      =>
-        countFieldsInType(body.value.signature)
-      case CoreExpression.FunctionApplication(target, arg) =>
-        target.value.signature match {
-          case CoreExpression.FunctionApplication(innerTarget, _) =>
-            innerTarget.value.signature match {
-              case CoreExpression.NamedValueReference(qn, _, _) if qn.value == QualifiedName("Function", Qualifier.Type) =>
-                1 + countFieldsInType(arg.value.signature)
-              case _ => 0
-            }
-          case _ => 0
-        }
-      case _                                               => 0
+      case CoreExpression.FunctionLiteral(_, _, body) => countFieldsInType(body.value.signature)
+      case _                                          => asFunctionTypeReturnType(expr).fold(0)(ret => 1 + countFieldsInType(ret))
     }
 
-  /** Extract the data type name from a constructor's core type signature.
-    * Walks through FunctionLiteral (generic param lambdas) and Function type applications
-    * to find the return type's NamedValueReference with Type qualifier.
-    */
   private def extractDataTypeName(expr: CoreExpression): Option[String] =
     expr match {
-      case CoreExpression.FunctionLiteral(_, _, body)      =>
-        extractDataTypeName(body.value.signature)
+      case CoreExpression.FunctionLiteral(_, _, body) => extractDataTypeName(body.value.signature)
+      case _ =>
+        asFunctionTypeReturnType(expr) match {
+          case Some(returnType) => extractDataTypeName(returnType)
+          case None             => findTypeConstructorName(expr)
+        }
+    }
+
+  private def findTypeConstructorName(expr: CoreExpression): Option[String] =
+    expr match {
+      case CoreExpression.NamedValueReference(qn, _, _) if qn.value.qualifier == Qualifier.Type && qn.value.name != "Function" =>
+        Some(qn.value.name)
+      case CoreExpression.FunctionApplication(target, _) =>
+        findTypeConstructorName(target.value.signature)
+      case _ => None
+    }
+
+  /** If expr is a Function type application Function(paramType)(returnType), returns the return type. */
+  private def asFunctionTypeReturnType(expr: CoreExpression): Option[CoreExpression] =
+    expr match {
       case CoreExpression.FunctionApplication(target, arg) =>
         target.value.signature match {
           case CoreExpression.FunctionApplication(innerTarget, _) =>
             innerTarget.value.signature match {
               case CoreExpression.NamedValueReference(qn, _, _) if qn.value == QualifiedName("Function", Qualifier.Type) =>
-                extractDataTypeName(arg.value.signature)
-              case _ =>
-                extractDataTypeName(target.value.signature)
+                Some(arg.value.signature)
+              case _ => None
             }
-          case CoreExpression.NamedValueReference(qn, _, _) if qn.value.qualifier == Qualifier.Type && qn.value.name != "Function" =>
-            Some(qn.value.name)
           case _ => None
         }
-      case CoreExpression.NamedValueReference(qn, _, _) if qn.value.qualifier == Qualifier.Type && qn.value.name != "Function" =>
-        Some(qn.value.name)
-      case _                                               => None
+      case _ => None
     }
 
-  /** Build the curried handleWith call: Module::handleWith(scrutinee)(handler1)(handler2)... */
   private def buildHandleWithCall(
       scrutinee: Sourced[TypeStack[Expression]],
       handleWithVfqn: ValueFQN,
       handlers: Seq[Sourced[TypeStack[Expression]]]
-  ): Expression = {
-    val handleWithRef = Expression.ValueReference(scrutinee.as(handleWithVfqn))
-    val withScrutinee = Expression.FunctionApplication(
-      scrutinee.as(TypeStack.of(handleWithRef)),
-      scrutinee
-    )
-    handlers.foldLeft[Expression](withScrutinee) { (acc, handler) =>
-      Expression.FunctionApplication(
-        scrutinee.as(TypeStack.of(acc)),
-        handler
-      )
+  ): Expression =
+    buildCurriedCall(scrutinee, Expression.ValueReference(scrutinee.as(handleWithVfqn)), scrutinee +: handlers)
+
+  private def buildCurriedCall(
+      scrutinee: Sourced[TypeStack[Expression]],
+      ref: Expression,
+      args: Seq[Sourced[TypeStack[Expression]]]
+  ): Expression =
+    args.foldLeft(ref) { (acc, arg) =>
+      Expression.FunctionApplication(wrapExpr(scrutinee, acc), arg)
     }
-  }
+
+  private def wrapExpr(src: Sourced[?], expr: Expression): Sourced[TypeStack[Expression]] =
+    src.as(TypeStack.of(expr))
+
+  private def bindingName(pattern: Pattern): Option[Sourced[String]] =
+    pattern match {
+      case Pattern.VariablePattern(name)   => Some(name)
+      case Pattern.WildcardPattern(source) => Some(source)
+      case _                               => None
+    }
 }
