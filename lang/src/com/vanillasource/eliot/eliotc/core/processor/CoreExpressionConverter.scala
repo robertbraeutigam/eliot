@@ -29,9 +29,17 @@ object CoreExpressionConverter {
     expr.value match {
       case SourceExpression.FunctionApplication(moduleName, fnName, genericArgs, args) =>
         val isUpper = fnName.value.charAt(0).isUpper
-        if (isUpper && args.isEmpty && (typeContext || genericArgs.nonEmpty)) {
+        if (isUpper && args.isEmpty && typeContext) {
           val base = expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName))
           curryApplicationWith(base, genericArgs, convertExpression(_, typeContext = true))
+        } else if (isUpper && args.isEmpty && genericArgs.nonEmpty) {
+          expr.as(
+            NamedValueReference(
+              fnName.map(n => QualifiedName(n, Qualifier.Type)),
+              moduleName,
+              genericArgs.map(convertExpression(_, typeContext = true))
+            )
+          )
         } else {
           curryApplicationWith(
             expr.as(
