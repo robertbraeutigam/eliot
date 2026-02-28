@@ -88,12 +88,14 @@ Each of these is a package in the "lang" module, roughly in order of processing:
 5. module: Splitting working with modules into working with individual values. It also unifies similarly named modules from different paths.
 6. resolve: Resolve all identifiers to fully qualified names or parameters.
 7. eval: Evaluate data type and value definitions into typed structures.
-8. symbolic: Symbolic type checker. Checks types as far as possible with generic parameters (symbols).
-9. implementation: Checks and returns a type-specific ability implementation.
-10. abilitycheck: Check abilities can be proven to exist. Also resolves abilities directly if all types are already known.
-11. monomorphize: Monomorphic type checker. Checks all types at their usage with all instantiated values.
-12. used: Collects all the used value names starting at a given "main".
-13. uncurry: Uncurries function calls, so its easier to generate on the backend.
+8. matchdesugar: Desugar pattern-match expressions into function applications. Checks exhaustiveness and handles nested patterns, multiple cases, constructor patterns, and wildcards.
+9. operator: Resolve infix operators with proper precedence and associativity. Transforms flat expressions into correctly structured function applications.
+10. symbolic: Symbolic type checker. Checks types as far as possible with generic parameters (symbols).
+11. implementation: Checks and returns a type-specific ability implementation.
+12. abilitycheck: Check abilities can be proven to exist. Also resolves abilities directly if all types are already known.
+13. monomorphize: Monomorphic type checker. Checks all types at their usage with all instantiated values.
+14. used: Collects all the used value names starting at a given "main".
+15. uncurry: Uncurries function calls, so its easier to generate on the backend.
 
 ### Error Handling
 
