@@ -25,7 +25,8 @@ namespace qualifier (`Qualifier.Default` vs `Qualifier.Type`).
 | symbolic | Separate `TypeExpressionEvaluator` and `BodyTypeInferrer` | No — evaluate vs infer, not type vs value |
 | **symbolic** | **`stripUniversalIntros` removes type param wrappers before constraining** | **Yes** |
 | matchdesugar | Separate `TypeMatchDesugarer` and `DataMatchDesugarer` | No — types are open unions (`typeMatch*`), data uses closed `handleWith` |
-| **matchdesugar** | **`ConstructorTypeAnalyzer` special-cases `Qualifier.Type` for field counting** | **Yes** |
+| matchdesugar | `ConstructorTypeAnalyzer` checks `Qualifier.Type` for data type name lookup | No — namespace-aware lookup |
+| matchdesugar | `ConstructorTypeAnalyzer` skips `FunctionLiteral` when counting fields | Cascading |
 | **uncurry** | **`stripLeadingLambdas` excludes type params from uncurried parameter list** | **Yes** |
 | implementation | `stripUniversalTypeIntros()` before substitution | Cascading |
 | abilitycheck | `stripUniversalTypeIntros()` + `matchTypes()` | Cascading |
@@ -40,13 +41,7 @@ namespace qualifier (`Qualifier.Default` vs `Qualifier.Type`).
 declared type against inferred body type. If type params were genuine function parameters, they
 would unify naturally with the body's lambda structure instead of being stripped as a special wrapper.
 
-### 2. Match Desugar: Constructor Field Counting
-
-`ConstructorTypeAnalyzer` checks for `Qualifier.Type` to count fields differently, skipping
-leading lambdas (type params). If generic params were regular params on the type constructor,
-field counting shouldn't need to special-case them.
-
-### 3. Uncurry: Type Parameter Stripping
+### 2. Uncurry: Type Parameter Stripping
 
 Type parameters are stripped from the uncurried parameter list via `stripLeadingLambdas`.
 If type constructors are normal functions, their params should uncurry like any other parameters.
