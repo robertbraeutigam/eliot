@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.ast.parser.Parser.{
   acceptIfAll,
   between,
   optional,
+  or,
   recoveringAnyTimes,
   recoveringAtLeastOnce
 }
@@ -22,8 +23,10 @@ object AbilityBlock {
           _                       <- keyword("ability")
           name                    <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
           commonGenericParameters <- bracketedCommaSeparatedItems("[", component[GenericParameter], "]")
-          (errors, functions)     <- component[FunctionDefinition]
-                                       .recoveringAtLeastOnce(t => isKeyword(t) && hasContent("def")(t))
+          (errors, functions)     <- (component[FunctionDefinition] or TypeAliasDefinition.typeAliasDefinition.parser)
+                                       .recoveringAtLeastOnce(t =>
+                                         isKeyword(t) && (hasContent("def")(t) || hasContent("type")(t))
+                                       )
                                        .between(symbol("{"), symbol("}"))
                                        .optional()
                                        .map(_.getOrElse(Seq.empty, Seq.empty))

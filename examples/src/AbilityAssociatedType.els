@@ -6,7 +6,7 @@ ability AssociatedType[T] {
 
 data Name(name: String)
 
-implementation AssociatedType[Name] {
+implement AssociatedType[Name] {
    type MagicType = String
 
    def handle(value: T, param: MagicType): String = "Hello"

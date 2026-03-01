@@ -320,6 +320,26 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
+  it should "accept an ability with an abstract type declaration" in {
+    runEngineForErrors("ability Container[A] { type Element }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an ability with type and def together" in {
+    runEngineForErrors("ability Container[A] { type Element\ndef get: Element }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "qualify ability type declarations with ability qualifier" in {
+    runEngineForFunctions("ability Container[A] { type Element }").asserting(
+      _ shouldBe Seq(("Element", Qualifier.Ability("Container")), ("Container", Qualifier.Ability("Container")))
+    )
+  }
+
+  it should "prepend ability generic parameters to type declaration generic parameters" in {
+    runEngineForFunctionGenericCounts("ability Container[A] { type Element }").asserting(
+      _ shouldBe Seq(("Element", 1), ("Container", 1))
+    )
+  }
+
   it should "reject an empty implement block with braces" in {
     runEngineForErrors("implement Show[A] {}").asserting(_.size should be > 0)
   }
@@ -406,6 +426,29 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
           )
         )
       )
+    )
+  }
+
+  it should "accept an implement block with a type declaration" in {
+    runEngineForErrors("implement Show[A] { type Element = String }").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an implement block with type and def together" in {
+    runEngineForErrors("implement Show[A] { type Element = String\ndef show: String = a }").asserting(
+      _ shouldBe Seq.empty
+    )
+  }
+
+  it should "qualify implement type declarations with AbilityImplementation qualifier" in {
+    runEngineForFunctions("implement Show[A] { type Element = String }").asserting(
+      _.head shouldBe
+        (
+          "Element",
+          Qualifier.AbilityImplementation(
+            Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
+            Seq(typePattern(PositionRange(Position(1, 16), Position(1, 17)), "A"))
+          )
+        )
     )
   }
 
