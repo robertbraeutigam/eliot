@@ -7,7 +7,6 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   DataDefinition,
   FunctionDefinition,
   GenericParameter,
-  TypeReference,
   Visibility,
   Expression as SourceExpression,
   QualifiedName as AstQualifiedName,
@@ -39,7 +38,7 @@ object DataDefinitionDesugarer {
         definition.name.map(n => AstQualifiedName(n, AstQualifier.Type)),
         Seq.empty,
         definition.genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction)),
-        TypeReference(definition.name.as("Type"), Seq.empty),
+        typeExpr(definition.name.as("Type")),
         None
       )
     )
@@ -54,9 +53,9 @@ object DataDefinitionDesugarer {
       ctor.name.map(n => AstQualifiedName(n, AstQualifier.Default)),
       definition.genericParameters,
       ctor.fields,
-      TypeReference(
+      typeExpr(
         definition.name,
-        definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
+        definition.genericParameters.map(gp => typeExpr(gp.name))
       ),
       None
     )
@@ -99,13 +98,13 @@ object DataDefinitionDesugarer {
       Seq(
         ArgumentDefinition(
           field.name.as("obj"),
-          TypeReference(
+          typeExpr(
             definition.name,
-            definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
+            definition.genericParameters.map(gp => typeExpr(gp.name))
           )
         )
       ),
-      field.typeReference,
+      field.typeExpression,
       Some(field.name.as(matchBody))
     )
   }
@@ -126,13 +125,13 @@ object DataDefinitionDesugarer {
         val resultParamName  = freshName("R", existingNames)
         val resultParam      = GenericParameter(
           definition.name.as(resultParamName),
-          TypeReference(definition.name.as("Type"), Seq.empty),
+          typeExpr(definition.name.as("Type")),
           Seq.empty
         )
         val allGenericParams = definition.genericParameters :+ resultParam
-        val dataTypeRef = TypeReference(
+        val dataTypeRef = typeExpr(
           definition.name,
-          definition.genericParameters.map(gp => TypeReference(gp.name, Seq.empty))
+          definition.genericParameters.map(gp => typeExpr(gp.name))
         )
         val objArg = ArgumentDefinition(
           definition.name.as("obj"),
@@ -144,7 +143,7 @@ object DataDefinitionDesugarer {
           ArgumentDefinition(handlerName, handlerType)
         }
         val allArgs    = Seq(objArg) ++ handlerArgs
-        val returnType = TypeReference(definition.name.as(resultParamName), Seq.empty)
+        val returnType = typeExpr(definition.name.as(resultParamName))
         FunctionDefinition(
           definition.name.map(_ => AstQualifiedName(s"handle${definition.name.value}With", AstQualifier.Default)),
           allGenericParams,
@@ -167,25 +166,25 @@ object DataDefinitionDesugarer {
     val resultParamName = freshName("R", existingNames)
     val resultParam     = GenericParameter(
       definition.name.as(resultParamName),
-      TypeReference(definition.name.as("Type"), Seq.empty),
+      typeExpr(definition.name.as("Type")),
       Seq.empty
     )
     val allGenericParams = definition.genericParameters :+ resultParam
     val objArg           = ArgumentDefinition(
       definition.name.as("obj"),
-      TypeReference(definition.name.as("Type"), Seq.empty)
+      typeExpr(definition.name.as("Type"))
     )
     val matchCaseType = typeMatchHandlerType(definition, resultParamName)
     val matchCaseArg  = ArgumentDefinition(definition.name.as("matchCase"), matchCaseType)
-    val elseCaseType  = TypeReference(
+    val elseCaseType  = typeExpr(
       definition.name.as("Function"),
       Seq(
-        TypeReference(definition.name.as("Unit"), Seq.empty),
-        TypeReference(definition.name.as(resultParamName), Seq.empty)
+        typeExpr(definition.name.as("Unit")),
+        typeExpr(definition.name.as(resultParamName))
       )
     )
     val elseCaseArg = ArgumentDefinition(definition.name.as("elseCase"), elseCaseType)
-    val returnType  = TypeReference(definition.name.as(resultParamName), Seq.empty)
+    val returnType  = typeExpr(definition.name.as(resultParamName))
     Seq(
       FunctionDefinition(
         definition.name.map(_ => AstQualifiedName(s"typeMatch${definition.name.value}", AstQualifier.Default)),
@@ -201,19 +200,18 @@ object DataDefinitionDesugarer {
   /** Build the match case handler type for a type match. Zero generic params: Function[Unit, R]. Otherwise: curried
     * Function[GP1.typeRestriction, Function[GP2.typeRestriction, ..., R]].
     */
-  private def typeMatchHandlerType(definition: DataDefinition, resultParamName: String): TypeReference =
+  private def typeMatchHandlerType(definition: DataDefinition, resultParamName: String): Sourced[SourceExpression] =
     if (definition.genericParameters.isEmpty) {
-      TypeReference(
+      typeExpr(
         definition.name.as("Function"),
         Seq(
-          TypeReference(definition.name.as("Unit"), Seq.empty),
-          TypeReference(definition.name.as(resultParamName), Seq.empty)
+          typeExpr(definition.name.as("Unit")),
+          typeExpr(definition.name.as(resultParamName))
         )
       )
     } else {
-      definition.genericParameters.foldRight(TypeReference(definition.name.as(resultParamName), Seq.empty)) {
-        (gp, acc) =>
-          TypeReference(definition.name.as("Function"), Seq(gp.typeRestriction, acc))
+      definition.genericParameters.foldRight(typeExpr(definition.name.as(resultParamName))) { (gp, acc) =>
+        typeExpr(definition.name.as("Function"), Seq(gp.typeRestriction, acc))
       }
     }
 
@@ -228,18 +226,25 @@ object DataDefinitionDesugarer {
       definition: DataDefinition,
       ctor: DataConstructor,
       resultParamName: String
-  ): TypeReference =
+  ): Sourced[SourceExpression] =
     if (ctor.fields.isEmpty) {
-      TypeReference(
+      typeExpr(
         definition.name.as("Function"),
         Seq(
-          TypeReference(definition.name.as("Unit"), Seq.empty),
-          TypeReference(definition.name.as(resultParamName), Seq.empty)
+          typeExpr(definition.name.as("Unit")),
+          typeExpr(definition.name.as(resultParamName))
         )
       )
     } else {
-      ctor.fields.foldRight(TypeReference(definition.name.as(resultParamName), Seq.empty)) { (field, acc) =>
-        TypeReference(definition.name.as("Function"), Seq(field.typeReference, acc))
+      ctor.fields.foldRight(typeExpr(definition.name.as(resultParamName))) { (field, acc) =>
+        typeExpr(definition.name.as("Function"), Seq(field.typeExpression, acc))
       }
     }
+
+  /** Helper to create a sourced type expression from a name and optional generic arguments. */
+  private def typeExpr(
+      name: Sourced[String],
+      genericArgs: Seq[Sourced[SourceExpression]] = Seq.empty
+  ): Sourced[SourceExpression] =
+    name.as(SourceExpression.FunctionApplication(None, name, genericArgs, Seq.empty))
 }

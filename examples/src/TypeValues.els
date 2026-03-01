@@ -7,4 +7,4 @@ def personName(t: Type): String = t match {
    case _            -> "<not a person>"
 }
 
-def main: IO[Unit] = println(personName(Box[String]))
+def main: IO[Unit] = println(personName(Person["John"]))

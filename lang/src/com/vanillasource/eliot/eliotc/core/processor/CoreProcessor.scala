@@ -44,7 +44,10 @@ class CoreProcessor
     val constraints  = function.genericParameters
       .map(gp =>
         gp.name.value -> gp.abilityConstraints.map(c =>
-          NamedValue.CoreAbilityConstraint(c.abilityName, c.typeParameters.map(toTypeExpression(_).value))
+          NamedValue.CoreAbilityConstraint(
+            c.abilityName,
+            c.typeParameters.map(te => convertExpression(te, typeContext = true).value)
+          )
         )
       )
       .filter(_._2.nonEmpty)

@@ -14,7 +14,7 @@ case class FunctionDefinition(
     name: Sourced[QualifiedName],
     genericParameters: Seq[GenericParameter],
     args: Seq[ArgumentDefinition],
-    typeDefinition: TypeReference,
+    typeDefinition: Sourced[Expression],
     body: Option[Sourced[Expression]], // Can be empty for abstract functions
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
@@ -27,7 +27,7 @@ object FunctionDefinition {
       x.args.length === y.args.length &&
       (x.genericParameters zip y.genericParameters).forall(GenericParameter.signatureEquality.eqv) &&
       (x.args zip y.args).forall(ArgumentDefinition.signatureEquality.eqv) &&
-      TypeReference.signatureEquality.eqv(x.typeDefinition, y.typeDefinition)
+      x.typeDefinition.value.show === y.typeDefinition.value.show
 
   given Show[FunctionDefinition] = (fd: FunctionDefinition) =>
     s"${fd.name.show}(${fd.args.map(_.show).mkString(", ")}): ${fd.body.show}"
@@ -87,13 +87,13 @@ object FunctionDefinition {
       genericParameters <- component[Seq[GenericParameter]]
       args              <- optionalArgumentListOf(component[ArgumentDefinition])
       _                 <- symbol(":")
-      typeReference     <- component[TypeReference]
+      typeExpression    <- sourced(Expression.typeParser)
       functionBody      <- functionBody
     } yield FunctionDefinition(
       name.map(m => QualifiedName(m.content, Qualifier.Default)),
       genericParameters,
       args,
-      typeReference,
+      typeExpression,
       functionBody,
       fixity,
       prec,

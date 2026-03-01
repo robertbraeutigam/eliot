@@ -1,0 +1,8 @@
+data Box[A](content: A)
+
+def stringBox: Type = Box[String]
+
+def stringBoxWithContent: stringBox = Box("Hello World!")
+
+def main: IO[Unit] = println(content(stringBoxWithContent))
+

@@ -13,15 +13,15 @@ import com.vanillasource.eliot.eliotc.token.Token
 
 case class GenericParameter(
     name: Sourced[String],
-    typeRestriction: TypeReference,
+    typeRestriction: Sourced[Expression],
     abilityConstraints: Seq[AbilityConstraint]
 )
 
 object GenericParameter {
-  case class AbilityConstraint(abilityName: Sourced[String], typeParameters: Seq[TypeReference])
+  case class AbilityConstraint(abilityName: Sourced[String], typeParameters: Seq[Sourced[Expression]])
 
   val signatureEquality: Eq[GenericParameter] = (x: GenericParameter, y: GenericParameter) =>
-    x.name.value === y.name.value && TypeReference.signatureEquality.eqv(x.typeRestriction, y.typeRestriction)
+    x.name.value === y.name.value && x.typeRestriction.value.show === y.typeRestriction.value.show
 
   given ASTComponent[Seq[GenericParameter]] = new ASTComponent[Seq[GenericParameter]] {
     override def parser: Parser[Sourced[Token], Seq[GenericParameter]] =
@@ -41,7 +41,7 @@ object GenericParameter {
         name               <- acceptIfAll(isUpperCase, isIdentifier)("generic type parameter")
         typeRestriction    <- (arityAsTypeRestriction(name.map(_.content)) or explicitTypeRestriction)
                                 .optional()
-                                .map(_.getOrElse(TypeReference(name.map(_ => "Type"), Seq.empty)))
+                                .map(_.getOrElse(name.as(typeExpr(name.map(_ => "Type")))))
         abilityConstraints <- abilityConstraintsParser.optional().map(_.getOrElse(Seq.empty))
       } yield GenericParameter(
         name.map(_.content),
@@ -57,43 +57,47 @@ object GenericParameter {
         defaultGeneric: Sourced[String]
     ): AbilityConstraint =
       if (abilityConstraint.typeParameters.isEmpty) {
-        AbilityConstraint(abilityConstraint.abilityName, Seq(TypeReference(defaultGeneric, Seq.empty)))
+        AbilityConstraint(abilityConstraint.abilityName, Seq(defaultGeneric.as(typeExpr(defaultGeneric))))
       } else {
         abilityConstraint
       }
   }
 
-  /** Parses bracketed arity notation [_, _[_], ...] and converts to a TypeReference. Only succeeds when brackets are
+  /** Parses bracketed arity notation [_, _[_], ...] and converts to an Expression. Only succeeds when brackets are
     * present (consumed). This is the syntactic sugar form: [M[_]] is sugar for [M: Function[Type, Type]].
     */
-  private def arityAsTypeRestriction(name: Sourced[String]): Parser[Sourced[Token], TypeReference] =
+  private def arityAsTypeRestriction(name: Sourced[String]): Parser[Sourced[Token], Sourced[Expression]] =
     bracketedCommaSeparatedItems("[", symbol("_") >> subArityParser(name), "]")
-      .map(subArities => arityParamsToTypeReference(name, subArities))
+      .map(subArities => arityParamsToExpression(name, subArities))
 
   /** Recursive parser for nested arity parameters: handles [_[_]] by parsing the part after each _. */
-  private def subArityParser(name: Sourced[String]): Parser[Sourced[Token], TypeReference] =
+  private def subArityParser(name: Sourced[String]): Parser[Sourced[Token], Sourced[Expression]] =
     optionalBracketedCommaSeparatedItems("[", symbol("_") >> subArityParser(name), "]")
-      .map(subArities => arityParamsToTypeReference(name, subArities))
+      .map(subArities => arityParamsToExpression(name, subArities))
 
-  /** Converts parsed arity parameters into a TypeReference. Empty params → Type. Non-empty → nested
+  /** Converts parsed arity parameters into an Expression. Empty params -> Type. Non-empty -> nested
     * Function[paramKind, ...Function[paramKind, Type]].
     */
-  private def arityParamsToTypeReference(name: Sourced[String], params: Seq[TypeReference]): TypeReference =
-    if (params.isEmpty) TypeReference(name.as("Type"), Seq.empty)
+  private def arityParamsToExpression(name: Sourced[String], params: Seq[Sourced[Expression]]): Sourced[Expression] =
+    if (params.isEmpty) name.as(typeExpr(name.as("Type")))
     else
-      params.foldRight(TypeReference(name.as("Type"), Seq.empty)) { (param, acc) =>
-        TypeReference(name.as("Function"), Seq(param, acc))
+      params.foldRight(name.as(typeExpr(name.as("Type")))) { (param, acc) =>
+        name.as(typeExpr(name.as("Function"), Seq(param, acc)))
       }
 
-  /** Parses explicit type restriction syntax: `: TypeReference`. */
-  private val explicitTypeRestriction: Parser[Sourced[Token], TypeReference] =
-    symbol(":") >> component[TypeReference]
+  /** Parses explicit type restriction syntax: `: Expression`. */
+  private val explicitTypeRestriction: Parser[Sourced[Token], Sourced[Expression]] =
+    symbol(":") >> sourced(Expression.typeParser)
+
+  /** Helper to create a type expression from a name and optional generic arguments. */
+  private def typeExpr(name: Sourced[String], genericArgs: Seq[Sourced[Expression]] = Seq.empty): Expression =
+    Expression.FunctionApplication(None, name, genericArgs, Seq.empty)
 
   given ASTComponent[AbilityConstraint] = new ASTComponent[AbilityConstraint] {
     override def parser: Parser[Sourced[Token], AbilityConstraint] =
       for {
         name           <- acceptIfAll(isUpperCase, isIdentifier)("ability name")
-        typeParameters <- optionalBracketedCommaSeparatedItems("[", component[TypeReference], "]")
+        typeParameters <- optionalBracketedCommaSeparatedItems("[", sourced(Expression.typeParser), "]")
       } yield AbilityConstraint(name.map(_.content), typeParameters)
   }
 }

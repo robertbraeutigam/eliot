@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.core.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.{
   GenericParameter,
-  TypeReference,
   ArgumentDefinition as SourceArgument,
   Expression as SourceExpression,
   LambdaParameterDefinition as SourceLambdaParameter,
@@ -72,46 +71,35 @@ object CoreExpressionConverter {
         )
     }
 
-  /** Converts type references to type expressions. Type references are in the form of: A[B[C...],...], which is
-    * converted into an expression: A(B(C...),...), so function applications.
-    */
-  def toTypeExpression(reference: TypeReference): Sourced[Expression] =
-    reference.genericParameters.foldLeft[Sourced[Expression]](
-      reference.typeName.as(NamedValueReference(reference.typeName.map(n => QualifiedName(n, Qualifier.Type))))
-    ) { (acc, ref) =>
-      ref.typeName.as(
-        FunctionApplication(acc.map(TypeStack.of), toTypeExpression(ref).map(TypeStack.of))
-      )
-    }
-
   /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function^Type(D,
     * Function^Type(E, F)). Note: f[A, M[_]]... becomes: A -> M -> ..., where M has a type expression on it: X -> Y \->
     * Function^Type(X, Y)
     */
   def curriedFunctionType(
       args: Seq[SourceArgument],
-      returnType: TypeReference,
+      returnType: Sourced[SourceExpression],
       genericParams: Seq[GenericParameter]
   ): Sourced[Expression] = {
-    val withArgs = args.foldRight[Sourced[Expression]](toTypeExpression(returnType)) { (arg, acc) =>
-      val argType     = toTypeExpression(arg.typeReference)
-      val functionRef =
-        arg.name.as(NamedValueReference(arg.name.as(QualifiedName("Function", Qualifier.Type))))
-      val withArgType = arg.name.as(
-        FunctionApplication(
-          functionRef.map(TypeStack.of),
-          argType.map(TypeStack.of)
+    val withArgs = args.foldRight[Sourced[Expression]](convertExpression(returnType, typeContext = true)) {
+      (arg, acc) =>
+        val argType     = convertExpression(arg.typeExpression, typeContext = true)
+        val functionRef =
+          arg.name.as(NamedValueReference(arg.name.as(QualifiedName("Function", Qualifier.Type))))
+        val withArgType = arg.name.as(
+          FunctionApplication(
+            functionRef.map(TypeStack.of),
+            argType.map(TypeStack.of)
+          )
         )
-      )
-      arg.name.as(
-        FunctionApplication(
-          withArgType.map(TypeStack.of),
-          acc.map(TypeStack.of)
+        arg.name.as(
+          FunctionApplication(
+            withArgType.map(TypeStack.of),
+            acc.map(TypeStack.of)
+          )
         )
-      )
     }
     genericParams.foldRight[Sourced[Expression]](withArgs) { (param, acc) =>
-      val kindType = toTypeExpression(param.typeRestriction)
+      val kindType = convertExpression(param.typeRestriction, typeContext = true)
       param.name.as(FunctionLiteral(param.name, Some(TypeStack.of(kindType.value)), acc.map(TypeStack.of)))
     }
   }
@@ -126,7 +114,7 @@ object CoreExpressionConverter {
       arg.name.as(
         FunctionLiteral(
           arg.name,
-          Some(TypeStack.of(toTypeExpression(arg.typeReference).value)),
+          Some(TypeStack.of(convertExpression(arg.typeExpression, typeContext = true).value)),
           acc.map(TypeStack.of)
         )
       )
@@ -158,7 +146,7 @@ object CoreExpressionConverter {
       case AstQualifier.AbilityImplementation(n, pattern) =>
         Qualifier.AbilityImplementation(
           n,
-          pattern.map(toTypeExpression(_).value)
+          pattern.map(convertExpression(_, typeContext = true).value)
         )
     }
 
@@ -176,7 +164,7 @@ object CoreExpressionConverter {
       param.name.as(
         FunctionLiteral(
           param.name,
-          param.typeReference.map(toTypeExpression(_).value).map(TypeStack.of),
+          param.typeExpression.map(convertExpression(_, typeContext = true).value).map(TypeStack.of),
           acc.map(TypeStack.of)
         )
       )

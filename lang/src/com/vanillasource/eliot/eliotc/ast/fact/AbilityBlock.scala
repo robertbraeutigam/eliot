@@ -27,29 +27,33 @@ object AbilityBlock {
                                        .between(symbol("{"), symbol("}"))
                                        .optional()
                                        .map(_.getOrElse(Seq.empty, Seq.empty))
-        } yield (
-          errors,
-          functions.map(f =>
-            // Transform the function into an "ability" function. Change name into ability qualifier,
-            // and also prepend the common generic parameters. Visibility is always public for ability functions.
-            FunctionDefinition(
-              f.name.map(n => QualifiedName(n.name, Qualifier.Ability(name.value.content))),
-              commonGenericParameters ++ f.genericParameters,
-              f.args,
-              f.typeDefinition,
-              f.body,
-              visibility = Visibility.Public
-            )
-          ) :+
-            // We add a default/invisible function/value to just indicate that this ability exists, even if it is empty.
-            // It is named as the ability (upper case) and uses no additional type dependencies: Ability(a: A): A
-            FunctionDefinition(
-              name.as(QualifiedName(name.value.content, Qualifier.Ability(name.value.content))),
-              commonGenericParameters,
-              Seq(ArgumentDefinition(name.as("arg"), TypeReference(commonGenericParameters.head.name, Seq.empty))),
-              TypeReference(commonGenericParameters.head.name, Seq.empty),
-              None
-            )
-        )
+        } yield {
+          val gpName = commonGenericParameters.head.name
+          val gpTypeExpr = gpName.as(Expression.FunctionApplication(None, gpName, Seq.empty, Seq.empty))
+          (
+            errors,
+            functions.map(f =>
+              // Transform the function into an "ability" function. Change name into ability qualifier,
+              // and also prepend the common generic parameters. Visibility is always public for ability functions.
+              FunctionDefinition(
+                f.name.map(n => QualifiedName(n.name, Qualifier.Ability(name.value.content))),
+                commonGenericParameters ++ f.genericParameters,
+                f.args,
+                f.typeDefinition,
+                f.body,
+                visibility = Visibility.Public
+              )
+            ) :+
+              // We add a default/invisible function/value to just indicate that this ability exists, even if it is empty.
+              // It is named as the ability (upper case) and uses no additional type dependencies: Ability(a: A): A
+              FunctionDefinition(
+                name.as(QualifiedName(name.value.content, Qualifier.Ability(name.value.content))),
+                commonGenericParameters,
+                Seq(ArgumentDefinition(name.as("arg"), gpTypeExpr)),
+                gpTypeExpr,
+                None
+              )
+          )
+        }
     }
 }
