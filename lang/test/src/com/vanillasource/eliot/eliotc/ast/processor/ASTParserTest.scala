@@ -517,6 +517,14 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
+  it should "accept an abstract type definition" in {
+    runEngineForErrors("type MyType").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept an abstract type definition with generic parameters" in {
+    runEngineForErrors("type MyType[A, B]").asserting(_ shouldBe Seq.empty)
+  }
+
   it should "reject type alias with lowercase name" in {
     runEngineForErrors("type myInt = Int").asserting(_.size should be > 0)
   }

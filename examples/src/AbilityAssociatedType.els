@@ -1,0 +1,15 @@
+ability AssociatedType[T] {
+   type MagicType
+
+   def handle(value: T, param: MagicType): String
+}
+
+data Name(name: String)
+
+implementation AssociatedType[Name] {
+   type MagicType = String
+
+   def handle(value: T, param: MagicType): String = "Hello"
+}
+
+def main: IO[Unit] = println(handle(Name("Johhny")))

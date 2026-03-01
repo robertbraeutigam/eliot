@@ -15,8 +15,7 @@ object TypeAliasDefinition {
       _                 <- keyword("type")
       name              <- acceptIfAll(isIdentifier, isUpperCase)("type name")
       genericParameters <- component[Seq[GenericParameter]]
-      _                 <- symbol("=")
-      body              <- sourced(component[Expression])
+      body              <- (symbol("=") *> sourced(component[Expression])).optional()
     } yield {
       val args     = genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction))
       val typeExpr = name.as(Expression.FunctionApplication(None, name.map(_ => "Type"), Seq.empty, Seq.empty))
@@ -25,7 +24,7 @@ object TypeAliasDefinition {
         Seq.empty,
         args,
         typeExpr,
-        Some(body),
+        body,
         visibility = vis
       )
     }

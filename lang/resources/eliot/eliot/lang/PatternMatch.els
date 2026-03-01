@@ -1,0 +1,19 @@
+/**
+ * Contains the pattern match machinery that is used by
+ * the pattern match syntax.
+ * Reason for being in lang: Used by pattern matching.
+ */
+ability PatternMatch[T] {
+   /**
+    * Defines the cases needed by this type to handle all constructors.
+    * These cases need to be in order of constructor declaration and be
+    * functions accepting all fields in order, returning R.
+    */
+   type Cases[R]
+
+   /**
+    * Handle the cases.
+    */
+   def handleCases[R](value: T, cases: Cases[R]): R
+}
+
