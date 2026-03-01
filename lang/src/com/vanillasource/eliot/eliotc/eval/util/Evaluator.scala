@@ -2,11 +2,11 @@ package com.vanillasource.eliot.eliotc.eval.util
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Types, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType, typeFQN}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
@@ -100,7 +100,7 @@ object Evaluator {
                            case NativeFunction(paramType, nativeFn)         =>
                              reducedArg match {
                                case ConcreteValue(v) =>
-                                 checkType(paramType, reducedArg, sourced) >> nativeFn(v).pure[CompilerIO]
+                                 checkType(paramType, reducedArg, sourced) >> reduce(nativeFn(v), sourced)
                                case _                =>
                                  FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
                              }
@@ -113,6 +113,102 @@ object Evaluator {
     case other                                  =>
       other.pure[CompilerIO]
   }
+
+  /** Evaluates a value reference to its structural normal form. Reduces until hitting NativeFunctions.
+    *
+    * For values with a runtime body: recursively evaluates the body in normal form. For values without a runtime body
+    * (data types, built-ins): returns `ConcreteValue(Types.dataType(vfqn))`.
+    */
+  def evaluateValueToNormalForm(
+      vfqn: ValueFQN,
+      sourced: Sourced[?],
+      evaluating: Set[ValueFQN] = Set.empty
+  ): CompilerIO[ExpressionValue] =
+    if (evaluating.contains(vfqn)) {
+      compilerAbort(sourced.as("Recursive evaluation detected."))
+    } else if (vfqn === typeFQN) {
+      ConcreteValue(Types.dataType(vfqn)).pure[CompilerIO]
+    } else {
+      getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
+        case Some(resolved) =>
+          resolved.runtime match {
+            case Some(body) => evaluateToNormalForm(body, evaluating + vfqn)
+            case None       => ConcreteValue(Types.dataType(vfqn)).pure[CompilerIO]
+          }
+        case None           =>
+          ConcreteValue(Types.dataType(vfqn)).pure[CompilerIO]
+      }
+    }
+
+  /** Evaluates an expression to its structural normal form. Like `evaluate`, but stops before applying
+    * NativeFunctions.
+    */
+  def evaluateToNormalForm(
+      expression: Sourced[OperatorResolvedExpression],
+      evaluating: Set[ValueFQN] = Set.empty
+  ): CompilerIO[ExpressionValue] =
+    for {
+      value   <- toNormalFormExpressionValue(expression.value, evaluating, Map.empty, expression)
+      reduced <- reduceToNormalForm(value, expression)
+    } yield reduced
+
+  private def toNormalFormExpressionValue(
+      expression: OperatorResolvedExpression,
+      evaluating: Set[ValueFQN],
+      paramContext: Map[String, Value],
+      sourced: Sourced[?]
+  ): CompilerIO[ExpressionValue] = expression match {
+    case OperatorResolvedExpression.IntegerLiteral(s)                                 =>
+      ConcreteValue(Value.Direct(s.value, bigIntType)).pure[CompilerIO]
+    case OperatorResolvedExpression.StringLiteral(s)                                  =>
+      ConcreteValue(Value.Direct(s.value, stringType)).pure[CompilerIO]
+    case OperatorResolvedExpression.ParameterReference(s)                             =>
+      val name = s.value
+      paramContext.get(name) match {
+        case Some(paramType) => ParameterReference(name, paramType).pure[CompilerIO]
+        case None            => compilerAbort(s.as(s"Unknown parameter: $name"))
+      }
+    case OperatorResolvedExpression.ValueReference(s, _)                              =>
+      evaluateValueToNormalForm(s.value, sourced, evaluating)
+    case OperatorResolvedExpression.FunctionLiteral(paramName, None, _)               =>
+      compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated."))
+    case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramType), body) =>
+      for {
+        evaluatedParamTypeFull <- toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType)
+        evaluatedParamType     <- concreteValueOf(evaluatedParamTypeFull).fold(
+                                    compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
+                                  )(_.pure[CompilerIO])
+        newContext              = paramContext + (paramName.value -> evaluatedParamType)
+        evaluatedBody          <- toNormalFormExpressionValue(body.value.signature, evaluating, newContext, body)
+      } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
+    case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
+      for {
+        targetValue <- toNormalFormExpressionValue(target.value.signature, evaluating, paramContext, target)
+        argValue    <- toNormalFormExpressionValue(argument.value.signature, evaluating, paramContext, argument)
+      } yield FunctionApplication(targetValue, argValue)
+  }
+
+  /** Like `reduce`, but does NOT apply NativeFunctions. Only reduces FunctionLiteral applications (beta reduction).
+    */
+  private def reduceToNormalForm(value: ExpressionValue, sourced: Sourced[?]): CompilerIO[ExpressionValue] =
+    value match {
+      case FunctionApplication(target, arg)       =>
+        for {
+          reducedTarget <- reduceToNormalForm(target, sourced)
+          reducedArg    <- reduceToNormalForm(arg, sourced)
+          result        <- reducedTarget match {
+                             case FunctionLiteral(paramName, paramType, body) =>
+                               checkType(paramType, reducedArg, sourced) >>
+                                 reduceToNormalForm(substitute(body, paramName, reducedArg), sourced)
+                             case _                                          =>
+                               FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
+                           }
+        } yield result
+      case FunctionLiteral(name, paramType, body) =>
+        reduceToNormalForm(body, sourced).map(FunctionLiteral(name, paramType, _))
+      case other                                  =>
+        other.pure[CompilerIO]
+    }
 
   private def checkType(expectedType: Value, argument: ExpressionValue, sourced: Sourced[?]): CompilerIO[Unit] =
     argumentType(argument) match {

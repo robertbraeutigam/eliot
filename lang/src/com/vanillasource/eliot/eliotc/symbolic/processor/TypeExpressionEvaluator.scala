@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
+import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression as Expr
@@ -193,11 +194,15 @@ object TypeExpressionEvaluator {
   private def buildValueReference(
       vfqn: Sourced[ValueFQN]
   ): TypeGraphIO[TypedExpression] =
-    isUniversalVar(vfqn.value.name.name).map { isUniv =>
-      val exprValue =
-        if (isUniv) ParameterReference(vfqn.value.name.name, Value.Type)
-        else ConcreteValue(Types.dataType(vfqn.value))
-      TypedExpression(exprValue, TypedExpression.ValueReference(vfqn))
+    isUniversalVar(vfqn.value.name.name).flatMap { isUniv =>
+      if (isUniv) {
+        val exprValue = ParameterReference(vfqn.value.name.name, Value.Type)
+        TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
+      } else {
+        StateT
+          .liftF(Evaluator.evaluateValueToNormalForm(vfqn.value, vfqn))
+          .map(exprValue => TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)))
+      }
     }
 
   /** Function application in type position: A(B) means A parameterized by B */
