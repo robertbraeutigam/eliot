@@ -33,23 +33,59 @@ namespace qualifier (`Qualifier.Default` vs `Qualifier.Type`).
 | monomorphize | `extractBodyTypeParams` filters by `Value.Type` | Cascading |
 | used | None — post-monomorphization, all concrete | No |
 
-## Violations
+## The Stripping Problem
 
-### 1. Symbolic: Universal Type Intro Stripping
+All violations and cascading issues stem from one root cause: type parameters are encoded as
+leading `FunctionLiteral` wrappers inside the `signature` field:
 
-`stripUniversalIntros` removes leading `FunctionLiteral(_, Value.Type, _)` before constraining
-declared type against inferred body type. If type params were genuine function parameters, they
-would unify naturally with the body's lambda structure instead of being stripped as a special wrapper.
+```
+FunctionLiteral("A", Type,           -- type param wrapper
+  Function^Type(A, A)                -- actual function signature
+)
+```
 
-### 2. Uncurry: Type Parameter Stripping
+Every downstream processor needs to peel these off. They all perform the same extract + strip
+dance to get at two things:
 
-Type parameters are stripped from the uncurried parameter list via `stripLeadingLambdas`.
-If type constructors are normal functions, their params should uncurry like any other parameters.
+| Processor | What it extracts | Purpose |
+|-----------|-----------------|---------|
+| symbolic (line 70) | Inner signature | Constrain against body's inferred type |
+| implementation (line 85) | Inner signature | Substitute type args, produce concrete signature |
+| implementation (line 122) | Type param names | Zip with type arguments to build substitution map |
+| implcheck (lines 122, 128, 132) | Both | Substitute and compare abstract vs impl signatures |
+| abilitycheck (lines 127-128) | Both | Match inner sig against concrete type to extract type args |
+| monomorphize (lines 34, 50) | Both | Build substitution map, evaluate signature with type args |
+| monomorphize (line 105) | Type param names | Check if a referenced value is generic |
+| monomorphize (line 138) | Inner signature | Match against call-site type to infer type args |
+| uncurry (line 39) | Inner signature | Extract value-level parameters for uncurrying |
+| matchdesugar | Inner signature | Count constructor fields, extract data type name |
 
-## Cascading Pattern: `stripUniversalTypeIntros`
+Every single site wants either: (a) the type parameter names, (b) the inner function signature
+without type param wrappers, or (c) both.
 
-The `strip` pattern appears in 5 processors: symbolic, implementation, abilitycheck, monomorphize,
-uncurry. This pervasive stripping treats type parameters as a removable annotation layer rather
-than genuine function parameters. Fully implementing the unification principle would likely
-eliminate this pattern — type parameters would flow through the pipeline as regular parameters
-whose type happens to be `Type`.
+## Proposed Fix
+
+Store type parameters separately in the value facts instead of encoding them as wrappers
+in the expression tree:
+
+```scala
+case class TypeCheckedValue(
+    vfqn: ValueFQN,
+    name: Sourced[QualifiedName],
+    typeParameters: Seq[(String, Value)],  // extracted once at creation
+    signature: ExpressionValue,            // already the inner function type
+    runtime: Option[Sourced[TypedExpression.Expression]]
+)
+```
+
+This would:
+- Eliminate all `stripUniversalTypeIntros` / `stripLeadingLambdas` / `extractLeadingLambdaParams`
+  calls across 6+ processors
+- Make type param names directly accessible via `typeCheckedValue.typeParameters`
+- Make the signature already be the inner function type without wrappers
+- Simplify substitution to `typeParameters.map(_._1).zip(typeArgs).toMap`
+- Remove `extractBodyTypeParams`, `stripNonBodyUniversals` from monomorphize
+
+The type parameters are still regular parameters — they are just stored as structured data on
+the value definition rather than flattened into the expression tree where every consumer must
+re-extract them.
