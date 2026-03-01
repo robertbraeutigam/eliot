@@ -108,9 +108,10 @@ object CoreExpressionConverter {
     */
   def buildCurriedBody(
       args: Seq[SourceArgument],
-      value: Sourced[SourceExpression]
+      value: Sourced[SourceExpression],
+      typeContext: Boolean = false
   ): Sourced[Expression] =
-    args.foldRight(convertExpression(value, typeContext = false)) { (arg, acc) =>
+    args.foldRight(convertExpression(value, typeContext)) { (arg, acc) =>
       arg.name.as(
         FunctionLiteral(
           arg.name,

@@ -31,22 +31,28 @@ object AST {
           (component[ImportStatement] xor
             (component[FunctionDefinition] xor
               (component[DataDefinition] xor
-                (AbilityBlock.abilityBlock.parser xor
-                  ImplementBlock.implementBlock.parser))))
+                (TypeAliasDefinition.typeAliasDefinition.parser xor
+                  (AbilityBlock.abilityBlock.parser xor
+                    ImplementBlock.implementBlock.parser)))))
             .recoveringAnyTimes(isKeyword)
       } yield {
         val importStatements     = items.flatMap(_.left.toOption)
         val functionDefinitions  = items.flatMap(_.toOption).flatMap(_.left.toOption)
         val dataDefinitions      = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.left.toOption)
-        val abilities            = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.left.toOption)
+        val typeAliasFunctions   = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.left.toOption)
+        val abilities            = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.left.toOption)
         val abilityErrors        = abilities.flatMap(_._1)
         val abilityFunctions     = abilities.flatMap(_._2)
-        val abilitiesImpl        = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption)
+        val abilitiesImpl        = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption)
         val abilityImplErrors    = abilitiesImpl.flatMap(_._1)
         val abilityImplFunctions = abilitiesImpl.flatMap(_._2)
         (
           errors ++ abilityErrors ++ abilityImplErrors,
-          AST(importStatements, functionDefinitions ++ abilityFunctions ++ abilityImplFunctions, dataDefinitions)
+          AST(
+            importStatements,
+            functionDefinitions ++ typeAliasFunctions ++ abilityFunctions ++ abilityImplFunctions,
+            dataDefinitions
+          )
         )
       }
   }

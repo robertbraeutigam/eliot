@@ -493,6 +493,34 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("def a: T = f(a + b)").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "accept a simple type alias" in {
+    runEngineForErrors("type MyInt = Int").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a type alias with generic parameters" in {
+    runEngineForErrors("type Pair[A, B] = Function[A, B]").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a type alias with typed generic parameters" in {
+    runEngineForErrors("type Alias[A, B: Int] = Function[A, B]").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "desugar type alias to function with Type qualifier" in {
+    runEngineForFunctions("type MyInt = Int").asserting(
+      _ shouldBe Seq(("MyInt", Qualifier.Type))
+    )
+  }
+
+  it should "desugar type alias with generics to function with no generic parameters" in {
+    runEngineForFunctionGenericCounts("type Pair[A, B] = Function[A, B]").asserting(
+      _ shouldBe Seq(("Pair", 0))
+    )
+  }
+
+  it should "reject type alias with lowercase name" in {
+    runEngineForErrors("type myInt = Int").asserting(_.size should be > 0)
+  }
+
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
     runGenerator(source, SourceAST.Key(file)).map(_._2)
 

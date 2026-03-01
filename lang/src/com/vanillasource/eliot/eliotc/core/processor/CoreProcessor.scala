@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{FunctionDefinition, SourceAST}
+import com.vanillasource.eliot.eliotc.ast.fact.{FunctionDefinition, SourceAST, Qualifier as AstQualifier}
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, *}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -39,7 +39,8 @@ class CoreProcessor
   private def transformFunction(function: FunctionDefinition): NamedValue = {
     import CoreExpressionConverter.*
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
-    val curriedValue = function.body.map(body => buildCurriedBody(function.args, body))
+    val isTypeBody   = function.name.value.qualifier == AstQualifier.Type
+    val curriedValue = function.body.map(body => buildCurriedBody(function.args, body, isTypeBody))
     val typeStack    = TypeStack.of(curriedType.value)
     val constraints  = function.genericParameters
       .map(gp =>
