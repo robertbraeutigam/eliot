@@ -109,11 +109,12 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                        Seq.empty[Value].pure[CompilerIO]
                      }
       _           <- checkTypeConsistency(typeChecked.signature, typeArgs, callSiteType, substitution, source)
-      result      <- if (isAbilityRef(vfqn.value) && typeArgs.nonEmpty)
-                       getFactOrAbort(AbilityImplementation.Key(vfqn.value, typeArgs.map(ConcreteValue(_))))
-                         .map(impl => MonomorphicExpression.MonomorphicValueReference(vfqn.as(impl.implementationFQN), Seq.empty))
-                     else
-                       MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs).pure[CompilerIO]
+      result      <-
+        if (isAbilityRef(vfqn.value) && typeArgs.nonEmpty)
+          getFactOrAbort(AbilityImplementation.Key(vfqn.value, typeArgs.map(ConcreteValue(_))))
+            .map(impl => MonomorphicExpression.MonomorphicValueReference(vfqn.as(impl.implementationFQN), Seq.empty))
+        else
+          MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs).pure[CompilerIO]
     } yield result
 
   private def isAbilityRef(vfqn: ValueFQN): Boolean =
@@ -208,8 +209,9 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       _          <- if (implType != callerType)
                       compilerAbort(
                         source.as(
-                          s"Type mismatch: expected '${showValueType(implType)}' but got '${showValueType(callerType)}'."
-                        )
+                          s"Type mismatch"
+                        ),
+                        Seq(s"Expected: ${showValueType(implType)}", s"Actual:   ${showValueType(callerType)}")
                       )
                     else ().pure[CompilerIO]
     } yield ()
@@ -221,7 +223,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
           val paramStr  = fields.get("A").map(showValueType).getOrElse("?")
           val returnStr = fields.get("B").map(showValueType).getOrElse("?")
           s"$paramStr -> $returnStr"
-        case _                                                                            =>
+        case _                                                                           =>
           Value.valueUserDisplay.show(value)
       }
     case _                                   => Value.valueUserDisplay.show(value)
