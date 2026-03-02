@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.kernel.Order.catsKernelOrderingForOrder
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{Expression as CoreExpression, QualifiedName, Qualifier, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
@@ -24,8 +24,8 @@ class DataMatchDesugarer(
       (constructorModule, dataTypeName) = moduleAndType
       allConstructors                  <- findAllConstructors(constructorModule, dataTypeName)
       _                                <- checkExhaustiveness(cases, allConstructors)
+      handleCasesFqn                   <- findHandleCasesImpl(constructorModule)
       orderedHandlers                  <- buildOrderedHandlers(scrutinee, cases, allConstructors)
-      handleCasesFqn                   <- findHandleCasesImpl(constructorModule, dataTypeName)
     } yield buildHandleCasesCall(scrutinee, handleCasesFqn, orderedHandlers)
 
   def buildFieldLambdas(
@@ -265,37 +265,18 @@ class DataMatchDesugarer(
       }
     }
 
-  /** Find the concrete handleCases implementation VFQN for the given data type. This looks up the module's names for a
-    * handleCases with AbilityImplementation qualifier matching PatternMatch and the data type name. This avoids going
-    * through the ability check system which cannot resolve generic type parameters.
-    */
-  private def findHandleCasesImpl(moduleName: ModuleName, dataTypeName: String): CompilerIO[ValueFQN] =
+  private def findHandleCasesImpl(constructorModule: ModuleName): CompilerIO[ValueFQN] =
     for {
-      moduleNames  <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
-      handleCasesQn = moduleNames.names.keys.collectFirst {
-                        case qn @ QualifiedName("handleCases", Qualifier.AbilityImplementation(abilityName, params))
-                            if abilityName.value === "PatternMatch" && extractBaseTypeName(params).contains(
-                              dataTypeName
-                            ) =>
-                          qn
-                      }
-      result       <- handleCasesQn match {
-                        case Some(qn) => ValueFQN(moduleName, qn).pure[CompilerIO]
-                        case None     => abort
-                      }
-    } yield result
-
-  /** Extract the base type name from an AbilityImplementation's parameters. The first parameter is the data type
-    * expression, which is either a simple NamedValueReference (non-generic) or a FunctionApplication chain where the
-    * head is the NamedValueReference (generic, e.g. Box[A]).
-    */
-  @scala.annotation.tailrec
-  private def extractBaseTypeName(params: Seq[com.vanillasource.eliot.eliotc.core.fact.Expression]): Option[String] =
-    params.headOption match {
-      case Some(CoreExpression.NamedValueReference(name, _, _)) => Some(name.value.name)
-      case Some(CoreExpression.FunctionApplication(target, _))  => extractBaseTypeName(Seq(target.value.signature))
-      case _                                                    => None
-    }
+      moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(constructorModule))
+    } yield moduleNames.names.keys
+      .find(qn =>
+        qn.name == "handleCases" && (qn.qualifier match {
+          case Qualifier.AbilityImplementation(abilityName, _) => abilityName.value == "PatternMatch"
+          case _                                               => false
+        })
+      )
+      .map(qn => ValueFQN(constructorModule, qn))
+      .getOrElse(throw RuntimeException(s"No PatternMatch handleCases implementation in module $constructorModule"))
 
   private def buildHandleCasesCall(
       scrutinee: Sourced[TypeStack[Expression]],

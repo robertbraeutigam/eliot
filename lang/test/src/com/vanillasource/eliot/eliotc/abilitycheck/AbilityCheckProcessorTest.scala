@@ -74,7 +74,7 @@ class AbilityCheckProcessorTest
       "ability Show[A] { def show(x: A): A }\ndef f[A](x: A): A = show(x)"
     ).asserting(
       _ shouldBe Seq(
-        "Cannot prove ability 'Show' is available for given type. (Ability implementations require concrete types for now)." at "show"
+        "Cannot prove ability 'Show' is available for given type." at "show"
       )
     )
   }

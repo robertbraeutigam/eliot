@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.Qualifier as CoreQualifier
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier as CoreQualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -108,17 +108,30 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                      } else {
                        Seq.empty[Value].pure[CompilerIO]
                      }
-      _           <- checkTypeConsistency(typeChecked.signature, typeArgs, callSiteType, substitution, source)
       result      <-
         if (isAbilityRef(vfqn.value) && typeArgs.nonEmpty)
-          getFactOrAbort(AbilityImplementation.Key(vfqn.value, typeArgs.map(ConcreteValue(_))))
-            .map(impl => MonomorphicExpression.MonomorphicValueReference(vfqn.as(impl.implementationFQN), Seq.empty))
+          for {
+            abilityTypeParamCount <- countAbilityTypeParams(vfqn.value)
+            abilityTypeArgs        = typeArgs.take(abilityTypeParamCount)
+            impl                  <-
+              getFactOrAbort(AbilityImplementation.Key(vfqn.value, abilityTypeArgs.map(ConcreteValue(_))))
+          } yield MonomorphicExpression.MonomorphicValueReference(vfqn.as(impl.implementationFQN), Seq.empty)
         else
-          MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs).pure[CompilerIO]
+          for {
+            _ <- checkTypeConsistency(typeChecked.signature, typeArgs, callSiteType, substitution, source)
+          } yield MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)
     } yield result
 
   private def isAbilityRef(vfqn: ValueFQN): Boolean =
     vfqn.name.qualifier.isInstanceOf[CoreQualifier.Ability]
+
+  private def countAbilityTypeParams(vfqn: ValueFQN): CompilerIO[Int] = {
+    val abilityName = vfqn.name.qualifier.asInstanceOf[CoreQualifier.Ability].name
+    val markerVFQN  =
+      ValueFQN(vfqn.moduleName, QualifiedName(abilityName, CoreQualifier.Ability(abilityName)))
+    getFactOrAbort(AbilityCheckedValue.Key(markerVFQN))
+      .map(marker => TypeEvaluator.extractBodyTypeParams(marker.signature).size)
+  }
 
   /** Infer concrete type arguments for a referenced value by matching the call-site type against the polymorphic
     * signature.

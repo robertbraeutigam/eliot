@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.abilitycheck
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.Qualifier as CoreQualifier
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier as CoreQualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
@@ -13,6 +13,8 @@ import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpression}
+
+import scala.annotation.tailrec
 
 class AbilityCheckProcessor
     extends TransformationProcessor[TypeCheckedValue.Key, AbilityCheckedValue.Key](key =>
@@ -71,24 +73,37 @@ class AbilityCheckProcessor
   ): CompilerIO[ValueFQN] = {
     val abilityLocalName = vfqn.value.name.qualifier.asInstanceOf[CoreQualifier.Ability].name
     for {
-      abilityChecked  <- getFactOrAbort(TypeCheckedValue.Key(vfqn.value))
-      typeArgExprs     = extractAbilityTypeArgs(abilityChecked.signature, concreteType)
-      hasParameterRefs = typeArgExprs.exists(containsParameterRef)
-      result          <- if (hasParameterRefs) {
-                           if (isProvedByConstraint(vfqn.value, typeArgExprs, paramConstraints))
-                             vfqn.value.pure[CompilerIO]
-                           else
-                             compilerAbort[ValueFQN](
-                               vfqn.as(
-                                 s"Cannot prove ability '$abilityLocalName' is available for given type. (Ability implementations require concrete types for now)."
-                               )
-                             )
-                         } else {
-                           for {
-                             impl <- getFactOrAbort(AbilityImplementation.Key(vfqn.value, typeArgExprs))
-                           } yield impl.implementationFQN
-                         }
+      abilityChecked        <- getFactOrAbort(TypeCheckedValue.Key(vfqn.value))
+      allTypeArgExprs        = extractAbilityTypeArgs(abilityChecked.signature, concreteType)
+      abilityTypeParamCount <- countAbilityTypeParams(vfqn.value)
+      abilityTypeArgs        = allTypeArgExprs.take(abilityTypeParamCount)
+      allConcrete            = abilityTypeArgs.forall(hasConcreteTopLevelConstructor)
+      allFullyConcrete       = abilityTypeArgs.forall(isFullyConcrete)
+      result                <- if (allFullyConcrete) {
+                                 getFactOrAbort(AbilityImplementation.Key(vfqn.value, abilityTypeArgs))
+                                   .map(_.implementationFQN)
+                               } else if (allConcrete) {
+                                 // Top-level type constructors are concrete but contain type parameters.
+                                 // Keep the ability VFQN and let monomorphize resolve when types are fully concrete.
+                                 vfqn.value.pure[CompilerIO]
+                               } else if (isProvedByConstraint(vfqn.value, abilityTypeArgs, paramConstraints)) {
+                                 vfqn.value.pure[CompilerIO]
+                               } else {
+                                 compilerAbort[ValueFQN](
+                                   vfqn.as(
+                                     s"Cannot prove ability '$abilityLocalName' is available for given type."
+                                   )
+                                 )
+                               }
     } yield result
+  }
+
+  private def countAbilityTypeParams(vfqn: ValueFQN): CompilerIO[Int] = {
+    val abilityName = vfqn.name.qualifier.asInstanceOf[CoreQualifier.Ability].name
+    val markerVFQN  =
+      ValueFQN(vfqn.moduleName, QualifiedName(abilityName, CoreQualifier.Ability(abilityName)))
+    getFactOrAbort(TypeCheckedValue.Key(markerVFQN))
+      .map(marker => ExpressionValue.extractLeadingLambdaParams(marker.signature).size)
   }
 
   /** Returns true if the ability call's type arguments are all covered by a matching ability constraint on the
@@ -132,14 +147,18 @@ class AbilityCheckProcessor
       .map((name, _) => bindings.getOrElse(name, ExpressionValue.ParameterReference(name, Value.Type)))
   }
 
-  /** Returns true if the ExpressionValue contains any ParameterReference node, indicating it depends on a type variable
-    * (either a universal from the enclosing function, or an unresolved unification var).
-    */
-  private def containsParameterRef(expr: ExpressionValue): Boolean =
+  @tailrec
+  private def hasConcreteTopLevelConstructor(expr: ExpressionValue): Boolean =
     expr match {
-      case ExpressionValue.ParameterReference(_, _)    => true
-      case ExpressionValue.FunctionApplication(t, a)   => containsParameterRef(t) || containsParameterRef(a)
-      case ExpressionValue.FunctionLiteral(_, _, body) => containsParameterRef(body)
-      case _                                           => false
+      case ExpressionValue.ConcreteValue(_)               => true
+      case ExpressionValue.FunctionApplication(target, _) => hasConcreteTopLevelConstructor(target)
+      case _                                              => false
+    }
+
+  private def isFullyConcrete(expr: ExpressionValue): Boolean =
+    expr match {
+      case ExpressionValue.ConcreteValue(_)                 => true
+      case ExpressionValue.FunctionApplication(target, arg) => isFullyConcrete(target) && isFullyConcrete(arg)
+      case _                                                => false
     }
 }
