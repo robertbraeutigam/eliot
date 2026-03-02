@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.Qualifier as CoreQualifier
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -108,6 +108,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                      } else {
                        Seq.empty[Value].pure[CompilerIO]
                      }
+      _           <- checkTypeConsistency(typeChecked.signature, typeArgs, callSiteType, substitution, source)
       result      <- if (isAbilityRef(vfqn.value) && typeArgs.nonEmpty)
                        getFactOrAbort(AbilityImplementation.Key(vfqn.value, typeArgs.map(ConcreteValue(_))))
                          .map(impl => MonomorphicExpression.MonomorphicValueReference(vfqn.as(impl.implementationFQN), Seq.empty))
@@ -189,4 +190,40 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       transformed  <-
         transformExpression(typed.value.expression, typed.value.expressionType, substitution, typed)
     } yield typed.as(MonomorphicExpression(concreteType, transformed))
+
+  private def checkTypeConsistency(
+      implSignature: ExpressionValue,
+      typeArgs: Seq[Value],
+      callSiteType: ExpressionValue,
+      substitution: Map[String, Value],
+      source: Sourced[?]
+  ): CompilerIO[Unit] =
+    for {
+      implType   <- TypeEvaluator.evaluate(
+                      TypeEvaluator.stripNonBodyUniversals(implSignature),
+                      typeArgs,
+                      source
+                    )
+      callerType <- TypeEvaluator.evaluateWithSubstitution(callSiteType, substitution, source)
+      _          <- if (implType != callerType)
+                      compilerAbort(
+                        source.as(
+                          s"Type mismatch: expected '${showValueType(implType)}' but got '${showValueType(callerType)}'."
+                        )
+                      )
+                    else ().pure[CompilerIO]
+    } yield ()
+
+  private def showValueType(value: Value): String = value match {
+    case Value.Structure(fields, Value.Type) =>
+      fields.get("$typeName") match {
+        case Some(Value.Direct(vfqn: ValueFQN, _)) if vfqn === Types.functionDataTypeFQN =>
+          val paramStr  = fields.get("A").map(showValueType).getOrElse("?")
+          val returnStr = fields.get("B").map(showValueType).getOrElse("?")
+          s"$paramStr -> $returnStr"
+        case _                                                                            =>
+          Value.valueUserDisplay.show(value)
+      }
+    case _                                   => Value.valueUserDisplay.show(value)
+  }
 }
