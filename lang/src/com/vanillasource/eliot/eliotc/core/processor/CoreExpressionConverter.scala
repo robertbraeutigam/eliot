@@ -130,9 +130,9 @@ object CoreExpressionConverter {
           constructorName.map(n => QualifiedName(n, qualifier)),
           subPatterns.map(_.map(toPattern))
         )
-      case SourcePattern.VariablePattern(name)                                       =>
+      case SourcePattern.VariablePattern(name)                                                       =>
         Pattern.VariablePattern(name)
-      case SourcePattern.WildcardPattern(source)                                     =>
+      case SourcePattern.WildcardPattern(source)                                                     =>
         Pattern.WildcardPattern(source)
     }
 
