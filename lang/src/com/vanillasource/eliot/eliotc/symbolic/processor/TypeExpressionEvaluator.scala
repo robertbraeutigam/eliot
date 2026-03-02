@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.data.{NonEmptySeq, StateT}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.core.fact.{Qualifier as CoreQualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
@@ -201,8 +201,29 @@ object TypeExpressionEvaluator {
       } else {
         StateT
           .liftF(Evaluator.evaluateValueToNormalForm(vfqn.value, vfqn))
-          .map(exprValue => TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)))
+          .flatMap { exprValue =>
+            if (isAbstractAbilityType(exprValue, vfqn.value)) {
+              generateUnificationVar.map(uniVar => TypedExpression(uniVar, TypedExpression.ValueReference(vfqn)))
+            } else {
+              TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
+            }
+          }
       }
+    }
+
+  /** Detect abstract ability type aliases: they have an Ability qualifier and evaluate to a bare data type marker
+    * (meaning they have no body to reduce). These should be treated as unification variables in the symbolic phase,
+    * since their concrete type is determined by the ability implementation.
+    */
+  private def isAbstractAbilityType(exprValue: ExpressionValue, vfqn: ValueFQN): Boolean =
+    vfqn.name.qualifier match {
+      case _: CoreQualifier.Ability =>
+        exprValue match {
+          case ConcreteValue(Value.Structure(fields, Value.Type)) =>
+            fields.size == 1 && fields.contains("$typeName")
+          case _                                                  => false
+        }
+      case _                        => false
     }
 
   /** Function application in type position: A(B) means A parameterized by B */

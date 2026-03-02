@@ -9,7 +9,7 @@ data Name(name: String)
 implement AssociatedType[Name] {
    type MagicType = String
 
-   def handle(value: T, param: MagicType): String = "Hello"
+   def handle(value: Name, param: MagicType): String = "Hello"
 }
 
 def main: IO[Unit] = println(handle(Name("Johnny"), "X"))
