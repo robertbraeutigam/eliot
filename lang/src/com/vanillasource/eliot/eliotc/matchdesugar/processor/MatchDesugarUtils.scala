@@ -31,6 +31,6 @@ object MatchDesugarUtils {
     pattern match {
       case Pattern.ConstructorPattern(ctor, subs) =>
         ctor.value +: subs.flatMap(s => collectConstructorPatterns(s.value))
-      case _ => Seq.empty
+      case _                                      => Seq.empty
     }
 }

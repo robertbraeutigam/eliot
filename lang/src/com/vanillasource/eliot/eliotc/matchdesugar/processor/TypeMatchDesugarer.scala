@@ -11,7 +11,11 @@ import MatchDesugarUtils.*
 
 class TypeMatchDesugarer(
     desugarInTypeStack: Sourced[TypeStack[Expression]] => CompilerIO[Sourced[TypeStack[Expression]]],
-    buildFieldLambdas: (Sourced[TypeStack[Expression]], Seq[Sourced[Pattern]], Sourced[TypeStack[Expression]]) => CompilerIO[Sourced[TypeStack[Expression]]]
+    buildFieldLambdas: (
+        Sourced[TypeStack[Expression]],
+        Seq[Sourced[Pattern]],
+        Sourced[TypeStack[Expression]]
+    ) => CompilerIO[Sourced[TypeStack[Expression]]]
 ) {
 
   def desugar(
@@ -43,8 +47,9 @@ class TypeMatchDesugarer(
       wildcardBody: Sourced[TypeStack[Expression]]
   ): Expression = {
     val (vfqn, handler) = cases.head
-    val elseLambdaBody  = if (cases.tail.isEmpty) wildcardBody
-                          else wrapExpr(scrutinee, chainTypeMatches(scrutinee, cases.tail, wildcardBody))
+    val elseLambdaBody  =
+      if (cases.tail.isEmpty) wildcardBody
+      else wrapExpr(scrutinee, chainTypeMatches(scrutinee, cases.tail, wildcardBody))
     val elseCase        = wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, elseLambdaBody))
     buildTypeMatchExpression(scrutinee, vfqn, handler, elseCase)
   }
@@ -56,10 +61,11 @@ class TypeMatchDesugarer(
     val Pattern.ConstructorPattern(_, subPatterns) = ctorCase.pattern.value: @unchecked
     for {
       desugaredBody <- desugarInTypeStack(ctorCase.body)
-      handler       <- if (subPatterns.isEmpty)
-                          wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody)).pure[CompilerIO]
-                        else
-                          buildFieldLambdas(scrutinee, subPatterns, desugaredBody)
+      handler       <-
+        if (subPatterns.isEmpty)
+          wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody)).pure[CompilerIO]
+        else
+          buildFieldLambdas(scrutinee, subPatterns, desugaredBody)
     } yield handler
   }
 
@@ -71,7 +77,11 @@ class TypeMatchDesugarer(
   ): Expression = {
     val typeMatchName = s"typeMatch${ctorVfqn.name.name}"
     val typeMatchFqn  = ValueFQN(ctorVfqn.moduleName, QualifiedName(typeMatchName, Qualifier.Default))
-    buildCurriedCall(scrutinee, Expression.ValueReference(scrutinee.as(typeMatchFqn)), Seq(scrutinee, handler, elseCase))
+    buildCurriedCall(
+      scrutinee,
+      Expression.ValueReference(scrutinee.as(typeMatchFqn)),
+      Seq(scrutinee, handler, elseCase)
+    )
   }
 }
 

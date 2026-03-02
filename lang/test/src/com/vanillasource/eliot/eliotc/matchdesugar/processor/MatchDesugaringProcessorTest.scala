@@ -26,6 +26,14 @@ class MatchDesugaringProcessorTest
     ) {
   private val testMN = ModuleName2(Seq.empty, "Test")
 
+  override val systemImports = Seq(
+    SystemImport("Function", "data Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
+    SystemImport(
+      "PatternMatch",
+      "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}"
+    )
+  )
+
   "match desugaring" should "pass through values without match expressions" in {
     runEngineForValue("data T\ndef main: T = 1").asserting {
       case Some(IntLit(v)) => v shouldBe BigInt(1)
@@ -37,13 +45,14 @@ class MatchDesugaringProcessorTest
     runEngineForValue("data T\ndef main: T").asserting(_ shouldBe None)
   }
 
-  it should "desugar match on nullary constructors to handleWith call" in {
+  it should "desugar match on nullary constructors to handleCases call" in {
     runEngineForValue(
       "data Bool = True | False\ndef main: Bool = True match { case True -> True case False -> False }"
     ).asserting {
-      case Some(FunApp(FunApp(FunApp(ValRef(hw), ValRef(scrutinee)), FunLit("_", ValRef(trueBody))), FunLit("_", ValRef(falseBody)))) =>
-        hw shouldBe vfqn("handleBoolWith")
+      case Some(FunApp(FunApp(ValRef(hc), ValRef(scrutinee)), FunLit("$selector", FunApp(FunApp(ParamRef(sel), FunLit("_", ValRef(trueBody))), FunLit("_", ValRef(falseBody)))))) =>
+        isHandleCases(hc) shouldBe true
         scrutinee shouldBe vfqn("True")
+        sel shouldBe "$selector"
         trueBody shouldBe vfqn("True")
         falseBody shouldBe vfqn("False")
       case x =>
@@ -55,8 +64,9 @@ class MatchDesugaringProcessorTest
     runEngineForValue(
       "data Color = Red | Green | Blue\ndef main: Color = Red match { case Blue -> Blue case Red -> Red case Green -> Green }"
     ).asserting {
-      case Some(FunApp(FunApp(FunApp(FunApp(ValRef(hw), _), FunLit("_", ValRef(first))), FunLit("_", ValRef(second))), FunLit("_", ValRef(third)))) =>
-        hw shouldBe vfqn("handleColorWith")
+      case Some(FunApp(FunApp(ValRef(hc), _), FunLit("$selector", FunApp(FunApp(FunApp(ParamRef(sel), FunLit("_", ValRef(first))), FunLit("_", ValRef(second))), FunLit("_", ValRef(third)))))) =>
+        isHandleCases(hc) shouldBe true
+        sel shouldBe "$selector"
         first shouldBe vfqn("Red")
         second shouldBe vfqn("Green")
         third shouldBe vfqn("Blue")
@@ -69,9 +79,10 @@ class MatchDesugaringProcessorTest
     runEngineForValue(
       "data Maybe = Nothing | Just(value: Maybe)\ndef main: Maybe = Nothing match { case Nothing -> Nothing case Just(v) -> v }"
     ).asserting {
-      case Some(FunApp(FunApp(FunApp(ValRef(hw), ValRef(scrutinee)), FunLit("_", ValRef(nothingBody))), FunLit("v", ParamRef(paramName)))) =>
-        hw shouldBe vfqn("handleMaybeWith")
+      case Some(FunApp(FunApp(ValRef(hc), ValRef(scrutinee)), FunLit("$selector", FunApp(FunApp(ParamRef(sel), FunLit("_", ValRef(nothingBody))), FunLit("v", ParamRef(paramName)))))) =>
+        isHandleCases(hc) shouldBe true
         scrutinee shouldBe vfqn("Nothing")
+        sel shouldBe "$selector"
         nothingBody shouldBe vfqn("Nothing")
         paramName shouldBe "v"
       case x =>
@@ -83,8 +94,9 @@ class MatchDesugaringProcessorTest
     runEngineForValue(
       "data Pair = MkPair(first: Pair, second: Pair) | Empty\ndef main: Pair = Empty match { case MkPair(a, b) -> a case Empty -> Empty }"
     ).asserting {
-      case Some(FunApp(FunApp(FunApp(ValRef(hw), ValRef(_)), FunLit("a", FunLit("b", ParamRef(innerParam)))), FunLit("_", ValRef(emptyBody)))) =>
-        hw shouldBe vfqn("handlePairWith")
+      case Some(FunApp(FunApp(ValRef(hc), ValRef(_)), FunLit("$selector", FunApp(FunApp(ParamRef(sel), FunLit("a", FunLit("b", ParamRef(innerParam)))), FunLit("_", ValRef(emptyBody)))))) =>
+        isHandleCases(hc) shouldBe true
+        sel shouldBe "$selector"
         innerParam shouldBe "a"
         emptyBody shouldBe vfqn("Empty")
       case x =>
@@ -96,8 +108,9 @@ class MatchDesugaringProcessorTest
     runEngineForValue(
       "data Color = Red | Green | Blue\ndef main: Color = Red match { case Red -> Red case _ -> Green }"
     ).asserting {
-      case Some(FunApp(FunApp(FunApp(FunApp(ValRef(hw), _), FunLit("_", ValRef(redBody))), FunLit("_", ValRef(greenBody))), FunLit("_", ValRef(blueBody)))) =>
-        hw shouldBe vfqn("handleColorWith")
+      case Some(FunApp(FunApp(ValRef(hc), _), FunLit("$selector", FunApp(FunApp(FunApp(ParamRef(sel), FunLit("_", ValRef(redBody))), FunLit("_", ValRef(greenBody))), FunLit("_", ValRef(blueBody)))))) =>
+        isHandleCases(hc) shouldBe true
+        sel shouldBe "$selector"
         redBody shouldBe vfqn("Red")
         greenBody shouldBe vfqn("Green")
         blueBody shouldBe vfqn("Green")
@@ -110,8 +123,9 @@ class MatchDesugaringProcessorTest
     runEngineForValue(
       "data Maybe = Nothing | Just(value: Maybe)\ndef main: Maybe = Nothing match { case Nothing -> Nothing case _ -> Nothing }"
     ).asserting {
-      case Some(FunApp(FunApp(FunApp(ValRef(hw), _), FunLit("_", ValRef(nothingBody))), FunLit("_", ValRef(justBody)))) =>
-        hw shouldBe vfqn("handleMaybeWith")
+      case Some(FunApp(FunApp(ValRef(hc), _), FunLit("$selector", FunApp(FunApp(ParamRef(sel), FunLit("_", ValRef(nothingBody))), FunLit("_", ValRef(justBody)))))) =>
+        isHandleCases(hc) shouldBe true
+        sel shouldBe "$selector"
         nothingBody shouldBe vfqn("Nothing")
         justBody shouldBe vfqn("Nothing")
       case x =>
@@ -123,8 +137,8 @@ class MatchDesugaringProcessorTest
     runEngineForValue(
       "data Bool = True | False\ndef main: Bool = b: Bool -> b match { case True -> True case False -> False }"
     ).asserting {
-      case Some(FunLit("b", FunApp(FunApp(FunApp(ValRef(hw), ParamRef(scrutinee)), _), _))) =>
-        hw shouldBe vfqn("handleBoolWith")
+      case Some(FunLit("b", FunApp(FunApp(ValRef(hc), ParamRef(scrutinee)), FunLit("$selector", _)))) =>
+        isHandleCases(hc) shouldBe true
         scrutinee shouldBe "b"
       case x =>
         fail(s"unexpected: $x")
@@ -135,13 +149,15 @@ class MatchDesugaringProcessorTest
     runEngineForValue(
       "data Inner = MkInner\ndata Outer = Wrap(inner: Inner) | Empty\ndef main: Outer = Empty match { case Wrap(MkInner) -> Empty case Empty -> Empty }"
     ).asserting {
-      case Some(FunApp(FunApp(FunApp(ValRef(outerHw), _), wrapHandler), FunLit("_", ValRef(emptyBody)))) =>
-        outerHw shouldBe vfqn("handleOuterWith")
+      case Some(FunApp(FunApp(ValRef(outerHc), _), FunLit("$selector", FunApp(FunApp(ParamRef(outerSel), wrapHandler), FunLit("_", ValRef(emptyBody)))))) =>
+        isHandleCases(outerHc) shouldBe true
+        outerSel shouldBe "$selector"
         emptyBody shouldBe vfqn("Empty")
         wrapHandler match {
-          case FunLit("$match_field", FunApp(FunApp(ValRef(innerHw), ParamRef(innerScrutinee)), FunLit("_", ValRef(mkInnerBody)))) =>
-            innerHw shouldBe vfqn("handleInnerWith")
+          case FunLit("$match_field", FunApp(FunApp(ValRef(innerHc), ParamRef(innerScrutinee)), FunLit("$selector", FunApp(ParamRef(innerSel), FunLit("_", ValRef(mkInnerBody)))))) =>
+            isHandleCases(innerHc) shouldBe true
             innerScrutinee shouldBe "$match_field"
+            innerSel shouldBe "$selector"
             mkInnerBody shouldBe vfqn("Empty")
           case x =>
             fail(s"unexpected Wrap handler: $x")
@@ -222,6 +238,14 @@ class MatchDesugaringProcessorTest
 
   private def vfqn(name: String): ValueFQN =
     ValueFQN(testMN, QualifiedName(name, Qualifier.Default))
+
+  private def isHandleCases(vfqn: ValueFQN): Boolean =
+    vfqn.moduleName == testMN &&
+      vfqn.name.name == "handleCases" &&
+      (vfqn.name.qualifier match {
+        case Qualifier.AbilityImplementation(abilityName, _) => abilityName.value == "PatternMatch"
+        case _                                               => false
+      })
 
   private def runEngineForValue(source: String): IO[Option[MatchDesugaredExpression]] =
     runGenerator(

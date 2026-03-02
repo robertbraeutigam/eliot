@@ -342,33 +342,43 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  "type-specific eliminator" should "be generated for union data" in {
+  "PatternMatch ability implementation" should "be generated for union data" in {
     namedValues("data Maybe = Nothing | Just(value: A)").asserting { nvs =>
-      nvs.map(_.qualifiedName.value) should contain(QualifiedName("handleMaybeWith", Qualifier.Default))
+      findByNameAndImplQualifier(nvs, "handleCases") should not be empty
     }
   }
 
   it should "be generated for single-constructor data with fields" in {
     namedValues("data Box[A](value: A)").asserting { nvs =>
-      nvs.map(_.qualifiedName.value) should contain(QualifiedName("handleBoxWith", Qualifier.Default))
+      findByNameAndImplQualifier(nvs, "handleCases") should not be empty
+    }
+  }
+
+  it should "generate impl marker, Cases type, and handleCases" in {
+    namedValues("data Box[A](value: A)").asserting { nvs =>
+      findByNameAndImplQualifier(nvs, "PatternMatch") should not be empty
+      findByNameAndImplQualifier(nvs, "Cases") should not be empty
+      findByNameAndImplQualifier(nvs, "handleCases") should not be empty
     }
   }
 
   it should "not be generated for abstract data" in {
     namedValues("data Abstract").asserting { nvs =>
-      nvs.map(_.qualifiedName.value).filter(_.name.startsWith("handle")) shouldBe empty
+      findByNameAndImplQualifier(nvs, "handleCases") shouldBe empty
     }
   }
 
-  it should "have public visibility" in {
-    namedValue("data Box[A](value: A)", QualifiedName("handleBoxWith", Qualifier.Default)).asserting { nv =>
-      nv.visibility shouldBe Visibility.Public
+  it should "have public visibility for handleCases" in {
+    namedValues("data Box[A](value: A)").asserting { nvs =>
+      findByNameAndImplQualifier(nvs, "handleCases").head.visibility shouldBe Visibility.Public
     }
   }
 
-  it should "have correct type for single-constructor data" in {
-    namedValue("data Box[A](value: A)", QualifiedName("handleBoxWith", Qualifier.Default)).asserting { nv =>
-      // handleBoxWith[A, R](obj: Box[A], boxCase: Function[A, R]): R
+  it should "have correct type for handleCases on single-constructor data" in {
+    namedValues("data Box[A](value: A)").asserting { nvs =>
+      val nv = findByNameAndImplQualifier(nvs, "handleCases").head
+      // handleCases[A, R](value: Box[A], cases: Function[Function[Function[A, R], R], R]): R
+      val churchCasesType = App(App(Ref("Function", T), App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("A", T)), Ref("R", T))), Ref("R", T))), Ref("R", T))
       nv.typeStack.signatureStructure shouldBe Lambda(
         "A",
         Ref("Type", T),
@@ -377,58 +387,32 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
           Ref("Type", T),
           App(
             App(Ref("Function", T), App(Ref("Box", T), Ref("A", T))),
-            App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("A", T)), Ref("R", T))), Ref("R", T))
+            App(App(Ref("Function", T), churchCasesType), Ref("R", T))
           )
         )
       )
     }
   }
 
-  it should "have correct type for union data with fieldless constructor" in {
-    namedValue("data Maybe[A] = Nothing | Just(value: A)", QualifiedName("handleMaybeWith", Qualifier.Default)).asserting {
-      nv =>
-        // handleMaybeWith[A, R](obj: Maybe[A], nothingCase: Function[Unit, R], justCase: Function[A, R]): R
-        nv.typeStack.signatureStructure shouldBe Lambda(
-          "A",
-          Ref("Type", T),
-          Lambda(
-            "R",
-            Ref("Type", T),
-            App(
-              App(Ref("Function", T), App(Ref("Maybe", T), Ref("A", T))),
-              App(
-                App(Ref("Function", T), App(App(Ref("Function", T), Ref("Unit", T)), Ref("R", T))),
-                App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("A", T)), Ref("R", T))), Ref("R", T))
-              )
-            )
-          )
-        )
+  it should "have abstract Cases type for single-constructor data" in {
+    namedValues("data Box[A](value: A)").asserting { nvs =>
+      val nv = findByNameAndImplQualifier(nvs, "Cases").head
+      nv.runtime shouldBe None
     }
   }
 
-  it should "have correct type for enum-like data" in {
-    namedValue("data Color = Red | Green | Blue", QualifiedName("handleColorWith", Qualifier.Default)).asserting { nv =>
-      // handleColorWith[R](obj: Color, redCase: Function[Unit, R], greenCase: Function[Unit, R], blueCase: Function[Unit, R]): R
-      nv.typeStack.signatureStructure shouldBe Lambda(
-        "R",
-        Ref("Type", T),
-        App(
-          App(Ref("Function", T), Ref("Color", T)),
-          App(
-            App(Ref("Function", T), App(App(Ref("Function", T), Ref("Unit", T)), Ref("R", T))),
-            App(
-              App(Ref("Function", T), App(App(Ref("Function", T), Ref("Unit", T)), Ref("R", T))),
-              App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("Unit", T)), Ref("R", T))), Ref("R", T))
-            )
-          )
-        )
-      )
+  it should "have abstract Cases type for enum-like data" in {
+    namedValues("data Color = Red | Green | Blue").asserting { nvs =>
+      val nv = findByNameAndImplQualifier(nvs, "Cases").head
+      nv.runtime shouldBe None
     }
   }
 
   it should "avoid clashing result parameter name with existing generic parameter R" in {
-    namedValue("data Foo[R](value: R)", QualifiedName("handleFooWith", Qualifier.Default)).asserting { nv =>
-      // handleFooWith[R, R0](obj: Foo[R], fooCase: Function[R, R0]): R0
+    namedValues("data Foo[R](value: R)").asserting { nvs =>
+      val nv = findByNameAndImplQualifier(nvs, "handleCases").head
+      // handleCases[R, R0](value: Foo[R], cases: Function[Function[Function[R, R0], R0], R0]): R0
+      val churchCasesType = App(App(Ref("Function", T), App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("R", T)), Ref("R0", T))), Ref("R0", T))), Ref("R0", T))
       nv.typeStack.signatureStructure shouldBe Lambda(
         "R",
         Ref("Type", T),
@@ -437,16 +421,16 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
           Ref("Type", T),
           App(
             App(Ref("Function", T), App(Ref("Foo", T), Ref("R", T))),
-            App(App(Ref("Function", T), App(App(Ref("Function", T), Ref("R", T)), Ref("R0", T))), Ref("R0", T))
+            App(App(Ref("Function", T), churchCasesType), Ref("R0", T))
           )
         )
       )
     }
   }
 
-  it should "have abstract body" in {
-    namedValue("data Box[A](value: A)", QualifiedName("handleBoxWith", Qualifier.Default)).asserting { nv =>
-      nv.runtime shouldBe None
+  it should "have abstract body for handleCases" in {
+    namedValues("data Box[A](value: A)").asserting { nvs =>
+      findByNameAndImplQualifier(nvs, "handleCases").head.runtime shouldBe None
     }
   }
 
@@ -602,6 +586,11 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       case FlatExpression(parts)                    => Flat(parts.map(_.value.signature.structure))
     }
   }
+
+  private def findByNameAndImplQualifier(nvs: Seq[NamedValue], name: String): Seq[NamedValue] =
+    nvs.filter { nv =>
+      nv.qualifiedName.value.name == name && nv.qualifiedName.value.qualifier.isInstanceOf[Qualifier.AbilityImplementation]
+    }
 
   private def namedValue(source: String, name: QualifiedName = QualifiedName("f", Qualifier.Default)): IO[NamedValue] =
     runEngineForCoreAST(source).map(_.namedValues.find(_.qualifiedName.value == name).get)

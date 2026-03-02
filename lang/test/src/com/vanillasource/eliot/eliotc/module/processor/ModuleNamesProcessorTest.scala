@@ -31,15 +31,15 @@ class ModuleNamesProcessorTest
   }
 
   it should "extract constructor and accessor names from data with fields" in {
-    runEngineForNames("data Person(name: Name)").asserting(
-      _ shouldBe Set(
-        QualifiedName("Person", Qualifier.Type),
-        QualifiedName("Person", Qualifier.Default),
-        QualifiedName("name", Qualifier.Default),
-        QualifiedName("handlePersonWith", Qualifier.Default),
-        QualifiedName("typeMatchPerson", Qualifier.Default)
-      )
-    )
+    runEngineForNames("data Person(name: Name)").asserting { names =>
+      names should contain(QualifiedName("Person", Qualifier.Type))
+      names should contain(QualifiedName("Person", Qualifier.Default))
+      names should contain(QualifiedName("name", Qualifier.Default))
+      names should contain(QualifiedName("typeMatchPerson", Qualifier.Default))
+      names.exists(qn => qn.name == "PatternMatch" && qn.qualifier.isInstanceOf[Qualifier.AbilityImplementation]) shouldBe true
+      names.exists(qn => qn.name == "Cases" && qn.qualifier.isInstanceOf[Qualifier.AbilityImplementation]) shouldBe true
+      names.exists(qn => qn.name == "handleCases" && qn.qualifier.isInstanceOf[Qualifier.AbilityImplementation]) shouldBe true
+    }
   }
 
   it should "extract mixed function and data names" in {

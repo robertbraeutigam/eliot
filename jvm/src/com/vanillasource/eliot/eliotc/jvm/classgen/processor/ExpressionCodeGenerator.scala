@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.simpleType
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.convertToNestedClassName
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
@@ -14,6 +15,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.processor.AbilityImplGenerato
   abilityInterfaceVfqn,
   singletonInnerName
 }
+import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier as SymbolicQualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -103,7 +105,6 @@ object ExpressionCodeGenerator {
       case StringLiteral(stringLiteral)            => ??? // FIXME: we can't apply functions on this, right?
       case ParameterReference(parameterName)       =>
         // Function application on a parameter reference, so this needs to be a Function
-        // FIXME: This only works with 1-arguments now, since this needs to be a java.lang.Function
         for {
           parameterIndex <- getParameterIndex(parameterName.value)
           parameterType  <- getParameterType(parameterName.value)
@@ -111,11 +112,15 @@ object ExpressionCodeGenerator {
                               .whenA(parameterIndex.isEmpty || parameterType.isEmpty)
           _              <- methodGenerator
                               .addLoadVar[CompilationTypesIO](simpleType(parameterType.get.parameterType), parameterIndex.get)
-          // FIXME: this does not work when currying and it fails runtime, it is not detected here
-          classes        <- arguments.flatTraverse(expression =>
-                              createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
-                            )
-          _              <- methodGenerator.addCallToApply[CompilationTypesIO]()
+          classes        <- arguments.zipWithIndex.flatTraverse { (expression, idx) =>
+                              for {
+                                cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                _  <- methodGenerator.addCallToApply[CompilationTypesIO]()
+                                _  <- methodGenerator
+                                        .addCastTo[CompilationTypesIO](NativeType.systemFunctionValue)
+                                        .whenA(idx < arguments.size - 1)
+                              } yield cs
+                            }
           _              <- methodGenerator.addCastTo[CompilationTypesIO](
                               simpleType(expectedResultType)
                             )
@@ -131,6 +136,18 @@ object ExpressionCodeGenerator {
               sourcedCalledVfqn,
               calledVfqn,
               abilityName,
+              arguments,
+              expectedResultType
+            )
+          case Qualifier.AbilityImplementation(abilityName, _)
+              if abilityName.value === "PatternMatch" && calledVfqn.name.name === "handleCases" =>
+            generateConcreteAbilityImplCall(
+              moduleName,
+              outerClassGenerator,
+              methodGenerator,
+              sourcedCalledVfqn,
+              calledVfqn,
+              abilityName.value,
               arguments,
               expectedResultType
             )
@@ -210,6 +227,78 @@ object ExpressionCodeGenerator {
                             ).liftToTypes.as(Seq.empty)
                         }
     } yield resultClasses
+  }
+
+  private def generateConcreteAbilityImplCall(
+      moduleName: ModuleName,
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      sourcedCalledVfqn: Sourced[ValueFQN],
+      calledVfqn: ValueFQN,
+      abilityName: String,
+      arguments: Seq[UncurriedExpression],
+      expectedResultType: ExpressionValue
+  ): CompilationTypesIO[Seq[ClassFile]] =
+    for {
+      typeChecked <- getFactOrAbort(TypeCheckedValue.Key(calledVfqn)).liftToTypes
+      classes     <- typeChecked.name.value.qualifier match {
+                       case SymbolicQualifier.AbilityImplementation(abilityFQN, typeArgs) =>
+                         generatePatternMatchCall(
+                           moduleName,
+                           outerClassGenerator,
+                           methodGenerator,
+                           sourcedCalledVfqn,
+                           calledVfqn,
+                           abilityFQN,
+                           typeArgs,
+                           arguments,
+                           expectedResultType
+                         )
+                       case _                                                             =>
+                         compilerError(
+                           sourcedCalledVfqn.as("Expected AbilityImplementation qualifier for concrete ability call."),
+                           Seq.empty
+                         ).liftToTypes.as(Seq.empty)
+                     }
+    } yield classes
+
+  private def generatePatternMatchCall(
+      moduleName: ModuleName,
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      sourcedCalledVfqn: Sourced[ValueFQN],
+      calledVfqn: ValueFQN,
+      abilityFQN: AbilityFQN,
+      typeArgs: Seq[ExpressionValue],
+      arguments: Seq[UncurriedExpression],
+      expectedResultType: ExpressionValue
+  ): CompilationTypesIO[Seq[ClassFile]] = {
+    val singletonVfqn         = ValueFQN(
+      calledVfqn.moduleName,
+      QualifiedName(singletonInnerName(abilityFQN, typeArgs), Qualifier.Default)
+    )
+    val singletonInternalName = convertToNestedClassName(singletonVfqn)
+    for {
+      _       <- methodGenerator.addGetStaticInstance[CompilationTypesIO](
+                   singletonInternalName,
+                   "L" + singletonInternalName + ";"
+                 )
+      classes <- arguments.flatTraverse(expression =>
+                   createExpressionCode(
+                     moduleName,
+                     outerClassGenerator,
+                     methodGenerator,
+                     expression
+                   )
+                 )
+      _       <- methodGenerator.addCallToVirtualMethod[CompilationTypesIO](
+                   singletonInternalName,
+                   JvmIdentifier.encode("handleCases"),
+                   Seq(NativeType.systemAnyValue, NativeType.systemFunctionValue),
+                   NativeType.systemAnyValue
+                 )
+      _       <- methodGenerator.addCastTo[CompilationTypesIO](simpleType(expectedResultType))
+    } yield classes
   }
 
   private def generateNormalFunctionCall(

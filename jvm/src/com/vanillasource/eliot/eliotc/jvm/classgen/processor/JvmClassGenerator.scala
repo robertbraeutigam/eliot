@@ -7,8 +7,9 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.simpleType
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemUnitValue
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{extractSignatureTypes, simpleType}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{convertToNestedClassName, systemAnyValue, systemFunctionValue, systemUnitValue}
+import com.vanillasource.eliot.eliotc.jvm.classgen.processor.AbilityImplGenerator.{abilityInterfaceVfqn, singletonInnerName}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.DataClassGenerator.{constructorArity, constructorDataType, isConstructor, isTypeConstructor}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.ExpressionCodeGenerator.{computeDictParams, createExpressionCode}
@@ -47,52 +48,74 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                   getFact(UncurriedValue.Key(vfqn, stats.highestArity.getOrElse(0)))
                                     .map(_.map((vfqn, stats, _)))
                                 }
-      // Process each data type: check per-type eliminator usage, merge constructors, generate classes
+      // Find PatternMatch handleCases impls in usedValues and map to their data types
+      handleCasesImpls       <- usedValues.toSeq.traverseFilter { (vfqn, _) =>
+                                  vfqn.name.qualifier match {
+                                    case Qualifier.AbilityImplementation(abilityName, _)
+                                        if abilityName.value === "PatternMatch" && vfqn.name.name === "handleCases" =>
+                                      getFactOrAbort(TypeCheckedValue.Key(vfqn)).map { checked =>
+                                        checked.name.value.qualifier match {
+                                          case SymbolicQualifier.AbilityImplementation(abilityFQN, typeArgs) =>
+                                            Some((simpleType(typeArgs.head), (abilityFQN, typeArgs)))
+                                          case _                                                              =>
+                                            None
+                                        }
+                                      }
+                                    case _                                                                      =>
+                                      Option.empty.pure[CompilerIO]
+                                  }
+                                }
+      handleCasesByDataType   = handleCasesImpls.toMap
+      // Collect ALL PatternMatch impl VFQNs to exclude from normal processing
+      allPatternMatchVfqns    = usedValues.keys.filter { vfqn =>
+                                  vfqn.name.qualifier match {
+                                    case Qualifier.AbilityImplementation(name, _) => name.value === "PatternMatch"
+                                    case _                                        => false
+                                  }
+                                }.toSet
+      // Process each data type: check handleCases usage, merge constructors, generate classes
       dataResults            <- allCtorGroups.toSeq.traverse { (typeVFQ, allTypeCtors) =>
-                                  val typeName       = typeVFQ.name.name
-                                  val eliminatorName = s"handle${typeName}With"
-                                  val eliminatorVfqn = ValueFQN(key.moduleName, QualifiedName(eliminatorName, Qualifier.Default))
-                                  val eliminatorUsed = usedValues.contains(eliminatorVfqn)
-                                  val usedFromType   = usedCtorsInfo.filter(c => allTypeCtors.exists(_._1 === c._1))
-                                  if (!eliminatorUsed && usedFromType.isEmpty) {
+                                  val handleCasesUsed = handleCasesByDataType.contains(typeVFQ)
+                                  val usedFromType    = usedCtorsInfo.filter(c => allTypeCtors.exists(_._1 === c._1))
+                                  if (!handleCasesUsed && usedFromType.isEmpty) {
                                     (Seq.empty[ClassFile], Seq.empty[ValueFQN]).pure[CompilerIO]
                                   } else {
+                                    // When handleCases is used, include ALL constructors for virtual dispatch
+                                    val ctors = if (handleCasesUsed) {
+                                                  val usedVfqns = usedFromType.map(_._1).toSet
+                                                  usedFromType ++ allTypeCtors
+                                                    .filterNot((vfqn, _) => usedVfqns.contains(vfqn))
+                                                    .map { (vfqn, uv) =>
+                                                      val stats = usedValues.getOrElse(vfqn, UsageStats(Seq.empty, Map(0 -> 1)))
+                                                      (vfqn, stats, uv)
+                                                    }
+                                                } else {
+                                                  usedFromType
+                                                }
                                     for {
-                                      eliminatorUncurried <- if (eliminatorUsed) {
-                                                               val stats = usedValues(eliminatorVfqn)
-                                                               getFact(UncurriedValue.Key(eliminatorVfqn, stats.highestArity.getOrElse(0)))
-                                                             } else {
-                                                               Option.empty[UncurriedValue].pure[CompilerIO]
-                                                             }
-                                      // When eliminator is used, include ALL constructors for virtual dispatch
-                                      ctors                = if (eliminatorUsed) {
-                                                               val usedVfqns = usedFromType.map(_._1).toSet
-                                                               usedFromType ++ allTypeCtors
-                                                                 .filterNot((vfqn, _) => usedVfqns.contains(vfqn))
-                                                                 .map { (vfqn, uv) =>
-                                                                   val stats = usedValues.getOrElse(vfqn, UsageStats(Seq.empty, Map(0 -> 1)))
-                                                                   (vfqn, stats, uv)
-                                                                 }
-                                                             } else {
-                                                               usedFromType
-                                                             }
-                                      classes             <- if (ctors.size === 1) {
-                                                               val (vfqn, _, uv) = ctors.head
-                                                               DataClassGenerator.createSingleConstructorData[CompilerIO](
-                                                                 mainClassGenerator, vfqn, uv, eliminatorUncurried, eliminatorName
-                                                               )
-                                                             } else {
-                                                               DataClassGenerator.createMultiConstructorData[CompilerIO](
-                                                                 mainClassGenerator, typeVFQ,
-                                                                 ctors.map((v, _, uv) => (v, uv)),
-                                                                 eliminatorUncurried, eliminatorName
-                                                               )
-                                                             }
-                                      generatedFunctions   = {
-                                                               val ctorFunctions = ctors.map(_._1)
-                                                               ctorFunctions ++ (if (eliminatorUsed) Seq(eliminatorVfqn) else Seq.empty)
-                                                             }
-                                    } yield (classes, generatedFunctions)
+                                      classes          <- if (ctors.size === 1) {
+                                                            val (vfqn, _, uv) = ctors.head
+                                                            DataClassGenerator.createSingleConstructorData[CompilerIO](
+                                                              mainClassGenerator, vfqn, uv, handleCasesUsed
+                                                            )
+                                                          } else {
+                                                            DataClassGenerator.createMultiConstructorData[CompilerIO](
+                                                              mainClassGenerator, typeVFQ,
+                                                              ctors.map((v, _, uv) => (v, uv)),
+                                                              handleCasesUsed
+                                                            )
+                                                          }
+                                      singletonClasses <- if (handleCasesUsed) {
+                                                            val (abilityFQN, typeArgs) = handleCasesByDataType(typeVFQ)
+                                                            generatePatternMatchSingleton(
+                                                              mainClassGenerator, abilityFQN, typeArgs,
+                                                              typeVFQ, ctors.size === 1
+                                                            ).map(Seq(_))
+                                                          } else {
+                                                            Seq.empty[ClassFile].pure[CompilerIO]
+                                                          }
+                                      generatedFunctions = ctors.map(_._1)
+                                    } yield (classes ++ singletonClasses, generatedFunctions)
                                   }
                                 }
       dataClasses             = dataResults.flatMap(_._1)
@@ -147,7 +170,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                   DataClassGenerator.generateTypeInterface[CompilerIO]().map(Seq(_))
                                 } else Seq.empty[ClassFile].pure[CompilerIO]
       typeCtorGeneratedFns    = usedTypeCtorsWithUv.map(_._1) ++ typeMatchGenerated
-      allGeneratedFunctions   = dataGeneratedFunctions ++ typeCtorGeneratedFns
+      allGeneratedFunctions   = dataGeneratedFunctions ++ typeCtorGeneratedFns ++ allPatternMatchVfqns
       abilityInterfaces      <- createAbilityInterfaces(mainClassGenerator, key.moduleName)
       abilityImpls           <- createAbilityImplSingletons(mainClassGenerator, key.moduleName)
       functionFiles          <-
@@ -253,6 +276,69 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       case _                    => false
     }
 
+  private def generatePatternMatchSingleton(
+      mainClassGenerator: ClassGenerator,
+      abilityFQN: AbilityFQN,
+      typeArgs: Seq[ExpressionValue],
+      dataTypeVfqn: ValueFQN,
+      isSingleConstructor: Boolean
+  ): CompilerIO[ClassFile] = {
+    val innerClassName = singletonInnerName(abilityFQN, typeArgs)
+    val singletonVfqn = ValueFQN(mainClassGenerator.moduleName, QualifiedName(innerClassName, Qualifier.Default))
+    val dataTypeName  = convertToNestedClassName(dataTypeVfqn)
+
+    for {
+      // Create singleton class (no interface - standalone bridge)
+      singletonCg <- mainClassGenerator.createInnerClassGenerator[CompilerIO](
+                        JvmIdentifier.encode(innerClassName), Seq.empty
+                      )
+      _           <- singletonCg.createStaticFinalField[CompilerIO](JvmIdentifier("INSTANCE"), singletonVfqn)
+      _           <- singletonCg.createCtor[CompilerIO](Seq.empty).use { ctor =>
+                       ctor.addLoadThis[CompilerIO]() >> ctor.addCallToObjectCtor[CompilerIO]()
+                     }
+      _           <- singletonCg.createStaticInit[CompilerIO]().use { clinit =>
+                       clinit.addNew[CompilerIO](singletonVfqn) >>
+                         clinit.addCallToCtor[CompilerIO](singletonVfqn, Seq.empty) >>
+                         clinit.addPutStaticField[CompilerIO](JvmIdentifier("INSTANCE"), singletonVfqn)
+                     }
+      // Generate handleCases bridge: delegate to data type's instance method
+      _           <- singletonCg
+                       .createPublicInstanceMethod[CompilerIO](
+                         JvmIdentifier.encode("handleCases"),
+                         Seq(systemAnyValue, systemFunctionValue),
+                         systemAnyValue
+                       )
+                       .use { bridge =>
+                         for {
+                           // Load value (param index 1, after 'this')
+                           _ <- bridge.addLoadVar[CompilerIO](systemAnyValue, 1)
+                           // Cast to data type
+                           _ <- bridge.addCastTo[CompilerIO](dataTypeVfqn)
+                           // Load cases (param index 2)
+                           _ <- bridge.addLoadVar[CompilerIO](systemFunctionValue, 2)
+                           // Call data type's handleCases(cases) instance method
+                           _ <-
+                             if (isSingleConstructor) {
+                               bridge.addCallToVirtualMethod[CompilerIO](
+                                 dataTypeName,
+                                 JvmIdentifier.encode("handleCases"),
+                                 Seq(systemFunctionValue),
+                                 systemAnyValue
+                               )
+                             } else {
+                               bridge.addCallToAbilityMethod[CompilerIO](
+                                 dataTypeName,
+                                 JvmIdentifier.encode("handleCases"),
+                                 Seq(systemFunctionValue),
+                                 systemAnyValue
+                               )
+                             }
+                         } yield ()
+                       }
+      classFile   <- singletonCg.generate[CompilerIO]()
+    } yield classFile
+  }
+
   private def createAbilityInterfaces(
       mainClassGenerator: ClassGenerator,
       moduleName: ModuleName
@@ -294,6 +380,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                               }
                             }
       grouped             = implsWithAbility
+                              .filter { case (_, abilityFQN, _) => abilityFQN.abilityName =!= "PatternMatch" }
                               .groupMap { case (_, abilityFQN, typeArgs) => (abilityFQN, typeArgs) } {
                                 case (vfqn, _, _) => vfqn
                               }

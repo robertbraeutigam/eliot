@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.kernel.Order.catsKernelOrderingForOrder
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.{Expression as CoreExpression, QualifiedName, Qualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
@@ -20,14 +20,13 @@ class DataMatchDesugarer(
       cases: Seq[Expression.MatchCase]
   ): CompilerIO[Expression] =
     for {
-      moduleAndType   <- findConstructorModuleAndTypeName(cases)
+      moduleAndType                    <- findConstructorModuleAndTypeName(cases)
       (constructorModule, dataTypeName) = moduleAndType
-      allConstructors <- findAllConstructors(constructorModule, dataTypeName)
-      _               <- checkExhaustiveness(cases, allConstructors)
-      orderedHandlers <- buildOrderedHandlers(scrutinee, cases, allConstructors)
-      eliminatorName   = s"handle${dataTypeName}With"
-      handleWithVfqn   = ValueFQN(constructorModule, QualifiedName(eliminatorName, Qualifier.Default))
-    } yield buildHandleWithCall(scrutinee, handleWithVfqn, orderedHandlers)
+      allConstructors                  <- findAllConstructors(constructorModule, dataTypeName)
+      _                                <- checkExhaustiveness(cases, allConstructors)
+      orderedHandlers                  <- buildOrderedHandlers(scrutinee, cases, allConstructors)
+      handleCasesFqn                   <- findHandleCasesImpl(constructorModule, dataTypeName)
+    } yield buildHandleCasesCall(scrutinee, handleCasesFqn, orderedHandlers)
 
   def buildFieldLambdas(
       scrutinee: Sourced[TypeStack[Expression]],
@@ -35,11 +34,9 @@ class DataMatchDesugarer(
       body: Sourced[TypeStack[Expression]]
   ): CompilerIO[Sourced[TypeStack[Expression]]] =
     fieldPatterns match {
-      case Seq() => body.pure[CompilerIO]
+      case Seq()        => body.pure[CompilerIO]
       case init :+ last =>
-        buildFieldLambda(scrutinee, last, body).flatMap(innerBody =>
-          buildFieldLambdas(scrutinee, init, innerBody)
-        )
+        buildFieldLambda(scrutinee, last, body).flatMap(innerBody => buildFieldLambdas(scrutinee, init, innerBody))
     }
 
   private def findConstructorModuleAndTypeName(
@@ -53,7 +50,10 @@ class DataMatchDesugarer(
           umv          <- getFactOrAbort(UnifiedModuleValue.Key(vfqn))
           dataTypeName <- ConstructorTypeAnalyzer.extractDataTypeName(umv.namedValue.typeStack.signature) match {
                             case Some(name) => name.pure[CompilerIO]
-                            case None       => compilerAbort(umv.namedValue.qualifiedName.as("Could not determine data type for constructor."))
+                            case None       =>
+                              compilerAbort(
+                                umv.namedValue.qualifiedName.as("Could not determine data type for constructor.")
+                              )
                           }
         } yield (vfqn.moduleName, dataTypeName)
       case None       =>
@@ -68,19 +68,19 @@ class DataMatchDesugarer(
       dataTypeName: String
   ): CompilerIO[Seq[ValueFQN]] =
     for {
-      moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
+      moduleNames     <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
       constructorNames = moduleNames.names.keys
                            .filter(qn => qn.qualifier == Qualifier.Default && qn.name.head.isUpper)
                            .toSeq
       constructorVfqns = constructorNames.map(qn => ValueFQN(moduleName, qn))
-      ordered <- constructorVfqns.traverseFilter { vfqn =>
-                   getFactOrAbort(UnifiedModuleValue.Key(vfqn)).map { umv =>
-                     val typeName = ConstructorTypeAnalyzer.extractDataTypeName(umv.namedValue.typeStack.signature)
-                     Option.when(typeName.contains(dataTypeName))(
-                       (vfqn, umv.namedValue.qualifiedName.range.from)
-                     )
-                   }
-                 }
+      ordered         <- constructorVfqns.traverseFilter { vfqn =>
+                           getFactOrAbort(UnifiedModuleValue.Key(vfqn)).map { umv =>
+                             val typeName = ConstructorTypeAnalyzer.extractDataTypeName(umv.namedValue.typeStack.signature)
+                             Option.when(typeName.contains(dataTypeName))(
+                               (vfqn, umv.namedValue.qualifiedName.range.from)
+                             )
+                           }
+                         }
     } yield ordered.sortBy(_._2).map(_._1)
 
   private def checkExhaustiveness(
@@ -112,12 +112,14 @@ class DataMatchDesugarer(
       allConstructors: Seq[ValueFQN]
   ): CompilerIO[Seq[Sourced[TypeStack[Expression]]]] = {
     val casesByConstructor: Map[ValueFQN, Seq[Expression.MatchCase]] =
-      cases.flatMap { c =>
-        c.pattern.value match {
-          case Pattern.ConstructorPattern(ctor, _) => Some(ctor.value -> c)
-          case _                                   => None
+      cases
+        .flatMap { c =>
+          c.pattern.value match {
+            case Pattern.ConstructorPattern(ctor, _) => Some(ctor.value -> c)
+            case _                                   => None
+          }
         }
-      }.groupMap(_._1)(_._2)
+        .groupMap(_._1)(_._2)
 
     val wildcardCase = cases.find(c => bindingName(c.pattern.value).isDefined)
 
@@ -263,10 +265,54 @@ class DataMatchDesugarer(
       }
     }
 
-  private def buildHandleWithCall(
+  /** Find the concrete handleCases implementation VFQN for the given data type. This looks up the module's names for a
+    * handleCases with AbilityImplementation qualifier matching PatternMatch and the data type name. This avoids going
+    * through the ability check system which cannot resolve generic type parameters.
+    */
+  private def findHandleCasesImpl(moduleName: ModuleName, dataTypeName: String): CompilerIO[ValueFQN] =
+    for {
+      moduleNames  <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
+      handleCasesQn = moduleNames.names.keys.collectFirst {
+                        case qn @ QualifiedName("handleCases", Qualifier.AbilityImplementation(abilityName, params))
+                            if abilityName.value === "PatternMatch" && extractBaseTypeName(params).contains(
+                              dataTypeName
+                            ) =>
+                          qn
+                      }
+      result       <- handleCasesQn match {
+                        case Some(qn) => ValueFQN(moduleName, qn).pure[CompilerIO]
+                        case None     => abort
+                      }
+    } yield result
+
+  /** Extract the base type name from an AbilityImplementation's parameters. The first parameter is the data type
+    * expression, which is either a simple NamedValueReference (non-generic) or a FunctionApplication chain where the
+    * head is the NamedValueReference (generic, e.g. Box[A]).
+    */
+  @scala.annotation.tailrec
+  private def extractBaseTypeName(params: Seq[com.vanillasource.eliot.eliotc.core.fact.Expression]): Option[String] =
+    params.headOption match {
+      case Some(CoreExpression.NamedValueReference(name, _, _)) => Some(name.value.name)
+      case Some(CoreExpression.FunctionApplication(target, _))  => extractBaseTypeName(Seq(target.value.signature))
+      case _                                                    => None
+    }
+
+  private def buildHandleCasesCall(
       scrutinee: Sourced[TypeStack[Expression]],
-      handleWithVfqn: ValueFQN,
+      handleCasesFqn: ValueFQN,
       handlers: Seq[Sourced[TypeStack[Expression]]]
-  ): Expression =
-    buildCurriedCall(scrutinee, Expression.ValueReference(scrutinee.as(handleWithVfqn)), scrutinee +: handlers)
+  ): Expression = {
+    val selectorParam            = scrutinee.as("$selector")
+    // Build: $selector(h1)(h2)...
+    val selectorBody: Expression = handlers.foldLeft[Expression](
+      Expression.ParameterReference(selectorParam)
+    ) { (acc, handler) =>
+      Expression.FunctionApplication(wrapExpr(scrutinee, acc), handler)
+    }
+    // Build: \$selector -> $selector(h1)(h2)...
+    val casesLambda              =
+      wrapExpr(scrutinee, Expression.FunctionLiteral(selectorParam, None, wrapExpr(scrutinee, selectorBody)))
+    // Build: handleCases(scrutinee)(casesLambda)
+    buildCurriedCall(scrutinee, Expression.ValueReference(scrutinee.as(handleCasesFqn)), Seq(scrutinee, casesLambda))
+  }
 }
