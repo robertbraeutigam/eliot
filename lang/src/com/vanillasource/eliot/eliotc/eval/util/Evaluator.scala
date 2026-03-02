@@ -140,8 +140,7 @@ object Evaluator {
       }
     }
 
-  /** Evaluates an expression to its structural normal form. Like `evaluate`, but stops before applying
-    * NativeFunctions.
+  /** Evaluates an expression to its structural normal form. Like `evaluate`, but stops before applying NativeFunctions.
     */
   def evaluateToNormalForm(
       expression: Sourced[OperatorResolvedExpression],
@@ -200,7 +199,7 @@ object Evaluator {
                              case FunctionLiteral(paramName, paramType, body) =>
                                checkType(paramType, reducedArg, sourced) >>
                                  reduceToNormalForm(substitute(body, paramName, reducedArg), sourced)
-                             case _                                          =>
+                             case _                                           =>
                                FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
                            }
         } yield result
