@@ -31,6 +31,10 @@ class MatchDesugaringProcessorTest
     SystemImport(
       "PatternMatch",
       "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}"
+    ),
+    SystemImport(
+      "TypeMatch",
+      "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
     )
   )
 
@@ -190,7 +194,7 @@ class MatchDesugaringProcessorTest
       "data Type\ndata S\ndata Person[NAME: S]\ndef main: S = t: Type -> t match { case Person[name] -> name case _ -> 1 }"
     ).asserting {
       case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tm), ParamRef(scrutinee)), FunLit("name", ParamRef(nameParam))), FunLit("_", IntLit(fallback))))) =>
-        tm shouldBe vfqn("typeMatchPerson")
+        isTypeMatch(tm) shouldBe true
         scrutinee shouldBe "t"
         nameParam shouldBe "name"
         fallback shouldBe BigInt(1)
@@ -204,10 +208,10 @@ class MatchDesugaringProcessorTest
       "data Type\ndata S\ndata A[X: S]\ndata B[Y: S]\ndef main: S = t: Type -> t match { case A[x] -> x case B[y] -> y case _ -> 1 }"
     ).asserting {
       case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tmA), ParamRef(scrutineeA)), FunLit("x", ParamRef(xParam))), FunLit("_", FunApp(FunApp(FunApp(ValRef(tmB), ParamRef(scrutineeB)), FunLit("y", ParamRef(yParam))), FunLit("_", IntLit(fallback))))))) =>
-        tmA shouldBe vfqn("typeMatchA")
+        isTypeMatch(tmA) shouldBe true
         scrutineeA shouldBe "t"
         xParam shouldBe "x"
-        tmB shouldBe vfqn("typeMatchB")
+        isTypeMatch(tmB) shouldBe true
         scrutineeB shouldBe "t"
         yParam shouldBe "y"
         fallback shouldBe BigInt(1)
@@ -221,7 +225,7 @@ class MatchDesugaringProcessorTest
       "data Type\ndata S\ndata Foo\ndef main: S = t: Type -> t match { case Foo[] -> 1 case _ -> 2 }"
     ).asserting {
       case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tm), ParamRef(scrutinee)), FunLit("_", IntLit(matchBody))), FunLit("_", IntLit(fallback))))) =>
-        tm shouldBe vfqn("typeMatchFoo")
+        isTypeMatch(tm) shouldBe true
         scrutinee shouldBe "t"
         matchBody shouldBe BigInt(1)
         fallback shouldBe BigInt(2)
@@ -244,6 +248,13 @@ class MatchDesugaringProcessorTest
       vfqn.name.name == "handleCases" &&
       (vfqn.name.qualifier match {
         case Qualifier.AbilityImplementation(abilityName, _) => abilityName.value == "PatternMatch"
+        case _                                               => false
+      })
+
+  private def isTypeMatch(vfqn: ValueFQN): Boolean =
+    vfqn.name.name == "typeMatch" &&
+      (vfqn.name.qualifier match {
+        case Qualifier.AbilityImplementation(abilityName, _) => abilityName.value == "TypeMatch"
         case _                                               => false
       })
 

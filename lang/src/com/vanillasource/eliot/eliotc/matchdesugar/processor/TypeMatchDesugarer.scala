@@ -1,8 +1,8 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.core.fact.{Qualifier, TypeStack}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -34,7 +34,10 @@ class TypeMatchDesugarer(
           wildcardBody <- desugarInTypeStack(wc.body)
           handlers     <- constructorCases.traverse { ctorCase =>
                             val Pattern.ConstructorPattern(ctor, _) = ctorCase.pattern.value: @unchecked
-                            buildTypeMatchHandler(scrutinee, ctorCase).map(h => (ctor.value, h))
+                            for {
+                              handler      <- buildTypeMatchHandler(scrutinee, ctorCase)
+                              typeMatchFqn <- findTypeMatchImpl(ctor.value.moduleName)
+                            } yield (typeMatchFqn, handler)
                           }
         } yield chainTypeMatches(scrutinee, handlers, wildcardBody)
     }
@@ -46,12 +49,12 @@ class TypeMatchDesugarer(
       cases: Seq[(ValueFQN, Sourced[TypeStack[Expression]])],
       wildcardBody: Sourced[TypeStack[Expression]]
   ): Expression = {
-    val (vfqn, handler) = cases.head
-    val elseLambdaBody  =
+    val (typeMatchFqn, handler) = cases.head
+    val elseLambdaBody          =
       if (cases.tail.isEmpty) wildcardBody
       else wrapExpr(scrutinee, chainTypeMatches(scrutinee, cases.tail, wildcardBody))
-    val elseCase        = wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, elseLambdaBody))
-    buildTypeMatchExpression(scrutinee, vfqn, handler, elseCase)
+    val elseCase                = wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, elseLambdaBody))
+    buildTypeMatchExpression(scrutinee, typeMatchFqn, handler, elseCase)
   }
 
   private def buildTypeMatchHandler(
@@ -71,18 +74,28 @@ class TypeMatchDesugarer(
 
   private def buildTypeMatchExpression(
       scrutinee: Sourced[TypeStack[Expression]],
-      ctorVfqn: ValueFQN,
+      typeMatchFqn: ValueFQN,
       handler: Sourced[TypeStack[Expression]],
       elseCase: Sourced[TypeStack[Expression]]
-  ): Expression = {
-    val typeMatchName = s"typeMatch${ctorVfqn.name.name}"
-    val typeMatchFqn  = ValueFQN(ctorVfqn.moduleName, QualifiedName(typeMatchName, Qualifier.Default))
+  ): Expression =
     buildCurriedCall(
       scrutinee,
       Expression.ValueReference(scrutinee.as(typeMatchFqn)),
       Seq(scrutinee, handler, elseCase)
     )
-  }
+
+  private def findTypeMatchImpl(constructorModule: ModuleName): CompilerIO[ValueFQN] =
+    for {
+      moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(constructorModule))
+    } yield moduleNames.names.keys
+      .find(qn =>
+        qn.name == "typeMatch" && (qn.qualifier match {
+          case Qualifier.AbilityImplementation(abilityName, _) => abilityName.value == "TypeMatch"
+          case _                                               => false
+        })
+      )
+      .map(qn => ValueFQN(constructorModule, qn))
+      .getOrElse(throw RuntimeException(s"No TypeMatch typeMatch implementation in module $constructorModule"))
 }
 
 object TypeMatchDesugarer {

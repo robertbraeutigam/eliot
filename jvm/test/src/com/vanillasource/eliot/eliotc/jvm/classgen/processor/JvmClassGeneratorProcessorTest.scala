@@ -49,7 +49,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       ExistingNamedValueEvaluator(),
       DataTypeEvaluator(),
       ModuleNamesProcessor(),
-      ModuleValueProcessor(Seq(ModuleName.systemFunctionModuleName, ModuleName(ModuleName.defaultSystemPackage, "PatternMatch"))),
+      ModuleValueProcessor(Seq(ModuleName.systemFunctionModuleName, ModuleName(ModuleName.defaultSystemPackage, "Unit"), ModuleName(ModuleName.defaultSystemPackage, "PatternMatch"), ModuleName(ModuleName.defaultSystemPackage, "TypeMatch"))),
       UnifiedModuleNamesProcessor(),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
@@ -74,7 +74,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       generator <- FactGenerator.create(processors)
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
-      _         <- Seq("Function" -> "data Function[A, B]", "Type" -> "data Type", "PatternMatch" -> "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}").traverse { (module, content) =>
+      _         <- Seq("Function" -> "data Function[A, B]", "Type" -> "data Type", "Unit" -> "data Unit", "PatternMatch" -> "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}", "TypeMatch" -> "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}").traverse { (module, content) =>
                      val impFile = URI.create(s"eliot/lang/$module.els")
                      generator.registerFact(PathScan(Path.of(s"eliot/lang/$module.els"), Seq(impFile))) >>
                        generator.registerFact(SourceContent(impFile, Sourced(impFile, PositionRange.zero, content)))

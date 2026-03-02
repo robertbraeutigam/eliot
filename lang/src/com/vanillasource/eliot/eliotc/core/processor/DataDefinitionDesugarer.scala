@@ -22,6 +22,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   - Constructor functions for each constructor
   *   - Accessor functions for each field (only if there is exactly one constructor)
   *   - A PatternMatch ability implementation for pattern-matching dispatch
+  *   - A TypeMatch ability implementation for type-matching dispatch
   */
 object DataDefinitionDesugarer {
 
@@ -191,47 +192,69 @@ object DataDefinitionDesugarer {
         Seq(implMarker, casesTypeDef, handleCasesDef)
       }
 
-  /** Create a type match discriminator "typeMatch<TypeName>" for each data definition. This is a binary discriminator
-    * that checks if a Type value was constructed by this data type's type constructor. It takes the Type object, a
-    * match handler (curried over the generic parameters), and an else handler for when the type doesn't match.
+  /** Create a TypeMatch ability implementation for each data definition. This is a binary discriminator that checks if
+    * a Type value was constructed by this data type's type constructor. Generates:
+    *   1. Implementation marker function (signals this type implements TypeMatch) 2. Fields[R] associated type alias
+    *      (handler type for matched generic parameters) 3. typeMatch[R] method (abstract - JVM backend generates
+    *      implementation)
     *
-    * Example: data Person[NAME: String](content: String) generates: typeMatchPerson[R](obj: Type, personCase:
-    * Function[String, R], elseCase: Function[Unit, R]): R
+    * Example: data Person[NAME: String](content: String) generates: implement TypeMatch[Person[NAME]] { type Fields[R]
+    * = Function[String, R] def typeMatch[R](obj: Type, matchCase: Function[String, R], elseCase: Function[Unit, R]): R
+    * }
     */
   private def createTypeMatch(definition: DataDefinition): Seq[FunctionDefinition] = {
-    val existingNames    = definition.genericParameters.map(_.name.value).toSet
-    val resultParamName  = freshName("R", existingNames)
-    val resultParam      = GenericParameter(
-      definition.name.as(resultParamName),
-      typeExpr(definition.name.as("Type")),
+    val s               = definition.name
+    val existingNames   = definition.genericParameters.map(_.name.value).toSet
+    val resultParamName = freshName("R", existingNames)
+    val resultParam     = GenericParameter(
+      s.as(resultParamName),
+      typeExpr(s.as("Type")),
       Seq.empty
     )
-    val allGenericParams = definition.genericParameters :+ resultParam
-    val objArg           = ArgumentDefinition(
-      definition.name.as("obj"),
-      typeExpr(definition.name.as("Type"))
+    val dataTypeRef     = typeExpr(
+      definition.name,
+      definition.genericParameters.map(gp => typeExpr(gp.name))
     )
-    val matchCaseType    = typeMatchHandlerType(definition, resultParamName)
-    val matchCaseArg     = ArgumentDefinition(definition.name.as("matchCase"), matchCaseType)
-    val elseCaseType     = typeExpr(
-      definition.name.as("Function"),
+
+    val abilityQualifier = AstQualifier.AbilityImplementation(s.as("TypeMatch"), Seq(dataTypeRef))
+
+    val matchCaseType = typeMatchHandlerType(definition, resultParamName)
+    val elseCaseType  = typeExpr(
+      s.as("Function"),
+      Seq(typeExpr(s.as("Unit")), typeExpr(s.as(resultParamName)))
+    )
+
+    val implMarker = FunctionDefinition(
+      s.as(AstQualifiedName("TypeMatch", abilityQualifier)),
+      definition.genericParameters,
+      Seq(ArgumentDefinition(s.as("arg"), dataTypeRef)),
+      dataTypeRef,
+      Some(s.as(SourceExpression.FunctionApplication(None, s.as("arg"), Seq.empty, Seq.empty)))
+    )
+
+    val fieldsTypeDef = FunctionDefinition(
+      s.as(AstQualifiedName("Fields", abilityQualifier)),
+      definition.genericParameters,
+      Seq(ArgumentDefinition(s.as(resultParamName), typeExpr(s.as("Type")))),
+      typeExpr(s.as("Type")),
+      None,
+      visibility = Visibility.Public
+    )
+
+    val typeMatchDef = FunctionDefinition(
+      s.as(AstQualifiedName("typeMatch", abilityQualifier)),
+      definition.genericParameters :+ resultParam,
       Seq(
-        typeExpr(definition.name.as("Unit")),
-        typeExpr(definition.name.as(resultParamName))
-      )
+        ArgumentDefinition(s.as("obj"), typeExpr(s.as("Type"))),
+        ArgumentDefinition(s.as("matchCase"), matchCaseType),
+        ArgumentDefinition(s.as("elseCase"), elseCaseType)
+      ),
+      typeExpr(s.as(resultParamName)),
+      None,
+      visibility = Visibility.Public
     )
-    val elseCaseArg      = ArgumentDefinition(definition.name.as("elseCase"), elseCaseType)
-    val returnType       = typeExpr(definition.name.as(resultParamName))
-    Seq(
-      FunctionDefinition(
-        definition.name.map(_ => AstQualifiedName(s"typeMatch${definition.name.value}", AstQualifier.Default)),
-        allGenericParams,
-        Seq(objArg, matchCaseArg, elseCaseArg),
-        returnType,
-        None,
-        visibility = Visibility.Public
-      )
-    )
+
+    Seq(implMarker, fieldsTypeDef, typeMatchDef)
   }
 
   /** Build the match case handler type for a type match. Zero generic params: Function[Unit, R]. Otherwise: curried

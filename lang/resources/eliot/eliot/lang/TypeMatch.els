@@ -1,0 +1,18 @@
+/**
+ * Contains the type match machinery that is used by
+ * the type pattern match syntax.
+ * Reason for being in lang: Used by type pattern matching.
+ */
+ability TypeMatch[T] {
+   /**
+    * Defines the handler type for the matched type's generic parameters.
+    * Zero generic params: Function[Unit, R].
+    * Otherwise: curried over the generic parameter type restrictions.
+    */
+   type Fields[R]
+
+   /**
+    * Match a Type value against this type constructor.
+    */
+   def typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R
+}

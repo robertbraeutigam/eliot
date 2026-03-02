@@ -73,6 +73,13 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                     case _                                        => false
                                   }
                                 }.toSet
+      // Collect ALL TypeMatch impl VFQNs to exclude from normal processing
+      allTypeMatchVfqns       = usedValues.keys.filter { vfqn =>
+                                  vfqn.name.qualifier match {
+                                    case Qualifier.AbilityImplementation(name, _) => name.value === "TypeMatch"
+                                    case _                                        => false
+                                  }
+                                }.toSet
       // Process each data type: check handleCases usage, merge constructors, generate classes
       dataResults            <- allCtorGroups.toSeq.traverse { (typeVFQ, allTypeCtors) =>
                                   val handleCasesUsed = handleCasesByDataType.contains(typeVFQ)
@@ -130,10 +137,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 }
       // Determine which type constructors need data classes (used directly or via typeMatch)
       neededTypeCtors         = allTypeCtorsArityZero.filter { (vfqn, _) =>
-                                  val typeMatchName = s"typeMatch${vfqn.name.name}"
-                                  val typeMatchVfqn =
-                                    ValueFQN(key.moduleName, QualifiedName(typeMatchName, Qualifier.Default))
-                                  usedValues.contains(vfqn) || usedValues.contains(typeMatchVfqn)
+                                  usedValues.contains(vfqn) || allTypeMatchVfqns.exists(_.name.name === "typeMatch")
                                 }
       // Get each type constructor at its proper arity (from usage stats or computed from signature)
       usedTypeCtorsWithUv    <- neededTypeCtors.traverse { (vfqn, uvZero) =>
@@ -149,20 +153,19 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 }
       // Generate typeMatch methods for used typeMatch functions
       typeMatchGenerated     <- usedTypeCtorsWithUv.traverseFilter { (vfqn, uv) =>
-                                  val typeMatchName = s"typeMatch${vfqn.name.name}"
-                                  val typeMatchVfqn =
-                                    ValueFQN(key.moduleName, QualifiedName(typeMatchName, Qualifier.Default))
-                                  usedValues.get(typeMatchVfqn) match {
-                                    case Some(stats) =>
+                                  val typeMatchVfqn = allTypeMatchVfqns.find(_.name.name === "typeMatch")
+                                  typeMatchVfqn match {
+                                    case Some(tmVfqn) =>
+                                      val stats = usedValues(tmVfqn)
                                       for {
                                         tmUv <- getFactOrAbort(
-                                                  UncurriedValue.Key(typeMatchVfqn, stats.highestArity.getOrElse(0))
+                                                  UncurriedValue.Key(tmVfqn, stats.highestArity.getOrElse(0))
                                                 )
                                         _    <- DataClassGenerator.generateTypeMatch[CompilerIO](
                                                   mainClassGenerator, tmUv, vfqn, uv.parameters
                                                 )
-                                      } yield Some(typeMatchVfqn)
-                                    case None        => Option.empty[ValueFQN].pure[CompilerIO]
+                                      } yield Some(tmVfqn)
+                                    case None         => Option.empty[ValueFQN].pure[CompilerIO]
                                   }
                                 }
       // Generate Type marker interface if any type constructors are used
@@ -170,7 +173,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                   DataClassGenerator.generateTypeInterface[CompilerIO]().map(Seq(_))
                                 } else Seq.empty[ClassFile].pure[CompilerIO]
       typeCtorGeneratedFns    = usedTypeCtorsWithUv.map(_._1) ++ typeMatchGenerated
-      allGeneratedFunctions   = dataGeneratedFunctions ++ typeCtorGeneratedFns ++ allPatternMatchVfqns
+      allGeneratedFunctions   = dataGeneratedFunctions ++ typeCtorGeneratedFns ++ allPatternMatchVfqns ++ allTypeMatchVfqns
       abilityInterfaces      <- createAbilityInterfaces(mainClassGenerator, key.moduleName)
       abilityImpls           <- createAbilityImplSingletons(mainClassGenerator, key.moduleName)
       functionFiles          <-
@@ -380,7 +383,9 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                               }
                             }
       grouped             = implsWithAbility
-                              .filter { case (_, abilityFQN, _) => abilityFQN.abilityName =!= "PatternMatch" }
+                              .filter { case (_, abilityFQN, _) =>
+                                abilityFQN.abilityName =!= "PatternMatch" && abilityFQN.abilityName =!= "TypeMatch"
+                              }
                               .groupMap { case (_, abilityFQN, typeArgs) => (abilityFQN, typeArgs) } {
                                 case (vfqn, _, _) => vfqn
                               }

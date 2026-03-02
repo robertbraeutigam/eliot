@@ -29,7 +29,8 @@ object ModuleName {
     "String",
     "BigInteger",
     "IO",
-    "PatternMatch"
+    "PatternMatch",
+    "TypeMatch"
   ).map(ModuleName(defaultSystemPackage, _))
 
 }
