@@ -62,10 +62,10 @@ class AbilityImplementationCheckProcessorTest
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\ndata Bool\nimplement Show[Int] { def show(x: Bool): Bool = x }\ndef f(x: Int): Int = show(x)"
     ).asserting { errors =>
-        errors.length shouldBe 1
-        errors.head.message should include("Signature of 'show' does not match the ability definition")
-        errors.head.highlight shouldBe "show"
-      }
+      errors.length shouldBe 1
+      errors.head.message should include("Signature of implementation does not match the ability definition")
+      errors.head.highlight shouldBe "show"
+    }
   }
 
   it should "pass when a non-abstract ability method is not present in the implementation" in {

@@ -65,11 +65,10 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
         .traverse(vfqn => getFactOrAbort(TypeCheckedValue.Key(vfqn)))
         .map(_.filter { checked =>
           checked.name.value.qualifier match {
-            case SymbolicQualifier.AbilityImplementation(resolvedFQN, params)
-                if resolvedFQN == abilityFQN =>
+            case SymbolicQualifier.AbilityImplementation(resolvedFQN, params) if resolvedFQN == abilityFQN =>
               val freeVarNames = ExpressionValue.extractLeadingLambdaParams(checked.signature).map(_._1).toSet
               implMatchesQuery(params, freeVarNames, typeArguments)
-            case _ => false
+            case _                                                                                         => false
           }
         }.toSeq)
     }
@@ -122,7 +121,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
         val abilityTypeParamNames = ExpressionValue.extractLeadingLambdaParams(abstractMethod.signature).map(_._1)
         val implParams            = implMethod.name.value.qualifier match {
           case SymbolicQualifier.AbilityImplementation(_, params) => params
-          case _                                                   => Seq.empty
+          case _                                                  => Seq.empty
         }
         val patternBindings       = abilityTypeParamNames.zip(implParams).toMap
         val strippedAbstract      = ExpressionValue.stripUniversalTypeIntros(abstractMethod.signature)
@@ -132,7 +131,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
         val actualImplSig         = ExpressionValue.stripUniversalTypeIntros(implMethod.signature)
         if (expectedImplSig != actualImplSig)
           compilerError(
-            implMethod.name.map(qn => s"${qn.show}: Signature of '${qn.name}' does not match the ability definition.")
+            implMethod.name.map(qn => s"Signature of implementation does not match the ability definition.")
           )
         else ().pure[CompilerIO]
       }
@@ -150,7 +149,8 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       }
       implParams.zip(queryArgs).forall { (implParam, queryArg) =>
         freeVarNames.foldLeft(implParam) { case (acc, name) =>
-          ExpressionValue.substitute(acc, name, bindings.getOrElse(name, ExpressionValue.ParameterReference(name, Value.Type)))
+          ExpressionValue
+            .substitute(acc, name, bindings.getOrElse(name, ExpressionValue.ParameterReference(name, Value.Type)))
         } == queryArg
       }
     }
@@ -159,7 +159,8 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
   private def collectExpressionModuleNames(ev: ExpressionValue): Seq[ModuleName] =
     ev match {
       case ExpressionValue.ConcreteValue(v)          => v.typeFQN.map(_.moduleName).toSeq
-      case ExpressionValue.FunctionApplication(t, a) => collectExpressionModuleNames(t) ++ collectExpressionModuleNames(a)
+      case ExpressionValue.FunctionApplication(t, a) =>
+        collectExpressionModuleNames(t) ++ collectExpressionModuleNames(a)
       case _                                         => Seq.empty
     }
 }
