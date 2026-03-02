@@ -12,7 +12,8 @@ case class ValueResolverScope(
     currentModule: ModuleName,
     dictionary: Map[QualifiedName, ValueFQN],
     privateNames: Map[QualifiedName, ValueFQN],
-    parameters: Set[String]
+    parameters: Set[String],
+    currentQualifier: Qualifier = Qualifier.Default
 )
 
 object ValueResolverScope {
@@ -33,6 +34,21 @@ object ValueResolverScope {
 
   def getPrivateName(name: QualifiedName): ScopedIO[Option[ValueFQN]] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.privateNames.get(name))
+
+  def searchImplementationScope(searchingValueName: String): ScopedIO[Option[ValueFQN]] =
+    StateT
+      .get[CompilerIO, ValueResolverScope]
+      .map { scope =>
+        scope.currentQualifier match {
+          case Qualifier.AbilityImplementation(_, _) =>
+            scope.dictionary.values.collectFirst {
+              case vfqn @ ValueFQN(_, QualifiedName(valueName, q: Qualifier.AbilityImplementation))
+                  if valueName === searchingValueName && q == scope.currentQualifier =>
+                vfqn
+            }
+          case _                                     => None
+        }
+      }
 
   def searchAbilities(searchingValueName: String): ScopedIO[Seq[ValueFQN]] =
     StateT

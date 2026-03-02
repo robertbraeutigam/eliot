@@ -109,6 +109,10 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
   /** Check that substituting the impl's qualifier pattern into the ability's declared function signature gives the same
     * signature as the implementation has. This validates both concrete implementations (pattern = concrete type) and
     * derived implementations (pattern = type expression with impl's own generic vars).
+    *
+    * Abstract ability type declarations (associated types) become unification variables in the ability's signature.
+    * After substituting type parameters, any remaining unification variables are matched against the implementation's
+    * concrete types via pattern matching, then verified for consistency.
     */
   private def checkSignatures(
       abilityMethods: Seq[TypeCheckedValue],
@@ -129,13 +133,20 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
           ExpressionValue.substitute(acc, name, param)
         }
         val actualImplSig         = ExpressionValue.stripUniversalTypeIntros(implMethod.signature)
-        if (expectedImplSig != actualImplSig)
+        val unificationVarBindings =
+          ExpressionValue.matchTypes(expectedImplSig, actualImplSig, isUnificationVarName)
+        val resolvedExpectedSig    = unificationVarBindings.foldLeft(expectedImplSig) { case (acc, (name, value)) =>
+          ExpressionValue.substitute(acc, name, value)
+        }
+        if (resolvedExpectedSig != actualImplSig)
           compilerError(
             implMethod.name.map(qn => s"Signature of implementation does not match the ability definition.")
           )
         else ().pure[CompilerIO]
       }
   }
+
+  private def isUnificationVarName(name: String): Boolean = name.endsWith("$")
 
   private def implMatchesQuery(
       implParams: Seq[ExpressionValue],

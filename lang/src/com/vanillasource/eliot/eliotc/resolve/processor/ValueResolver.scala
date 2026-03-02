@@ -33,7 +33,13 @@ class ValueResolver
     val namedValue    = unifiedValue.namedValue
     val genericParams = collectGenericParams(namedValue.typeStack)
     val scope         =
-      ValueResolverScope(key.vfqn.moduleName, unifiedValue.dictionary, unifiedValue.privateNames, genericParams.toSet)
+      ValueResolverScope(
+        key.vfqn.moduleName,
+        unifiedValue.dictionary,
+        unifiedValue.privateNames,
+        genericParams.toSet,
+        namedValue.qualifiedName.value.qualifier
+      )
 
     val resolveProgram = for {
       resolvedRuntime     <-
@@ -151,22 +157,30 @@ class ValueResolver
                   .traverse(arg => resolveExpression(arg.value, false).map(arg.as(_)))
                   .map(resolvedTypeArgs => Expression.ValueReference(nameSrc.as(vfqn), resolvedTypeArgs))
               case None       =>
-                // Not a normal value, it might be coming from an ability
-                searchAbilities(nameSrc.value.name).flatMap {
-                  case Nil         =>
-                    // Check if the name exists as a private import
-                    getPrivateName(nameSrc.value).flatMap {
-                      case Some(_) => compilerAbort(nameSrc.as("Name is private.")).liftToScoped
-                      case None    => compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
+                // In type context, prefer implementation-scoped names (for associated types)
+                val implSearch =
+                  if (!runtime) searchImplementationScope(nameSrc.value.name)
+                  else None.pure[ScopedIO]
+                implSearch.flatMap {
+                  case Some(implVfqn) => Expression.ValueReference(nameSrc.as(implVfqn)).pure[ScopedIO]
+                  case None           =>
+                    // Not in implementation scope, it might be coming from an ability
+                    searchAbilities(nameSrc.value.name).flatMap {
+                      case Nil         =>
+                        // Check if the name exists as a private import
+                        getPrivateName(nameSrc.value).flatMap {
+                          case Some(_) => compilerAbort(nameSrc.as("Name is private.")).liftToScoped
+                          case None    => compilerAbort(nameSrc.as("Name not defined.")).liftToScoped
+                        }
+                      case head :: Nil => Expression.ValueReference(nameSrc.as(head)).pure[ScopedIO]
+                      case as          =>
+                        compilerAbort(
+                          nameSrc.as("Name defined in multiple abilities."),
+                          Seq(
+                            s"Abilities: ${as.map(_.name.qualifier.asInstanceOf[CoreQualifier.Ability].name).mkString(", ")}"
+                          )
+                        ).liftToScoped
                     }
-                  case head :: Nil => Expression.ValueReference(nameSrc.as(head)).pure[ScopedIO]
-                  case as          =>
-                    compilerAbort(
-                      nameSrc.as("Name defined in multiple abilities."),
-                      Seq(
-                        s"Abilities: ${as.map(_.name.qualifier.asInstanceOf[CoreQualifier.Ability].name).mkString(", ")}"
-                      )
-                    ).liftToScoped
                 }
             }
           }
