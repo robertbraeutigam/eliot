@@ -25,13 +25,12 @@ object ImplementBlock {
           genericParameters   <- component[Seq[GenericParameter]]
           name                <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
           pattern             <- bracketedCommaSeparatedItems("[", sourced(Expression.typeParser), "]")
-          (errors, functions) <- (component[FunctionDefinition] or TypeAliasDefinition.typeAliasDefinition.parser)
-                                   .recoveringAtLeastOnce(t =>
-                                     isKeyword(t) && (hasContent("def")(t) || hasContent("type")(t))
-                                   )
-                                   .between(symbol("{"), symbol("}"))
-                                   .optional()
-                                   .map(_.getOrElse(Seq.empty, Seq.empty))
+          (errors, functions) <-
+            (component[FunctionDefinition] or TypeAliasDefinition.typeAliasDefinition.parser)
+              .recoveringAtLeastOnce(t => isKeyword(t) && (hasContent("def")(t) || hasContent("type")(t)))
+              .between(symbol("{"), symbol("}"))
+              .optional()
+              .map(_.getOrElse(Seq.empty, Seq.empty))
         } yield (
           errors,
           functions.map(f =>

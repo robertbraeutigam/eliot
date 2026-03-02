@@ -15,7 +15,7 @@ object LambdaParameterDefinition {
 
   given ASTComponent[LambdaParameterDefinition] = new ASTComponent[LambdaParameterDefinition] {
     override def parser: Parser[Sourced[Token], LambdaParameterDefinition] = for {
-      name               <- acceptIf(isIdentifier, "lambda parameter name") or symbol("_")
+      name                <- acceptIf(isIdentifier, "lambda parameter name") or symbol("_")
       typeExpressionMaybe <- (symbol(":") >> sourced(Expression.typeParser)).optional()
     } yield LambdaParameterDefinition(name.map(_.content), typeExpressionMaybe)
   }

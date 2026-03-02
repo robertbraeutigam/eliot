@@ -23,15 +23,14 @@ object AbilityBlock {
           _                       <- keyword("ability")
           name                    <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
           commonGenericParameters <- bracketedCommaSeparatedItems("[", component[GenericParameter], "]")
-          (errors, functions)     <- (component[FunctionDefinition] or TypeAliasDefinition.typeAliasDefinition.parser)
-                                       .recoveringAtLeastOnce(t =>
-                                         isKeyword(t) && (hasContent("def")(t) || hasContent("type")(t))
-                                       )
-                                       .between(symbol("{"), symbol("}"))
-                                       .optional()
-                                       .map(_.getOrElse(Seq.empty, Seq.empty))
+          (errors, functions)     <-
+            (component[FunctionDefinition] or TypeAliasDefinition.typeAliasDefinition.parser)
+              .recoveringAtLeastOnce(t => isKeyword(t) && (hasContent("def")(t) || hasContent("type")(t)))
+              .between(symbol("{"), symbol("}"))
+              .optional()
+              .map(_.getOrElse(Seq.empty, Seq.empty))
         } yield {
-          val gpName = commonGenericParameters.head.name
+          val gpName     = commonGenericParameters.head.name
           val gpTypeExpr = gpName.as(Expression.FunctionApplication(None, gpName, Seq.empty, Seq.empty))
           (
             errors,

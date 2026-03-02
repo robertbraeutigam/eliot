@@ -75,8 +75,8 @@ object GenericParameter {
     optionalBracketedCommaSeparatedItems("[", symbol("_") >> subArityParser(name), "]")
       .map(subArities => arityParamsToExpression(name, subArities))
 
-  /** Converts parsed arity parameters into an Expression. Empty params -> Type. Non-empty -> nested
-    * Function[paramKind, ...Function[paramKind, Type]].
+  /** Converts parsed arity parameters into an Expression. Empty params -> Type. Non-empty -> nested Function[paramKind,
+    * ...Function[paramKind, Type]].
     */
   private def arityParamsToExpression(name: Sourced[String], params: Seq[Sourced[Expression]]): Sourced[Expression] =
     if (params.isEmpty) name.as(typeExpr(name.as("Type")))

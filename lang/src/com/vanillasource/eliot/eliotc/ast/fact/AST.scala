@@ -39,11 +39,14 @@ object AST {
         val importStatements     = items.flatMap(_.left.toOption)
         val functionDefinitions  = items.flatMap(_.toOption).flatMap(_.left.toOption)
         val dataDefinitions      = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.left.toOption)
-        val typeAliasFunctions   = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.left.toOption)
-        val abilities            = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.left.toOption)
+        val typeAliasFunctions   =
+          items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.left.toOption)
+        val abilities            =
+          items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.left.toOption)
         val abilityErrors        = abilities.flatMap(_._1)
         val abilityFunctions     = abilities.flatMap(_._2)
-        val abilitiesImpl        = items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption)
+        val abilitiesImpl        =
+          items.flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption).flatMap(_.toOption)
         val abilityImplErrors    = abilitiesImpl.flatMap(_._1)
         val abilityImplFunctions = abilitiesImpl.flatMap(_._2)
         (
