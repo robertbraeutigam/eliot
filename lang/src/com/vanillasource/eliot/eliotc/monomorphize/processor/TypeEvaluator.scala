@@ -35,7 +35,7 @@ object TypeEvaluator extends Logging {
   ): CompilerIO[Value] =
     for {
       resolvedArgs <- typeArgs.traverse(resolveTypeArgConstructor)
-      applied       = resolvedArgs.foldLeft(expr)((e, arg) => FunctionApplication(e, arg))
+      applied       = applyTypeArgs(expr, resolvedArgs)
       _            <- debug[CompilerIO](s"Applied: ${expr.show} to: ${applied.show} ")
       resolved     <- resolveDataTypeRefs(applied, source)
       _            <- debug[CompilerIO](s"Resolved data type refs to: ${resolved.show} ")
@@ -44,6 +44,20 @@ object TypeEvaluator extends Logging {
       value        <- extractValue(reduced, source)
       _            <- debug[CompilerIO](s"Resulting value: ${value.show} ")
     } yield value
+
+  /** Apply type arguments to an expression. FunctionLiterals (from the symbolic phase) are directly
+    * beta-reduced via substitution, bypassing the Evaluator's checkType which may reject valid
+    * dependent-type arguments (e.g., integer literal 2 for a BigInteger constraint). Remaining
+    * arguments that don't match leading FunctionLiterals become FunctionApplications for later
+    * reduction by the Evaluator.
+    */
+  private def applyTypeArgs(expr: ExpressionValue, args: Seq[ExpressionValue]): ExpressionValue =
+    args.foldLeft(expr) { (e, arg) =>
+      e match {
+        case FunctionLiteral(name, _, body) => ExpressionValue.substitute(body, name, arg)
+        case _                              => FunctionApplication(e, arg)
+      }
+    }
 
   /** Resolve a type argument Value to its constructor form. Data type references that have a registered NamedEvaluable
     * (like parameterized types IO, List, etc.) are resolved to their NativeFunction constructor, so that applying them

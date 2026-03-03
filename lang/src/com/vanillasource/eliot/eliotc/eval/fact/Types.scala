@@ -49,9 +49,9 @@ object Types {
     )
 
   val bigIntType: Value = dataType(
-    ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Default))
+    ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type))
   )
   val stringType: Value = dataType(
-    ValueFQN(ModuleName(defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Default))
+    ValueFQN(ModuleName(defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type))
   )
 }
