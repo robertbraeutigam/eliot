@@ -98,6 +98,21 @@ object ExpressionValue {
       case _                                                                => body
     }
 
+  /** Beta-reduce all FunctionApplication(FunctionLiteral, arg) redexes without type checking. */
+  def betaReduce(expr: ExpressionValue): ExpressionValue =
+    expr match {
+      case FunctionApplication(target, arg) =>
+        betaReduce(target.value) match {
+          case FunctionLiteral(name, _, body) =>
+            betaReduce(substitute(body.value, name, betaReduce(arg.value)))
+          case reducedTarget                  =>
+            FunctionApplication(target.as(reducedTarget), arg.map(betaReduce))
+        }
+      case FunctionLiteral(name, paramType, body) =>
+        FunctionLiteral(name, paramType, body.map(betaReduce))
+      case other => other
+    }
+
   /** Transform an expression by applying f to all children first, then to the result. */
   def transform(expr: ExpressionValue, f: ExpressionValue => ExpressionValue): ExpressionValue =
     f(expr match {
