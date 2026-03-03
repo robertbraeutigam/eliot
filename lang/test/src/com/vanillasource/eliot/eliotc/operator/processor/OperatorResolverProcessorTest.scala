@@ -256,6 +256,34 @@ class OperatorResolverProcessorTest
     }
   }
 
+  it should "resolve space application in type arguments" in {
+    runEngineForValue("data T\ndef f(x: T): T\ndef a: T\ndef g[X: T]: T\ndef main: T = g[f a]").asserting {
+      case Some(
+            OperatorResolvedExpression
+              .ValueReference(Sourced(_, _, gVfqn), Seq(Sourced(_, _, FunApp(ValRef(fVfqn), ValRef(aVfqn)))))
+          ) =>
+        gVfqn shouldBe vfqn("g")
+        fVfqn shouldBe vfqn("f")
+        aVfqn shouldBe vfqn("a")
+      case x => fail(s"unexpected: $x")
+    }
+  }
+
+  it should "resolve space application in value type stack" in {
+    runEngineForValue("data T\ndef f(x: T): T\ndef a: T\ndata Box[X: T]\ndef main(x: Box[f a]): T = a").asserting {
+      case Some(FunLit("x", ValRef(aVfqn))) => aVfqn shouldBe vfqn("a")
+      case x                                => fail(s"unexpected: $x")
+    }
+  }
+
+  it should "resolve space application in lambda parameter type" in {
+    runEngineForValue("data T\ndef f(x: T): T\ndef a: T\ndata Box[X: T]\ndef main: T = (x: Box[f a]) -> a")
+      .asserting {
+        case Some(FunLit("x", ValRef(aVfqn))) => aVfqn shouldBe vfqn("a")
+        case x                                => fail(s"unexpected: $x")
+      }
+  }
+
   private def vfqn(name: String): ValueFQN =
     ValueFQN(testModuleName2, QualifiedName(name, Qualifier.Default))
 

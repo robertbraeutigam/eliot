@@ -20,13 +20,15 @@ class OperatorResolverProcessor
       desugaredValue: MatchDesugaredValue
   ): CompilerIO[OperatorResolvedValue] =
     for {
-      resolvedRuntime <- desugaredValue.runtime.traverse(expr => resolveInExpression(expr.value).map(expr.as))
+      resolvedRuntime     <- desugaredValue.runtime.traverse(expr => resolveInExpression(expr.value).map(expr.as))
+      resolvedTypeStack   <- resolveInTypeStack(desugaredValue.typeStack)
+      resolvedConstraints <- resolveParamConstraints(desugaredValue.paramConstraints)
     } yield OperatorResolvedValue(
       desugaredValue.vfqn,
       desugaredValue.name,
       resolvedRuntime,
-      convertTypeStack(desugaredValue.typeStack),
-      convertParamConstraints(desugaredValue.paramConstraints)
+      resolvedTypeStack,
+      resolvedConstraints
     )
 
   private def resolveInExpression(expr: MatchDesugaredExpression): CompilerIO[OperatorResolvedExpression] =
@@ -42,7 +44,10 @@ class OperatorResolverProcessor
           resolvedArg    <- resolveInTypeStack(arg)
         } yield OperatorResolvedExpression.FunctionApplication(resolvedTarget, resolvedArg)
       case MatchDesugaredExpression.FunctionLiteral(paramName, paramType, body) =>
-        resolveInTypeStack(body).map(OperatorResolvedExpression.FunctionLiteral(paramName, paramType.map(convertTypeStack), _))
+        for {
+          resolvedParamType <- paramType.traverse(resolveInTypeStack)
+          resolvedBody      <- resolveInTypeStack(body)
+        } yield OperatorResolvedExpression.FunctionLiteral(paramName, resolvedParamType, resolvedBody)
       case MatchDesugaredExpression.IntegerLiteral(v)                           =>
         OperatorResolvedExpression.IntegerLiteral(v).pure[CompilerIO]
       case MatchDesugaredExpression.StringLiteral(v)                            =>
@@ -50,7 +55,7 @@ class OperatorResolverProcessor
       case MatchDesugaredExpression.ParameterReference(v)                       =>
         OperatorResolvedExpression.ParameterReference(v).pure[CompilerIO]
       case MatchDesugaredExpression.ValueReference(name, typeArgs)              =>
-        OperatorResolvedExpression.ValueReference(name, typeArgs.map(ta => ta.map(OperatorResolvedExpression.fromExpression))).pure[CompilerIO]
+        typeArgs.traverse(ta => resolveInExpression(ta.value).map(ta.as)).map(OperatorResolvedExpression.ValueReference(name, _))
     }
 
   private def resolveInTypeStack(
@@ -78,20 +83,14 @@ class OperatorResolverProcessor
       case _                                                     => AnnotatedPart(part, Fixity.Application, None).pure[CompilerIO]
     }
 
-  private def convertTypeStack(
-      stack: Sourced[TypeStack[MatchDesugaredExpression]]
-  ): Sourced[TypeStack[OperatorResolvedExpression]] =
-    stack.map(ts => TypeStack(ts.levels.map(OperatorResolvedExpression.fromExpression)))
-
-  private def convertParamConstraints(
+  private def resolveParamConstraints(
       constraints: Map[String, Seq[MatchDesugaredValue.ResolvedAbilityConstraint]]
-  ): Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] =
-    constraints.map { (key, cs) =>
-      key -> cs.map(c =>
-        OperatorResolvedValue.ResolvedAbilityConstraint(
-          c.abilityFQN,
-          c.typeArgs.map(OperatorResolvedExpression.fromExpression)
-        )
-      )
-    }
+  ): CompilerIO[Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]] =
+    constraints.toSeq
+      .traverse { (key, cs) =>
+        cs.traverse(c =>
+          c.typeArgs.traverse(resolveInExpression).map(OperatorResolvedValue.ResolvedAbilityConstraint(c.abilityFQN, _))
+        ).map(key -> _)
+      }
+      .map(_.toMap)
 }
