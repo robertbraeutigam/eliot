@@ -2,8 +2,11 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.data.StateT
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.Qualifier
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
+import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -73,14 +76,15 @@ object ConstraintSolver {
       case (ParameterReference(n1, _), ParameterReference(n2, _)) if isUniversalVar(n1) && n1 == n2 =>
         StateT.pure(())
 
-      // FunctionApplication containing universal vars vs non-FunctionApplication: defer to monomorphization
+      // Non-constructor FunctionApplication containing universal vars: defer to monomorphization
       // (e.g. inc(I) vs I where inc is a native function that can't be evaluated symbolically)
-      case (FunctionApplication(_, _), _)
-          if !right.isInstanceOf[FunctionApplication] && containsUniversalVar(left, isUniversalVar) =>
+      // Constructor applications (Qualifier.Type, e.g. List(I)) are compared structurally.
+      case (fa @ FunctionApplication(_, _), _)
+          if !isConstructorApplication(fa) && containsUniversalVar(left, isUniversalVar) =>
         StateT.pure(())
 
-      case (_, FunctionApplication(_, _))
-          if !left.isInstanceOf[FunctionApplication] && containsUniversalVar(right, isUniversalVar) =>
+      case (_, fa @ FunctionApplication(_, _))
+          if !isConstructorApplication(fa) && containsUniversalVar(right, isUniversalVar) =>
         StateT.pure(())
 
       case (ParameterReference(n1, _), _) if isUniversalVar(n1) =>
@@ -155,6 +159,17 @@ object ConstraintSolver {
     ExpressionValue.fold[Boolean](_ => false, _ => false, (name, _) => isUniversalVar(name), _ || _, (_, _, b) => b)(
       expr
     )
+
+  private def isConstructorApplication(expr: ExpressionValue): Boolean =
+    ExpressionValue.stripLeadingFunctionApplications(expr) match {
+      case ConcreteValue(Value.Structure(fields, _)) =>
+        fields.get("$typeName").exists {
+          case Value.Direct(vfqn: ValueFQN, _) => vfqn.name.qualifier == Qualifier.Type
+          case _                                => false
+        }
+      case ParameterReference(_, _)                  => true
+      case _                                         => false
+    }
 
   private def issueError(constraint: Constraint, message: String): StateT[CompilerIO, UnificationState, Unit] =
     StateT.liftF(
