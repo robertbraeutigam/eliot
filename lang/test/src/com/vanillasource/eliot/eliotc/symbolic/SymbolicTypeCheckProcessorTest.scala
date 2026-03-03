@@ -86,7 +86,7 @@ class SymbolicTypeCheckProcessorTest
 
   it should "type check when returning different, but non-constrained generic" in {
     runEngineForErrors("def f[A, B](a: A, b: B): A = b")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "a"))
+      .asserting(_ shouldBe Seq("Return type mismatch." at "b"))
   }
 
   it should "forward unification to concrete types" in {
@@ -110,7 +110,7 @@ class SymbolicTypeCheckProcessorTest
     runEngineForErrors(
       "def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(id(id(i)))"
     )
-      .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
+      .asserting(_ shouldBe Seq("Return type mismatch." at "id(id(i))"))
   }
 
   it should "unify on multiple parameters" in {
@@ -287,7 +287,7 @@ class SymbolicTypeCheckProcessorTest
   it should "fail when the explicit type arg conflicts with the declared return type" in {
     runEngineForErrors(
       "def id[A](a: A): A = a\ndata String\ndata Int\ndef i: Int\ndef f(s: String): String = id[Int](i)"
-    ).asserting(_ shouldBe Seq("Return type mismatch." at "s"))
+    ).asserting(_ shouldBe Seq("Return type mismatch." at "i"))
   }
 
   it should "fail with too many type arguments" in {
@@ -305,7 +305,7 @@ class SymbolicTypeCheckProcessorTest
   it should "fail with too few explicit type args that conflict with usage" in {
     runEngineForErrors(
       "def f2[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = f2[Int](s, i)"
-    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s", "Return type mismatch." at "s"))
+    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s", "Return type mismatch." at "i"))
   }
 
   it should "type check with explicit type args and multiple type params" in {
@@ -317,7 +317,13 @@ class SymbolicTypeCheckProcessorTest
   it should "fail when explicit type args are in the wrong order" in {
     runEngineForErrors(
       "def g[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = g[Int, String](s, i)"
-    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s", "Argument type mismatch." at "i", "Return type mismatch." at "s"))
+    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s", "Argument type mismatch." at "i", "Return type mismatch." at "i"))
+  }
+
+  it should "point type argument mismatch to the body expression" in {
+    runEngineForErrors(
+      "data String\ndata Int\ndata Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[Int](g)"
+    ).asserting(_ shouldBe Seq("Type argument mismatch." at "g"))
   }
 
   it should "type check with an applied generic type as a type argument" in {

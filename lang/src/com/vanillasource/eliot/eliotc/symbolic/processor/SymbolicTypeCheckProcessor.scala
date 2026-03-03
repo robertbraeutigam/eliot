@@ -68,10 +68,11 @@ class SymbolicTypeCheckProcessor
                   // For constraint building, strip universal intros (type params) from declared type
                   // since the body's type won't have them - they're handled via universalVars
                   strippedDeclaredType         = stripUniversalIntros(declaredType)
+                  bodySource                   = findBodySource(strippedDeclaredType, body)
                   _                           <- tellConstraint(
                                                    SymbolicUnification.constraint(
                                                      strippedDeclaredType,
-                                                     body.as(bodyResult.expressionType),
+                                                     bodySource.as(bodyResult.expressionType),
                                                      "Type mismatch."
                                                    )
                                                  )
@@ -164,5 +165,20 @@ class SymbolicTypeCheckProcessor
     expr match {
       case ExpressionValue.FunctionLiteral(_, Value.Type, body) => stripUniversalIntros(body)
       case other                                                => other
+    }
+
+  /** Find the innermost body source position by stripping FunctionLiteral layers from the body expression that
+    * correspond to FunctionType layers in the declared type. This ensures that type mismatch errors point to the actual
+    * body expression rather than the parameter definition.
+    */
+  @scala.annotation.tailrec
+  private def findBodySource(
+      declared: ExpressionValue,
+      body: Sourced[OperatorResolvedExpression]
+  ): Sourced[?] =
+    (declared, body.value) match {
+      case (ExpressionValue.FunctionType(_, returnType), OperatorResolvedExpression.FunctionLiteral(_, _, innerBody)) =>
+        findBodySource(returnType, innerBody.as(innerBody.value.signature))
+      case _ => body
     }
 }
