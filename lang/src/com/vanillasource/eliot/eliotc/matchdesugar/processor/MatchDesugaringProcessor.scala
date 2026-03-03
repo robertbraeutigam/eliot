@@ -15,8 +15,9 @@ class MatchDesugaringProcessor
     )
     with Logging {
 
-  private lazy val dataMatchDesugarer = new DataMatchDesugarer(desugarMatch, desugarInTypeStack)
-  private lazy val typeMatchDesugarer = new TypeMatchDesugarer(desugarInTypeStack, dataMatchDesugarer.buildFieldLambdas)
+  private lazy val context            = new MatchDesugarContext(desugarMatch, desugarInTypeStack)
+  private lazy val dataMatchDesugarer = new DataMatchDesugarer(context)
+  private lazy val typeMatchDesugarer = new TypeMatchDesugarer(context)
 
   override protected def generateFromKeyAndFact(
       key: MatchDesugaredValue.Key,
@@ -28,16 +29,11 @@ class MatchDesugaringProcessor
       resolvedValue.vfqn,
       resolvedValue.name,
       desugaredRuntime.map(_.map(MatchDesugaredExpression.fromExpression)),
-      convertTypeStack(resolvedValue.typeStack),
+      MatchDesugaredExpression.convertTypeStack(resolvedValue.typeStack),
       convertParamConstraints(resolvedValue.paramConstraints),
       resolvedValue.fixity,
       resolvedValue.precedence
     )
-
-  private def convertTypeStack(
-      stack: Sourced[TypeStack[Expression]]
-  ): Sourced[TypeStack[MatchDesugaredExpression]] =
-    stack.map(ts => TypeStack(ts.levels.map(MatchDesugaredExpression.fromExpression)))
 
   private def convertParamConstraints(
       constraints: Map[String, Seq[ResolvedValue.ResolvedAbilityConstraint]]

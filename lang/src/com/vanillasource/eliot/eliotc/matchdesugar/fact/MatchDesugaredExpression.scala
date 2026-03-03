@@ -66,7 +66,7 @@ object MatchDesugaredExpression {
       throw IllegalStateException("MatchExpression should not exist after match desugaring")
   }
 
-  private def convertTypeStack(
+  def convertTypeStack(
       stack: Sourced[TypeStack[Expression]]
   ): Sourced[TypeStack[MatchDesugaredExpression]] =
     stack.map(ts => TypeStack(ts.levels.map(fromExpression)))

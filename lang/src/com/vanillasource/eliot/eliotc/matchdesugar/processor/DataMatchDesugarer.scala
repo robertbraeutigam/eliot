@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.kernel.Order.catsKernelOrderingForOrder
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.{Qualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
@@ -10,10 +10,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import MatchDesugarUtils.*
 
-class DataMatchDesugarer(
-    desugarMatch: (Sourced[TypeStack[Expression]], Seq[Expression.MatchCase]) => CompilerIO[Expression],
-    desugarInTypeStack: Sourced[TypeStack[Expression]] => CompilerIO[Sourced[TypeStack[Expression]]]
-) {
+class DataMatchDesugarer(context: MatchDesugarContext) {
 
   def desugar(
       scrutinee: Sourced[TypeStack[Expression]],
@@ -24,20 +21,9 @@ class DataMatchDesugarer(
       (constructorModule, dataTypeName) = moduleAndType
       allConstructors                  <- findAllConstructors(constructorModule, dataTypeName)
       _                                <- checkExhaustiveness(cases, allConstructors)
-      handleCasesFqn                   <- findHandleCasesImpl(constructorModule)
+      handleCasesFqn                   <- findAbilityMethodImpl(constructorModule, "PatternMatch", "handleCases")
       orderedHandlers                  <- buildOrderedHandlers(scrutinee, cases, allConstructors)
     } yield buildHandleCasesCall(scrutinee, handleCasesFqn, orderedHandlers)
-
-  def buildFieldLambdas(
-      scrutinee: Sourced[TypeStack[Expression]],
-      fieldPatterns: Seq[Sourced[Pattern]],
-      body: Sourced[TypeStack[Expression]]
-  ): CompilerIO[Sourced[TypeStack[Expression]]] =
-    fieldPatterns match {
-      case Seq()        => body.pure[CompilerIO]
-      case init :+ last =>
-        buildFieldLambda(scrutinee, last, body).flatMap(innerBody => buildFieldLambdas(scrutinee, init, innerBody))
-    }
 
   private def findConstructorModuleAndTypeName(
       cases: Seq[Expression.MatchCase]
@@ -143,45 +129,11 @@ class DataMatchDesugarer(
   ): CompilerIO[Sourced[TypeStack[Expression]]] = {
     val Pattern.ConstructorPattern(_, ctorFields) = cases.head.pattern.value: @unchecked
 
-    if (ctorFields.isEmpty) {
-      buildNullaryHandler(scrutinee, cases)
-    } else if (cases.size == 1) {
-      buildSingleCaseHandler(scrutinee, cases.head, ctorFields)
-    } else {
+    if (cases.size == 1 || ctorFields.isEmpty)
+      context.buildPatternHandler(scrutinee, ctorFields, cases.head.body)
+    else
       buildMultiCaseHandler(scrutinee, ctorVfqn, cases, ctorFields.size)
-    }
   }
-
-  private def buildNullaryHandler(
-      scrutinee: Sourced[TypeStack[Expression]],
-      cases: Seq[Expression.MatchCase]
-  ): CompilerIO[Sourced[TypeStack[Expression]]] =
-    desugarInTypeStack(cases.head.body).map { desugaredBody =>
-      wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody))
-    }
-
-  private def buildSingleCaseHandler(
-      scrutinee: Sourced[TypeStack[Expression]],
-      matchCase: Expression.MatchCase,
-      fieldPatterns: Seq[Sourced[Pattern]]
-  ): CompilerIO[Sourced[TypeStack[Expression]]] =
-    desugarInTypeStack(matchCase.body).flatMap(buildFieldLambdas(scrutinee, fieldPatterns, _))
-
-  private def buildFieldLambda(
-      scrutinee: Sourced[TypeStack[Expression]],
-      fieldPat: Sourced[Pattern],
-      innerBody: Sourced[TypeStack[Expression]]
-  ): CompilerIO[Sourced[TypeStack[Expression]]] =
-    bindingName(fieldPat.value) match {
-      case Some(name) =>
-        wrapExpr(scrutinee, Expression.FunctionLiteral(name, None, innerBody)).pure[CompilerIO]
-      case None       =>
-        val freshName = fieldPat.as("$match_field")
-        val fieldRef  = wrapExpr(scrutinee, Expression.ParameterReference(freshName))
-        desugarMatch(fieldRef, Seq(Expression.MatchCase(fieldPat, innerBody))).map { nestedMatch =>
-          wrapExpr(scrutinee, Expression.FunctionLiteral(freshName, None, wrapExpr(scrutinee, nestedMatch)))
-        }
-    }
 
   private def buildMultiCaseHandler(
       scrutinee: Sourced[TypeStack[Expression]],
@@ -220,10 +172,10 @@ class DataMatchDesugarer(
         val nestedCases = patternRows.zip(bodies).map { case (row, body) =>
           Expression.MatchCase(row(colIdx), wrapWithBindings(scrutinee, freshNames, row, colIdx, body))
         }
-        desugarMatch(fieldRef, nestedCases).map(wrapExpr(scrutinee, _))
+        context.desugarMatch(fieldRef, nestedCases).map(wrapExpr(scrutinee, _))
 
       case None =>
-        desugarInTypeStack(wrapWithBindings(scrutinee, freshNames, patternRows.head, -1, bodies.head))
+        context.desugarInTypeStack(wrapWithBindings(scrutinee, freshNames, patternRows.head, -1, bodies.head))
     }
   }
 
@@ -257,26 +209,13 @@ class DataMatchDesugarer(
     for {
       umv           <- getFactOrAbort(UnifiedModuleValue.Key(ctorVfqn))
       arity          = ConstructorTypeAnalyzer.countConstructorFields(umv)
-      desugaredBody <- desugarInTypeStack(wildcardCase.body)
+      desugaredBody <- context.desugarInTypeStack(wildcardCase.body)
     } yield {
       val lambdaCount = math.max(1, arity)
       (0 until lambdaCount).foldRight(desugaredBody) { (_, body) =>
         wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, body))
       }
     }
-
-  private def findHandleCasesImpl(constructorModule: ModuleName): CompilerIO[ValueFQN] =
-    for {
-      moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(constructorModule))
-    } yield moduleNames.names.keys
-      .find(qn =>
-        qn.name == "handleCases" && (qn.qualifier match {
-          case Qualifier.AbilityImplementation(abilityName, _) => abilityName.value == "PatternMatch"
-          case _                                               => false
-        })
-      )
-      .map(qn => ValueFQN(constructorModule, qn))
-      .getOrElse(throw RuntimeException(s"No PatternMatch handleCases implementation in module $constructorModule"))
 
   private def buildHandleCasesCall(
       scrutinee: Sourced[TypeStack[Expression]],
