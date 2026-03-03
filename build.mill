@@ -7,7 +7,7 @@ object `package` extends Module {
    }
 
    object `stdlib` extends DefaultScalaModule {
-     override def moduleDeps = Seq(eliotc)
+     override def moduleDeps = Seq(lang)
    }
 
    object `lang` extends DefaultScalaModule {
