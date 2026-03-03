@@ -45,11 +45,10 @@ object TypeEvaluator extends Logging {
       _            <- debug[CompilerIO](s"Resulting value: ${value.show} ")
     } yield value
 
-  /** Apply type arguments to an expression. FunctionLiterals (from the symbolic phase) are directly
-    * beta-reduced via substitution, bypassing the Evaluator's checkType which may reject valid
-    * dependent-type arguments (e.g., integer literal 2 for a BigInteger constraint). Remaining
-    * arguments that don't match leading FunctionLiterals become FunctionApplications for later
-    * reduction by the Evaluator.
+  /** Apply type arguments to an expression. FunctionLiterals (from the symbolic phase) are directly beta-reduced via
+    * substitution, bypassing the Evaluator's checkType which may reject valid dependent-type arguments (e.g., integer
+    * literal 2 for a BigInteger constraint). Remaining arguments that don't match leading FunctionLiterals become
+    * FunctionApplications for later reduction by the Evaluator.
     */
   private def applyTypeArgs(expr: ExpressionValue, args: Seq[ExpressionValue]): ExpressionValue =
     args.foldLeft(expr) { (e, arg) =>
@@ -99,7 +98,7 @@ object TypeEvaluator extends Logging {
           case Some(vfqn) =>
             getFact(NamedEvaluable.Key(vfqn)).flatMap {
               case Some(value) => value.value.pure[CompilerIO]
-              case None        => compilerAbort(source.as(s"Could not resolve type."), Seq(s"Looking for ${vfqn.show}."))
+              case None        => compilerAbort(source.as(s"Could not resolve type."), Seq(s"Looking for ${vfqn.show}"))
             }
           case None       => target.pure[CompilerIO]
         }
