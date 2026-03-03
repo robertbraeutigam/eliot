@@ -1,19 +1,24 @@
 package com.vanillasource.eliot.eliotc.stdlib.eval
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, NativeFunction}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{InitialExpressionValue, NativeFunction}
 import com.vanillasource.eliot.eliotc.eval.fact.NamedEvaluable
-import com.vanillasource.eliot.eliotc.eval.fact.Types.{fullyQualifiedNameType, functionDataTypeFQN, typeFQN}
-import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.eval.fact.Types.bigIntType
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
 /** Evaluating stdlib functions.
   */
 class StdlibValueEvaluator extends SingleFactProcessor[NamedEvaluable.Key] {
-  private val stdlibFunctions: Map[ValueFQN, NamedEvaluable] = Map.empty
+  private val stdlibFunctions: Map[ValueFQN, InitialExpressionValue] = Map.from(
+    Seq(
+      ValueFQN(ModuleName(Seq("eliot.lang"), "BigInteger"), QualifiedName("inc", Qualifier.Default)) ->
+        NativeFunction(bigIntType, v => ???)
+    )
+  )
 
   override def generateSingleFact(key: NamedEvaluable.Key): CompilerIO[NamedEvaluable] =
-    stdlibFunctions.get(key.vfqn).fold(abort)(_.pure[CompilerIO])
+    stdlibFunctions.get(key.vfqn).fold(abort)(expression => NamedEvaluable(key.vfqn, expression).pure[CompilerIO])
 }
