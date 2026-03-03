@@ -1,0 +1,6 @@
+
+data Box[I: BigInteger](content: String)
+
+def someFunction[I: BigInteger](arg: String): Box[I] = Box[I](arg)
+
+def main: IO[Unit] = println(content(someFunction[2]("Hello World!")))

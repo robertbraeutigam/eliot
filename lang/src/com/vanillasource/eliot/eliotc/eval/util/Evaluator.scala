@@ -212,7 +212,10 @@ object Evaluator {
   private def checkType(expectedType: Value, argument: ExpressionValue, sourced: Sourced[?]): CompilerIO[Unit] =
     argumentType(argument) match {
       case Some(actualType) if actualType != expectedType =>
-        compilerAbort(sourced.as(s"Type mismatch: expected $expectedType but got $actualType."))
+        compilerAbort(
+          sourced.as("Type mismatch."),
+          Seq(s"Expected: ${expectedType.show}", s"Actual:   ${actualType.show}")
+        )
       case _                                              => ().pure[CompilerIO]
     }
 
