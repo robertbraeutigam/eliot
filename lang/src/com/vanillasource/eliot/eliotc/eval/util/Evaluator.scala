@@ -41,7 +41,8 @@ object Evaluator {
       expression: OperatorResolvedExpression,
       evaluating: Set[ValueFQN],
       paramContext: Map[String, Value],
-      sourced: Sourced[?]
+      sourced: Sourced[?],
+      callSite: Option[Sourced[?]] = None
   ): CompilerIO[ExpressionValue] = expression match {
     case OperatorResolvedExpression.IntegerLiteral(s)                                 =>
       ConcreteValue(Value.Direct(s.value, bigIntType)).pure[CompilerIO]
@@ -51,7 +52,7 @@ object Evaluator {
       val name = s.value
       paramContext.get(name) match {
         case Some(paramType) => ParameterReference(name, paramType).pure[CompilerIO]
-        case None            => compilerAbort(s.as(s"Unknown parameter: $name"))
+        case None            => compilerAbort(callSite.getOrElse(s).as(s"Unknown parameter: $name"))
       }
     case OperatorResolvedExpression.ValueReference(s, _)                              =>
       val vfqn = s.value
@@ -70,20 +71,20 @@ object Evaluator {
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramType), body) =>
       for {
         // TODO: Is it ok to ignore the type stack here?
-        evaluatedParamTypeFull <- toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType)
+        evaluatedParamTypeFull <- toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType, callSite)
         // TODO: We require a monomorphized type value here. This might require some parameters in some cases!
         evaluatedParamType     <- concreteValueOf(evaluatedParamTypeFull).fold(
                                     compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
                                   )(_.pure[CompilerIO])
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
-        evaluatedBody          <- toExpressionValue(body.value.signature, evaluating, newContext, body)
+        evaluatedBody          <- toExpressionValue(body.value.signature, evaluating, newContext, body, callSite)
       } yield FunctionLiteral(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
       for {
         // TODO: Is it ok to ignore the type stack here?
-        targetValue <- toExpressionValue(target.value.signature, evaluating, paramContext, target)
+        targetValue <- toExpressionValue(target.value.signature, evaluating, paramContext, target, callSite)
         // TODO: Is it ok to ignore the type stack here?
-        argValue    <- toExpressionValue(argument.value.signature, evaluating, paramContext, argument)
+        argValue    <- toExpressionValue(argument.value.signature, evaluating, paramContext, argument, callSite)
       } yield FunctionApplication(target.as(targetValue), argument.as(argValue))
   }
 
@@ -131,7 +132,7 @@ object Evaluator {
       getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
         case Some(resolved) =>
           resolved.runtime match {
-            case Some(body) => evaluateToNormalForm(body, evaluating + vfqn)
+            case Some(body) => evaluateToNormalForm(body, evaluating + vfqn, callSite = Some(sourced))
             case None       => ConcreteValue(Types.dataType(vfqn)).pure[CompilerIO]
           }
         case None           =>
@@ -143,10 +144,11 @@ object Evaluator {
     */
   def evaluateToNormalForm(
       expression: Sourced[OperatorResolvedExpression],
-      evaluating: Set[ValueFQN] = Set.empty
+      evaluating: Set[ValueFQN] = Set.empty,
+      callSite: Option[Sourced[?]] = None
   ): CompilerIO[ExpressionValue] =
     for {
-      value   <- toNormalFormExpressionValue(expression.value, evaluating, Map.empty, expression)
+      value   <- toNormalFormExpressionValue(expression.value, evaluating, Map.empty, expression, callSite)
       reduced <- reduceToNormalForm(value, expression)
     } yield reduced
 
@@ -154,7 +156,8 @@ object Evaluator {
       expression: OperatorResolvedExpression,
       evaluating: Set[ValueFQN],
       paramContext: Map[String, Value],
-      sourced: Sourced[?]
+      sourced: Sourced[?],
+      callSite: Option[Sourced[?]] = None
   ): CompilerIO[ExpressionValue] = expression match {
     case OperatorResolvedExpression.IntegerLiteral(s)                                 =>
       ConcreteValue(Value.Direct(s.value, bigIntType)).pure[CompilerIO]
@@ -164,7 +167,7 @@ object Evaluator {
       val name = s.value
       paramContext.get(name) match {
         case Some(paramType) => ParameterReference(name, paramType).pure[CompilerIO]
-        case None            => compilerAbort(s.as(s"Unknown parameter: $name"))
+        case None            => compilerAbort(callSite.getOrElse(s).as(s"Unknown parameter: $name"))
       }
     case OperatorResolvedExpression.ValueReference(s, _)                              =>
       evaluateValueToNormalForm(s.value, sourced, evaluating)
@@ -172,17 +175,17 @@ object Evaluator {
       compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated."))
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramType), body) =>
       for {
-        evaluatedParamTypeFull <- toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType)
+        evaluatedParamTypeFull <- toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType, callSite)
         evaluatedParamType     <- concreteValueOf(evaluatedParamTypeFull).fold(
                                     compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
                                   )(_.pure[CompilerIO])
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
-        evaluatedBody          <- toNormalFormExpressionValue(body.value.signature, evaluating, newContext, body)
+        evaluatedBody          <- toNormalFormExpressionValue(body.value.signature, evaluating, newContext, body, callSite)
       } yield FunctionLiteral(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
       for {
-        targetValue <- toNormalFormExpressionValue(target.value.signature, evaluating, paramContext, target)
-        argValue    <- toNormalFormExpressionValue(argument.value.signature, evaluating, paramContext, argument)
+        targetValue <- toNormalFormExpressionValue(target.value.signature, evaluating, paramContext, target, callSite)
+        argValue    <- toNormalFormExpressionValue(argument.value.signature, evaluating, paramContext, argument, callSite)
       } yield FunctionApplication(target.as(targetValue), argument.as(argValue))
   }
 
