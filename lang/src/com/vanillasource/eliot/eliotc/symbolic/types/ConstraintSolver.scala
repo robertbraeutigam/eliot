@@ -99,18 +99,18 @@ object ConstraintSolver {
           _ <- unify(universalVars, unificationVars, typeArgSources)(
                  Constraint(ConcreteValue(t1), constraint.right.as(ConcreteValue(t2)), "Parameter type mismatch.")
                )
-          _ <- unify(universalVars, unificationVars, typeArgSources)(Constraint(b1, constraint.right.as(b2), "Return type mismatch."))
+          _ <- unify(universalVars, unificationVars, typeArgSources)(Constraint(b1.value, constraint.right.as(b2.value), "Return type mismatch."))
         } yield ()
 
       // Function applications: structural comparison
       case (FunctionApplication(t1, a1), FunctionApplication(t2, a2)) =>
-        val argRight = typeArgSources.get(a2).fold(constraint.right)(identity).as(a2)
+        val argRight = typeArgSources.get(a2.value).fold(constraint.right)(identity).as(a2.value)
         for {
           _ <- unify(universalVars, unificationVars, typeArgSources)(
-                 Constraint(t1, constraint.right.as(t2), "Type constructor mismatch.")
+                 Constraint(t1.value, constraint.right.as(t2.value), "Type constructor mismatch.")
                )
           _ <- unify(universalVars, unificationVars, typeArgSources)(
-                 Constraint(a1, argRight, "Type argument mismatch.")
+                 Constraint(a1.value, argRight, "Type argument mismatch.")
                )
         } yield ()
 

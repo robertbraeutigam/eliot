@@ -166,7 +166,7 @@ class SymbolicTypeCheckProcessor
   @scala.annotation.tailrec
   private def stripUniversalIntros(expr: ExpressionValue): ExpressionValue =
     expr match {
-      case ExpressionValue.FunctionLiteral(_, Value.Type, body) => stripUniversalIntros(body)
+      case ExpressionValue.FunctionLiteral(_, Value.Type, body) => stripUniversalIntros(body.value)
       case other                                                => other
     }
 

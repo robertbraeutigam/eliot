@@ -78,38 +78,38 @@ object Evaluator {
                                   )(_.pure[CompilerIO])
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
         evaluatedBody          <- toExpressionValue(body.value.signature, evaluating, newContext, body)
-      } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
+      } yield FunctionLiteral(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
       for {
         // TODO: Is it ok to ignore the type stack here?
         targetValue <- toExpressionValue(target.value.signature, evaluating, paramContext, target)
         // TODO: Is it ok to ignore the type stack here?
         argValue    <- toExpressionValue(argument.value.signature, evaluating, paramContext, argument)
-      } yield FunctionApplication(targetValue, argValue)
+      } yield FunctionApplication(target.as(targetValue), argument.as(argValue))
   }
 
   def reduce(value: ExpressionValue, sourced: Sourced[?]): CompilerIO[ExpressionValue] = value match {
     case FunctionApplication(target, arg)       =>
       for {
-        reducedTarget <- reduce(target, sourced)
-        reducedArg    <- reduce(arg, sourced)
+        reducedTarget <- reduce(target.value, target)
+        reducedArg    <- reduce(arg.value, arg)
         result        <- reducedTarget match {
                            case FunctionLiteral(paramName, paramType, body) =>
-                             checkType(paramType, reducedArg, sourced) >>
-                               reduce(substitute(body, paramName, reducedArg), sourced)
+                             checkType(paramType, reducedArg, arg) >>
+                               reduce(substitute(body.value, paramName, reducedArg), body)
                            case NativeFunction(paramType, nativeFn)         =>
                              reducedArg match {
                                case ConcreteValue(v) =>
-                                 checkType(paramType, reducedArg, sourced) >> reduce(nativeFn(v), sourced)
+                                 checkType(paramType, reducedArg, arg) >> reduce(nativeFn(v), arg)
                                case _                =>
-                                 FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
+                                 FunctionApplication(target.as(reducedTarget), arg.as(reducedArg)).pure[CompilerIO]
                              }
                            case _                                           =>
-                             FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
+                             FunctionApplication(target.as(reducedTarget), arg.as(reducedArg)).pure[CompilerIO]
                          }
       } yield result
     case FunctionLiteral(name, paramType, body) =>
-      reduce(body, sourced).map(FunctionLiteral(name, paramType, _))
+      reduce(body.value, body).map(reduced => FunctionLiteral(name, paramType, body.as(reduced)))
     case other                                  =>
       other.pure[CompilerIO]
   }
@@ -179,12 +179,12 @@ object Evaluator {
                                   )(_.pure[CompilerIO])
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
         evaluatedBody          <- toNormalFormExpressionValue(body.value.signature, evaluating, newContext, body)
-      } yield FunctionLiteral(paramName.value, evaluatedParamType, evaluatedBody)
+      } yield FunctionLiteral(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
       for {
         targetValue <- toNormalFormExpressionValue(target.value.signature, evaluating, paramContext, target)
         argValue    <- toNormalFormExpressionValue(argument.value.signature, evaluating, paramContext, argument)
-      } yield FunctionApplication(targetValue, argValue)
+      } yield FunctionApplication(target.as(targetValue), argument.as(argValue))
   }
 
   /** Like `reduce`, but does NOT apply NativeFunctions. Only reduces FunctionLiteral applications (beta reduction).
@@ -193,18 +193,18 @@ object Evaluator {
     value match {
       case FunctionApplication(target, arg)       =>
         for {
-          reducedTarget <- reduceToNormalForm(target, sourced)
-          reducedArg    <- reduceToNormalForm(arg, sourced)
+          reducedTarget <- reduceToNormalForm(target.value, target)
+          reducedArg    <- reduceToNormalForm(arg.value, arg)
           result        <- reducedTarget match {
                              case FunctionLiteral(paramName, paramType, body) =>
-                               checkType(paramType, reducedArg, sourced) >>
-                                 reduceToNormalForm(substitute(body, paramName, reducedArg), sourced)
+                               checkType(paramType, reducedArg, arg) >>
+                                 reduceToNormalForm(substitute(body.value, paramName, reducedArg), body)
                              case _                                           =>
-                               FunctionApplication(reducedTarget, reducedArg).pure[CompilerIO]
+                               FunctionApplication(target.as(reducedTarget), arg.as(reducedArg)).pure[CompilerIO]
                            }
         } yield result
       case FunctionLiteral(name, paramType, body) =>
-        reduceToNormalForm(body, sourced).map(FunctionLiteral(name, paramType, _))
+        reduceToNormalForm(body.value, body).map(reduced => FunctionLiteral(name, paramType, body.as(reduced)))
       case other                                  =>
         other.pure[CompilerIO]
     }

@@ -108,10 +108,10 @@ class MonomorphicTypeCheckProcessorTest
     val signature   = ExpressionValue.FunctionLiteral(
       "A",
       Value.Type,
-      ExpressionValue.functionType(
+      ExpressionValue.unsourced(ExpressionValue.functionType(
         ExpressionValue.ParameterReference("A", Value.Type),
         ExpressionValue.ParameterReference("A", Value.Type)
-      )
+      ))
     )
     val typeChecked = AbilityCheckedValue(
       idVfqn,

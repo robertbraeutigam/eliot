@@ -70,8 +70,8 @@ class TypeEvaluatorTest extends ProcessorTest() with MonomorphizeTestFixtures {
     val listVfqn      = ValueFQN(testModuleName, QualifiedName("List", Qualifier.Default))
     val listType      = Types.dataType(listVfqn)
     val expr          = FunctionApplication(
-      ConcreteValue(listType),
-      ParameterReference("A", Value.Type)
+      unsourced(ConcreteValue(listType)),
+      unsourced(ParameterReference("A", Value.Type))
     )
     val expected      = Value.Structure(
       listType.asInstanceOf[Value.Structure].fields + ("A" -> intType),
@@ -114,8 +114,8 @@ class TypeEvaluatorTest extends ProcessorTest() with MonomorphizeTestFixtures {
     )
     // Expression: M(Unit) — a type parameter applied to a concrete type
     val expr        = FunctionApplication(
-      ParameterReference("M", Value.Type),
-      ConcreteValue(unitType)
+      unsourced(ParameterReference("M", Value.Type)),
+      unsourced(ConcreteValue(unitType))
     )
     val expected    = Value.Structure(
       Map("$typeName" -> Value.Direct(ioVfqn, Types.fullyQualifiedNameType), "A" -> unitType),
@@ -147,8 +147,8 @@ class TypeEvaluatorTest extends ProcessorTest() with MonomorphizeTestFixtures {
     val expr           = ExpressionValue.functionType(
       ParameterReference("A", Value.Type),
       FunctionApplication(
-        ParameterReference("M", Value.Type),
-        ConcreteValue(unitType)
+        unsourced(ParameterReference("M", Value.Type)),
+        unsourced(ConcreteValue(unitType))
       )
     )
     val expectedIoUnit = Value.Structure(
@@ -161,7 +161,7 @@ class TypeEvaluatorTest extends ProcessorTest() with MonomorphizeTestFixtures {
 
   it should "fail on type-level lambda" in {
     // Use a body that doesn't require substitution so the FunctionLiteral survives to reduction
-    val expr = FunctionLiteral("A", Value.Type, ConcreteValue(intType))
+    val expr = FunctionLiteral("A", Value.Type, unsourced(ConcreteValue(intType)))
     runEvaluatorForError(expr, Map.empty, Seq.empty)
       .asserting(_ shouldBe "Type expression reduced to unapplied type function")
   }
@@ -182,7 +182,7 @@ class TypeEvaluatorTest extends ProcessorTest() with MonomorphizeTestFixtures {
   }
 
   "extractTypeParams" should "extract single type parameter" in {
-    val sig = FunctionLiteral("A", Value.Type, ParameterReference("A", Value.Type))
+    val sig = FunctionLiteral("A", Value.Type, unsourced(ParameterReference("A", Value.Type)))
     TypeEvaluator.extractTypeParams(sig) shouldBe Seq("A")
   }
 
@@ -190,11 +190,11 @@ class TypeEvaluatorTest extends ProcessorTest() with MonomorphizeTestFixtures {
     val sig = FunctionLiteral(
       "A",
       Value.Type,
-      FunctionLiteral(
+      unsourced(FunctionLiteral(
         "B",
         Value.Type,
-        ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("B", Value.Type))
-      )
+        unsourced(ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("B", Value.Type)))
+      ))
     )
     TypeEvaluator.extractTypeParams(sig) shouldBe Seq("A", "B")
   }
@@ -211,11 +211,11 @@ class TypeEvaluatorTest extends ProcessorTest() with MonomorphizeTestFixtures {
     val sig = FunctionLiteral(
       "A",
       Value.Type,
-      FunctionLiteral(
+      unsourced(FunctionLiteral(
         "n",
         Types.dataType(intVfqn),
-        ParameterReference("n", Types.dataType(intVfqn))
-      )
+        unsourced(ParameterReference("n", Types.dataType(intVfqn)))
+      ))
     )
     TypeEvaluator.extractTypeParams(sig) shouldBe Seq("A", "n")
   }

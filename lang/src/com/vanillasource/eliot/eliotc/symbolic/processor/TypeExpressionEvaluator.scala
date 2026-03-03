@@ -166,7 +166,7 @@ object TypeExpressionEvaluator {
           _                                 <- addUniversalVar(paramName.value)
           (paramTypeValue, typedParamStack) <- processStack(paramType, Declaration)
           (bodyTypeValue, typedBodyStack)   <- processStack(body, Declaration)
-          resultType                         = FunctionLiteral(paramName.value, Value.Type, bodyTypeValue)
+          resultType                         = FunctionLiteral(paramName.value, Value.Type, body.as(bodyTypeValue))
         } yield TypedExpression(
           resultType,
           TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), body.as(typedBodyStack.value.signature))
@@ -235,7 +235,7 @@ object TypeExpressionEvaluator {
     for {
       (targetTypeValue, typedTargetStack) <- processStack(target, mode)
       (argTypeValue, typedArgStack)       <- processStack(arg, mode)
-      resultType                           = FunctionApplication(targetTypeValue, argTypeValue)
+      resultType                           = FunctionApplication(target.as(targetTypeValue), arg.as(argTypeValue))
     } yield TypedExpression(
       resultType,
       TypedExpression.FunctionApplication(

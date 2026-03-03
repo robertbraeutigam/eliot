@@ -13,19 +13,19 @@ class ExpressionValueTest extends AnyFlatSpec with Matchers {
 
   "stripLeadingLambdas" should "strip single FunctionLiteral" in {
     val inner = ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("A", Value.Type))
-    val sig   = FunctionLiteral("A", Value.Type, inner)
+    val sig   = FunctionLiteral("A", Value.Type, unsourced(inner))
     ExpressionValue.stripLeadingLambdas(sig) shouldBe inner
   }
 
   it should "strip multiple FunctionLiterals" in {
     val inner = ExpressionValue.functionType(ParameterReference("A", Value.Type), ParameterReference("B", Value.Type))
-    val sig   = FunctionLiteral("A", Value.Type, FunctionLiteral("B", Value.Type, inner))
+    val sig   = FunctionLiteral("A", Value.Type, unsourced(FunctionLiteral("B", Value.Type, unsourced(inner))))
     ExpressionValue.stripLeadingLambdas(sig) shouldBe inner
   }
 
   it should "strip FunctionLiterals regardless of param type" in {
     val inner = ParameterReference("n", intType)
-    val sig   = FunctionLiteral("n", intType, inner)
+    val sig   = FunctionLiteral("n", intType, unsourced(inner))
     ExpressionValue.stripLeadingLambdas(sig) shouldBe inner
   }
 
@@ -35,7 +35,7 @@ class ExpressionValueTest extends AnyFlatSpec with Matchers {
   }
 
   "extractLeadingLambdaParams" should "extract single parameter" in {
-    val sig = FunctionLiteral("A", Value.Type, ParameterReference("A", Value.Type))
+    val sig = FunctionLiteral("A", Value.Type, unsourced(ParameterReference("A", Value.Type)))
     ExpressionValue.extractLeadingLambdaParams(sig) shouldBe Seq(("A", Value.Type))
   }
 
@@ -43,7 +43,7 @@ class ExpressionValueTest extends AnyFlatSpec with Matchers {
     val sig = FunctionLiteral(
       "A",
       Value.Type,
-      FunctionLiteral("B", Value.Type, ParameterReference("A", Value.Type))
+      unsourced(FunctionLiteral("B", Value.Type, unsourced(ParameterReference("A", Value.Type))))
     )
     ExpressionValue.extractLeadingLambdaParams(sig) shouldBe Seq(("A", Value.Type), ("B", Value.Type))
   }
@@ -52,7 +52,7 @@ class ExpressionValueTest extends AnyFlatSpec with Matchers {
     val sig = FunctionLiteral(
       "A",
       Value.Type,
-      FunctionLiteral("n", intType, ParameterReference("n", intType))
+      unsourced(FunctionLiteral("n", intType, unsourced(ParameterReference("n", intType))))
     )
     ExpressionValue.extractLeadingLambdaParams(sig) shouldBe Seq(("A", Value.Type), ("n", intType))
   }
@@ -75,19 +75,29 @@ class ExpressionValueTest extends AnyFlatSpec with Matchers {
   }
 
   it should "substitute in function application target and argument" in {
-    val body     = FunctionApplication(ParameterReference("x", intType), ParameterReference("x", intType))
+    val body     = FunctionApplication(unsourced(ParameterReference("x", intType)), unsourced(ParameterReference("x", intType)))
     val argValue = ConcreteValue(Value.Direct(42, intType))
-    ExpressionValue.substitute(body, "x", argValue) shouldBe FunctionApplication(argValue, argValue)
+    val result   = ExpressionValue.substitute(body, "x", argValue)
+    result match {
+      case FunctionApplication(t, a) =>
+        t.value shouldBe argValue
+        a.value shouldBe argValue
+      case other => fail(s"Unexpected result: $other")
+    }
   }
 
   it should "substitute in function literal body when param name differs" in {
-    val body     = FunctionLiteral("y", intType, ParameterReference("x", intType))
+    val body     = FunctionLiteral("y", intType, unsourced(ParameterReference("x", intType)))
     val argValue = ConcreteValue(Value.Direct(42, intType))
-    ExpressionValue.substitute(body, "x", argValue) shouldBe FunctionLiteral("y", intType, argValue)
+    val result   = ExpressionValue.substitute(body, "x", argValue)
+    result match {
+      case FunctionLiteral("y", _, b) => b.value shouldBe argValue
+      case other                      => fail(s"Unexpected result: $other")
+    }
   }
 
   it should "not substitute in shadowed function literal" in {
-    val body     = FunctionLiteral("x", intType, ParameterReference("x", intType))
+    val body     = FunctionLiteral("x", intType, unsourced(ParameterReference("x", intType)))
     val argValue = ConcreteValue(Value.Direct(42, intType))
     ExpressionValue.substitute(body, "x", argValue) shouldBe body
   }

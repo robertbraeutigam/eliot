@@ -53,8 +53,8 @@ object TypeEvaluator extends Logging {
   private def applyTypeArgs(expr: ExpressionValue, args: Seq[ExpressionValue]): ExpressionValue =
     args.foldLeft(expr) { (e, arg) =>
       e match {
-        case FunctionLiteral(name, _, body) => ExpressionValue.substitute(body, name, arg)
-        case _                              => FunctionApplication(e, arg)
+        case FunctionLiteral(name, _, body) => ExpressionValue.substitute(body.value, name, arg)
+        case _                              => FunctionApplication(unsourced(e), unsourced(arg))
       }
     }
 
@@ -80,32 +80,32 @@ object TypeEvaluator extends Logging {
       case FunctionApplication(target, arg) =>
         for {
           newTarget <- resolveTargetIfNeeded(target, source)
-          newArg    <- resolveDataTypeRefs(arg, source)
-        } yield FunctionApplication(newTarget, newArg)
+          newArg    <- resolveDataTypeRefs(arg.value, arg)
+        } yield FunctionApplication(target.as(newTarget), arg.as(newArg))
 
       case FunctionLiteral(name, paramType, body) =>
-        resolveDataTypeRefs(body, source).map(FunctionLiteral(name, paramType, _))
+        resolveDataTypeRefs(body.value, body).map(resolved => FunctionLiteral(name, paramType, body.as(resolved)))
 
       case _ =>
         expr.pure[CompilerIO]
     }
 
   /** Resolve a FunctionApplication target if it's a data type reference. */
-  private def resolveTargetIfNeeded(target: ExpressionValue, source: Sourced[?]): CompilerIO[ExpressionValue] =
-    target match {
+  private def resolveTargetIfNeeded(target: Sourced[ExpressionValue], source: Sourced[?]): CompilerIO[ExpressionValue] =
+    target.value match {
       case ConcreteValue(Value.Structure(fields, Value.Type)) if isDataTypeRef(fields) =>
         getDataTypeVfqn(fields) match {
           case Some(vfqn) =>
             getFact(NamedEvaluable.Key(vfqn)).flatMap {
               case Some(value) => value.value.pure[CompilerIO]
-              case None        => compilerAbort(source.as(s"Could not resolve type."), Seq(s"Looking for ${vfqn.show}"))
+              case None        => compilerAbort(target.as(s"Could not resolve type."), Seq(s"Looking for ${vfqn.show}"))
             }
-          case None       => target.pure[CompilerIO]
+          case None       => target.value.pure[CompilerIO]
         }
       case FunctionApplication(_, _) | FunctionLiteral(_, _, _)                        =>
-        resolveDataTypeRefs(target, source)
+        resolveDataTypeRefs(target.value, target)
       case _                                                                           =>
-        target.pure[CompilerIO]
+        target.value.pure[CompilerIO]
     }
 
   /** Check if fields represent a data type reference (only has $typeName, no type parameters). */
@@ -142,7 +142,7 @@ object TypeEvaluator extends Logging {
       source: Sourced[?]
   ): CompilerIO[Value] = {
     val (params, args) = substitution.toSeq.unzip
-    val wrapped        = params.foldRight(expr)((param, body) => FunctionLiteral(param, Value.Type, body))
+    val wrapped        = params.foldRight(expr)((param, body) => FunctionLiteral(param, Value.Type, unsourced(body)))
     evaluate(wrapped, args, source)
   }
 
@@ -172,9 +172,9 @@ object TypeEvaluator extends Logging {
   private def stripNonBodyUniversalsRec(sig: ExpressionValue, keep: Set[String]): ExpressionValue =
     sig match {
       case FunctionLiteral(name, paramType, body) if keep.contains(name) =>
-        FunctionLiteral(name, paramType, stripNonBodyUniversalsRec(body, keep))
+        FunctionLiteral(name, paramType, body.map(stripNonBodyUniversalsRec(_, keep)))
       case FunctionLiteral(_, _, body)                                   =>
-        stripNonBodyUniversalsRec(body, keep)
+        stripNonBodyUniversalsRec(body.value, keep)
       case other                                                         => other
     }
 }

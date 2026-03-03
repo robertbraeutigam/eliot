@@ -38,15 +38,23 @@ class EvaluatorTest extends ProcessorTest() {
   it should "evaluate function literal with parameter reference in body" in {
     val expr = intFunLit("x", paramRef("x"))
     runEvaluator(expr).asserting {
-      case FunctionLiteral("x", _, ParameterReference("x", _)) => succeed
-      case other                                            => fail(s"Unexpected result: $other")
+      case FunctionLiteral("x", _, body) if body.value.isInstanceOf[ParameterReference] => succeed
+      case other => fail(s"Unexpected result: $other")
     }
   }
 
   it should "evaluate nested function literal" in {
     val expr = intFunLit("x", intFunLit("y", paramRef("x")))
     runEvaluator(expr).asserting {
-      case FunctionLiteral("x", _, FunctionLiteral("y", _, ParameterReference("x", _))) => succeed
+      case FunctionLiteral("x", _, outerBody) =>
+        outerBody.value match {
+          case FunctionLiteral("y", _, innerBody) =>
+            innerBody.value match {
+              case ParameterReference("x", _) => succeed
+              case other => fail(s"Unexpected inner body: $other")
+            }
+          case other => fail(s"Unexpected outer body: $other")
+        }
       case other => fail(s"Unexpected result: $other")
     }
   }
@@ -73,7 +81,8 @@ class EvaluatorTest extends ProcessorTest() {
     val fn   = intFunLit("x", intFunLit("y", paramRef("x")))
     val expr = funApp(fn, intLit(42))
     runEvaluator(expr).asserting {
-      case FunctionLiteral("y", _, ConcreteValue(Value.Direct(42, _))) => succeed
+      case FunctionLiteral("y", _, body) =>
+        body.value shouldBe ConcreteValue(Value.Direct(42, bigIntType))
       case other => fail(s"Unexpected result: $other")
     }
   }
@@ -88,7 +97,11 @@ class EvaluatorTest extends ProcessorTest() {
     val fn   = intFunLit("x", intFunLit("x", paramRef("x")))
     val expr = funApp(fn, intLit(42))
     runEvaluator(expr).asserting {
-      case FunctionLiteral("x", _, ParameterReference("x", _)) => succeed
+      case FunctionLiteral("x", _, body) =>
+        body.value match {
+          case ParameterReference("x", _) => succeed
+          case other => fail(s"Unexpected body: $other")
+        }
       case other => fail(s"Unexpected result: $other")
     }
   }
@@ -101,7 +114,7 @@ class EvaluatorTest extends ProcessorTest() {
 
   it should "resolve function value reference and apply" in {
     val vfqn = ValueFQN(testModuleName, QualifiedName("identity", Qualifier.Default))
-    val identityFn = FunctionLiteral("x", bigIntType, ParameterReference("x", bigIntType))
+    val identityFn = FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x", bigIntType)))
     val fact = NamedEvaluable(vfqn, identityFn)
     val expr = funApp(valueRef(vfqn), intLit(42))
     runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
@@ -122,7 +135,7 @@ class EvaluatorTest extends ProcessorTest() {
   it should "detect recursion through function application argument" in {
     val vfqn    = ValueFQN(testModuleName, QualifiedName("recursive", Qualifier.Default))
     val fnVfqn  = ValueFQN(testModuleName, QualifiedName("fn", Qualifier.Default))
-    val fnFact  = NamedEvaluable(fnVfqn, FunctionLiteral("x", bigIntType, ParameterReference("x", bigIntType)))
+    val fnFact  = NamedEvaluable(fnVfqn, FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x", bigIntType))))
     val expr    = funApp(valueRef(fnVfqn), valueRef(vfqn))
     runEvaluatorWithFactsAndTracking(expr, Seq(fnFact), Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }
@@ -155,7 +168,13 @@ class EvaluatorTest extends ProcessorTest() {
     val fact = NamedEvaluable(vfqn, nativeFn)
     val outerFn = intFunLit("y", funApp(valueRef(vfqn), paramRef("y")))
     runEvaluatorWithFacts(outerFn, Seq(fact)).asserting {
-      case FunctionLiteral("y", _, FunctionApplication(NativeFunction(_, _), ParameterReference("y", _))) => succeed
+      case FunctionLiteral("y", _, body) =>
+        body.value match {
+          case FunctionApplication(target, arg) =>
+            target.value.isInstanceOf[NativeFunction] shouldBe true
+            arg.value shouldBe a[ParameterReference]
+          case other => fail(s"Unexpected body: $other")
+        }
       case other => fail(s"Unexpected result: $other")
     }
   }
@@ -163,8 +182,16 @@ class EvaluatorTest extends ProcessorTest() {
   it should "leave function application unreduced when target is parameter reference" in {
     val fn   = intFunLit("f", funApp(paramRef("f"), intLit(42)))
     runEvaluator(fn).asserting {
-      case FunctionLiteral("f", _, FunctionApplication(ParameterReference("f", _), ConcreteValue(Value.Direct(42, _)))) =>
-        succeed
+      case FunctionLiteral("f", _, body) =>
+        body.value match {
+          case FunctionApplication(target, arg) =>
+            target.value shouldBe a[ParameterReference]
+            arg.value match {
+              case ConcreteValue(Value.Direct(42, _)) => succeed
+              case other => fail(s"Unexpected arg: $other")
+            }
+          case other => fail(s"Unexpected body: $other")
+        }
       case other => fail(s"Unexpected result: $other")
     }
   }
@@ -180,7 +207,8 @@ class EvaluatorTest extends ProcessorTest() {
     val addOne = intFunLit("x", intLit(1))
     val fn     = intFunLit("y", funApp(addOne, paramRef("y")))
     runEvaluator(fn).asserting {
-      case FunctionLiteral("y", _, ConcreteValue(Value.Direct(1, _))) => succeed
+      case FunctionLiteral("y", _, body) =>
+        body.value shouldBe ConcreteValue(Value.Direct(1, bigIntType))
       case other => fail(s"Unexpected result: $other")
     }
   }

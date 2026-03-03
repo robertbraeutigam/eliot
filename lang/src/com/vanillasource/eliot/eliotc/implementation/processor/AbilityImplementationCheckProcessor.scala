@@ -171,7 +171,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
     ev match {
       case ExpressionValue.ConcreteValue(v)          => v.typeFQN.map(_.moduleName).toSeq
       case ExpressionValue.FunctionApplication(t, a) =>
-        collectExpressionModuleNames(t) ++ collectExpressionModuleNames(a)
+        collectExpressionModuleNames(t.value) ++ collectExpressionModuleNames(a.value)
       case _                                         => Seq.empty
     }
 }

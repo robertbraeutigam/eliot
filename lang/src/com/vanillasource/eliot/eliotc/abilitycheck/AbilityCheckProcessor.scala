@@ -151,14 +151,14 @@ class AbilityCheckProcessor
   private def hasConcreteTopLevelConstructor(expr: ExpressionValue): Boolean =
     expr match {
       case ExpressionValue.ConcreteValue(_)               => true
-      case ExpressionValue.FunctionApplication(target, _) => hasConcreteTopLevelConstructor(target)
+      case ExpressionValue.FunctionApplication(target, _) => hasConcreteTopLevelConstructor(target.value)
       case _                                              => false
     }
 
   private def isFullyConcrete(expr: ExpressionValue): Boolean =
     expr match {
       case ExpressionValue.ConcreteValue(_)                 => true
-      case ExpressionValue.FunctionApplication(target, arg) => isFullyConcrete(target) && isFullyConcrete(arg)
+      case ExpressionValue.FunctionApplication(target, arg) => isFullyConcrete(target.value) && isFullyConcrete(arg.value)
       case _                                                => false
     }
 }

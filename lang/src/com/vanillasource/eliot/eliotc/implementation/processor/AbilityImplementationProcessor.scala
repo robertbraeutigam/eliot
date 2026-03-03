@@ -208,7 +208,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
   private def collectExpressionModuleNames(ev: ExpressionValue): Seq[ModuleName] =
     ev match {
       case ExpressionValue.ConcreteValue(v)          => v.typeFQN.map(_.moduleName).toSeq
-      case ExpressionValue.FunctionApplication(t, a) => collectExpressionModuleNames(t) ++ collectExpressionModuleNames(a)
+      case ExpressionValue.FunctionApplication(t, a) => collectExpressionModuleNames(t.value) ++ collectExpressionModuleNames(a.value)
       case _                                         => Seq.empty
     }
 }

@@ -179,7 +179,7 @@ class CommonPatternsTest extends BytecodeTest {
 
   it should "strip leading function applications before resolving type" in {
     val innerType = ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default))))
-    val applied   = ExpressionValue.FunctionApplication(innerType, stringExprType)
+    val applied   = ExpressionValue.FunctionApplication(ExpressionValue.unsourced(innerType), ExpressionValue.unsourced(stringExprType))
     simpleType(applied) shouldBe NativeType.systemLangType("String")
   }
 
