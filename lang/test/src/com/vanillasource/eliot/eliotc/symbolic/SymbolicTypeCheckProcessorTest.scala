@@ -320,10 +320,10 @@ class SymbolicTypeCheckProcessorTest
     ).asserting(_ shouldBe Seq("Argument type mismatch." at "s", "Argument type mismatch." at "i", "Return type mismatch." at "i"))
   }
 
-  it should "point type argument mismatch to the body expression" in {
+  it should "point type argument mismatch to the explicit type argument" in {
     runEngineForErrors(
       "data String\ndata Int\ndata Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[Int](g)"
-    ).asserting(_ shouldBe Seq("Type argument mismatch." at "g"))
+    ).asserting(_ shouldBe Seq("Type argument mismatch." at "Int"))
   }
 
   it should "type check with an applied generic type as a type argument" in {

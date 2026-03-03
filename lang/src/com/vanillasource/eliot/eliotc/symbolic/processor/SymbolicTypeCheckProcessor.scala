@@ -42,7 +42,8 @@ class SymbolicTypeCheckProcessor
       constraints: SymbolicUnification,
       universalVars: Set[String],
       unificationVars: Set[String],
-      qualifierParams: Seq[ExpressionValue]
+      qualifierParams: Seq[ExpressionValue],
+      typeArgSources: Map[ExpressionValue, Sourced[?]]
   )
 
   override protected def generateFromKeyAndFact(
@@ -80,6 +81,7 @@ class SymbolicTypeCheckProcessor
                   constraints                 <- getConstraints
                   universalVars               <- getUniversalVars
                   unificationVars             <- getUnificationVars
+                  typeArgSources              <- getTypeArgSources
                 } yield TypeCheckResult(
                   declaredType,
                   typedLevels,
@@ -87,12 +89,13 @@ class SymbolicTypeCheckProcessor
                   constraints,
                   universalVars,
                   unificationVars,
-                  qualifierParams
+                  qualifierParams,
+                  typeArgSources
                 ))
                   .runA(TypeCheckState())
 
       _                   <- debug[CompilerIO](s"Constraints (of ${resolvedValue.vfqn.show}): ${result.constraints.show}")
-      solution            <- ConstraintSolver.solve(result.constraints, result.universalVars, result.unificationVars)
+      solution            <- ConstraintSolver.solve(result.constraints, result.universalVars, result.unificationVars, result.typeArgSources)
       _                   <- debug[CompilerIO](s"Solution (of ${resolvedValue.vfqn.show}): ${solution.show}")
       resolvedTypedLevels  = result.typedLevels.map(_.transformTypes(solution.substitute))
       resolvedTypedBody    = result.typedBody.transformTypes(solution.substitute)

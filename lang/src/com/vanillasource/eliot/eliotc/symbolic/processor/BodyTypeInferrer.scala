@@ -64,6 +64,9 @@ object BodyTypeInferrer {
         resolved           <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
         evaluatedTypeArgs  <-
           typeArgs.traverse(arg => TypeExpressionEvaluator.evaluateTypeExpression(arg.value).map(_.expressionType))
+        _                  <- evaluatedTypeArgs.zip(typeArgs).traverse_ { case (evaluated, source) =>
+                                tellTypeArgSource(evaluated, source)
+                              }
         _                  <- setExplicitTypeArgCount(evaluatedTypeArgs.length)
         (signatureType, _) <-
           TypeExpressionEvaluator.processStackForInstantiation(resolved.typeStack, evaluatedTypeArgs)

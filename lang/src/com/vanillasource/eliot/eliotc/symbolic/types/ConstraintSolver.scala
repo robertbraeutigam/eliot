@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
 
@@ -16,25 +17,26 @@ object ConstraintSolver {
   def solve(
       constraints: SymbolicUnification,
       universalVars: Set[String],
-      unificationVars: Set[String]
+      unificationVars: Set[String],
+      typeArgSources: Map[ExpressionValue, Sourced[?]] = Map.empty
   ): CompilerIO[UnificationState] =
     constraints.constraints
-      .traverse(solveConstraint(universalVars, unificationVars))
+      .traverse(solveConstraint(universalVars, unificationVars, typeArgSources))
       .runS(UnificationState())
 
-  private def solveConstraint(universalVars: Set[String], unificationVars: Set[String])(
+  private def solveConstraint(universalVars: Set[String], unificationVars: Set[String], typeArgSources: Map[ExpressionValue, Sourced[?]])(
       constraint: Constraint
   ): StateT[CompilerIO, UnificationState, Unit] =
     for {
       state        <- StateT.get[CompilerIO, UnificationState]
       leftResolved  = state.substitute(constraint.left)
       rightResolved = state.substitute(constraint.right.value)
-      _            <- unify(universalVars, unificationVars)(
+      _            <- unify(universalVars, unificationVars, typeArgSources)(
                         constraint.copy(left = leftResolved, right = constraint.right.as(rightResolved))
                       )
     } yield ()
 
-  private def unify(universalVars: Set[String], unificationVars: Set[String])(
+  private def unify(universalVars: Set[String], unificationVars: Set[String], typeArgSources: Map[ExpressionValue, Sourced[?]])(
       constraint: Constraint
   ): StateT[CompilerIO, UnificationState, Unit] = {
     val left  = constraint.left
@@ -87,27 +89,28 @@ object ConstraintSolver {
       case (FunctionType(p1, r1), FunctionType(p2, r2))               =>
         for {
           _ <-
-            unify(universalVars, unificationVars)(Constraint(p1, constraint.right.as(p2), "Parameter type mismatch."))
-          _ <- unify(universalVars, unificationVars)(Constraint(r1, constraint.right.as(r2), "Return type mismatch."))
+            unify(universalVars, unificationVars, typeArgSources)(Constraint(p1, constraint.right.as(p2), "Parameter type mismatch."))
+          _ <- unify(universalVars, unificationVars, typeArgSources)(Constraint(r1, constraint.right.as(r2), "Return type mismatch."))
         } yield ()
 
       // Function literals: structural comparison (alpha-equivalence ignoring param name)
       case (FunctionLiteral(_, t1, b1), FunctionLiteral(_, t2, b2))   =>
         for {
-          _ <- unify(universalVars, unificationVars)(
+          _ <- unify(universalVars, unificationVars, typeArgSources)(
                  Constraint(ConcreteValue(t1), constraint.right.as(ConcreteValue(t2)), "Parameter type mismatch.")
                )
-          _ <- unify(universalVars, unificationVars)(Constraint(b1, constraint.right.as(b2), "Return type mismatch."))
+          _ <- unify(universalVars, unificationVars, typeArgSources)(Constraint(b1, constraint.right.as(b2), "Return type mismatch."))
         } yield ()
 
       // Function applications: structural comparison
       case (FunctionApplication(t1, a1), FunctionApplication(t2, a2)) =>
+        val argRight = typeArgSources.get(a2).fold(constraint.right)(identity).as(a2)
         for {
-          _ <- unify(universalVars, unificationVars)(
+          _ <- unify(universalVars, unificationVars, typeArgSources)(
                  Constraint(t1, constraint.right.as(t2), "Type constructor mismatch.")
                )
-          _ <- unify(universalVars, unificationVars)(
-                 Constraint(a1, constraint.right.as(a2), "Type argument mismatch.")
+          _ <- unify(universalVars, unificationVars, typeArgSources)(
+                 Constraint(a1, argRight, "Type argument mismatch.")
                )
         } yield ()
 

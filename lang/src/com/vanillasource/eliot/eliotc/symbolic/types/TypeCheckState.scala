@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Combined state for type checking, including constraint accumulation.
   *
@@ -20,7 +21,8 @@ case class TypeCheckState(
     universalVars: Set[String] = Set.empty,
     unificationVars: Set[String] = Set.empty,
     constraints: SymbolicUnification = SymbolicUnification.empty,
-    remainingExplicitTypeArgs: Int = 0
+    remainingExplicitTypeArgs: Int = 0,
+    typeArgSources: Map[ExpressionValue, Sourced[?]] = Map.empty
 )
 
 object TypeCheckState {
@@ -68,4 +70,10 @@ object TypeCheckState {
   /** Read how many explicit type args are still unconsumed after instantiation. */
   def getExplicitTypeArgCount: TypeGraphIO[Int] =
     StateT.inspect(_.remainingExplicitTypeArgs)
+
+  def tellTypeArgSource(value: ExpressionValue, source: Sourced[?]): TypeGraphIO[Unit] =
+    StateT.modify(state => state.copy(typeArgSources = state.typeArgSources + (value -> source)))
+
+  def getTypeArgSources: TypeGraphIO[Map[ExpressionValue, Sourced[?]]] =
+    StateT.inspect(_.typeArgSources)
 }
