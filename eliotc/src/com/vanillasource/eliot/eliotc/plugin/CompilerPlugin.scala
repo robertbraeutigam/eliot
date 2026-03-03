@@ -3,12 +3,12 @@ package com.vanillasource.eliot.eliotc.plugin
 import cats.data.StateT
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
-import scopt.OParser
+import scopt.{OParser, OParserBuilder}
 
 import scala.annotation.unused
 
 trait CompilerPlugin {
-  def commandLineParser(): OParser[?, Configuration]
+  def commandLineParser(): OParser[?, Configuration] = OParser.builder.programName("eliotc")
 
   def isSelectedBy(configuration: Configuration): Boolean = false
 
