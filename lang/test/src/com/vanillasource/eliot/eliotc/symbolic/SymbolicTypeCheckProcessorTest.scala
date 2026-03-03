@@ -317,7 +317,9 @@ class SymbolicTypeCheckProcessorTest
   it should "fail when explicit type args are in the wrong order" in {
     runEngineForErrors(
       "def g[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = g[Int, String](s, i)"
-    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s", "Argument type mismatch." at "i", "Return type mismatch." at "i"))
+    ).asserting(
+      _ shouldBe Seq("Argument type mismatch." at "s", "Argument type mismatch." at "i", "Return type mismatch." at "i")
+    )
   }
 
   it should "point type argument mismatch to the explicit type argument" in {
@@ -330,6 +332,12 @@ class SymbolicTypeCheckProcessorTest
     runEngineForErrors(
       "def id[A](a: A): A = a\ndata String\ndata Box(s: String)\ndef f(b: Box): Box = id[Box](b)"
     ).asserting(_ shouldBe Seq.empty)
+  }
+
+  "function application in type position" should "detect mismatch when function return type differs from expected" in {
+    runEngineForErrors(
+      "data A\ndata B\ndef g(x: A): B\ndata Box[X: Type](v: A)\ndef a: A\ndef f[I]: Box(g(I)) = Box[A](a)"
+    ).asserting(_ shouldBe Seq("Type argument mismatch." at "A"))
   }
 
   private def runEngineForErrors(source: String): IO[Seq[TestError]] =
