@@ -55,6 +55,11 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       runtime     <- typeChecked.runtime.traverse { body =>
                        transformExpression(body.value, typeChecked.signature, substitution, body).map(body.as)
                      }
+      _           <- runtime match {
+                       case Some(body) =>
+                         checkReturnType(body.value, signature, body)
+                       case None       => ().pure[CompilerIO]
+                     }
       _           <- registerFactIfClear(
                        MonomorphicValue(
                          key.vfqn,
@@ -229,6 +234,51 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                     else ().pure[CompilerIO]
     } yield ()
 
+  private def checkReturnType(
+      bodyExpr: MonomorphicExpression.Expression,
+      signature: Value,
+      source: Sourced[?]
+  ): CompilerIO[Unit] =
+    extractMonomorphicReturnType(bodyExpr) match {
+      case Some((bodyReturnType, bodySource, depth)) =>
+        val signatureReturnType = extractSignatureReturnType(signature, depth)
+        if (bodyReturnType != signatureReturnType)
+          compilerAbort(
+            bodySource.as("Return type mismatch."),
+            Seq(
+              s"Expected: ${showValueType(signatureReturnType)}",
+              s"Actual:   ${showValueType(bodyReturnType)}"
+            )
+          )
+        else ().pure[CompilerIO]
+      case None                                      => ().pure[CompilerIO]
+    }
+
+  private def extractMonomorphicReturnType(
+      expr: MonomorphicExpression.Expression
+  ): Option[(Value, Sourced[?], Int)] =
+    expr match {
+      case MonomorphicExpression.FunctionLiteral(_, _, body) =>
+        extractMonomorphicReturnType(body.value.expression) match {
+          case Some((v, s, d)) => Some((v, s, d + 1))
+          case None            => Some((body.value.expressionType, body, 1))
+        }
+      case _                                                => None
+    }
+
+  private def extractSignatureReturnType(value: Value, depth: Int): Value =
+    if (depth <= 0) value
+    else
+      value match {
+        case Value.Structure(fields, Value.Type) =>
+          fields.get("$typeName") match {
+            case Some(Value.Direct(vfqn: ValueFQN, _)) if vfqn === Types.functionDataTypeFQN =>
+              extractSignatureReturnType(fields("B"), depth - 1)
+            case _                                                                           => value
+          }
+        case _                                   => value
+      }
+
   private def showValueType(value: Value): String = value match {
     case Value.Structure(fields, Value.Type) =>
       fields.get("$typeName") match {
@@ -236,9 +286,15 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
           val paramStr  = fields.get("A").map(showValueType).getOrElse("?")
           val returnStr = fields.get("B").map(showValueType).getOrElse("?")
           s"$paramStr -> $returnStr"
+        case Some(Value.Direct(vfqn: ValueFQN, _))                                      =>
+          val typeName = vfqn.name.name
+          val typeArgs = fields.removed("$typeName").values.map(showValueType).toSeq
+          if (typeArgs.isEmpty) typeName
+          else s"$typeName[${typeArgs.mkString(", ")}]"
         case _                                                                           =>
           Value.valueUserDisplay.show(value)
       }
     case _                                   => Value.valueUserDisplay.show(value)
   }
+
 }

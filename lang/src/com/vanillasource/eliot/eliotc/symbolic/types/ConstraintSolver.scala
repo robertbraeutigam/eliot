@@ -73,6 +73,16 @@ object ConstraintSolver {
       case (ParameterReference(n1, _), ParameterReference(n2, _)) if isUniversalVar(n1) && n1 == n2 =>
         StateT.pure(())
 
+      // FunctionApplication containing universal vars vs non-FunctionApplication: defer to monomorphization
+      // (e.g. inc(I) vs I where inc is a native function that can't be evaluated symbolically)
+      case (FunctionApplication(_, _), _)
+          if !right.isInstanceOf[FunctionApplication] && containsUniversalVar(left, isUniversalVar) =>
+        StateT.pure(())
+
+      case (_, FunctionApplication(_, _))
+          if !left.isInstanceOf[FunctionApplication] && containsUniversalVar(right, isUniversalVar) =>
+        StateT.pure(())
+
       case (ParameterReference(n1, _), _) if isUniversalVar(n1) =>
         issueError(constraint, constraint.errorMessage)
 
@@ -90,11 +100,11 @@ object ConstraintSolver {
       case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2            =>
         StateT.pure(())
 
-      case (ConcreteValue(_), ConcreteValue(_))                                         =>
+      case (ConcreteValue(_), ConcreteValue(_))                       =>
         issueError(constraint, constraint.errorMessage)
 
       // Function types (A -> B): unify parameter and return types separately with specific error messages
-      case (FunctionType(p1, r1), FunctionType(p2, r2))                                 =>
+      case (FunctionType(p1, r1), FunctionType(p2, r2))               =>
         for {
           _ <-
             unify(universalVars, unificationVars, typeArgSources)(
@@ -106,7 +116,7 @@ object ConstraintSolver {
         } yield ()
 
       // Function literals: structural comparison (alpha-equivalence ignoring param name)
-      case (FunctionLiteral(_, t1, b1), FunctionLiteral(_, t2, b2))                     =>
+      case (FunctionLiteral(_, t1, b1), FunctionLiteral(_, t2, b2))   =>
         for {
           _ <- unify(universalVars, unificationVars, typeArgSources)(
                  Constraint(ConcreteValue(t1), constraint.right.as(ConcreteValue(t2)), "Parameter type mismatch.")
@@ -117,7 +127,7 @@ object ConstraintSolver {
         } yield ()
 
       // Function applications: structural comparison
-      case (FunctionApplication(t1, a1), FunctionApplication(t2, a2))                   =>
+      case (FunctionApplication(t1, a1), FunctionApplication(t2, a2)) =>
         val argRight = typeArgSources.get(a2.value).fold(constraint.right)(identity).as(a2.value)
         for {
           _ <- unify(universalVars, unificationVars, typeArgSources)(
@@ -129,18 +139,11 @@ object ConstraintSolver {
         } yield ()
 
       // Native functions should match by their type (rare in type checking)
-      case (NativeFunction(t1, _), NativeFunction(t2, _)) if t1 == t2                   =>
-        StateT.pure(())
-
-      // FunctionApplication containing universal vars can't be evaluated symbolically — defer to monomorphization
-      case (FunctionApplication(_, _), _) if containsUniversalVar(left, isUniversalVar) =>
-        StateT.pure(())
-
-      case (_, FunctionApplication(_, _)) if containsUniversalVar(right, isUniversalVar) =>
+      case (NativeFunction(t1, _), NativeFunction(t2, _)) if t1 == t2 =>
         StateT.pure(())
 
       // Anything else is a type error
-      case _                                                                             =>
+      case _                                                          =>
         issueError(constraint, constraint.errorMessage)
     }
   }
