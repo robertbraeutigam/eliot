@@ -24,7 +24,11 @@ object ConstraintSolver {
       .traverse(solveConstraint(universalVars, unificationVars, typeArgSources))
       .runS(UnificationState())
 
-  private def solveConstraint(universalVars: Set[String], unificationVars: Set[String], typeArgSources: Map[ExpressionValue, Sourced[?]])(
+  private def solveConstraint(
+      universalVars: Set[String],
+      unificationVars: Set[String],
+      typeArgSources: Map[ExpressionValue, Sourced[?]]
+  )(
       constraint: Constraint
   ): StateT[CompilerIO, UnificationState, Unit] =
     for {
@@ -36,7 +40,11 @@ object ConstraintSolver {
                       )
     } yield ()
 
-  private def unify(universalVars: Set[String], unificationVars: Set[String], typeArgSources: Map[ExpressionValue, Sourced[?]])(
+  private def unify(
+      universalVars: Set[String],
+      unificationVars: Set[String],
+      typeArgSources: Map[ExpressionValue, Sourced[?]]
+  )(
       constraint: Constraint
   ): StateT[CompilerIO, UnificationState, Unit] = {
     val left  = constraint.left
@@ -82,28 +90,34 @@ object ConstraintSolver {
       case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2            =>
         StateT.pure(())
 
-      case (ConcreteValue(_), ConcreteValue(_))                       =>
+      case (ConcreteValue(_), ConcreteValue(_))                                         =>
         issueError(constraint, constraint.errorMessage)
 
       // Function types (A -> B): unify parameter and return types separately with specific error messages
-      case (FunctionType(p1, r1), FunctionType(p2, r2))               =>
+      case (FunctionType(p1, r1), FunctionType(p2, r2))                                 =>
         for {
           _ <-
-            unify(universalVars, unificationVars, typeArgSources)(Constraint(p1, constraint.right.as(p2), "Parameter type mismatch."))
-          _ <- unify(universalVars, unificationVars, typeArgSources)(Constraint(r1, constraint.right.as(r2), "Return type mismatch."))
+            unify(universalVars, unificationVars, typeArgSources)(
+              Constraint(p1, constraint.right.as(p2), "Parameter type mismatch.")
+            )
+          _ <- unify(universalVars, unificationVars, typeArgSources)(
+                 Constraint(r1, constraint.right.as(r2), "Return type mismatch.")
+               )
         } yield ()
 
       // Function literals: structural comparison (alpha-equivalence ignoring param name)
-      case (FunctionLiteral(_, t1, b1), FunctionLiteral(_, t2, b2))   =>
+      case (FunctionLiteral(_, t1, b1), FunctionLiteral(_, t2, b2))                     =>
         for {
           _ <- unify(universalVars, unificationVars, typeArgSources)(
                  Constraint(ConcreteValue(t1), constraint.right.as(ConcreteValue(t2)), "Parameter type mismatch.")
                )
-          _ <- unify(universalVars, unificationVars, typeArgSources)(Constraint(b1.value, constraint.right.as(b2.value), "Return type mismatch."))
+          _ <- unify(universalVars, unificationVars, typeArgSources)(
+                 Constraint(b1.value, constraint.right.as(b2.value), "Return type mismatch.")
+               )
         } yield ()
 
       // Function applications: structural comparison
-      case (FunctionApplication(t1, a1), FunctionApplication(t2, a2)) =>
+      case (FunctionApplication(t1, a1), FunctionApplication(t2, a2))                   =>
         val argRight = typeArgSources.get(a2.value).fold(constraint.right)(identity).as(a2.value)
         for {
           _ <- unify(universalVars, unificationVars, typeArgSources)(
@@ -115,17 +129,29 @@ object ConstraintSolver {
         } yield ()
 
       // Native functions should match by their type (rare in type checking)
-      case (NativeFunction(t1, _), NativeFunction(t2, _)) if t1 == t2 =>
+      case (NativeFunction(t1, _), NativeFunction(t2, _)) if t1 == t2                   =>
+        StateT.pure(())
+
+      // FunctionApplication containing universal vars can't be evaluated symbolically — defer to monomorphization
+      case (FunctionApplication(_, _), _) if containsUniversalVar(left, isUniversalVar) =>
+        StateT.pure(())
+
+      case (_, FunctionApplication(_, _)) if containsUniversalVar(right, isUniversalVar) =>
         StateT.pure(())
 
       // Anything else is a type error
-      case _                                                          =>
+      case _                                                                             =>
         issueError(constraint, constraint.errorMessage)
     }
   }
 
   private def isOccursCheck(varName: String, expr: ExpressionValue): Boolean =
     ExpressionValue.containsVar(expr, varName)
+
+  private def containsUniversalVar(expr: ExpressionValue, isUniversalVar: String => Boolean): Boolean =
+    ExpressionValue.fold[Boolean](_ => false, _ => false, (name, _) => isUniversalVar(name), _ || _, (_, _, b) => b)(
+      expr
+    )
 
   private def issueError(constraint: Constraint, message: String): StateT[CompilerIO, UnificationState, Unit] =
     StateT.liftF(

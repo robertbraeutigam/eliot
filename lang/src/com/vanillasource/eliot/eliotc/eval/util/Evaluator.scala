@@ -71,7 +71,8 @@ object Evaluator {
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramType), body) =>
       for {
         // TODO: Is it ok to ignore the type stack here?
-        evaluatedParamTypeFull <- toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType, callSite)
+        evaluatedParamTypeFull <-
+          toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType, callSite)
         // TODO: We require a monomorphized type value here. This might require some parameters in some cases!
         evaluatedParamType     <- concreteValueOf(evaluatedParamTypeFull).fold(
                                     compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
@@ -116,8 +117,9 @@ object Evaluator {
 
   /** Evaluates a value reference to its structural normal form. Reduces until hitting NativeFunctions.
     *
-    * For values with a runtime body: recursively evaluates the body in normal form. For values without a runtime body
-    * (data types, built-ins): returns `ConcreteValue(Types.dataType(vfqn))`.
+    * For values with a runtime body: recursively evaluates the body in normal form, seeding the parameter context with
+    * generic type parameters from the type stack. For values without a runtime body (data types, built-ins): returns
+    * `ConcreteValue(Types.dataType(vfqn))`.
     */
   def evaluateValueToNormalForm(
       vfqn: ValueFQN,
@@ -132,7 +134,9 @@ object Evaluator {
       getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
         case Some(resolved) =>
           resolved.runtime match {
-            case Some(body) => evaluateToNormalForm(body, evaluating + vfqn, callSite = Some(sourced))
+            case Some(body) =>
+              val genericParamContext = extractGenericParamContext(resolved.typeStack.value.signature)
+              evaluateToNormalForm(body, evaluating + vfqn, callSite = Some(sourced), genericParamContext)
             case None       => ConcreteValue(Types.dataType(vfqn)).pure[CompilerIO]
           }
         case None           =>
@@ -145,10 +149,11 @@ object Evaluator {
   def evaluateToNormalForm(
       expression: Sourced[OperatorResolvedExpression],
       evaluating: Set[ValueFQN] = Set.empty,
-      callSite: Option[Sourced[?]] = None
+      callSite: Option[Sourced[?]] = None,
+      paramContext: Map[String, Value] = Map.empty
   ): CompilerIO[ExpressionValue] =
     for {
-      value   <- toNormalFormExpressionValue(expression.value, evaluating, Map.empty, expression, callSite)
+      value   <- toNormalFormExpressionValue(expression.value, evaluating, paramContext, expression, callSite)
       reduced <- reduceToNormalForm(value, expression)
     } yield reduced
 
@@ -175,10 +180,9 @@ object Evaluator {
       compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated."))
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramType), body) =>
       for {
-        evaluatedParamTypeFull <- toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType, callSite)
-        evaluatedParamType     <- concreteValueOf(evaluatedParamTypeFull).fold(
-                                    compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
-                                  )(_.pure[CompilerIO])
+        evaluatedParamTypeFull <-
+          toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType, callSite)
+        evaluatedParamType      = concreteValueOf(evaluatedParamTypeFull).getOrElse(Value.Type)
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
         evaluatedBody          <- toNormalFormExpressionValue(body.value.signature, evaluating, newContext, body, callSite)
       } yield FunctionLiteral(paramName.value, evaluatedParamType, body.as(evaluatedBody))
@@ -226,5 +230,16 @@ object Evaluator {
     case ParameterReference(_, t) => Some(t)
     case _                        => None
   }
+
+  /** Extract generic type parameters from the leading FunctionLiterals of a type stack signature. Generic params are
+    * FunctionLiterals with explicit type annotations at the top of the type stack chain. All generic type params have
+    * type Value.Type since they are type-level parameters.
+    */
+  private def extractGenericParamContext(expr: OperatorResolvedExpression): Map[String, Value] =
+    expr match {
+      case OperatorResolvedExpression.FunctionLiteral(paramName, Some(_), body) =>
+        Map(paramName.value -> Value.Type) ++ extractGenericParamContext(body.value.signature)
+      case _                                                                    => Map.empty
+    }
 
 }

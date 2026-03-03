@@ -4,6 +4,7 @@ import cats.data.StateT
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin
+import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
 import com.vanillasource.eliot.eliotc.jvm.jargen.{GenerateExecutableJar, JvmProgramGenerator}
 import com.vanillasource.eliot.eliotc.compiler.Compiler
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.JvmClassGenerator
@@ -56,7 +57,8 @@ class JvmPlugin extends CompilerPlugin {
   override def isSelectedBy(configuration: Configuration): Boolean = configuration.contains(mainKey)
 
   override def pluginDependencies(configuration: Configuration): Seq[Class[? <: CompilerPlugin]] = Seq(
-    classOf[LangPlugin]
+    classOf[LangPlugin],
+    classOf[StdlibPlugin]
   )
 
   override def run(configuration: Configuration, compilation: CompilationProcess): IO[Unit] =

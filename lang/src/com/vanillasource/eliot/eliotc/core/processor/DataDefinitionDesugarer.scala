@@ -199,7 +199,7 @@ object DataDefinitionDesugarer {
     *      implementation)
     *
     * Example: data Person[NAME: String](content: String) generates: implement TypeMatch[Person[NAME]] { type Fields[R]
-    * = Function[String, R] def typeMatch[R](obj: Type, matchCase: Function[String, R], elseCase: Function[Unit, R]): R
+    * \= Function[String, R] def typeMatch[R](obj: Type, matchCase: Function[String, R], elseCase: Function[Unit, R]): R
     * }
     */
   private def createTypeMatch(definition: DataDefinition): Seq[FunctionDefinition] = {

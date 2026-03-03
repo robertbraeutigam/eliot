@@ -37,7 +37,9 @@ object TypeEvaluator extends Logging {
       resolvedArgs <- typeArgs.traverse(resolveTypeArgConstructor)
       applied       = applyTypeArgs(expr, resolvedArgs)
       _            <- debug[CompilerIO](s"Applied: ${expr.show} to: ${applied.show} ")
-      resolved     <- resolveDataTypeRefs(applied, source)
+      betaReduced   = betaReduceAll(applied)
+      _            <- debug[CompilerIO](s"Beta reduced to: ${betaReduced.show} ")
+      resolved     <- resolveDataTypeRefs(betaReduced, source)
       _            <- debug[CompilerIO](s"Resolved data type refs to: ${resolved.show} ")
       reduced      <- Evaluator.reduce(resolved, source)
       _            <- debug[CompilerIO](s"Reduced to: ${reduced.show} ")
@@ -168,6 +170,24 @@ object TypeEvaluator extends Logging {
     val bodyParams = extractBodyTypeParams(signature).toSet
     stripNonBodyUniversalsRec(signature, bodyParams)
   }
+
+  /** Pure beta reduction of all FunctionApplication(FunctionLiteral, arg) patterns without type checking. This handles
+    * cases where type-level operators (like the dot operator) produce nested FunctionLiteral applications whose
+    * parameter types are abstract (Value.Type) but whose arguments have concrete types.
+    */
+  private def betaReduceAll(expr: ExpressionValue): ExpressionValue =
+    expr match {
+      case FunctionApplication(target, arg)       =>
+        betaReduceAll(target.value) match {
+          case FunctionLiteral(name, _, body) =>
+            betaReduceAll(ExpressionValue.substitute(body.value, name, betaReduceAll(arg.value)))
+          case reducedTarget                  =>
+            FunctionApplication(target.as(reducedTarget), arg.map(betaReduceAll))
+        }
+      case FunctionLiteral(name, paramType, body) =>
+        FunctionLiteral(name, paramType, body.map(betaReduceAll))
+      case other                                  => other
+    }
 
   private def stripNonBodyUniversalsRec(sig: ExpressionValue, keep: Set[String]): ExpressionValue =
     sig match {

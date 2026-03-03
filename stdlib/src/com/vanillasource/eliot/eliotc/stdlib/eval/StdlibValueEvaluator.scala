@@ -2,8 +2,8 @@ package com.vanillasource.eliot.eliotc.stdlib.eval
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{InitialExpressionValue, NativeFunction}
-import com.vanillasource.eliot.eliotc.eval.fact.NamedEvaluable
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, InitialExpressionValue, NativeFunction}
+import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.bigIntType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -14,8 +14,13 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 class StdlibValueEvaluator extends SingleFactProcessor[NamedEvaluable.Key] {
   private val stdlibFunctions: Map[ValueFQN, InitialExpressionValue] = Map.from(
     Seq(
-      ValueFQN(ModuleName(Seq("eliot.lang"), "BigInteger"), QualifiedName("inc", Qualifier.Default)) ->
-        NativeFunction(bigIntType, v => ???)
+      ValueFQN(ModuleName(Seq("eliot", "lang"), "BigInteger"), QualifiedName("inc", Qualifier.Default)) ->
+        NativeFunction(bigIntType, v =>
+          v match {
+            case Value.Direct(n: BigInt, _) => ConcreteValue(Value.Direct(n + 1, bigIntType))
+            case _                          => ConcreteValue(v)
+          }
+        )
     )
   )
 

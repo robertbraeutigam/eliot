@@ -235,7 +235,7 @@ object TypeExpressionEvaluator {
     for {
       (targetTypeValue, typedTargetStack) <- processStack(target, mode)
       (argTypeValue, typedArgStack)       <- processStack(arg, mode)
-      resultType                           = FunctionApplication(target.as(targetTypeValue), arg.as(argTypeValue))
+      resultType                           = betaReduce(FunctionApplication(target.as(targetTypeValue), arg.as(argTypeValue)))
     } yield TypedExpression(
       resultType,
       TypedExpression.FunctionApplication(
@@ -243,6 +243,20 @@ object TypeExpressionEvaluator {
         arg.as(typedArgStack.value.signature)
       )
     )
+
+  private def betaReduce(expr: ExpressionValue): ExpressionValue =
+    expr match {
+      case FunctionApplication(target, arg) =>
+        betaReduce(target.value) match {
+          case FunctionLiteral(name, _, body) =>
+            betaReduce(ExpressionValue.substitute(body.value, name, betaReduce(arg.value)))
+          case reducedTarget                  =>
+            FunctionApplication(target.as(reducedTarget), arg.map(betaReduce))
+        }
+      case FunctionLiteral(name, paramType, body) =>
+        FunctionLiteral(name, paramType, body.map(betaReduce))
+      case other => other
+    }
 
   private def extractConcreteValue(
       typeResult: TypedExpression,
