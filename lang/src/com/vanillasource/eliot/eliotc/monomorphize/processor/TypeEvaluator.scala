@@ -98,7 +98,7 @@ object TypeEvaluator extends Logging {
           case Some(vfqn) =>
             getFact(NamedEvaluable.Key(vfqn)).flatMap {
               case Some(value) => value.value.pure[CompilerIO]
-              case None        => compilerAbort(target.as(s"Could not resolve type."), Seq(s"Looking for ${vfqn.show}"))
+              case None        => compilerAbort(target.as(s"Could not resolve type."), Seq(s"Not evaluable: ${vfqn.show}"))
             }
           case None       => target.value.pure[CompilerIO]
         }
