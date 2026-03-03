@@ -15,11 +15,10 @@ class StdlibValueEvaluator extends SingleFactProcessor[NamedEvaluable.Key] {
   private val stdlibFunctions: Map[ValueFQN, InitialExpressionValue] = Map.from(
     Seq(
       ValueFQN(ModuleName(Seq("eliot", "lang"), "BigInteger"), QualifiedName("inc", Qualifier.Default)) ->
-        NativeFunction(bigIntType, v =>
-          v match {
-            case Value.Direct(n: BigInt, _) => ConcreteValue(Value.Direct(n + 1, bigIntType))
-            case _                          => ConcreteValue(v)
-          }
+        NativeFunction(bigIntType, {
+          case Value.Direct(n: BigInt, _) => ConcreteValue(Value.Direct(n + 1, bigIntType))
+          case v => ConcreteValue(v)
+        }
         )
     )
   )
