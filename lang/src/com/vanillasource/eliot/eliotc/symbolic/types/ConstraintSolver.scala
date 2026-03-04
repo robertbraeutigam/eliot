@@ -27,9 +27,7 @@ object ConstraintSolver {
       state        <- StateT.get[CompilerIO, UnificationState]
       leftResolved  = state.substitute(constraint.left)
       rightResolved = state.substitute(constraint.right.value)
-      _            <- unify(universalVars)(
-                        constraint.copy(left = leftResolved, right = constraint.right.as(rightResolved))
-                      )
+      _            <- unify(universalVars)(constraint.copy(left = leftResolved, right = constraint.right.as(rightResolved)))
     } yield ()
 
   private def unify(universalVars: Set[String])(constraint: Constraint): UnificationCompilerIO[Unit] = {
