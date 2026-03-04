@@ -1,9 +1,11 @@
 package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.Show
+import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 
 /** Tracks the current state of unification. Maps unification variable names to their resolved expressions.
   */
@@ -25,6 +27,8 @@ case class UnificationState(substitutions: Map[String, ExpressionValue] = Map.em
 }
 
 object UnificationState {
+  type UnificationCompilerIO[T] = StateT[CompilerIO, UnificationState, T]
+
   given Show[UnificationState] = state =>
     state.substitutions
       .map { case (name, expr) => s"?$name -> ${expressionValueUserDisplay.show(expr)}" }

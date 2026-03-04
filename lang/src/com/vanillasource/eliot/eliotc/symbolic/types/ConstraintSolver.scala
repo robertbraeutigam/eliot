@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
+import com.vanillasource.eliot.eliotc.symbolic.types.UnificationState.UnificationCompilerIO
 
 /** Solves a set of unification constraints using Robinson's algorithm. Keeps constraint solving separate from
   * constraint accumulation (SymbolicUnification).
@@ -21,11 +22,7 @@ object ConstraintSolver {
       .traverse(solveConstraint(universalVars))
       .runS(UnificationState())
 
-  private def solveConstraint(
-      universalVars: Set[String]
-  )(
-      constraint: Constraint
-  ): StateT[CompilerIO, UnificationState, Unit] =
+  private def solveConstraint(universalVars: Set[String])(constraint: Constraint): UnificationCompilerIO[Unit] =
     for {
       state        <- StateT.get[CompilerIO, UnificationState]
       leftResolved  = state.substitute(constraint.left)
@@ -35,11 +32,7 @@ object ConstraintSolver {
                       )
     } yield ()
 
-  private def unify(
-      universalVars: Set[String]
-  )(
-      constraint: Constraint
-  ): StateT[CompilerIO, UnificationState, Unit] = {
+  private def unify(universalVars: Set[String])(constraint: Constraint): UnificationCompilerIO[Unit] = {
     val left  = constraint.left
     val right = constraint.right.value
 
@@ -69,11 +62,11 @@ object ConstraintSolver {
       case (ParameterReference(n1, _), _) if isUniversalVar(n1) =>
         issueError(constraint, constraint.errorMessage)
 
-      case (_, ParameterReference(n2, _)) if isUniversalVar(n2)               =>
+      case (_, ParameterReference(n2, _)) if isUniversalVar(n2) =>
         issueError(constraint, constraint.errorMessage)
 
       // Concrete values: must be equal
-      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2            =>
+      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2   =>
         StateT.pure(())
 
       case (ConcreteValue(_), ConcreteValue(_))                       =>
@@ -126,7 +119,7 @@ object ConstraintSolver {
   private def isOccursCheck(varName: String, expr: ExpressionValue): Boolean =
     ExpressionValue.containsVar(expr, varName)
 
-  private def issueError(constraint: Constraint, message: String): StateT[CompilerIO, UnificationState, Unit] =
+  private def issueError(constraint: Constraint, message: String): UnificationCompilerIO[Unit] =
     StateT.liftF(
       compilerError(
         constraint.right.as(message),
