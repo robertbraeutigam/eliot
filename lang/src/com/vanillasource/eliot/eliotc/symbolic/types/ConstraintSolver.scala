@@ -39,11 +39,11 @@ object ConstraintSolver {
 
     (left, right) match {
       // Unification variable on left: bind it (if occurs check passes)
-      case (ParameterReference(name, _), _) if isUnificationVar(name) && !isOccursCheck(name, right) =>
+      case (ParameterReference(name, _), _) if isUnificationVar(name) && !isRecursiveCheck(name, right) =>
         StateT.modify[CompilerIO, UnificationState](_.bind(name, right))
 
       // Unification variable on right: bind it
-      case (_, ParameterReference(name, _)) if isUnificationVar(name) && !isOccursCheck(name, left)  =>
+      case (_, ParameterReference(name, _)) if isUnificationVar(name) && !isRecursiveCheck(name, left)  =>
         StateT.modify[CompilerIO, UnificationState](_.bind(name, left))
 
       // Occurs check failure
@@ -114,7 +114,7 @@ object ConstraintSolver {
     }
   }
 
-  private def isOccursCheck(varName: String, expr: ExpressionValue): Boolean =
+  private def isRecursiveCheck(varName: String, expr: ExpressionValue): Boolean =
     ExpressionValue.containsVar(expr, varName)
 
   private def issueError(constraint: Constraint, message: String): UnificationCompilerIO[Unit] =

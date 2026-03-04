@@ -62,14 +62,14 @@ class ConstraintSolverTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
     solveForErrors(uvar("A") :=: IntT, uvar("A") :=: StrT).asserting(_ should contain("Type mismatch."))
   }
 
-  // --- Occurs check ---
+  // --- Recursion check ---
 
-  it should "fail on occurs check (infinite type)" in {
+  it should "fail on recursion (infinite type)" in {
     val circular = funType(uvar("A"), IntT)
     solveForErrors(uvar("A") :=: circular).asserting(_ should contain("Infinite type detected."))
   }
 
-  it should "fail on occurs check (var on right)" in {
+  it should "fail on recursion (var on right)" in {
     val circular = funType(IntT, uvar("A"))
     solveForErrors(circular :=: uvar("A")).asserting(_ should contain("Infinite type detected."))
   }
