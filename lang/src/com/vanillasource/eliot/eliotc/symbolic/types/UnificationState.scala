@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.Show
 import cats.data.StateT
+import cats.kernel.Monoid
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
@@ -28,6 +29,13 @@ case class UnificationState(substitutions: Map[String, ExpressionValue] = Map.em
 
 object UnificationState {
   type UnificationCompilerIO[T] = StateT[CompilerIO, UnificationState, T]
+
+  given Monoid[UnificationState] with {
+    override def empty: UnificationState = UnificationState()
+
+    override def combine(x: UnificationState, y: UnificationState): UnificationState =
+      UnificationState(x.substitutions ++ y.substitutions)
+  }
 
   given Show[UnificationState] = state =>
     state.substitutions

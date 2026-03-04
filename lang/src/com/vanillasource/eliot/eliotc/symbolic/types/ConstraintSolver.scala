@@ -20,7 +20,7 @@ object ConstraintSolver {
   ): CompilerIO[UnificationState] =
     constraints.constraints
       .traverse(solveConstraint(universalVars))
-      .runS(UnificationState())
+      .runEmptyS
 
   private def solveConstraint(universalVars: Set[String])(constraint: Constraint): UnificationCompilerIO[Unit] =
     for {
