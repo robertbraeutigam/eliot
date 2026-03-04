@@ -96,7 +96,7 @@ class ConstraintSolverTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
     solveU(uvar("X") :=: uvar("T"))("T").asserting(_ shouldBe Map("X" -> uvar("T")))
   }
 
-  // --- Function type unification ---
+  // --- Function type unification (it's just FunctionApplication case with specialized error messages) ---
 
   it should "unify identical function types" in {
     solve(funType(IntT, StrT) :=: funType(IntT, StrT)).asserting(_ shouldBe Map.empty)

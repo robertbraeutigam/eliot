@@ -38,16 +38,16 @@ object ConstraintSolver {
     def isUniversalVar(name: String): Boolean   = universalVars.contains(name)
 
     (left, right) match {
-      // Unification variable on left: bind it (if occurs check passes)
+      // Unification variable on left: bind it (if not recursive)
       case (ParameterReference(name, _), _) if isUnificationVar(name) && !isRecursiveCheck(name, right) =>
         StateT.modify[CompilerIO, UnificationState](_.bind(name, right))
 
-      // Unification variable on right: bind it
+      // Unification variable on right: bind it (if not recursive)
       case (_, ParameterReference(name, _)) if isUnificationVar(name) && !isRecursiveCheck(name, left)  =>
         StateT.modify[CompilerIO, UnificationState](_.bind(name, left))
 
-      // Occurs check failure
-      case (ParameterReference(name, _), _) if isUnificationVar(name)                                =>
+      // Recursion detected
+      case (ParameterReference(name, _), _) if isUnificationVar(name)                                   =>
         issueError(constraint, "Infinite type detected.")
 
       case (_, ParameterReference(name, _)) if isUnificationVar(name)                               =>
