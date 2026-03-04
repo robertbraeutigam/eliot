@@ -12,6 +12,10 @@ import java.net.URI
   */
 case class Sourced[+T](uri: URI, range: PositionRange, value: T) {
   def reFocus(newRange: PositionRange): Sourced[T] = copy(range = newRange)
+
+  /** Use this source if it has real positioning, otherwise fall back to the given source's positioning. */
+  def withFallback(fallback: Sourced[?]): Sourced[T] =
+    if (uri.toString.isEmpty) Sourced(fallback.uri, fallback.range, value) else this
 }
 
 object Sourced {

@@ -61,15 +61,14 @@ object BodyTypeInferrer {
       TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
     } else {
       for {
-        resolved           <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-        evaluatedTypeArgs  <-
-          typeArgs.traverse(arg => TypeExpressionEvaluator.evaluateTypeExpression(arg.value).map(_.expressionType))
-        _                  <- evaluatedTypeArgs.zip(typeArgs).traverse_ { case (evaluated, source) =>
-                                tellTypeArgSource(evaluated, source)
-                              }
-        _                  <- setExplicitTypeArgCount(evaluatedTypeArgs.length)
-        (signatureType, _) <-
-          TypeExpressionEvaluator.processStackForInstantiation(resolved.typeStack, evaluatedTypeArgs)
+        resolved              <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
+        sourcedEvaluatedTypeArgs <-
+          typeArgs.traverse(arg =>
+            TypeExpressionEvaluator.evaluateTypeExpression(arg.value).map(result => arg.as(result.expressionType))
+          )
+        _                     <- setExplicitTypeArgCount(sourcedEvaluatedTypeArgs.length)
+        (signatureType, _)    <-
+          TypeExpressionEvaluator.processStackForInstantiation(resolved.typeStack, sourcedEvaluatedTypeArgs)
         remaining          <- getExplicitTypeArgCount
         _                  <- if (remaining > 0)
                                 StateT.liftF(compilerError(vfqn.as("Too many explicit type arguments.")))
@@ -114,7 +113,7 @@ object BodyTypeInferrer {
                             TypeExpressionEvaluator.processStackForDeclaration(pt).map { case (v, _) => pt.as(v) }
                           case None     => generateUnificationVar.map(v => paramName.as(v: ExpressionValue))
                         }
-      _              <- bindParameter(paramName.value, typedParamType.value)
+      _              <- bindParameter(paramName.value, typedParamType)
       bodyResult     <- inferBodyStack(bodyStack)
       funcType        = functionType(typedParamType.value, bodyResult.expressionType)
     } yield TypedExpression(

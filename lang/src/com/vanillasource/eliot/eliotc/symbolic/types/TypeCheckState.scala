@@ -17,12 +17,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
-    parameterTypes: Map[String, ExpressionValue] = Map.empty,
+    parameterTypes: Map[String, Sourced[ExpressionValue]] = Map.empty,
     universalVars: Set[String] = Set.empty,
     unificationVars: Set[String] = Set.empty,
     constraints: SymbolicUnification = SymbolicUnification.empty,
-    remainingExplicitTypeArgs: Int = 0,
-    typeArgSources: Map[ExpressionValue, Sourced[?]] = Map.empty
+    remainingExplicitTypeArgs: Int = 0
 )
 
 object TypeCheckState {
@@ -35,13 +34,13 @@ object TypeCheckState {
       (newState, ParameterReference(id, Value.Type)).pure[CompilerIO]
     }
 
-  def bindParameter(name: String, typ: ExpressionValue): TypeGraphIO[Unit] =
+  def bindParameter(name: String, typ: Sourced[ExpressionValue]): TypeGraphIO[Unit] =
     StateT.modify(state => state.copy(parameterTypes = state.parameterTypes + (name -> typ)))
 
   def addUniversalVar(name: String): TypeGraphIO[Unit] =
     StateT.modify(state => state.copy(universalVars = state.universalVars + name))
 
-  def lookupParameter(name: String): TypeGraphIO[Option[ExpressionValue]] =
+  def lookupParameter(name: String): TypeGraphIO[Option[Sourced[ExpressionValue]]] =
     StateT.inspect(_.parameterTypes.get(name))
 
   def tellConstraint(constraint: SymbolicUnification): TypeGraphIO[Unit] =
@@ -71,9 +70,4 @@ object TypeCheckState {
   def getExplicitTypeArgCount: TypeGraphIO[Int] =
     StateT.inspect(_.remainingExplicitTypeArgs)
 
-  def tellTypeArgSource(value: ExpressionValue, source: Sourced[?]): TypeGraphIO[Unit] =
-    StateT.modify(state => state.copy(typeArgSources = state.typeArgSources + (value -> source)))
-
-  def getTypeArgSources: TypeGraphIO[Map[ExpressionValue, Sourced[?]]] =
-    StateT.inspect(_.typeArgSources)
 }

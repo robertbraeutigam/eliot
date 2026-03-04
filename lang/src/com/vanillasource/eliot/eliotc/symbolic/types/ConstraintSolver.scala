@@ -22,17 +22,15 @@ object ConstraintSolver {
   def solve(
       constraints: SymbolicUnification,
       universalVars: Set[String],
-      unificationVars: Set[String],
-      typeArgSources: Map[ExpressionValue, Sourced[?]] = Map.empty
+      unificationVars: Set[String]
   ): CompilerIO[UnificationState] =
     constraints.constraints
-      .traverse(solveConstraint(universalVars, unificationVars, typeArgSources))
+      .traverse(solveConstraint(universalVars, unificationVars))
       .runS(UnificationState())
 
   private def solveConstraint(
       universalVars: Set[String],
-      unificationVars: Set[String],
-      typeArgSources: Map[ExpressionValue, Sourced[?]]
+      unificationVars: Set[String]
   )(
       constraint: Constraint
   ): StateT[CompilerIO, UnificationState, Unit] =
@@ -40,15 +38,14 @@ object ConstraintSolver {
       state        <- StateT.get[CompilerIO, UnificationState]
       leftResolved  = state.substitute(constraint.left)
       rightResolved = state.substitute(constraint.right.value)
-      _            <- unify(universalVars, unificationVars, typeArgSources)(
+      _            <- unify(universalVars, unificationVars)(
                         constraint.copy(left = leftResolved, right = constraint.right.as(rightResolved))
                       )
     } yield ()
 
   private def unify(
       universalVars: Set[String],
-      unificationVars: Set[String],
-      typeArgSources: Map[ExpressionValue, Sourced[?]]
+      unificationVars: Set[String]
   )(
       constraint: Constraint
   ): StateT[CompilerIO, UnificationState, Unit] = {
@@ -89,7 +86,7 @@ object ConstraintSolver {
           if !isConstructorApplication(fa) && containsUniversalVar(left, isUniversalVar) =>
         resolveNonConstructorReturn(fa).flatMap {
           case Some(returnType) if !containsUniversalVar(right, isUniversalVar) =>
-            unify(universalVars, unificationVars, typeArgSources)(constraint.copy(left = returnType))
+            unify(universalVars, unificationVars)(constraint.copy(left = returnType))
           case _                                                                => StateT.pure(())
         }
 
@@ -97,7 +94,7 @@ object ConstraintSolver {
           if !isConstructorApplication(fa) && containsUniversalVar(right, isUniversalVar) =>
         resolveNonConstructorReturn(fa).flatMap {
           case Some(returnType) if !containsUniversalVar(left, isUniversalVar) =>
-            unify(universalVars, unificationVars, typeArgSources)(
+            unify(universalVars, unificationVars)(
               constraint.copy(right = constraint.right.as(returnType))
             )
           case _                                                               => StateT.pure(())
@@ -127,10 +124,10 @@ object ConstraintSolver {
       case (FunctionType(p1, r1), FunctionType(p2, r2))               =>
         for {
           _ <-
-            unify(universalVars, unificationVars, typeArgSources)(
+            unify(universalVars, unificationVars)(
               Constraint(p1, constraint.right.as(p2), "Parameter type mismatch.")
             )
-          _ <- unify(universalVars, unificationVars, typeArgSources)(
+          _ <- unify(universalVars, unificationVars)(
                  Constraint(r1, constraint.right.as(r2), "Return type mismatch.")
                )
         } yield ()
@@ -138,23 +135,22 @@ object ConstraintSolver {
       // Function literals: structural comparison (alpha-equivalence ignoring param name)
       case (FunctionLiteral(_, t1, b1), FunctionLiteral(_, t2, b2))   =>
         for {
-          _ <- unify(universalVars, unificationVars, typeArgSources)(
+          _ <- unify(universalVars, unificationVars)(
                  Constraint(ConcreteValue(t1), constraint.right.as(ConcreteValue(t2)), "Parameter type mismatch.")
                )
-          _ <- unify(universalVars, unificationVars, typeArgSources)(
+          _ <- unify(universalVars, unificationVars)(
                  Constraint(b1.value, constraint.right.as(b2.value), "Return type mismatch.")
                )
         } yield ()
 
       // Function applications: structural comparison
       case (FunctionApplication(t1, a1), FunctionApplication(t2, a2)) =>
-        val argRight = typeArgSources.get(a2.value).fold(constraint.right)(identity).as(a2.value)
         for {
-          _ <- unify(universalVars, unificationVars, typeArgSources)(
+          _ <- unify(universalVars, unificationVars)(
                  Constraint(t1.value, constraint.right.as(t2.value), "Type constructor mismatch.")
                )
-          _ <- unify(universalVars, unificationVars, typeArgSources)(
-                 Constraint(a1.value, argRight, "Type argument mismatch.")
+          _ <- unify(universalVars, unificationVars)(
+                 Constraint(a1.value, a2.withFallback(constraint.right), "Type argument mismatch.")
                )
         } yield ()
 

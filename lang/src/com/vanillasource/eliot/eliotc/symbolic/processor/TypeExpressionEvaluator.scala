@@ -28,8 +28,8 @@ import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
 object TypeExpressionEvaluator {
 
   private sealed trait InstantiationMode
-  private case object Declaration                                        extends InstantiationMode
-  private case class Instantiation(pendingArgs: List[ExpressionValue])  extends InstantiationMode
+  private case object Declaration                                                extends InstantiationMode
+  private case class Instantiation(pendingArgs: List[Sourced[ExpressionValue]])  extends InstantiationMode
 
   /** Process a type stack in declaration context.
     *
@@ -42,7 +42,7 @@ object TypeExpressionEvaluator {
   def processStackForDeclaration(
       stack: Sourced[TypeStack[OperatorResolvedExpression]]
   ): TypeGraphIO[(ExpressionValue, Sourced[TypeStack[TypedExpression]])] =
-    processStack(stack, Declaration)
+    processStack(stack, Declaration).map { case (sourced, typed) => (sourced.value, typed) }
 
   /** Process a type stack in instantiation context.
     *
@@ -50,31 +50,36 @@ object TypeExpressionEvaluator {
     * remaining universal vars become fresh unification variables. This allows type inference at call sites.
     *
     * @param explicitTypeArgs
-    *   Explicit type arguments to consume in order per universal intro. Any remaining after processing signals too many
-    *   type args.
+    *   Explicit type arguments to consume in order per universal intro, each carrying the call-site source position.
+    *   Any remaining after processing signals too many type args.
     * @return
     *   Tuple of (signatureType, typedStack)
     */
   def processStackForInstantiation(
       stack: Sourced[TypeStack[OperatorResolvedExpression]],
-      explicitTypeArgs: Seq[ExpressionValue] = Seq.empty
+      explicitTypeArgs: Seq[Sourced[ExpressionValue]] = Seq.empty
   ): TypeGraphIO[(ExpressionValue, Sourced[TypeStack[TypedExpression]])] =
-    processStack(stack, Instantiation(explicitTypeArgs.toList))
+    processStack(stack, Instantiation(explicitTypeArgs.toList)).map { case (sourced, typed) => (sourced.value, typed) }
 
   /** Shared handling for parameter references in both type-level and body-level contexts. */
   def handleParameterReference(name: Sourced[String]): TypeGraphIO[TypedExpression] =
-    lookupParameter(name.value).map { maybeType =>
-      val exprValue = maybeType.getOrElse(ParameterReference(name.value, Value.Type))
-      TypedExpression(exprValue, TypedExpression.ParameterReference(name))
+    handleParameterReferenceSourced(name).map(_._2)
+
+  private def handleParameterReferenceSourced(
+      name: Sourced[String]
+  ): TypeGraphIO[(Sourced[ExpressionValue], TypedExpression)] =
+    lookupParameter(name.value).map { maybeSourced =>
+      val sourced = maybeSourced.getOrElse(unsourced(ParameterReference(name.value, Value.Type): ExpressionValue))
+      (sourced, TypedExpression(sourced.value, TypedExpression.ParameterReference(name)))
     }
 
   private def processStack(
       stack: Sourced[TypeStack[OperatorResolvedExpression]],
       mode: InstantiationMode
-  ): TypeGraphIO[(ExpressionValue, Sourced[TypeStack[TypedExpression]])] =
+  ): TypeGraphIO[(Sourced[ExpressionValue], Sourced[TypeStack[TypedExpression]])] =
     for {
-      (signatureType, typedLevels) <- processLevels(stack.value.levels.toList.reverse, Value.Type, stack, mode)
-    } yield (signatureType, stack.as(TypeStack(NonEmptySeq.fromSeqUnsafe(typedLevels.reverse))))
+      (sourcedSignatureType, typedLevels) <- processLevels(stack.value.levels.toList.reverse, Value.Type, stack, mode)
+    } yield (sourcedSignatureType, stack.as(TypeStack(NonEmptySeq.fromSeqUnsafe(typedLevels.reverse))))
 
   /** Recursively process type levels from top (highest) to bottom (signature).
     *
@@ -87,62 +92,69 @@ object TypeExpressionEvaluator {
     * @param mode
     *   Whether we're in declaration or instantiation context
     * @return
-    *   Tuple of (signatureType, typedLevels in reverse order)
+    *   Tuple of (sourcedSignatureType, typedLevels in reverse order)
     */
   private def processLevels(
       levels: List[OperatorResolvedExpression],
       expectedType: Value,
       source: Sourced[?],
       mode: InstantiationMode
-  ): TypeGraphIO[(ExpressionValue, Seq[TypedExpression])] =
+  ): TypeGraphIO[(Sourced[ExpressionValue], Seq[TypedExpression])] =
     levels match {
       case Nil =>
-        generateUnificationVar.map((_, Seq.empty))
+        generateUnificationVar.map(v => (unsourced(v: ExpressionValue), Seq.empty))
 
       case head :: Nil =>
-        buildExpression(head, mode).map(typeResult => (typeResult.expressionType, Seq(typeResult)))
+        buildExpression(head, mode).map { case (sourced, typeResult) => (sourced, Seq(typeResult)) }
 
       case expr :: rest =>
         for {
-          typeResult                       <- buildExpression(expr, mode)
-          evaluatedValue                   <- extractConcreteValue(typeResult, expectedType, source)
-          (signatureType, restTypedLevels) <- processLevels(rest, evaluatedValue, source, mode)
-        } yield (signatureType, typeResult +: restTypedLevels)
+          (_, typeResult)                                <- buildExpression(expr, mode)
+          evaluatedValue                                 <- extractConcreteValue(typeResult, expectedType, source)
+          (sourcedSignatureType, restTypedLevels)        <- processLevels(rest, evaluatedValue, source, mode)
+        } yield (sourcedSignatureType, typeResult +: restTypedLevels)
     }
 
   /** Evaluate a single type-position expression in declaration context. Used by BodyTypeInferrer for evaluating explicit
     * type arguments.
     */
   def evaluateTypeExpression(expression: OperatorResolvedExpression): TypeGraphIO[TypedExpression] =
-    buildExpression(expression, Declaration)
+    buildExpression(expression, Declaration).map(_._2)
 
-  /** Build a typed expression from a single type expression. */
-  private def buildExpression(expression: OperatorResolvedExpression, mode: InstantiationMode): TypeGraphIO[TypedExpression] =
+  /** Build a typed expression from a single type expression, returning its preferred source alongside. */
+  private def buildExpression(
+      expression: OperatorResolvedExpression,
+      mode: InstantiationMode
+  ): TypeGraphIO[(Sourced[ExpressionValue], TypedExpression)] =
     expression match {
       case Expr.FunctionLiteral(paramName, Some(paramType), body) =>
         buildUniversalIntro(paramName, paramType, body, mode)
 
       case Expr.FunctionLiteral(paramName, None, _) =>
+        val exprValue = ParameterReference(paramName.value, Value.Type)
         StateT.liftF(compilerError(paramName.as("Lambda parameter in type annotation must have an explicit type."))) *>
-          TypedExpression(ParameterReference(paramName.value, Value.Type), TypedExpression.ParameterReference(paramName))
+          (unsourced(exprValue: ExpressionValue),
+           TypedExpression(exprValue, TypedExpression.ParameterReference(paramName)))
             .pure[TypeGraphIO]
 
       case Expr.ValueReference(vfqn, _) =>
         buildValueReference(vfqn)
 
       case Expr.ParameterReference(name) =>
-        handleParameterReference(name)
+        handleParameterReferenceSourced(name)
 
       case Expr.FunctionApplication(target, arg) =>
         buildTypeApplication(target, arg, mode)
 
       case Expr.IntegerLiteral(value) =>
         val exprValue = ConcreteValue(Value.Direct(value.value, Types.bigIntType))
-        TypedExpression(exprValue, TypedExpression.IntegerLiteral(value)).pure[TypeGraphIO]
+        (unsourced(exprValue: ExpressionValue), TypedExpression(exprValue, TypedExpression.IntegerLiteral(value)))
+          .pure[TypeGraphIO]
 
       case Expr.StringLiteral(value) =>
         val exprValue = ConcreteValue(Value.Direct(value.value, Types.stringType))
-        TypedExpression(exprValue, TypedExpression.StringLiteral(value)).pure[TypeGraphIO]
+        (unsourced(exprValue: ExpressionValue), TypedExpression(exprValue, TypedExpression.StringLiteral(value)))
+          .pure[TypeGraphIO]
     }
 
   /** Universal variable introduction: A -> ... where A is of type Type
@@ -159,17 +171,20 @@ object TypeExpressionEvaluator {
       paramType: Sourced[TypeStack[OperatorResolvedExpression]],
       body: Sourced[TypeStack[OperatorResolvedExpression]],
       mode: InstantiationMode
-  ): TypeGraphIO[TypedExpression] =
+  ): TypeGraphIO[(Sourced[ExpressionValue], TypedExpression)] =
     mode match {
       case Declaration =>
         for {
-          _                                 <- addUniversalVar(paramName.value)
-          (paramTypeValue, typedParamStack) <- processStack(paramType, Declaration)
-          (bodyTypeValue, typedBodyStack)   <- processStack(body, Declaration)
-          resultType                         = FunctionLiteral(paramName.value, Value.Type, body.as(bodyTypeValue))
-        } yield TypedExpression(
-          resultType,
-          TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), body.as(typedBodyStack.value.signature))
+          _                                          <- addUniversalVar(paramName.value)
+          (sourcedParamTypeValue, typedParamStack)   <- processStack(paramType, Declaration)
+          (sourcedBodyTypeValue, typedBodyStack)     <- processStack(body, Declaration)
+          resultType                                  = FunctionLiteral(paramName.value, Value.Type, sourcedBodyTypeValue)
+        } yield (
+          unsourced(resultType: ExpressionValue),
+          TypedExpression(
+            resultType,
+            TypedExpression.FunctionLiteral(paramName, sourcedParamTypeValue.map(identity), body.as(typedBodyStack.value.signature))
+          )
         )
 
       case Instantiation(pendingArgs) =>
@@ -177,35 +192,42 @@ object TypeExpressionEvaluator {
         val (bindAction, remainingArgs) = pendingArgs match {
           case head :: tail => (decrementExplicitTypeArgCount *> bindParameter(paramName.value, head), tail)
           case Nil          =>
-            val action = generateUnificationVar.flatMap(uniVar => bindParameter(paramName.value, uniVar))
+            val action = generateUnificationVar.flatMap(uniVar => bindParameter(paramName.value, unsourced(uniVar: ExpressionValue)))
             (action, Nil)
         }
         for {
-          _                                 <- bindAction
-          (paramTypeValue, typedParamStack) <- processStack(paramType, Declaration)
-          (bodyTypeValue, typedBodyStack)   <- processStack(body, Instantiation(remainingArgs))
-        } yield TypedExpression(
-          bodyTypeValue,
-          TypedExpression.FunctionLiteral(paramName, paramType.as(paramTypeValue), body.as(typedBodyStack.value.signature))
+          _                                          <- bindAction
+          (sourcedParamTypeValue, typedParamStack)   <- processStack(paramType, Declaration)
+          (sourcedBodyTypeValue, typedBodyStack)     <- processStack(body, Instantiation(remainingArgs))
+        } yield (
+          sourcedBodyTypeValue,
+          TypedExpression(
+            sourcedBodyTypeValue.value,
+            TypedExpression.FunctionLiteral(paramName, sourcedParamTypeValue.map(identity), body.as(typedBodyStack.value.signature))
+          )
         )
     }
 
   /** Value reference - could be a type like Int, String, or a universal var */
   private def buildValueReference(
       vfqn: Sourced[ValueFQN]
-  ): TypeGraphIO[TypedExpression] =
+  ): TypeGraphIO[(Sourced[ExpressionValue], TypedExpression)] =
     isUniversalVar(vfqn.value.name.name).flatMap { isUniv =>
       if (isUniv) {
         val exprValue = ParameterReference(vfqn.value.name.name, Value.Type)
-        TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
+        (unsourced(exprValue: ExpressionValue), TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)))
+          .pure[TypeGraphIO]
       } else {
         StateT
           .liftF(Evaluator.evaluateValueToNormalForm(vfqn.value, vfqn))
           .flatMap { exprValue =>
             if (isAbstractAbilityType(exprValue, vfqn.value)) {
-              generateUnificationVar.map(uniVar => TypedExpression(uniVar, TypedExpression.ValueReference(vfqn)))
+              generateUnificationVar.map(uniVar =>
+                (unsourced(uniVar: ExpressionValue), TypedExpression(uniVar, TypedExpression.ValueReference(vfqn)))
+              )
             } else {
-              TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
+              (unsourced(exprValue: ExpressionValue), TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)))
+                .pure[TypeGraphIO]
             }
           }
       }
@@ -231,16 +253,19 @@ object TypeExpressionEvaluator {
       target: Sourced[TypeStack[OperatorResolvedExpression]],
       arg: Sourced[TypeStack[OperatorResolvedExpression]],
       mode: InstantiationMode
-  ): TypeGraphIO[TypedExpression] =
+  ): TypeGraphIO[(Sourced[ExpressionValue], TypedExpression)] =
     for {
-      (targetTypeValue, typedTargetStack) <- processStack(target, mode)
-      (argTypeValue, typedArgStack)       <- processStack(arg, mode)
-      resultType                           = ExpressionValue.betaReduce(FunctionApplication(target.as(targetTypeValue), arg.as(argTypeValue)))
-    } yield TypedExpression(
-      resultType,
-      TypedExpression.FunctionApplication(
-        target.as(typedTargetStack.value.signature),
-        arg.as(typedArgStack.value.signature)
+      (sourcedTargetTypeValue, typedTargetStack) <- processStack(target, mode)
+      (sourcedArgTypeValue, typedArgStack)       <- processStack(arg, mode)
+      resultType                                  = ExpressionValue.betaReduce(FunctionApplication(sourcedTargetTypeValue, sourcedArgTypeValue))
+    } yield (
+      unsourced(resultType: ExpressionValue),
+      TypedExpression(
+        resultType,
+        TypedExpression.FunctionApplication(
+          target.as(typedTargetStack.value.signature),
+          arg.as(typedArgStack.value.signature)
+        )
       )
     )
 
