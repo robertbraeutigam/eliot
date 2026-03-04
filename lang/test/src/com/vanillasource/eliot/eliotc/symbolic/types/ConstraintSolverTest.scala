@@ -144,18 +144,6 @@ class ConstraintSolverTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
       .asserting(_ shouldBe Map("A" -> IntT, "B" -> StrT))
   }
 
-  // --- Native function unification ---
-
-  it should "unify native functions with equal parameter types" in {
-    val nf = NativeFunction(bigIntType, _ => IntT)
-    solve(nf :=: nf).asserting(_ shouldBe Map.empty)
-  }
-
-  it should "fail on native functions with different parameter types" in {
-    solveForErrors(NativeFunction(bigIntType, _ => IntT) :=: NativeFunction(stringType, _ => StrT))
-      .asserting(_ should contain("Type mismatch."))
-  }
-
   // --- Structural mismatches ---
 
   it should "fail when concrete meets function application" in {

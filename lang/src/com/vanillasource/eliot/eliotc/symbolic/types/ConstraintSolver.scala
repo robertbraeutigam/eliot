@@ -71,6 +71,7 @@ object ConstraintSolver {
         issueError(constraint, constraint.errorMessage)
 
       // Function types (A -> B): unify parameter and return types separately with specific error messages
+      // Note: this is just a special case of "Function Application" just below to issue special message
       case (FunctionType(p1, r1), FunctionType(p2, r2))               =>
         for {
           _ <-
@@ -93,11 +94,9 @@ object ConstraintSolver {
                )
         } yield ()
 
-      // Native functions should match by their type (rare in type checking)
-      case (NativeFunction(t1, _), NativeFunction(t2, _)) if t1 == t2 =>
-        StateT.pure(())
-
       // Anything else is a type error
+      // Note: we intentionally don't handle function literals (it means nothing now)
+      // Note: we don't handle native functions either (skipped before it gets here)
       case _                                                          =>
         issueError(constraint, constraint.errorMessage)
     }
