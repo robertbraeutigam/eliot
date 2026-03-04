@@ -41,7 +41,6 @@ class SymbolicTypeCheckProcessor
       typedBody: TypedExpression,
       constraints: SymbolicUnification,
       universalVars: Set[String],
-      unificationVars: Set[String],
       qualifierParams: Seq[ExpressionValue]
   )
 
@@ -79,20 +78,18 @@ class SymbolicTypeCheckProcessor
                   qualifierParams             <- resolveQualifierParams(resolvedValue.name)
                   constraints                 <- getConstraints
                   universalVars               <- getUniversalVars
-                  unificationVars             <- getUnificationVars
                 } yield TypeCheckResult(
                   declaredType,
                   typedLevels,
                   bodyResult,
                   constraints,
                   universalVars,
-                  unificationVars,
                   qualifierParams
                 ))
                   .runA(TypeCheckState())
 
       _                   <- debug[CompilerIO](s"Constraints (of ${resolvedValue.vfqn.show}): ${result.constraints.show}")
-      solution            <- ConstraintSolver.solve(result.constraints, result.universalVars, result.unificationVars)
+      solution            <- ConstraintSolver.solve(result.constraints, result.universalVars)
       _                   <- debug[CompilerIO](s"Solution (of ${resolvedValue.vfqn.show}): ${solution.show}")
       resolvedTypedLevels  = result.typedLevels.map(_.transformTypes(solution.substitute))
       resolvedTypedBody    = result.typedBody.transformTypes(solution.substitute)

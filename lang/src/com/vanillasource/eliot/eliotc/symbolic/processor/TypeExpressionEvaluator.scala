@@ -10,9 +10,12 @@ import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression as Expr
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
+import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState
 import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
 
 /** Evaluates expressions in type position, turning them into ExpressionValue.
@@ -248,7 +251,12 @@ object TypeExpressionEvaluator {
       case _                        => false
     }
 
-  /** Function application in type position: A(B) means A parameterized by B */
+  /** Function application in type position: A(B) means A parameterized by B.
+    *
+    * If beta-reduction cannot simplify the application (target is not a FunctionLiteral), tries to resolve the return
+    * type from the target's type signature. This handles cases like `g(I)` where `g` is a regular function (not a type
+    * constructor) used in type position.
+    */
   private def buildTypeApplication(
       target: Sourced[TypeStack[OperatorResolvedExpression]],
       arg: Sourced[TypeStack[OperatorResolvedExpression]],
@@ -257,7 +265,8 @@ object TypeExpressionEvaluator {
     for {
       (sourcedTargetTypeValue, typedTargetStack) <- processStack(target, mode)
       (sourcedArgTypeValue, typedArgStack)       <- processStack(arg, mode)
-      resultType                                  = ExpressionValue.betaReduce(FunctionApplication(sourcedTargetTypeValue, sourcedArgTypeValue))
+      reduced                                     = ExpressionValue.betaReduce(FunctionApplication(sourcedTargetTypeValue, sourcedArgTypeValue))
+      resultType                                 <- resolveTypeApplication(reduced)
     } yield (
       unsourced(resultType: ExpressionValue),
       TypedExpression(
@@ -268,6 +277,82 @@ object TypeExpressionEvaluator {
         )
       )
     )
+
+  /** When beta-reduction leaves a FunctionApplication (target wasn't a FunctionLiteral), try to resolve the return type
+    * by looking up the target function's type signature. Runs in an isolated TypeCheckState to avoid polluting the
+    * current state with unification variables and parameter bindings from the resolution context.
+    *
+    * Only resolves non-constructor applications (Qualifier.Type applications are left for structural comparison).
+    */
+  private def resolveTypeApplication(reduced: ExpressionValue): TypeGraphIO[ExpressionValue] =
+    reduced match {
+      case fa @ FunctionApplication(_, _) if !isConstructorApplication(fa) =>
+        val (base, argCount) = extractBaseAndArgCount(fa)
+        extractFQN(base) match {
+          case Some(vfqn) =>
+            for {
+              result <- StateT.liftF(
+                          getFactOrAbort(OperatorResolvedValue.Key(vfqn)).flatMap { resolved =>
+                            processStackForDeclaration(resolved.typeStack)
+                              .runA(TypeCheckState())
+                              .map { case (signatureType, _) =>
+                                val stripped = ExpressionValue.stripUniversalTypeIntros(signatureType)
+                                stripFunctionTypes(stripped, argCount).getOrElse(reduced)
+                              }
+                          }
+                        )
+              // Mark parameter references from isolated state as universal vars
+              // so they are treated as rigid (non-bindable) by the constraint solver
+              _      <- collectParameterRefs(result).traverse_(addUniversalVar)
+            } yield result
+          case None       => reduced.pure[TypeGraphIO]
+        }
+      case _                                                               => reduced.pure[TypeGraphIO]
+    }
+
+  private def collectParameterRefs(expr: ExpressionValue): List[String] =
+    ExpressionValue.fold[List[String]](
+      onConcrete = _ => Nil,
+      onNative = _ => Nil,
+      onParamRef = (name, _) => List(name),
+      onFunApp = (a, b) => a ++ b,
+      onFunLit = (_, _, body) => body
+    )(expr)
+
+  private def extractBaseAndArgCount(expr: ExpressionValue): (ExpressionValue, Int) =
+    expr match {
+      case FunctionApplication(target, _) =>
+        val (base, count) = extractBaseAndArgCount(target.value)
+        (base, count + 1)
+      case other                          => (other, 0)
+    }
+
+  private def extractFQN(expr: ExpressionValue): Option[ValueFQN] =
+    expr match {
+      case ConcreteValue(Value.Structure(fields, _)) =>
+        fields.get("$typeName").collect { case Value.Direct(vfqn: ValueFQN, _) => vfqn }
+      case _                                         => None
+    }
+
+  @scala.annotation.tailrec
+  private def stripFunctionTypes(expr: ExpressionValue, n: Int): Option[ExpressionValue] =
+    if (n <= 0) Some(expr)
+    else
+      expr match {
+        case FunctionType(_, returnType) => stripFunctionTypes(returnType, n - 1)
+        case _                           => None
+      }
+
+  private def isConstructorApplication(expr: ExpressionValue): Boolean =
+    ExpressionValue.stripLeadingFunctionApplications(expr) match {
+      case ConcreteValue(Value.Structure(fields, _)) =>
+        fields.get("$typeName").exists {
+          case Value.Direct(vfqn: ValueFQN, _) => vfqn.name.qualifier == CoreQualifier.Type
+          case _                                => false
+        }
+      case ParameterReference(_, _)                  => true
+      case _                                         => false
+    }
 
   private def extractConcreteValue(
       typeResult: TypedExpression,

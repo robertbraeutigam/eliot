@@ -19,7 +19,6 @@ case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
     parameterTypes: Map[String, Sourced[ExpressionValue]] = Map.empty,
     universalVars: Set[String] = Set.empty,
-    unificationVars: Set[String] = Set.empty,
     constraints: SymbolicUnification = SymbolicUnification.empty,
     remainingExplicitTypeArgs: Int = 0
 )
@@ -30,7 +29,7 @@ object TypeCheckState {
   def generateUnificationVar: TypeGraphIO[ParameterReference] =
     StateT { state =>
       val (id, newShortIds) = state.shortIds.generateNext()
-      val newState          = state.copy(shortIds = newShortIds, unificationVars = state.unificationVars + id)
+      val newState          = state.copy(shortIds = newShortIds)
       (newState, ParameterReference(id, Value.Type)).pure[CompilerIO]
     }
 
@@ -51,9 +50,6 @@ object TypeCheckState {
 
   def getUniversalVars: TypeGraphIO[Set[String]] =
     StateT.inspect(_.universalVars)
-
-  def getUnificationVars: TypeGraphIO[Set[String]] =
-    StateT.inspect(_.unificationVars)
 
   def isUniversalVar(name: String): TypeGraphIO[Boolean] =
     StateT.inspect(_.universalVars.contains(name))
