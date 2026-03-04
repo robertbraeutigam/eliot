@@ -82,22 +82,25 @@ object ConstraintSolver {
       // from the function's type signature. If the return type can be determined, continue unification
       // with it. Otherwise, defer to monomorphization.
       // Constructor applications (Qualifier.Type, e.g. List(I)) are compared structurally.
+      // When the other side also contains universal vars, the resolved return type is at the type
+      // level (e.g. BigInteger) while the other side is at the value level (e.g. I: BigInteger).
+      // In that case, defer to monomorphization instead of comparing across levels.
       case (fa @ FunctionApplication(_, _), _)
           if !isConstructorApplication(fa) && containsUniversalVar(left, isUniversalVar) =>
         resolveNonConstructorReturn(fa).flatMap {
-          case Some(returnType) =>
+          case Some(returnType) if !containsUniversalVar(right, isUniversalVar) =>
             unify(universalVars, unificationVars, typeArgSources)(constraint.copy(left = returnType))
-          case None             => StateT.pure(())
+          case _                                                                => StateT.pure(())
         }
 
       case (_, fa @ FunctionApplication(_, _))
           if !isConstructorApplication(fa) && containsUniversalVar(right, isUniversalVar) =>
         resolveNonConstructorReturn(fa).flatMap {
-          case Some(returnType) =>
+          case Some(returnType) if !containsUniversalVar(left, isUniversalVar) =>
             unify(universalVars, unificationVars, typeArgSources)(
               constraint.copy(right = constraint.right.as(returnType))
             )
-          case None             => StateT.pure(())
+          case _                                                               => StateT.pure(())
         }
 
       case (ParameterReference(n1, _), _) if isUniversalVar(n1) =>
