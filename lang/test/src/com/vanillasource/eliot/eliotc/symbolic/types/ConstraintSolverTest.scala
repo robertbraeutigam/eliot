@@ -122,27 +122,6 @@ class ConstraintSolverTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
       .asserting(_ shouldBe Map("A" -> IntT, "B" -> StrT, "C" -> IntT))
   }
 
-  // --- Function literal unification ---
-
-  it should "unify identical function literals" in {
-    val lit = funLit("x", bigIntType, IntT)
-    solve(lit :=: lit).asserting(_ shouldBe Map.empty)
-  }
-
-  it should "unify function literals with alpha-equivalent param names" in {
-    solve(funLit("x", bigIntType, IntT) :=: funLit("y", bigIntType, IntT)).asserting(_ shouldBe Map.empty)
-  }
-
-  it should "fail on function literal parameter type mismatch" in {
-    solveForErrors(funLit("x", bigIntType, IntT) :=: funLit("x", stringType, IntT))
-      .asserting(_ should contain("Parameter type mismatch."))
-  }
-
-  it should "fail on function literal body mismatch" in {
-    solveForErrors(funLit("x", bigIntType, IntT) :=: funLit("x", bigIntType, StrT))
-      .asserting(_ should contain("Return type mismatch."))
-  }
-
   // --- Function application unification ---
 
   it should "unify identical function applications" in {
@@ -227,9 +206,6 @@ object ConstraintSolverTest {
 
   private def funType(param: ExpressionValue, ret: ExpressionValue): ExpressionValue =
     ExpressionValue.functionType(param, ret)
-
-  private def funLit(name: String, paramType: Value, body: ExpressionValue): FunctionLiteral =
-    FunctionLiteral(name, paramType, s(body))
 
   private def funApp(target: ExpressionValue, arg: ExpressionValue): FunctionApplication =
     FunctionApplication(s(target), s(arg))

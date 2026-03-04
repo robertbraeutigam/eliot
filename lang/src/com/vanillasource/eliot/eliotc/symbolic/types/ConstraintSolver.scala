@@ -82,17 +82,6 @@ object ConstraintSolver {
                )
         } yield ()
 
-      // Function literals: structural comparison (alpha-equivalence ignoring param name)
-      case (FunctionLiteral(_, t1, b1), FunctionLiteral(_, t2, b2))   =>
-        for {
-          _ <- unify(universalVars)(
-                 Constraint(ConcreteValue(t1), constraint.right.as(ConcreteValue(t2)), "Parameter type mismatch.")
-               )
-          _ <- unify(universalVars)(
-                 Constraint(b1.value, constraint.right.as(b2.value), "Return type mismatch.")
-               )
-        } yield ()
-
       // Function applications: structural comparison
       case (FunctionApplication(t1, a1), FunctionApplication(t2, a2)) =>
         for {
