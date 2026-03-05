@@ -7,12 +7,10 @@ import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{
-  QualifiedName as ResolveQualifiedName,
-  Qualifier as ResolveQualifier
-}
+import com.vanillasource.eliot.eliotc.resolve.fact.{QualifiedName as ResolveQualifiedName, Qualifier as ResolveQualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.*
+import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicEvaluator2.{evaluateToNormalForm, typeCheck}
 import com.vanillasource.eliot.eliotc.symbolic.types.*
 import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
 
@@ -28,11 +26,10 @@ class SymbolicTypeCheckProcessor
   ): CompilerIO[TypeCheckedValue] = {
     val typeStack   = resolvedValue.typeStack
     val typeLevels  = typeStack.value.levels.toSeq.map(typeStack.as(_))
-    val expressions = typeLevels ++ resolvedValue.runtime.toSeq
     for {
       (result, constraints, universalVars, qualifierParams) <-
         (for {
-          result          <- SymbolicEvaluator2.typeCheck(expressions)
+          result          <- typeCheck(typeLevels ++ resolvedValue.runtime.toSeq)
           qualifierParams <- resolveQualifierParams(resolvedValue.name)
           constraints     <- getConstraints
           universalVars   <- getUniversalVars
@@ -46,7 +43,7 @@ class SymbolicTypeCheckProcessor
       resolvedQualifierParams = qualifierParams.map(solution.substitute)
       signatureType           = resolvedValue.runtime match {
                                   case Some(_) => resolvedResult.expressionType
-                                  case None    => SymbolicEvaluator2.evaluateToNormalForm(typeStack.as(typeStack.value.signature))
+                                  case None    => evaluateToNormalForm(typeStack.as(typeStack.value.signature))
                                 }
       runtime                 = resolvedValue.runtime.map(_ => typeStack.as(resolvedResult.expression))
       _                      <-
@@ -67,8 +64,7 @@ class SymbolicTypeCheckProcessor
     name.value.qualifier match {
       case ResolveQualifier.AbilityImplementation(_, params) =>
         params.traverse { param =>
-          SymbolicEvaluator2
-            .typeCheck(
+          typeCheck(
               Seq(name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(param))))
             )
             .map(_.expressionType)
