@@ -55,7 +55,7 @@ class SymbolicTypeCheckProcessor
         )
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
-      convertQualifiedName(resolvedValue.name, resolvedQualifierParams),
+      resolvedValue.name.as(QualifiedName.from(resolvedValue.name.value, resolvedQualifierParams)),
       signatureType,
       runtime
     )
@@ -74,19 +74,5 @@ class SymbolicTypeCheckProcessor
             .map(_.expressionType)
         }
       case _                                                 => Seq.empty[ExpressionValue].pure[TypeGraphIO]
-    }
-
-  private def convertQualifiedName(
-      name: Sourced[ResolveQualifiedName],
-      qualifierParams: Seq[ExpressionValue]
-  ): Sourced[QualifiedName] =
-    name.map { n =>
-      val qualifier = n.qualifier match {
-        case ResolveQualifier.Default                      => Qualifier.Default
-        case ResolveQualifier.Type                         => Qualifier.Type
-        case ResolveQualifier.Ability(an)                  => Qualifier.Ability(an)
-        case ResolveQualifier.AbilityImplementation(an, _) => Qualifier.AbilityImplementation(an, qualifierParams)
-      }
-      QualifiedName(n.name, qualifier)
     }
 }
