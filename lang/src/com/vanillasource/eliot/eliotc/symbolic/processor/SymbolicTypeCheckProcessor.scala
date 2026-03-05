@@ -29,30 +29,33 @@ class SymbolicTypeCheckProcessor
   ): CompilerIO[TypeCheckedValue] = {
     val typeStack  = resolvedValue.typeStack
     val typeLevels = typeStack.value.levels.toSeq.map(typeStack.as(_))
+    val vfqnShow   = resolvedValue.vfqn.show
+
+    val typeCheckProgram =
+      for {
+        result          <- typeCheck(typeLevels ++ resolvedValue.runtime.toSeq)
+        qualifierParams <- resolveQualifierParams(resolvedValue.name)
+      } yield (result, qualifierParams)
+
     for {
-      (endState, (result, qualifierParams)) <- (for {
-                                                 result          <- typeCheck(typeLevels ++ resolvedValue.runtime.toSeq)
-                                                 qualifierParams <- resolveQualifierParams(resolvedValue.name)
-                                               } yield (result, qualifierParams)).run(TypeCheckState())
-      _                                     <- debug[CompilerIO](s"Constraints (of ${resolvedValue.vfqn.show}): ${endState.constraints.show}")
+      (endState, (result, qualifierParams)) <- typeCheckProgram.run(TypeCheckState())
+      _                                     <- debug[CompilerIO](s"Constraints (of $vfqnShow): ${endState.constraints.show}")
       solution                              <- ConstraintSolver.solve(endState.constraints, endState.universalVars)
-      _                                     <- debug[CompilerIO](s"Solution (of ${resolvedValue.vfqn.show}): ${solution.show}")
-      resolvedResult                         = result.transformTypes(solution.substitute)
-      resolvedQualifierParams                = qualifierParams.map(solution.substitute)
-      signatureType                          = resolvedValue.runtime match {
-                                                 case Some(_) => resolvedResult.expressionType
-                                                 case None    => evaluateToNormalForm(typeStack.as(typeStack.value.signature))
-                                               }
-      runtime                                = resolvedValue.runtime.map(_ => typeStack.as(resolvedResult.expression))
-      _                                     <- debug[CompilerIO](
-                                                 s"Produced symbolic checked (of ${resolvedValue.vfqn.show}) signature: ${signatureType.show}"
-                                               )
-    } yield TypeCheckedValue(
-      resolvedValue.vfqn,
-      resolvedValue.name.as(QualifiedName.from(resolvedValue.name.value, resolvedQualifierParams)),
-      signatureType,
-      runtime
-    )
+      _                                     <- debug[CompilerIO](s"Solution (of $vfqnShow): ${solution.show}")
+    } yield {
+      val resolvedResult           = result.transformTypes(solution.substitute)
+      val resolvedQualifierParams  = qualifierParams.map(solution.substitute)
+      val (signatureType, runtime) = resolvedValue.runtime match {
+        case Some(_) => (resolvedResult.expressionType, Some(typeStack.as(resolvedResult.expression)))
+        case None    => (evaluateToNormalForm(typeStack.as(typeStack.value.signature)), None)
+      }
+      TypeCheckedValue(
+        resolvedValue.vfqn,
+        resolvedValue.name.as(QualifiedName.from(resolvedValue.name.value, resolvedQualifierParams)),
+        signatureType,
+        runtime
+      )
+    }
   }
 
   private def resolveQualifierParams(
