@@ -9,10 +9,7 @@ import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{
-  QualifiedName as ResolveQualifiedName,
-  Qualifier as ResolveQualifier
-}
+import com.vanillasource.eliot.eliotc.resolve.fact.{QualifiedName as ResolveQualifiedName, Qualifier as ResolveQualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.*
 import com.vanillasource.eliot.eliotc.symbolic.types.*
@@ -60,10 +57,10 @@ class SymbolicTypeCheckProcessor
     for {
       result <- (for {
                   (declaredType, typedLevels) <-
-                    TypeExpressionEvaluator.processStackForDeclaration(resolvedValue.typeStack).map { case (signatureType, typedStack) =>
+                    SymbolicEvaluator.processStackForDeclaration(resolvedValue.typeStack).map { case (signatureType, typedStack) =>
                       (signatureType, typedStack.value.levels)
                     }
-                  bodyResult                  <- BodyTypeInferrer.inferBody(body)
+                  bodyResult                  <- SymbolicEvaluator.inferExpression(body)
                   // For constraint building, strip universal intros (type params) from declared type
                   // since the body's type won't have them - they're handled via universalVars
                   strippedDeclaredType         = stripUniversalIntros(declaredType)
@@ -111,7 +108,7 @@ class SymbolicTypeCheckProcessor
   ): CompilerIO[TypeCheckedValue] =
     for {
       result <- (for {
-                  (signatureType, _) <- TypeExpressionEvaluator
+                  (signatureType, _) <- SymbolicEvaluator
                                           .processStackForDeclaration(resolvedValue.typeStack)
                                           .map { case (signatureType, typedStack) =>
                                             (signatureType, typedStack.value.levels)
@@ -133,7 +130,7 @@ class SymbolicTypeCheckProcessor
     name.value.qualifier match {
       case ResolveQualifier.AbilityImplementation(_, params) =>
         params.traverse { param =>
-          TypeExpressionEvaluator
+          SymbolicEvaluator
             .processStackForDeclaration(name.as(TypeStack.of(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(param)))))
             .map(_._1)
         }

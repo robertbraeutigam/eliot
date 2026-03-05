@@ -11,9 +11,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 /** Combined state for type checking, including constraint accumulation.
   *
   * @param remainingExplicitTypeArgs
-  *   Counts how many explicit type arguments remain unconsumed during instantiation. Set by BodyTypeInferrer before
-  *   calling TypeExpressionEvaluator.processStackForInstantiation, decremented each time a universal intro consumes an
-  *   explicit arg. After instantiation, BodyTypeInferrer checks this to detect too-many-args errors.
+  *   Counts how many explicit type arguments remain unconsumed during instantiation. Set by SymbolicEvaluator before calling processStackForInstantiation, decremented each time a universal
+  *   intro consumes an explicit arg. After instantiation, SymbolicEvaluator checks this to detect too-many-args errors.
   */
 case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
