@@ -39,11 +39,11 @@ object ConstraintSolver {
 
     (left, right) match {
       // Unification variable on left: bind it (if not recursive)
-      case (ParameterReference(name, _), _) if isUnificationVar(name) && !isRecursiveCheck(name, right) =>
+      case (ParameterReference(name, _), _) if isUnificationVar(name) && !containsVar(right, name) =>
         StateT.modify[CompilerIO, UnificationState](_.bind(name, right))
 
       // Unification variable on right: bind it (if not recursive)
-      case (_, ParameterReference(name, _)) if isUnificationVar(name) && !isRecursiveCheck(name, left)  =>
+      case (_, ParameterReference(name, _)) if isUnificationVar(name) && !containsVar(left, name) =>
         StateT.modify[CompilerIO, UnificationState](_.bind(name, left))
 
       // Recursion detected
@@ -101,9 +101,6 @@ object ConstraintSolver {
         issueError(constraint, constraint.errorMessage)
     }
   }
-
-  private def isRecursiveCheck(varName: String, expr: ExpressionValue): Boolean =
-    ExpressionValue.containsVar(expr, varName)
 
   private def issueError(constraint: Constraint, message: String): UnificationCompilerIO[Unit] =
     StateT.liftF(
