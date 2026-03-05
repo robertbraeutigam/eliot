@@ -7,7 +7,10 @@ import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.resolve.fact.{QualifiedName as ResolveQualifiedName, Qualifier as ResolveQualifier}
+import com.vanillasource.eliot.eliotc.resolve.fact.{
+  QualifiedName as ResolveQualifiedName,
+  Qualifier as ResolveQualifier
+}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.*
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicEvaluator2.{evaluateToNormalForm, typeCheck}
@@ -24,29 +27,27 @@ class SymbolicTypeCheckProcessor
       key: TypeCheckedValue.Key,
       resolvedValue: OperatorResolvedValue
   ): CompilerIO[TypeCheckedValue] = {
-    val typeStack   = resolvedValue.typeStack
-    val typeLevels  = typeStack.value.levels.toSeq.map(typeStack.as(_))
+    val typeStack  = resolvedValue.typeStack
+    val typeLevels = typeStack.value.levels.toSeq.map(typeStack.as(_))
     for {
-      (result, constraints, universalVars, qualifierParams) <-
+      (endState, (result, qualifierParams)) <-
         (for {
           result          <- typeCheck(typeLevels ++ resolvedValue.runtime.toSeq)
           qualifierParams <- resolveQualifierParams(resolvedValue.name)
           constraints     <- getConstraints
           universalVars   <- getUniversalVars
-        } yield (result, constraints, universalVars, qualifierParams))
-          .runA(TypeCheckState())
-
-      _                      <- debug[CompilerIO](s"Constraints (of ${resolvedValue.vfqn.show}): ${constraints.show}")
-      solution               <- ConstraintSolver.solve(constraints, universalVars)
-      _                      <- debug[CompilerIO](s"Solution (of ${resolvedValue.vfqn.show}): ${solution.show}")
-      resolvedResult          = result.transformTypes(solution.substitute)
-      resolvedQualifierParams = qualifierParams.map(solution.substitute)
-      signatureType           = resolvedValue.runtime match {
-                                  case Some(_) => resolvedResult.expressionType
-                                  case None    => evaluateToNormalForm(typeStack.as(typeStack.value.signature))
-                                }
-      runtime                 = resolvedValue.runtime.map(_ => typeStack.as(resolvedResult.expression))
-      _                      <-
+        } yield (result, qualifierParams)).run(TypeCheckState())
+      _                                     <- debug[CompilerIO](s"Constraints (of ${resolvedValue.vfqn.show}): ${endState.constraints.show}")
+      solution                              <- ConstraintSolver.solve(endState.constraints, endState.universalVars)
+      _                                     <- debug[CompilerIO](s"Solution (of ${resolvedValue.vfqn.show}): ${solution.show}")
+      resolvedResult                         = result.transformTypes(solution.substitute)
+      resolvedQualifierParams                = qualifierParams.map(solution.substitute)
+      signatureType                          = resolvedValue.runtime match {
+                                                 case Some(_) => resolvedResult.expressionType
+                                                 case None    => evaluateToNormalForm(typeStack.as(typeStack.value.signature))
+                                               }
+      runtime                                = resolvedValue.runtime.map(_ => typeStack.as(resolvedResult.expression))
+      _                                     <-
         debug[CompilerIO](
           s"Produced symbolic checked (of ${resolvedValue.vfqn.show}) signature: ${signatureType.show}"
         )
@@ -65,8 +66,8 @@ class SymbolicTypeCheckProcessor
       case ResolveQualifier.AbilityImplementation(_, params) =>
         params.traverse { param =>
           typeCheck(
-              Seq(name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(param))))
-            )
+            Seq(name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(param))))
+          )
             .map(_.expressionType)
         }
       case _                                                 => Seq.empty[ExpressionValue].pure[TypeGraphIO]
