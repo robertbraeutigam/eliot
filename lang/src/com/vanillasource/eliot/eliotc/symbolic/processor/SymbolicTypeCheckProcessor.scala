@@ -30,13 +30,10 @@ class SymbolicTypeCheckProcessor
     val typeStack  = resolvedValue.typeStack
     val typeLevels = typeStack.value.levels.toSeq.map(typeStack.as(_))
     for {
-      (endState, (result, qualifierParams)) <-
-        (for {
-          result          <- typeCheck(typeLevels ++ resolvedValue.runtime.toSeq)
-          qualifierParams <- resolveQualifierParams(resolvedValue.name)
-          constraints     <- getConstraints
-          universalVars   <- getUniversalVars
-        } yield (result, qualifierParams)).run(TypeCheckState())
+      (endState, (result, qualifierParams)) <- (for {
+                                                 result          <- typeCheck(typeLevels ++ resolvedValue.runtime.toSeq)
+                                                 qualifierParams <- resolveQualifierParams(resolvedValue.name)
+                                               } yield (result, qualifierParams)).run(TypeCheckState())
       _                                     <- debug[CompilerIO](s"Constraints (of ${resolvedValue.vfqn.show}): ${endState.constraints.show}")
       solution                              <- ConstraintSolver.solve(endState.constraints, endState.universalVars)
       _                                     <- debug[CompilerIO](s"Solution (of ${resolvedValue.vfqn.show}): ${solution.show}")
@@ -47,10 +44,9 @@ class SymbolicTypeCheckProcessor
                                                  case None    => evaluateToNormalForm(typeStack.as(typeStack.value.signature))
                                                }
       runtime                                = resolvedValue.runtime.map(_ => typeStack.as(resolvedResult.expression))
-      _                                     <-
-        debug[CompilerIO](
-          s"Produced symbolic checked (of ${resolvedValue.vfqn.show}) signature: ${signatureType.show}"
-        )
+      _                                     <- debug[CompilerIO](
+                                                 s"Produced symbolic checked (of ${resolvedValue.vfqn.show}) signature: ${signatureType.show}"
+                                               )
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       resolvedValue.name.as(QualifiedName.from(resolvedValue.name.value, resolvedQualifierParams)),

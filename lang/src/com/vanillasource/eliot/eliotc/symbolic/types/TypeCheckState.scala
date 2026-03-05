@@ -11,8 +11,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 /** Combined state for type checking, including constraint accumulation.
   *
   * @param remainingExplicitTypeArgs
-  *   Counts how many explicit type arguments remain unconsumed during instantiation. Set by SymbolicEvaluator before calling processStackForInstantiation, decremented each time a universal
-  *   intro consumes an explicit arg. After instantiation, SymbolicEvaluator checks this to detect too-many-args errors.
+  *   Counts how many explicit type arguments remain unconsumed during instantiation. Set by SymbolicEvaluator before
+  *   calling processStackForInstantiation, decremented each time a universal intro consumes an explicit arg. After
+  *   instantiation, SymbolicEvaluator checks this to detect too-many-args errors.
   */
 case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
@@ -43,12 +44,6 @@ object TypeCheckState {
 
   def tellConstraint(constraint: SymbolicUnification): TypeGraphIO[Unit] =
     StateT.modify(state => state.copy(constraints = state.constraints |+| constraint))
-
-  def getConstraints: TypeGraphIO[SymbolicUnification] =
-    StateT.inspect(_.constraints)
-
-  def getUniversalVars: TypeGraphIO[Set[String]] =
-    StateT.inspect(_.universalVars)
 
   /** Set the explicit type arg counter before processing an instantiation. */
   def setExplicitTypeArgCount(n: Int): TypeGraphIO[Unit] =
