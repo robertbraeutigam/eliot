@@ -50,9 +50,6 @@ object TypeCheckState {
   def getUniversalVars: TypeGraphIO[Set[String]] =
     StateT.inspect(_.universalVars)
 
-  def isUniversalVar(name: String): TypeGraphIO[Boolean] =
-    StateT.inspect(_.universalVars.contains(name))
-
   /** Set the explicit type arg counter before processing an instantiation. */
   def setExplicitTypeArgCount(n: Int): TypeGraphIO[Unit] =
     StateT.modify(_.copy(remainingExplicitTypeArgs = n))

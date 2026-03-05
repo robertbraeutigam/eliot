@@ -201,26 +201,18 @@ object SymbolicEvaluator {
   private def buildValueReference(
       vfqn: Sourced[ValueFQN]
   ): TypeGraphIO[(Sourced[ExpressionValue], TypedExpression)] =
-    isUniversalVar(vfqn.value.name.name).flatMap { isUniv =>
-      if (isUniv) {
-        val exprValue = ParameterReference(vfqn.value.name.name, Value.Type)
-        (unsourced(exprValue: ExpressionValue), TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)))
-          .pure[TypeGraphIO]
-      } else {
-        StateT
-          .liftF(Evaluator.evaluateValueToNormalForm(vfqn.value, vfqn))
-          .flatMap { exprValue =>
-            if (isAbstractAbilityType(exprValue, vfqn.value)) {
-              generateUnificationVar.map(uniVar =>
-                (unsourced(uniVar: ExpressionValue), TypedExpression(uniVar, TypedExpression.ValueReference(vfqn)))
-              )
-            } else {
-              (unsourced(exprValue: ExpressionValue), TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)))
-                .pure[TypeGraphIO]
-            }
-          }
+    StateT
+      .liftF(Evaluator.evaluateValueToNormalForm(vfqn.value, vfqn))
+      .flatMap { exprValue =>
+        if (isAbstractAbilityType(exprValue, vfqn.value)) {
+          generateUnificationVar.map(uniVar =>
+            (unsourced(uniVar: ExpressionValue), TypedExpression(uniVar, TypedExpression.ValueReference(vfqn)))
+          )
+        } else {
+          (unsourced(exprValue: ExpressionValue), TypedExpression(exprValue, TypedExpression.ValueReference(vfqn)))
+            .pure[TypeGraphIO]
+        }
       }
-    }
 
   private def isAbstractAbilityType(exprValue: ExpressionValue, vfqn: ValueFQN): Boolean =
     vfqn.name.qualifier match {
