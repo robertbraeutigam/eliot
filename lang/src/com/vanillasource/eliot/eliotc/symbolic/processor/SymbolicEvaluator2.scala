@@ -11,6 +11,20 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
 import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.TypeGraphIO
 
+/** Symbolically evaluates and type checks an expression stack.
+  *
+  * These are the forms of data in this class:
+  *   - OperatorResolvedExpression: These are the "raw" expressions from the previous processing step. These are
+  *     organized in stacks, where every level defines the type of the next level. Also all levels may have smaller
+  *     stacks as parts, like lambda bodies, parameter types, function calls, etc. It's a sort-of fractal data
+  *     structure.
+  *   - ExpressionValue: In this class this always refers to a "normal form", i.e. a symbolic evaluation of an
+  *     expression. This means it will inline and reduce all referenced functions except constructors which will stay as
+  *     structural elements to unify later.
+  *   - TypedExpression: A pair of an ExpressionValue describing type and TypedExpression.Expression, which is the same
+  *     as an OperatorResolvedExpression, except it is not stacked anymore. All type information if "flattened" to a
+  *     single ExpressionValue.
+  */
 object SymbolicEvaluator2 {
 
   /** Typecheck the given expression stack and return the typed expression, i.e. the result type and the expression when
