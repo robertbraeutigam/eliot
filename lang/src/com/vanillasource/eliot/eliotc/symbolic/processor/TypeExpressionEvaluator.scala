@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.symbolic.processor
 
-import cats.data.{NonEmptySeq, StateT}
+import cats.data.{NonEmptyList, NonEmptySeq, StateT}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{Qualifier as CoreQualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
@@ -81,13 +81,18 @@ object TypeExpressionEvaluator {
       mode: InstantiationMode
   ): TypeGraphIO[(Sourced[ExpressionValue], Sourced[TypeStack[TypedExpression]])] =
     for {
-      (sourcedSignatureType, typedLevels) <- processLevels(stack.value.levels.toList.reverse, Value.Type, stack, mode)
-    } yield (sourcedSignatureType, stack.as(TypeStack(NonEmptySeq.fromSeqUnsafe(typedLevels.reverse))))
+      (sourcedSignatureType, typedLevels) <- processLevels(
+                                               NonEmptyList.fromListUnsafe(stack.value.levels.toList.reverse),
+                                               Value.Type,
+                                               stack,
+                                               mode
+                                             )
+    } yield (sourcedSignatureType, stack.as(TypeStack(NonEmptySeq.fromSeqUnsafe(typedLevels.toList.reverse))))
 
   /** Recursively process type levels from top (highest) to bottom (signature).
     *
     * @param levels
-    *   Remaining levels to process (from top to bottom)
+    *   Remaining levels to process (from top to bottom), guaranteed non-empty since TypeStack uses NonEmptySeq
     * @param expectedType
     *   The expected type for the current level's value
     * @param source
@@ -98,24 +103,21 @@ object TypeExpressionEvaluator {
     *   Tuple of (sourcedSignatureType, typedLevels in reverse order)
     */
   private def processLevels(
-      levels: List[OperatorResolvedExpression],
+      levels: NonEmptyList[OperatorResolvedExpression],
       expectedType: Value,
       source: Sourced[?],
       mode: InstantiationMode
-  ): TypeGraphIO[(Sourced[ExpressionValue], Seq[TypedExpression])] =
+  ): TypeGraphIO[(Sourced[ExpressionValue], NonEmptyList[TypedExpression])] =
     levels match {
-      case Nil =>
-        generateUnificationVar.map(v => (unsourced(v: ExpressionValue), Seq.empty))
+      case NonEmptyList(head, Nil) =>
+        buildExpression(head, mode).map { case (sourced, typeResult) => (sourced, NonEmptyList.one(typeResult)) }
 
-      case head :: Nil =>
-        buildExpression(head, mode).map { case (sourced, typeResult) => (sourced, Seq(typeResult)) }
-
-      case expr :: rest =>
+      case NonEmptyList(expr, next :: rest) =>
         for {
           (_, typeResult)                                <- buildExpression(expr, mode)
           evaluatedValue                                 <- extractConcreteValue(typeResult, expectedType, source)
-          (sourcedSignatureType, restTypedLevels)        <- processLevels(rest, evaluatedValue, source, mode)
-        } yield (sourcedSignatureType, typeResult +: restTypedLevels)
+          (sourcedSignatureType, restTypedLevels)        <- processLevels(NonEmptyList(next, rest), evaluatedValue, source, mode)
+        } yield (sourcedSignatureType, typeResult :: restTypedLevels)
     }
 
   /** Evaluate a single type-position expression in declaration context. Used by BodyTypeInferrer for evaluating explicit
