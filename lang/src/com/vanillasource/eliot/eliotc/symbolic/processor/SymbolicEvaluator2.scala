@@ -7,7 +7,6 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
 import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
 import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.TypeGraphIO
@@ -33,12 +32,14 @@ object SymbolicEvaluator2 {
     */
   def typeCheck(expressions: NonEmptySeq[Sourced[OperatorResolvedExpression]]): TypeGraphIO[TypedExpression] =
     for {
-      // The topmost expression needs to be of type "Type" and there is a topmost expression always
+      // The topmost expression needs to be of type "Type" and there is always a topmost expression (non-empty seq)
       top    <- typeCheck(ConcreteValue(Type), expressions.head)
       // Iterate the rest, every level is the type of the next level
       result <- expressions.tail.foldLeftM((top, expressions.head)) { (acc, expression) =>
                   for {
+                    // Convert previous level to normalized type expression
                     previousLevel   <- StateT.liftF(Evaluator.toNormalFormExpressionValue(acc._2))
+                    // Create constraints of this level against the assumed type
                     typedExpression <- typeCheck(previousLevel, expression)
                   } yield (typedExpression, expression)
                 }
