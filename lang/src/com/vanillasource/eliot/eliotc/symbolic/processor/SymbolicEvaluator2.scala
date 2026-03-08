@@ -58,75 +58,6 @@ object SymbolicEvaluator2 {
       resultType: ExpressionValue,
       expression: Sourced[OperatorResolvedExpression]
   ): TypeGraphIO[TypedExpression] =
-    resultType match {
-      case ConcreteValue(Type) => typeCheckInTypeContext(expression)
-      case _                   => typeCheckInBodyContext(resultType, expression)
-    }
-
-  /** Evaluate an expression in type context: the expression is expected to produce a type value.
-    * No constraints are generated against resultType; the caller used ConcreteValue(Type) as a sentinel.
-    */
-  private def typeCheckInTypeContext(
-      expression: Sourced[OperatorResolvedExpression]
-  ): TypeGraphIO[TypedExpression] =
-    expression.value match {
-      case Expr.IntegerLiteral(value) =>
-        val ev = ConcreteValue(Value.Direct(value.value, Types.bigIntType))
-        TypedExpression(ev, TypedExpression.IntegerLiteral(value)).pure[TypeGraphIO]
-
-      case Expr.StringLiteral(value) =>
-        val ev = ConcreteValue(Value.Direct(value.value, Types.stringType))
-        TypedExpression(ev, TypedExpression.StringLiteral(value)).pure[TypeGraphIO]
-
-      case Expr.ParameterReference(name) =>
-        lookupParameter(name.value).map { maybeType =>
-          val ev = maybeType.map(_.value).getOrElse(ParameterReference(name.value, Value.Type): ExpressionValue)
-          TypedExpression(ev, TypedExpression.ParameterReference(name))
-        }
-
-      case Expr.ValueReference(vfqn, _) =>
-        StateT
-          .liftF(Evaluator.evaluateValueToNormalForm(vfqn.value, vfqn))
-          .map(ev => TypedExpression(ev, TypedExpression.ValueReference(vfqn)))
-
-      case Expr.FunctionApplication(target, arg) =>
-        for {
-          targetTyped <- typeCheck(target.value.levels.map(target.as(_)))
-          argTyped    <- typeCheck(arg.value.levels.map(arg.as(_)))
-          reduced      = betaReduce(FunctionApplication(unsourced(targetTyped.expressionType), unsourced(argTyped.expressionType)))
-        } yield TypedExpression(reduced, TypedExpression.FunctionApplication(target.as(targetTyped), arg.as(argTyped)))
-
-      case Expr.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
-        // Universal type intro: [A : Type] ...
-        for {
-          _          <- addUniversalVar(paramName.value)
-          paramTyped <- typeCheck(paramTypeStack.value.levels.map(paramTypeStack.as(_)))
-          bodyTyped  <- typeCheck(body.value.levels.map(body.as(_)))
-          funcLit     = FunctionLiteral(paramName.value, Value.Type, unsourced(bodyTyped.expressionType))
-        } yield TypedExpression(
-          funcLit,
-          TypedExpression.FunctionLiteral(paramName, paramTypeStack.as(paramTyped.expressionType), body.as(bodyTyped))
-        )
-
-      case Expr.FunctionLiteral(paramName, None, body) =>
-        // Lambda without explicit param type in type context (e.g., used as a function value in type position)
-        for {
-          paramVar  <- generateUnificationVar
-          _         <- bindParameter(paramName.value, expression.as(paramVar: ExpressionValue))
-          bodyTyped <- typeCheck(body.value.levels.map(body.as(_)))
-          funcType   = functionType(paramVar, bodyTyped.expressionType)
-        } yield TypedExpression(
-          funcType,
-          TypedExpression.FunctionLiteral(paramName, expression.as(paramVar: ExpressionValue), body.as(bodyTyped))
-        )
-    }
-
-  /** Infer an expression's type in body context, generating a constraint that the inferred type equals resultType.
-    */
-  private def typeCheckInBodyContext(
-      resultType: ExpressionValue,
-      expression: Sourced[OperatorResolvedExpression]
-  ): TypeGraphIO[TypedExpression] =
     expression.value match {
       case Expr.IntegerLiteral(value) =>
         val exprType = ConcreteValue(
@@ -158,7 +89,7 @@ object SymbolicEvaluator2 {
           for {
             resolved                 <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
             sourcedEvaluatedTypeArgs <- typeArgs.traverse(arg =>
-                                          typeCheckInTypeContext(arg).map(r => arg.as(r.expressionType))
+                                          typeCheck(ConcreteValue(Type), arg).map(r => arg.as(r.expressionType))
                                         )
             _                        <- setExplicitTypeArgCount(sourcedEvaluatedTypeArgs.length)
             (signatureType, _)       <- SymbolicEvaluator.processStackForInstantiation(resolved.typeStack, sourcedEvaluatedTypeArgs)
