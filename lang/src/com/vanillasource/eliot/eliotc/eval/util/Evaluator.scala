@@ -153,17 +153,16 @@ object Evaluator {
       paramContext: Map[String, Value] = Map.empty
   ): CompilerIO[ExpressionValue] =
     for {
-      value   <- toNormalFormExpressionValue(expression.value, evaluating, paramContext, expression, callSite)
+      value   <- toNormalFormExpressionValue(expression, evaluating, paramContext, callSite)
       reduced <- reduceToNormalForm(value, expression)
     } yield reduced
 
-  private def toNormalFormExpressionValue(
-      expression: OperatorResolvedExpression,
-      evaluating: Set[ValueFQN],
-      paramContext: Map[String, Value],
-      sourced: Sourced[?],
+  def toNormalFormExpressionValue(
+      expression: Sourced[OperatorResolvedExpression],
+      evaluating: Set[ValueFQN] = Set.empty,
+      paramContext: Map[String, Value] = Map.empty,
       callSite: Option[Sourced[?]] = None
-  ): CompilerIO[ExpressionValue] = expression match {
+  ): CompilerIO[ExpressionValue] = expression.value match {
     case OperatorResolvedExpression.IntegerLiteral(s)                                 =>
       ConcreteValue(Value.Direct(s.value, bigIntType)).pure[CompilerIO]
     case OperatorResolvedExpression.StringLiteral(s)                                  =>
@@ -175,7 +174,7 @@ object Evaluator {
         case None            => compilerAbort(callSite.getOrElse(s).as(s"Unknown parameter: $name"))
       }
     case OperatorResolvedExpression.ValueReference(s, _)                              =>
-      evaluateValueToNormalForm(s.value, sourced, evaluating)
+      evaluateValueToNormalForm(s.value, expression, evaluating)
     case OperatorResolvedExpression.FunctionLiteral(paramName, None, _)               =>
       compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated."))
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramType), body) =>
@@ -184,12 +183,12 @@ object Evaluator {
           toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType, callSite)
         evaluatedParamType      = concreteValueOf(evaluatedParamTypeFull).getOrElse(Value.Type)
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
-        evaluatedBody          <- toNormalFormExpressionValue(body.value.signature, evaluating, newContext, body, callSite)
+        evaluatedBody          <- toNormalFormExpressionValue(body.map(_.signature), evaluating, newContext, callSite)
       } yield FunctionLiteral(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
       for {
-        targetValue <- toNormalFormExpressionValue(target.value.signature, evaluating, paramContext, target, callSite)
-        argValue    <- toNormalFormExpressionValue(argument.value.signature, evaluating, paramContext, argument, callSite)
+        targetValue <- toNormalFormExpressionValue(target.map(_.signature), evaluating, paramContext, callSite)
+        argValue    <- toNormalFormExpressionValue(argument.map(_.signature), evaluating, paramContext, callSite)
       } yield FunctionApplication(target.as(targetValue), argument.as(argValue))
   }
 

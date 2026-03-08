@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
+import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -13,7 +14,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{
 }
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.*
-import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicEvaluator2.{evaluateToNormalForm, typeCheck}
+import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicEvaluator2.typeCheck
 import com.vanillasource.eliot.eliotc.symbolic.types.*
 
 class SymbolicTypeCheckProcessor
@@ -42,7 +43,9 @@ class SymbolicTypeCheckProcessor
                                         Some(typeStack.as(result.transformTypes(solution.substitute).expression))
                                       ).pure[CompilerIO]
                                     case None    =>
-                                      evaluateToNormalForm(typeStack.as(typeStack.value.signature)).map(_ -> None)
+                                      Evaluator
+                                        .toNormalFormExpressionValue(typeStack.as(typeStack.value.signature))
+                                        .map(_ -> None)
                                   }
       resolvedQualifierParams  <- resolveQualifierParams(resolvedValue.name)
     } yield TypeCheckedValue(
@@ -61,7 +64,7 @@ class SymbolicTypeCheckProcessor
     name.value.qualifier match {
       case ResolveQualifier.AbilityImplementation(_, expressions) =>
         expressions.traverse { expression =>
-          evaluateToNormalForm(
+          Evaluator.toNormalFormExpressionValue(
             name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(expression)))
           )
         }
