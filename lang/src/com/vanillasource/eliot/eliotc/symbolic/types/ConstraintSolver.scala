@@ -51,11 +51,11 @@ object ConstraintSolver extends Logging {
       case (ParameterReference(name, _), _) if isUnificationVar(name)                              =>
         issueError(constraint, "Infinite type detected.")
 
-      case (_, ParameterReference(name, _)) if isUnificationVar(name)                               =>
+      case (_, ParameterReference(name, _)) if isUnificationVar(name)                                =>
         issueError(constraint, "Infinite type detected.")
 
       // Universal variables: must match exactly
-      case (ParameterReference(n1, _), ParameterReference(n2, _)) if isUniversalVar(n1) && n1 == n2 =>
+      case (ParameterReference(n1, _), ParameterReference(n2, _)) if isUniversalVar(n1) && n1 === n2 =>
         StateT.pure(())
 
       case (ParameterReference(n1, _), _) if isUniversalVar(n1) =>
@@ -65,7 +65,7 @@ object ConstraintSolver extends Logging {
         issueError(constraint, constraint.errorMessage)
 
       // Concrete values: must be equal
-      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2   =>
+      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 === v2  =>
         StateT.pure(())
 
       case (ConcreteValue(_), ConcreteValue(_))                       =>
