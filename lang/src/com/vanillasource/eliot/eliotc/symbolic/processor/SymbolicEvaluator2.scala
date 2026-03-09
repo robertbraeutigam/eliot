@@ -59,49 +59,44 @@ object SymbolicEvaluator2 {
       expression: Sourced[OperatorResolvedExpression]
   ): TypeGraphIO[TypedExpression] =
     expression.value match {
-      case Expr.IntegerLiteral(value) =>
+      case Expr.IntegerLiteral(value)                          =>
+        // Easy, result needs to be Int
         val exprType = ConcreteValue(
           Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "Number"), QualifiedName("Int", CoreQualifier.Type)))
         )
         tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch.")) *>
           TypedExpression(exprType, TypedExpression.IntegerLiteral(value)).pure[TypeGraphIO]
-
-      case Expr.StringLiteral(value) =>
+      case Expr.StringLiteral(value)                           =>
+        // Easy, result needs to be String
         val exprType = ConcreteValue(
-          Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", CoreQualifier.Type)))
+          Types.dataType(
+            ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", CoreQualifier.Type))
+          )
         )
         tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch.")) *>
           TypedExpression(exprType, TypedExpression.StringLiteral(value)).pure[TypeGraphIO]
-
-      case Expr.ParameterReference(name) =>
+      case Expr.ParameterReference(name)                       =>
+        // Also easy, return parameter needs to be whatever it was declared to
         for {
           maybeType <- lookupParameter(name.value)
           exprType   = maybeType.map(_.value).getOrElse(ParameterReference(name.value, Value.Type): ExpressionValue)
           _         <- tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch."))
         } yield TypedExpression(exprType, TypedExpression.ParameterReference(name))
-
-      case Expr.ValueReference(vfqn, typeArgs) =>
-        if (vfqn.value === Types.typeFQN) {
-          val exprType = ConcreteValue(Types.dataType(vfqn.value))
-          tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(exprType), "Type mismatch.")) *>
-            TypedExpression(exprType, TypedExpression.ValueReference(vfqn)).pure[TypeGraphIO]
-        } else {
-          for {
-            resolved                 <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-            sourcedEvaluatedTypeArgs <- typeArgs.traverse(arg =>
-                                          typeCheck(ConcreteValue(Type), arg).map(r => arg.as(r.expressionType))
-                                        )
-            _                        <- setExplicitTypeArgCount(sourcedEvaluatedTypeArgs.length)
-            (signatureType, _)       <- SymbolicEvaluator.processStackForInstantiation(resolved.typeStack, sourcedEvaluatedTypeArgs)
-            remaining                <- getExplicitTypeArgCount
-            _                        <- if (remaining > 0)
-                                          StateT.liftF(compilerError(vfqn.as("Too many explicit type arguments.")))
-                                        else ().pure[TypeGraphIO]
-            _                        <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(signatureType), "Type mismatch."))
-          } yield TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
-        }
-
-      case Expr.FunctionApplication(target, arg) =>
+      case Expr.ValueReference(vfqn, typeArgs)                 =>
+        for {
+          resolved                 <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
+          sourcedEvaluatedTypeArgs <-
+            typeArgs.traverse(arg => typeCheck(ConcreteValue(Type), arg).map(r => arg.as(r.expressionType)))
+          _                        <- setExplicitTypeArgCount(sourcedEvaluatedTypeArgs.length)
+          (signatureType, _)       <-
+            SymbolicEvaluator.processStackForInstantiation(resolved.typeStack, sourcedEvaluatedTypeArgs)
+          remaining                <- getExplicitTypeArgCount
+          _                        <- if (remaining > 0)
+                                        StateT.liftF(compilerError(vfqn.as("Too many explicit type arguments.")))
+                                      else ().pure[TypeGraphIO]
+          _                        <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(signatureType), "Type mismatch."))
+        } yield TypedExpression(signatureType, TypedExpression.ValueReference(vfqn))
+      case Expr.FunctionApplication(target, arg)               =>
         for {
           argTypeVar  <- generateUnificationVar
           retTypeVar  <- generateUnificationVar
@@ -118,15 +113,19 @@ object SymbolicEvaluator2 {
           _           <- tellConstraint(
                            SymbolicUnification.constraint(argTypeVar, arg.as(argTyped.expressionType), "Argument type mismatch.")
                          )
-          _           <- tellConstraint(
-                           SymbolicUnification.constraint(resultType, expression.as(retTypeVar: ExpressionValue), "Type mismatch.")
-                         )
-        } yield TypedExpression(retTypeVar, TypedExpression.FunctionApplication(target.as(targetTyped), arg.as(argTyped)))
-
+          _           <-
+            tellConstraint(
+              SymbolicUnification.constraint(resultType, expression.as(retTypeVar: ExpressionValue), "Type mismatch.")
+            )
+        } yield TypedExpression(
+          retTypeVar,
+          TypedExpression.FunctionApplication(target.as(targetTyped), arg.as(argTyped))
+        )
       case Expr.FunctionLiteral(paramName, paramTypeOpt, body) =>
         for {
           typedParamType <- paramTypeOpt match {
-                              case Some(pt) => typeCheck(pt.value.levels.map(pt.as(_))).map(r => pt.as(r.expressionType))
+                              case Some(pt) =>
+                                typeCheck(pt.value.levels.map(pt.as(_))).map(r => pt.as(r.expressionType))
                               case None     => generateUnificationVar.map(v => paramName.as(v: ExpressionValue))
                             }
           _              <- bindParameter(paramName.value, typedParamType)
