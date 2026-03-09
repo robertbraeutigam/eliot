@@ -19,8 +19,7 @@ object Value {
     * Both its valueType and all field types reference itself.
     */
   object Type extends Value {
-    lazy val fields: Map[String, Value] = Map("$typeName" -> Direct(typeFQN, fullyQualifiedNameType))
-    override def valueType: Value       = this
+    override def valueType: Value = this
   }
 
   extension (value: Value) {
@@ -36,6 +35,15 @@ object Value {
         case _                          => None
       }
   }
+
+  def sameType(left: Value, right: Value): Boolean =
+    (left, right) match {
+      case (Type, Type) => true
+      case (Structure(leftFields, _), Structure(rightFields, _))
+          if leftFields.contains("$typeName") && rightFields.contains("$typeName") =>
+        leftFields.get("$typeName") === rightFields.get("$typeName")
+      case _            => false
+    }
 
   given Eq[Value] = Eq.fromUniversalEquals
 

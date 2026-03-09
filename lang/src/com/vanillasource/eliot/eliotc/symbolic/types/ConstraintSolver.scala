@@ -2,8 +2,8 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
+import com.vanillasource.eliot.eliotc.eval.fact.Value.sameType
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -61,15 +61,18 @@ object ConstraintSolver extends Logging {
       case (ParameterReference(n1, _), _) if isUniversalVar(n1) =>
         issueError(constraint, constraint.errorMessage)
 
-      case (_, ParameterReference(n2, _)) if isUniversalVar(n2) =>
+      case (_, ParameterReference(n2, _)) if isUniversalVar(n2)       =>
         issueError(constraint, constraint.errorMessage)
 
       // Concrete values: must be equal
-      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 === v2  =>
+      case (ConcreteValue(v1), ConcreteValue(v2)) if sameType(v1, v2) =>
         StateT.pure(())
 
       case (ConcreteValue(_), ConcreteValue(_))                       =>
-        issueError(constraint, constraint.errorMessage)
+        debug[UnificationCompilerIO](
+          s"Constraint failed comparing concrete values, expected ${expressionValueUserDisplay
+              .show(constraint.left)}, found: ${expressionValueUserDisplay.show(constraint.right.value)} "
+        ) >> issueError(constraint, constraint.errorMessage)
 
       // Function types (A -> B): unify parameter and return types separately with specific error messages
       // Note: this is just a special case of "Function Application" just below to issue special message
@@ -99,20 +102,20 @@ object ConstraintSolver extends Logging {
       // Note: we intentionally don't handle function literals (it means nothing now)
       // Note: we don't handle native functions either (skipped before it gets here)
       case _                                                          =>
-        issueError(constraint, constraint.errorMessage)
+        debug[UnificationCompilerIO](s"Constraint failed in else branch, expected ${expressionValueUserDisplay
+            .show(constraint.left)}, found: ${expressionValueUserDisplay.show(constraint.right.value)} ") >>
+          issueError(constraint, constraint.errorMessage)
     }
   }
 
   private def issueError(constraint: Constraint, message: String): UnificationCompilerIO[Unit] =
     StateT.liftF(
-      debug[CompilerIO](s"Constraint failed, expected ${expressionValueUserDisplay
-          .show(constraint.left)}, found: ${expressionValueUserDisplay.show(constraint.right.value)} ") >>
-        compilerError(
-          constraint.right.as(message),
-          Seq(
-            s"Expected: ${expressionValueUserDisplay.show(constraint.left)}",
-            s"Found:    ${expressionValueUserDisplay.show(constraint.right.value)}"
-          )
+      compilerError(
+        constraint.right.as(message),
+        Seq(
+          s"Expected: ${expressionValueUserDisplay.show(constraint.left)}",
+          s"Found:    ${expressionValueUserDisplay.show(constraint.right.value)}"
         )
+      )
     )
 }
