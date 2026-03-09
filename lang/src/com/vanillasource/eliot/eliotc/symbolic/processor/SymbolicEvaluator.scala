@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.symbolic.processor
 import cats.data.{NonEmptySeq, StateT}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier as CoreQualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{functionType, *}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
@@ -89,22 +89,27 @@ object SymbolicEvaluator {
           // TODO: We ignore typeArgs for now, we need to check their types as well and include them somehow
         } yield TypedExpression(valueType, TypedExpression.ValueReference(vfqn))
       case Expr.FunctionApplication(target, arg)               =>
+        // In a function application we check the target, the arg and result
         for {
           argTypeVar  <- generateUnificationVar
           retTypeVar  <- generateUnificationVar
           targetTyped <- typeCheck(target.value.levels.map(target.as(_)))
           argTyped    <- typeCheck(arg.value.levels.map(arg.as(_)))
-          funcType     = functionType(argTypeVar, retTypeVar)
-          _           <- tellConstraint(
-                           SymbolicUnification.constraint(
-                             funcType,
-                             target.as(targetTyped.expressionType),
-                             "Target of function application is not a Function. Possibly too many arguments."
-                           )
-                         )
-          _           <- tellConstraint(
-                           SymbolicUnification.constraint(argTypeVar, arg.as(argTyped.expressionType), "Argument type mismatch.")
-                         )
+          // The target needs to be a Function[ArgType, RetType]
+          _           <-
+            tellConstraint(
+              SymbolicUnification.constraint(
+                functionType(argTypeVar, retTypeVar),
+                target.as(targetTyped.expressionType),
+                "Target of function application is not a Function. Possibly too many arguments."
+              )
+            )
+          // The arg need to be the type of the argument expression
+          _           <-
+            tellConstraint(
+              SymbolicUnification.constraint(argTypeVar, arg.as(argTyped.expressionType), "Argument type mismatch.")
+            )
+          // The return type needs to be the result type
           _           <-
             tellConstraint(
               SymbolicUnification.constraint(resultType, expression.as(retTypeVar: ExpressionValue), "Type mismatch.")
@@ -114,11 +119,21 @@ object SymbolicEvaluator {
           TypedExpression.FunctionApplication(target.as(targetTyped), arg.as(argTyped))
         )
       case Expr.FunctionLiteral(paramName, paramTypeOpt, body) =>
+        // Check parameter type, the result type is Function[ArgType, RetType]
         for {
           typedParamType <- paramTypeOpt match {
-                              case Some(pt) =>
-                                typeCheck(pt.value.levels.map(pt.as(_))).map(r => pt.as(r.expressionType))
-                              case None     => generateUnificationVar.map(v => paramName.as(v: ExpressionValue))
+                              case Some(paramTypeExpression) =>
+                                // Parameter type specified in the expression, so bind that
+                                for {
+                                  _         <- typeCheck(paramTypeExpression.value.levels.map(paramTypeExpression.as(_)))
+                                  paramType <-
+                                    StateT.liftF(
+                                      Evaluator.toNormalFormExpressionValue(paramTypeExpression.map(_.signature))
+                                    )
+                                } yield paramTypeExpression.as(paramType)
+                              case None                      =>
+                                // Parameter type not specified, so let's just get a unification var
+                                generateUnificationVar.map(paramName.as(_))
                             }
           _              <- bindParameter(paramName.value, typedParamType)
           bodyTyped      <- typeCheck(body.value.levels.map(body.as(_)))

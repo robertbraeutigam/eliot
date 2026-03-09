@@ -22,6 +22,7 @@ object OperatorResolvedExpression {
       valueName: Sourced[ValueFQN],
       typeArgs: Seq[Sourced[OperatorResolvedExpression]] = Seq.empty
   ) extends OperatorResolvedExpression
+  // TODO: this also has body as TypeStack
   case class FunctionLiteral(
       parameterName: Sourced[String],
       parameterType: Option[Sourced[TypeStack[OperatorResolvedExpression]]],
