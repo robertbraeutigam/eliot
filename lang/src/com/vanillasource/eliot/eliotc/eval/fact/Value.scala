@@ -36,14 +36,7 @@ object Value {
       }
   }
 
-  def sameType(left: Value, right: Value): Boolean =
-    (left, right) match {
-      case (Type, Type) => true
-      case (Structure(leftFields, _), Structure(rightFields, _))
-          if leftFields.contains("$typeName") && rightFields.contains("$typeName") =>
-        leftFields.get("$typeName") === rightFields.get("$typeName")
-      case _            => false
-    }
+  def sameType(left: Value, right: Value): Boolean = left.typeFQN === right.typeFQN
 
   given Eq[Value] = Eq.fromUniversalEquals
 
