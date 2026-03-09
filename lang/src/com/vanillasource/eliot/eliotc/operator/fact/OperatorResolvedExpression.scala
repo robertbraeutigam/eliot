@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 sealed trait OperatorResolvedExpression
 
 object OperatorResolvedExpression {
+  // TODO: this is wrong here, runtime expressed in TypeStack!
   case class FunctionApplication(
       target: Sourced[TypeStack[OperatorResolvedExpression]],
       argument: Sourced[TypeStack[OperatorResolvedExpression]]
@@ -36,11 +37,11 @@ object OperatorResolvedExpression {
       stack.value.levels.traverse(f).map(levels => stack.as(TypeStack(levels)))
 
     expr match {
-      case FunctionApplication(target, arg)            =>
+      case FunctionApplication(target, arg)                             =>
         (traverseStack(target), traverseStack(arg)).mapN(FunctionApplication.apply)
-      case FunctionLiteral(paramName, paramType, body) =>
+      case FunctionLiteral(paramName, paramType, body)                  =>
         (paramType.traverse(traverseStack), traverseStack(body)).mapN(FunctionLiteral(paramName, _, _))
-      case ValueReference(name, typeArgs)              =>
+      case ValueReference(name, typeArgs)                               =>
         typeArgs.traverse(ta => f(ta.value).map(ta.as)).map(ValueReference(name, _))
       case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr.pure[F]
     }

@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{
 }
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.*
-import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicEvaluator2.typeCheck
+import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicEvaluator.typeCheck
 import com.vanillasource.eliot.eliotc.symbolic.types.*
 
 class SymbolicTypeCheckProcessor

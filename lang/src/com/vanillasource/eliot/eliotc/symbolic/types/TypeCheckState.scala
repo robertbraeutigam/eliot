@@ -19,8 +19,7 @@ case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
     parameterTypes: Map[String, Sourced[ExpressionValue]] = Map.empty,
     universalVars: Set[String] = Set.empty,
-    constraints: SymbolicUnification = SymbolicUnification.empty,
-    remainingExplicitTypeArgs: Int = 0
+    constraints: SymbolicUnification = SymbolicUnification.empty
 )
 
 object TypeCheckState {
@@ -44,17 +43,4 @@ object TypeCheckState {
 
   def tellConstraint(constraint: SymbolicUnification): TypeGraphIO[Unit] =
     StateT.modify(state => state.copy(constraints = state.constraints |+| constraint))
-
-  /** Set the explicit type arg counter before processing an instantiation. */
-  def setExplicitTypeArgCount(n: Int): TypeGraphIO[Unit] =
-    StateT.modify(_.copy(remainingExplicitTypeArgs = n))
-
-  /** Consume one explicit type arg from the counter. Called by buildUniversalIntro when an explicit arg is used. */
-  def decrementExplicitTypeArgCount: TypeGraphIO[Unit] =
-    StateT.modify(s => s.copy(remainingExplicitTypeArgs = s.remainingExplicitTypeArgs - 1))
-
-  /** Read how many explicit type args are still unconsumed after instantiation. */
-  def getExplicitTypeArgCount: TypeGraphIO[Int] =
-    StateT.inspect(_.remainingExplicitTypeArgs)
-
 }
