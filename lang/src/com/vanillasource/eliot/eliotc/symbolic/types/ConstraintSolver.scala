@@ -4,6 +4,7 @@ import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
@@ -12,7 +13,7 @@ import com.vanillasource.eliot.eliotc.symbolic.types.UnificationState.Unificatio
 /** Solves a set of unification constraints using Robinson's algorithm. Keeps constraint solving separate from
   * constraint accumulation (SymbolicUnification).
   */
-object ConstraintSolver {
+object ConstraintSolver extends Logging {
 
   def solve(
       constraints: SymbolicUnification,
@@ -43,11 +44,11 @@ object ConstraintSolver {
         StateT.modify[CompilerIO, UnificationState](_.bind(name, right))
 
       // Unification variable on right: bind it (if not recursive)
-      case (_, ParameterReference(name, _)) if isUnificationVar(name) && !containsVar(left, name) =>
+      case (_, ParameterReference(name, _)) if isUnificationVar(name) && !containsVar(left, name)  =>
         StateT.modify[CompilerIO, UnificationState](_.bind(name, left))
 
       // Recursion detected
-      case (ParameterReference(name, _), _) if isUnificationVar(name)                                   =>
+      case (ParameterReference(name, _), _) if isUnificationVar(name)                              =>
         issueError(constraint, "Infinite type detected.")
 
       case (_, ParameterReference(name, _)) if isUnificationVar(name)                               =>
@@ -104,12 +105,14 @@ object ConstraintSolver {
 
   private def issueError(constraint: Constraint, message: String): UnificationCompilerIO[Unit] =
     StateT.liftF(
-      compilerError(
-        constraint.right.as(message),
-        Seq(
-          s"Expected: ${expressionValueUserDisplay.show(constraint.left)}",
-          s"Found:    ${expressionValueUserDisplay.show(constraint.right.value)}"
+      debug[CompilerIO](s"Constraint failed, expected ${expressionValueUserDisplay
+          .show(constraint.left)}, found: ${expressionValueUserDisplay.show(constraint.right.value)} ") >>
+        compilerError(
+          constraint.right.as(message),
+          Seq(
+            s"Expected: ${expressionValueUserDisplay.show(constraint.left)}",
+            s"Found:    ${expressionValueUserDisplay.show(constraint.right.value)}"
+          )
         )
-      )
     )
 }
