@@ -15,6 +15,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification
 import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
+import com.vanillasource.eliot.eliotc.source.content.Sourced.*
 
 /** Symbolically evaluates and type checks an expression stack.
   *
@@ -75,7 +76,10 @@ object SymbolicEvaluator {
         // Also easy, return parameter needs to be whatever it was declared to
         for {
           maybeType <- lookupParameter(name.value)
-          exprType   = maybeType.map(_.value).getOrElse(ParameterReference(name.value, Value.Type): ExpressionValue)
+          exprType  <- maybeType match {
+                         case Some(parameterType) => parameterType.value.pure[TypeGraphIO]
+                         case None                => StateT.liftF(compilerAbort[ExpressionValue](name.as(s"Parameter not found.")))
+                       }
           _         <- tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch."))
         } yield TypedExpression(exprType, TypedExpression.ParameterReference(name))
       case Expr.ValueReference(vfqn, typeArgs)                 =>
