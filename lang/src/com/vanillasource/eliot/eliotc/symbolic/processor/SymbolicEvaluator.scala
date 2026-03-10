@@ -92,10 +92,9 @@ object SymbolicEvaluator extends Logging {
           // Constrain the result type to the valueType here
           _         <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(valueType), "Type mismatch."))
           // TODO: We ignore typeArgs for now, we need to check their types as well and include them somehow
-          _         <-
-            debug[TypeGraphIO](
-              s"Inside value reference for '${vfqn.show}', value type: ${expressionValueUserDisplay.show(valueType)}"
-            )
+          _         <- debug[TypeGraphIO](
+                         s"Inside value reference for '${vfqn.show}', value type: ${expressionValueUserDisplay.show(valueType)}"
+                       )
         } yield TypedExpression(valueType, TypedExpression.ValueReference(vfqn))
       case Expr.FunctionApplication(target, arg)               =>
         // In a function application we check the target, the arg and result
