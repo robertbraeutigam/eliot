@@ -34,7 +34,7 @@ object ConstructorTypeAnalyzer {
           if qn.value.qualifier == Qualifier.Type && qn.value.name != "Function" =>
         Some(qn.value.name)
       case CoreExpression.FunctionApplication(target, _) =>
-        findTypeConstructorName(target.value.signature)
+        findTypeConstructorName(target.value)
       case _                                             => None
     }
 
@@ -42,12 +42,12 @@ object ConstructorTypeAnalyzer {
   private def asFunctionTypeReturnType(expr: CoreExpression): Option[CoreExpression] =
     expr match {
       case CoreExpression.FunctionApplication(target, arg) =>
-        target.value.signature match {
+        target.value match {
           case CoreExpression.FunctionApplication(innerTarget, _) =>
-            innerTarget.value.signature match {
+            innerTarget.value match {
               case CoreExpression.NamedValueReference(qn, _, _)
                   if qn.value == QualifiedName("Function", Qualifier.Type) =>
-                Some(arg.value.signature)
+                Some(arg.value)
               case _ => None
             }
           case _                                                  => None

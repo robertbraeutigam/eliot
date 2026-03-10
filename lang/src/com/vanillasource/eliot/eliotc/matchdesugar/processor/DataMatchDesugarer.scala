@@ -193,8 +193,8 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
           case Pattern.VariablePattern(varName) if varName.value != freshNames(idx).value =>
             val lambda = Expression.FunctionLiteral(varName, None, innerBody)
             val app    = Expression.FunctionApplication(
-              wrapExpr(scrutinee, lambda),
-              wrapExpr(scrutinee, Expression.ParameterReference(freshNames(idx)))
+              scrutinee.as(lambda),
+              scrutinee.as(Expression.ParameterReference(freshNames(idx)))
             )
             wrapExpr(scrutinee, app)
           case _                                                                          => innerBody
@@ -227,7 +227,7 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
     val selectorBody: Expression = handlers.foldLeft[Expression](
       Expression.ParameterReference(selectorParam)
     ) { (acc, handler) =>
-      Expression.FunctionApplication(wrapExpr(scrutinee, acc), handler)
+      Expression.FunctionApplication(scrutinee.as(acc), handler.as(handler.value.signature))
     }
     // Build: \$selector -> $selector(h1)(h2)...
     val casesLambda              =

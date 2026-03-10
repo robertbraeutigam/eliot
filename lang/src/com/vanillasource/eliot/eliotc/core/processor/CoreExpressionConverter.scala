@@ -87,14 +87,14 @@ object CoreExpressionConverter {
           arg.name.as(NamedValueReference(arg.name.as(QualifiedName("Function", Qualifier.Type))))
         val withArgType = arg.name.as(
           FunctionApplication(
-            functionRef.map(TypeStack.of),
-            argType.map(TypeStack.of)
+            functionRef,
+            argType
           )
         )
         arg.name.as(
           FunctionApplication(
-            withArgType.map(TypeStack.of),
-            acc.map(TypeStack.of)
+            withArgType,
+            acc
           )
         )
     }
@@ -180,6 +180,6 @@ object CoreExpressionConverter {
       convert: Sourced[SourceExpression] => Sourced[Expression]
   ): Sourced[Expression] =
     args.foldLeft(target) { (acc, arg) =>
-      arg.as(FunctionApplication(acc.map(TypeStack.of), convert(arg).map(TypeStack.of)))
+      arg.as(FunctionApplication(acc, convert(arg)))
     }
 }

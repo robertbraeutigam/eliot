@@ -10,10 +10,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 sealed trait OperatorResolvedExpression
 
 object OperatorResolvedExpression {
-  // TODO: this is wrong here, runtime expressed in TypeStack!
   case class FunctionApplication(
-      target: Sourced[TypeStack[OperatorResolvedExpression]],
-      argument: Sourced[TypeStack[OperatorResolvedExpression]]
+      target: Sourced[OperatorResolvedExpression],
+      argument: Sourced[OperatorResolvedExpression]
   ) extends OperatorResolvedExpression
   case class IntegerLiteral(integerLiteral: Sourced[BigInt])    extends OperatorResolvedExpression
   case class StringLiteral(stringLiteral: Sourced[String])      extends OperatorResolvedExpression
@@ -39,7 +38,7 @@ object OperatorResolvedExpression {
 
     expr match {
       case FunctionApplication(target, arg)                             =>
-        (traverseStack(target), traverseStack(arg)).mapN(FunctionApplication.apply)
+        (f(target.value).map(target.as), f(arg.value).map(arg.as)).mapN(FunctionApplication.apply)
       case FunctionLiteral(paramName, paramType, body)                  =>
         (paramType.traverse(traverseStack), traverseStack(body)).mapN(FunctionLiteral(paramName, _, _))
       case ValueReference(name, typeArgs)                               =>
@@ -50,7 +49,7 @@ object OperatorResolvedExpression {
 
   def fromExpression(expr: MatchDesugaredExpression): OperatorResolvedExpression = expr match {
     case MatchDesugaredExpression.FunctionApplication(target, arg)            =>
-      FunctionApplication(convertTypeStack(target), convertTypeStack(arg))
+      FunctionApplication(target.map(fromExpression), arg.map(fromExpression))
     case MatchDesugaredExpression.IntegerLiteral(v)                           => IntegerLiteral(v)
     case MatchDesugaredExpression.StringLiteral(v)                            => StringLiteral(v)
     case MatchDesugaredExpression.ParameterReference(v)                       => ParameterReference(v)
@@ -70,8 +69,8 @@ object OperatorResolvedExpression {
   given Show[OperatorResolvedExpression] = {
     case IntegerLiteral(Sourced(_, _, value))                                          => value.toString()
     case StringLiteral(Sourced(_, _, value))                                           => s"\"$value\""
-    case FunctionApplication(Sourced(_, _, targetValue), Sourced(_, _, argumentValue)) =>
-      s"${targetValue.show}(${argumentValue.show})"
+    case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
+      s"${target.show}(${argument.show})"
     case FunctionLiteral(param, paramType, body)                                       =>
       s"(${paramType.map(_.value.show).getOrElse("<n/a>")} :: ${param.value}) -> ${body.value.show}"
     case ParameterReference(name)                                                      => name.value

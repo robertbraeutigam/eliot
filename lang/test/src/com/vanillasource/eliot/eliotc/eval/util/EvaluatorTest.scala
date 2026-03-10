@@ -329,8 +329,8 @@ class EvaluatorTest extends ProcessorTest() {
 
   private def funApp(target: OperatorResolvedExpression, arg: OperatorResolvedExpression): OperatorResolvedExpression =
     OperatorResolvedExpression.FunctionApplication(
-      sourced(TypeStack(NonEmptySeq.of(target))),
-      sourced(TypeStack(NonEmptySeq.of(arg)))
+      sourced(target),
+      sourced(arg)
     )
 
   private def runEvaluator(expression: OperatorResolvedExpression): IO[InitialExpressionValue] =

@@ -3,9 +3,8 @@ package com.vanillasource.eliot.eliotc.operator.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity.Associativity
 import com.vanillasource.eliot.eliotc.ast.fact.PrecedenceDeclaration.Relation
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import TokenClassifier.{InfixOp, Operand, Token, outlinedStack}
+import TokenClassifier.{InfixOp, Operand, Token, outlinedExpr}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
@@ -21,7 +20,7 @@ object InfixPrecedenceResolver {
     val operators = tokens.collect { case i: InfixOp => i }
 
     if (operators.isEmpty) {
-      operands.head.value.signature.pure[CompilerIO]
+      operands.head.value.pure[CompilerIO]
     } else {
       for {
         precOrder <- buildPrecedenceOrder(operators)
@@ -95,12 +94,12 @@ object InfixPrecedenceResolver {
   }
 
   private def resolveInfixRecursive(
-      operands: Seq[Sourced[TypeStack[OperatorResolvedExpression]]],
+      operands: Seq[Sourced[OperatorResolvedExpression]],
       operators: Seq[InfixOp],
       order: PrecedenceOrder
   ): CompilerIO[OperatorResolvedExpression] =
     if (operators.isEmpty) {
-      operands.head.value.signature.pure[CompilerIO]
+      operands.head.value.pure[CompilerIO]
     } else if (operators.length == 1) {
       makeCurriedInfix(operators.head.part, operands.head, operands(1)).pure[CompilerIO]
     } else {
@@ -114,9 +113,9 @@ object InfixPrecedenceResolver {
         left         <- resolveInfixRecursive(leftOperands, leftOps, order)
         right        <- resolveInfixRecursive(rightOperands, rightOps, order)
       } yield {
-        val leftStack  = outlinedStack(leftOperands, left)
-        val rightStack = outlinedStack(rightOperands, right)
-        makeCurriedInfix(splitOp.part, leftStack, rightStack)
+        val leftExpr  = outlinedExpr(leftOperands, left)
+        val rightExpr = outlinedExpr(rightOperands, right)
+        makeCurriedInfix(splitOp.part, leftExpr, rightExpr)
       }
     }
 
@@ -160,12 +159,12 @@ object InfixPrecedenceResolver {
     }
 
   private def makeCurriedInfix(
-      op: Sourced[TypeStack[OperatorResolvedExpression]],
-      left: Sourced[TypeStack[OperatorResolvedExpression]],
-      right: Sourced[TypeStack[OperatorResolvedExpression]]
+      op: Sourced[OperatorResolvedExpression],
+      left: Sourced[OperatorResolvedExpression],
+      right: Sourced[OperatorResolvedExpression]
   ): OperatorResolvedExpression = {
     val app1     = OperatorResolvedExpression.FunctionApplication(op, left)
-    val combined = outlinedStack(Seq(op, left), app1)
+    val combined = outlinedExpr(Seq(op, left), app1)
     OperatorResolvedExpression.FunctionApplication(combined, right)
   }
 }

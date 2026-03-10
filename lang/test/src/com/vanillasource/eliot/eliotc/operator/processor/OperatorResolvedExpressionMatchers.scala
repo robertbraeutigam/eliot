@@ -55,7 +55,7 @@ object OperatorResolvedExpressionMatchers {
               Sourced(_, _, target),
               Sourced(_, _, arg)
             ) =>
-          Some((target.signature, arg.signature))
+          Some((target, arg))
         case _ => None
       }
   }

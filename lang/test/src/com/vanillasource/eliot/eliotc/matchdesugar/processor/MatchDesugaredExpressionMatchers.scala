@@ -52,7 +52,7 @@ object MatchDesugaredExpressionMatchers {
     def unapply(expr: MatchDesugaredExpression): Option[(MatchDesugaredExpression, MatchDesugaredExpression)] =
       expr match {
         case FunctionApplication(Sourced(_, _, target), Sourced(_, _, arg)) =>
-          Some((target.signature, arg.signature))
+          Some((target, arg))
         case _                                                              => None
       }
   }

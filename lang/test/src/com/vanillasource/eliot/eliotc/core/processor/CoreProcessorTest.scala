@@ -135,7 +135,15 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  "function applications" should "convert simple call to function application" in {
+  "function applications" should "have plain expression (not TypeStack) as target and argument" in {
+    namedValue("def f: R = g(a)").asserting { nv =>
+      val FunctionApplication(target, argument) = nv.runtime.get.value: @unchecked
+      target.value shouldBe a[Expression]
+      argument.value shouldBe a[Expression]
+    }
+  }
+
+  it should "convert simple call to function application" in {
     namedValue("def f: R = g(a)").asserting { nv =>
       nv.runtimeStructure shouldBe Some(App(Ref("g"), Ref("a")))
     }
@@ -578,7 +586,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       case NamedValueReference(name, None, typeArgs)  =>
         Ref(name.value.name, name.value.qualifier, typeArgs.map(_.value.structure))
       case NamedValueReference(name, Some(qual), _) => QualRef(name.value.name, qual.value)
-      case FunctionApplication(target, arg)         => App(target.value.firstStructure, arg.value.firstStructure)
+      case FunctionApplication(target, arg)         => App(target.value.structure, arg.value.structure)
       case FunctionLiteral(param, paramType, body)  =>
         Lambda(param.value, paramType.map(_.firstStructure).getOrElse(Empty), body.value.firstStructure)
       case IntegerLiteral(lit)                      => IntLit(lit.value)

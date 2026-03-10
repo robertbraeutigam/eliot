@@ -16,8 +16,8 @@ object Expression {
   ) extends Expression
   // Apply an argument to an expression (assumed to be a function)
   case class FunctionApplication(
-      target: Sourced[TypeStack[Expression]],
-      argument: Sourced[TypeStack[Expression]]
+      target: Sourced[Expression],
+      argument: Sourced[Expression]
   ) extends Expression
   // Function literal, i.e. a lambda expression, i.e. an ad-hoc function, i.e. an unnamed function
   case class FunctionLiteral(
@@ -50,8 +50,8 @@ object Expression {
       case (NamedValueReference(n1, q1, _), NamedValueReference(n2, q2, _)) =>
         n1.value == n2.value && q1.map(_.value) == q2.map(_.value)
       case (FunctionApplication(t1, a1), FunctionApplication(t2, a2))       =>
-        structuralEquality.eqv(t1.value.signature, t2.value.signature) &&
-        structuralEquality.eqv(a1.value.signature, a2.value.signature)
+        structuralEquality.eqv(t1.value, t2.value) &&
+        structuralEquality.eqv(a1.value, a2.value)
       case (FunctionLiteral(p1, pt1, b1), FunctionLiteral(p2, pt2, b2))     =>
         p1.value == p2.value && // Leave the type here, it does not contribute to structure (?)
         structuralEquality.eqv(b1.value.signature, b2.value.signature)
@@ -72,8 +72,8 @@ object Expression {
   given Show[Expression] = {
     case IntegerLiteral(Sourced(_, _, value))                                          => value
     case StringLiteral(Sourced(_, _, value))                                           => s"\"$value\""
-    case FunctionApplication(Sourced(_, _, targetValue), Sourced(_, _, argumentValue)) =>
-      s"${targetValue.show}(${argumentValue.show})"
+    case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
+      s"${target.show}(${argument.show})"
     case FunctionLiteral(param, _, body)                                               => s"${param.value} -> ${body.value.show}"
     case NamedValueReference(valueName, qualifier, typeArgs)                           =>
       qualifier.map(q => s"${q.value}::").getOrElse("") + valueName.value +

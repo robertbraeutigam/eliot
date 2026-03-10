@@ -84,7 +84,7 @@ class ValueResolverTest
   it should "resolve function application" in {
     runEngineForValue("data T\ndef f: T\ndef b: T\ndef a: T = f(b)").flatMap {
       case Some(FunctionApplication(Sourced(_, _, target), _)) =>
-        target.signature match {
+        target match {
           case ValueReference(_, _) => IO.pure(succeed)
           case _                    => IO.delay(fail(s"target was not a value reference"))
         }

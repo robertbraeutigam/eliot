@@ -11,8 +11,8 @@ sealed trait MatchDesugaredExpression
 
 object MatchDesugaredExpression {
   case class FunctionApplication(
-      target: Sourced[TypeStack[MatchDesugaredExpression]],
-      argument: Sourced[TypeStack[MatchDesugaredExpression]]
+      target: Sourced[MatchDesugaredExpression],
+      argument: Sourced[MatchDesugaredExpression]
   ) extends MatchDesugaredExpression
   case class IntegerLiteral(integerLiteral: Sourced[BigInt])    extends MatchDesugaredExpression
   case class StringLiteral(stringLiteral: Sourced[String])      extends MatchDesugaredExpression
@@ -39,7 +39,7 @@ object MatchDesugaredExpression {
 
     expr match {
       case FunctionApplication(target, arg)            =>
-        (traverseStack(target), traverseStack(arg)).mapN(FunctionApplication.apply)
+        (f(target.value).map(target.as), f(arg.value).map(arg.as)).mapN(FunctionApplication.apply)
       case FunctionLiteral(paramName, paramType, body) =>
         (paramType.traverse(traverseStack), traverseStack(body)).mapN(FunctionLiteral(paramName, _, _))
       case FlatExpression(parts)                       =>
@@ -52,7 +52,7 @@ object MatchDesugaredExpression {
 
   def fromExpression(expr: Expression): MatchDesugaredExpression = expr match {
     case Expression.FunctionApplication(target, arg)            =>
-      FunctionApplication(convertTypeStack(target), convertTypeStack(arg))
+      FunctionApplication(target.map(fromExpression), arg.map(fromExpression))
     case Expression.IntegerLiteral(v)                           => IntegerLiteral(v)
     case Expression.StringLiteral(v)                            => StringLiteral(v)
     case Expression.ParameterReference(v)                       => ParameterReference(v)
@@ -74,8 +74,8 @@ object MatchDesugaredExpression {
   given Show[MatchDesugaredExpression] = {
     case IntegerLiteral(Sourced(_, _, value))                                          => value.toString()
     case StringLiteral(Sourced(_, _, value))                                           => s"\"$value\""
-    case FunctionApplication(Sourced(_, _, targetValue), Sourced(_, _, argumentValue)) =>
-      s"${targetValue.show}(${argumentValue.show})"
+    case FunctionApplication(Sourced(_, _, target), Sourced(_, _, argument)) =>
+      s"${target.show}(${argument.show})"
     case FunctionLiteral(param, paramType, body)                                       =>
       s"(${paramType.map(_.value.show).getOrElse("<n/a>")} :: ${param.value}) -> ${body.value.show}"
     case ParameterReference(name)                                                      => name.value

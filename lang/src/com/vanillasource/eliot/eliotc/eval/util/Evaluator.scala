@@ -82,10 +82,8 @@ object Evaluator {
       } yield FunctionLiteral(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
       for {
-        // TODO: Is it ok to ignore the type stack here?
-        targetValue <- toExpressionValue(target.value.signature, evaluating, paramContext, target, callSite)
-        // TODO: Is it ok to ignore the type stack here?
-        argValue    <- toExpressionValue(argument.value.signature, evaluating, paramContext, argument, callSite)
+        targetValue <- toExpressionValue(target.value, evaluating, paramContext, target, callSite)
+        argValue    <- toExpressionValue(argument.value, evaluating, paramContext, argument, callSite)
       } yield FunctionApplication(target.as(targetValue), argument.as(argValue))
   }
 
@@ -187,8 +185,8 @@ object Evaluator {
       } yield FunctionLiteral(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
       for {
-        targetValue <- toNormalFormExpressionValue(target.map(_.signature), evaluating, paramContext, callSite)
-        argValue    <- toNormalFormExpressionValue(argument.map(_.signature), evaluating, paramContext, callSite)
+        targetValue <- toNormalFormExpressionValue(target, evaluating, paramContext, callSite)
+        argValue    <- toNormalFormExpressionValue(argument, evaluating, paramContext, callSite)
       } yield FunctionApplication(target.as(targetValue), argument.as(argValue))
   }
 

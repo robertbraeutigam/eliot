@@ -25,7 +25,7 @@ object MatchDesugarUtils {
       args: Seq[Sourced[TypeStack[Expression]]]
   ): Expression =
     args.foldLeft(ref) { (acc, arg) =>
-      Expression.FunctionApplication(wrapExpr(scrutinee, acc), arg)
+      Expression.FunctionApplication(scrutinee.as(acc), arg.as(arg.value.signature))
     }
 
   def collectConstructorPatterns(pattern: Pattern): Seq[ValueFQN] =

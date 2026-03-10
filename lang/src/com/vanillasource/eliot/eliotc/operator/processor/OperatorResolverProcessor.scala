@@ -35,13 +35,13 @@ class OperatorResolverProcessor
     expr match {
       case MatchDesugaredExpression.FlatExpression(parts)                       =>
         for {
-          resolvedParts <- parts.traverse(resolveInTypeStack)
+          resolvedParts <- parts.traverse(part => resolveInExpression(part.value.signature).map(part.as))
           result        <- resolveFlatExpression(resolvedParts)
         } yield result
       case MatchDesugaredExpression.FunctionApplication(target, arg)            =>
         for {
-          resolvedTarget <- resolveInTypeStack(target)
-          resolvedArg    <- resolveInTypeStack(arg)
+          resolvedTarget <- resolveInExpression(target.value).map(target.as)
+          resolvedArg    <- resolveInExpression(arg.value).map(arg.as)
         } yield OperatorResolvedExpression.FunctionApplication(resolvedTarget, resolvedArg)
       case MatchDesugaredExpression.FunctionLiteral(paramName, paramType, body) =>
         for {
@@ -64,7 +64,7 @@ class OperatorResolverProcessor
     stack.value.levels.traverse(resolveInExpression).map(levels => stack.as(TypeStack(levels)))
 
   private def resolveFlatExpression(
-      parts: Seq[Sourced[TypeStack[OperatorResolvedExpression]]]
+      parts: Seq[Sourced[OperatorResolvedExpression]]
   ): CompilerIO[OperatorResolvedExpression] =
     for {
       annotated <- parts.traverse(annotatePart)
@@ -74,8 +74,8 @@ class OperatorResolverProcessor
       result    <- InfixPrecedenceResolver.resolve(afterPre)
     } yield result
 
-  private def annotatePart(part: Sourced[TypeStack[OperatorResolvedExpression]]): CompilerIO[AnnotatedPart] =
-    part.value.signature match {
+  private def annotatePart(part: Sourced[OperatorResolvedExpression]): CompilerIO[AnnotatedPart] =
+    part.value match {
       case OperatorResolvedExpression.ValueReference(vfqnSrc, _) =>
         for {
           resolved <- getFactOrAbort(MatchDesugaredValue.Key(vfqnSrc.value))

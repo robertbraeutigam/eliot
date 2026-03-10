@@ -93,22 +93,8 @@ object SymbolicEvaluator {
         for {
           argTypeVar  <- generateUnificationVar
           retTypeVar  <- generateUnificationVar
-          targetTyped <- typeCheck(target.value.levels.map(target.as(_)))
-          argTyped    <- typeCheck(arg.value.levels.map(arg.as(_)))
-          // The target needs to be a Function[ArgType, RetType]
-          _           <-
-            tellConstraint(
-              SymbolicUnification.constraint(
-                functionType(argTypeVar, retTypeVar),
-                target.as(targetTyped.expressionType),
-                "Target of function application is not a Function. Possibly too many arguments."
-              )
-            )
-          // The arg need to be the type of the argument expression
-          _           <-
-            tellConstraint(
-              SymbolicUnification.constraint(argTypeVar, arg.as(argTyped.expressionType), "Argument type mismatch.")
-            )
+          targetTyped <- typeCheck(functionType(argTypeVar, retTypeVar): ExpressionValue, target)
+          argTyped    <- typeCheck(argTypeVar: ExpressionValue, arg)
           // The return type needs to be the result type
           _           <-
             tellConstraint(

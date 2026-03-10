@@ -203,10 +203,10 @@ class ValueResolver
             }
           case None      => compilerAbort(nameSrc.as("Qualified named value not available.")).liftToScoped
         }
-      case FunctionApplication(targetStack, argStack)                =>
+      case FunctionApplication(target, arg)                          =>
         for {
-          resolvedTarget <- resolveTypeStack(targetStack, runtime)
-          resolvedArg    <- resolveTypeStack(argStack, runtime)
+          resolvedTarget <- resolveExpression(target.value, runtime).map(target.as)
+          resolvedArg    <- resolveExpression(arg.value, runtime).map(arg.as)
         } yield Expression.FunctionApplication(resolvedTarget, resolvedArg)
       case FunctionLiteral(paramName, paramType, body)               =>
         for {

@@ -138,8 +138,8 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
       sourced(TypeStack(NonEmptySeq.of(OperatorResolvedExpression.ParameterReference(sourced("a")))))
     )
     val appliedExpr   = OperatorResolvedExpression.FunctionApplication(
-      sourced(TypeStack(NonEmptySeq.of(innerLambda))),
-      sourced(TypeStack(NonEmptySeq.of(OperatorResolvedExpression.ValueReference(sourced(typeVfqn)))))
+      sourced(innerLambda),
+      sourced(OperatorResolvedExpression.ValueReference(sourced(typeVfqn)))
     )
     val resolvedValue = OperatorResolvedValue(
       selfVfqn,
