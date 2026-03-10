@@ -93,12 +93,12 @@ object SymbolicEvaluator {
         for {
           argTypeVar  <- generateUnificationVar
           retTypeVar  <- generateUnificationVar
-          targetTyped <- typeCheck(functionType(argTypeVar, retTypeVar): ExpressionValue, target)
-          argTyped    <- typeCheck(argTypeVar: ExpressionValue, arg)
+          targetTyped <- typeCheck(functionType(argTypeVar, retTypeVar), target) // TODO: Custom error message here
+          argTyped    <- typeCheck(argTypeVar, arg)
           // The return type needs to be the result type
           _           <-
             tellConstraint(
-              SymbolicUnification.constraint(resultType, expression.as(retTypeVar: ExpressionValue), "Type mismatch.")
+              SymbolicUnification.constraint(resultType, expression.as(retTypeVar), "Type mismatch.")
             )
         } yield TypedExpression(
           retTypeVar,

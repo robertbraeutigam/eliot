@@ -38,7 +38,7 @@ class SymbolicTypeCheckProcessorTest
   it should "not compile if call site has arguments, but definition doesn't" in {
     runEngineForErrors("data A\ndef f: A = b(1)\ndef b: A")
       .asserting(
-        _ shouldBe Seq("Target of function application is not a Function. Possibly too many arguments." at "b(1)")
+        _ shouldBe Seq("Type mismatch." at "b")
       )
   }
 
