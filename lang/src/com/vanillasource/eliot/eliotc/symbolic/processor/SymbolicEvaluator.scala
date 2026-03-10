@@ -127,10 +127,12 @@ object SymbolicEvaluator extends Logging {
                                 generateUnificationVar.map(paramName.as(_))
                             }
           _              <- bindParameter(paramName.value, typedParamType)
-          _              <- debug[TypeGraphIO](
-                              s"Inside function literal, typed param type: ${expressionValueUserDisplay.show(typedParamType.value)}"
-                            )
           bodyTyped      <- typeCheck(body.value.levels.map(body.as(_)))
+          _              <-
+            debug[TypeGraphIO](
+              s"Inside function literal, typed param type: ${expressionValueUserDisplay
+                  .show(typedParamType.value)}, body type: ${expressionValueUserDisplay.show(bodyTyped.expressionType)}"
+            )
           funcType        = functionType(typedParamType.value, bodyTyped.expressionType)
           _              <- tellConstraint(SymbolicUnification.constraint(resultType, body.as(funcType), "Type mismatch."))
         } yield TypedExpression(
