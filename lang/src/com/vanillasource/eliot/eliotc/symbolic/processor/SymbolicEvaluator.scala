@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{functionType, *
 import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedValue, OperatorResolvedExpression as Expr}
@@ -31,7 +32,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.*
   *     as an OperatorResolvedExpression, except it is not stacked anymore. All type information if "flattened" to a
   *     single ExpressionValue.
   */
-object SymbolicEvaluator {
+object SymbolicEvaluator extends Logging {
 
   /** Typecheck the given expression stack and return the typed expression, i.e. the result type and the expression when
     * run producing the result.
@@ -126,6 +127,9 @@ object SymbolicEvaluator {
                                 generateUnificationVar.map(paramName.as(_))
                             }
           _              <- bindParameter(paramName.value, typedParamType)
+          _              <- debug[TypeGraphIO](
+                              s"Inside function literal, typed param type: ${expressionValueUserDisplay.show(typedParamType.value)}"
+                            )
           bodyTyped      <- typeCheck(body.value.levels.map(body.as(_)))
           funcType        = functionType(typedParamType.value, bodyTyped.expressionType)
           _              <- tellConstraint(SymbolicUnification.constraint(resultType, body.as(funcType), "Type mismatch."))
