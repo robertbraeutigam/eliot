@@ -43,7 +43,7 @@ class SymbolicTypeCheckProcessor
                                       ).pure[CompilerIO]
                                     case None    =>
                                       NormalFormEvaluator
-                                        .toNormalFormExpressionValue(typeStack.as(typeStack.value.signature))
+                                        .evaluate(typeStack.as(typeStack.value.signature))
                                         .map(_ -> None)
                                   }
       resolvedQualifierParams  <- resolveQualifierParams(resolvedValue.name)
@@ -63,7 +63,7 @@ class SymbolicTypeCheckProcessor
     name.value.qualifier match {
       case ResolveQualifier.AbilityImplementation(_, expressions) =>
         expressions.traverse { expression =>
-          NormalFormEvaluator.toNormalFormExpressionValue(
+          NormalFormEvaluator.evaluate(
             name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(expression)))
           )
         }

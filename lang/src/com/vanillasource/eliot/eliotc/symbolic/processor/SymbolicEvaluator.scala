@@ -46,7 +46,7 @@ object SymbolicEvaluator extends Logging {
       result <- expressions.tail.foldLeftM((top, expressions.head)) { (acc, expression) =>
                   for {
                     // Convert previous level to normalized type expression
-                    previousLevel   <- StateT.liftF(NormalFormEvaluator.toNormalFormExpressionValue(acc._2))
+                    previousLevel   <- StateT.liftF(NormalFormEvaluator.evaluate(acc._2))
                     // Create constraints of this level against the assumed type
                     _               <- debug[TypeGraphIO]("Type checking new level...")
                     typedExpression <- typeCheck(previousLevel, expression)
@@ -97,7 +97,7 @@ object SymbolicEvaluator extends Logging {
           for {
             // Get the value and its signature (we don't check the whole thing, it will be checked on its own)
             resolved  <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-            valueType <- StateT.liftF(NormalFormEvaluator.toNormalFormExpressionValue(resolved.typeStack.map(_.signature)))
+            valueType <- StateT.liftF(NormalFormEvaluator.evaluate(resolved.typeStack.map(_.signature)))
             // Constrain the result type to the valueType here
             _         <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(valueType), "Type mismatch."))
             // TODO: We ignore typeArgs for now, we need to check their types as well and include them somehow
@@ -133,7 +133,7 @@ object SymbolicEvaluator extends Logging {
                                     _         <- typeCheck(paramTypeExpression.value.levels.map(paramTypeExpression.as(_)))
                                     paramType <-
                                       StateT.liftF(
-                                        NormalFormEvaluator.toNormalFormExpressionValue(paramTypeExpression.map(_.signature))
+                                        NormalFormEvaluator.evaluate(paramTypeExpression.map(_.signature))
                                       )
                                   } yield paramTypeExpression.as(paramType)
                                 case None                      =>
