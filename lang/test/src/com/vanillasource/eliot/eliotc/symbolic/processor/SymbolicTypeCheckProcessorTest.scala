@@ -1,19 +1,19 @@
-package com.vanillasource.eliot.eliotc.symbolic
+package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
+import com.vanillasource.eliot.eliotc.implementation.processor.AbilityImplementationProcessor
+import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
-import com.vanillasource.eliot.eliotc.implementation.processor.AbilityImplementationProcessor
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
-import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypeCheckedValue
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
+import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class SymbolicTypeCheckProcessorTest
     extends ProcessorTest(

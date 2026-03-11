@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.symbolic.util
+package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*

@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.symbolic.util.NormalFormEvaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}

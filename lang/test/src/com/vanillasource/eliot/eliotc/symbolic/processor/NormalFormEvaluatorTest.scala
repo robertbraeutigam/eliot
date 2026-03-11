@@ -1,18 +1,18 @@
-package com.vanillasource.eliot.eliotc.symbolic.util
+package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.data.{Chain, NonEmptySeq}
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType}
+import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
+import com.vanillasource.eliot.eliotc.symbolic.processor.NormalFormEvaluator
 
 import java.net.URI
 
