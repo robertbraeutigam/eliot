@@ -69,10 +69,8 @@ object NormalFormEvaluator {
           resolved.runtime match {
             case Some(body) =>
               val genericParamContext = extractGenericParamContext(resolved.typeStack.value.signature)
-              for {
-                translated <- evaluate(body, evaluating + vfqn, genericParamContext, callSite = Some(sourced))
-                reduced    <- betaReduce(translated, body)
-              } yield reduced
+              evaluate(body, evaluating + vfqn, genericParamContext, callSite = Some(sourced))
+                .map(betaReduce)
             case None       => ConcreteValue(Types.dataType(vfqn)).pure[CompilerIO]
           }
         case None           =>
@@ -80,44 +78,24 @@ object NormalFormEvaluator {
       }
     }
 
-  /** Beta-reduces an ExpressionValue. Applies FunctionLiteral to its argument via substitution. Does NOT apply
-    * NativeFunctions.
+  /** Beta-reduces an ExpressionValue by substituting FunctionLiteral applications. Does NOT apply NativeFunctions.
     */
-  private def betaReduce(value: ExpressionValue, sourced: Sourced[?]): CompilerIO[ExpressionValue] =
+  private def betaReduce(value: ExpressionValue): ExpressionValue =
     value match {
       case FunctionApplication(target, arg)       =>
-        for {
-          reducedTarget <- betaReduce(target.value, target)
-          reducedArg    <- betaReduce(arg.value, arg)
-          result        <- reducedTarget match {
-                             case FunctionLiteral(paramName, paramType, body) =>
-                               checkType(paramType, reducedArg, arg) >>
-                                 betaReduce(substitute(body.value, paramName, reducedArg), body)
-                             case _                                           =>
-                               FunctionApplication(target.as(reducedTarget), arg.as(reducedArg)).pure[CompilerIO]
-                           }
-        } yield result
+        val reducedTarget = betaReduce(target.value)
+        val reducedArg    = betaReduce(arg.value)
+        reducedTarget match {
+          case FunctionLiteral(paramName, _, body) =>
+            betaReduce(substitute(body.value, paramName, reducedArg))
+          case _                                   =>
+            FunctionApplication(target.as(reducedTarget), arg.as(reducedArg))
+        }
       case FunctionLiteral(name, paramType, body) =>
-        betaReduce(body.value, body).map(reduced => FunctionLiteral(name, paramType, body.as(reduced)))
+        FunctionLiteral(name, paramType, body.as(betaReduce(body.value)))
       case other                                  =>
-        other.pure[CompilerIO]
+        other
     }
-
-  private def checkType(expectedType: Value, argument: ExpressionValue, sourced: Sourced[?]): CompilerIO[Unit] =
-    argumentType(argument) match {
-      case Some(actualType) if actualType != expectedType =>
-        compilerAbort(
-          sourced.as("Type mismatch."),
-          Seq(s"Expected: ${expectedType.show}", s"Actual:   ${actualType.show}")
-        )
-      case _                                              => ().pure[CompilerIO]
-    }
-
-  private def argumentType(argument: ExpressionValue): Option[Value] = argument match {
-    case ConcreteValue(v)         => Some(v.valueType)
-    case ParameterReference(_, t) => Some(t)
-    case _                        => None
-  }
 
   /** Extracts generic type parameters from leading FunctionLiterals of a type stack signature. */
   private def extractGenericParamContext(expr: OperatorResolvedExpression): Map[String, Value] =
