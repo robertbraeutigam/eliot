@@ -56,7 +56,9 @@ object Evaluator {
       }
     case OperatorResolvedExpression.ValueReference(s, _)                              =>
       val vfqn = s.value
-      if (evaluating.contains(vfqn)) {
+      if (vfqn === typeFQN) {
+        ConcreteValue(Value.Type).pure[CompilerIO]
+      } else if (evaluating.contains(vfqn)) {
         // Don't allow recursions when evaluating, for now
         compilerAbort(s.as("Recursive evaluation detected."))
       } else {
