@@ -16,6 +16,9 @@ object Types {
   val typeFQN: ValueFQN =
     ValueFQN(ModuleName(Seq("eliot", "lang"), "Type"), QualifiedName("Type", Qualifier.Default))
 
+  val typeFQNType: ValueFQN =
+    ValueFQN(ModuleName(Seq("eliot", "lang"), "Type"), QualifiedName("Type", Qualifier.Type))
+
   val functionDataTypeFQN = ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
 
   /** The Function data type as an ExpressionValue reference for use in type expressions.

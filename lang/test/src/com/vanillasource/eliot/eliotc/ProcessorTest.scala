@@ -31,7 +31,8 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
   val testModuleName = ModuleName(Seq.empty, "Test")
   val sourceContent  = SourceContent(file, Sourced(file, PositionRange.zero, "test source"))
   val systemImports  = Seq(
-    SystemImport("Function", "data Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B")
+    SystemImport("Function", "data Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
+    SystemImport("Type", "data Type")
   )
 
   def sourced[T](value: T): Sourced[T] = Sourced(file, PositionRange.zero, value)

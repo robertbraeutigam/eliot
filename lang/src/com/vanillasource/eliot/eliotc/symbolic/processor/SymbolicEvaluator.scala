@@ -4,6 +4,7 @@ import cats.data.{NonEmptySeq, StateT}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier as CoreQualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{functionType, *}
+import com.vanillasource.eliot.eliotc.eval.fact.Types.{typeFQN, typeFQNType}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
@@ -90,7 +91,9 @@ object SymbolicEvaluator extends Logging {
                          }
             _         <- tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch."))
           } yield TypedExpression(exprType, TypedExpression.ParameterReference(name))
-        case Expr.ValueReference(vfqn, typeArgs)                 =>
+        case Expr.ValueReference(rawVfqn, typeArgs)              =>
+          // This is an assumption, but Type^Default needs to be Type^Type
+          val vfqn = if (rawVfqn.value === typeFQN) rawVfqn.as(typeFQNType) else rawVfqn
           // Get the return type of the value, check the type args too
           for {
             // Get the value and its signature (we don't check the whole thing, it will be checked on its own)
