@@ -284,9 +284,9 @@ class EvaluatorTest extends ProcessorTest() {
       Some(Sourced(defUri, PositionRange.zero, TypeStack(NonEmptySeq.of(
         OperatorResolvedExpression.ParameterReference(Sourced(defUri, PositionRange.zero, "A"))
       )))),
-      Sourced(defUri, PositionRange.zero, TypeStack(NonEmptySeq.of(
+      Sourced(defUri, PositionRange.zero,
         OperatorResolvedExpression.ParameterReference(Sourced(defUri, PositionRange.zero, "a"))
-      )))
+      )
     )
     val orv           = OperatorResolvedValue(
       vfqn,
@@ -320,7 +320,7 @@ class EvaluatorTest extends ProcessorTest() {
     OperatorResolvedExpression.FunctionLiteral(
       sourced(param),
       Some(sourced(TypeStack(NonEmptySeq.of(paramTypeExpr)))),
-      sourced(TypeStack(NonEmptySeq.of(body)))
+      sourced(body)
     )
 
   /** Function literal with BigInt parameter type */

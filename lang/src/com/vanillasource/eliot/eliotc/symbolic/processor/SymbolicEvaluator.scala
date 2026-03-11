@@ -140,7 +140,7 @@ object SymbolicEvaluator extends Logging {
                               }
             _              <- bindParameter(paramName.value, typedParamType)
             _              <- debug[TypeGraphIO]("Checking function literal body type...")
-            bodyTyped      <- typeCheck(body.value.levels.map(body.as(_)))
+            bodyTyped      <- typeCheck(NonEmptySeq.of(body)) // FIXME: do not typecheck this, bind it
             _              <-
               debug[TypeGraphIO](
                 s"Inside function literal, typed param type: ${expressionValueUserDisplay

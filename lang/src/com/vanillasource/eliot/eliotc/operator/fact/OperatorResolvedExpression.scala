@@ -21,11 +21,10 @@ object OperatorResolvedExpression {
       valueName: Sourced[ValueFQN],
       typeArgs: Seq[Sourced[OperatorResolvedExpression]] = Seq.empty
   ) extends OperatorResolvedExpression
-  // TODO: this also has body as TypeStack
   case class FunctionLiteral(
       parameterName: Sourced[String],
       parameterType: Option[Sourced[TypeStack[OperatorResolvedExpression]]],
-      body: Sourced[TypeStack[OperatorResolvedExpression]]
+      body: Sourced[OperatorResolvedExpression]
   ) extends OperatorResolvedExpression
 
   def mapChildrenM[F[_]: Applicative](f: OperatorResolvedExpression => F[OperatorResolvedExpression])(
@@ -40,7 +39,7 @@ object OperatorResolvedExpression {
       case FunctionApplication(target, arg)                             =>
         (f(target.value).map(target.as), f(arg.value).map(arg.as)).mapN(FunctionApplication.apply)
       case FunctionLiteral(paramName, paramType, body)                  =>
-        (paramType.traverse(traverseStack), traverseStack(body)).mapN(FunctionLiteral(paramName, _, _))
+        (paramType.traverse(traverseStack), f(body.value).map(body.as)).mapN(FunctionLiteral(paramName, _, _))
       case ValueReference(name, typeArgs)                               =>
         typeArgs.traverse(ta => f(ta.value).map(ta.as)).map(ValueReference(name, _))
       case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr.pure[F]
@@ -56,7 +55,7 @@ object OperatorResolvedExpression {
     case MatchDesugaredExpression.ValueReference(name, typeArgs)              =>
       ValueReference(name, typeArgs.map(ta => ta.map(fromExpression)))
     case MatchDesugaredExpression.FunctionLiteral(paramName, paramType, body) =>
-      FunctionLiteral(paramName, paramType.map(convertTypeStack), convertTypeStack(body))
+      FunctionLiteral(paramName, paramType.map(convertTypeStack), body.map(ts => fromExpression(ts.signature)))
     case MatchDesugaredExpression.FlatExpression(_)                           =>
       throw IllegalStateException("FlatExpression should not exist after operator resolution")
   }

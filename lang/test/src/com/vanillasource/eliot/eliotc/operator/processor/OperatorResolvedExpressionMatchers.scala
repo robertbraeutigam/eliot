@@ -11,7 +11,7 @@ object OperatorResolvedExpressionMatchers {
     def unapply(expr: OperatorResolvedExpression): Option[(String, OperatorResolvedExpression)] =
       expr match {
         case FunctionLiteral(Sourced(_, _, paramName), _, Sourced(_, _, body)) =>
-          Some((paramName, body.signature))
+          Some((paramName, body))
         case _                                                                 => None
       }
   }

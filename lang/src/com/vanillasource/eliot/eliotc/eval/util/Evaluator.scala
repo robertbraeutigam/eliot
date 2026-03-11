@@ -78,7 +78,7 @@ object Evaluator {
                                     compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
                                   )(_.pure[CompilerIO])
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
-        evaluatedBody          <- toExpressionValue(body.value.signature, evaluating, newContext, body, callSite)
+        evaluatedBody          <- toExpressionValue(body.value, evaluating, newContext, body, callSite)
       } yield FunctionLiteral(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
       for {
@@ -181,7 +181,7 @@ object Evaluator {
           toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType, callSite)
         evaluatedParamType      = concreteValueOf(evaluatedParamTypeFull).getOrElse(Value.Type)
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
-        evaluatedBody          <- toNormalFormExpressionValue(body.map(_.signature), evaluating, newContext, callSite)
+        evaluatedBody          <- toNormalFormExpressionValue(body, evaluating, newContext, callSite)
       } yield FunctionLiteral(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
       for {
@@ -235,7 +235,7 @@ object Evaluator {
   private def extractGenericParamContext(expr: OperatorResolvedExpression): Map[String, Value] =
     expr match {
       case OperatorResolvedExpression.FunctionLiteral(paramName, Some(_), body) =>
-        Map(paramName.value -> Value.Type) ++ extractGenericParamContext(body.value.signature)
+        Map(paramName.value -> Value.Type) ++ extractGenericParamContext(body.value)
       case _                                                                    => Map.empty
     }
 

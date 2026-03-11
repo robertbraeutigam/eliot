@@ -46,7 +46,7 @@ class OperatorResolverProcessor
       case MatchDesugaredExpression.FunctionLiteral(paramName, paramType, body) =>
         for {
           resolvedParamType <- paramType.traverse(resolveInTypeStack)
-          resolvedBody      <- resolveInTypeStack(body)
+          resolvedBody      <- resolveInExpression(body.value.signature).map(body.as)
         } yield OperatorResolvedExpression.FunctionLiteral(paramName, resolvedParamType, resolvedBody)
       case MatchDesugaredExpression.IntegerLiteral(v)                           =>
         OperatorResolvedExpression.IntegerLiteral(v).pure[CompilerIO]
