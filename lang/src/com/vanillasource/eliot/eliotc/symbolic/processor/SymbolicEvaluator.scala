@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{functionType, *
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{typeFQN, typeFQNType}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
-import com.vanillasource.eliot.eliotc.eval.util.Evaluator
+import com.vanillasource.eliot.eliotc.symbolic.util.NormalFormEvaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
@@ -47,7 +47,7 @@ object SymbolicEvaluator extends Logging {
       result <- expressions.tail.foldLeftM((top, expressions.head)) { (acc, expression) =>
                   for {
                     // Convert previous level to normalized type expression
-                    previousLevel   <- StateT.liftF(Evaluator.toNormalFormExpressionValue(acc._2))
+                    previousLevel   <- StateT.liftF(NormalFormEvaluator.toNormalFormExpressionValue(acc._2))
                     // Create constraints of this level against the assumed type
                     _               <- debug[TypeGraphIO]("Type checking new level...")
                     typedExpression <- typeCheck(previousLevel, expression)
@@ -98,7 +98,7 @@ object SymbolicEvaluator extends Logging {
           for {
             // Get the value and its signature (we don't check the whole thing, it will be checked on its own)
             resolved  <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-            valueType <- StateT.liftF(Evaluator.toNormalFormExpressionValue(resolved.typeStack.map(_.signature)))
+            valueType <- StateT.liftF(NormalFormEvaluator.toNormalFormExpressionValue(resolved.typeStack.map(_.signature)))
             // Constrain the result type to the valueType here
             _         <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(valueType), "Type mismatch."))
             // TODO: We ignore typeArgs for now, we need to check their types as well and include them somehow
@@ -134,7 +134,7 @@ object SymbolicEvaluator extends Logging {
                                     _         <- typeCheck(paramTypeExpression.value.levels.map(paramTypeExpression.as(_)))
                                     paramType <-
                                       StateT.liftF(
-                                        Evaluator.toNormalFormExpressionValue(paramTypeExpression.map(_.signature))
+                                        NormalFormEvaluator.toNormalFormExpressionValue(paramTypeExpression.map(_.signature))
                                       )
                                   } yield paramTypeExpression.as(paramType)
                                 case None                      =>
