@@ -16,6 +16,164 @@ import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import java.net.URI
 
 class NormalFormEvaluatorTest extends ProcessorTest() {
+  // --- Literal translation ---
+
+  "normal form evaluator" should "evaluate integer literal to ConcreteValue" in {
+    runEvaluate(intLit(42)).asserting(_ shouldBe ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
+  }
+
+  it should "evaluate string literal to ConcreteValue" in {
+    runEvaluate(strLit("hello")).asserting(_ shouldBe ConcreteValue(Value.Direct("hello", stringType)))
+  }
+
+  // --- Parameter references ---
+
+  it should "evaluate parameter reference with known param" in {
+    runEvaluate(paramRef("x"), paramContext = Map("x" -> bigIntType))
+      .asserting(_ shouldBe ParameterReference("x", bigIntType))
+  }
+
+  it should "report error for unknown parameter" in {
+    runEvaluateForErrors(sourced(paramRef("x")))
+      .asserting(_.head.message should include("Unknown parameter"))
+  }
+
+  // --- Value references ---
+
+  it should "evaluate data type reference with no runtime body" in {
+    val fqn  = vfqn("MyData")
+    val fact = resolvedValue(fqn, body = None)
+    runEvaluate(valueRef(fqn), facts = Seq(fact))
+      .asserting(_ shouldBe ConcreteValue(Types.dataType(fqn)))
+  }
+
+  it should "evaluate value reference with runtime body" in {
+    val fqn  = vfqn("myValue")
+    val fact = resolvedValue(fqn, body = Some(intLit(42)))
+    runEvaluate(valueRef(fqn), facts = Seq(fact))
+      .asserting(_ shouldBe ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
+  }
+
+  it should "evaluate unknown value reference as data type" in {
+    val fqn = vfqn("Unknown")
+    runEvaluate(valueRef(fqn))
+      .asserting(_ shouldBe ConcreteValue(Types.dataType(fqn)))
+  }
+
+  it should "report error for recursive value reference" in {
+    val fqn  = vfqn("rec")
+    val fact = resolvedValue(fqn, body = Some(valueRef(fqn)))
+    runEvaluateForErrors(sourced(valueRef(fqn)), facts = Seq(fact))
+      .asserting(_.head.message should include("Recursive"))
+  }
+
+  it should "evaluate Type FQN reference" in {
+    runEvaluate(valueRef(typeFQN))
+      .asserting(_ shouldBe ConcreteValue(Types.dataType(typeFQN)))
+  }
+
+  // --- Function literals ---
+
+  it should "evaluate function literal with typed parameter" in {
+    runEvaluate(funLit("x", valueRef(bigIntTypeVfqn), paramRef("x")))
+      .asserting(_ shouldBe FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x", bigIntType))))
+  }
+
+  it should "report error for function literal without parameter type" in {
+    val expr = OperatorResolvedExpression.FunctionLiteral(sourced("x"), None, sourced(intLit(1)))
+    runEvaluateForErrors(sourced(expr))
+      .asserting(_.head.message should include("explicit"))
+  }
+
+  // --- Function application ---
+
+  it should "evaluate function application" in {
+    val fqn  = vfqn("f")
+    val fact = resolvedValue(fqn, body = None)
+    runEvaluate(funApp(valueRef(fqn), intLit(42)), facts = Seq(fact))
+      .asserting(
+        _ shouldBe FunctionApplication(
+          unsourced(ConcreteValue(Types.dataType(fqn))),
+          unsourced(ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
+        )
+      )
+  }
+
+  // --- Beta reduction ---
+
+  it should "beta-reduce inlined function applied to argument" in {
+    val fFqn  = vfqn("f")
+    val fFact = resolvedValue(fFqn, body = Some(funLit("x", valueRef(bigIntTypeVfqn), paramRef("x"))))
+    val gFqn  = vfqn("g")
+    val gFact = resolvedValue(gFqn, body = Some(funApp(valueRef(fFqn), intLit(42))))
+    runEvaluate(valueRef(gFqn), facts = Seq(fFact, gFact))
+      .asserting(_ shouldBe ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
+  }
+
+  // --- Error source locations ---
+
+  it should "report unknown parameter error at call site when evaluating value reference" in {
+    val defUri     = URI.create("Definition.els")
+    val defContent = SourceContent(defUri, Sourced(defUri, PositionRange.zero, "def f[A](a: A) = a"))
+    val fqn        = vfqn("f")
+    val bodyExpr   = OperatorResolvedExpression.FunctionLiteral(
+      Sourced(defUri, PositionRange.zero, "a"),
+      Some(
+        Sourced(
+          defUri,
+          PositionRange.zero,
+          TypeStack(
+            NonEmptySeq.of(
+              OperatorResolvedExpression.ParameterReference(Sourced(defUri, PositionRange.zero, "A"))
+            )
+          )
+        )
+      ),
+      Sourced(
+        defUri,
+        PositionRange.zero,
+        OperatorResolvedExpression.ParameterReference(Sourced(defUri, PositionRange.zero, "a"))
+      )
+    )
+    val orv        = OperatorResolvedValue(
+      fqn,
+      sourced(toResolve(QualifiedName("f", Qualifier.Default))),
+      Some(Sourced(defUri, PositionRange.zero, bodyExpr)),
+      sourced(TypeStack(NonEmptySeq.of(OperatorResolvedExpression.IntegerLiteral(sourced(BigInt(0))))))
+    )
+    val expression = sourced(OperatorResolvedExpression.ValueReference(sourced(fqn), Seq.empty))
+    runEvaluateForErrors(expression, Seq(orv, defContent))
+      .asserting(_.head.contentSource shouldBe file.getPath)
+  }
+
+  it should "report unknown parameter error at definition when no call site" in {
+    val defUri     = URI.create("Definition.els")
+    val defContent = SourceContent(defUri, Sourced(defUri, PositionRange.zero, "def f = X"))
+    val bodyExpr   = OperatorResolvedExpression.ParameterReference(Sourced(defUri, PositionRange.zero, "X"))
+    val body       = Sourced(defUri, PositionRange.zero, bodyExpr)
+    runEvaluateForErrors(body, Seq(defContent))
+      .asserting(_.head.contentSource shouldBe defUri.getPath)
+  }
+
+  // --- Generic param context ---
+
+  it should "extract generic params from type stack for inlined values" in {
+    val fqn          = vfqn("identity")
+    val typeStackSig = OperatorResolvedExpression.FunctionLiteral(
+      sourced("A"),
+      Some(sourced(TypeStack(NonEmptySeq.of(valueRef(typeFQN))))),
+      sourced(intLit(0))
+    )
+    val fact         = OperatorResolvedValue(
+      fqn,
+      sourced(toResolve(fqn.name)),
+      Some(sourced(paramRef("A"))),
+      sourced(TypeStack(NonEmptySeq.of(typeStackSig)))
+    )
+    runEvaluate(valueRef(fqn), facts = Seq(fact))
+      .asserting(_ shouldBe ParameterReference("A", Value.Type))
+  }
+
   private val bigIntTypeVfqn = ValueFQN(testModuleName, QualifiedName("BigIntType", Qualifier.Default))
   private val bigIntTypeFact = NamedEvaluable(bigIntTypeVfqn, ConcreteValue(bigIntType))
   private val stringTypeVfqn = ValueFQN(testModuleName, QualifiedName("StringType", Qualifier.Default))
@@ -97,159 +255,4 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
       case _                                     => throw new Exception("Expected error but evaluation succeeded")
     }
 
-  // --- Literal translation ---
-
-  "normal form evaluator" should "evaluate integer literal to ConcreteValue" in {
-    runEvaluate(intLit(42)).asserting(_ shouldBe ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
-  }
-
-  it should "evaluate string literal to ConcreteValue" in {
-    runEvaluate(strLit("hello")).asserting(_ shouldBe ConcreteValue(Value.Direct("hello", stringType)))
-  }
-
-  // --- Parameter references ---
-
-  it should "evaluate parameter reference with known param" in {
-    runEvaluate(paramRef("x"), paramContext = Map("x" -> bigIntType))
-      .asserting(_ shouldBe ParameterReference("x", bigIntType))
-  }
-
-  it should "report error for unknown parameter" in {
-    runEvaluateForErrors(sourced(paramRef("x")))
-      .asserting(_.head.message should include("Unknown parameter"))
-  }
-
-  // --- Value references ---
-
-  it should "evaluate data type reference with no runtime body" in {
-    val fqn  = vfqn("MyData")
-    val fact = resolvedValue(fqn, body = None)
-    runEvaluate(valueRef(fqn), facts = Seq(fact))
-      .asserting(_ shouldBe ConcreteValue(Types.dataType(fqn)))
-  }
-
-  it should "evaluate value reference with runtime body" in {
-    val fqn  = vfqn("myValue")
-    val fact = resolvedValue(fqn, body = Some(intLit(42)))
-    runEvaluate(valueRef(fqn), facts = Seq(fact))
-      .asserting(_ shouldBe ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
-  }
-
-  it should "evaluate unknown value reference as data type" in {
-    val fqn = vfqn("Unknown")
-    runEvaluate(valueRef(fqn))
-      .asserting(_ shouldBe ConcreteValue(Types.dataType(fqn)))
-  }
-
-  it should "report error for recursive value reference" in {
-    val fqn  = vfqn("rec")
-    val fact = resolvedValue(fqn, body = Some(valueRef(fqn)))
-    runEvaluateForErrors(sourced(valueRef(fqn)), facts = Seq(fact))
-      .asserting(_.head.message should include("Recursive"))
-  }
-
-  it should "evaluate Type FQN reference" in {
-    runEvaluate(valueRef(typeFQN))
-      .asserting(_ shouldBe ConcreteValue(Types.dataType(typeFQN)))
-  }
-
-  // --- Function literals ---
-
-  it should "evaluate function literal with typed parameter" in {
-    runEvaluate(funLit("x", valueRef(bigIntTypeVfqn), paramRef("x")))
-      .asserting(_ shouldBe FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x", bigIntType))))
-  }
-
-  it should "report error for function literal without parameter type" in {
-    val expr = OperatorResolvedExpression.FunctionLiteral(sourced("x"), None, sourced(intLit(1)))
-    runEvaluateForErrors(sourced(expr))
-      .asserting(_.head.message should include("explicit"))
-  }
-
-  // --- Function application ---
-
-  it should "evaluate function application" in {
-    val fqn  = vfqn("f")
-    val fact = resolvedValue(fqn, body = None)
-    runEvaluate(funApp(valueRef(fqn), intLit(42)), facts = Seq(fact))
-      .asserting(_ shouldBe FunctionApplication(
-        unsourced(ConcreteValue(Types.dataType(fqn))),
-        unsourced(ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
-      ))
-  }
-
-  // --- Beta reduction ---
-
-  it should "beta-reduce inlined function applied to argument" in {
-    val fFqn  = vfqn("f")
-    val fFact = resolvedValue(fFqn, body = Some(funLit("x", valueRef(bigIntTypeVfqn), paramRef("x"))))
-    val gFqn  = vfqn("g")
-    val gFact = resolvedValue(gFqn, body = Some(funApp(valueRef(fFqn), intLit(42))))
-    runEvaluate(valueRef(gFqn), facts = Seq(fFact, gFact))
-      .asserting(_ shouldBe ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
-  }
-
-  // --- Error source locations ---
-
-  it should "report unknown parameter error at call site when evaluating value reference" in {
-    val defUri     = URI.create("Definition.els")
-    val defContent = SourceContent(defUri, Sourced(defUri, PositionRange.zero, "def f[A](a: A) = a"))
-    val fqn        = vfqn("f")
-    val bodyExpr   = OperatorResolvedExpression.FunctionLiteral(
-      Sourced(defUri, PositionRange.zero, "a"),
-      Some(
-        Sourced(
-          defUri,
-          PositionRange.zero,
-          TypeStack(
-            NonEmptySeq.of(
-              OperatorResolvedExpression.ParameterReference(Sourced(defUri, PositionRange.zero, "A"))
-            )
-          )
-        )
-      ),
-      Sourced(
-        defUri,
-        PositionRange.zero,
-        OperatorResolvedExpression.ParameterReference(Sourced(defUri, PositionRange.zero, "a"))
-      )
-    )
-    val orv = OperatorResolvedValue(
-      fqn,
-      sourced(toResolve(QualifiedName("f", Qualifier.Default))),
-      Some(Sourced(defUri, PositionRange.zero, bodyExpr)),
-      sourced(TypeStack(NonEmptySeq.of(OperatorResolvedExpression.IntegerLiteral(sourced(BigInt(0))))))
-    )
-    val expression = sourced(OperatorResolvedExpression.ValueReference(sourced(fqn), Seq.empty))
-    runEvaluateForErrors(expression, Seq(orv, defContent))
-      .asserting(_.head.contentSource shouldBe file.getPath)
-  }
-
-  it should "report unknown parameter error at definition when no call site" in {
-    val defUri     = URI.create("Definition.els")
-    val defContent = SourceContent(defUri, Sourced(defUri, PositionRange.zero, "def f = X"))
-    val bodyExpr   = OperatorResolvedExpression.ParameterReference(Sourced(defUri, PositionRange.zero, "X"))
-    val body       = Sourced(defUri, PositionRange.zero, bodyExpr)
-    runEvaluateForErrors(body, Seq(defContent))
-      .asserting(_.head.contentSource shouldBe defUri.getPath)
-  }
-
-  // --- Generic param context ---
-
-  it should "extract generic params from type stack for inlined values" in {
-    val fqn          = vfqn("identity")
-    val typeStackSig = OperatorResolvedExpression.FunctionLiteral(
-      sourced("A"),
-      Some(sourced(TypeStack(NonEmptySeq.of(valueRef(typeFQN))))),
-      sourced(intLit(0))
-    )
-    val fact = OperatorResolvedValue(
-      fqn,
-      sourced(toResolve(fqn.name)),
-      Some(sourced(paramRef("A"))),
-      sourced(TypeStack(NonEmptySeq.of(typeStackSig)))
-    )
-    runEvaluate(valueRef(fqn), facts = Seq(fact))
-      .asserting(_ shouldBe ParameterReference("A", Value.Type))
-  }
 }
