@@ -19,7 +19,7 @@ object NormalFormEvaluator {
     * generic type parameters from the type stack. For values without a runtime body (data types, built-ins): returns
     * `ConcreteValue(Types.dataType(vfqn))`.
     */
-  def evaluateValueToNormalForm(
+  private[processor] def evaluateValueToNormalForm(
       vfqn: ValueFQN,
       sourced: Sourced[?],
       evaluating: Set[ValueFQN] = Set.empty
@@ -44,7 +44,7 @@ object NormalFormEvaluator {
 
   /** Evaluates an expression to its structural normal form. Like `evaluate`, but stops before applying NativeFunctions.
     */
-  def evaluateToNormalForm(
+  private[processor] def evaluateToNormalForm(
       expression: Sourced[OperatorResolvedExpression],
       evaluating: Set[ValueFQN] = Set.empty,
       callSite: Option[Sourced[?]] = None,
