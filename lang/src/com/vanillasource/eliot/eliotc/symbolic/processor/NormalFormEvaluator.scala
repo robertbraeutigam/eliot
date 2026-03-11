@@ -21,16 +21,6 @@ object NormalFormEvaluator {
       evaluating: Set[ValueFQN] = Set.empty,
       paramContext: Map[String, Value] = Map.empty,
       callSite: Option[Sourced[?]] = None
-  ): CompilerIO[ExpressionValue] = translate(expression, evaluating, paramContext, callSite)
-
-  /** Translates an OperatorResolvedExpression into an ExpressionValue tree. Value references are inlined by looking up
-    * their bodies and fully evaluating them.
-    */
-  private def translate(
-      expression: Sourced[OperatorResolvedExpression],
-      evaluating: Set[ValueFQN],
-      paramContext: Map[String, Value],
-      callSite: Option[Sourced[?]]
   ): CompilerIO[ExpressionValue] = expression.value match {
     case OperatorResolvedExpression.IntegerLiteral(s)                                 =>
       ConcreteValue(Value.Direct(s.value, bigIntType)).pure[CompilerIO]
@@ -52,12 +42,12 @@ object NormalFormEvaluator {
           Evaluator.evaluateParamType(paramType.value.signature, evaluating, paramContext, paramType, callSite)
         evaluatedParamType      = concreteValueOf(evaluatedParamTypeFull).getOrElse(Value.Type)
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
-        evaluatedBody          <- translate(body, evaluating, newContext, callSite)
+        evaluatedBody          <- evaluate(body, evaluating, newContext, callSite)
       } yield FunctionLiteral(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
       for {
-        targetValue <- translate(target, evaluating, paramContext, callSite)
-        argValue    <- translate(argument, evaluating, paramContext, callSite)
+        targetValue <- evaluate(target, evaluating, paramContext, callSite)
+        argValue    <- evaluate(argument, evaluating, paramContext, callSite)
       } yield FunctionApplication(target.as(targetValue), argument.as(argValue))
   }
 
