@@ -76,7 +76,7 @@ class SymbolicTypeCheckProcessorTest
 
   it should "fail if parameter is used as a wrong parameter in another function" in {
     runEngineForErrors("data A\ndata B\ndef a(b: B): A\ndef f(x: A): A = a(x)")
-      .asserting(_ shouldBe Seq("Argument type mismatch." at "x"))
+      .asserting(_ shouldBe Seq("Type mismatch." at "x"))
   }
 
   "generic types" should "type check when returning itself from a parameter" in {
