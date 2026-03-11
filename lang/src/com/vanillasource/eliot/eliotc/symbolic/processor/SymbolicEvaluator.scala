@@ -39,6 +39,7 @@ object SymbolicEvaluator extends Logging {
     */
   def typeCheck(expressions: NonEmptySeq[Sourced[OperatorResolvedExpression]]): TypeGraphIO[TypedExpression] =
     for {
+      _      <- debug[TypeGraphIO]("Type checking top...")
       // The topmost expression needs to be of type "Type" and there is always a topmost expression (non-empty seq)
       top    <- typeCheck(ConcreteValue(Type), expressions.head)
       // Iterate the rest, every level is the type of the next level
@@ -47,6 +48,7 @@ object SymbolicEvaluator extends Logging {
                     // Convert previous level to normalized type expression
                     previousLevel   <- StateT.liftF(Evaluator.toNormalFormExpressionValue(acc._2))
                     // Create constraints of this level against the assumed type
+                    _               <- debug[TypeGraphIO]("Type checking new level...")
                     typedExpression <- typeCheck(previousLevel, expression)
                   } yield (typedExpression, expression)
                 }
@@ -56,91 +58,97 @@ object SymbolicEvaluator extends Logging {
       resultType: ExpressionValue,
       expression: Sourced[OperatorResolvedExpression]
   ): TypeGraphIO[TypedExpression] =
-    expression.value match {
-      case Expr.IntegerLiteral(value)                          =>
-        // Easy, result needs to be Int
-        val exprType = ConcreteValue(
-          Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "Number"), QualifiedName("Int", CoreQualifier.Type)))
-        )
-        tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch.")) *>
-          TypedExpression(exprType, TypedExpression.IntegerLiteral(value)).pure[TypeGraphIO]
-      case Expr.StringLiteral(value)                           =>
-        // Easy, result needs to be String
-        val exprType = ConcreteValue(
-          Types.dataType(
-            ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", CoreQualifier.Type))
+    debug[TypeGraphIO](
+      s"Type check '${expressionValueUserDisplay.show(resultType)}' is type of: ${expression.value.show}"
+    ) >>
+      (expression.value match {
+        case Expr.IntegerLiteral(value)                          =>
+          // Easy, result needs to be Int
+          val exprType = ConcreteValue(
+            Types.dataType(
+              ValueFQN(ModuleName(Seq("eliot", "lang"), "Number"), QualifiedName("Int", CoreQualifier.Type))
+            )
           )
-        )
-        tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch.")) *>
-          TypedExpression(exprType, TypedExpression.StringLiteral(value)).pure[TypeGraphIO]
-      case Expr.ParameterReference(name)                       =>
-        // Also easy, return parameter needs to be whatever it was declared to
-        for {
-          maybeType <- lookupParameter(name.value)
-          exprType  <- maybeType match {
-                         case Some(parameterType) => parameterType.value.pure[TypeGraphIO]
-                         case None                => StateT.liftF(compilerAbort[ExpressionValue](name.as(s"Parameter not found.")))
-                       }
-          _         <- tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch."))
-        } yield TypedExpression(exprType, TypedExpression.ParameterReference(name))
-      case Expr.ValueReference(vfqn, typeArgs)                 =>
-        // Get the return type of the value, check the type args too
-        for {
-          // Get the value and its signature (we don't check the whole thing, it will be checked on its own)
-          resolved  <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-          valueType <- StateT.liftF(Evaluator.toNormalFormExpressionValue(resolved.typeStack.map(_.signature)))
-          // Constrain the result type to the valueType here
-          _         <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(valueType), "Type mismatch."))
-          // TODO: We ignore typeArgs for now, we need to check their types as well and include them somehow
-          _         <- debug[TypeGraphIO](
-                         s"Inside value reference for '${vfqn.show}', value type: ${expressionValueUserDisplay.show(valueType)}"
-                       )
-        } yield TypedExpression(valueType, TypedExpression.ValueReference(vfqn))
-      case Expr.FunctionApplication(target, arg)               =>
-        // In a function application we check the target, the arg and result
-        for {
-          argTypeVar  <- generateUnificationVar
-          retTypeVar  <- generateUnificationVar
-          targetTyped <- typeCheck(functionType(argTypeVar, retTypeVar), target) // TODO: Custom error message here
-          argTyped    <- typeCheck(argTypeVar, arg)
-          // The return type needs to be the result type
-          _           <-
-            tellConstraint(
-              SymbolicUnification.constraint(resultType, expression.as(retTypeVar), "Type mismatch.")
+          tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch.")) *>
+            TypedExpression(exprType, TypedExpression.IntegerLiteral(value)).pure[TypeGraphIO]
+        case Expr.StringLiteral(value)                           =>
+          // Easy, result needs to be String
+          val exprType = ConcreteValue(
+            Types.dataType(
+              ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", CoreQualifier.Type))
             )
-        } yield TypedExpression(
-          retTypeVar,
-          TypedExpression.FunctionApplication(target.as(targetTyped), arg.as(argTyped))
-        )
-      case Expr.FunctionLiteral(paramName, paramTypeOpt, body) =>
-        // Check parameter type, the result type is Function[ArgType, RetType]
-        for {
-          typedParamType <- paramTypeOpt match {
-                              case Some(paramTypeExpression) =>
-                                // Parameter type specified in the expression, so bind that
-                                for {
-                                  _         <- typeCheck(paramTypeExpression.value.levels.map(paramTypeExpression.as(_)))
-                                  paramType <-
-                                    StateT.liftF(
-                                      Evaluator.toNormalFormExpressionValue(paramTypeExpression.map(_.signature))
-                                    )
-                                } yield paramTypeExpression.as(paramType)
-                              case None                      =>
-                                // Parameter type not specified, so let's just get a unification var
-                                generateUnificationVar.map(paramName.as(_))
-                            }
-          _              <- bindParameter(paramName.value, typedParamType)
-          bodyTyped      <- typeCheck(body.value.levels.map(body.as(_)))
-          _              <-
-            debug[TypeGraphIO](
-              s"Inside function literal, typed param type: ${expressionValueUserDisplay
-                  .show(typedParamType.value)}, body type: ${expressionValueUserDisplay.show(bodyTyped.expressionType)}"
-            )
-          funcType        = functionType(typedParamType.value, bodyTyped.expressionType)
-          _              <- tellConstraint(SymbolicUnification.constraint(resultType, body.as(funcType), "Type mismatch."))
-        } yield TypedExpression(
-          funcType,
-          TypedExpression.FunctionLiteral(paramName, typedParamType, body.as(bodyTyped))
-        )
-    }
+          )
+          tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch.")) *>
+            TypedExpression(exprType, TypedExpression.StringLiteral(value)).pure[TypeGraphIO]
+        case Expr.ParameterReference(name)                       =>
+          // Also easy, return parameter needs to be whatever it was declared to
+          for {
+            maybeType <- lookupParameter(name.value)
+            exprType  <- maybeType match {
+                           case Some(parameterType) => parameterType.value.pure[TypeGraphIO]
+                           case None                => StateT.liftF(compilerAbort[ExpressionValue](name.as(s"Parameter not found.")))
+                         }
+            _         <- tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch."))
+          } yield TypedExpression(exprType, TypedExpression.ParameterReference(name))
+        case Expr.ValueReference(vfqn, typeArgs)                 =>
+          // Get the return type of the value, check the type args too
+          for {
+            // Get the value and its signature (we don't check the whole thing, it will be checked on its own)
+            resolved  <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
+            valueType <- StateT.liftF(Evaluator.toNormalFormExpressionValue(resolved.typeStack.map(_.signature)))
+            // Constrain the result type to the valueType here
+            _         <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(valueType), "Type mismatch."))
+            // TODO: We ignore typeArgs for now, we need to check their types as well and include them somehow
+            _         <-
+              debug[TypeGraphIO](
+                s"Inside value reference for '${vfqn.show}', value type: ${expressionValueUserDisplay.show(valueType)}"
+              )
+          } yield TypedExpression(valueType, TypedExpression.ValueReference(vfqn))
+        case Expr.FunctionApplication(target, arg)               =>
+          // In a function application we check the target, the arg and result
+          for {
+            argTypeVar  <- generateUnificationVar
+            retTypeVar  <- generateUnificationVar
+            targetTyped <- typeCheck(functionType(argTypeVar, retTypeVar), target) // TODO: Custom error message here
+            argTyped    <- typeCheck(argTypeVar, arg)
+            // The return type needs to be the result type
+            _           <-
+              tellConstraint(
+                SymbolicUnification.constraint(resultType, expression.as(retTypeVar), "Type mismatch.")
+              )
+          } yield TypedExpression(
+            retTypeVar,
+            TypedExpression.FunctionApplication(target.as(targetTyped), arg.as(argTyped))
+          )
+        case Expr.FunctionLiteral(paramName, paramTypeOpt, body) =>
+          // Check parameter type, the result type is Function[ArgType, RetType]
+          for {
+            typedParamType <- paramTypeOpt match {
+                                case Some(paramTypeExpression) =>
+                                  // Parameter type specified in the expression, so bind that
+                                  for {
+                                    _         <- typeCheck(paramTypeExpression.value.levels.map(paramTypeExpression.as(_)))
+                                    paramType <-
+                                      StateT.liftF(
+                                        Evaluator.toNormalFormExpressionValue(paramTypeExpression.map(_.signature))
+                                      )
+                                  } yield paramTypeExpression.as(paramType)
+                                case None                      =>
+                                  // Parameter type not specified, so let's just get a unification var
+                                  generateUnificationVar.map(paramName.as(_))
+                              }
+            _              <- bindParameter(paramName.value, typedParamType)
+            bodyTyped      <- typeCheck(body.value.levels.map(body.as(_)))
+            _              <-
+              debug[TypeGraphIO](
+                s"Inside function literal, typed param type: ${expressionValueUserDisplay
+                    .show(typedParamType.value)}, body type: ${expressionValueUserDisplay.show(bodyTyped.expressionType)}"
+              )
+            funcType        = functionType(typedParamType.value, bodyTyped.expressionType)
+            _              <- tellConstraint(SymbolicUnification.constraint(resultType, body.as(funcType), "Type mismatch."))
+          } yield TypedExpression(
+            funcType,
+            TypedExpression.FunctionLiteral(paramName, typedParamType, body.as(bodyTyped))
+          )
+      })
 }
