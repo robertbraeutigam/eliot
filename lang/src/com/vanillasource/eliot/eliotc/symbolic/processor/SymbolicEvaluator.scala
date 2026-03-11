@@ -140,17 +140,18 @@ object SymbolicEvaluator extends Logging {
                               }
             _              <- bindParameter(paramName.value, typedParamType)
             _              <- debug[TypeGraphIO]("Checking function literal body type...")
-            bodyTyped      <- typeCheck(NonEmptySeq.of(body)) // FIXME: do not typecheck this, bind it
+            retTypeVar     <- generateUnificationVar
+            typedBody      <- typeCheck(retTypeVar, body)
             _              <-
               debug[TypeGraphIO](
                 s"Inside function literal, typed param type: ${expressionValueUserDisplay
-                    .show(typedParamType.value)}, body type: ${expressionValueUserDisplay.show(bodyTyped.expressionType)}"
+                    .show(typedParamType.value)}, body type: ${expressionValueUserDisplay.show(retTypeVar)}"
               )
-            funcType        = functionType(typedParamType.value, bodyTyped.expressionType)
+            funcType        = functionType(typedParamType.value, retTypeVar)
             _              <- tellConstraint(SymbolicUnification.constraint(resultType, body.as(funcType), "Type mismatch."))
           } yield TypedExpression(
             funcType,
-            TypedExpression.FunctionLiteral(paramName, typedParamType, body.as(bodyTyped))
+            TypedExpression.FunctionLiteral(paramName, typedParamType, body.as(typedBody))
           )
       })
 }
