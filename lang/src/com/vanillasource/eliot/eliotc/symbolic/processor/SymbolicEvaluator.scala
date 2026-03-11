@@ -127,6 +127,7 @@ object SymbolicEvaluator extends Logging {
                                 case Some(paramTypeExpression) =>
                                   // Parameter type specified in the expression, so bind that
                                   for {
+                                    _         <- debug[TypeGraphIO]("Checking function literal parameter type...")
                                     _         <- typeCheck(paramTypeExpression.value.levels.map(paramTypeExpression.as(_)))
                                     paramType <-
                                       StateT.liftF(
@@ -138,6 +139,7 @@ object SymbolicEvaluator extends Logging {
                                   generateUnificationVar.map(paramName.as(_))
                               }
             _              <- bindParameter(paramName.value, typedParamType)
+            _              <- debug[TypeGraphIO]("Checking function literal body type...")
             bodyTyped      <- typeCheck(body.value.levels.map(body.as(_)))
             _              <-
               debug[TypeGraphIO](
