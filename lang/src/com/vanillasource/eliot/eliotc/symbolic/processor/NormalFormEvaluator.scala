@@ -9,6 +9,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 
 object NormalFormEvaluator {
 
@@ -83,16 +86,8 @@ object NormalFormEvaluator {
       case _                                                                    => Map.empty
     }
 
-}
-
-/** Constants for type FQNs used by NormalFormEvaluator, avoiding dependency on eval.fact.Types runtime values. */
-private object NormalFormConstants {
-  import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-  import com.vanillasource.eliot.eliotc.module.fact.ModuleName
-  import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
-
-  val bigIntTypeFQN: ValueFQN =
+  private val bigIntTypeFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type))
-  val stringTypeFQN: ValueFQN =
+  private val stringTypeFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type))
 }
