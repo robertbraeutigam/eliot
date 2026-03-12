@@ -65,17 +65,13 @@ object NormalFormEvaluator {
             case Some(body) =>
               val genericParamContext = extractGenericParamContext(resolved.typeStack.value.signature)
               evaluate(body, evaluating + vfqn, genericParamContext, callSite = Some(sourced))
-                .map(betaReduce)
+                .map(SymbolicType.betaReduce)
             case None       => TypeReference(vfqn).pure[CompilerIO]
           }
         case None           =>
           TypeReference(vfqn).pure[CompilerIO]
       }
     }
-
-  /** Beta-reduces a SymbolicType by substituting TypeLambda applications. */
-  private def betaReduce(value: SymbolicType): SymbolicType =
-    SymbolicType.betaReduce(value)
 
   /** Extracts generic type parameters from leading FunctionLiterals of a type stack signature. */
   private def extractGenericParamContext(expr: OperatorResolvedExpression): Map[String, SymbolicType] =

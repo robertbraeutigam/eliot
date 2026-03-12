@@ -79,26 +79,11 @@ object SymbolicType {
   // --- Structural operations ---
 
   def containsVar(st: SymbolicType, varName: String): Boolean =
-    fold[Boolean](_ => false, name => name == varName, (_, _) => false, _ || _, (_, inBody) => inBody)(st)
-
-  def fold[A](
-      onRef: ValueFQN => A,
-      onVar: String => A,
-      onLiteral: (Any, ValueFQN) => A,
-      onApp: (A, A) => A,
-      onLambda: (String, A) => A
-  )(st: SymbolicType): A =
     st match {
-      case TypeReference(vfqn)              => onRef(vfqn)
-      case TypeVariable(name)               => onVar(name)
-      case LiteralType(value, typeFQN)      => onLiteral(value, typeFQN)
-      case TypeApplication(target, arg)     =>
-        onApp(
-          fold(onRef, onVar, onLiteral, onApp, onLambda)(target.value),
-          fold(onRef, onVar, onLiteral, onApp, onLambda)(arg.value)
-        )
-      case TypeLambda(name, body)           =>
-        onLambda(name, fold(onRef, onVar, onLiteral, onApp, onLambda)(body.value))
+      case TypeVariable(name)            => name == varName
+      case TypeApplication(target, arg)  => containsVar(target.value, varName) || containsVar(arg.value, varName)
+      case TypeLambda(_, body)           => containsVar(body.value, varName)
+      case _                             => false
     }
 
   def transform(st: SymbolicType, f: SymbolicType => SymbolicType): SymbolicType =
