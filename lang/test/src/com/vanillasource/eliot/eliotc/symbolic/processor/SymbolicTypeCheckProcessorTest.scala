@@ -79,7 +79,6 @@ class SymbolicTypeCheckProcessorTest
       .asserting(_ shouldBe Seq("Type mismatch." at "x"))
   }
 
-  // FIXME: this should fail, because level 1 of "f" is not Type, it is Function(..,..) (and there are no other levels provided in core)
   "generic types" should "type check when returning itself from a parameter" in {
     runEngineForErrors("def f[A](a: A): A = a")
       .asserting(_ shouldBe Seq())
