@@ -52,13 +52,6 @@ object ExpressionValue {
       case other                       => other
     }
 
-  @tailrec
-  def stripLeadingFunctionApplications(expr: ExpressionValue): ExpressionValue =
-    expr match {
-      case FunctionApplication(target, _) => stripLeadingFunctionApplications(target.value)
-      case other                          => other
-    }
-
   /** Extract parameter names and types from leading FunctionLiteral wrappers. */
   def extractLeadingLambdaParams(expr: ExpressionValue): Seq[(String, Value)] =
     expr match {
@@ -113,16 +106,6 @@ object ExpressionValue {
       case other => other
     }
 
-  /** Transform an expression by applying f to all children first, then to the result. */
-  def transform(expr: ExpressionValue, f: ExpressionValue => ExpressionValue): ExpressionValue =
-    f(expr match {
-      case FunctionApplication(target, arg)       =>
-        FunctionApplication(target.map(transform(_, f)), arg.map(transform(_, f)))
-      case FunctionLiteral(name, paramType, body) =>
-        FunctionLiteral(name, paramType, body.map(transform(_, f)))
-      case leaf                                   => leaf
-    })
-
   given Show[ExpressionValue] with {
     def show(expr: ExpressionValue): String = expr match {
       case FunctionType(paramType, returnType)    => s"Function(${paramType.show}, ${returnType.show})"
@@ -134,28 +117,10 @@ object ExpressionValue {
     }
   }
 
-  val expressionValueUserDisplay: Show[ExpressionValue] = {
-    case ConcreteValue(value)                   => Value.valueUserDisplay.show(value)
-    case FunctionLiteral(name, paramType, body) =>
-      s"($name: ${Value.valueUserDisplay.show(paramType)}) -> ${expressionValueUserDisplay.show(body.value)}"
-    case NativeFunction(paramType, _)           => s"native(${Value.valueUserDisplay.show(paramType)})"
-    case ParameterReference(name, _)            => name
-    case FunctionApplication(target, arg)       =>
-      s"${expressionValueUserDisplay.show(target.value)}(${expressionValueUserDisplay.show(arg.value)})"
-  }
-
   def concreteValueOf(expressionValue: ExpressionValue): Option[Value] =
     expressionValue match {
       case ConcreteValue(value) => Some(value)
       case _                    => None
-    }
-
-  /** Strip leading FunctionLiteral wrappers that introduce type variables (parameterType == Value.Type). */
-  @tailrec
-  def stripUniversalTypeIntros(expr: ExpressionValue): ExpressionValue =
-    expr match {
-      case FunctionLiteral(_, Value.Type, body) => stripUniversalTypeIntros(body.value)
-      case other                                => other
     }
 
   /** Match a pattern ExpressionValue (with type variable placeholders) against a concrete ExpressionValue, returning a
