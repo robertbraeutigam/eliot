@@ -16,6 +16,7 @@ import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcess
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class MonomorphicTypeCheckProcessorTest
@@ -105,12 +106,11 @@ class MonomorphicTypeCheckProcessorTest
   it should "fail on type argument count mismatch" in {
     val idVfqn      = ValueFQN(testModuleName, default("id"))
     val dummyType   = intType
-    val signature   = ExpressionValue.FunctionLiteral(
+    val signature   = SymbolicType.TypeLambda(
       "A",
-      Value.Type,
-      ExpressionValue.unsourced(ExpressionValue.functionType(
-        ExpressionValue.ParameterReference("A", Value.Type),
-        ExpressionValue.ParameterReference("A", Value.Type)
+      SymbolicType.unsourced(SymbolicType.functionType(
+        SymbolicType.TypeVariable("A"),
+        SymbolicType.TypeVariable("A")
       ))
     )
     val typeChecked = AbilityCheckedValue(

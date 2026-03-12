@@ -2,27 +2,20 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.Sync
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.uncurry.fact.ParameterDefinition
 import NativeType.{systemAnyValue, systemFunctionValue}
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.stripLeadingFunctionApplications
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
 object CommonPatterns {
-  def simpleType(expressionValue: ExpressionValue): ValueFQN =
-    stripLeadingFunctionApplications(expressionValue) match {
-      case ExpressionValue.FunctionType(_, _)               =>
-        systemFunctionValue
-      case ExpressionValue.ConcreteValue(Value.Type)        =>
-        NativeType.systemTypeValue
-      case ExpressionValue.ConcreteValue(value)             =>
-        stripDataTypeSuffix(valueToValueFQN(value))
-      case ExpressionValue.ParameterReference(_, paramType) =>
-        stripDataTypeSuffix(valueToValueFQN(paramType))
-      case _                                                =>
-        systemAnyValue
+  def simpleType(st: SymbolicType): ValueFQN =
+    SymbolicType.stripLeadingApplications(st) match {
+      case SymbolicType.FunctionType(_, _)  => systemFunctionValue
+      case SymbolicType.TypeVariable(_)     => NativeType.systemTypeValue
+      case SymbolicType.TypeReference(vfqn) => stripDataTypeSuffix(vfqn)
+      case _                                => systemAnyValue
     }
 
   def valueToValueFQN(value: Value): ValueFQN =
@@ -41,13 +34,13 @@ object CommonPatterns {
   private def stripDataTypeSuffix(valueFQN: ValueFQN): ValueFQN =
     ValueFQN(valueFQN.moduleName, QualifiedName(valueFQN.name.name, Qualifier.Default))
 
-  def extractSignatureTypes(signature: ExpressionValue): (Seq[ExpressionValue], ExpressionValue) = {
-    def loop(expr: ExpressionValue, acc: Seq[ExpressionValue]): (Seq[ExpressionValue], ExpressionValue) =
+  def extractSignatureTypes(signature: SymbolicType): (Seq[SymbolicType], SymbolicType) = {
+    def loop(expr: SymbolicType, acc: Seq[SymbolicType]): (Seq[SymbolicType], SymbolicType) =
       expr match {
-        case ExpressionValue.FunctionType(paramType, returnType) => loop(returnType, acc :+ paramType)
-        case _                                                   => (acc, expr)
+        case SymbolicType.FunctionType(paramType, returnType) => loop(returnType, acc :+ paramType)
+        case _                                                => (acc, expr)
       }
-    loop(ExpressionValue.stripUniversalTypeIntros(signature), Seq.empty)
+    loop(SymbolicType.stripUniversalTypeIntros(signature), Seq.empty)
   }
 
   extension (classGenerator: ClassGenerator) {

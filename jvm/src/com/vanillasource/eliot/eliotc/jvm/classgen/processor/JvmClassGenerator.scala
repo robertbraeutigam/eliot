@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
@@ -20,6 +19,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, Qualifier as SymbolicQualifier}
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedExpression.*
@@ -282,7 +282,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   private def generatePatternMatchSingleton(
       mainClassGenerator: ClassGenerator,
       abilityFQN: AbilityFQN,
-      typeArgs: Seq[ExpressionValue],
+      typeArgs: Seq[SymbolicType],
       dataTypeVfqn: ValueFQN,
       isSingleConstructor: Boolean
   ): CompilerIO[ClassFile] = {

@@ -3,14 +3,14 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, FunctionLiteral, ParameterReference}
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.*
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemAnyValue, systemFunctionValue, systemUnitValue}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 import com.vanillasource.eliot.eliotc.uncurry.fact.ParameterDefinition
 
 import java.net.URI
@@ -24,17 +24,17 @@ class CommonPatternsTest extends BytecodeTest {
 
   private def sourced[T](value: T): Sourced[T] = Sourced(testUri, zeroRange, value)
 
-  private def stringExprType: ExpressionValue =
-    ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default))))
+  private def stringSymbolicType: SymbolicType =
+    SymbolicType.TypeReference(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default)))
 
-  private def anyExprType: ExpressionValue =
-    ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "Any"), QualifiedName("Any", Qualifier.Default))))
+  private def anySymbolicType: SymbolicType =
+    SymbolicType.TypeReference(ValueFQN(ModuleName(Seq("eliot", "lang"), "Any"), QualifiedName("Any", Qualifier.Default)))
 
-  private def functionExprType: ExpressionValue =
-    ExpressionValue.functionType(stringExprType, stringExprType)
+  private def functionSymbolicType: SymbolicType =
+    SymbolicType.functionType(stringSymbolicType, stringSymbolicType)
 
   "addDataFieldsAndCtor" should "generate a class with a single field and constructor" in {
-    val fields = Seq(ParameterDefinition(sourced("name"), stringExprType))
+    val fields = Seq(ParameterDefinition(sourced("name"), stringSymbolicType))
 
     for {
       cg        <- createClassGenerator[IO](testModule)
@@ -52,8 +52,8 @@ class CommonPatternsTest extends BytecodeTest {
 
   it should "generate a class with multiple fields" in {
     val fields = Seq(
-      ParameterDefinition(sourced("first"), stringExprType),
-      ParameterDefinition(sourced("second"), stringExprType)
+      ParameterDefinition(sourced("first"), stringSymbolicType),
+      ParameterDefinition(sourced("second"), stringSymbolicType)
     )
 
     for {
@@ -87,9 +87,9 @@ class CommonPatternsTest extends BytecodeTest {
 
   it should "generate fields accessible after construction" in {
     val fields = Seq(
-      ParameterDefinition(sourced("a"), stringExprType),
-      ParameterDefinition(sourced("b"), stringExprType),
-      ParameterDefinition(sourced("c"), stringExprType)
+      ParameterDefinition(sourced("a"), stringSymbolicType),
+      ParameterDefinition(sourced("b"), stringSymbolicType),
+      ParameterDefinition(sourced("c"), stringSymbolicType)
     )
 
     for {
@@ -109,7 +109,7 @@ class CommonPatternsTest extends BytecodeTest {
   }
 
   it should "generate a data class used as an inner class" in {
-    val fields = Seq(ParameterDefinition(sourced("value"), stringExprType))
+    val fields = Seq(ParameterDefinition(sourced("value"), stringSymbolicType))
 
     for {
       cg        <- createClassGenerator[IO](testModule)
@@ -136,7 +136,7 @@ class CommonPatternsTest extends BytecodeTest {
   }
 
   it should "generate a data class with a Function-typed field" in {
-    val fields = Seq(ParameterDefinition(sourced("fn"), functionExprType))
+    val fields = Seq(ParameterDefinition(sourced("fn"), functionSymbolicType))
 
     for {
       cg        <- createClassGenerator[IO](testModule)
@@ -153,33 +153,33 @@ class CommonPatternsTest extends BytecodeTest {
     } yield output shouldBe "called with test"
   }
 
-  "simpleType" should "return String type for a String ConcreteValue" in {
-    simpleType(stringExprType) shouldBe NativeType.systemLangType("String")
+  "simpleType" should "return String type for a String TypeReference" in {
+    simpleType(stringSymbolicType) shouldBe NativeType.systemLangType("String")
   }
 
   it should "return Function type for a function expression" in {
-    simpleType(functionExprType) shouldBe systemFunctionValue
+    simpleType(functionSymbolicType) shouldBe systemFunctionValue
   }
 
   it should "return Any type for unsupported expression types" in {
-    val nativeFn = ExpressionValue.NativeFunction(Value.Type, _ => ConcreteValue(Value.Type))
-    simpleType(nativeFn) shouldBe systemAnyValue
+    val literalType = SymbolicType.LiteralType(42, ValueFQN(ModuleName(Seq("eliot", "lang"), "Number"), QualifiedName("Int", Qualifier.Default)))
+    simpleType(literalType) shouldBe systemAnyValue
   }
 
-  it should "return the parameter type for a ParameterReference" in {
-    val paramRef = ParameterReference("x", Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default))))
-    simpleType(paramRef) shouldBe NativeType.systemLangType("String")
+  it should "return the Type type for a TypeVariable" in {
+    val typeVar = SymbolicType.TypeVariable("x")
+    simpleType(typeVar) shouldBe NativeType.systemTypeValue
   }
 
-  it should "strip DataType suffix from concrete values" in {
+  it should "strip DataType suffix from type references" in {
     val dataTypeFqn = ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Type))
-    val expr        = ConcreteValue(Types.dataType(dataTypeFqn))
+    val expr        = SymbolicType.TypeReference(dataTypeFqn)
     simpleType(expr) shouldBe ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Default))
   }
 
-  it should "strip leading function applications before resolving type" in {
-    val innerType = ConcreteValue(Types.dataType(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default))))
-    val applied   = ExpressionValue.FunctionApplication(ExpressionValue.unsourced(innerType), ExpressionValue.unsourced(stringExprType))
+  it should "strip leading type applications before resolving type" in {
+    val innerType = SymbolicType.TypeReference(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default)))
+    val applied   = SymbolicType.TypeApplication(SymbolicType.unsourced(innerType), SymbolicType.unsourced(stringSymbolicType))
     simpleType(applied) shouldBe NativeType.systemLangType("String")
   }
 

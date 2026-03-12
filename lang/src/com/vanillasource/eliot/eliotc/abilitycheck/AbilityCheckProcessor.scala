@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.abilitycheck
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier as CoreQualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -13,6 +12,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.{TypeCheckedValue, TypedExpression}
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
 import scala.annotation.tailrec
 
@@ -68,7 +68,7 @@ class AbilityCheckProcessor
 
   private def resolveAbilityRef(
       vfqn: Sourced[ValueFQN],
-      concreteType: ExpressionValue,
+      concreteType: SymbolicType,
       paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
   ): CompilerIO[ValueFQN] = {
     val abilityLocalName = vfqn.value.name.qualifier.asInstanceOf[CoreQualifier.Ability].name
@@ -103,15 +103,15 @@ class AbilityCheckProcessor
     val markerVFQN  =
       ValueFQN(vfqn.moduleName, QualifiedName(abilityName, CoreQualifier.Ability(abilityName)))
     getFactOrAbort(TypeCheckedValue.Key(markerVFQN))
-      .map(marker => ExpressionValue.extractLeadingLambdaParams(marker.signature).size)
+      .map(marker => SymbolicType.extractLeadingLambdaParams(marker.signature).size)
   }
 
   /** Returns true if the ability call's type arguments are all covered by a matching ability constraint on the
-    * enclosing function's generic parameters. Matching is done by parameter name for ParameterReference type args.
+    * enclosing function's generic parameters. Matching is done by parameter name for TypeVariable type args.
     */
   private def isProvedByConstraint(
       vfqn: ValueFQN,
-      typeArgExprs: Seq[ExpressionValue],
+      typeArgExprs: Seq[SymbolicType],
       paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
   ): Boolean = {
     val calledAbilityFQN = AbilityFQN(
@@ -122,7 +122,7 @@ class AbilityCheckProcessor
       c.abilityFQN == calledAbilityFQN &&
       c.typeArgs.length == typeArgExprs.length &&
       c.typeArgs.zip(typeArgExprs).forall {
-        case (OperatorResolvedExpression.ParameterReference(nameSrc), ExpressionValue.ParameterReference(evName, _)) =>
+        case (OperatorResolvedExpression.ParameterReference(nameSrc), SymbolicType.TypeVariable(evName)) =>
           nameSrc.value == evName
         case _ => false
       }
@@ -133,32 +133,34 @@ class AbilityCheckProcessor
     * declaration-mode signature against the concrete instantiated type.
     *
     * For example, if the declaration signature is [A] -> A -> String and the concrete type is Int -> String, this
-    * returns Seq(ConcreteValue(Int)).
+    * returns Seq(TypeReference(Int)).
     */
   private def extractAbilityTypeArgs(
-      declarationSig: ExpressionValue,
-      concreteSig: ExpressionValue
-  ): Seq[ExpressionValue] = {
-    val typeParamNames = ExpressionValue.extractLeadingLambdaParams(declarationSig).map(_._1).toSet
-    val pattern        = ExpressionValue.stripUniversalTypeIntros(declarationSig)
-    val bindings       = ExpressionValue.matchTypes(pattern, concreteSig, typeParamNames.contains)
-    ExpressionValue
+      declarationSig: SymbolicType,
+      concreteSig: SymbolicType
+  ): Seq[SymbolicType] = {
+    val typeParamNames = SymbolicType.extractLeadingLambdaParams(declarationSig).toSet
+    val pattern        = SymbolicType.stripUniversalTypeIntros(declarationSig)
+    val bindings       = SymbolicType.matchTypes(pattern, concreteSig, typeParamNames.contains)
+    SymbolicType
       .extractLeadingLambdaParams(declarationSig)
-      .map((name, _) => bindings.getOrElse(name, ExpressionValue.ParameterReference(name, Value.Type)))
+      .map(name => bindings.getOrElse(name, SymbolicType.TypeVariable(name)))
   }
 
   @tailrec
-  private def hasConcreteTopLevelConstructor(expr: ExpressionValue): Boolean =
+  private def hasConcreteTopLevelConstructor(expr: SymbolicType): Boolean =
     expr match {
-      case ExpressionValue.ConcreteValue(_)               => true
-      case ExpressionValue.FunctionApplication(target, _) => hasConcreteTopLevelConstructor(target.value)
-      case _                                              => false
+      case SymbolicType.TypeReference(_)        => true
+      case SymbolicType.LiteralType(_, _)       => true
+      case SymbolicType.TypeApplication(target, _) => hasConcreteTopLevelConstructor(target.value)
+      case _                                    => false
     }
 
-  private def isFullyConcrete(expr: ExpressionValue): Boolean =
+  private def isFullyConcrete(expr: SymbolicType): Boolean =
     expr match {
-      case ExpressionValue.ConcreteValue(_)                 => true
-      case ExpressionValue.FunctionApplication(target, arg) => isFullyConcrete(target.value) && isFullyConcrete(arg.value)
-      case _                                                => false
+      case SymbolicType.TypeReference(_)           => true
+      case SymbolicType.LiteralType(_, _)          => true
+      case SymbolicType.TypeApplication(target, arg) => isFullyConcrete(target.value) && isFullyConcrete(arg.value)
+      case _                                       => false
     }
 }

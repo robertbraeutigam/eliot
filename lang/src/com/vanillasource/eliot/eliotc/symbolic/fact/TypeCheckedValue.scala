@@ -1,9 +1,9 @@
 package com.vanillasource.eliot.eliotc.symbolic.fact
 
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
 /** A type-checked value with its signature type and optional runtime body.
   *
@@ -19,7 +19,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 case class TypeCheckedValue(
     vfqn: ValueFQN,
     name: Sourced[QualifiedName],
-    signature: ExpressionValue,
+    signature: SymbolicType,
     runtime: Option[Sourced[TypedExpression.Expression]]
 ) extends CompilerFact {
   override def key(): CompilerFactKey[TypeCheckedValue] = TypeCheckedValue.Key(vfqn)

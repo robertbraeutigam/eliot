@@ -3,12 +3,12 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.effect.Sync
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{extractSignatureTypes, simpleType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier, NativeType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedValue
 
 object AbilityImplGenerator {
@@ -16,7 +16,7 @@ object AbilityImplGenerator {
   def createAbilityImpl[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
       abilityFQN: AbilityFQN,
-      typeArgs: Seq[ExpressionValue],
+      typeArgs: Seq[SymbolicType],
       methodPairs: Seq[(UncurriedValue, UncurriedValue)]
   ): F[ClassFile] = {
     val innerClassName = singletonInnerName(abilityFQN, typeArgs)
@@ -61,6 +61,6 @@ object AbilityImplGenerator {
   def abilityInterfaceVfqn(abilityFQN: AbilityFQN): ValueFQN =
     ValueFQN(abilityFQN.moduleName, QualifiedName(abilityFQN.abilityName + "$vtable", Qualifier.Default))
 
-  def singletonInnerName(abilityFQN: AbilityFQN, typeArgs: Seq[ExpressionValue]): String =
+  def singletonInnerName(abilityFQN: AbilityFQN, typeArgs: Seq[SymbolicType]): String =
     abilityFQN.abilityName + "$" + typeArgs.map(arg => simpleType(arg).name.name).mkString("$") + "$impl"
 }

@@ -2,14 +2,14 @@ package com.vanillasource.eliot.eliotc.uncurry.fact
 
 import cats.Show
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
 /** Expression tree after uncurrying.
   */
 case class UncurriedExpression(
-    expressionType: ExpressionValue,
+    expressionType: SymbolicType,
     expression: UncurriedExpression.Expression
 )
 

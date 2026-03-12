@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.symbolic.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -15,7 +14,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.*
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheck.typeCheck
 import com.vanillasource.eliot.eliotc.symbolic.types.*
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.{fromExpressionValue, toExpressionValue}
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
 
 class SymbolicTypeCheckProcessor
     extends TransformationProcessor[OperatorResolvedValue.Key, TypeCheckedValue.Key](key =>
@@ -39,7 +38,7 @@ class SymbolicTypeCheckProcessor
       (signatureType, runtime) <- resolvedValue.runtime match {
                                     case Some(_) =>
                                       val substitutedResult =
-                                        result.transformTypes(ev => toExpressionValue(solution.substitute(fromExpressionValue(ev))))
+                                        result.transformTypes(st => solution.substitute(st))
                                       (
                                         substitutedResult.expressionType,
                                         Some(typeStack.as(substitutedResult.expression))
@@ -47,7 +46,7 @@ class SymbolicTypeCheckProcessor
                                     case None    =>
                                       NormalFormEvaluator
                                         .evaluate(typeStack.as(typeStack.value.signature))
-                                        .map(st => toExpressionValue(st) -> None)
+                                        .map(st => st -> None)
                                   }
       resolvedQualifierParams  <- resolveQualifierParams(resolvedValue.name)
     } yield TypeCheckedValue(
@@ -55,7 +54,7 @@ class SymbolicTypeCheckProcessor
       resolvedValue.name.as(
         QualifiedName.from(
           resolvedValue.name.value,
-          resolvedQualifierParams.map(st => toExpressionValue(solution.substitute(st)))
+          resolvedQualifierParams.map(st => solution.substitute(st))
         )
       ),
       signatureType,

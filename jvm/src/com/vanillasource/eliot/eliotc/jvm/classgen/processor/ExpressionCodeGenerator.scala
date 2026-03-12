@@ -3,8 +3,6 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.simpleType
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType
@@ -23,6 +21,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedExpression.*
 
@@ -84,9 +83,7 @@ object ExpressionCodeGenerator {
             val interfaceVfqn = abilityInterfaceVfqn(constraint.abilityFQN)
             ParameterDefinition(
               name = nameSourced.as("$" + constraint.abilityFQN.abilityName + "$" + paramName),
-              parameterType = ExpressionValue.ConcreteValue(
-                Value.Structure(Map("$typeName" -> Value.Direct(interfaceVfqn, Value.Type)), Value.Type)
-              )
+              parameterType = SymbolicType.TypeReference(interfaceVfqn)
             )
           }
         }
@@ -98,7 +95,7 @@ object ExpressionCodeGenerator {
       methodGenerator: MethodGenerator,
       typedTarget: UncurriedExpression,
       arguments: Seq[UncurriedExpression],
-      expectedResultType: ExpressionValue
+      expectedResultType: SymbolicType
   ): CompilationTypesIO[Seq[ClassFile]] =
     typedTarget.expression match {
       case IntegerLiteral(integerLiteral)          => ??? // FIXME: we can't apply functions on this, right?
@@ -174,7 +171,7 @@ object ExpressionCodeGenerator {
       calledVfqn: ValueFQN,
       abilityName: String,
       arguments: Seq[UncurriedExpression],
-      expectedResultType: ExpressionValue
+      expectedResultType: SymbolicType
   ): CompilationTypesIO[Seq[ClassFile]] = {
     val interfaceVfqn         = abilityInterfaceVfqn(AbilityFQN(calledVfqn.moduleName, abilityName))
     val interfaceInternalName = convertToNestedClassName(interfaceVfqn)
@@ -237,7 +234,7 @@ object ExpressionCodeGenerator {
       calledVfqn: ValueFQN,
       abilityName: String,
       arguments: Seq[UncurriedExpression],
-      expectedResultType: ExpressionValue
+      expectedResultType: SymbolicType
   ): CompilationTypesIO[Seq[ClassFile]] =
     for {
       typeChecked <- getFactOrAbort(TypeCheckedValue.Key(calledVfqn)).liftToTypes
@@ -269,9 +266,9 @@ object ExpressionCodeGenerator {
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
       abilityFQN: AbilityFQN,
-      typeArgs: Seq[ExpressionValue],
+      typeArgs: Seq[SymbolicType],
       arguments: Seq[UncurriedExpression],
-      expectedResultType: ExpressionValue
+      expectedResultType: SymbolicType
   ): CompilationTypesIO[Seq[ClassFile]] = {
     val singletonVfqn         = ValueFQN(
       calledVfqn.moduleName,
@@ -308,7 +305,7 @@ object ExpressionCodeGenerator {
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
       arguments: Seq[UncurriedExpression],
-      expectedResultType: ExpressionValue
+      expectedResultType: SymbolicType
   ): CompilationTypesIO[Seq[ClassFile]] =
     for {
       // FIXME: calls with different currying may generate different methods here
@@ -327,7 +324,7 @@ object ExpressionCodeGenerator {
                                 val paramBindings         = uncurriedValue.parameters
                                   .zip(arguments)
                                   .flatMap { (pd, arg) =>
-                                    ExpressionValue.matchTypes(
+                                    SymbolicType.matchTypes(
                                       pd.parameterType,
                                       arg.expressionType,
                                       freeTypeVarNames.contains
@@ -340,10 +337,10 @@ object ExpressionCodeGenerator {
                                       case OperatorResolvedExpression.ParameterReference(nameSrc) =>
                                         paramBindings.getOrElse(
                                           nameSrc.value,
-                                          ExpressionValue.ParameterReference(nameSrc.value, Value.Type)
+                                          SymbolicType.TypeVariable(nameSrc.value)
                                         )
                                       case _                                                      =>
-                                        ExpressionValue.ParameterReference("?", Value.Type)
+                                        SymbolicType.TypeVariable("?")
                                     }
                                     (constraint.abilityFQN, typeArgExprs)
                                   }
@@ -387,17 +384,17 @@ object ExpressionCodeGenerator {
       methodGenerator: MethodGenerator,
       sourcedCalledVfqn: Sourced[ValueFQN],
       abilityFQN: AbilityFQN,
-      typeArgExprs: Seq[ExpressionValue]
+      typeArgExprs: Seq[SymbolicType]
   ): CompilationTypesIO[Unit] = {
     val interfaceVfqn = abilityInterfaceVfqn(abilityFQN)
     val hasParamRef   = typeArgExprs.exists {
-      case ExpressionValue.ParameterReference(_, _) => true
-      case _                                        => false
+      case SymbolicType.TypeVariable(_) => true
+      case _                            => false
     }
     if (hasParamRef) {
       // Generic call site: pass through caller's dict param
       val firstParamRefName = typeArgExprs
-        .collectFirst { case ExpressionValue.ParameterReference(name, _) =>
+        .collectFirst { case SymbolicType.TypeVariable(name) =>
           name
         }
         .getOrElse("")

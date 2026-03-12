@@ -138,6 +138,13 @@ object SymbolicType {
     }
 
   @tailrec
+  def stripLeadingApplications(st: SymbolicType): SymbolicType =
+    st match {
+      case TypeApplication(target, _) => stripLeadingApplications(target.value)
+      case other                      => other
+    }
+
+  @tailrec
   def stripUniversalTypeIntros(st: SymbolicType): SymbolicType =
     st match {
       case TypeLambda(_, body) => stripUniversalTypeIntros(body.value)

@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.uncurry.fact
 
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
 /** A parameter definition for an uncurried function.
   *
@@ -12,5 +12,5 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 case class ParameterDefinition(
     name: Sourced[String],
-    parameterType: ExpressionValue
+    parameterType: SymbolicType
 )

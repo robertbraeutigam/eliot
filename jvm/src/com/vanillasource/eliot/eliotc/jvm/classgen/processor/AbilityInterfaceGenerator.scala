@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import cats.effect.Sync
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{extractSignatureTypes, simpleType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile

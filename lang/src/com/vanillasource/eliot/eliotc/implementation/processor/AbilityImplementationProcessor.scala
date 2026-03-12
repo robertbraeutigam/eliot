@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.implementation.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.implementation.fact.{AbilityImplementation, AbilityImplementationCheck}
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -17,13 +16,14 @@ import com.vanillasource.eliot.eliotc.symbolic.fact.{
   TypeCheckedValue,
   TypedExpression
 }
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
 class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] with Logging {
 
   override protected def generateFact(key: AbilityImplementation.Key): CompilerIO[Unit] = {
     val abilityValueFQN                   = key.abilityValueFQN
     val candidateModules: Set[ModuleName] =
-      Set(abilityValueFQN.moduleName) ++ key.typeArguments.flatMap(collectExpressionModuleNames)
+      Set(abilityValueFQN.moduleName) ++ key.typeArguments.flatMap(collectModuleNames)
 
     for {
       abilityFQN  <- abilityValueFQN.name.qualifier match {
@@ -78,12 +78,12 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       sourcedRuntime: Sourced[TypedExpression.Expression]
   ): CompilerIO[Unit] = {
     val abilityValueFQN   = key.abilityValueFQN
-    val candidateModules  = Set(abilityValueFQN.moduleName) ++ key.typeArguments.flatMap(collectExpressionModuleNames)
+    val candidateModules  = Set(abilityValueFQN.moduleName) ++ key.typeArguments.flatMap(collectModuleNames)
     val typeBindings      = computeTypeBindings(abilityChecked.signature, key.typeArguments)
-    val typeSubst         = (ev: ExpressionValue) =>
-      typeBindings.foldLeft(ev) { case (acc, (name, value)) => ExpressionValue.substitute(acc, name, value) }
-    val concreteSignature = typeBindings.foldLeft(ExpressionValue.stripUniversalTypeIntros(abilityChecked.signature)) {
-      case (acc, (name, value)) => ExpressionValue.substitute(acc, name, value)
+    val typeSubst         = (st: SymbolicType) =>
+      typeBindings.foldLeft(st) { case (acc, (name, value)) => SymbolicType.substitute(acc, name, value) }
+    val concreteSignature = typeBindings.foldLeft(SymbolicType.stripUniversalTypeIntros(abilityChecked.signature)) {
+      case (acc, (name, value)) => SymbolicType.substitute(acc, name, value)
     }
     val concreteRuntime   = sourcedRuntime.map(substituteTypesInExpression(_, typeSubst))
     val syntheticName     = abilityChecked.name.as(
@@ -115,18 +115,17 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
   }
 
   private def computeTypeBindings(
-      signature: ExpressionValue,
-      typeArguments: Seq[ExpressionValue]
-  ): Map[String, ExpressionValue] =
-    ExpressionValue
+      signature: SymbolicType,
+      typeArguments: Seq[SymbolicType]
+  ): Map[String, SymbolicType] =
+    SymbolicType
       .extractLeadingLambdaParams(signature)
-      .map(_._1)
       .zip(typeArguments)
       .toMap
 
   private def substituteTypesInExpression(
       expr: TypedExpression.Expression,
-      typeSubst: ExpressionValue => ExpressionValue
+      typeSubst: SymbolicType => SymbolicType
   ): TypedExpression.Expression =
     expr match {
       case TypedExpression.FunctionApplication(target, arg)            =>
@@ -173,7 +172,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
   private def verifyImplementation(
       vfqn: ValueFQN,
       expectedAbilityFQN: AbilityFQN,
-      expectedTypeArgs: Seq[ExpressionValue]
+      expectedTypeArgs: Seq[SymbolicType]
   ): CompilerIO[Seq[ValueFQN]] =
     getFact(TypeCheckedValue.Key(vfqn)).map {
       case None          => Seq.empty
@@ -181,34 +180,34 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
         checked.name.value.qualifier match {
           case SymbolicQualifier.AbilityImplementation(resolvedAbilityFQN, params)
               if resolvedAbilityFQN == expectedAbilityFQN =>
-            val freeVarNames = ExpressionValue.extractLeadingLambdaParams(checked.signature).map(_._1).toSet
+            val freeVarNames = SymbolicType.extractLeadingLambdaParams(checked.signature).toSet
             if (implMatchesQuery(params, freeVarNames, expectedTypeArgs)) Seq(vfqn) else Seq.empty
           case _ => Seq.empty
         }
     }
 
   private def implMatchesQuery(
-      implParams: Seq[ExpressionValue],
+      implParams: Seq[SymbolicType],
       freeVarNames: Set[String],
-      queryArgs: Seq[ExpressionValue]
+      queryArgs: Seq[SymbolicType]
   ): Boolean = {
     if (implParams.size != queryArgs.size) false
     else {
-      val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, ExpressionValue]) { (acc, pair) =>
-        acc ++ ExpressionValue.matchTypes(pair._1, pair._2, freeVarNames.contains)
+      val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, SymbolicType]) { (acc, pair) =>
+        acc ++ SymbolicType.matchTypes(pair._1, pair._2, freeVarNames.contains)
       }
       implParams.zip(queryArgs).forall { (implParam, queryArg) =>
         freeVarNames.foldLeft(implParam) { case (acc, name) =>
-          ExpressionValue.substitute(acc, name, bindings.getOrElse(name, ExpressionValue.ParameterReference(name, Value.Type)))
+          SymbolicType.substitute(acc, name, bindings.getOrElse(name, SymbolicType.TypeVariable(name)))
         } == queryArg
       }
     }
   }
 
-  private def collectExpressionModuleNames(ev: ExpressionValue): Seq[ModuleName] =
-    ev match {
-      case ExpressionValue.ConcreteValue(v)          => v.typeFQN.map(_.moduleName).toSeq
-      case ExpressionValue.FunctionApplication(t, a) => collectExpressionModuleNames(t.value) ++ collectExpressionModuleNames(a.value)
-      case _                                         => Seq.empty
+  private def collectModuleNames(st: SymbolicType): Seq[ModuleName] =
+    st match {
+      case SymbolicType.TypeReference(vfqn)      => Seq(vfqn.moduleName)
+      case SymbolicType.TypeApplication(t, a)     => collectModuleNames(t.value) ++ collectModuleNames(a.value)
+      case _                                      => Seq.empty
     }
 }

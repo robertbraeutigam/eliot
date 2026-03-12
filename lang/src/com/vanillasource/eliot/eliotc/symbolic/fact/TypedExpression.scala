@@ -2,19 +2,19 @@ package com.vanillasource.eliot.eliotc.symbolic.fact
 
 import cats.{Applicative, Monad, Show}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression.Expression
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
-/** An expression annotated with its type (as an ExpressionValue). */
+/** An expression annotated with its type (as a SymbolicType). */
 case class TypedExpression(
-    expressionType: ExpressionValue,
+    expressionType: SymbolicType,
     expression: Expression
 ) {
 
-  /** Apply a transformation function to all ExpressionValue fields recursively. */
-  def transformTypes(f: ExpressionValue => ExpressionValue): TypedExpression =
+  /** Apply a transformation function to all SymbolicType fields recursively. */
+  def transformTypes(f: SymbolicType => SymbolicType): TypedExpression =
     TypedExpression(
       f(expressionType),
       expression match {
@@ -54,7 +54,7 @@ object TypedExpression {
       onParamRef: Sourced[String] => F[A],
       onValRef: Sourced[ValueFQN] => F[A],
       onFunApp: (Sourced[TypedExpression], Sourced[TypedExpression]) => F[A],
-      onFunLit: (Sourced[String], Sourced[ExpressionValue], Sourced[TypedExpression]) => F[A]
+      onFunLit: (Sourced[String], Sourced[SymbolicType], Sourced[TypedExpression]) => F[A]
   )(self: Expression): F[A] =
     self match {
       case IntegerLiteral(v)                       => onIntLit(v)
@@ -80,7 +80,7 @@ object TypedExpression {
 
   case class FunctionLiteral(
       parameterName: Sourced[String],
-      parameterType: Sourced[ExpressionValue],
+      parameterType: Sourced[SymbolicType],
       body: Sourced[TypedExpression]
   ) extends Expression
 

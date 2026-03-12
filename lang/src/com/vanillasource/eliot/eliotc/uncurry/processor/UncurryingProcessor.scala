@@ -2,14 +2,14 @@ package com.vanillasource.eliot.eliotc.uncurry.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckedValue
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.expressionValueUserDisplay
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.{QualifiedName, TypedExpression}
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.symbolicTypeUserDisplay
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
 
 import scala.annotation.tailrec
@@ -36,7 +36,7 @@ class UncurryingProcessor
       (parameterTypes, returnType)    <-
         extractParameters(
           typeCheckedValue.name,
-          ExpressionValue.stripLeadingLambdas(typeCheckedValue.signature),
+          SymbolicType.stripUniversalTypeIntros(typeCheckedValue.signature),
           key.arity
         )
       (parameterNames, convertedBody) <- typeCheckedValue.runtime match {
@@ -57,8 +57,8 @@ class UncurryingProcessor
       _                               <-
         debug[CompilerIO](
           s"Uncurried '${key.vfqn.show}' (arity ${key.arity}), parameterTypes: ${parameterTypes
-              .map(expressionValueUserDisplay.show)
-              .mkString(", ")}, return type: ${ExpressionValue.expressionValueUserDisplay
+              .map(symbolicTypeUserDisplay.show)
+              .mkString(", ")}, return type: ${symbolicTypeUserDisplay
               .show(returnType)}, body: ${convertedBody.map(_.value.expression.show).getOrElse("<abstract>")}"
         )
     } yield UncurriedValue(
@@ -76,21 +76,21 @@ class UncurryingProcessor
     */
   private def extractParameters(
       name: Sourced[QualifiedName],
-      signature: ExpressionValue,
+      signature: SymbolicType,
       arity: Int
-  ): CompilerIO[(Seq[ExpressionValue], ExpressionValue)] =
+  ): CompilerIO[(Seq[SymbolicType], SymbolicType)] =
     if (arity === 0) {
       (Seq.empty, signature).pure[CompilerIO]
     } else {
       signature match {
-        case ExpressionValue.FunctionType(parameterType, returnType) =>
+        case SymbolicType.FunctionType(parameterType, returnType) =>
           extractParameters(name, returnType, arity - 1).map { (restParameters, restReturnType) =>
             (parameterType +: restParameters, restReturnType)
           }
-        case _                                                       =>
+        case _                                                    =>
           compilerAbort(
             name.as("Could not extract parameters."),
-            Seq(s"Remaining arity: $arity", s"Signature: ${ExpressionValue.expressionValueUserDisplay.show(signature)}")
+            Seq(s"Remaining arity: $arity", s"Signature: ${symbolicTypeUserDisplay.show(signature)}")
           )
       }
     }
@@ -173,7 +173,7 @@ class UncurryingProcessor
     */
   private def convertLambda(
       paramName: Sourced[String],
-      paramType: Sourced[ExpressionValue],
+      paramType: Sourced[SymbolicType],
       body: Sourced[TypedExpression]
   ): UncurriedExpression.Expression = {
     val firstParam          = ParameterDefinition(paramName, paramType.value)

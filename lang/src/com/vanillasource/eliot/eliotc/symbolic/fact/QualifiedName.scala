@@ -1,11 +1,11 @@
 package com.vanillasource.eliot.eliotc.symbolic.fact
 
 import cats.{Eq, Show}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.resolve.fact.{
   QualifiedName as ResolveQualifiedName,
   Qualifier as ResolveQualifier
 }
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
 case class QualifiedName(name: String, qualifier: Qualifier)
 
@@ -17,7 +17,7 @@ object QualifiedName {
 
   given Eq[QualifiedName] = Eq.fromUniversalEquals
 
-  def from(resolveQualifiedName: ResolveQualifiedName, qualifierParams: Seq[ExpressionValue]): QualifiedName = {
+  def from(resolveQualifiedName: ResolveQualifiedName, qualifierParams: Seq[SymbolicType]): QualifiedName = {
     val qualifier = resolveQualifiedName.qualifier match {
       case ResolveQualifier.Default                      => Qualifier.Default
       case ResolveQualifier.Type                         => Qualifier.Type
