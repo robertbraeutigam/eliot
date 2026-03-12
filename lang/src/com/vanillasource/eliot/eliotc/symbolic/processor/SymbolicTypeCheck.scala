@@ -43,8 +43,10 @@ object SymbolicTypeCheck extends Logging {
       // Iterate the rest, every level is the type of the next level
       result <- expressions.tail.foldLeftM((top, expressions.head)) { (acc, expression) =>
                   for {
-                    // Convert previous level to normalized type expression
+                    // Convert previous level to normalized type expression, stripping leading
+                    // TypeLambdas since their parameters are already bound in the type check state
                     previousLevel   <- StateT.liftF(NormalFormEvaluator.evaluate(acc._2))
+                                         .map(SymbolicType.stripUniversalTypeIntros)
                     // Create constraints of this level against the assumed type
                     _               <- debug[TypeGraphIO]("Type checking new level...")
                     typedExpression <- typeCheck(previousLevel, expression)
@@ -135,6 +137,7 @@ object SymbolicTypeCheck extends Logging {
                                   generateUnificationVar.map(paramName.as(_))
                               }
             _              <- bindParameter(paramName.value, typedParamType)
+            _              <- addUniversalVar(paramName.value)
             _              <- debug[TypeGraphIO]("Checking function literal body type...")
             retTypeVar     <- generateUnificationVar
             typedBody      <- typeCheck(retTypeVar, body)

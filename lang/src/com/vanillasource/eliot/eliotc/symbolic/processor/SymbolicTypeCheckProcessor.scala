@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.symbolic.processor
 
+import cats.data.NonEmptySeq
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
@@ -26,8 +27,9 @@ class SymbolicTypeCheckProcessor
       key: TypeCheckedValue.Key,
       resolvedValue: OperatorResolvedValue
   ): CompilerIO[TypeCheckedValue] = {
-    val typeStack  = resolvedValue.typeStack
-    val typeLevels = typeStack.value.levels.map(typeStack.as(_))
+    val typeStack     = resolvedValue.typeStack
+    val reversedSeq   = typeStack.value.levels.toSeq.reverse
+    val typeLevels    = NonEmptySeq(reversedSeq.head, reversedSeq.tail).map(typeStack.as(_))
     val vfqnShow   = resolvedValue.vfqn.show
 
     for {
