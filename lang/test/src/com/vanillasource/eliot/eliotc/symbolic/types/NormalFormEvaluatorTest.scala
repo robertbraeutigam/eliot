@@ -1,18 +1,18 @@
-package com.vanillasource.eliot.eliotc.symbolic.processor
+package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.data.{Chain, NonEmptySeq}
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
-import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, ExpressionValue, Types, Value}
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Types, Value}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
+import com.vanillasource.eliot.eliotc.symbolic.types.{NormalFormEvaluator, SymbolicType}
 
 class NormalFormEvaluatorTest extends ProcessorTest() {
 

@@ -1,17 +1,16 @@
-package com.vanillasource.eliot.eliotc.symbolic.processor
+package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 
 object NormalFormEvaluator {
 
@@ -25,9 +24,9 @@ object NormalFormEvaluator {
       callSite: Option[Sourced[?]] = None
   ): CompilerIO[SymbolicType] = expression.value match {
     case OperatorResolvedExpression.IntegerLiteral(s)                                 =>
-      LiteralType(s.value, NormalFormConstants.bigIntTypeFQN).pure[CompilerIO]
+      LiteralType(s.value, bigIntTypeFQN).pure[CompilerIO]
     case OperatorResolvedExpression.StringLiteral(s)                                  =>
-      LiteralType(s.value, NormalFormConstants.stringTypeFQN).pure[CompilerIO]
+      LiteralType(s.value, stringTypeFQN).pure[CompilerIO]
     case OperatorResolvedExpression.ParameterReference(s)                             =>
       TypeVariable(s.value).pure[CompilerIO]
     case OperatorResolvedExpression.ValueReference(s, _)                              =>

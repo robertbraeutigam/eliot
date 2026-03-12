@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.Show
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{unsourced as evUnsourced}
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.unsourced as evUnsourced
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.pos.PositionRange
