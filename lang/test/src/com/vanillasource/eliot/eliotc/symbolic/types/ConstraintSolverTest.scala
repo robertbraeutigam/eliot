@@ -3,16 +3,14 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 import cats.data.Chain
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType}
-import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -22,23 +20,23 @@ import java.net.URI
 class ConstraintSolverTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   import ConstraintSolverTest.*
 
-  // --- Concrete value unification ---
+  // --- Type reference unification ---
 
-  "constraint solver" should "unify identical concrete types" in {
+  "constraint solver" should "unify identical type references" in {
     solve(IntT :=: IntT).asserting(_ shouldBe Map.empty)
   }
 
-  it should "fail on mismatched concrete types" in {
+  it should "fail on mismatched type references" in {
     solveForErrors(IntT :=: StrT).asserting(_ should contain("Type mismatch."))
   }
 
   // --- Unification variable binding ---
 
-  it should "bind unification var to concrete type (var on left)" in {
+  it should "bind unification var to type reference (var on left)" in {
     solve(uvar("A") :=: IntT).asserting(_ shouldBe Map("A" -> IntT))
   }
 
-  it should "bind unification var to concrete type (var on right)" in {
+  it should "bind unification var to type reference (var on right)" in {
     solve(IntT :=: uvar("A")).asserting(_ shouldBe Map("A" -> IntT))
   }
 
@@ -54,11 +52,11 @@ class ConstraintSolverTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
     solve(uvar("A") :=: IntT, uvar("A") :=: uvar("B")).asserting(_ shouldBe Map("A" -> IntT, "B" -> IntT))
   }
 
-  it should "succeed when same var is bound to same concrete type twice" in {
+  it should "succeed when same var is bound to same type reference twice" in {
     solve(uvar("A") :=: IntT, uvar("A") :=: IntT).asserting(_ shouldBe Map("A" -> IntT))
   }
 
-  it should "fail when same var is bound to conflicting concrete types" in {
+  it should "fail when same var is bound to conflicting type references" in {
     solveForErrors(uvar("A") :=: IntT, uvar("A") :=: StrT).asserting(_ should contain("Type mismatch."))
   }
 
@@ -84,11 +82,11 @@ class ConstraintSolverTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
     solveUForErrors(uvar("T") :=: uvar("U"))("T", "U").asserting(_ should contain("Type mismatch."))
   }
 
-  it should "fail when universal var meets concrete type" in {
+  it should "fail when universal var meets type reference" in {
     solveUForErrors(uvar("T") :=: IntT)("T").asserting(_ should contain("Type mismatch."))
   }
 
-  it should "fail when concrete type meets universal var" in {
+  it should "fail when type reference meets universal var" in {
     solveUForErrors(IntT :=: uvar("T"))("T").asserting(_ should contain("Type mismatch."))
   }
 
@@ -96,7 +94,7 @@ class ConstraintSolverTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
     solveU(uvar("X") :=: uvar("T"))("T").asserting(_ shouldBe Map("X" -> uvar("T")))
   }
 
-  // --- Function type unification (it's just FunctionApplication case with specialized error messages) ---
+  // --- Function type unification (it's just TypeApplication case with specialized error messages) ---
 
   it should "unify identical function types" in {
     solve(funType(IntT, StrT) :=: funType(IntT, StrT)).asserting(_ shouldBe Map.empty)
@@ -122,35 +120,35 @@ class ConstraintSolverTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
       .asserting(_ shouldBe Map("A" -> IntT, "B" -> StrT, "C" -> IntT))
   }
 
-  // --- Function application unification ---
+  // --- Type application unification ---
 
-  it should "unify identical function applications" in {
-    val app = funApp(IntT, StrT)
+  it should "unify identical type applications" in {
+    val app = typeApp(IntT, StrT)
     solve(app :=: app).asserting(_ shouldBe Map.empty)
   }
 
-  it should "fail on function application target mismatch" in {
-    solveForErrors(funApp(IntT, StrT) :=: funApp(StrT, StrT))
+  it should "fail on type application target mismatch" in {
+    solveForErrors(typeApp(IntT, StrT) :=: typeApp(StrT, StrT))
       .asserting(_ should contain("Type constructor mismatch."))
   }
 
-  it should "fail on function application argument mismatch" in {
-    solveForErrors(funApp(IntT, IntT) :=: funApp(IntT, StrT))
+  it should "fail on type application argument mismatch" in {
+    solveForErrors(typeApp(IntT, IntT) :=: typeApp(IntT, StrT))
       .asserting(_ should contain("Type argument mismatch."))
   }
 
-  it should "unify function applications with unification vars" in {
-    solve(funApp(uvar("A"), uvar("B")) :=: funApp(IntT, StrT))
+  it should "unify type applications with unification vars" in {
+    solve(typeApp(uvar("A"), uvar("B")) :=: typeApp(IntT, StrT))
       .asserting(_ shouldBe Map("A" -> IntT, "B" -> StrT))
   }
 
   // --- Structural mismatches ---
 
-  it should "fail when concrete meets function application" in {
-    solveForErrors(IntT :=: funApp(IntT, StrT)).asserting(_ should contain("Type mismatch."))
+  it should "fail when type reference meets type application" in {
+    solveForErrors(IntT :=: typeApp(IntT, StrT)).asserting(_ should contain("Type mismatch."))
   }
 
-  it should "fail when function type meets concrete" in {
+  it should "fail when function type meets type reference" in {
     solveForErrors(funType(IntT, StrT) :=: IntT).asserting(_ should contain("Type mismatch."))
   }
 
@@ -178,7 +176,7 @@ class ConstraintSolverTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
 
   // --- Custom error messages ---
 
-  it should "use constraint error message for concrete mismatches" in {
+  it should "use constraint error message for type reference mismatches" in {
     solveForErrors(Seq(Constraint(IntT, s(StrT), "Custom error.")))
       .asserting(_ should contain("Custom error."))
   }
@@ -187,21 +185,24 @@ class ConstraintSolverTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
 object ConstraintSolverTest {
   private val testUri = URI.create("test.els")
 
-  private val IntT: ExpressionValue = ConcreteValue(bigIntType)
-  private val StrT: ExpressionValue = ConcreteValue(stringType)
+  private val IntFQN = ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type))
+  private val StrFQN = ValueFQN(ModuleName(defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type))
 
-  private def uvar(name: String): ParameterReference = ParameterReference(name, Value.Type)
+  private val IntT: SymbolicType = TypeReference(IntFQN)
+  private val StrT: SymbolicType = TypeReference(StrFQN)
 
-  private def funType(param: ExpressionValue, ret: ExpressionValue): ExpressionValue =
-    ExpressionValue.functionType(param, ret)
+  private def uvar(name: String): TypeVariable = TypeVariable(name)
 
-  private def funApp(target: ExpressionValue, arg: ExpressionValue): FunctionApplication =
-    FunctionApplication(s(target), s(arg))
+  private def funType(param: SymbolicType, ret: SymbolicType): SymbolicType =
+    SymbolicType.functionType(param, ret)
+
+  private def typeApp(target: SymbolicType, arg: SymbolicType): TypeApplication =
+    TypeApplication(s(target), s(arg))
 
   private def s[T](value: T): Sourced[T] = Sourced(testUri, PositionRange.zero, value)
 
-  extension (left: ExpressionValue) {
-    private def :=:(right: ExpressionValue): Constraint = Constraint(left, s(right), "Type mismatch.")
+  extension (left: SymbolicType) {
+    private def :=:(right: SymbolicType): Constraint = Constraint(left, s(right), "Type mismatch.")
   }
 
   private val mockProcess: CompilationProcess = new CompilationProcess {
@@ -219,7 +220,7 @@ object ConstraintSolverTest {
   private def runSolver(
       constraints: Seq[Constraint],
       universalVars: Set[String] = Set.empty
-  ): IO[Either[Seq[CompilerError], Map[String, ExpressionValue]]] =
+  ): IO[Either[Seq[CompilerError], Map[String, SymbolicType]]] =
     ConstraintSolver
       .solve(SymbolicUnification(constraints), universalVars)
       .run(mockProcess)
@@ -231,13 +232,13 @@ object ConstraintSolverTest {
         case Right((_, state))                     => Right(state.substitutions)
       }
 
-  private def solve(constraints: Constraint*): IO[Map[String, ExpressionValue]] =
+  private def solve(constraints: Constraint*): IO[Map[String, SymbolicType]] =
     runSolver(constraints).map {
       case Right(subs)  => subs
       case Left(errors) => throw new Exception(s"Expected success but got errors: ${errors.map(_.message)}")
     }
 
-  private def solveU(constraints: Constraint*)(universalVars: String*): IO[Map[String, ExpressionValue]] =
+  private def solveU(constraints: Constraint*)(universalVars: String*): IO[Map[String, SymbolicType]] =
     runSolver(constraints, universalVars.toSet).map {
       case Right(subs)  => subs
       case Left(errors) => throw new Exception(s"Expected success but got errors: ${errors.map(_.message)}")

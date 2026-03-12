@@ -15,6 +15,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.*
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicEvaluator.typeCheck
 import com.vanillasource.eliot.eliotc.symbolic.types.*
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.{fromExpressionValue, toExpressionValue}
 
 class SymbolicTypeCheckProcessor
     extends TransformationProcessor[OperatorResolvedValue.Key, TypeCheckedValue.Key](key =>
@@ -37,20 +38,25 @@ class SymbolicTypeCheckProcessor
       _                        <- debug[CompilerIO](s"Solution (of $vfqnShow): ${solution.show}")
       (signatureType, runtime) <- resolvedValue.runtime match {
                                     case Some(_) =>
+                                      val substitutedResult =
+                                        result.transformTypes(ev => toExpressionValue(solution.substitute(fromExpressionValue(ev))))
                                       (
-                                        result.transformTypes(solution.substitute).expressionType,
-                                        Some(typeStack.as(result.transformTypes(solution.substitute).expression))
+                                        substitutedResult.expressionType,
+                                        Some(typeStack.as(substitutedResult.expression))
                                       ).pure[CompilerIO]
                                     case None    =>
                                       NormalFormEvaluator
                                         .evaluate(typeStack.as(typeStack.value.signature))
-                                        .map(_ -> None)
+                                        .map(st => toExpressionValue(st) -> None)
                                   }
       resolvedQualifierParams  <- resolveQualifierParams(resolvedValue.name)
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       resolvedValue.name.as(
-        QualifiedName.from(resolvedValue.name.value, resolvedQualifierParams.map(solution.substitute))
+        QualifiedName.from(
+          resolvedValue.name.value,
+          resolvedQualifierParams.map(st => toExpressionValue(solution.substitute(st)))
+        )
       ),
       signatureType,
       runtime
@@ -59,7 +65,7 @@ class SymbolicTypeCheckProcessor
 
   private def resolveQualifierParams(
       name: Sourced[ResolveQualifiedName]
-  ): CompilerIO[Seq[ExpressionValue]] =
+  ): CompilerIO[Seq[SymbolicType]] =
     name.value.qualifier match {
       case ResolveQualifier.AbilityImplementation(_, expressions) =>
         expressions.traverse { expression =>

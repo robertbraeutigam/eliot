@@ -2,11 +2,9 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
 
 /** Combined state for type checking, including constraint accumulation.
   *
@@ -17,7 +15,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
-    parameterTypes: Map[String, Sourced[ExpressionValue]] = Map.empty,
+    parameterTypes: Map[String, Sourced[SymbolicType]] = Map.empty,
     universalVars: Set[String] = Set.empty,
     constraints: SymbolicUnification = SymbolicUnification.empty
 )
@@ -25,20 +23,20 @@ case class TypeCheckState(
 object TypeCheckState {
   type TypeGraphIO[T] = StateT[CompilerIO, TypeCheckState, T]
 
-  def generateUnificationVar: TypeGraphIO[ParameterReference] =
+  def generateUnificationVar: TypeGraphIO[TypeVariable] =
     StateT { state =>
       val (id, newShortIds) = state.shortIds.generateNext()
       val newState          = state.copy(shortIds = newShortIds)
-      (newState, ParameterReference(id, Value.Type)).pure[CompilerIO]
+      (newState, TypeVariable(id)).pure[CompilerIO]
     }
 
-  def bindParameter(name: String, typ: Sourced[ExpressionValue]): TypeGraphIO[Unit] =
+  def bindParameter(name: String, typ: Sourced[SymbolicType]): TypeGraphIO[Unit] =
     StateT.modify(state => state.copy(parameterTypes = state.parameterTypes + (name -> typ)))
 
   def addUniversalVar(name: String): TypeGraphIO[Unit] =
     StateT.modify(state => state.copy(universalVars = state.universalVars + name))
 
-  def lookupParameter(name: String): TypeGraphIO[Option[Sourced[ExpressionValue]]] =
+  def lookupParameter(name: String): TypeGraphIO[Option[Sourced[SymbolicType]]] =
     StateT.inspect(_.parameterTypes.get(name))
 
   def tellConstraint(constraint: SymbolicUnification): TypeGraphIO[Unit] =

@@ -3,20 +3,19 @@ package com.vanillasource.eliot.eliotc.symbolic.processor
 import cats.data.{NonEmptySeq, StateT}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier as CoreQualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{typeFQN, typeFQNType}
-import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedValue, OperatorResolvedExpression as Expr}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced.*
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification
 import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
-import com.vanillasource.eliot.eliotc.source.content.Sourced.*
 
 /** Symbolically evaluates and type checks an expression stack.
   *
@@ -25,12 +24,12 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.*
   *     organized in stacks, where every level defines the type of the next level. Also all levels may have smaller
   *     stacks as parts, like lambda bodies, parameter types, function calls, etc. It's a sort-of fractal data
   *     structure.
-  *   - ExpressionValue: In this class this always refers to a "normal form", i.e. a symbolic evaluation of an
+  *   - SymbolicType: In this class this always refers to a "normal form", i.e. a symbolic evaluation of an
   *     expression. This means it will inline and reduce all referenced functions except constructors which will stay as
   *     structural elements to unify later.
   *   - TypedExpression: A pair of an ExpressionValue describing type and TypedExpression.Expression, which is the same
-  *     as an OperatorResolvedExpression, except it is not stacked anymore. All type information if "flattened" to a
-  *     single ExpressionValue.
+  *     as an OperatorResolvedExpression, except it is not stacked anymore. All type information is "flattened" to a
+  *     single ExpressionValue (converted from SymbolicType at the boundary).
   */
 object SymbolicEvaluator extends Logging {
 
@@ -41,7 +40,7 @@ object SymbolicEvaluator extends Logging {
     for {
       _      <- debug[TypeGraphIO]("Type checking top...")
       // The topmost expression needs to be of type "Type" and there is always a topmost expression (non-empty seq)
-      top    <- typeCheck(ConcreteValue(Type), expressions.head)
+      top    <- typeCheck(TypeReference(typeFQN), expressions.head)
       // Iterate the rest, every level is the type of the next level
       result <- expressions.tail.foldLeftM((top, expressions.head)) { (acc, expression) =>
                   for {
@@ -55,41 +54,37 @@ object SymbolicEvaluator extends Logging {
     } yield result._1
 
   private def typeCheck(
-      resultType: ExpressionValue,
+      resultType: SymbolicType,
       expression: Sourced[OperatorResolvedExpression]
   ): TypeGraphIO[TypedExpression] =
     debug[TypeGraphIO](
-      s"Type check '${expressionValueUserDisplay.show(resultType)}' is type of: ${expression.value.show}"
+      s"Type check '${symbolicTypeUserDisplay.show(resultType)}' is type of: ${expression.value.show}"
     ) >>
       (expression.value match {
         case Expr.IntegerLiteral(value)                          =>
           // Easy, result needs to be Int
-          val exprType = ConcreteValue(
-            Types.dataType(
-              ValueFQN(ModuleName(Seq("eliot", "lang"), "Number"), QualifiedName("Int", CoreQualifier.Type))
-            )
+          val exprType = TypeReference(
+            ValueFQN(ModuleName(Seq("eliot", "lang"), "Number"), QualifiedName("Int", CoreQualifier.Type))
           )
           tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch.")) *>
-            TypedExpression(exprType, TypedExpression.IntegerLiteral(value)).pure[TypeGraphIO]
+            TypedExpression(toExpressionValue(exprType), TypedExpression.IntegerLiteral(value)).pure[TypeGraphIO]
         case Expr.StringLiteral(value)                           =>
           // Easy, result needs to be String
-          val exprType = ConcreteValue(
-            Types.dataType(
-              ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", CoreQualifier.Type))
-            )
+          val exprType = TypeReference(
+            ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", CoreQualifier.Type))
           )
           tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch.")) *>
-            TypedExpression(exprType, TypedExpression.StringLiteral(value)).pure[TypeGraphIO]
+            TypedExpression(toExpressionValue(exprType), TypedExpression.StringLiteral(value)).pure[TypeGraphIO]
         case Expr.ParameterReference(name)                       =>
           // Also easy, return parameter needs to be whatever it was declared to
           for {
             maybeType <- lookupParameter(name.value)
             exprType  <- maybeType match {
                            case Some(parameterType) => parameterType.value.pure[TypeGraphIO]
-                           case None                => StateT.liftF(compilerAbort[ExpressionValue](name.as(s"Parameter not found.")))
+                           case None                => StateT.liftF(compilerAbort[SymbolicType](name.as(s"Parameter not found.")))
                          }
             _         <- tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch."))
-          } yield TypedExpression(exprType, TypedExpression.ParameterReference(name))
+          } yield TypedExpression(toExpressionValue(exprType), TypedExpression.ParameterReference(name))
         case Expr.ValueReference(rawVfqn, typeArgs)              =>
           // This is an assumption, but Type^Default needs to be Type^Type
           val vfqn = if (rawVfqn.value === typeFQN) rawVfqn.as(typeFQNType) else rawVfqn
@@ -103,9 +98,9 @@ object SymbolicEvaluator extends Logging {
             // TODO: We ignore typeArgs for now, we need to check their types as well and include them somehow
             _         <-
               debug[TypeGraphIO](
-                s"Inside value reference for '${vfqn.show}', value type: ${expressionValueUserDisplay.show(valueType)}"
+                s"Inside value reference for '${vfqn.show}', value type: ${symbolicTypeUserDisplay.show(valueType)}"
               )
-          } yield TypedExpression(valueType, TypedExpression.ValueReference(vfqn))
+          } yield TypedExpression(toExpressionValue(valueType), TypedExpression.ValueReference(vfqn))
         case Expr.FunctionApplication(target, arg)               =>
           // In a function application we check the target, the arg and result
           for {
@@ -119,7 +114,7 @@ object SymbolicEvaluator extends Logging {
                 SymbolicUnification.constraint(resultType, expression.as(retTypeVar), "Type mismatch.")
               )
           } yield TypedExpression(
-            retTypeVar,
+            toExpressionValue(retTypeVar),
             TypedExpression.FunctionApplication(target.as(targetTyped), arg.as(argTyped))
           )
         case Expr.FunctionLiteral(paramName, paramTypeOpt, body) =>
@@ -146,14 +141,14 @@ object SymbolicEvaluator extends Logging {
             typedBody      <- typeCheck(retTypeVar, body)
             _              <-
               debug[TypeGraphIO](
-                s"Inside function literal, typed param type: ${expressionValueUserDisplay
-                    .show(typedParamType.value)}, body type: ${expressionValueUserDisplay.show(retTypeVar)}"
+                s"Inside function literal, typed param type: ${symbolicTypeUserDisplay
+                    .show(typedParamType.value)}, body type: ${symbolicTypeUserDisplay.show(retTypeVar)}"
               )
             funcType        = functionType(typedParamType.value, retTypeVar)
             _              <- tellConstraint(SymbolicUnification.constraint(resultType, body.as(funcType), "Type mismatch."))
           } yield TypedExpression(
-            funcType,
-            TypedExpression.FunctionLiteral(paramName, typedParamType, body.as(typedBody))
+            toExpressionValue(funcType),
+            TypedExpression.FunctionLiteral(paramName, typedParamType.map(toExpressionValue), body.as(typedBody))
           )
       })
 }

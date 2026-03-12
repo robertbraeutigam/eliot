@@ -4,27 +4,26 @@ import cats.Show
 import cats.data.StateT
 import cats.kernel.Monoid
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
 
-/** Tracks the current state of unification. Maps unification variable names to their resolved expressions.
+/** Tracks the current state of unification. Maps unification variable names to their resolved symbolic types.
   */
-case class UnificationState(substitutions: Map[String, ExpressionValue] = Map.empty) {
+case class UnificationState(substitutions: Map[String, SymbolicType] = Map.empty) {
 
-  /** Apply all known substitutions to an expression recursively. */
-  def substitute(expr: ExpressionValue): ExpressionValue =
-    ExpressionValue.transform(
-      expr,
+  /** Apply all known substitutions to a symbolic type recursively. */
+  def substitute(st: SymbolicType): SymbolicType =
+    SymbolicType.transform(
+      st,
       {
-        case ref @ ParameterReference(name, _) => substitutions.get(name).map(substitute).getOrElse(ref)
-        case other                             => other
+        case ref @ TypeVariable(name) => substitutions.get(name).map(substitute).getOrElse(ref)
+        case other                    => other
       }
     )
 
-  /** Bind a unification variable to an expression. */
-  def bind(varName: String, expr: ExpressionValue): UnificationState =
-    copy(substitutions = substitutions + (varName -> expr))
+  /** Bind a unification variable to a symbolic type. */
+  def bind(varName: String, st: SymbolicType): UnificationState =
+    copy(substitutions = substitutions + (varName -> st))
 }
 
 object UnificationState {
@@ -39,6 +38,6 @@ object UnificationState {
 
   given Show[UnificationState] = state =>
     state.substitutions
-      .map { case (name, expr) => s"?$name -> ${expressionValueUserDisplay.show(expr)}" }
+      .map { case (name, st) => s"?$name -> ${symbolicTypeUserDisplay.show(st)}" }
       .mkString(", ")
 }

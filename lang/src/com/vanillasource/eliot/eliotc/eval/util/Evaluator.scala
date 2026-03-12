@@ -37,17 +37,6 @@ object Evaluator {
                  }
     } yield result
 
-  /** Evaluates a parameter type expression to an ExpressionValue. This is used by NormalFormEvaluator to evaluate
-    * parameter types in function literals using the full evaluation path (not normal form).
-    */
-  def evaluateParamType(
-      expression: OperatorResolvedExpression,
-      evaluating: Set[ValueFQN],
-      paramContext: Map[String, Value],
-      sourced: Sourced[?],
-      callSite: Option[Sourced[?]] = None
-  ): CompilerIO[ExpressionValue] = toExpressionValue(expression, evaluating, paramContext, sourced, callSite)
-
   private def toExpressionValue(
       expression: OperatorResolvedExpression,
       evaluating: Set[ValueFQN],

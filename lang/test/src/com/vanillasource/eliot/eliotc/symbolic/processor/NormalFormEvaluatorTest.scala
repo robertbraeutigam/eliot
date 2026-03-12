@@ -4,38 +4,41 @@ import cats.data.{Chain, NonEmptySeq}
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType, typeFQN}
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Types, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
+import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
-import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
-import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
-
-import java.net.URI
+import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
 
 class NormalFormEvaluatorTest extends ProcessorTest() {
+
+  private val bigIntTypeFQN  = ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type))
+  private val stringTypeFQN  = ValueFQN(ModuleName(defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type))
+
   // --- Literal translation ---
 
-  "normal form evaluator" should "evaluate integer literal to ConcreteValue" in {
-    runEvaluate(intLit(42)).asserting(_ shouldBe ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
+  "normal form evaluator" should "evaluate integer literal to LiteralType" in {
+    runEvaluate(intLit(42)).asserting(_ shouldBe LiteralType(BigInt(42), bigIntTypeFQN))
   }
 
-  it should "evaluate string literal to ConcreteValue" in {
-    runEvaluate(strLit("hello")).asserting(_ shouldBe ConcreteValue(Value.Direct("hello", stringType)))
+  it should "evaluate string literal to LiteralType" in {
+    runEvaluate(strLit("hello")).asserting(_ shouldBe LiteralType("hello", stringTypeFQN))
   }
 
   // --- Parameter references ---
 
   it should "evaluate parameter reference with known param" in {
-    runEvaluate(paramRef("x"), paramContext = Map("x" -> bigIntType))
-      .asserting(_ shouldBe ParameterReference("x", bigIntType))
+    runEvaluate(paramRef("x"), paramContext = Map("x" -> TypeReference(bigIntTypeFQN)))
+      .asserting(_ shouldBe TypeVariable("x"))
   }
 
-  it should "report error for unknown parameter" in {
-    runEvaluateForErrors(sourced(paramRef("x")))
-      .asserting(_.head.message should include("Unknown parameter"))
+  it should "evaluate unknown parameter as type variable" in {
+    runEvaluate(paramRef("x"))
+      .asserting(_ shouldBe TypeVariable("x"))
   }
 
   // --- Value references ---
@@ -44,20 +47,20 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
     val fqn  = vfqn("MyData")
     val fact = resolvedValue(fqn, body = None)
     runEvaluate(valueRef(fqn), facts = Seq(fact))
-      .asserting(_ shouldBe ConcreteValue(Types.dataType(fqn)))
+      .asserting(_ shouldBe TypeReference(fqn))
   }
 
   it should "evaluate value reference with runtime body" in {
     val fqn  = vfqn("myValue")
     val fact = resolvedValue(fqn, body = Some(intLit(42)))
     runEvaluate(valueRef(fqn), facts = Seq(fact))
-      .asserting(_ shouldBe ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
+      .asserting(_ shouldBe LiteralType(BigInt(42), bigIntTypeFQN))
   }
 
-  it should "evaluate unknown value reference as data type" in {
+  it should "evaluate unknown value reference as type reference" in {
     val fqn = vfqn("Unknown")
     runEvaluate(valueRef(fqn))
-      .asserting(_ shouldBe ConcreteValue(Types.dataType(fqn)))
+      .asserting(_ shouldBe TypeReference(fqn))
   }
 
   it should "report error for recursive value reference" in {
@@ -69,14 +72,14 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
 
   it should "evaluate Type FQN reference" in {
     runEvaluate(valueRef(typeFQN))
-      .asserting(_ shouldBe ConcreteValue(Types.dataType(typeFQN)))
+      .asserting(_ shouldBe TypeReference(typeFQN))
   }
 
   // --- Function literals ---
 
   it should "evaluate function literal with typed parameter" in {
     runEvaluate(funLit("x", valueRef(bigIntTypeVfqn), paramRef("x")))
-      .asserting(_ shouldBe FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x", bigIntType))))
+      .asserting(_ shouldBe TypeLambda("x", unsourced(TypeVariable("x"))))
   }
 
   it should "report error for function literal without parameter type" in {
@@ -92,9 +95,9 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
     val fact = resolvedValue(fqn, body = None)
     runEvaluate(funApp(valueRef(fqn), intLit(42)), facts = Seq(fact))
       .asserting(
-        _ shouldBe FunctionApplication(
-          unsourced(ConcreteValue(Types.dataType(fqn))),
-          unsourced(ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
+        _ shouldBe TypeApplication(
+          unsourced(TypeReference(fqn)),
+          unsourced(LiteralType(BigInt(42), bigIntTypeFQN))
         )
       )
   }
@@ -107,52 +110,22 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
     val gFqn  = vfqn("g")
     val gFact = resolvedValue(gFqn, body = Some(funApp(valueRef(fFqn), intLit(42))))
     runEvaluate(valueRef(gFqn), facts = Seq(fFact, gFact))
-      .asserting(_ shouldBe ConcreteValue(Value.Direct(BigInt(42), bigIntType)))
+      .asserting(_ shouldBe LiteralType(BigInt(42), bigIntTypeFQN))
   }
 
-  // --- Error source locations ---
+  // --- Parameter references in value bodies ---
 
-  it should "report unknown parameter error at call site when evaluating value reference" in {
-    val defUri     = URI.create("Definition.els")
-    val defContent = SourceContent(defUri, Sourced(defUri, PositionRange.zero, "def f[A](a: A) = a"))
-    val fqn        = vfqn("f")
-    val bodyExpr   = OperatorResolvedExpression.FunctionLiteral(
-      Sourced(defUri, PositionRange.zero, "a"),
-      Some(
-        Sourced(
-          defUri,
-          PositionRange.zero,
-          TypeStack(
-            NonEmptySeq.of(
-              OperatorResolvedExpression.ParameterReference(Sourced(defUri, PositionRange.zero, "A"))
-            )
-          )
-        )
-      ),
-      Sourced(
-        defUri,
-        PositionRange.zero,
-        OperatorResolvedExpression.ParameterReference(Sourced(defUri, PositionRange.zero, "a"))
-      )
-    )
-    val orv        = OperatorResolvedValue(
+  it should "evaluate value body with unknown parameter as type variable" in {
+    val fqn      = vfqn("f")
+    val bodyExpr = funLit("a", paramRef("A"), paramRef("a"))
+    val fact     = OperatorResolvedValue(
       fqn,
       sourced(toResolve(QualifiedName("f", Qualifier.Default))),
-      Some(Sourced(defUri, PositionRange.zero, bodyExpr)),
-      sourced(TypeStack(NonEmptySeq.of(OperatorResolvedExpression.IntegerLiteral(sourced(BigInt(0))))))
+      Some(sourced(bodyExpr)),
+      sourced(TypeStack(NonEmptySeq.of(intLit(0))))
     )
-    val expression = sourced(OperatorResolvedExpression.ValueReference(sourced(fqn), Seq.empty))
-    runEvaluateForErrors(expression, Seq(orv, defContent))
-      .asserting(_.head.contentSource shouldBe file.getPath)
-  }
-
-  it should "report unknown parameter error at definition when no call site" in {
-    val defUri     = URI.create("Definition.els")
-    val defContent = SourceContent(defUri, Sourced(defUri, PositionRange.zero, "def f = X"))
-    val bodyExpr   = OperatorResolvedExpression.ParameterReference(Sourced(defUri, PositionRange.zero, "X"))
-    val body       = Sourced(defUri, PositionRange.zero, bodyExpr)
-    runEvaluateForErrors(body, Seq(defContent))
-      .asserting(_.head.contentSource shouldBe defUri.getPath)
+    runEvaluate(valueRef(fqn), facts = Seq(fact))
+      .asserting(_ shouldBe TypeLambda("a", unsourced(TypeVariable("a"))))
   }
 
   // --- Generic param context ---
@@ -171,13 +144,13 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
       sourced(TypeStack(NonEmptySeq.of(typeStackSig)))
     )
     runEvaluate(valueRef(fqn), facts = Seq(fact))
-      .asserting(_ shouldBe ParameterReference("A", Value.Type))
+      .asserting(_ shouldBe TypeVariable("A"))
   }
 
   private val bigIntTypeVfqn = ValueFQN(testModuleName, QualifiedName("BigIntType", Qualifier.Default))
-  private val bigIntTypeFact = NamedEvaluable(bigIntTypeVfqn, ConcreteValue(bigIntType))
+  private val bigIntTypeFact = NamedEvaluable(bigIntTypeVfqn, ExpressionValue.ConcreteValue(Types.bigIntType))
   private val stringTypeVfqn = ValueFQN(testModuleName, QualifiedName("StringType", Qualifier.Default))
-  private val stringTypeFact = NamedEvaluable(stringTypeVfqn, ConcreteValue(stringType))
+  private val stringTypeFact = NamedEvaluable(stringTypeVfqn, ExpressionValue.ConcreteValue(Types.stringType))
 
   // --- Expression DSL ---
 
@@ -229,8 +202,8 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
   private def runEvaluate(
       expr: OperatorResolvedExpression,
       facts: Seq[CompilerFact] = Seq.empty,
-      paramContext: Map[String, Value] = Map.empty
-  ): IO[ExpressionValue] =
+      paramContext: Map[String, SymbolicType] = Map.empty
+  ): IO[SymbolicType] =
     for {
       generator <- createGenerator(Seq(bigIntTypeFact, stringTypeFact) ++ facts)
       result    <-
@@ -243,7 +216,7 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
   private def runEvaluateForErrors(
       expression: Sourced[OperatorResolvedExpression],
       facts: Seq[CompilerFact] = Seq.empty,
-      paramContext: Map[String, Value] = Map.empty
+      paramContext: Map[String, SymbolicType] = Map.empty
   ): IO[Seq[com.vanillasource.eliot.eliotc.feedback.CompilerError]] =
     for {
       generator <- createGenerator(Seq(bigIntTypeFact, stringTypeFact) ++ facts)

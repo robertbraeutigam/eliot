@@ -2,11 +2,10 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value.sameType
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
+import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
 import com.vanillasource.eliot.eliotc.symbolic.types.UnificationState.UnificationCompilerIO
 
@@ -40,43 +39,53 @@ object ConstraintSolver extends Logging {
 
     (left, right) match {
       // Unification variable on left: bind it (if not recursive)
-      case (ParameterReference(name, _), _) if isUnificationVar(name) && !containsVar(right, name) =>
+      case (TypeVariable(name), _) if isUnificationVar(name) && !containsVar(right, name) =>
         StateT.modify[CompilerIO, UnificationState](_.bind(name, right))
 
       // Unification variable on right: bind it (if not recursive)
-      case (_, ParameterReference(name, _)) if isUnificationVar(name) && !containsVar(left, name)  =>
+      case (_, TypeVariable(name)) if isUnificationVar(name) && !containsVar(left, name)  =>
         StateT.modify[CompilerIO, UnificationState](_.bind(name, left))
 
       // Recursion detected
-      case (ParameterReference(name, _), _) if isUnificationVar(name)                              =>
+      case (TypeVariable(name), _) if isUnificationVar(name)                               =>
         issueError(constraint, "Infinite type detected.")
 
-      case (_, ParameterReference(name, _)) if isUnificationVar(name)                                =>
+      case (_, TypeVariable(name)) if isUnificationVar(name)                               =>
         issueError(constraint, "Infinite type detected.")
 
       // Universal variables: must match exactly
-      case (ParameterReference(n1, _), ParameterReference(n2, _)) if isUniversalVar(n1) && n1 === n2 =>
+      case (TypeVariable(n1), TypeVariable(n2)) if isUniversalVar(n1) && n1 === n2         =>
         StateT.pure(())
 
-      case (ParameterReference(n1, _), _) if isUniversalVar(n1) =>
+      case (TypeVariable(n1), _) if isUniversalVar(n1) =>
         issueError(constraint, constraint.errorMessage)
 
-      case (_, ParameterReference(n2, _)) if isUniversalVar(n2)       =>
+      case (_, TypeVariable(n2)) if isUniversalVar(n2)         =>
         issueError(constraint, constraint.errorMessage)
 
-      // Concrete values: must be equal
-      case (ConcreteValue(v1), ConcreteValue(v2)) if sameType(v1, v2) =>
+      // Type references: must refer to the same FQN
+      case (TypeReference(fqn1), TypeReference(fqn2)) if fqn1 === fqn2 =>
         StateT.pure(())
 
-      case (ConcreteValue(_), ConcreteValue(_))                       =>
+      case (TypeReference(_), TypeReference(_))                         =>
         debug[UnificationCompilerIO](
-          s"Constraint failed comparing concrete values, expected ${expressionValueUserDisplay
-              .show(constraint.left)}, found: ${expressionValueUserDisplay.show(constraint.right.value)} "
+          s"Constraint failed comparing type references, expected ${symbolicTypeUserDisplay
+              .show(constraint.left)}, found: ${symbolicTypeUserDisplay.show(constraint.right.value)} "
+        ) >> issueError(constraint, constraint.errorMessage)
+
+      // Literal types: must be equal
+      case (LiteralType(v1, t1), LiteralType(v2, t2)) if v1 == v2 && t1 === t2 =>
+        StateT.pure(())
+
+      case (LiteralType(_, _), LiteralType(_, _))                                =>
+        debug[UnificationCompilerIO](
+          s"Constraint failed comparing literal types, expected ${symbolicTypeUserDisplay
+              .show(constraint.left)}, found: ${symbolicTypeUserDisplay.show(constraint.right.value)} "
         ) >> issueError(constraint, constraint.errorMessage)
 
       // Function types (A -> B): unify parameter and return types separately with specific error messages
-      // Note: this is just a special case of "Function Application" just below to issue special message
-      case (FunctionType(p1, r1), FunctionType(p2, r2))               =>
+      // Note: this is just a special case of "Type Application" just below to issue special message
+      case (FunctionType(p1, r1), FunctionType(p2, r2))                           =>
         for {
           _ <-
             unify(universalVars)(
@@ -87,8 +96,8 @@ object ConstraintSolver extends Logging {
                )
         } yield ()
 
-      // Function applications: structural comparison
-      case (FunctionApplication(t1, a1), FunctionApplication(t2, a2)) =>
+      // Type applications: structural comparison
+      case (TypeApplication(t1, a1), TypeApplication(t2, a2)) =>
         for {
           _ <- unify(universalVars)(
                  Constraint(t1.value, constraint.right.as(t2.value), "Type constructor mismatch.")
@@ -99,11 +108,9 @@ object ConstraintSolver extends Logging {
         } yield ()
 
       // Anything else is a type error
-      // Note: we intentionally don't handle function literals (it means nothing now)
-      // Note: we don't handle native functions either (skipped before it gets here)
-      case _                                                          =>
-        debug[UnificationCompilerIO](s"Constraint failed in else branch, expected ${expressionValueUserDisplay
-            .show(constraint.left)}, found: ${expressionValueUserDisplay.show(constraint.right.value)} ") >>
+      case _                                                   =>
+        debug[UnificationCompilerIO](s"Constraint failed in else branch, expected ${symbolicTypeUserDisplay
+            .show(constraint.left)}, found: ${symbolicTypeUserDisplay.show(constraint.right.value)} ") >>
           issueError(constraint, constraint.errorMessage)
     }
   }
@@ -113,8 +120,8 @@ object ConstraintSolver extends Logging {
       compilerError(
         constraint.right.as(message),
         Seq(
-          s"Expected: ${expressionValueUserDisplay.show(constraint.left)}",
-          s"Found:    ${expressionValueUserDisplay.show(constraint.right.value)}"
+          s"Expected: ${symbolicTypeUserDisplay.show(constraint.left)}",
+          s"Found:    ${symbolicTypeUserDisplay.show(constraint.right.value)}"
         )
       )
     )
