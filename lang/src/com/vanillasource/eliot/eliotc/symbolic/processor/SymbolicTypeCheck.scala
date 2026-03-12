@@ -31,7 +31,7 @@ import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
   *     as an OperatorResolvedExpression, except it is not stacked anymore. All type information is "flattened" to a
   *     single ExpressionValue (converted from SymbolicType at the boundary).
   */
-object SymbolicEvaluator extends Logging {
+object SymbolicTypeCheck extends Logging {
 
   /** Typecheck the given expression stack and return the typed expression, i.e. the result type and the expression when
     * run producing the result.
