@@ -15,7 +15,7 @@ object SymbolicTypeConversions {
     st match {
       case TypeReference(vfqn)          => ExpressionValue.ConcreteValue(Types.dataType(vfqn))
       case TypeVariable(name)           => ExpressionValue.ParameterReference(name, Value.Type)
-      case TypeLambda(name, body)       =>
+      case TypeLambda(name, _, body)    =>
         ExpressionValue.FunctionLiteral(name, Value.Type, evUnsourced(toExpressionValue(body.value)))
       case TypeApplication(target, arg) =>
         ExpressionValue.FunctionApplication(
@@ -41,7 +41,7 @@ object SymbolicTypeConversions {
         }
       case ExpressionValue.ParameterReference(name, _)                 => TypeVariable(name)
       case ExpressionValue.FunctionLiteral(name, _, body)              =>
-        TypeLambda(name, unsourced(fromExpressionValue(body.value)))
+        TypeLambda(name, TypeReference(Types.typeFQN), unsourced(fromExpressionValue(body.value)))
       case ExpressionValue.FunctionApplication(target, arg)            =>
         TypeApplication(unsourced(fromExpressionValue(target.value)), unsourced(fromExpressionValue(arg.value)))
       case ExpressionValue.NativeFunction(_, _)                        =>

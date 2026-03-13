@@ -32,12 +32,7 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
 
   // --- Parameter references ---
 
-  it should "evaluate parameter reference with known param" in {
-    runEvaluate(paramRef("x"), paramContext = Map("x" -> TypeReference(bigIntTypeFQN)))
-      .asserting(_ shouldBe TypeVariable("x"))
-  }
-
-  it should "evaluate unknown parameter as type variable" in {
+  it should "evaluate parameter reference as type variable" in {
     runEvaluate(paramRef("x"))
       .asserting(_ shouldBe TypeVariable("x"))
   }
@@ -80,7 +75,7 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
 
   it should "evaluate function literal with typed parameter" in {
     runEvaluate(funLit("x", valueRef(bigIntTypeVfqn), paramRef("x")))
-      .asserting(_ shouldBe TypeLambda("x", unsourced(TypeVariable("x"))))
+      .asserting(_ shouldBe TypeLambda("x", TypeReference(bigIntTypeVfqn), unsourced(TypeVariable("x"))))
   }
 
   it should "report error for function literal without parameter type" in {
@@ -126,7 +121,7 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
       sourced(TypeStack(NonEmptySeq.of(intLit(0))))
     )
     runEvaluate(valueRef(fqn), facts = Seq(fact))
-      .asserting(_ shouldBe TypeLambda("a", unsourced(TypeVariable("a"))))
+      .asserting(_ shouldBe TypeLambda("a", TypeVariable("A"), unsourced(TypeVariable("a"))))
   }
 
   // --- Generic param context ---
@@ -202,13 +197,12 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
 
   private def runEvaluate(
       expr: OperatorResolvedExpression,
-      facts: Seq[CompilerFact] = Seq.empty,
-      paramContext: Map[String, SymbolicType] = Map.empty
+      facts: Seq[CompilerFact] = Seq.empty
   ): IO[SymbolicType] =
     for {
       generator <- createGenerator(Seq(bigIntTypeFact, stringTypeFact) ++ facts)
       result    <-
-        NormalFormEvaluator.evaluate(sourced(expr), paramContext = paramContext).run(generator).run(Chain.empty).value
+        NormalFormEvaluator.evaluate(sourced(expr)).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((_, value)) => value
       case Left(errors)      => throw new Exception(s"Expected success but got errors: ${errors.toList}")
@@ -216,13 +210,12 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
 
   private def runEvaluateForErrors(
       expression: Sourced[OperatorResolvedExpression],
-      facts: Seq[CompilerFact] = Seq.empty,
-      paramContext: Map[String, SymbolicType] = Map.empty
+      facts: Seq[CompilerFact] = Seq.empty
   ): IO[Seq[com.vanillasource.eliot.eliotc.feedback.CompilerError]] =
     for {
       generator <- createGenerator(Seq(bigIntTypeFact, stringTypeFact) ++ facts)
       result    <-
-        NormalFormEvaluator.evaluate(expression, paramContext = paramContext).run(generator).run(Chain.empty).value
+        NormalFormEvaluator.evaluate(expression).run(generator).run(Chain.empty).value
     } yield result match {
       case Left(errors)                          => errors.toList
       case Right((errors, _)) if errors.nonEmpty => errors.toList

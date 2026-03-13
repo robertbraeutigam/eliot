@@ -46,7 +46,7 @@ case class UnificationState(substitutions: Map[String, Sourced[SymbolicType]] = 
         substitutions.get(name).exists(s => containsVar(s.value, varName))
       case TypeApplication(target, arg)          =>
         containsVar(target.value, varName) || containsVar(arg.value, varName)
-      case TypeLambda(_, body)                   => containsVar(body.value, varName)
+      case TypeLambda(_, _, body)                => containsVar(body.value, varName)
       case _                                     => false
     }
 

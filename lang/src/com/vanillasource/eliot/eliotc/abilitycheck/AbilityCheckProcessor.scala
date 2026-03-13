@@ -138,10 +138,10 @@ class AbilityCheckProcessor
       declarationSig: QuantifiedType,
       concreteSig: SymbolicType
   ): Seq[SymbolicType] = {
-    val typeParamNames = declarationSig.typeParams.toSet
+    val typeParamNames = declarationSig.typeParams.map(_._1).toSet
     val bindings       = SymbolicType.matchTypes(declarationSig.body, concreteSig, typeParamNames.contains)
     declarationSig.typeParams
-      .map(name => bindings.getOrElse(name, SymbolicType.TypeVariable(name)))
+      .map((name, _) => bindings.getOrElse(name, SymbolicType.TypeVariable(name)))
   }
 
   @tailrec

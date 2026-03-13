@@ -12,24 +12,24 @@ import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType.*
   * @param body
   *   The type body with type variables referencing the parameters
   */
-case class QuantifiedType(typeParams: Seq[String], body: SymbolicType)
+case class QuantifiedType(typeParams: Seq[(String, SymbolicType)], body: SymbolicType)
 
 object QuantifiedType {
 
   /** Extract leading TypeLambdas from a SymbolicType into a QuantifiedType. */
   def fromSymbolicType(st: SymbolicType): QuantifiedType = {
-    def loop(current: SymbolicType, acc: Seq[String]): QuantifiedType =
+    def loop(current: SymbolicType, acc: Seq[(String, SymbolicType)]): QuantifiedType =
       current match {
-        case TypeLambda(name, inner) => loop(inner.value, acc :+ name)
-        case body                    => QuantifiedType(acc, body)
+        case TypeLambda(name, parameterType, inner) => loop(inner.value, acc :+ (name, parameterType))
+        case body                                   => QuantifiedType(acc, body)
       }
     loop(st, Seq.empty)
   }
 
   /** Convert back to a SymbolicType by wrapping the body in leading TypeLambdas. */
   def toSymbolicType(qt: QuantifiedType): SymbolicType =
-    qt.typeParams.foldRight(qt.body) { (name, acc) =>
-      TypeLambda(name, SymbolicType.unsourced(acc))
+    qt.typeParams.foldRight(qt.body) { (param, acc) =>
+      TypeLambda(param._1, param._2, SymbolicType.unsourced(acc))
     }
 
   given Show[QuantifiedType] with {

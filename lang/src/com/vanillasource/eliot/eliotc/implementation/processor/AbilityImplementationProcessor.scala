@@ -112,7 +112,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       signature: QuantifiedType,
       typeArguments: Seq[SymbolicType]
   ): Map[String, SymbolicType] =
-    signature.typeParams
+    signature.typeParams.map(_._1)
       .zip(typeArguments)
       .toMap
 
@@ -173,7 +173,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
         checked.name.value.qualifier match {
           case SymbolicQualifier.AbilityImplementation(resolvedAbilityFQN, params)
               if resolvedAbilityFQN == expectedAbilityFQN =>
-            val freeVarNames = checked.signature.typeParams.toSet
+            val freeVarNames = checked.signature.typeParams.map(_._1).toSet
             if (implMatchesQuery(params, freeVarNames, expectedTypeArgs)) Seq(vfqn) else Seq.empty
           case _ => Seq.empty
         }

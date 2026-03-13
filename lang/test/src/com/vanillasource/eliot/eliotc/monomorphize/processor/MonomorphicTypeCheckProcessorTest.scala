@@ -107,7 +107,7 @@ class MonomorphicTypeCheckProcessorTest
     val idVfqn      = ValueFQN(testModuleName, default("id"))
     val dummyType   = intType
     val signature   = QuantifiedType(
-      Seq("A"),
+      Seq(("A", SymbolicType.TypeReference(Types.typeFQN))),
       SymbolicType.functionType(
         SymbolicType.TypeVariable("A"),
         SymbolicType.TypeVariable("A")

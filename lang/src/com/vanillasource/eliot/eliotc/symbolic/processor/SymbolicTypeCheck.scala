@@ -98,7 +98,7 @@ object SymbolicTypeCheck extends Logging {
             // Instantiate quantified type params with fresh unification vars to avoid name collisions
             quantified    = QuantifiedType.fromSymbolicType(rawValueType)
             valueType    <- quantified.typeParams.foldLeftM(quantified.body) { (body, param) =>
-                              generateUnificationVar.map(v => SymbolicType.substitute(body, param, v))
+                              generateUnificationVar.map(v => SymbolicType.substitute(body, param._1, v))
                             }
             // Constrain the result type to the valueType here
             _            <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(valueType), "Type mismatch."))

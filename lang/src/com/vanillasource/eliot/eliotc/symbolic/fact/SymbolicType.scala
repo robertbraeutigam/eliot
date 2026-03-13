@@ -25,12 +25,13 @@ object SymbolicType {
   case class TypeVariable(name: String) extends SymbolicType
 
   /** A type-level lambda (introduces a type parameter). */
-  case class TypeLambda(parameterName: String, body: Sourced[SymbolicType]) extends SymbolicType {
+  case class TypeLambda(parameterName: String, parameterType: SymbolicType, body: Sourced[SymbolicType])
+      extends SymbolicType {
     override def equals(that: Any): Boolean = that match {
-      case TypeLambda(n, b) => parameterName == n && body.value == b.value
-      case _                => false
+      case TypeLambda(n, _, b) => parameterName == n && body.value == b.value
+      case _                   => false
     }
-    override def hashCode(): Int = (parameterName, body.value).hashCode()
+    override def hashCode(): Int            = (parameterName, body.value).hashCode()
   }
 
   /** A type-level application (applying a type constructor to an argument). */
@@ -39,7 +40,7 @@ object SymbolicType {
       case TypeApplication(t, a) => target.value == t.value && argument.value == a.value
       case _                     => false
     }
-    override def hashCode(): Int = (target.value, argument.value).hashCode()
+    override def hashCode(): Int            = (target.value, argument.value).hashCode()
   }
 
   /** A literal type (e.g. a specific integer or string value used at the type level). */
@@ -77,46 +78,46 @@ object SymbolicType {
 
   def containsVar(st: SymbolicType, varName: String): Boolean =
     st match {
-      case TypeVariable(name)            => name == varName
-      case TypeApplication(target, arg)  => containsVar(target.value, varName) || containsVar(arg.value, varName)
-      case TypeLambda(_, body)           => containsVar(body.value, varName)
-      case _                             => false
+      case TypeVariable(name)           => name == varName
+      case TypeApplication(target, arg) => containsVar(target.value, varName) || containsVar(arg.value, varName)
+      case TypeLambda(_, _, body)       => containsVar(body.value, varName)
+      case _                            => false
     }
 
   def transform(st: SymbolicType, f: SymbolicType => SymbolicType): SymbolicType =
     f(st match {
-      case TypeApplication(target, arg)     =>
+      case TypeApplication(target, arg)      =>
         TypeApplication(target.map(transform(_, f)), arg.map(transform(_, f)))
-      case TypeLambda(name, body)           =>
-        TypeLambda(name, body.map(transform(_, f)))
-      case leaf                             => leaf
+      case TypeLambda(name, paramType, body) =>
+        TypeLambda(name, paramType, body.map(transform(_, f)))
+      case leaf                              => leaf
     })
 
   def substitute(body: SymbolicType, paramName: String, argValue: SymbolicType): SymbolicType =
     body match {
-      case TypeVariable(name) if name == paramName            => argValue
-      case TypeVariable(_)                                    => body
-      case TypeApplication(target, arg)                       =>
+      case TypeVariable(name) if name == paramName                 => argValue
+      case TypeVariable(_)                                         => body
+      case TypeApplication(target, arg)                            =>
         TypeApplication(target.map(substitute(_, paramName, argValue)), arg.map(substitute(_, paramName, argValue)))
-      case TypeLambda(name, inner) if name != paramName       =>
-        TypeLambda(name, inner.map(substitute(_, paramName, argValue)))
-      case _                                                  => body
+      case TypeLambda(name, paramType, inner) if name != paramName =>
+        TypeLambda(name, paramType, inner.map(substitute(_, paramName, argValue)))
+      case _                                                       => body
     }
 
   def betaReduce(st: SymbolicType): SymbolicType =
     st match {
-      case TypeApplication(target, arg)     =>
+      case TypeApplication(target, arg)      =>
         val reducedTarget = betaReduce(target.value)
         val reducedArg    = betaReduce(arg.value)
         reducedTarget match {
-          case TypeLambda(paramName, body) =>
+          case TypeLambda(paramName, paramType, body) =>
             betaReduce(substitute(body.value, paramName, reducedArg))
-          case _                           =>
+          case _                                      =>
             TypeApplication(target.as(reducedTarget), arg.as(reducedArg))
         }
-      case TypeLambda(name, body)           =>
-        TypeLambda(name, body.as(betaReduce(body.value)))
-      case other                            => other
+      case TypeLambda(name, paramType, body) =>
+        TypeLambda(name, paramType, body.as(betaReduce(body.value)))
+      case other                             => other
     }
 
   @tailrec
@@ -132,15 +133,15 @@ object SymbolicType {
       isTypeVar: String => Boolean = _ => true
   ): Map[String, SymbolicType] =
     (pattern, concrete) match {
-      case (TypeVariable(name), _) if isTypeVar(name)                                 =>
+      case (TypeVariable(name), _) if isTypeVar(name)             =>
         Map(name -> concrete)
-      case (FunctionType(p1, r1), FunctionType(p2, r2))                               =>
+      case (FunctionType(p1, r1), FunctionType(p2, r2))           =>
         matchTypes(p1, p2, isTypeVar) ++ matchTypes(r1, r2, isTypeVar)
-      case (TypeApplication(t1, a1), TypeApplication(t2, a2))                         =>
+      case (TypeApplication(t1, a1), TypeApplication(t2, a2))     =>
         matchTypes(t1.value, t2.value, isTypeVar) ++ matchTypes(a1.value, a2.value, isTypeVar)
-      case (TypeLambda(_, patBody), TypeLambda(_, tgtBody))                           =>
+      case (TypeLambda(_, _, patBody), TypeLambda(_, _, tgtBody)) =>
         matchTypes(patBody.value, tgtBody.value, isTypeVar)
-      case _                                                                           => Map.empty
+      case _                                                      => Map.empty
     }
 
   // --- Show instances ---
@@ -150,7 +151,7 @@ object SymbolicType {
       case FunctionType(paramType, returnType) => s"Function(${paramType.show}, ${returnType.show})"
       case TypeReference(vfqn)                 => vfqn.show
       case TypeVariable(name)                  => name
-      case TypeLambda(name, body)              => s"(($name) -> ${body.value.show})"
+      case TypeLambda(name, _, body)           => s"(($name) -> ${body.value.show})"
       case TypeApplication(target, arg)        => s"${target.value.show}(${arg.value.show})"
       case LiteralType(value, _)               => value.toString
     }
@@ -161,7 +162,7 @@ object SymbolicType {
       s"${symbolicTypeUserDisplay.show(paramType)} -> ${symbolicTypeUserDisplay.show(returnType)}"
     case TypeReference(vfqn)                 => vfqn.name.name
     case TypeVariable(name)                  => name
-    case TypeLambda(name, body)              =>
+    case TypeLambda(name, _, body)           =>
       s"($name) -> ${symbolicTypeUserDisplay.show(body.value)}"
     case TypeApplication(target, arg)        =>
       s"${symbolicTypeUserDisplay.show(target.value)}(${symbolicTypeUserDisplay.show(arg.value)})"

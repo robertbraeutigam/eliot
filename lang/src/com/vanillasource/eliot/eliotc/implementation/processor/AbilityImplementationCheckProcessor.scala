@@ -65,7 +65,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
         .map(_.filter { checked =>
           checked.name.value.qualifier match {
             case SymbolicQualifier.AbilityImplementation(resolvedFQN, params) if resolvedFQN == abilityFQN =>
-              val freeVarNames = checked.signature.typeParams.toSet
+              val freeVarNames = checked.signature.typeParams.map(_._1).toSet
               implMatchesQuery(params, freeVarNames, typeArguments)
             case _                                                                                         => false
           }
@@ -126,7 +126,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
           case SymbolicQualifier.AbilityImplementation(_, params) => params
           case _                                                  => Seq.empty
         }
-        val patternBindings       = abilityTypeParamNames.zip(implParams).toMap
+        val patternBindings       = abilityTypeParamNames.map(_._1).zip(implParams).toMap
         val expectedImplSig       = patternBindings.foldLeft(abstractMethod.signature.body) { case (acc, (name, param)) =>
           SymbolicType.substitute(acc, name, param)
         }
