@@ -109,7 +109,7 @@ object ConstraintSolver extends Logging {
                  Constraint(t1.value, constraint.right.as(t2.value), "Type constructor mismatch.")
                )
           _ <- solveConstraint(universalVars)(
-                 Constraint(a1.value, a2.withFallback(constraint.right), "Type argument mismatch.")
+                 Constraint(a1.value, constraint.right.as(a2.value), "Type argument mismatch.")
                )
         } yield ()
 
