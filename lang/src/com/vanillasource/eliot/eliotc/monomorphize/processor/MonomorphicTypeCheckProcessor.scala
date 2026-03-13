@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.{toExpressionValue, fromExpressionValue}
+import com.vanillasource.eliot.eliotc.monomorphize.processor.SymbolicTypeConversions.{toExpressionValue, fromExpressionValue}
 import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckedValue
 
 /** Processor that monomorphizes (specializes) generic functions.
