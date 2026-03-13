@@ -179,7 +179,7 @@ class CommonPatternsTest extends BytecodeTest {
 
   it should "strip leading type applications before resolving type" in {
     val innerType = SymbolicType.TypeReference(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default)))
-    val applied   = SymbolicType.TypeApplication(SymbolicType.unsourced(innerType), SymbolicType.unsourced(stringSymbolicType))
+    val applied   = SymbolicType.TypeApplication(sourced(innerType), sourced(stringSymbolicType))
     simpleType(applied) shouldBe NativeType.systemLangType("String")
   }
 

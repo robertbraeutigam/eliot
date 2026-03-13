@@ -108,7 +108,7 @@ class MonomorphicTypeCheckProcessorTest
     val dummyType   = intType
     val signature   = SymbolicType.TypeLambda(
       "A",
-      SymbolicType.unsourced(SymbolicType.functionType(
+      sourced(SymbolicType.functionType(
         SymbolicType.TypeVariable("A"),
         SymbolicType.TypeVariable("A")
       ))

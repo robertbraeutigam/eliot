@@ -45,8 +45,6 @@ object SymbolicType {
   /** A literal type (e.g. a specific integer or string value used at the type level). */
   case class LiteralType(value: Any, typeFQN: ValueFQN) extends SymbolicType
 
-  // --- Function type helpers ---
-
   def functionType(paramType: SymbolicType, returnType: SymbolicType): SymbolicType =
     TypeApplication(
       unsourced(TypeApplication(unsourced(TypeReference(Types.functionDataTypeFQN)), unsourced(paramType))),
