@@ -4,7 +4,7 @@ import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
 
 /** Expression tree after uncurrying.
   */

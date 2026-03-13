@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.*
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheck.typeCheck
 import com.vanillasource.eliot.eliotc.symbolic.types.*
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
+import SymbolicType.*
 
 class SymbolicTypeCheckProcessor
     extends TransformationProcessor[OperatorResolvedValue.Key, TypeCheckedValue.Key](key =>

@@ -10,7 +10,8 @@ import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType.*
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers

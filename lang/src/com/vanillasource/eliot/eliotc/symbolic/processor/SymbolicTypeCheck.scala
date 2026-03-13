@@ -11,9 +11,9 @@ import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedValue, Oper
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.*
-import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression
-import com.vanillasource.eliot.eliotc.symbolic.types.{NormalFormEvaluator, SymbolicType, SymbolicUnification}
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
+import com.vanillasource.eliot.eliotc.symbolic.fact.{SymbolicType, TypedExpression}
+import com.vanillasource.eliot.eliotc.symbolic.types.{NormalFormEvaluator, SymbolicUnification}
+import SymbolicType.*
 import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
 
 /** Symbolically evaluates and type checks an expression stack.

@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
 import com.vanillasource.eliot.eliotc.uncurry.fact.{ParameterDefinition, UncurriedValue}
 
 import scala.annotation.tailrec

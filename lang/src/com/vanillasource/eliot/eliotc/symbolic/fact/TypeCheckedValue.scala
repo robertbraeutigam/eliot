@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.symbolic.fact
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
 /** A type-checked value with its signature type and optional runtime body.
   *

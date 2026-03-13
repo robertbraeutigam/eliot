@@ -5,7 +5,8 @@ import cats.data.StateT
 import cats.kernel.Monoid
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType.*
 
 /** Tracks the current state of unification. Maps unification variable names to their resolved symbolic types.
   */

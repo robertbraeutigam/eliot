@@ -5,7 +5,6 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.TypedExpression.Expression
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
 /** An expression annotated with its type (as a SymbolicType). */
 case class TypedExpression(

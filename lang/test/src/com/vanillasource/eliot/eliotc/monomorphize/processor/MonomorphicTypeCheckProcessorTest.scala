@@ -15,8 +15,8 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, 
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class MonomorphicTypeCheckProcessorTest

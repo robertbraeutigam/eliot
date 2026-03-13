@@ -11,8 +11,9 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
-import com.vanillasource.eliot.eliotc.symbolic.types.{NormalFormEvaluator, SymbolicType}
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType.*
+import com.vanillasource.eliot.eliotc.symbolic.types.NormalFormEvaluator
 
 class NormalFormEvaluatorTest extends ProcessorTest() {
 

@@ -10,13 +10,7 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
-import com.vanillasource.eliot.eliotc.symbolic.fact.{
-  QualifiedName as SymbolicQualifiedName,
-  Qualifier as SymbolicQualifier,
-  TypeCheckedValue,
-  TypedExpression
-}
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.{SymbolicType, TypeCheckedValue, TypedExpression, QualifiedName as SymbolicQualifiedName, Qualifier as SymbolicQualifier}
 
 class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] with Logging {
 

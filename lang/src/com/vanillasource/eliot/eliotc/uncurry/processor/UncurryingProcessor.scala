@@ -7,9 +7,8 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
-import com.vanillasource.eliot.eliotc.symbolic.fact.{QualifiedName, TypedExpression}
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.symbolicTypeUserDisplay
+import com.vanillasource.eliot.eliotc.symbolic.fact.{QualifiedName, SymbolicType, TypedExpression}
+import SymbolicType.symbolicTypeUserDisplay
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
 
 import scala.annotation.tailrec

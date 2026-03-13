@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.uncurry.fact
 
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
 
 /** A parameter definition for an uncurried function.
   *

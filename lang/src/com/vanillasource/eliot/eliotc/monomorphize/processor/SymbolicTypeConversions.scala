@@ -3,8 +3,8 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.unsourced as evUnsourced
 import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
+import SymbolicType.*
 
 object SymbolicTypeConversions {
 

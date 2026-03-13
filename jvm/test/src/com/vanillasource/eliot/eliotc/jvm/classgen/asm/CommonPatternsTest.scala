@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemAnyValu
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
 import com.vanillasource.eliot.eliotc.uncurry.fact.ParameterDefinition
 
 import java.net.URI

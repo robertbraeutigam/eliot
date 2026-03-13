@@ -1,10 +1,9 @@
 package com.vanillasource.eliot.eliotc.uncurry.fact
 
-import com.vanillasource.eliot.eliotc.symbolic.fact.QualifiedName
+import com.vanillasource.eliot.eliotc.symbolic.fact.{QualifiedName, SymbolicType}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
 /** A type-checked value that has been uncurried to a specific arity.
   *

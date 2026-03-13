@@ -4,7 +4,8 @@ import cats.Show
 import cats.kernel.Monoid
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.symbolicTypeUserDisplay
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType.symbolicTypeUserDisplay
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
 
 /** Pure container for unification constraints between symbolic types. Constraints are accumulated during the

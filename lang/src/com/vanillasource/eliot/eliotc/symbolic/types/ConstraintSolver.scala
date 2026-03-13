@@ -5,7 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType.*
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType.*
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
 import com.vanillasource.eliot.eliotc.symbolic.types.UnificationState.UnificationCompilerIO
 

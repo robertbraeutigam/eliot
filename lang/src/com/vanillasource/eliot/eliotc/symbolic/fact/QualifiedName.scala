@@ -5,7 +5,6 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{
   QualifiedName as ResolveQualifiedName,
   Qualifier as ResolveQualifier
 }
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
 
 case class QualifiedName(name: String, qualifier: Qualifier)
 

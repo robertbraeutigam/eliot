@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.implementation.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
 
 case class AbilityImplementation(
     abilityValueFQN: ValueFQN,
