@@ -12,7 +12,8 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
-import com.vanillasource.eliot.eliotc.symbolic.fact.{SymbolicType, TypedExpression}
+import com.vanillasource.eliot.eliotc.symbolic.fact.{QuantifiedType, SymbolicType, TypedExpression}
+import com.vanillasource.eliot.eliotc.symbolic.fact.QuantifiedType.given
 import com.vanillasource.eliot.eliotc.monomorphize.processor.SymbolicTypeConversions.{toExpressionValue, fromExpressionValue}
 import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckedValue
 

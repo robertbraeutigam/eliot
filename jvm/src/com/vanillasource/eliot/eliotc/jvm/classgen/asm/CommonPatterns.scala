@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.uncurry.fact.ParameterDefinition
 import NativeType.{systemAnyValue, systemFunctionValue}
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.{QuantifiedType, SymbolicType}
 
 object CommonPatterns {
   def simpleType(st: SymbolicType): ValueFQN =
@@ -34,13 +34,13 @@ object CommonPatterns {
   private def stripDataTypeSuffix(valueFQN: ValueFQN): ValueFQN =
     ValueFQN(valueFQN.moduleName, QualifiedName(valueFQN.name.name, Qualifier.Default))
 
-  def extractSignatureTypes(signature: SymbolicType): (Seq[SymbolicType], SymbolicType) = {
+  def extractSignatureTypes(signature: QuantifiedType): (Seq[SymbolicType], SymbolicType) = {
     def loop(expr: SymbolicType, acc: Seq[SymbolicType]): (Seq[SymbolicType], SymbolicType) =
       expr match {
         case SymbolicType.FunctionType(paramType, returnType) => loop(returnType, acc :+ paramType)
         case _                                                => (acc, expr)
       }
-    loop(SymbolicType.stripUniversalTypeIntros(signature), Seq.empty)
+    loop(signature.body, Seq.empty)
   }
 
   extension (classGenerator: ClassGenerator) {

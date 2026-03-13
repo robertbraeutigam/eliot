@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
-import com.vanillasource.eliot.eliotc.symbolic.fact.{SymbolicType, TypeCheckedValue, TypedExpression}
+import com.vanillasource.eliot.eliotc.symbolic.fact.{QuantifiedType, SymbolicType, TypeCheckedValue, TypedExpression}
 
 import scala.annotation.tailrec
 
@@ -29,7 +29,7 @@ class AbilityCheckProcessor
       paramConstraints = resolvedValue.map(_.paramConstraints).getOrElse(Map.empty)
       resolvedBody  <- fact.runtime match {
                          case Some(runtime) =>
-                           resolveAbilityRefs(TypedExpression(fact.signature, runtime.value), paramConstraints)
+                           resolveAbilityRefs(TypedExpression(QuantifiedType.toSymbolicType(fact.signature), runtime.value), paramConstraints)
                              .map(_.expression)
                              .map(runtime.as)
                              .map(Some.apply)
@@ -102,7 +102,7 @@ class AbilityCheckProcessor
     val markerVFQN  =
       ValueFQN(vfqn.moduleName, QualifiedName(abilityName, CoreQualifier.Ability(abilityName)))
     getFactOrAbort(TypeCheckedValue.Key(markerVFQN))
-      .map(marker => SymbolicType.extractLeadingLambdaParams(marker.signature).size)
+      .map(marker => marker.signature.typeParams.size)
   }
 
   /** Returns true if the ability call's type arguments are all covered by a matching ability constraint on the
@@ -135,14 +135,12 @@ class AbilityCheckProcessor
     * returns Seq(TypeReference(Int)).
     */
   private def extractAbilityTypeArgs(
-      declarationSig: SymbolicType,
+      declarationSig: QuantifiedType,
       concreteSig: SymbolicType
   ): Seq[SymbolicType] = {
-    val typeParamNames = SymbolicType.extractLeadingLambdaParams(declarationSig).toSet
-    val pattern        = SymbolicType.stripUniversalTypeIntros(declarationSig)
-    val bindings       = SymbolicType.matchTypes(pattern, concreteSig, typeParamNames.contains)
-    SymbolicType
-      .extractLeadingLambdaParams(declarationSig)
+    val typeParamNames = declarationSig.typeParams.toSet
+    val bindings       = SymbolicType.matchTypes(declarationSig.body, concreteSig, typeParamNames.contains)
+    declarationSig.typeParams
       .map(name => bindings.getOrElse(name, SymbolicType.TypeVariable(name)))
   }
 

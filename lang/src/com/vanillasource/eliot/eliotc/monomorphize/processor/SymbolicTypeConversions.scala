@@ -3,10 +3,13 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.unsourced as evUnsourced
 import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
-import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
+import com.vanillasource.eliot.eliotc.symbolic.fact.{QuantifiedType, SymbolicType}
 import SymbolicType.*
 
 object SymbolicTypeConversions {
+
+  def toExpressionValue(qt: QuantifiedType): ExpressionValue =
+    toExpressionValue(QuantifiedType.toSymbolicType(qt))
 
   def toExpressionValue(st: SymbolicType): ExpressionValue =
     st match {

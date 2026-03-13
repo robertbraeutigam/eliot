@@ -18,7 +18,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 case class TypeCheckedValue(
     vfqn: ValueFQN,
     name: Sourced[QualifiedName],
-    signature: SymbolicType,
+    signature: QuantifiedType,
     runtime: Option[Sourced[TypedExpression.Expression]]
 ) extends CompilerFact {
   override def key(): CompilerFactKey[TypeCheckedValue] = TypeCheckedValue.Key(vfqn)

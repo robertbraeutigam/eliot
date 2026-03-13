@@ -126,19 +126,6 @@ object SymbolicType {
       case other                      => other
     }
 
-  @tailrec
-  def stripUniversalTypeIntros(st: SymbolicType): SymbolicType =
-    st match {
-      case TypeLambda(_, body) => stripUniversalTypeIntros(body.value)
-      case other               => other
-    }
-
-  def extractLeadingLambdaParams(st: SymbolicType): Seq[String] =
-    st match {
-      case TypeLambda(name, body) => name +: extractLeadingLambdaParams(body.value)
-      case _                      => Seq.empty
-    }
-
   def matchTypes(
       pattern: SymbolicType,
       concrete: SymbolicType,

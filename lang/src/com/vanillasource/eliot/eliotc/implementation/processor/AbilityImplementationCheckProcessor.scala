@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
-import com.vanillasource.eliot.eliotc.symbolic.fact.{SymbolicType, TypeCheckedValue, Qualifier as SymbolicQualifier}
+import com.vanillasource.eliot.eliotc.symbolic.fact.{QuantifiedType, SymbolicType, TypeCheckedValue, Qualifier as SymbolicQualifier}
 
 class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[AbilityImplementationCheck.Key] {
 
@@ -65,7 +65,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
         .map(_.filter { checked =>
           checked.name.value.qualifier match {
             case SymbolicQualifier.AbilityImplementation(resolvedFQN, params) if resolvedFQN == abilityFQN =>
-              val freeVarNames = SymbolicType.extractLeadingLambdaParams(checked.signature).toSet
+              val freeVarNames = checked.signature.typeParams.toSet
               implMatchesQuery(params, freeVarNames, typeArguments)
             case _                                                                                         => false
           }
@@ -121,17 +121,16 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
     abilityMethods
       .flatMap(abstractMethod => implByName.get(abstractMethod.name.value.name).map(abstractMethod -> _))
       .traverse_ { case (abstractMethod, implMethod) =>
-        val abilityTypeParamNames = SymbolicType.extractLeadingLambdaParams(abstractMethod.signature)
+        val abilityTypeParamNames = abstractMethod.signature.typeParams
         val implParams            = implMethod.name.value.qualifier match {
           case SymbolicQualifier.AbilityImplementation(_, params) => params
           case _                                                  => Seq.empty
         }
         val patternBindings       = abilityTypeParamNames.zip(implParams).toMap
-        val strippedAbstract      = SymbolicType.stripUniversalTypeIntros(abstractMethod.signature)
-        val expectedImplSig       = patternBindings.foldLeft(strippedAbstract) { case (acc, (name, param)) =>
+        val expectedImplSig       = patternBindings.foldLeft(abstractMethod.signature.body) { case (acc, (name, param)) =>
           SymbolicType.substitute(acc, name, param)
         }
-        val actualImplSig         = SymbolicType.stripUniversalTypeIntros(implMethod.signature)
+        val actualImplSig         = implMethod.signature.body
         val unificationVarBindings =
           SymbolicType.matchTypes(expectedImplSig, actualImplSig, isUnificationVarName)
         val resolvedExpectedSig    = unificationVarBindings.foldLeft(expectedImplSig) { case (acc, (name, value)) =>

@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
-import com.vanillasource.eliot.eliotc.symbolic.fact.{SymbolicType, TypeCheckedValue, TypedExpression, QualifiedName as SymbolicQualifiedName, Qualifier as SymbolicQualifier}
+import com.vanillasource.eliot.eliotc.symbolic.fact.{QuantifiedType, SymbolicType, TypeCheckedValue, TypedExpression, QualifiedName as SymbolicQualifiedName, Qualifier as SymbolicQualifier}
 
 class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] with Logging {
 
@@ -76,7 +76,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     val typeBindings      = computeTypeBindings(abilityChecked.signature, key.typeArguments)
     val typeSubst         = (st: SymbolicType) =>
       typeBindings.foldLeft(st) { case (acc, (name, value)) => SymbolicType.substitute(acc, name, value) }
-    val concreteSignature = typeBindings.foldLeft(SymbolicType.stripUniversalTypeIntros(abilityChecked.signature)) {
+    val concreteSignature = typeBindings.foldLeft(abilityChecked.signature.body) {
       case (acc, (name, value)) => SymbolicType.substitute(acc, name, value)
     }
     val concreteRuntime   = sourcedRuntime.map(substituteTypesInExpression(_, typeSubst))
@@ -103,17 +103,16 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
           sibling.moduleName,
           QualifiedName(abilityValueFQN.name.name, sibling.name.qualifier.asInstanceOf[Qualifier.AbilityImplementation])
         )
-      _        <- registerFactIfClear(TypeCheckedValue(implFQN, syntheticName, concreteSignature, Some(concreteRuntime)))
+      _        <- registerFactIfClear(TypeCheckedValue(implFQN, syntheticName, QuantifiedType(Seq.empty, concreteSignature), Some(concreteRuntime)))
       _        <- registerFactIfClear(AbilityImplementation(key.abilityValueFQN, key.typeArguments, implFQN))
     } yield ()
   }
 
   private def computeTypeBindings(
-      signature: SymbolicType,
+      signature: QuantifiedType,
       typeArguments: Seq[SymbolicType]
   ): Map[String, SymbolicType] =
-    SymbolicType
-      .extractLeadingLambdaParams(signature)
+    signature.typeParams
       .zip(typeArguments)
       .toMap
 
@@ -174,7 +173,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
         checked.name.value.qualifier match {
           case SymbolicQualifier.AbilityImplementation(resolvedAbilityFQN, params)
               if resolvedAbilityFQN == expectedAbilityFQN =>
-            val freeVarNames = SymbolicType.extractLeadingLambdaParams(checked.signature).toSet
+            val freeVarNames = checked.signature.typeParams.toSet
             if (implMatchesQuery(params, freeVarNames, expectedTypeArgs)) Seq(vfqn) else Seq.empty
           case _ => Seq.empty
         }

@@ -35,7 +35,7 @@ class UncurryingProcessor
       (parameterTypes, returnType)    <-
         extractParameters(
           typeCheckedValue.name,
-          SymbolicType.stripUniversalTypeIntros(typeCheckedValue.signature),
+          typeCheckedValue.signature.body,
           key.arity
         )
       (parameterNames, convertedBody) <- typeCheckedValue.runtime match {

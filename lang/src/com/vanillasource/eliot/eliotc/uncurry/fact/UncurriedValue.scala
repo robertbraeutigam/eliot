@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.uncurry.fact
 
-import com.vanillasource.eliot.eliotc.symbolic.fact.{QualifiedName, SymbolicType}
+import com.vanillasource.eliot.eliotc.symbolic.fact.{QualifiedName, QuantifiedType, SymbolicType}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -26,7 +26,7 @@ case class UncurriedValue(
     vfqn: ValueFQN,
     arity: Int,
     name: Sourced[QualifiedName],
-    signature: SymbolicType,
+    signature: QuantifiedType,
     parameters: Seq[ParameterDefinition],
     returnType: SymbolicType,
     body: Option[Sourced[UncurriedExpression.Expression]]

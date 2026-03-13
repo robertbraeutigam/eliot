@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedValue, Oper
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.*
-import com.vanillasource.eliot.eliotc.symbolic.fact.{SymbolicType, TypedExpression}
+import com.vanillasource.eliot.eliotc.symbolic.fact.{QuantifiedType, SymbolicType, TypedExpression}
 import com.vanillasource.eliot.eliotc.symbolic.types.{NormalFormEvaluator, SymbolicUnification}
 import SymbolicType.*
 import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
@@ -23,9 +23,9 @@ import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.*
   *     organized in stacks, where every level defines the type of the next level. Also all levels may have smaller
   *     stacks as parts, like lambda bodies, parameter types, function calls, etc. It's a sort-of fractal data
   *     structure.
-  *   - SymbolicType: In this class this always refers to a "normal form", i.e. a symbolic evaluation of an
-  *     expression. This means it will inline and reduce all referenced functions except constructors which will stay as
-  *     structural elements to unify later.
+  *   - SymbolicType: In this class this always refers to a "normal form", i.e. a symbolic evaluation of an expression.
+  *     This means it will inline and reduce all referenced functions except constructors which will stay as structural
+  *     elements to unify later.
   *   - TypedExpression: A pair of a SymbolicType describing type and TypedExpression.Expression, which is the same as
   *     an OperatorResolvedExpression, except it is not stacked anymore. All type information is "flattened" to a single
   *     SymbolicType.
@@ -45,8 +45,9 @@ object SymbolicTypeCheck extends Logging {
                   for {
                     // Convert previous level to normalized type expression, stripping leading
                     // TypeLambdas since their parameters are already bound in the type check state
-                    previousLevel   <- StateT.liftF(NormalFormEvaluator.evaluate(acc._2))
-                                         .map(SymbolicType.stripUniversalTypeIntros)
+                    previousLevel   <- StateT
+                                         .liftF(NormalFormEvaluator.evaluate(acc._2))
+                                         .map(st => QuantifiedType.fromSymbolicType(st).body)
                     // Create constraints of this level against the assumed type
                     _               <- debug[TypeGraphIO]("Type checking new level...")
                     typedExpression <- typeCheck(previousLevel, expression)
