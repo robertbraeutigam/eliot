@@ -170,7 +170,7 @@ class SymbolicTypeCheckProcessorTest
 
   it should "type check nested higher-kinded parameter" in {
     runEngineForErrors(
-      "data Int\ndef f[G[_], F[_[_]]](x: F[G[Int]]): F[G[Int]] = x"
+      "data Int\ndef f[G[_], F[_[_]]](x: F[G]): F[G] = x"
     )
       .asserting(_ shouldBe Seq.empty)
   }
@@ -196,7 +196,7 @@ class SymbolicTypeCheckProcessorTest
 
   it should "type check with explicit nested higher-kinded restriction" in {
     runEngineForErrors(
-      "data Int\ndef f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G[Int]]): F[G[Int]] = x"
+      "data Int\ndef f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x"
     )
       .asserting(_ shouldBe Seq.empty)
   }
