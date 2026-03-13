@@ -100,7 +100,7 @@ object SymbolicTypeCheck extends Logging {
             // TODO: We ignore typeArgs for now, we need to check their types as well and include them somehow
             _         <-
               debug[TypeGraphIO](
-                s"Inside value reference for '${vfqn.show}', value type: ${symbolicTypeUserDisplay.show(valueType)}"
+                s"Inside value reference for '${vfqn.value.show}', value type: ${symbolicTypeUserDisplay.show(valueType)}"
               )
           } yield TypedExpression(valueType, TypedExpression.ValueReference(vfqn))
         case Expr.FunctionApplication(target, arg)               =>
@@ -138,7 +138,7 @@ object SymbolicTypeCheck extends Logging {
                                   generateUnificationVar.map(paramName.as(_))
                               }
             _              <- bindParameter(paramName.value, typedParamType)
-            _              <- addUniversalVar(paramName.value)
+            _              <- addUniversalVar(paramName.value) // FIXME: not true, this is not always universal, only on top!
             _              <- debug[TypeGraphIO]("Checking function literal body type...")
             retTypeVar     <- generateUnificationVar
             typedBody      <- typeCheck(retTypeVar, body)
