@@ -287,7 +287,7 @@ class SymbolicTypeCheckProcessorTest
   it should "fail when the explicit type arg conflicts with the declared return type" in {
     runEngineForErrors(
       "def id[A](a: A): A = a\ndata String\ndata Int\ndef i: Int\ndef f(s: String): String = id[Int](i)"
-    ).asserting(_ shouldBe Seq("Return type mismatch." at "i"))
+    ).asserting(_ shouldBe Seq("Return type mismatch." at "id"))
   }
 
   it should "fail with too many type arguments" in {

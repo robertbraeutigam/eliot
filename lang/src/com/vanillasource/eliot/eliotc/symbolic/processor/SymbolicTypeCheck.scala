@@ -98,7 +98,7 @@ object SymbolicTypeCheck extends Logging {
             // Instantiate quantified type params, using explicit type args where provided
             quantified     = QuantifiedType.fromSymbolicType(rawValueType)
             _             <- StateT
-                               .liftF(compilerAbort[Unit](rawVfqn.as(s"Too many type arguments")))
+                               .liftF(compilerAbort[Unit](rawVfqn.as("Too many explicit type arguments.")))
                                .whenA(typeArgs.size > quantified.typeParams.size)
             evaluatedArgs <- typeArgs.traverse(ta => StateT.liftF(NormalFormEvaluator.evaluate(ta)))
             valueType     <- quantified.typeParams.zipWithIndex.foldLeftM(quantified.body) {
