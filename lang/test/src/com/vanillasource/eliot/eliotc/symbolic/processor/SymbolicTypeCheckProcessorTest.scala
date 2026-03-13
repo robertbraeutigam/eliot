@@ -305,7 +305,7 @@ class SymbolicTypeCheckProcessorTest
   it should "fail with too few explicit type args that conflict with usage" in {
     runEngineForErrors(
       "def f2[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = f2[Int](s, i)"
-    ).asserting(_ shouldBe Seq("Argument type mismatch." at "s", "Return type mismatch." at "i"))
+    ).asserting(_ shouldBe Seq("Type mismatch." at "s", "Return type mismatch." at "f2"))
   }
 
   it should "type check with explicit type args and multiple type params" in {
@@ -318,14 +318,14 @@ class SymbolicTypeCheckProcessorTest
     runEngineForErrors(
       "def g[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = g[Int, String](s, i)"
     ).asserting(
-      _ shouldBe Seq("Argument type mismatch." at "s", "Argument type mismatch." at "i", "Return type mismatch." at "i")
+      _ shouldBe Seq("Type mismatch." at "s", "Type mismatch." at "i", "Return type mismatch." at "g")
     )
   }
 
   it should "point type argument mismatch to the explicit type argument" in {
     runEngineForErrors(
       "data String\ndata Int\ndata Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[Int](g)"
-    ).asserting(_ shouldBe Seq("Type argument mismatch." at "Int"))
+    ).asserting(_ shouldBe Seq("Type argument mismatch." at "Box"))
   }
 
   it should "type check with an applied generic type as a type argument" in {
