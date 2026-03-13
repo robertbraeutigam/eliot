@@ -230,7 +230,7 @@ object ConstraintSolverTest {
       .map {
         case Left(errors)                          => Left(errors.toList)
         case Right((errors, _)) if errors.nonEmpty => Left(errors.toList)
-        case Right((_, state))                     => Right(state.substitutions)
+        case Right((_, state))                     => Right(state.substitutions.view.mapValues(_.value).toMap)
       }
 
   private def solve(constraints: Constraint*): IO[Map[String, SymbolicType]] =

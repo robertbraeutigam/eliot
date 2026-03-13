@@ -110,7 +110,7 @@ class SymbolicTypeCheckProcessorTest
     runEngineForErrors(
       "def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(id(id(i)))"
     )
-      .asserting(_ shouldBe Seq("Return type mismatch." at "id(id(i))"))
+      .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
   }
 
   it should "unify on multiple parameters" in {
