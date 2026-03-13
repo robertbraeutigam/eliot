@@ -93,17 +93,28 @@ object SymbolicTypeCheck extends Logging {
           // Get the return type of the value, check the type args too
           for {
             // Get the value and its signature (we don't check the whole thing, it will be checked on its own)
-            resolved     <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-            rawValueType <- StateT.liftF(NormalFormEvaluator.evaluate(resolved.typeStack.map(_.signature)))
-            // Instantiate quantified type params with fresh unification vars to avoid name collisions
-            quantified    = QuantifiedType.fromSymbolicType(rawValueType)
-            valueType    <- quantified.typeParams.foldLeftM(quantified.body) { (body, param) =>
-                              generateUnificationVar.map(v => SymbolicType.substitute(body, param._1, v))
-                            }
+            resolved      <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
+            rawValueType  <- StateT.liftF(NormalFormEvaluator.evaluate(resolved.typeStack.map(_.signature)))
+            // Instantiate quantified type params, using explicit type args where provided
+            quantified     = QuantifiedType.fromSymbolicType(rawValueType)
+            _             <- StateT
+                               .liftF(compilerAbort[Unit](rawVfqn.as(s"Too many type arguments")))
+                               .whenA(typeArgs.size > quantified.typeParams.size)
+            evaluatedArgs <- typeArgs.traverse(ta => StateT.liftF(NormalFormEvaluator.evaluate(ta)))
+            valueType     <- quantified.typeParams.zipWithIndex.foldLeftM(quantified.body) {
+                               case (body, ((paramName, paramKind), idx)) =>
+                                 if (idx < evaluatedArgs.size) {
+                                   // Type-check the explicit type argument against the parameter's kind
+                                   typeCheck(paramKind, typeArgs(idx)) *>
+                                     SymbolicType.substitute(body, paramName, evaluatedArgs(idx)).pure[TypeGraphIO]
+                                 } else {
+                                   // No explicit type arg, generate unification var
+                                   generateUnificationVar.map(v => SymbolicType.substitute(body, paramName, v))
+                                 }
+                             }
             // Constrain the result type to the valueType here
-            _            <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(valueType), "Type mismatch."))
-            // TODO: We ignore typeArgs for now, we need to check their types as well and include them somehow
-            _            <-
+            _             <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(valueType), "Type mismatch."))
+            _             <-
               debug[TypeGraphIO](
                 s"Inside value reference for '${vfqn.value.show}', value type: ${symbolicTypeUserDisplay.show(valueType)}"
               )
