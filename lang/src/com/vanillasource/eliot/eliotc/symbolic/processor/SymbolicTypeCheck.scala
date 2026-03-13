@@ -93,12 +93,17 @@ object SymbolicTypeCheck extends Logging {
           // Get the return type of the value, check the type args too
           for {
             // Get the value and its signature (we don't check the whole thing, it will be checked on its own)
-            resolved  <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-            valueType <- StateT.liftF(NormalFormEvaluator.evaluate(resolved.typeStack.map(_.signature)))
+            resolved     <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
+            rawValueType <- StateT.liftF(NormalFormEvaluator.evaluate(resolved.typeStack.map(_.signature)))
+            // Instantiate quantified type params with fresh unification vars to avoid name collisions
+            quantified    = QuantifiedType.fromSymbolicType(rawValueType)
+            valueType    <- quantified.typeParams.foldLeftM(quantified.body) { (body, param) =>
+                              generateUnificationVar.map(v => SymbolicType.substitute(body, param, v))
+                            }
             // Constrain the result type to the valueType here
-            _         <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(valueType), "Type mismatch."))
+            _            <- tellConstraint(SymbolicUnification.constraint(resultType, vfqn.as(valueType), "Type mismatch."))
             // TODO: We ignore typeArgs for now, we need to check their types as well and include them somehow
-            _         <-
+            _            <-
               debug[TypeGraphIO](
                 s"Inside value reference for '${vfqn.value.show}', value type: ${symbolicTypeUserDisplay.show(valueType)}"
               )
