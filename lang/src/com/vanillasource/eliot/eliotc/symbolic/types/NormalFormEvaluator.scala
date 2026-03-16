@@ -29,6 +29,8 @@ object NormalFormEvaluator {
     case OperatorResolvedExpression.ParameterReference(s)                             =>
       TypeVariable(s.value).pure[CompilerIO]
     case OperatorResolvedExpression.ValueReference(s, _)                              =>
+      // We handle arguments in the FunctionApplication case, so this is only if no arguments
+      // or normal arguments.
       evaluateValue(s.value, expression, evaluating)
     case OperatorResolvedExpression.FunctionLiteral(paramName, None, _)               =>
       compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated."))
@@ -38,6 +40,12 @@ object NormalFormEvaluator {
         evaluatedBody      <- evaluate(body, evaluating, callSite)
       } yield TypeLambda(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
+      // There are several different cases we need to handle:
+      // - Constructors: Stay as structural elements
+      // - "Type^Default": Should be handled as Type^Type, case 1
+      // - Non-constructor function applied to value: Evaluate
+      // - Non-constructor function applied to symbol: Introduce new symbol with type return type of function
+      // TODO: above
       for {
         targetValue <- evaluate(target, evaluating, callSite)
         argValue    <- evaluate(argument, evaluating, callSite)
@@ -63,7 +71,7 @@ object NormalFormEvaluator {
             case Some(body) =>
               evaluate(body, evaluating + vfqn, callSite = Some(sourced))
                 .map(SymbolicType.betaReduce)
-            case None       => TypeReference(vfqn).pure[CompilerIO]
+            case None       => TypeReference(vfqn).pure[CompilerIO] // FIXME: this is certainly wrong
           }
         case None           =>
           TypeReference(vfqn).pure[CompilerIO]
