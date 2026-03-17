@@ -22,7 +22,9 @@ class SymbolicTypeCheckProcessorTest
       CoreProcessor(),
       ModuleNamesProcessor(),
       UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(Seq(ModuleName.systemFunctionModuleName)),
+      ModuleValueProcessor(
+        Seq(ModuleName.systemFunctionModuleName, ModuleName(ModuleName.defaultSystemPackage, "BigInteger"))
+      ),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
       MatchDesugaringProcessor(),
@@ -334,10 +336,22 @@ class SymbolicTypeCheckProcessorTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
-  "type level functions" should "evaluate" in {
+  "type level functions" should "support non-type type parameters" in {
     runEngineForErrors(
       "data String\ndef str: String\ndata Group\ndata Person[G: Group](name: String)\ndef f[G: Group]: Person[G] = Person[G](str)"
     ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "calculated concrete literal values" in {
+    runEngineForErrors(
+      "def one: BigInteger = 1\ndef oneDifferently: BigInteger = 1\ndata String\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "rejects calculated differing concrete literal values" in {
+    runEngineForErrors(
+      "def one: BigInteger = 1\ndef two: BigInteger = 2\ndata String\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[two](str)"
+    ).asserting(_ shouldBe Seq("Type argument mismatch." at "Box"))
   }
 
   "function application in type position" should "detect mismatch when function return type differs from expected" in {
