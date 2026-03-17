@@ -26,10 +26,10 @@ class SymbolicTypeCheckProcessor
       key: TypeCheckedValue.Key,
       resolvedValue: OperatorResolvedValue
   ): CompilerIO[TypeCheckedValue] = {
-    val typeStack     = resolvedValue.typeStack
-    val reversedSeq   = typeStack.value.levels.toSeq.reverse
-    val typeLevels    = NonEmptySeq(reversedSeq.head, reversedSeq.tail).map(typeStack.as(_))
-    val vfqnShow   = resolvedValue.vfqn.show
+    val typeStack   = resolvedValue.typeStack
+    val reversedSeq = typeStack.value.levels.toSeq.reverse
+    val typeLevels  = NonEmptySeq(reversedSeq.head, reversedSeq.tail).map(typeStack.as(_))
+    val vfqnShow    = resolvedValue.vfqn.show
 
     for {
       (endState, result)       <- typeCheck(typeLevels.appendSeq(resolvedValue.runtime.toSeq)).run(TypeCheckState())
@@ -47,6 +47,7 @@ class SymbolicTypeCheckProcessor
                                     case None    =>
                                       NormalFormEvaluator
                                         .evaluate(typeStack.as(typeStack.value.signature))
+                                        .runA(TypeCheckState()) // Are we sure this is ok?
                                         .map(st => st -> None)
                                   }
       resolvedQualifierParams  <- resolveQualifierParams(resolvedValue.name)
@@ -69,9 +70,11 @@ class SymbolicTypeCheckProcessor
     name.value.qualifier match {
       case ResolveQualifier.AbilityImplementation(_, expressions) =>
         expressions.traverse { expression =>
-          NormalFormEvaluator.evaluate(
-            name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(expression)))
-          )
+          NormalFormEvaluator
+            .evaluate(
+              name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(expression)))
+            )
+            .runA(TypeCheckState()) // Are we sure this is ok?
         }
       case _                                                      => Seq.empty.pure[CompilerIO]
     }

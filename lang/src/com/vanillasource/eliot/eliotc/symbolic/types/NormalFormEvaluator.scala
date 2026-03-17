@@ -11,6 +11,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
 import SymbolicType.*
+import cats.data.StateT
+import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.TypeGraphIO
 
 object NormalFormEvaluator {
 
@@ -21,19 +23,19 @@ object NormalFormEvaluator {
       expression: Sourced[OperatorResolvedExpression],
       evaluating: Set[ValueFQN] = Set.empty,
       callSite: Option[Sourced[?]] = None
-  ): CompilerIO[SymbolicType] = expression.value match {
+  ): TypeGraphIO[SymbolicType] = expression.value match {
     case OperatorResolvedExpression.IntegerLiteral(s)                                 =>
-      LiteralType(s.value, bigIntTypeFQN).pure[CompilerIO]
+      LiteralType(s.value, bigIntTypeFQN).pure[TypeGraphIO]
     case OperatorResolvedExpression.StringLiteral(s)                                  =>
-      LiteralType(s.value, stringTypeFQN).pure[CompilerIO]
+      LiteralType(s.value, stringTypeFQN).pure[TypeGraphIO]
     case OperatorResolvedExpression.ParameterReference(s)                             =>
-      TypeVariable(s.value).pure[CompilerIO]
+      TypeVariable(s.value).pure[TypeGraphIO]
     case OperatorResolvedExpression.ValueReference(s, _)                              =>
       // We handle arguments in the FunctionApplication case, so this is only if no arguments
       // or normal arguments.
       evaluateValue(s.value, expression, evaluating)
     case OperatorResolvedExpression.FunctionLiteral(paramName, None, _)               =>
-      compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated."))
+      StateT.liftF(compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated.")))
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramType), body) =>
       for {
         evaluatedParamType <- evaluate(paramType.map(_.signature), evaluating, callSite)
@@ -59,22 +61,22 @@ object NormalFormEvaluator {
       vfqn: ValueFQN,
       sourced: Sourced[?],
       evaluating: Set[ValueFQN]
-  ): CompilerIO[SymbolicType] =
+  ): TypeGraphIO[SymbolicType] =
     if (evaluating.contains(vfqn)) {
-      compilerAbort(sourced.as("Recursive evaluation detected."))
+      StateT.liftF(compilerAbort(sourced.as("Recursive evaluation detected.")))
     } else if (vfqn === typeFQN) {
-      TypeReference(vfqn).pure[CompilerIO]
+      TypeReference(vfqn).pure[TypeGraphIO]
     } else {
-      getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
+      StateT.liftF(getFact(OperatorResolvedValue.Key(vfqn))).flatMap {
         case Some(resolved) =>
           resolved.runtime match {
             case Some(body) =>
               evaluate(body, evaluating + vfqn, callSite = Some(sourced))
                 .map(SymbolicType.betaReduce)
-            case None       => TypeReference(vfqn).pure[CompilerIO] // FIXME: this is certainly wrong
+            case None       => TypeReference(vfqn).pure[TypeGraphIO] // FIXME: this is certainly wrong
           }
         case None           =>
-          TypeReference(vfqn).pure[CompilerIO]
+          TypeReference(vfqn).pure[TypeGraphIO] // FIXME: this is certainly wrong
       }
     }
 
