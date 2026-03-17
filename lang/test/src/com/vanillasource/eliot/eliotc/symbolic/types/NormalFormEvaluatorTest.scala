@@ -91,11 +91,11 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
 
   it should "evaluate function application" in {
     val fqn  = vfqn("f")
-    val fact = resolvedValue(fqn, body = None)
+    val fact = resolvedValue(fqn, body = Some(funLit("x", valueRef(typeFQN), paramRef("x"))))
     runEvaluate(funApp(valueRef(fqn), intLit(42)), facts = Seq(fact))
       .asserting(
         _ shouldBe TypeApplication(
-          unsourced(TypeReference(fqn)),
+          unsourced(TypeLambda("x", TypeReference(typeFQN), unsourced(TypeVariable("x")))),
           unsourced(LiteralType(BigInt(42), bigIntTypeFQN))
         )
       )
