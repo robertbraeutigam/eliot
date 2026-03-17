@@ -3,3 +3,4 @@
 - All files must have one top-level type and optionally a companion with the same name
 - No top-level functions or types named differently than the file
 - Only use import at the beginning of a file
+- Documentation should be precise, to the point and contain examples if applicable
