@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 import cats.data.{Chain, NonEmptySeq}
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
+import com.vanillasource.eliot.eliotc.core.fact.Qualifier.Type
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Types, Value}
@@ -41,8 +42,8 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
 
   // --- Value references ---
 
-  it should "evaluate data type reference with no runtime body" in {
-    val fqn  = vfqn("MyData")
+  it should "evaluate data type reference into structural type" in {
+    val fqn  = vfqn("MyData", Type)
     val fact = resolvedValue(fqn, body = None)
     runEvaluate(valueRef(fqn), facts = Seq(fact))
       .asserting(_ shouldBe TypeReference(fqn))
@@ -55,10 +56,10 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
       .asserting(_ shouldBe LiteralType(BigInt(42), bigIntTypeFQN))
   }
 
-  it should "evaluate unknown value reference as type reference" in {
+  it should "reject unknown value references" in {
     val fqn = vfqn("Unknown")
-    runEvaluate(valueRef(fqn))
-      .asserting(_ shouldBe TypeReference(fqn))
+    runEvaluateForErrors(sourced(valueRef(fqn)))
+      .asserting(_.head.message shouldBe "Can not evaluate referenced value.")
   }
 
   it should "report error for recursive value reference" in {
@@ -145,9 +146,9 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
       .asserting(_ shouldBe TypeVariable("A"))
   }
 
-  private val bigIntTypeVfqn = ValueFQN(testModuleName, QualifiedName("BigIntType", Qualifier.Default))
+  private val bigIntTypeVfqn = ValueFQN(testModuleName, QualifiedName("BigIntType", Qualifier.Type))
   private val bigIntTypeFact = NamedEvaluable(bigIntTypeVfqn, ExpressionValue.ConcreteValue(Types.bigIntType))
-  private val stringTypeVfqn = ValueFQN(testModuleName, QualifiedName("StringType", Qualifier.Default))
+  private val stringTypeVfqn = ValueFQN(testModuleName, QualifiedName("StringType", Qualifier.Type))
   private val stringTypeFact = NamedEvaluable(stringTypeVfqn, ExpressionValue.ConcreteValue(Types.stringType))
 
   // --- Expression DSL ---

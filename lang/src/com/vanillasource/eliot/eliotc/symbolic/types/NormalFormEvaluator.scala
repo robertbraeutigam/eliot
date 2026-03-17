@@ -63,20 +63,23 @@ object NormalFormEvaluator {
       evaluating: Set[ValueFQN]
   ): TypeGraphIO[SymbolicType] =
     if (evaluating.contains(vfqn)) {
+      // Disallow recursion
       StateT.liftF(compilerAbort(sourced.as("Recursive evaluation detected.")))
-    } else if (vfqn === typeFQN) {
+    } else if (vfqn === typeFQN || vfqn.name.qualifier === Qualifier.Type) {
+      // If Type or other type constructor, then return as type reference
       TypeReference(vfqn).pure[TypeGraphIO]
     } else {
+      // It's a type-level function, so evaluate
+      // TODO: We need to know if there are any symbol parameters, because then introduce new variable
       StateT.liftF(getFact(OperatorResolvedValue.Key(vfqn))).flatMap {
         case Some(resolved) =>
           resolved.runtime match {
             case Some(body) =>
-              evaluate(body, evaluating + vfqn, callSite = Some(sourced))
-                .map(SymbolicType.betaReduce)
-            case None       => TypeReference(vfqn).pure[TypeGraphIO] // FIXME: this is certainly wrong
+              evaluate(body, evaluating + vfqn, callSite = Some(sourced)).map(SymbolicType.betaReduce)
+            case None       => StateT.liftF(compilerAbort(sourced.as("Referenced value has no body.")))
           }
         case None           =>
-          TypeReference(vfqn).pure[TypeGraphIO] // FIXME: this is certainly wrong
+          StateT.liftF(compilerAbort(sourced.as("Can not evaluate referenced value.")))
       }
     }
 
