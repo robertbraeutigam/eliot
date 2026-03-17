@@ -334,6 +334,12 @@ class SymbolicTypeCheckProcessorTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  "type level functions" should "evaluate" in {
+    runEngineForErrors(
+      "data String\ndef str: String\ndata Group\ndata Person[G: Group](name: String)\ndef f[G: Group]: Person[G] = Person[G](str)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   "function application in type position" should "detect mismatch when function return type differs from expected" in {
     runEngineForErrors(
       "data A\ndata B\ndef g(x: A): B\ndata Box[X: Type](v: A)\ndef a: A\ndef f[I]: Box(g(I)) = Box[A](a)"
