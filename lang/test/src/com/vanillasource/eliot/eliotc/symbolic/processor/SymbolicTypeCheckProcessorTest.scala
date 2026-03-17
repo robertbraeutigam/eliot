@@ -340,6 +340,12 @@ class SymbolicTypeCheckProcessorTest
     ).asserting(_ shouldBe Seq("Type argument mismatch." at "A"))
   }
 
+  it should "accept type-level function calls, if the types make sense" in {
+    runEngineForErrors(
+      "def g(x: Type): Type\ndata Box[X: Type](value: X)\ndef f[T](value: T): Box(g(T)) = Box(value)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   private def runEngineForErrors(source: String): IO[Seq[TestError]] =
     runGenerator(
       source,
