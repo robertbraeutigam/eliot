@@ -18,10 +18,8 @@ import com.vanillasource.eliot.eliotc.symbolic.types.NormalFormEvaluator
 
 class NormalFormEvaluatorTest extends ProcessorTest() {
 
-  private val bigIntTypeFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type))
-  private val stringTypeFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type))
+  private val bigIntTypeFQN  = ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type))
+  private val stringTypeFQN  = ValueFQN(ModuleName(defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type))
 
   // --- Literal translation ---
 
@@ -205,7 +203,7 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
     for {
       generator <- createGenerator(Seq(bigIntTypeFact, stringTypeFact) ++ facts)
       result    <-
-        NormalFormEvaluator.evaluate(sourced(expr)).runA(TypeCheckState()).run(generator).run(Chain.empty).value
+        NormalFormEvaluator.evaluate(sourced(expr)).run(generator).run(Chain.empty).value
     } yield result match {
       case Right((_, value)) => value
       case Left(errors)      => throw new Exception(s"Expected success but got errors: ${errors.toList}")
@@ -218,7 +216,7 @@ class NormalFormEvaluatorTest extends ProcessorTest() {
     for {
       generator <- createGenerator(Seq(bigIntTypeFact, stringTypeFact) ++ facts)
       result    <-
-        NormalFormEvaluator.evaluate(expression).runA(TypeCheckState()).run(generator).run(Chain.empty).value
+        NormalFormEvaluator.evaluate(expression).run(generator).run(Chain.empty).value
     } yield result match {
       case Left(errors)                          => errors.toList
       case Right((errors, _)) if errors.nonEmpty => errors.toList

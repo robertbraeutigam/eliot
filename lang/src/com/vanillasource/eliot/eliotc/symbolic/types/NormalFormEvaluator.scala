@@ -11,8 +11,6 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
 import SymbolicType.*
-import cats.data.StateT
-import com.vanillasource.eliot.eliotc.symbolic.types.TypeCheckState.TypeGraphIO
 
 object NormalFormEvaluator {
 
@@ -23,17 +21,17 @@ object NormalFormEvaluator {
       expression: Sourced[OperatorResolvedExpression],
       evaluating: Set[ValueFQN] = Set.empty,
       callSite: Option[Sourced[?]] = None
-  ): TypeGraphIO[SymbolicType] = expression.value match {
+  ): CompilerIO[SymbolicType] = expression.value match {
     case OperatorResolvedExpression.IntegerLiteral(s)                                 =>
-      LiteralType(s.value, bigIntTypeFQN).pure[TypeGraphIO]
+      LiteralType(s.value, bigIntTypeFQN).pure[CompilerIO]
     case OperatorResolvedExpression.StringLiteral(s)                                  =>
-      LiteralType(s.value, stringTypeFQN).pure[TypeGraphIO]
+      LiteralType(s.value, stringTypeFQN).pure[CompilerIO]
     case OperatorResolvedExpression.ParameterReference(s)                             =>
-      TypeVariable(s.value).pure[TypeGraphIO]
+      TypeVariable(s.value).pure[CompilerIO]
     case OperatorResolvedExpression.ValueReference(s, _)                              =>
       evaluateValue(s.value, expression, evaluating)
     case OperatorResolvedExpression.FunctionLiteral(paramName, None, _)               =>
-      StateT.liftF(compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated.")))
+      compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated."))
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramType), body) =>
       for {
         evaluatedParamType <- evaluate(paramType.map(_.signature), evaluating, callSite)
@@ -53,7 +51,7 @@ object NormalFormEvaluator {
       vfqn: ValueFQN,
       sourced: Sourced[?],
       evaluating: Set[ValueFQN]
-  ): TypeGraphIO[SymbolicType] =
+  ): CompilerIO[SymbolicType] =
     if (evaluating.contains(vfqn)) {
       // Disallow recursion
       StateT.liftF(compilerAbort(sourced.as("Recursive evaluation detected.")))

@@ -45,8 +45,8 @@ object SymbolicTypeCheck extends Logging {
                   for {
                     // Convert previous level to normalized type expression, stripping leading
                     // TypeLambdas since their parameters are already bound in the type check state
-                    previousLevel   <- NormalFormEvaluator
-                                         .evaluate(acc._2)
+                    previousLevel   <- StateT
+                                         .liftF(NormalFormEvaluator.evaluate(acc._2))
                                          .map(st => QuantifiedType.fromSymbolicType(st).body)
                     // Create constraints of this level against the assumed type
                     _               <- debug[TypeGraphIO]("Type checking new level...")
@@ -94,13 +94,13 @@ object SymbolicTypeCheck extends Logging {
           for {
             // Get the value and its signature (we don't check the whole thing, it will be checked on its own)
             resolved      <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-            rawValueType  <- NormalFormEvaluator.evaluate(resolved.typeStack.map(_.signature))
+            rawValueType  <- StateT.liftF(NormalFormEvaluator.evaluate(resolved.typeStack.map(_.signature)))
             // Instantiate quantified type params, using explicit type args where provided
             quantified     = QuantifiedType.fromSymbolicType(rawValueType)
             _             <- StateT
                                .liftF(compilerAbort[Unit](rawVfqn.as("Too many explicit type arguments.")))
                                .whenA(typeArgs.size > quantified.typeParams.size)
-            evaluatedArgs <- typeArgs.traverse(NormalFormEvaluator.evaluate(_))
+            evaluatedArgs <- typeArgs.traverse(ta => StateT.liftF(NormalFormEvaluator.evaluate(ta)))
             valueType     <- quantified.typeParams.zipWithIndex.foldLeftM(quantified.body) {
                                case (body, ((paramName, paramKind), idx)) =>
                                  if (idx < evaluatedArgs.size) {
@@ -144,7 +144,10 @@ object SymbolicTypeCheck extends Logging {
                                   for {
                                     _         <- debug[TypeGraphIO]("Checking function literal parameter type...")
                                     _         <- typeCheck(paramTypeExpression.value.levels.map(paramTypeExpression.as(_)))
-                                    paramType <- NormalFormEvaluator.evaluate(paramTypeExpression.map(_.signature))
+                                    paramType <-
+                                      StateT.liftF(
+                                        NormalFormEvaluator.evaluate(paramTypeExpression.map(_.signature))
+                                      )
                                   } yield paramTypeExpression.as(paramType)
                                 case None                      =>
                                   // Parameter type not specified, so let's just get a unification var
