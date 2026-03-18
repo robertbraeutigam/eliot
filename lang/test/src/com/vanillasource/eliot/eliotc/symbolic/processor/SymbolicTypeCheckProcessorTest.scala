@@ -354,6 +354,18 @@ class SymbolicTypeCheckProcessorTest
     ).asserting(_ shouldBe Seq("Type argument mismatch." at "Box"))
   }
 
+  it should "calculated concrete data values" in {
+    runEngineForErrors(
+      "data Person(age: BigInteger)\ndef one: BigInteger = Person(1)\ndef oneDifferently: BigInteger = Person(1)\ndata String\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "rejects calculated differing data values" in {
+    runEngineForErrors(
+      "data Person(age: BigInteger)\ndef one: BigInteger = Person(1)\ndef oneDifferently: BigInteger = Person(2)\ndata String\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+    ).asserting(_ shouldBe Seq("Type argument mismatch." at "Box"))
+  }
+
   "function application in type position" should "detect mismatch when function return type differs from expected" in {
     runEngineForErrors(
       "data A\ndata B\ndef g(x: A): B\ndata Box[X: Type](v: A)\ndef a: A\ndef f[I]: Box(g(I)) = Box[A](a)"

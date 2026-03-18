@@ -31,8 +31,6 @@ object NormalFormEvaluator {
     case OperatorResolvedExpression.ParameterReference(s)                             =>
       TypeVariable(s.value).pure[TypeGraphIO]
     case OperatorResolvedExpression.ValueReference(s, _)                              =>
-      // We handle arguments in the FunctionApplication case, so this is only if no arguments
-      // or normal arguments.
       evaluateValue(s.value, expression, evaluating)
     case OperatorResolvedExpression.FunctionLiteral(paramName, None, _)               =>
       StateT.liftF(compilerAbort(paramName.as("Lambda parameter type must be explicit when expression is evaluated.")))
@@ -42,12 +40,6 @@ object NormalFormEvaluator {
         evaluatedBody      <- evaluate(body, evaluating, callSite)
       } yield TypeLambda(paramName.value, evaluatedParamType, body.as(evaluatedBody))
     case OperatorResolvedExpression.FunctionApplication(target, argument)             =>
-      // There are several different cases we need to handle:
-      // - Constructors: Stay as structural elements
-      // - "Type^Default": Should be handled as Type^Type, case 1
-      // - Non-constructor function applied to value: Evaluate
-      // - Non-constructor function applied to symbol: Introduce new symbol with type return type of function
-      // TODO: above
       for {
         targetValue <- evaluate(target, evaluating, callSite)
         argValue    <- evaluate(argument, evaluating, callSite)
@@ -67,6 +59,10 @@ object NormalFormEvaluator {
       StateT.liftF(compilerAbort(sourced.as("Recursive evaluation detected.")))
     } else if (vfqn === typeFQN || vfqn.name.qualifier === Qualifier.Type) {
       // If Type or other type constructor, then return as type reference
+      TypeReference(vfqn).pure[TypeGraphIO]
+    } else if (vfqn.name.name.charAt(0).isUpper) {
+      // This is a value constructor call, leave it structural
+      // TODO: We need to actually construct a value here
       TypeReference(vfqn).pure[TypeGraphIO]
     } else {
       // It's a type-level function, so evaluate
