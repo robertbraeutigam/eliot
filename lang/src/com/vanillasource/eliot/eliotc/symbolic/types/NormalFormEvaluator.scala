@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.Types.{typeFQN, typeFQNType}
+import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -10,8 +10,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
-import SymbolicType.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType.*
 
 object NormalFormEvaluator {
 
@@ -42,7 +41,7 @@ object NormalFormEvaluator {
       for {
         targetValue <- evaluate(target, evaluating, callSite)
         argValue    <- evaluate(argument, evaluating, callSite)
-      } yield TypeApplication(target.as(targetValue), argument.as(argValue))
+      } yield betaReduce(TypeApplication(target.as(targetValue), argument.as(argValue)))
   }
 
   /** Evaluates a value reference by looking up its body and fully evaluating it. Values without a runtime body (data
@@ -56,21 +55,19 @@ object NormalFormEvaluator {
     if (evaluating.contains(rawVfqn)) {
       // Disallow recursion
       compilerAbort(sourced.as("Recursive evaluation detected."))
+    } else if (
+      rawVfqn.name.name.charAt(0).isUpper || rawVfqn === typeFQN || rawVfqn.name.qualifier === Qualifier.Type
+    ) {
+      // This is a value constructor or a type constructor, so leave as structure
+      TypeReference(rawVfqn).pure[CompilerIO]
     } else {
-      val vfqn = if (rawVfqn === typeFQN) typeFQNType else rawVfqn
-      // Not recursive, so check the value exists
-      getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
+      // It's a type-level function, inline and beta-reduce
+      getFact(OperatorResolvedValue.Key(rawVfqn)).flatMap {
         case Some(fact) =>
-          if (vfqn.name.name.charAt(0).isUpper || vfqn === typeFQN || vfqn.name.qualifier === Qualifier.Type) {
-            // This is a value constructor or a type constructor, so leave as structure
-            TypeReference(vfqn).pure[CompilerIO]
-          } else {
-            // It's a type-level function. Ignore, monomoprhic phase will evaluate it.
-            fact.runtime match {
-              case Some(body) =>
-                evaluate(body, evaluating + vfqn, callSite = Some(sourced)).map(SymbolicType.betaReduce)
-              case None       => compilerAbort(sourced.as("Referenced value has no body."))
-            }
+          fact.runtime match {
+            case Some(body) =>
+              evaluate(body, evaluating + rawVfqn, callSite = Some(sourced)).map(SymbolicType.betaReduce)
+            case None       => compilerAbort(sourced.as("Referenced value has no body."))
           }
         case None       => compilerAbort(sourced.as("Can not evaluate referenced value."))
       }
