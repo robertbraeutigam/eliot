@@ -24,6 +24,7 @@ object ModuleName {
   // TODO: Unit is no longer here, so we shouldn't refer to it...
   // This is used to determine what to automatically import, but this should work differently.
   val defaultSystemModules                 = Seq(
+    "Type",
     "Function",
     "Unit",
     "String",

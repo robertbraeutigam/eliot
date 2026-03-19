@@ -104,7 +104,7 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
                                 ).pure[CompilerIO]
                               }
                             case None              =>
-                              compilerError(module.as(s"Could not find imported module."))
+                              compilerError(module.as(s"Could not find imported module: `${module.value.show}`"))
                                 .as(accumulated)
                           }
     } yield result

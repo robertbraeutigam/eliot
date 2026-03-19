@@ -22,9 +22,7 @@ class SymbolicTypeCheckProcessorTest
       CoreProcessor(),
       ModuleNamesProcessor(),
       UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(
-        Seq(ModuleName.systemFunctionModuleName, ModuleName(ModuleName.defaultSystemPackage, "BigInteger"))
-      ),
+      ModuleValueProcessor(),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
       MatchDesugaringProcessor(),

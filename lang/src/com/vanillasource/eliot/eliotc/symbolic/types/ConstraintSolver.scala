@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.data.StateT
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.eval.fact.Types.{typeFQN, typeFQNType}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -53,27 +54,32 @@ object ConstraintSolver extends Logging {
         StateT.modify[CompilerIO, UnificationState](_.bind(name, constraint.right.as(left)))
 
       // Recursion detected
-      case (TypeVariable(name), _) if isUnificationVar(name)                                     =>
+      case (TypeVariable(name), _) if isUnificationVar(name)                                    =>
         issueError(constraint, "Infinite type detected.")
 
-      case (_, TypeVariable(name)) if isUnificationVar(name)                                     =>
+      case (_, TypeVariable(name)) if isUnificationVar(name)                       =>
         issueError(constraint, "Infinite type detected.")
 
       // Universal variables: must match exactly
-      case (TypeVariable(n1), TypeVariable(n2)) if isUniversalVar(n1) && n1 === n2               =>
+      case (TypeVariable(n1), TypeVariable(n2)) if isUniversalVar(n1) && n1 === n2 =>
         StateT.pure(())
 
       case (TypeVariable(n1), _) if isUniversalVar(n1) =>
         issueError(constraint, constraint.errorMessage)
 
-      case (_, TypeVariable(n2)) if isUniversalVar(n2)         =>
+      case (_, TypeVariable(n2)) if isUniversalVar(n2)                 =>
         issueError(constraint, constraint.errorMessage)
 
       // Type references: must refer to the same FQN
       case (TypeReference(fqn1), TypeReference(fqn2)) if fqn1 === fqn2 =>
         StateT.pure(())
 
-      case (TypeReference(_), TypeReference(_))                         =>
+      // Type's runtime and type equals, so this needs special handling
+      case (TypeReference(fqn1), TypeReference(fqn2))
+          if (fqn1 === typeFQN || fqn1 === typeFQNType) && (fqn2 === typeFQN || fqn2 === typeFQNType) =>
+        StateT.pure(())
+
+      case (TypeReference(_), TypeReference(_))                                =>
         debug[UnificationCompilerIO](
           s"Constraint failed comparing type references, expected ${symbolicTypeUserDisplay
               .show(constraint.left)}, found: ${symbolicTypeUserDisplay.show(constraint.right.value)} "
@@ -83,7 +89,7 @@ object ConstraintSolver extends Logging {
       case (LiteralType(v1, t1), LiteralType(v2, t2)) if v1 == v2 && t1 === t2 =>
         StateT.pure(())
 
-      case (LiteralType(_, _), LiteralType(_, _))                                =>
+      case (LiteralType(_, _), LiteralType(_, _))             =>
         debug[UnificationCompilerIO](
           s"Constraint failed comparing literal types, expected ${symbolicTypeUserDisplay
               .show(constraint.left)}, found: ${symbolicTypeUserDisplay.show(constraint.right.value)} "
@@ -91,7 +97,7 @@ object ConstraintSolver extends Logging {
 
       // Function types (A -> B): unify parameter and return types separately with specific error messages
       // Note: this is just a special case of "Type Application" just below to issue special message
-      case (FunctionType(p1, r1), FunctionType(p2, r2))                           =>
+      case (FunctionType(p1, r1), FunctionType(p2, r2))       =>
         for {
           _ <-
             solveConstraint(universalVars)(
@@ -114,7 +120,7 @@ object ConstraintSolver extends Logging {
         } yield ()
 
       // Anything else is a type error
-      case _                                                   =>
+      case _                                                  =>
         debug[UnificationCompilerIO](s"Constraint failed in else branch, expected ${symbolicTypeUserDisplay
             .show(constraint.left)}, found: ${symbolicTypeUserDisplay.show(constraint.right.value)} ") >>
           issueError(constraint, constraint.errorMessage)

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
+import com.vanillasource.eliot.eliotc.eval.fact.Types.{typeFQN, typeFQNType}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -11,6 +11,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
 import SymbolicType.*
+import com.vanillasource.eliot.eliotc.eval.fact.Value.Type
 
 object NormalFormEvaluator {
 
@@ -48,14 +49,15 @@ object NormalFormEvaluator {
     * types, built-ins) return a type reference.
     */
   private def evaluateValue(
-      vfqn: ValueFQN,
+      rawVfqn: ValueFQN,
       sourced: Sourced[?],
       evaluating: Set[ValueFQN]
   ): CompilerIO[SymbolicType] =
-    if (evaluating.contains(vfqn)) {
+    if (evaluating.contains(rawVfqn)) {
       // Disallow recursion
       compilerAbort(sourced.as("Recursive evaluation detected."))
     } else {
+      val vfqn = if (rawVfqn === typeFQN) typeFQNType else rawVfqn
       // Not recursive, so check the value exists
       getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
         case Some(fact) =>
