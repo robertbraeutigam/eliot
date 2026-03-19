@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.implementation.processor.AbilityImplementationProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
