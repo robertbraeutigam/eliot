@@ -55,25 +55,22 @@ object NormalFormEvaluator {
     if (evaluating.contains(vfqn)) {
       // Disallow recursion
       compilerAbort(sourced.as("Recursive evaluation detected."))
-    } else if (vfqn === typeFQN || vfqn.name.qualifier === Qualifier.Type) {
-      // If Type or other type constructor, then return as type reference
-      TypeReference(vfqn).pure[CompilerIO]
-    } else if (vfqn.name.name.charAt(0).isUpper) {
-      // This is a value constructor call, leave it structural
-      // TODO: We need to actually construct a value here
-      TypeReference(vfqn).pure[CompilerIO]
     } else {
-      // It's a type-level function, so evaluate
-      // TODO: We need to know if there are any symbol parameters, because then introduce new variable
+      // Not recursive, so check the value exists
       getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
-        case Some(resolved) =>
-          resolved.runtime match {
-            case Some(body) =>
-              evaluate(body, evaluating + vfqn, callSite = Some(sourced)).map(SymbolicType.betaReduce)
-            case None       => compilerAbort(sourced.as("Referenced value has no body."))
+        case Some(fact) =>
+          if (vfqn.name.name.charAt(0).isUpper || vfqn === typeFQN || vfqn.name.qualifier === Qualifier.Type) {
+            // This is a value constructor or a type constructor, so leave as structure
+            TypeReference(vfqn).pure[CompilerIO]
+          } else {
+            // It's a type-level function. Ignore, monomoprhic phase will evaluate it.
+            fact.runtime match {
+              case Some(body) =>
+                evaluate(body, evaluating + vfqn, callSite = Some(sourced)).map(SymbolicType.betaReduce)
+              case None       => compilerAbort(sourced.as("Referenced value has no body."))
+            }
           }
-        case None           =>
-          compilerAbort(sourced.as("Can not evaluate referenced value."))
+        case None       => compilerAbort(sourced.as("Can not evaluate referenced value."))
       }
     }
 
