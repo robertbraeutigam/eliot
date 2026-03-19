@@ -90,39 +90,39 @@ class SymbolicTypeCheckProcessorTest
   }
 
   it should "forward unification to concrete types" in {
-    runEngineForErrors("def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(s)")
+    runEngineForErrors("def id[A](a: A): A = a\ndata Int\ndef f(i: Int, s: String): String = id(s)")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "forward unification to concrete types in recursive setup" in {
     runEngineForErrors(
-      "def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(id(id(s)))"
+      "def id[A](a: A): A = a\ndata Int\ndef f(i: Int, s: String): String = id(id(id(s)))"
     )
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail if forward unification to concrete types produces conflict" in {
-    runEngineForErrors("def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(i)")
+    runEngineForErrors("def id[A](a: A): A = a\ndata Int\ndef f(i: Int, s: String): String = id(i)")
       .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
   }
 
   it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
     runEngineForErrors(
-      "def id[A](a: A): A = a\ndata String\ndata Int\ndef f(i: Int, s: String): String = id(id(id(i)))"
+      "def id[A](a: A): A = a\ndata Int\ndef f(i: Int, s: String): String = id(id(id(i)))"
     )
       .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
   }
 
   it should "unify on multiple parameters" in {
     runEngineForErrors(
-      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndata String\ndata Int\ndef f(i: Int, s: String): String = g(someA, someA, s)"
+      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndata Int\ndef f(i: Int, s: String): String = g(someA, someA, s)"
     )
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail, if unifying on multiple parameters fail at later stage" in {
     runEngineForErrors(
-      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndata String\ndata Int\ndef f(i: Int, s: String): String = g(someA, someA, i)"
+      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndata Int\ndef f(i: Int, s: String): String = g(someA, someA, i)"
     )
       .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
   }
@@ -156,14 +156,14 @@ class SymbolicTypeCheckProcessorTest
 
   it should "type check higher-kinded parameter with two type args" in {
     runEngineForErrors(
-      "data Int\ndata String\ndef f[F[_, _]](x: F[Int, String]): F[Int, String] = x"
+      "data Int\ndef f[F[_, _]](x: F[Int, String]): F[Int, String] = x"
     )
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail when higher-kinded parameters mismatch" in {
     runEngineForErrors(
-      "data Int\ndata String\ndef f[F[_]](x: F[Int]): F[String] = x"
+      "data Int\ndef f[F[_]](x: F[Int]): F[String] = x"
     )
       .asserting(_ shouldBe Seq("Type argument mismatch." at "x"))
   }
@@ -189,7 +189,7 @@ class SymbolicTypeCheckProcessorTest
 
   it should "type check with explicit two-arg Function restriction" in {
     runEngineForErrors(
-      "data Int\ndata String\ndef f[F: Function[Type, Function[Type, Type]]](x: F[Int, String]): F[Int, String] = x"
+      "data Int\ndef f[F: Function[Type, Function[Type, Type]]](x: F[Int, String]): F[Int, String] = x"
     )
       .asserting(_ shouldBe Seq.empty)
   }
@@ -210,19 +210,19 @@ class SymbolicTypeCheckProcessorTest
   // TODO: check returns typed function
   "type resolve" should "store lambda type into AST" in {
     runEngineForErrors(
-      "data String\ndata Unit\ndata Foo(l: Function[Unit, String])\ndef g: String\ndef f: Foo = Foo((unit: Unit) -> g)"
+      "data Foo(l: Function[Unit, String])\ndef g: String\ndef f: Foo = Foo((unit: Unit) -> g)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   "lambda type inference" should "infer parameter type for unannotated lambda from context" in {
     runEngineForErrors(
-      "data String\ndata Unit\ndata Foo(l: Function[Unit, String])\ndef g: String\ndef f: Foo = Foo(unit -> g)"
+      "data Foo(l: Function[Unit, String])\ndef g: String\ndef f: Foo = Foo(unit -> g)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "reject unannotated lambda when inferred type conflicts" in {
     runEngineForErrors(
-      "data String\ndata Unit\ndata Foo(l: Function[Unit, String])\ndef g(u: Unit): String\ndef f: Foo = Foo(unit -> g(unit))"
+      "data Foo(l: Function[Unit, String])\ndef g(u: Unit): String\ndef f: Foo = Foo(unit -> g(unit))"
     ).asserting(_ shouldBe Seq.empty)
   }
 
@@ -274,49 +274,49 @@ class SymbolicTypeCheckProcessorTest
 
   "explicit type arguments" should "type check when the explicit arg matches usage" in {
     runEngineForErrors(
-      "def id[A](a: A): A = a\ndata String\ndef f(s: String): String = id[String](s)"
+      "def id[A](a: A): A = a\ndef f(s: String): String = id[String](s)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail when the explicit type arg conflicts with the value argument" in {
     runEngineForErrors(
-      "def id[A](a: A): A = a\ndata String\ndata Int\ndef f(s: String): String = id[Int](s)"
+      "def id[A](a: A): A = a\ndata Int\ndef f(s: String): String = id[Int](s)"
     ).asserting(_ shouldBe Seq("Type mismatch." at "s", "Return type mismatch." at "id"))
   }
 
   it should "fail when the explicit type arg conflicts with the declared return type" in {
     runEngineForErrors(
-      "def id[A](a: A): A = a\ndata String\ndata Int\ndef i: Int\ndef f(s: String): String = id[Int](i)"
+      "def id[A](a: A): A = a\ndata Int\ndef i: Int\ndef f(s: String): String = id[Int](i)"
     ).asserting(_ shouldBe Seq("Return type mismatch." at "id"))
   }
 
   it should "fail with too many type arguments" in {
     runEngineForErrors(
-      "def id[A](a: A): A = a\ndata String\ndef f(s: String): String = id[String, String](s)"
+      "def id[A](a: A): A = a\ndef f(s: String): String = id[String, String](s)"
     ).asserting(_ shouldBe Seq("Too many explicit type arguments." at "id"))
   }
 
   it should "type check with too few explicit type args by inferring the rest" in {
     runEngineForErrors(
-      "def f2[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = f2[String](s, i)"
+      "def f2[A, B](a: A, b: B): A = a\ndata Int\ndef f(s: String, i: Int): String = f2[String](s, i)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail with too few explicit type args that conflict with usage" in {
     runEngineForErrors(
-      "def f2[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = f2[Int](s, i)"
+      "def f2[A, B](a: A, b: B): A = a\ndata Int\ndef f(s: String, i: Int): String = f2[Int](s, i)"
     ).asserting(_ shouldBe Seq("Type mismatch." at "s", "Return type mismatch." at "f2"))
   }
 
   it should "type check with explicit type args and multiple type params" in {
     runEngineForErrors(
-      "def g[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = g[String, Int](s, i)"
+      "def g[A, B](a: A, b: B): A = a\ndata Int\ndef f(s: String, i: Int): String = g[String, Int](s, i)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail when explicit type args are in the wrong order" in {
     runEngineForErrors(
-      "def g[A, B](a: A, b: B): A = a\ndata String\ndata Int\ndef f(s: String, i: Int): String = g[Int, String](s, i)"
+      "def g[A, B](a: A, b: B): A = a\ndata Int\ndef f(s: String, i: Int): String = g[Int, String](s, i)"
     ).asserting(
       _ shouldBe Seq("Type mismatch." at "s", "Type mismatch." at "i", "Return type mismatch." at "g")
     )
@@ -324,43 +324,43 @@ class SymbolicTypeCheckProcessorTest
 
   it should "point type argument mismatch to the explicit type argument" in {
     runEngineForErrors(
-      "data String\ndata Int\ndata Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[Int](g)"
+      "data Int\ndata Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[Int](g)"
     ).asserting(_ shouldBe Seq("Type argument mismatch." at "Box"))
   }
 
   it should "type check with an applied generic type as a type argument" in {
     runEngineForErrors(
-      "def id[A](a: A): A = a\ndata String\ndata Box(s: String)\ndef f(b: Box): Box = id[Box](b)"
+      "def id[A](a: A): A = a\ndata Box(s: String)\ndef f(b: Box): Box = id[Box](b)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   "type level functions" should "support non-type type parameters" in {
     runEngineForErrors(
-      "data String\ndef str: String\ndata Group\ndata Person[G: Group](name: String)\ndef f[G: Group]: Person[G] = Person[G](str)"
+      "def str: String\ndata Group\ndata Person[G: Group](name: String)\ndef f[G: Group]: Person[G] = Person[G](str)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "calculated concrete literal values" in {
     runEngineForErrors(
-      "def one: BigInteger = 1\ndef oneDifferently: BigInteger = 1\ndata String\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+      "def one: BigInteger = 1\ndef oneDifferently: BigInteger = 1\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "rejects calculated differing concrete literal values" in {
     runEngineForErrors(
-      "def one: BigInteger = 1\ndef two: BigInteger = 2\ndata String\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[two](str)"
+      "def one: BigInteger = 1\ndef two: BigInteger = 2\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[two](str)"
     ).asserting(_ shouldBe Seq("Type argument mismatch." at "Box"))
   }
 
   it should "calculated concrete data values" in {
     runEngineForErrors(
-      "data Person(age: BigInteger)\ndef one: BigInteger = Person(1)\ndef oneDifferently: BigInteger = Person(1)\ndata String\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+      "data Person(age: BigInteger)\ndef one: BigInteger = Person(1)\ndef oneDifferently: BigInteger = Person(1)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "rejects calculated differing data values" in {
     runEngineForErrors(
-      "data Person(age: BigInteger)\ndef one: BigInteger = Person(1)\ndef oneDifferently: BigInteger = Person(2)\ndata String\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+      "data Person(age: BigInteger)\ndef one: BigInteger = Person(1)\ndef oneDifferently: BigInteger = Person(2)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
     ).asserting(_ shouldBe Seq("Type argument mismatch." at "Box"))
   }
 
