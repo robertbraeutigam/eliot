@@ -1,5 +1,8 @@
 # Eliot Design Rules
 
-- Always use `getFactOrAbort` when getting/generating a fact, since not being able to
-  generate a fact should always indicate an issue.
+- Getting facts should always be done with the expectation that
+  the fact can be generated. If it can't, that should be an error.
+  Therefore, use `getFactOrAbort` if there does not need to be an explicit
+  error message, use `getFact` with immediate switch and `compileError` or `compilerAbort`
+  in the None case.
 
