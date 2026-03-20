@@ -2,8 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier as CoreQualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
@@ -14,7 +13,6 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.symbolic.fact.{QuantifiedType, SymbolicType, TypedExpression}
 import com.vanillasource.eliot.eliotc.symbolic.fact.QuantifiedType.given
-import com.vanillasource.eliot.eliotc.monomorphize.processor.SymbolicTypeConversions.{toExpressionValue, fromExpressionValue}
 import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckedValue
 
 /** Processor that monomorphizes (specializes) generic functions.
@@ -33,7 +31,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
         debug[CompilerIO](
           s"Monomorphizing ${key.vfqn.show}, signature: ${typeChecked.signature.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
         )
-      typeParams   = TypeEvaluator.extractBodyTypeParams(toExpressionValue(typeChecked.signature))
+      typeParams   = SymbolicTypeEvaluator.extractBodyTypeParams(typeChecked.signature)
       _           <- if (typeParams.length != key.typeArguments.length)
                        compilerAbort(
                          typeChecked.name.as(
@@ -48,14 +46,19 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
               .map((param, paramType) => s"$param <- ${paramType.show}")
               .mkString(", ")}"
         )
-      signature   <- TypeEvaluator.evaluate(
-                       TypeEvaluator.stripNonBodyUniversals(toExpressionValue(typeChecked.signature)),
+      signature   <- SymbolicTypeEvaluator.evaluate(
+                       SymbolicTypeEvaluator.stripNonBodyUniversals(typeChecked.signature),
                        key.typeArguments,
                        typeChecked.name
                      )
       _           <- debug[CompilerIO](s"Monomorphized ${key.vfqn.show} to: ${signature.show}")
       runtime     <- typeChecked.runtime.traverse { body =>
-                       transformExpression(body.value, toExpressionValue(typeChecked.signature), substitution, body).map(body.as)
+                       transformExpression(
+                         body.value,
+                         QuantifiedType.toSymbolicType(typeChecked.signature),
+                         substitution,
+                         body
+                       ).map(body.as)
                      }
       _           <- runtime match {
                        case Some(body) =>
@@ -82,7 +85,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
     */
   private def transformExpression(
       expr: TypedExpression.Expression,
-      callSiteType: ExpressionValue,
+      callSiteType: SymbolicType,
       substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
@@ -103,15 +106,15 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
     */
   private def transformValueReference(
       vfqn: Sourced[ValueFQN],
-      callSiteType: ExpressionValue,
+      callSiteType: SymbolicType,
       substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
       typeChecked <- getFactOrAbort(AbilityCheckedValue.Key(vfqn.value))
-      typeParams   = TypeEvaluator.extractBodyTypeParams(toExpressionValue(typeChecked.signature))
+      typeParams   = SymbolicTypeEvaluator.extractBodyTypeParams(typeChecked.signature)
       typeArgs    <- if (typeParams.nonEmpty) {
-                       inferTypeArguments(toExpressionValue(typeChecked.signature), typeParams, callSiteType, substitution, source)
+                       inferTypeArguments(typeChecked.signature, typeParams, callSiteType, substitution, source)
                      } else {
                        Seq.empty[Value].pure[CompilerIO]
                      }
@@ -120,12 +123,12 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
           for {
             abilityTypeParamCount <- countAbilityTypeParams(vfqn.value)
             abilityTypeArgs        = typeArgs.take(abilityTypeParamCount)
-            impl                  <-
-              getFactOrAbort(AbilityImplementation.Key(vfqn.value, abilityTypeArgs.map(v => fromExpressionValue(ConcreteValue(v)))))
+            abilitySymbolicArgs    = abilityTypeArgs.map(SymbolicTypeEvaluator.valueToSymbolicType)
+            impl                  <- getFactOrAbort(AbilityImplementation.Key(vfqn.value, abilitySymbolicArgs))
           } yield MonomorphicExpression.MonomorphicValueReference(vfqn.as(impl.implementationFQN), Seq.empty)
         else
           for {
-            _ <- checkTypeConsistency(toExpressionValue(typeChecked.signature), typeArgs, callSiteType, substitution, source)
+            _ <- checkTypeConsistency(typeChecked.signature, typeArgs, callSiteType, substitution, source)
           } yield MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)
     } yield result
 
@@ -137,7 +140,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
     val markerVFQN  =
       ValueFQN(vfqn.moduleName, QualifiedName(abilityName, CoreQualifier.Ability(abilityName)))
     getFactOrAbort(AbilityCheckedValue.Key(markerVFQN))
-      .map(marker => TypeEvaluator.extractBodyTypeParams(toExpressionValue(marker.signature)).size)
+      .map(marker => SymbolicTypeEvaluator.extractBodyTypeParams(marker.signature).size)
   }
 
   /** Infer concrete type arguments for a referenced value by matching the call-site type against the polymorphic
@@ -151,20 +154,19 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
     * Then we match `A -> A` against `Int -> Int` to infer `A = Int`.
     */
   private def inferTypeArguments(
-      signature: ExpressionValue,
+      signature: QuantifiedType,
       typeParams: Seq[String],
-      callSiteType: ExpressionValue,
+      callSiteType: SymbolicType,
       substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[Seq[Value]] = {
-    val strippedSignature = stripLeadingLambdas(signature)
-    val bindings          = ExpressionValue.matchTypes(strippedSignature, callSiteType)
+    val bindings = SymbolicType.matchTypes(signature.body, callSiteType)
 
     typeParams.traverse { param =>
       bindings.get(param) match {
-        case Some(exprValue) =>
-          TypeEvaluator.evaluateWithSubstitution(exprValue, substitution, source)
-        case None            =>
+        case Some(matchedType) =>
+          SymbolicTypeEvaluator.evaluateWithSubstitution(matchedType, substitution, source)
+        case None              =>
           // Try substitution as fallback (for nested generics)
           substitution.get(param) match {
             case Some(concreteType) => concreteType.pure[CompilerIO]
@@ -175,8 +177,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
     }
   }
 
-  /** Transform a function application.
-    */
+  /** Transform a function application. */
   private def transformFunctionApplication(
       target: Sourced[TypedExpression],
       arg: Sourced[TypedExpression],
@@ -187,8 +188,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       transformedArg    <- transformTypedExpression(arg, substitution)
     } yield MonomorphicExpression.FunctionApplication(transformedTarget, transformedArg)
 
-  /** Transform a function literal.
-    */
+  /** Transform a function literal. */
   private def transformFunctionLiteral(
       paramName: Sourced[String],
       paramType: Sourced[SymbolicType],
@@ -196,36 +196,34 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       substitution: Map[String, Value]
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
-      concreteParamType <- TypeEvaluator.evaluateWithSubstitution(toExpressionValue(paramType.value), substitution, paramType)
+      concreteParamType <- SymbolicTypeEvaluator.evaluateWithSubstitution(paramType.value, substitution, paramType)
       transformedBody   <- transformTypedExpression(body, substitution)
     } yield MonomorphicExpression.FunctionLiteral(paramName, concreteParamType, transformedBody)
 
-  /** Transform a TypedExpression to Sourced[MonomorphicExpression].
-    */
+  /** Transform a TypedExpression to Sourced[MonomorphicExpression]. */
   private def transformTypedExpression(
       typed: Sourced[TypedExpression],
       substitution: Map[String, Value]
   ): CompilerIO[Sourced[MonomorphicExpression]] =
     for {
-      concreteType <- TypeEvaluator.evaluateWithSubstitution(toExpressionValue(typed.value.expressionType), substitution, typed)
-      transformed  <-
-        transformExpression(typed.value.expression, toExpressionValue(typed.value.expressionType), substitution, typed)
+      concreteType <- SymbolicTypeEvaluator.evaluateWithSubstitution(typed.value.expressionType, substitution, typed)
+      transformed  <- transformExpression(typed.value.expression, typed.value.expressionType, substitution, typed)
     } yield typed.as(MonomorphicExpression(concreteType, transformed))
 
   private def checkTypeConsistency(
-      implSignature: ExpressionValue,
+      implSignature: QuantifiedType,
       typeArgs: Seq[Value],
-      callSiteType: ExpressionValue,
+      callSiteType: SymbolicType,
       substitution: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[Unit] =
     for {
-      implType   <- TypeEvaluator.evaluate(
-                      TypeEvaluator.stripNonBodyUniversals(implSignature),
+      implType   <- SymbolicTypeEvaluator.evaluate(
+                      SymbolicTypeEvaluator.stripNonBodyUniversals(implSignature),
                       typeArgs,
                       source
                     )
-      callerType <- TypeEvaluator.evaluateWithSubstitution(callSiteType, substitution, source)
+      callerType <- SymbolicTypeEvaluator.evaluateWithSubstitution(callSiteType, substitution, source)
       _          <- if (implType != callerType)
                       compilerAbort(
                         source.as(
