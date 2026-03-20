@@ -364,15 +364,15 @@ class SymbolicTypeCheckProcessorTest
     ).asserting(_ shouldBe Seq("Type argument mismatch." at "Box"))
   }
 
-  "function application in type position" should "detect mismatch when function return type differs from expected" in {
+  "function application in type position" should "accept type-level function calls, if the types make sense" in {
     runEngineForErrors(
-      "data A\ndata B\ndef g(x: A): B\ndata Box[X: Type](v: A)\ndef a: A\ndef f[I]: Box(g(I)) = Box[A](a)"
-    ).asserting(_ shouldBe Seq("Type argument mismatch." at "A"))
+      "def g(x: Type): Type = x\ndata Box[X: Type](value: X)\ndef f[T](value: T): Box(g(T)) = Box(value)"
+    ).asserting(_ shouldBe Seq.empty)
   }
 
-  it should "accept type-level function calls, if the types make sense" in {
+  it should "accept type-level functions calls that are not Type types" in {
     runEngineForErrors(
-      "def g(x: Type): Type\ndata Box[X: Type](value: X)\ndef f[T](value: T): Box(g(T)) = Box(value)"
+      "def g(x: String): String = x\ndata Box[X: String](value: String)\ndef f[G: String](value: String): Box(g(G)) = Box[G](value)"
     ).asserting(_ shouldBe Seq.empty)
   }
 

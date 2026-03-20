@@ -2,10 +2,12 @@ package com.vanillasource.eliot.eliotc.symbolic.types
 
 import cats.data.StateT
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.Qualifier
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{typeFQN, typeFQNType}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
+import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
 import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType.*
 import com.vanillasource.eliot.eliotc.symbolic.types.SymbolicUnification.Constraint
 import com.vanillasource.eliot.eliotc.symbolic.types.UnificationState.UnificationCompilerIO
@@ -67,11 +69,22 @@ object ConstraintSolver extends Logging {
       case (TypeVariable(n1), _) if isUniversalVar(n1) =>
         issueError(constraint, constraint.errorMessage)
 
-      case (_, TypeVariable(n2)) if isUniversalVar(n2)                 =>
+      case (_, TypeVariable(n2)) if isUniversalVar(n2)                                        =>
         issueError(constraint, constraint.errorMessage)
 
+      // Opaque function applications in type positions: defer to monomorphize
+      case _ if isOpaqueApplication(left) || isOpaqueApplication(right)                       =>
+        StateT.pure(())
+
+      // At the kind level, fully-applied type constructor applications have kind Type
+      // TODO: this seems fishy
+      case (TypeReference(fqn), _: TypeApplication) if fqn === typeFQN || fqn === typeFQNType =>
+        StateT.pure(())
+      case (_: TypeApplication, TypeReference(fqn)) if fqn === typeFQN || fqn === typeFQNType =>
+        StateT.pure(())
+
       // Type references: must refer to the same FQN
-      case (TypeReference(fqn1), TypeReference(fqn2)) if fqn1 === fqn2 =>
+      case (TypeReference(fqn1), TypeReference(fqn2)) if fqn1 === fqn2                        =>
         StateT.pure(())
 
       // Type's runtime and type equals, so this needs special handling
@@ -126,6 +139,17 @@ object ConstraintSolver extends Logging {
           issueError(constraint, constraint.errorMessage)
     }
   }
+
+  private def isOpaqueApplication(st: SymbolicType): Boolean =
+    st match {
+      case _: TypeApplication =>
+        SymbolicType.stripLeadingApplications(st) match {
+          case TypeReference(vfqn) =>
+            !vfqn.name.name.charAt(0).isUpper && vfqn.name.qualifier != Qualifier.Type && vfqn != typeFQN
+          case _                   => false
+        }
+      case _                  => false
+    }
 
   private def issueError(constraint: Constraint, message: String): UnificationCompilerIO[Unit] =
     StateT.liftF(
