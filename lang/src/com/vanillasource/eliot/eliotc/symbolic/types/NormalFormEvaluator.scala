@@ -55,15 +55,36 @@ object NormalFormEvaluator {
     if (evaluating.contains(rawVfqn)) {
       // Disallow recursion
       compilerAbort(sourced.as("Recursive evaluation detected."))
+    } else if (rawVfqn === typeFQN) {
+      TypeReference(typeFQN).pure[CompilerIO]
     } else if (
-      rawVfqn.name.name.charAt(0).isUpper || rawVfqn === typeFQN || rawVfqn.name.qualifier === Qualifier.Type
+      rawVfqn.name.name.charAt(0).isUpper || rawVfqn.name.qualifier === Qualifier.Type
     ) {
-      // This is a value constructor or a type constructor, so leave as structure
-      // Use Type qualifier for constructors referenced in type positions
+      // Uppercase or Type-qualified: could be a constructor (structural) or a type-level function.
+      // Check if the value has a body and evaluates to a concrete type (no type variables).
       val typeFqn =
-        if (rawVfqn.name.qualifier === Qualifier.Type || rawVfqn === typeFQN) rawVfqn
+        if (rawVfqn.name.qualifier === Qualifier.Type) rawVfqn
         else ValueFQN(rawVfqn.moduleName, QualifiedName(rawVfqn.name.name, Qualifier.Type))
-      TypeReference(typeFqn).pure[CompilerIO]
+      getFact(OperatorResolvedValue.Key(rawVfqn)).flatMap {
+        case Some(fact) =>
+          fact.runtime match {
+            case Some(body) =>
+              evaluate(body, evaluating + rawVfqn, callSite = Some(sourced)).map(SymbolicType.betaReduce).flatMap {
+                result =>
+                  if (containsAnyTypeVariable(result)) TypeReference(typeFqn).pure[CompilerIO]
+                  else result.pure[CompilerIO]
+              }
+            case None       =>
+              rawVfqn.name.qualifier match {
+                case _: Qualifier.Ability | _: Qualifier.AbilityImplementation =>
+                  // Abstract associated type: treat as unification variable so it can be bound during type checking
+                  TypeVariable(rawVfqn.show + "$").pure[CompilerIO]
+                case _                                                         =>
+                  TypeReference(typeFqn).pure[CompilerIO]
+              }
+          }
+        case None       => TypeReference(typeFqn).pure[CompilerIO]
+      }
     } else {
       // It's a type-level function, inline and beta-reduce
       getFact(OperatorResolvedValue.Key(rawVfqn)).flatMap {
@@ -75,6 +96,14 @@ object NormalFormEvaluator {
           }
         case None       => compilerAbort(sourced.as("Can not evaluate referenced value."))
       }
+    }
+
+  private def containsAnyTypeVariable(st: SymbolicType): Boolean =
+    st match {
+      case TypeVariable(_)                => true
+      case TypeApplication(target, arg)   => containsAnyTypeVariable(target.value) || containsAnyTypeVariable(arg.value)
+      case TypeLambda(_, paramType, body) => containsAnyTypeVariable(paramType) || containsAnyTypeVariable(body.value)
+      case _                              => false
     }
 
   private val bigIntTypeFQN: ValueFQN =

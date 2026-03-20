@@ -61,7 +61,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "Hello World!")
   }
 
-  "ability associated type" should "handle associated types in abilities" ignore {
+  "ability associated type" should "handle associated types in abilities" in {
     compileAndRun(
       """ability AssociatedType[T] {
         |   type MagicType
