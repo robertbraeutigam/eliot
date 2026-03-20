@@ -29,7 +29,9 @@ class TypeMatchDesugarer(context: MatchDesugarContext) {
                             val Pattern.ConstructorPattern(ctor, subPatterns) = ctorCase.pattern.value: @unchecked
                             for {
                               handler      <- context.buildPatternHandler(scrutinee, subPatterns, ctorCase.body)
-                              typeMatchFqn <- findAbilityMethodImpl(ctor.value.moduleName, "TypeMatch", "typeMatch")
+                              typeMatchFqn <- findAbilityMethodImpl(
+                                               ctor.value.moduleName, "TypeMatch", "typeMatch", Some(ctor.value.name.name)
+                                             )
                             } yield (typeMatchFqn, handler)
                           }
         } yield chainTypeMatches(scrutinee, handlers, wildcardBody)

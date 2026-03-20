@@ -395,7 +395,7 @@ object DataClassGenerator {
     val typeCtorClassName = convertToNestedClassName(constructorVfqn)
     outerClassGenerator
       .createMethod[F](
-        JvmIdentifier.encode(typeMatchUncurried.vfqn.name.name),
+        JvmIdentifier.encode("typeMatch$" + constructorVfqn.name.name),
         allParamTypes,
         returnType
       )

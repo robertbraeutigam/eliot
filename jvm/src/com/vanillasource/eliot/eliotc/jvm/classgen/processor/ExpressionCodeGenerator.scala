@@ -147,6 +147,18 @@ object ExpressionCodeGenerator {
               arguments,
               expectedResultType
             )
+          case Qualifier.AbilityImplementation(abilityName, params)
+              if abilityName.value === "TypeMatch" && calledVfqn.name.name === "typeMatch" =>
+            generateTypeMatchCall(
+              moduleName,
+              outerClassGenerator,
+              methodGenerator,
+              sourcedCalledVfqn,
+              calledVfqn,
+              params,
+              arguments,
+              expectedResultType
+            )
           case _                              =>
             generateNormalFunctionCall(
               moduleName,
@@ -378,6 +390,60 @@ object ExpressionCodeGenerator {
                                   Seq(s"Looking for function: ${calledVfqn.show}")
                                 ).liftToTypes.as(Seq.empty)
     } yield resultClasses
+
+  private def generateTypeMatchCall(
+      moduleName: ModuleName,
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      sourcedCalledVfqn: Sourced[ValueFQN],
+      calledVfqn: ValueFQN,
+      qualifierParams: Seq[com.vanillasource.eliot.eliotc.core.fact.Expression],
+      arguments: Seq[UncurriedExpression],
+      expectedResultType: SymbolicType
+  ): CompilationTypesIO[Seq[ClassFile]] = {
+    val constructorName = findTypeName(qualifierParams)
+    for {
+      _              <- compilerAbort(
+                          sourcedCalledVfqn.as("Could not determine type constructor name for typeMatch.")
+                        ).liftToTypes.whenA(constructorName.isEmpty)
+      uncurriedMaybe <- getFact(UncurriedValue.Key(calledVfqn, arguments.length)).liftToTypes
+      classes        <- uncurriedMaybe match {
+                          case Some(uncurriedValue) =>
+                            val parameterTypes = uncurriedValue.parameters.map(p => simpleType(p.parameterType))
+                            val returnType     = simpleType(uncurriedValue.returnType)
+                            for {
+                              classes <- arguments.flatTraverse(expression =>
+                                           createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                         )
+                              _       <- methodGenerator.addCallTo[CompilationTypesIO](
+                                           calledVfqn,
+                                           parameterTypes,
+                                           returnType,
+                                           Some("typeMatch$" + constructorName.get)
+                                         )
+                              _       <- methodGenerator
+                                           .addCastTo[CompilationTypesIO](simpleType(expectedResultType))
+                                           .whenA(simpleType(expectedResultType) =!= returnType)
+                            } yield classes
+                          case None                 =>
+                            compilerError(
+                              sourcedCalledVfqn.as("Could not find uncurried typeMatch function."),
+                              Seq(s"Looking for function: ${calledVfqn.show}")
+                            ).liftToTypes.as(Seq.empty)
+                        }
+    } yield classes
+  }
+
+  private def findTypeName(params: Seq[com.vanillasource.eliot.eliotc.core.fact.Expression]): Option[String] = {
+    import com.vanillasource.eliot.eliotc.core.fact.{Expression => CoreExpression}
+    def find(expr: CoreExpression): Option[String] =
+      expr match {
+        case CoreExpression.NamedValueReference(qn, _, _) if qn.value.qualifier == Qualifier.Type => Some(qn.value.name)
+        case CoreExpression.FunctionApplication(target, _) => find(target.value)
+        case _                                             => None
+      }
+    params.headOption.flatMap(find)
+  }
 
   private def injectDictParam(
       methodGenerator: MethodGenerator,

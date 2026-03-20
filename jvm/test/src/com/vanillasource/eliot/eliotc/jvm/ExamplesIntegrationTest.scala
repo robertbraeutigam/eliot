@@ -157,7 +157,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "Hello World!")
   }
 
-  "type values" should "match on type-level values" ignore {
+  "type values" should "match on type-level values" in {
     compileAndRun(
       """data Person[NAME: String](content: String)
         |

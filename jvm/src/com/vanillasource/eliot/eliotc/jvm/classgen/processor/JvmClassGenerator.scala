@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{Expression => CoreExpression, QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
@@ -79,6 +79,17 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                     case _                                        => false
                                   }
                                 }.toSet
+      // Map each typeMatch method VFQN to its corresponding type constructor name
+      typeMatchByConstructor  = allTypeMatchVfqns
+                                  .filter(_.name.name === "typeMatch")
+                                  .flatMap { tmVfqn =>
+                                    tmVfqn.name.qualifier match {
+                                      case Qualifier.AbilityImplementation(_, params) =>
+                                        extractTypeConstructorName(params).map(_ -> tmVfqn)
+                                      case _                                          => None
+                                    }
+                                  }
+                                  .toMap
       // Process each data type: check handleCases usage, merge constructors, generate classes
       dataResults            <- allCtorGroups.toSeq.traverse { (typeVFQ, allTypeCtors) =>
                                   val handleCasesUsed = handleCasesByDataType.contains(typeVFQ)
@@ -136,7 +147,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 }
       // Determine which type constructors need data classes (used directly or via typeMatch)
       neededTypeCtors         = allTypeCtorsArityZero.filter { (vfqn, _) =>
-                                  usedValues.contains(vfqn) || allTypeMatchVfqns.exists(_.name.name === "typeMatch")
+                                  usedValues.contains(vfqn) || typeMatchByConstructor.contains(vfqn.name.name)
                                 }
       // Get each type constructor at its proper arity (from usage stats or computed from signature)
       usedTypeCtorsWithUv    <- neededTypeCtors.traverse { (vfqn, uvZero) =>
@@ -152,8 +163,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 }
       // Generate typeMatch methods for used typeMatch functions
       typeMatchGenerated     <- usedTypeCtorsWithUv.traverseFilter { (vfqn, uv) =>
-                                  val typeMatchVfqn = allTypeMatchVfqns.find(_.name.name === "typeMatch")
-                                  typeMatchVfqn match {
+                                  typeMatchByConstructor.get(vfqn.name.name) match {
                                     case Some(tmVfqn) =>
                                       val stats = usedValues(tmVfqn)
                                       for {
@@ -340,6 +350,16 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       classFile   <- singletonCg.generate[CompilerIO]()
     } yield classFile
   }
+
+  private def extractTypeConstructorName(params: Seq[CoreExpression]): Option[String] =
+    params.headOption.flatMap(findTypeName)
+
+  private def findTypeName(expr: CoreExpression): Option[String] =
+    expr match {
+      case CoreExpression.NamedValueReference(qn, _, _) if qn.value.qualifier === Qualifier.Type => Some(qn.value.name)
+      case CoreExpression.FunctionApplication(target, _) => findTypeName(target.value)
+      case _                                             => None
+    }
 
   private def createAbilityInterfaces(
       mainClassGenerator: ClassGenerator,

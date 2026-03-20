@@ -18,12 +18,17 @@ class MethodGenerator(private val internalName: String, val methodVisitor: Metho
     * @param calledVfqn
     *   The called function's fully qualified name.
     */
-  def addCallTo[F[_]: Sync](calledVfqn: ValueFQN, parameterTypes: Seq[ValueFQN], resultType: ValueFQN): F[Unit] =
+  def addCallTo[F[_]: Sync](
+      calledVfqn: ValueFQN,
+      parameterTypes: Seq[ValueFQN],
+      resultType: ValueFQN,
+      nameOverride: Option[String] = None
+  ): F[Unit] =
     Sync[F].delay {
       methodVisitor.visitMethodInsn(
         Opcodes.INVOKESTATIC,
         convertToMainClassName(calledVfqn.moduleName),
-        JvmIdentifier.encode(calledVfqn.name.name).value,
+        nameOverride.map(JvmIdentifier.encode).getOrElse(JvmIdentifier.encode(calledVfqn.name.name)).value,
         convertToSignatureString(parameterTypes, resultType),
         false
       )
