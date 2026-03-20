@@ -31,7 +31,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
         debug[CompilerIO](
           s"Monomorphizing ${key.vfqn.show}, signature: ${typeChecked.signature.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
         )
-      typeParams   = SymbolicTypeEvaluator.extractBodyTypeParams(typeChecked.signature)
+      typeParams   = typeChecked.signature.typeParams.map(_._1)
       _           <- if (typeParams.length != key.typeArguments.length)
                        compilerAbort(
                          typeChecked.name.as(
@@ -47,7 +47,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
               .mkString(", ")}"
         )
       signature   <- SymbolicTypeEvaluator.evaluate(
-                       SymbolicTypeEvaluator.stripNonBodyUniversals(typeChecked.signature),
+                       QuantifiedType.toSymbolicType(typeChecked.signature),
                        key.typeArguments,
                        typeChecked.name
                      )
@@ -112,7 +112,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
   ): CompilerIO[MonomorphicExpression.Expression] =
     for {
       typeChecked <- getFactOrAbort(AbilityCheckedValue.Key(vfqn.value))
-      typeParams   = SymbolicTypeEvaluator.extractBodyTypeParams(typeChecked.signature)
+      typeParams   = typeChecked.signature.typeParams.map(_._1)
       typeArgs    <- if (typeParams.nonEmpty) {
                        inferTypeArguments(typeChecked.signature, typeParams, callSiteType, substitution, source)
                      } else {
@@ -123,7 +123,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
           for {
             abilityTypeParamCount <- countAbilityTypeParams(vfqn.value)
             abilityTypeArgs        = typeArgs.take(abilityTypeParamCount)
-            abilitySymbolicArgs    = abilityTypeArgs.map(SymbolicTypeEvaluator.valueToSymbolicType)
+            abilitySymbolicArgs    = abilityTypeArgs.map(SymbolicType.fromValue)
             impl                  <- getFactOrAbort(AbilityImplementation.Key(vfqn.value, abilitySymbolicArgs))
           } yield MonomorphicExpression.MonomorphicValueReference(vfqn.as(impl.implementationFQN), Seq.empty)
         else
@@ -140,7 +140,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
     val markerVFQN  =
       ValueFQN(vfqn.moduleName, QualifiedName(abilityName, CoreQualifier.Ability(abilityName)))
     getFactOrAbort(AbilityCheckedValue.Key(markerVFQN))
-      .map(marker => SymbolicTypeEvaluator.extractBodyTypeParams(marker.signature).size)
+      .map(marker => marker.signature.typeParams.size)
   }
 
   /** Infer concrete type arguments for a referenced value by matching the call-site type against the polymorphic
@@ -219,7 +219,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
   ): CompilerIO[Unit] =
     for {
       implType   <- SymbolicTypeEvaluator.evaluate(
-                      SymbolicTypeEvaluator.stripNonBodyUniversals(implSignature),
+                      QuantifiedType.toSymbolicType(implSignature),
                       typeArgs,
                       source
                     )

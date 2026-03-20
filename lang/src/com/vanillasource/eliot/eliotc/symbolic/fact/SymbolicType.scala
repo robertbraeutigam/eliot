@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.symbolic.fact
 
 import cats.Show
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.Types
+import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -142,6 +142,32 @@ object SymbolicType {
       case (TypeLambda(_, _, patBody), TypeLambda(_, _, tgtBody)) =>
         matchTypes(patBody.value, tgtBody.value, isTypeVar)
       case _                                                      => Map.empty
+    }
+
+  // --- Value conversion ---
+
+  /** Convert a Value to a SymbolicType. Used for constructing ability implementation keys from concrete Values. */
+  def fromValue(v: Value): SymbolicType =
+    v match {
+      case Value.Type                          => TypeReference(Types.typeFQN)
+      case Value.Direct(value, vt)             =>
+        vt.typeFQN match {
+          case Some(fqn) => LiteralType(value, fqn)
+          case None      => LiteralType(value, Types.typeFQN)
+        }
+      case Value.Structure(fields, Value.Type) =>
+        fields.get("$typeName") match {
+          case Some(Value.Direct(vfqn: ValueFQN, _)) =>
+            val typeArgFields = fields.removed("$typeName")
+            if (typeArgFields.isEmpty) TypeReference(vfqn)
+            else
+              typeArgFields.toSeq.sortBy(_._1).foldLeft(TypeReference(vfqn): SymbolicType) {
+                case (acc, (_, argValue)) =>
+                  TypeApplication(unsourced(acc), unsourced(fromValue(argValue)))
+              }
+          case _                                      => TypeReference(Types.typeFQN)
+        }
+      case _                                   => TypeReference(Types.typeFQN)
     }
 
   // --- Show instances ---

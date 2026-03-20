@@ -35,12 +35,21 @@ class AbilityCheckProcessor
                              .map(Some.apply)
                          case None          => None.pure[CompilerIO]
                        }
+      cleanSignature = stripConstraintOnlyParams(fact.signature)
     } yield AbilityCheckedValue(
       fact.vfqn,
       fact.name,
-      fact.signature,
+      cleanSignature,
       resolvedBody
     )
+
+  /** Strip type parameters from the signature that only appear in ability constraints, not in the body.
+    * These are irrelevant for code generation after ability checking.
+    */
+  private def stripConstraintOnlyParams(qt: QuantifiedType): QuantifiedType = {
+    val bodyParams = qt.typeParams.filter((name, _) => SymbolicType.containsVar(qt.body, name))
+    QuantifiedType(bodyParams, qt.body)
+  }
 
   /** Recursively traverse the typed expression and replace any ability function references with their concrete
     * implementations. Emits a compiler error if an ability is called with abstract type parameters not covered by a
