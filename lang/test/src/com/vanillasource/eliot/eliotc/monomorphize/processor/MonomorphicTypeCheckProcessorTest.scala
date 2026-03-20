@@ -132,7 +132,7 @@ class MonomorphicTypeCheckProcessorTest
   }
 
   it should "monomorphize integer literal in body" in {
-    runEngineForMonomorphicValue("def f: Int = 42")
+    runEngineForMonomorphicValue("def f: BigInteger = 42")
       .asserting(_.runtime.get.value shouldBe a[MonomorphicExpression.IntegerLiteral])
   }
 
@@ -147,7 +147,7 @@ class MonomorphicTypeCheckProcessorTest
   }
 
   it should "monomorphize function application" in {
-    runEngineForMonomorphicValue("def id[A](a: A): A = a\ndef f: Int = id(42)")
+    runEngineForMonomorphicValue("def id[A](a: A): A = a\ndef f: BigInteger = id(42)")
       .asserting(_.runtime.get.value shouldBe a[MonomorphicExpression.FunctionApplication])
   }
 

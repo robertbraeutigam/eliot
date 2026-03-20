@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm
 
-class EliotIntegrationSpec extends EliotIntegrationTest {
+class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "hello world" should "print a string" in {
     compileAndRun("""def main: IO[Unit] = println("Hello World!")""")
@@ -81,7 +81,7 @@ class EliotIntegrationSpec extends EliotIntegrationTest {
     ).asserting(_ shouldBe "Hello")
   }
 
-  "generic types" should "support type-level integer parameters" ignore {
+  "generic types" should "support type-level integer parameters" in {
     compileAndRun(
       """def hello[I: BigInteger]: String = "Hello World!"
         |
@@ -113,7 +113,7 @@ class EliotIntegrationSpec extends EliotIntegrationTest {
     ).asserting(_ shouldBe "!")
   }
 
-  "handle with" should "support multiple data types with pattern matching" ignore {
+  "handle with" should "support multiple data types with pattern matching" in {
     compileAndRun(
       """data Something = Else | Other
         |
@@ -135,7 +135,7 @@ class EliotIntegrationSpec extends EliotIntegrationTest {
     ).asserting(_ shouldBe "Else!")
   }
 
-  "monomorph check" should "handle dependent type integer arithmetic" ignore {
+  "monomorph check" should "handle dependent type integer arithmetic" in {
     compileAndRun(
       """data Box[I: BigInteger](content: String)
         |

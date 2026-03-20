@@ -64,9 +64,9 @@ object SymbolicTypeCheck extends Logging {
     ) >>
       (expression.value match {
         case Expr.IntegerLiteral(value)                          =>
-          // Easy, result needs to be Int
+          // Easy, result needs to be BigInteger
           val exprType = TypeReference(
-            ValueFQN(ModuleName(Seq("eliot", "lang"), "Number"), QualifiedName("Int", CoreQualifier.Type))
+            ValueFQN(ModuleName(Seq("eliot", "lang"), "BigInteger"), QualifiedName("BigInteger", CoreQualifier.Type))
           )
           tellConstraint(SymbolicUnification.constraint(resultType, expression.as(exprType), "Type mismatch.")) *>
             TypedExpression(exprType, TypedExpression.IntegerLiteral(value)).pure[TypeGraphIO]

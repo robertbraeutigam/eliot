@@ -21,7 +21,7 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       (constructorModule, dataTypeName) = moduleAndType
       allConstructors                  <- findAllConstructors(constructorModule, dataTypeName)
       _                                <- checkExhaustiveness(cases, allConstructors)
-      handleCasesFqn                   <- findAbilityMethodImpl(constructorModule, "PatternMatch", "handleCases")
+      handleCasesFqn                   <- findAbilityMethodImpl(constructorModule, "PatternMatch", "handleCases", Some(dataTypeName))
       orderedHandlers                  <- buildOrderedHandlers(scrutinee, cases, allConstructors)
     } yield buildHandleCasesCall(scrutinee, handleCasesFqn, orderedHandlers)
 

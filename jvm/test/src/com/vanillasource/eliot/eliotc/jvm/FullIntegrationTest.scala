@@ -11,7 +11,7 @@ import java.net.URLClassLoader
 import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
 
-trait EliotIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
+trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   protected def compileAndRun(source: String, moduleName: String = "Test"): IO[String] =
     (for {
