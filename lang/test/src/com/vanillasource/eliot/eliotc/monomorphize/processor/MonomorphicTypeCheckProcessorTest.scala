@@ -50,6 +50,7 @@ class MonomorphicTypeCheckProcessorTest
 
   override val systemImports: Seq[SystemImport] = Seq(
     SystemImport("Function", "data Function[A, B]"),
+    SystemImport("Type", "data Type"),
     SystemImport("Number", "data Int"),
     SystemImport("String", "data String"),
     SystemImport("BigInteger", "data BigInteger")

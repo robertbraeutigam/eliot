@@ -26,30 +26,22 @@ class SymbolicTypeCheckProcessor
       key: TypeCheckedValue.Key,
       resolvedValue: OperatorResolvedValue
   ): CompilerIO[TypeCheckedValue] = {
-    val typeStack     = resolvedValue.typeStack
-    val reversedSeq   = typeStack.value.levels.toSeq.reverse
-    val typeLevels    = NonEmptySeq(reversedSeq.head, reversedSeq.tail).map(typeStack.as(_))
-    val vfqnShow   = resolvedValue.vfqn.show
+    val typeStack   = resolvedValue.typeStack
+    val reversedSeq = typeStack.value.levels.toSeq.reverse
+    val typeLevels  = NonEmptySeq(reversedSeq.head, reversedSeq.tail).map(typeStack.as(_))
+    val vfqnShow    = resolvedValue.vfqn.show
 
     for {
-      (endState, result)       <- typeCheck(typeLevels.appendSeq(resolvedValue.runtime.toSeq)).run(TypeCheckState())
-      _                        <- debug[CompilerIO](s"Constraints (of $vfqnShow): ${endState.constraints.show}")
-      solution                 <- ConstraintSolver.solve(endState.constraints, endState.universalVars)
-      _                        <- debug[CompilerIO](s"Solution (of $vfqnShow): ${solution.show}")
-      (signatureType, runtime) <- resolvedValue.runtime match {
-                                    case Some(_) =>
-                                      val substitutedResult =
-                                        result.transformTypes(st => solution.substitute(st))
-                                      (
-                                        substitutedResult.expressionType,
-                                        Some(typeStack.as(substitutedResult.expression))
-                                      ).pure[CompilerIO]
-                                    case None    =>
-                                      NormalFormEvaluator
-                                        .evaluate(typeStack.as(typeStack.value.signature))
-                                        .map(st => st -> None)
-                                  }
-      resolvedQualifierParams  <- resolveQualifierParams(resolvedValue.name)
+      (endState, result)      <- typeCheck(typeLevels.appendSeq(resolvedValue.runtime.toSeq)).run(TypeCheckState())
+      _                       <- debug[CompilerIO](s"Constraints (of $vfqnShow): ${endState.constraints.show}")
+      solution                <- ConstraintSolver.solve(endState.constraints, endState.universalVars)
+      _                       <- debug[CompilerIO](s"Solution (of $vfqnShow): ${solution.show}")
+      // TODO: this signature has nothing to do with type check
+      signatureType           <- NormalFormEvaluator.evaluate(typeStack.as(typeStack.value.signature))
+      runtime                  = resolvedValue.runtime.as(
+                                   typeStack.as(result.transformTypes(st => solution.substitute(st)).expression)
+                                 )
+      resolvedQualifierParams <- resolveQualifierParams(resolvedValue.name)
     } yield TypeCheckedValue(
       resolvedValue.vfqn,
       resolvedValue.name.as(
