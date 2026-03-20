@@ -13,7 +13,7 @@ object CommonPatterns {
   def simpleType(st: SymbolicType): ValueFQN =
     SymbolicType.stripLeadingApplications(st) match {
       case SymbolicType.FunctionType(_, _)  => systemFunctionValue
-      case SymbolicType.TypeVariable(_)     => NativeType.systemTypeValue
+      case SymbolicType.TypeVariable(_)     => systemAnyValue
       case SymbolicType.TypeReference(vfqn) => stripDataTypeSuffix(vfqn)
       case _                                => systemAnyValue
     }

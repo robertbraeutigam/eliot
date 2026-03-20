@@ -45,7 +45,7 @@ class ModuleValueProcessorTest
   }
 
   it should "report error for missing imported module" in {
-    runEngineForErrors("import a.b.C").asserting(_ shouldBe Seq("Could not find imported module." at "a.b.C"))
+    runEngineForErrors("import a.b.C").asserting(_ shouldBe Seq("Could not find imported module: `a.b.C`" at "a.b.C"))
   }
 
   it should "include imported names in dictionary" in {

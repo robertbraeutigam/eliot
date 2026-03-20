@@ -166,9 +166,9 @@ class CommonPatternsTest extends BytecodeTest {
     simpleType(literalType) shouldBe systemAnyValue
   }
 
-  it should "return the Type type for a TypeVariable" in {
+  it should "return the Any type for a TypeVariable" in {
     val typeVar = SymbolicType.TypeVariable("x")
-    simpleType(typeVar) shouldBe NativeType.systemTypeValue
+    simpleType(typeVar) shouldBe NativeType.systemAnyValue
   }
 
   it should "strip DataType suffix from type references" in {
