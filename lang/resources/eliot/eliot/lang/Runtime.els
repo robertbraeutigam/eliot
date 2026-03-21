@@ -1,0 +1,16 @@
+/**
+ * Single runtime concerns need by the language.
+ * Reason for being in lang: These functions are invoked or substituted during compile.
+ */
+
+/**
+ * Invoked by the compile process to "convert" a BigInteger literal into platform specific
+ * value.
+ */
+def integerLiteral[V: BigInteger]: IntegerLiteralType[V]
+
+/**
+ * The platform specific type a BigInteger literal is converted into.
+ */
+type IntegerLiteralType[V: BigInteger]
+

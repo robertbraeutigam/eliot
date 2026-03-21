@@ -1,0 +1,5 @@
+/**
+ * The runtime always returns Int for integer literals.
+ */
+type IntegerLiteralType[V: BigInteger] = Int[V, V]
+

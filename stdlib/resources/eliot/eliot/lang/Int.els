@@ -1,0 +1,15 @@
+/**
+ * All integers are represented by this type.
+ */
+opaque type Int[MIN: BigInteger, MAX: BigInteger]
+
+// Below some common aliases
+type Byte            = Int[-128, 127]
+type UnsignedByte    = Int[0, 255]
+type Short           = Int[-32768, 32767]
+type UnsignedShort   = Int[0, 65535]
+type Medium          = Int[-2147483648, 2147483647]
+type UnsignedMedium  = Int[0, 4294967295]
+type Long            = Int[-9223372036854775808, 9223372036854775807]
+type UnsignedLong    = Int[0, 18446744073709551615]
+
