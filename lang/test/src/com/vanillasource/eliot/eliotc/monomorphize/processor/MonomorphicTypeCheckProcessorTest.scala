@@ -49,11 +49,11 @@ class MonomorphicTypeCheckProcessorTest
     ) {
 
   override val systemImports: Seq[SystemImport] = Seq(
-    SystemImport("Function", "data Function[A, B]"),
-    SystemImport("Type", "data Type"),
-    SystemImport("Number", "data Int"),
-    SystemImport("String", "data String"),
-    SystemImport("BigInteger", "data BigInteger")
+    SystemImport("Function", "opaque type Function[A, B]"),
+    SystemImport("Type", "opaque type Type"),
+    SystemImport("Number", "opaque type Int"),
+    SystemImport("String", "opaque type String"),
+    SystemImport("BigInteger", "opaque type BigInteger")
   )
 
   private val intType: Value =

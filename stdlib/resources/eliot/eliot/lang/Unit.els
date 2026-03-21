@@ -1,4 +1,4 @@
-data Unit
+opaque type Unit
 
 def unit: Unit
 

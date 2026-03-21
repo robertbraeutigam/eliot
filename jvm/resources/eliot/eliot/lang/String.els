@@ -1,4 +1,4 @@
-data String
+opaque type String
 
 def println(s: String): IO[Unit] = IO(_ -> printlnInternal(s))
 

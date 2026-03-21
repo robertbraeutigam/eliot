@@ -7,7 +7,7 @@
  * parameter there produces the next, and so on, until all parameters are applied.
  * Reason for being in lang: Lambdas on all levels are of this type.
  */
-data Function[A, B]
+opaque type Function[A, B]
 
 /**
  * Apply the single parameter to a function to produce the resulting value.

@@ -1,7 +1,7 @@
 /**
  * Unicode compatible character Strings. The stored format is implementation dependent.
  */
-data String
+opaque type String
 
 /**
  * Print a string to the standard output.

@@ -1,4 +1,4 @@
 /**
  * A side-effectful computation.
  */
-data IO[A]
+opaque type IO[A]

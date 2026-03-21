@@ -1,4 +1,4 @@
-data BigInteger
+opaque type BigInteger
 
 /**
  * Increase by one.
