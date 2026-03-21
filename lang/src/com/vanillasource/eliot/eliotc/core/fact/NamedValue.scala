@@ -26,7 +26,8 @@ case class NamedValue(
     paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]] = Map.empty,
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
-    visibility: Visibility = Visibility.Public
+    visibility: Visibility = Visibility.Public,
+    opaque: Boolean = false
 )
 
 object NamedValue {

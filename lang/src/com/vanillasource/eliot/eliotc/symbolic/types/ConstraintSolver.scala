@@ -144,8 +144,7 @@ object ConstraintSolver extends Logging {
     st match {
       case _: TypeApplication =>
         SymbolicType.stripLeadingApplications(st) match {
-          case TypeReference(vfqn) =>
-            !vfqn.name.name.charAt(0).isUpper && vfqn.name.qualifier != Qualifier.Type && vfqn != typeFQN
+          case TypeReference(vfqn) => vfqn.name.qualifier != Qualifier.Type && vfqn != typeFQN
           case _                   => false
         }
       case _                  => false

@@ -40,7 +40,8 @@ object DataDefinitionDesugarer {
         Seq.empty,
         definition.genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction)),
         typeExpr(definition.name.as("Type")),
-        None
+        None,
+        opaque = true
       )
     )
 
@@ -58,7 +59,8 @@ object DataDefinitionDesugarer {
         definition.name,
         definition.genericParameters.map(gp => typeExpr(gp.name))
       ),
-      None
+      None,
+      opaque = true
     )
 
   /** Accessors are only created when there is exactly one constructor. Each accessor is implemented as a match
@@ -155,7 +157,8 @@ object DataDefinitionDesugarer {
           definition.genericParameters,
           Seq(ArgumentDefinition(s.as("arg"), dataTypeRef)),
           dataTypeRef,
-          Some(s.as(SourceExpression.FunctionApplication(None, s.as("arg"), Seq.empty, Seq.empty)))
+          Some(s.as(SourceExpression.FunctionApplication(None, s.as("arg"), Seq.empty, Seq.empty))),
+          opaque = true
         )
 
         val casesTypeDef = FunctionDefinition(
@@ -169,7 +172,8 @@ object DataDefinitionDesugarer {
           Seq(ArgumentDefinition(s.as(resultParamName), typeExpr(s.as("Type")))),
           typeExpr(s.as("Type")),
           None,
-          visibility = Visibility.Public
+          visibility = Visibility.Public,
+          opaque = true
         )
 
         val handleCasesDef = FunctionDefinition(
@@ -186,7 +190,8 @@ object DataDefinitionDesugarer {
           ),
           typeExpr(s.as(resultParamName)),
           None,
-          visibility = Visibility.Public
+          visibility = Visibility.Public,
+          opaque = true
         )
 
         Seq(implMarker, casesTypeDef, handleCasesDef)
@@ -229,7 +234,8 @@ object DataDefinitionDesugarer {
       definition.genericParameters,
       Seq(ArgumentDefinition(s.as("arg"), dataTypeRef)),
       dataTypeRef,
-      Some(s.as(SourceExpression.FunctionApplication(None, s.as("arg"), Seq.empty, Seq.empty)))
+      Some(s.as(SourceExpression.FunctionApplication(None, s.as("arg"), Seq.empty, Seq.empty))),
+      opaque = true
     )
 
     val fieldsTypeDef = FunctionDefinition(
@@ -238,7 +244,8 @@ object DataDefinitionDesugarer {
       Seq(ArgumentDefinition(s.as(resultParamName), typeExpr(s.as("Type")))),
       typeExpr(s.as("Type")),
       None,
-      visibility = Visibility.Public
+      visibility = Visibility.Public,
+      opaque = true
     )
 
     val typeMatchDef = FunctionDefinition(
@@ -251,7 +258,8 @@ object DataDefinitionDesugarer {
       ),
       typeExpr(s.as(resultParamName)),
       None,
-      visibility = Visibility.Public
+      visibility = Visibility.Public,
+      opaque = true
     )
 
     Seq(implMarker, fieldsTypeDef, typeMatchDef)

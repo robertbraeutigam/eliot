@@ -43,7 +43,8 @@ object AbilityBlock {
                 f.args,
                 f.typeDefinition,
                 f.body,
-                visibility = Visibility.Public
+                visibility = Visibility.Public,
+                opaque = f.opaque
               )
             ) :+
               // We add a default/invisible function/value to just indicate that this ability exists, even if it is empty.
