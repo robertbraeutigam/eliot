@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
-import com.vanillasource.eliot.eliotc.uncurry.fact.ParameterDefinition
+import com.vanillasource.eliot.eliotc.uncurry.fact.{MonomorphicParameterDefinition, ParameterDefinition}
 
 import java.net.URI
 
@@ -32,6 +32,18 @@ class CommonPatternsTest extends BytecodeTest {
 
   private def functionSymbolicType: SymbolicType =
     SymbolicType.functionType(stringSymbolicType, stringSymbolicType)
+
+  private def stringValue: Value = Types.stringType
+
+  private def functionValue: Value =
+    Value.Structure(
+      Map(
+        "$typeName" -> Value.Direct(Types.functionDataTypeFQN, Types.fullyQualifiedNameType),
+        "A" -> stringValue,
+        "B" -> stringValue
+      ),
+      Value.Type
+    )
 
   "addDataFieldsAndCtor" should "generate a class with a single field and constructor" in {
     val fields = Seq(ParameterDefinition(sourced("name"), stringSymbolicType))
@@ -153,6 +165,23 @@ class CommonPatternsTest extends BytecodeTest {
     } yield output shouldBe "called with test"
   }
 
+  "addMonomorphicDataFieldsAndCtor" should "generate a class with a single field" in {
+    val fields = Seq(MonomorphicParameterDefinition(sourced("name"), stringValue))
+
+    for {
+      cg        <- createClassGenerator[IO](testModule)
+      _         <- cg.addMonomorphicDataFieldsAndCtor[IO](fields)
+      classFile <- cg.generate[IO]()
+      output    <- runClasses(Seq(classFile)) { cl =>
+                     val clazz = cl.loadClass("test.pkg.TestClass")
+                     val ctor  = clazz.getConstructor(classOf[String])
+                     val obj   = ctor.newInstance("Alice")
+                     val field = clazz.getField("name")
+                     print(field.get(obj))
+                   }
+    } yield output shouldBe "Alice"
+  }
+
   "simpleType" should "return String type for a String TypeReference" in {
     simpleType(stringSymbolicType) shouldBe NativeType.systemLangType("String")
   }
@@ -183,23 +212,27 @@ class CommonPatternsTest extends BytecodeTest {
     simpleType(applied) shouldBe NativeType.systemLangType("String")
   }
 
-  "valueToValueFQN" should "extract ValueFQN from a data type Value" in {
-    val fqn   = ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Default))
+  "valueType" should "extract ValueFQN from a data type Value" in {
+    val fqn   = ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Type))
     val value = Types.dataType(fqn)
-    valueToValueFQN(value) shouldBe fqn
+    valueType(value) shouldBe ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Default))
   }
 
   it should "return Any for Value.Type" in {
-    valueToValueFQN(Value.Type) shouldBe systemAnyValue
+    valueType(Value.Type) shouldBe systemAnyValue
   }
 
   it should "return Any for a Structure without $typeName" in {
     val value = Value.Structure(Map("other" -> Value.Direct(42, Value.Type)), Value.Type)
-    valueToValueFQN(value) shouldBe systemAnyValue
+    valueType(value) shouldBe systemAnyValue
   }
 
   it should "return Any for a Direct value" in {
     val value = Value.Direct("something", Value.Type)
-    valueToValueFQN(value) shouldBe systemAnyValue
+    valueType(value) shouldBe systemAnyValue
+  }
+
+  it should "return Function for a Function type Value" in {
+    valueType(functionValue) shouldBe systemFunctionValue
   }
 }

@@ -3,8 +3,9 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.effect.Sync
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addMonomorphicDataFieldsAndCtor, valueType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createInterfaceGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{
   convertToNestedClassName,
@@ -15,10 +16,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
-import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
-import com.vanillasource.eliot.eliotc.uncurry.fact.{ParameterDefinition, UncurriedValue}
-
-import scala.annotation.tailrec
+import com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition
 
 object DataClassGenerator {
 
@@ -28,42 +26,29 @@ object DataClassGenerator {
   def isTypeConstructor(valueFQN: ValueFQN): Boolean =
     valueFQN.name.qualifier === Qualifier.Type && valueFQN.name.name.charAt(0).isUpper
 
-  @tailrec
-  def constructorDataType(returnType: SymbolicType): SymbolicType =
-    returnType match {
-      case SymbolicType.FunctionType(_, inner) => constructorDataType(inner)
-      case other                               => other
-    }
-
-  def constructorArity(returnType: SymbolicType): Int =
-    returnType match {
-      case SymbolicType.FunctionType(_, inner) => 1 + constructorArity(inner)
-      case _                                   => 0
-    }
-
   /** Single-constructor data: generates a concrete class, factory method, and optional handleCases. */
   def createSingleConstructorData[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
       valueFQN: ValueFQN,
-      uncurriedValue: UncurriedValue,
+      parameters: Seq[MonomorphicParameterDefinition],
       generateHandleCases: Boolean
   ): F[Seq[ClassFile]] =
     for {
       cs <- createDataClass(
               outerClassGenerator,
               valueFQN.name.name,
-              uncurriedValue.parameters,
+              parameters,
               Seq.empty,
               if (generateHandleCases) Some((0, 1)) else None
             )
-      _  <- createFactoryMethod(outerClassGenerator, valueFQN, uncurriedValue.parameters, valueFQN)
+      _  <- createFactoryMethod(outerClassGenerator, valueFQN, parameters, valueFQN)
     } yield cs
 
   /** Multi-constructor (union) data: generates an interface + implementation classes + factory methods. */
   def createMultiConstructorData[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
       typeVFQ: ValueFQN,
-      ctors: Seq[(ValueFQN, UncurriedValue)],
+      ctors: Seq[(ValueFQN, Seq[MonomorphicParameterDefinition], Int)],
       generateHandleCases: Boolean
   ): F[Seq[ClassFile]] =
     for {
@@ -79,22 +64,22 @@ object DataClassGenerator {
                           .whenA(generateHandleCases)
       interfaceClass <- interfaceGen.generate[F]()
       interfaceName   = convertToNestedClassName(typeVFQ)
-      // Sort constructors by source position to match definition order (= handler order)
-      sortedCtors     = ctors.sortBy { case (_, uv) => (uv.name.range.from.line, uv.name.range.from.col) }
-      ctorIndexMap    = sortedCtors.zipWithIndex.map { case ((vfqn, _), idx) => vfqn -> idx }.toMap
+      // Sort constructors by source position index to match definition order (= handler order)
+      sortedCtors     = ctors.sortBy(_._3)
+      ctorIndexMap    = sortedCtors.zipWithIndex.map { case ((vfqn, _, _), idx) => vfqn -> idx }.toMap
       totalCtors      = ctors.size
       // Create implementation classes and factory methods for each constructor
-      implClasses    <- ctors.flatTraverse { case (vfqn, uncurriedValue) =>
+      implClasses    <- ctors.flatTraverse { case (vfqn, params, _) =>
                           val ctorIndex = ctorIndexMap.getOrElse(vfqn, 0)
                           for {
                             cs <- createDataClass(
                                     outerClassGenerator,
                                     vfqn.name.name,
-                                    uncurriedValue.parameters,
+                                    params,
                                     Seq(interfaceName),
                                     if (generateHandleCases) Some((ctorIndex, totalCtors)) else None
                                   )
-                            _  <- createFactoryMethod(outerClassGenerator, vfqn, uncurriedValue.parameters, typeVFQ)
+                            _  <- createFactoryMethod(outerClassGenerator, vfqn, params, typeVFQ)
                           } yield cs
                         }
     } yield Seq(interfaceClass) ++ implClasses
@@ -102,24 +87,24 @@ object DataClassGenerator {
   private def createFactoryMethod[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
       constructorVfqn: ValueFQN,
-      parameters: Seq[ParameterDefinition],
+      parameters: Seq[MonomorphicParameterDefinition],
       returnType: ValueFQN
   ): F[Unit] =
     outerClassGenerator
       .createMethod[F](
         JvmIdentifier.encode(constructorVfqn.name.name),
-        parameters.map(_.parameterType).map(simpleType),
+        parameters.map(_.parameterType).map(valueType),
         returnType
       )
       .use { methodGenerator =>
         for {
           _ <- methodGenerator.addNew[F](constructorVfqn)
           _ <- parameters.zipWithIndex.traverse_ { (fieldDef, index) =>
-                 methodGenerator.addLoadVar[F](simpleType(fieldDef.parameterType), index)
+                 methodGenerator.addLoadVar[F](valueType(fieldDef.parameterType), index)
                }
           _ <- methodGenerator.addCallToCtor[F](
                  constructorVfqn,
-                 parameters.map(_.parameterType).map(simpleType)
+                 parameters.map(_.parameterType).map(valueType)
                )
         } yield ()
       }
@@ -133,14 +118,14 @@ object DataClassGenerator {
   private def createDataClass[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
       innerClassName: String,
-      fields: Seq[ParameterDefinition],
+      fields: Seq[MonomorphicParameterDefinition],
       javaInterfaces: Seq[String] = Seq.empty,
       handleCasesInfo: Option[(Int, Int)] = None
   ): F[Seq[ClassFile]] =
     for {
       innerClassWriter <-
         outerClassGenerator.createInnerClassGenerator[F](JvmIdentifier.encode(innerClassName), javaInterfaces)
-      _                <- innerClassWriter.addDataFieldsAndCtor[F](fields)
+      _                <- innerClassWriter.addMonomorphicDataFieldsAndCtor[F](fields)
       // Generate handleCases instance method with Church encoding if requested
       selectorClasses  <- handleCasesInfo match {
                             case Some((ctorIndex, totalCtors)) =>
@@ -180,14 +165,14 @@ object DataClassGenerator {
                                                               _ <- mg.addLoadThis[F]()
                                                               _ <- mg.addGetField[F](
                                                                      JvmIdentifier.encode(field.name.value),
-                                                                     simpleType(field.parameterType),
+                                                                     valueType(field.parameterType),
                                                                      ctorVfqn
                                                                    )
                                                             } yield ()
                                                           }
                                                      _ <- mg.addCallToCtor[F](
                                                             selector0Vfqn,
-                                                            fields.map(_.parameterType).map(simpleType)
+                                                            fields.map(_.parameterType).map(valueType)
                                                           )
                                                      // Call cases.apply(selector_0)
                                                      _ <- mg.addCallToApply[F]()
@@ -200,22 +185,17 @@ object DataClassGenerator {
       classFile        <- innerClassWriter.generate[F]()
     } yield classFile +: selectorClasses
 
-  /** Generate the chain of selector lambda inner classes for Church-encoded pattern matching.
-    *
-    * For constructor at index `ctorIndex` out of `totalConstructors`, generates `totalConstructors` lambda classes.
-    * Each lambda in the chain accepts one handler parameter. The chain ultimately applies the handler at position
-    * `ctorIndex` to the constructor's fields.
-    */
+  /** Generate the chain of selector lambda inner classes for Church-encoded pattern matching. */
   private def generateSelectorLambdas[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
       ctorName: String,
       ctorIndex: Int,
       totalConstructors: Int,
-      ctorFields: Seq[ParameterDefinition]
+      ctorFields: Seq[MonomorphicParameterDefinition]
   ): F[Seq[ClassFile]] = {
     val moduleName       = outerClassGenerator.moduleName
     val n                = totalConstructors
-    val ctorFieldEntries = ctorFields.map(f => (f.name.value, simpleType(f.parameterType)))
+    val ctorFieldEntries = ctorFields.map(f => (f.name.value, valueType(f.parameterType)))
 
     (0 until n).toList
       .traverse { (j: Int) =>
@@ -340,7 +320,7 @@ object DataClassGenerator {
         }
     } yield ()
 
-  /** Add fields and constructor to a class without requiring ParameterDefinition. */
+  /** Add fields and constructor to a class without requiring MonomorphicParameterDefinition. */
   private def addFieldsAndCtor[F[_]: Sync](
       classGenerator: ClassGenerator,
       fields: Seq[(String, ValueFQN)]
@@ -368,30 +348,31 @@ object DataClassGenerator {
   def createTypeConstructorData[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
       constructorVfqn: ValueFQN,
-      constructorUncurried: UncurriedValue
+      parameters: Seq[MonomorphicParameterDefinition]
   ): F[Seq[ClassFile]] = {
     val typeInterfaceName = convertToNestedClassName(systemTypeValue)
     for {
       cs <- createDataClass(
               outerClassGenerator,
               "type$" + constructorVfqn.name.name,
-              constructorUncurried.parameters,
+              parameters,
               Seq(typeInterfaceName),
               None
             )
-      _  <- createFactoryMethod(outerClassGenerator, constructorVfqn, constructorUncurried.parameters, systemTypeValue)
+      _  <- createFactoryMethod(outerClassGenerator, constructorVfqn, parameters, systemTypeValue)
     } yield cs
   }
 
   /** Generate a static typeMatch method that uses instanceof dispatch. */
   def generateTypeMatch[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
-      typeMatchUncurried: UncurriedValue,
+      typeMatchParameters: Seq[MonomorphicParameterDefinition],
+      typeMatchReturnType: Value,
       constructorVfqn: ValueFQN,
-      constructorFields: Seq[ParameterDefinition]
+      constructorFields: Seq[MonomorphicParameterDefinition]
   ): F[Unit] = {
-    val allParamTypes     = typeMatchUncurried.parameters.map(_.parameterType).map(simpleType)
-    val returnType        = simpleType(typeMatchUncurried.returnType)
+    val allParamTypes     = typeMatchParameters.map(_.parameterType).map(valueType)
+    val returnType        = valueType(typeMatchReturnType)
     val typeCtorClassName = convertToNestedClassName(constructorVfqn)
     outerClassGenerator
       .createMethod[F](
@@ -421,7 +402,7 @@ object DataClassGenerator {
                   _ <- mg.addCastTo[F](constructorVfqn)
                   _ <- mg.addGetField[F](
                          JvmIdentifier.encode(fieldDef.name.value),
-                         simpleType(fieldDef.parameterType),
+                         valueType(fieldDef.parameterType),
                          constructorVfqn
                        )
                   _ <- mg.addCallToApply[F]()

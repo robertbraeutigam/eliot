@@ -25,7 +25,7 @@ import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.uncurry.processor.UncurryingProcessor
+import com.vanillasource.eliot.eliotc.uncurry.processor.{MonomorphicUncurryingProcessor, UncurryingProcessor}
 import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
 import org.objectweb.asm.{ClassReader, ClassVisitor, MethodVisitor, Opcodes}
 import org.scalatest.flatspec.AsyncFlatSpec
@@ -62,6 +62,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       MonomorphicTypeCheckProcessor(),
       UsedNamesProcessor(),
       UncurryingProcessor(),
+      MonomorphicUncurryingProcessor(),
       JvmClassGenerator()
     )
   )
@@ -84,98 +85,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       errors    <- generator.currentErrors()
     } yield (errors, facts)
 
-  "jvm class generator" should "inject concrete dictionary singleton at call site" in {
-    runGenerator(
-      """ability Show[A] { def show(x: A): A }
-        |data MyStr
-        |implement Show[MyStr] { def show(x: MyStr): MyStr = x }
-        |def someValue: MyStr = someValue
-        |def main: MyStr = g(someValue)
-        |def g(x: MyStr): MyStr = f(x)
-        |def f[A ~ Show[A]](x: A): A = show(x)""".stripMargin,
-      moduleKey
-    ).map { case (errors, facts) =>
-      val generatedModule  = facts(moduleKey).asInstanceOf[GeneratedModule]
-      val testClassBytes   = generatedModule.classFiles.find(_.fileName == "Test.class").get.bytecode
-      val classReader      = new ClassReader(testClassBytes)
-      var gCallsFWithDict  = false
-      classReader.accept(
-        new ClassVisitor(Opcodes.ASM9) {
-          override def visitMethod(
-              access: Int,
-              name: String,
-              descriptor: String,
-              signature: String,
-              exceptions: Array[String]
-          ): MethodVisitor =
-            if (name == "g")
-              new MethodVisitor(Opcodes.ASM9) {
-                override def visitMethodInsn(
-                    opcode: Int,
-                    owner: String,
-                    name: String,
-                    descriptor: String,
-                    isInterface: Boolean
-                ): Unit =
-                  if (opcode == Opcodes.INVOKESTATIC && name == "f")
-                    gCallsFWithDict =
-                      descriptor == "(LTest$Show$vtable;Ljava/lang/Object;)Ljava/lang/Object;"
-              }
-            else null
-        },
-        0
-      )
-      gCallsFWithDict
-    }.asserting(_ shouldBe true)
-  }
-
-  it should "pass through dictionary for generic call site" in {
-    runGenerator(
-      """ability Show[A] { def show(x: A): A }
-        |data MyStr
-        |implement Show[MyStr] { def show(x: MyStr): MyStr = x }
-        |def someValue: MyStr = someValue
-        |def main: MyStr = g(someValue)
-        |def g(x: MyStr): MyStr = h(x)
-        |def h[A ~ Show[A]](x: A): A = f(x)
-        |def f[A ~ Show[A]](x: A): A = show(x)""".stripMargin,
-      moduleKey
-    ).map { case (errors, facts) =>
-      val generatedModule  = facts(moduleKey).asInstanceOf[GeneratedModule]
-      val testClassBytes   = generatedModule.classFiles.find(_.fileName == "Test.class").get.bytecode
-      val classReader      = new ClassReader(testClassBytes)
-      var hCallsFWithDict  = false
-      classReader.accept(
-        new ClassVisitor(Opcodes.ASM9) {
-          override def visitMethod(
-              access: Int,
-              name: String,
-              descriptor: String,
-              signature: String,
-              exceptions: Array[String]
-          ): MethodVisitor =
-            if (name == "h")
-              new MethodVisitor(Opcodes.ASM9) {
-                override def visitMethodInsn(
-                    opcode: Int,
-                    owner: String,
-                    name: String,
-                    descriptor: String,
-                    isInterface: Boolean
-                ): Unit =
-                  if (opcode == Opcodes.INVOKESTATIC && name == "f")
-                    hCallsFWithDict =
-                      descriptor == "(LTest$Show$vtable;Ljava/lang/Object;)Ljava/lang/Object;"
-              }
-            else null
-        },
-        0
-      )
-      hCallsFWithDict
-    }.asserting(_ shouldBe true)
-  }
-
-  it should "dispatch ability call through dictionary with INVOKEINTERFACE" in {
+  "jvm class generator" should "resolve ability call directly via monomorphization" in {
     runGenerator(
       """ability Show[A] { def show(x: A): A }
         |data MyStr
@@ -185,10 +95,10 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
         |def f[A ~ Show[A]](x: A): A = show(x)""".stripMargin,
       moduleKey
     ).map { case (_, facts) =>
-      val generatedModule      = facts(moduleKey).asInstanceOf[GeneratedModule]
-      val testClassBytes       = generatedModule.classFiles.find(_.fileName == "Test.class").get.bytecode
-      val classReader          = new ClassReader(testClassBytes)
-      var invokeInterfaceOwner = Option.empty[String]
+      val generatedModule = facts(moduleKey).asInstanceOf[GeneratedModule]
+      val testClassBytes  = generatedModule.classFiles.find(_.fileName == "Test.class").get.bytecode
+      val classReader     = new ClassReader(testClassBytes)
+      var fCallsShowImpl  = false
       classReader.accept(
         new ClassVisitor(Opcodes.ASM9) {
           override def visitMethod(
@@ -198,7 +108,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
               signature: String,
               exceptions: Array[String]
           ): MethodVisitor =
-            if (name == "f")
+            if (name == "f$MyStr")
               new MethodVisitor(Opcodes.ASM9) {
                 override def visitMethodInsn(
                     opcode: Int,
@@ -207,17 +117,18 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
                     descriptor: String,
                     isInterface: Boolean
                 ): Unit =
-                  if (opcode == Opcodes.INVOKEINTERFACE) invokeInterfaceOwner = Some(owner)
+                  if (opcode == Opcodes.INVOKESTATIC && name == "show")
+                    fCallsShowImpl = true
               }
             else null
         },
         0
       )
-      invokeInterfaceOwner
-    }.asserting(_ shouldBe Some("Test$Show$vtable"))
+      fCallsShowImpl
+    }.asserting(_ shouldBe true)
   }
 
-  it should "add a dictionary parameter for a constrained function" in {
+  it should "generate monomorphically mangled method name for generic function" in {
     runGenerator(
       """ability Show[A] { def show(x: A): A }
         |data MyStr
@@ -240,29 +151,30 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
               signature: String,
               exceptions: Array[String]
           ): MethodVisitor = {
-            if (name == "f") fDescriptor = Some(descriptor)
+            if (name == "f$MyStr") fDescriptor = Some(descriptor)
             null
           }
         },
         0
       )
       fDescriptor
-    }.asserting(_ shouldBe Some("(LTest$Show$vtable;Ljava/lang/Object;)Ljava/lang/Object;"))
+    }.asserting(_ shouldBe Some("(LTest$MyStr;)LTest$MyStr;"))
   }
 
-  it should "generate methods for all used arities of a data accessor" in {
+  it should "generate monomorphic methods for generic function" in {
     runGenerator(
-      """data MyVal
-        |data Box[A](content: A)
-        |def someValue: MyVal = someValue
-        |def applyFn[A, B](f: Function[A, B], a: A): B = f(a)
-        |def main: MyVal = applyFn(content, Box(content(Box(someValue))))""".stripMargin,
+      """data MyStr
+        |def someValue: MyStr = someValue
+        |def id[A](x: A): A = x
+        |def main: MyStr = id(someValue)""".stripMargin,
       moduleKey
-    ).map { case (_, facts) =>
-      val generatedModule    = facts(moduleKey).asInstanceOf[GeneratedModule]
+    ).map { case (errors, facts) =>
+      val generatedModule    = facts.get(moduleKey).map(_.asInstanceOf[GeneratedModule]).getOrElse(
+        fail(s"GeneratedModule not found. Errors: ${errors.map(e => s"${e.contentSource}: ${e.message}").mkString("; ")}")
+      )
       val testClassBytes     = generatedModule.classFiles.find(_.fileName == "Test.class").get.bytecode
       val classReader        = new ClassReader(testClassBytes)
-      var contentDescriptors = Set.empty[String]
+      var idMethods          = Map.empty[String, String]
       classReader.accept(
         new ClassVisitor(Opcodes.ASM9) {
           override def visitMethod(
@@ -272,31 +184,48 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
               signature: String,
               exceptions: Array[String]
           ): MethodVisitor = {
-            if (name == "content") contentDescriptors = contentDescriptors + descriptor
+            if (name.startsWith("id")) idMethods = idMethods + (name -> descriptor)
             null
           }
         },
         0
       )
-      contentDescriptors
-    }.asserting(_ shouldBe Set(
-      "(LTest$Box;)Ljava/lang/Object;",
-      "()Ljava/util/function/Function;"
+      idMethods
+    }.asserting(_ shouldBe Map(
+      "id$MyStr" -> "(LTest$MyStr;)LTest$MyStr;"
     ))
   }
 
-  it should "generate unique lambda class names across arities" in {
+  it should "generate separate monomorphic methods for different type args" in {
     runGenerator(
-      """data MyVal
-        |data Box[A](content: A)
-        |def someValue: MyVal = someValue
-        |def applyFn[A, B](f: Function[A, B], a: A): B = f(a)
-        |def main: MyVal = applyFn(content, Box(content(Box(someValue))))""".stripMargin,
+      """data MyStr
+        |data MyInt
+        |def someStr: MyStr = someStr
+        |def someInt: MyInt = someInt
+        |def id[A](x: A): A = x
+        |def main: MyStr = id(id(someStr))""".stripMargin,
       moduleKey
     ).map { case (_, facts) =>
-      val generatedModule = facts(moduleKey).asInstanceOf[GeneratedModule]
-      val lambdaFiles     = generatedModule.classFiles.filter(_.fileName.contains("content$lambda"))
-      lambdaFiles.map(_.fileName)
-    }.asserting(fileNames => fileNames.distinct shouldBe fileNames)
+      val generatedModule    = facts(moduleKey).asInstanceOf[GeneratedModule]
+      val testClassBytes     = generatedModule.classFiles.find(_.fileName == "Test.class").get.bytecode
+      val classReader        = new ClassReader(testClassBytes)
+      var idMethods          = Set.empty[String]
+      classReader.accept(
+        new ClassVisitor(Opcodes.ASM9) {
+          override def visitMethod(
+              access: Int,
+              name: String,
+              descriptor: String,
+              signature: String,
+              exceptions: Array[String]
+          ): MethodVisitor = {
+            if (name.startsWith("id")) idMethods = idMethods + name
+            null
+          }
+        },
+        0
+      )
+      idMethods
+    }.asserting(_ shouldBe Set("id$MyStr"))
   }
 }

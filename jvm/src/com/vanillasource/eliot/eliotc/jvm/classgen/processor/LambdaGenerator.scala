@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addDataFieldsAndCtor, simpleType}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addMonomorphicDataFieldsAndCtor, valueType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
@@ -12,19 +12,19 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
-import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedExpression.*
+import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression.*
 
 object LambdaGenerator {
 
   type ExpressionCodeFn =
-    (ModuleName, ClassGenerator, MethodGenerator, UncurriedExpression) => CompilationTypesIO[Seq[ClassFile]]
+    (ModuleName, ClassGenerator, MethodGenerator, UncurriedMonomorphicExpression) => CompilationTypesIO[Seq[ClassFile]]
 
   def generateLambda(
       moduleName: ModuleName,
       outerClassGenerator: ClassGenerator,
       methodGenerator: MethodGenerator,
-      parameters: Seq[ParameterDefinition],
-      body: Sourced[UncurriedExpression],
+      parameters: Seq[MonomorphicParameterDefinition],
+      body: Sourced[UncurriedMonomorphicExpression],
       createExpressionCode: ExpressionCodeFn
   ): CompilationTypesIO[Seq[ClassFile]] = {
     if (parameters.length > 1) {
@@ -34,7 +34,7 @@ object LambdaGenerator {
     val definition      = parameters.headOption.getOrElse(???)
     val closedOverNames = collectParameterReferences(body.value.expression)
       .filter(_ =!= definition.name.value)
-    val returnType      = simpleType(body.value.expressionType)
+    val returnType      = valueType(body.value.expressionType)
 
     for {
       closedOverArgs   <- closedOverNames.traverse(getParameterType).map(_.sequence)
@@ -59,8 +59,8 @@ object LambdaGenerator {
         outerClassGenerator
           .createMethod[CompilationTypesIO](
             JvmIdentifier.encode(lambdaPrefix + "fn$" + lambdaIndex),
-            lambdaFnParams.map(_.parameterType).map(simpleType),
-            simpleType(body.value.expressionType)
+            lambdaFnParams.map(_.parameterType).map(valueType),
+            valueType(body.value.expressionType)
           )
           .use { fnGenerator =>
             createExpressionCode(moduleName, outerClassGenerator, fnGenerator, body.value)
@@ -74,11 +74,11 @@ object LambdaGenerator {
             JvmIdentifier.encode(lambdaPrefix + lambdaIndex),
             Seq("java/util/function/Function")
           )
-      _                <- innerClassWriter.addDataFieldsAndCtor[CompilationTypesIO](closedOverArgs.get)
+      _                <- innerClassWriter.addMonomorphicDataFieldsAndCtor[CompilationTypesIO](closedOverArgs.get)
       _                <- innerClassWriter
                             .createApplyMethod[CompilationTypesIO](
-                              Seq(simpleType(definition.parameterType)),
-                              simpleType(body.value.expressionType)
+                              Seq(valueType(definition.parameterType)),
+                              valueType(body.value.expressionType)
                             )
                             .use { applyGenerator =>
                               for {
@@ -91,22 +91,22 @@ object LambdaGenerator {
                                                 )
                                          _ <- applyGenerator.addGetField[CompilationTypesIO](
                                                 JvmIdentifier.encode(argument.name.value),
-                                                simpleType(argument.parameterType),
+                                                valueType(argument.parameterType),
                                                 ValueFQN(moduleName, QualifiedName(lambdaPrefix + lambdaIndex, Qualifier.Default))
                                               )
                                        } yield ()
                                      }
                                 _ <- applyGenerator.addLoadVar[CompilationTypesIO](
-                                       simpleType(definition.parameterType),
+                                       valueType(definition.parameterType),
                                        1
                                      )
                                 _ <- applyGenerator.addCastTo[CompilationTypesIO](
-                                       simpleType(definition.parameterType)
+                                       valueType(definition.parameterType)
                                      )
                                 _ <- applyGenerator.addCallTo[CompilationTypesIO](
                                        ValueFQN(moduleName, QualifiedName(lambdaPrefix + "fn$" + lambdaIndex, Qualifier.Default)),
-                                       lambdaFnParams.map(_.parameterType).map(simpleType),
-                                       simpleType(body.value.expressionType)
+                                       lambdaFnParams.map(_.parameterType).map(valueType),
+                                       valueType(body.value.expressionType)
                                      )
                               } yield ()
                             }
@@ -119,12 +119,12 @@ object LambdaGenerator {
                               argIndex <- getParameterIndex(argument.name.value)
                               argType  <- getParameterType(argument.name.value)
                               _        <- methodGenerator
-                                            .addLoadVar[CompilationTypesIO](simpleType(argType.get.parameterType), argIndex.get)
+                                            .addLoadVar[CompilationTypesIO](valueType(argType.get.parameterType), argIndex.get)
                             } yield ()
                           }
       _                <- methodGenerator.addCallToCtor[CompilationTypesIO](
                             ValueFQN(moduleName, QualifiedName(lambdaPrefix + lambdaIndex, Qualifier.Default)),
-                            closedOverArgs.get.map(_.parameterType).map(simpleType)
+                            closedOverArgs.get.map(_.parameterType).map(valueType)
                           )
     } yield classFile +: cls1
   }
@@ -140,6 +140,6 @@ object LambdaGenerator {
       case IntegerLiteral(_)                      => Seq.empty
       case StringLiteral(_)                       => Seq.empty
       case ParameterReference(parameterName)      => Seq(parameterName.value)
-      case ValueReference(_)                      => Seq.empty
+      case MonomorphicValueReference(_, _)        => Seq.empty
     }
 }

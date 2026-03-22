@@ -3,10 +3,10 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.uncurry.fact.ParameterDefinition
+import com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition
 
 case class TypeState(
-    typeMap: Map[String, ParameterDefinition] = Map.empty,
+    typeMap: Map[String, MonomorphicParameterDefinition] = Map.empty,
     parameters: Seq[String] = Seq.empty,
     lambdaCount: Int = 0,
     methodName: String = ""
@@ -22,7 +22,7 @@ object TypeState {
   def getParameterIndex(name: String): CompilationTypesIO[Option[Int]] =
     StateT.get[CompilerIO, TypeState].map(_.parameters.indexOf(name)).map(i => Option.when(i >= 0)(i))
 
-  def addParameterDefinition(definition: ParameterDefinition): CompilationTypesIO[Unit] =
+  def addParameterDefinition(definition: MonomorphicParameterDefinition): CompilationTypesIO[Unit] =
     StateT.modify[CompilerIO, TypeState] { state =>
       state.copy(
         typeMap = state.typeMap.updated(definition.name.value, definition),
@@ -38,6 +38,6 @@ object TypeState {
   def getMethodName: CompilationTypesIO[String] =
     StateT.get[CompilerIO, TypeState].map(_.methodName)
 
-  def getParameterType(name: String): CompilationTypesIO[Option[ParameterDefinition]] =
+  def getParameterType(name: String): CompilationTypesIO[Option[MonomorphicParameterDefinition]] =
     StateT.get[CompilerIO, TypeState].map(_.typeMap.get(name))
 }
