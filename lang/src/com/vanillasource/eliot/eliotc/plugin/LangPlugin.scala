@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.plugin
 import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckProcessor
 import com.vanillasource.eliot.eliotc.implementation.processor.{AbilityImplementationCheckProcessor, AbilityImplementationProcessor}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
@@ -32,9 +31,8 @@ import com.vanillasource.eliot.eliotc.source.file.FileContentReader
 import com.vanillasource.eliot.eliotc.source.resource.ResourceContentReader
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.source.stat.FileStatProcessor
-import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.uncurry.processor.{MonomorphicUncurryingProcessor, UncurryingProcessor}
+import com.vanillasource.eliot.eliotc.uncurry.processor.MonomorphicUncurryingProcessor
 import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
 import scopt.{OParser, OParserBuilder}
 
@@ -77,13 +75,10 @@ class LangPlugin extends CompilerPlugin {
             ValueResolver(),
             MatchDesugaringProcessor(),
             OperatorResolverProcessor(),
-            SymbolicTypeCheckProcessor(),
             AbilityImplementationProcessor(),
             AbilityImplementationCheckProcessor(),
-            AbilityCheckProcessor(),
             MonomorphicTypeCheckProcessor(),
             UsedNamesProcessor(),
-            UncurryingProcessor(),
             MonomorphicUncurryingProcessor()
           )
         )

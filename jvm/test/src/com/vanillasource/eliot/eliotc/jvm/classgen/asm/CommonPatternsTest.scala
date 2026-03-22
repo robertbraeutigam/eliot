@@ -10,8 +10,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemAnyValu
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
-import com.vanillasource.eliot.eliotc.uncurry.fact.{MonomorphicParameterDefinition, ParameterDefinition}
+import com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition
 
 import java.net.URI
 
@@ -23,15 +22,6 @@ class CommonPatternsTest extends BytecodeTest {
   private val zeroRange  = PositionRange.zero
 
   private def sourced[T](value: T): Sourced[T] = Sourced(testUri, zeroRange, value)
-
-  private def stringSymbolicType: SymbolicType =
-    SymbolicType.TypeReference(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default)))
-
-  private def anySymbolicType: SymbolicType =
-    SymbolicType.TypeReference(ValueFQN(ModuleName(Seq("eliot", "lang"), "Any"), QualifiedName("Any", Qualifier.Default)))
-
-  private def functionSymbolicType: SymbolicType =
-    SymbolicType.functionType(stringSymbolicType, stringSymbolicType)
 
   private def stringValue: Value = Types.stringType
 
@@ -45,12 +35,12 @@ class CommonPatternsTest extends BytecodeTest {
       Value.Type
     )
 
-  "addDataFieldsAndCtor" should "generate a class with a single field and constructor" in {
-    val fields = Seq(ParameterDefinition(sourced("name"), stringSymbolicType))
+  "addMonomorphicDataFieldsAndCtor" should "generate a class with a single field and constructor" in {
+    val fields = Seq(MonomorphicParameterDefinition(sourced("name"), stringValue))
 
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.addDataFieldsAndCtor[IO](fields)
+      _         <- cg.addMonomorphicDataFieldsAndCtor[IO](fields)
       classFile <- cg.generate[IO]()
       output    <- runClasses(Seq(classFile)) { cl =>
                      val clazz = cl.loadClass("test.pkg.TestClass")
@@ -64,13 +54,13 @@ class CommonPatternsTest extends BytecodeTest {
 
   it should "generate a class with multiple fields" in {
     val fields = Seq(
-      ParameterDefinition(sourced("first"), stringSymbolicType),
-      ParameterDefinition(sourced("second"), stringSymbolicType)
+      MonomorphicParameterDefinition(sourced("first"), stringValue),
+      MonomorphicParameterDefinition(sourced("second"), stringValue)
     )
 
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.addDataFieldsAndCtor[IO](fields)
+      _         <- cg.addMonomorphicDataFieldsAndCtor[IO](fields)
       classFile <- cg.generate[IO]()
       output    <- runClasses(Seq(classFile)) { cl =>
                      val clazz = cl.loadClass("test.pkg.TestClass")
@@ -86,7 +76,7 @@ class CommonPatternsTest extends BytecodeTest {
   it should "generate a class with no fields and a no-arg constructor" in {
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.addDataFieldsAndCtor[IO](Seq.empty)
+      _         <- cg.addMonomorphicDataFieldsAndCtor[IO](Seq.empty)
       classFile <- cg.generate[IO]()
       output    <- runClasses(Seq(classFile)) { cl =>
                      val clazz = cl.loadClass("test.pkg.TestClass")
@@ -99,14 +89,14 @@ class CommonPatternsTest extends BytecodeTest {
 
   it should "generate fields accessible after construction" in {
     val fields = Seq(
-      ParameterDefinition(sourced("a"), stringSymbolicType),
-      ParameterDefinition(sourced("b"), stringSymbolicType),
-      ParameterDefinition(sourced("c"), stringSymbolicType)
+      MonomorphicParameterDefinition(sourced("a"), stringValue),
+      MonomorphicParameterDefinition(sourced("b"), stringValue),
+      MonomorphicParameterDefinition(sourced("c"), stringValue)
     )
 
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.addDataFieldsAndCtor[IO](fields)
+      _         <- cg.addMonomorphicDataFieldsAndCtor[IO](fields)
       classFile <- cg.generate[IO]()
       output    <- runClasses(Seq(classFile)) { cl =>
                      val clazz = cl.loadClass("test.pkg.TestClass")
@@ -121,12 +111,12 @@ class CommonPatternsTest extends BytecodeTest {
   }
 
   it should "generate a data class used as an inner class" in {
-    val fields = Seq(ParameterDefinition(sourced("value"), stringSymbolicType))
+    val fields = Seq(MonomorphicParameterDefinition(sourced("value"), stringValue))
 
     for {
       cg        <- createClassGenerator[IO](testModule)
       innerCg   <- cg.createInnerClassGenerator[IO](JvmIdentifier("Data"))
-      _         <- innerCg.addDataFieldsAndCtor[IO](fields)
+      _         <- innerCg.addMonomorphicDataFieldsAndCtor[IO](fields)
       boxType    = ValueFQN(testModule, QualifiedName("Data", Qualifier.Default))
       _         <- cg.createMethod[IO](JvmIdentifier("wrap"), Seq(stringType), anyType).use { mg =>
                      for {
@@ -148,11 +138,11 @@ class CommonPatternsTest extends BytecodeTest {
   }
 
   it should "generate a data class with a Function-typed field" in {
-    val fields = Seq(ParameterDefinition(sourced("fn"), functionSymbolicType))
+    val fields = Seq(MonomorphicParameterDefinition(sourced("fn"), functionValue))
 
     for {
       cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.addDataFieldsAndCtor[IO](fields)
+      _         <- cg.addMonomorphicDataFieldsAndCtor[IO](fields)
       classFile <- cg.generate[IO]()
       output    <- runClasses(Seq(classFile)) { cl =>
                      val clazz = cl.loadClass("test.pkg.TestClass")
@@ -163,53 +153,6 @@ class CommonPatternsTest extends BytecodeTest {
                      print(field.apply("test"))
                    }
     } yield output shouldBe "called with test"
-  }
-
-  "addMonomorphicDataFieldsAndCtor" should "generate a class with a single field" in {
-    val fields = Seq(MonomorphicParameterDefinition(sourced("name"), stringValue))
-
-    for {
-      cg        <- createClassGenerator[IO](testModule)
-      _         <- cg.addMonomorphicDataFieldsAndCtor[IO](fields)
-      classFile <- cg.generate[IO]()
-      output    <- runClasses(Seq(classFile)) { cl =>
-                     val clazz = cl.loadClass("test.pkg.TestClass")
-                     val ctor  = clazz.getConstructor(classOf[String])
-                     val obj   = ctor.newInstance("Alice")
-                     val field = clazz.getField("name")
-                     print(field.get(obj))
-                   }
-    } yield output shouldBe "Alice"
-  }
-
-  "simpleType" should "return String type for a String TypeReference" in {
-    simpleType(stringSymbolicType) shouldBe NativeType.systemLangType("String")
-  }
-
-  it should "return Function type for a function expression" in {
-    simpleType(functionSymbolicType) shouldBe systemFunctionValue
-  }
-
-  it should "return Any type for unsupported expression types" in {
-    val literalType = SymbolicType.LiteralType(42, ValueFQN(ModuleName(Seq("eliot", "lang"), "Number"), QualifiedName("Int", Qualifier.Default)))
-    simpleType(literalType) shouldBe systemAnyValue
-  }
-
-  it should "return the Any type for a TypeVariable" in {
-    val typeVar = SymbolicType.TypeVariable("x")
-    simpleType(typeVar) shouldBe NativeType.systemAnyValue
-  }
-
-  it should "strip DataType suffix from type references" in {
-    val dataTypeFqn = ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Type))
-    val expr        = SymbolicType.TypeReference(dataTypeFqn)
-    simpleType(expr) shouldBe ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Default))
-  }
-
-  it should "strip leading type applications before resolving type" in {
-    val innerType = SymbolicType.TypeReference(ValueFQN(ModuleName(Seq("eliot", "lang"), "String"), QualifiedName("String", Qualifier.Default)))
-    val applied   = SymbolicType.TypeApplication(sourced(innerType), sourced(stringSymbolicType))
-    simpleType(applied) shouldBe NativeType.systemLangType("String")
   }
 
   "valueType" should "extract ValueFQN from a data type Value" in {

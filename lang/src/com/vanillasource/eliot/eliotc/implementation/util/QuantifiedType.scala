@@ -1,8 +1,8 @@
-package com.vanillasource.eliot.eliotc.symbolic.fact
+package com.vanillasource.eliot.eliotc.implementation.util
 
 import cats.Show
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType.*
+import com.vanillasource.eliot.eliotc.implementation.util.SymbolicType.*
 
 /** A type with universally quantified type parameters separated from the body. This replaces the ad-hoc pattern of
   * encoding universal quantification as leading TypeLambdas in a SymbolicType.

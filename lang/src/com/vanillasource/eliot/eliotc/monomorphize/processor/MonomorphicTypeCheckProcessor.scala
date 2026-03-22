@@ -14,7 +14,6 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
-import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
 
 /** Processor that monomorphizes (specializes) generic functions.
   *
@@ -149,7 +148,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       case vr: OperatorResolvedExpression.ValueReference     =>
         transformValueReference(vr, callSiteType, typeParamSubst, runtimeParams, source)
       case fa: OperatorResolvedExpression.FunctionApplication =>
-        transformFunctionApplication(fa, typeParamSubst, runtimeParams, source)
+        transformFunctionApplication(fa, callSiteType, typeParamSubst, runtimeParams, source)
       case fl: OperatorResolvedExpression.FunctionLiteral    =>
         transformFunctionLiteral(fl, callSiteType, typeParamSubst, runtimeParams, source)
     }
@@ -200,12 +199,10 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
     for {
       abilityTypeParamCount <- countAbilityTypeParams(vfqn.value)
       abilityTypeArgs        = typeArgs.take(abilityTypeParamCount)
-      // TODO: change AbilityImplementation.Key to Seq[Value] to remove this bridge
-      abilitySymbolicArgs    = abilityTypeArgs.map(SymbolicType.fromValue)
-      impl                  <- getFactOrAbort(AbilityImplementation.Key(vfqn.value, abilitySymbolicArgs))
+      impl                  <- getFactOrAbort(AbilityImplementation.Key(vfqn.value, abilityTypeArgs))
     } yield MonomorphicExpression(
       concreteType,
-      MonomorphicExpression.MonomorphicValueReference(vfqn.as(impl.implementationFQN), Seq.empty)
+      MonomorphicExpression.MonomorphicValueReference(vfqn.as(impl.implementationFQN), impl.implementationTypeArgs)
     )
 
   private def isAbilityRef(vfqn: ValueFQN): Boolean =
@@ -257,6 +254,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
   /** Transform a function application. For value reference targets, type arguments are inferred from argument types. */
   private def transformFunctionApplication(
       fa: OperatorResolvedExpression.FunctionApplication,
+      callSiteType: Value,
       typeParamSubst: Map[String, Value],
       runtimeParams: Map[String, Value],
       source: Sourced[?]
@@ -264,7 +262,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
     fa.target.value match {
       case vr: OperatorResolvedExpression.ValueReference =>
         // For value reference targets, we infer type args from the argument
-        transformApplicationWithValueTarget(vr, fa, typeParamSubst, runtimeParams, source)
+        transformApplicationWithValueTarget(vr, fa, callSiteType, typeParamSubst, runtimeParams, source)
       case _                                             =>
         // For other targets (parameter refs, nested applications), transform normally
         for {
@@ -292,10 +290,13 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
         )
     }
 
-  /** Transform a function application whose target is a value reference. Infers type arguments from argument types. */
+  /** Transform a function application whose target is a value reference. Infers type arguments from argument types,
+    * falling back to call-site return type matching for lambdas with inferred parameter types.
+    */
   private def transformApplicationWithValueTarget(
       vr: OperatorResolvedExpression.ValueReference,
       fa: OperatorResolvedExpression.FunctionApplication,
+      callSiteType: Value,
       typeParamSubst: Map[String, Value],
       runtimeParams: Map[String, Value],
       source: Sourced[?]
@@ -304,26 +305,12 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       refTypeExprValue <- evaluateValueType(vr.valueName.value, source)
       typeParams        = ExpressionValue.extractLeadingLambdaParams(refTypeExprValue)
       bodyType          = ExpressionValue.stripLeadingLambdas(refTypeExprValue)
-      // For generic targets: transform arg first (for type inference), then compute concrete type
+      // For generic targets: infer type args from argument or call-site type
       // For non-generic targets: compute concrete type first (to know param type for lambdas), then transform arg
       typeArgs         <- if (typeParams.nonEmpty) {
-                            // Transform argument with placeholder, infer type args from its type
-                            for {
-                              transformedArgForInference <- transformExpression(
-                                                             fa.argument.value,
-                                                             Value.Type,
-                                                             typeParamSubst,
-                                                             runtimeParams,
-                                                             fa.argument
-                                                           )
-                              args                       <- inferTypeArgsFromArgument(
-                                                              bodyType,
-                                                              transformedArgForInference.expressionType,
-                                                              typeParams,
-                                                              typeParamSubst,
-                                                              source
-                                                            )
-                            } yield args
+                            inferTypeArgsForApplication(
+                              fa, bodyType, typeParams, callSiteType, typeParamSubst, runtimeParams, source
+                            )
                           } else {
                             Seq.empty[Value].pure[CompilerIO]
                           }
@@ -379,6 +366,63 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
         }
       case _                                       => None
     }
+
+  /** Infer type arguments for a generic function application. For lambdas with inferred parameter types,
+    * uses call-site return type matching. Otherwise uses argument-based inference.
+    */
+  private def inferTypeArgsForApplication(
+      fa: OperatorResolvedExpression.FunctionApplication,
+      bodyType: ExpressionValue,
+      typeParams: Seq[(String, Value)],
+      callSiteType: Value,
+      typeParamSubst: Map[String, Value],
+      runtimeParams: Map[String, Value],
+      source: Sourced[?]
+  ): CompilerIO[Seq[Value]] = {
+    val argIsLambdaWithInferredType = fa.argument.value match {
+      case OperatorResolvedExpression.FunctionLiteral(_, None, _) => true
+      case _                                                       => false
+    }
+
+    if (argIsLambdaWithInferredType && callSiteType != Value.Type) {
+      // For lambdas with inferred param types, infer from call-site return type
+      inferTypeArgsFromReturnType(bodyType, callSiteType, typeParams, typeParamSubst, source)
+    } else {
+      // Standard: infer from argument type
+      for {
+        transformedArgForInference <- transformExpression(
+                                         fa.argument.value, Value.Type, typeParamSubst, runtimeParams, fa.argument
+                                       )
+        args                       <- inferTypeArgsFromArgument(
+                                        bodyType, transformedArgForInference.expressionType, typeParams,
+                                        typeParamSubst, source
+                                      )
+      } yield args
+    }
+  }
+
+  /** Infer type arguments by matching the function's return type against the call-site expected type. */
+  private def inferTypeArgsFromReturnType(
+      bodyType: ExpressionValue,
+      callSiteType: Value,
+      typeParams: Seq[(String, Value)],
+      typeParamSubst: Map[String, Value],
+      source: Sourced[?]
+  ): CompilerIO[Seq[Value]] = {
+    // Extract the return type from the function body type
+    val returnType = extractFunctionExprParamAndReturn(bodyType).map(_._2).getOrElse(bodyType)
+    val bindings   = ExpressionValue.matchTypes(returnType, ConcreteValue(callSiteType))
+
+    typeParams.traverse { (param, _) =>
+      bindings.get(param) match {
+        case Some(ConcreteValue(v)) => v.pure[CompilerIO]
+        case _                      =>
+          typeParamSubst.get(param).map(_.pure[CompilerIO]).getOrElse(
+            compilerAbort(source.as(s"Cannot infer type argument for parameter: $param"))
+          )
+      }
+    }
+  }
 
   /** Infer type arguments from argument type by matching the function's parameter type pattern. */
   private def inferTypeArgsFromArgument(

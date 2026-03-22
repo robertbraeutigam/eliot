@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.symbolic.fact
+package com.vanillasource.eliot.eliotc.implementation.util
 
 import cats.Show
 import cats.syntax.all.*

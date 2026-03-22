@@ -7,13 +7,12 @@ import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{
   constructorArityValue,
   constructorDataTypeValue,
   mangleSuffix,
-  simpleType,
-  valueType,
-  constructorDataType as constructorDataTypeST
+  valueType
 }
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{convertToNestedClassName, systemAnyValue, systemFunctionValue, systemUnitValue}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.{ClassFile, GeneratedModule}
@@ -22,6 +21,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.processor.ExpressionCodeGener
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
@@ -41,12 +41,12 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       moduleNames            <- getFactOrAbort(UnifiedModuleNames.Key(key.moduleName))
       // Get all constructor names in this module
       allCtorNames            = moduleNames.names.keys.toSeq.filter(qn => isConstructor(ValueFQN(key.moduleName, qn)))
-      // Group ALL constructors by data type using old pipeline (for grouping only)
-      allCtorsWithUv         <- allCtorNames.traverseFilter { qn =>
+      // Group ALL constructors by data type using evaluated return types
+      allCtorsWithDataType   <- allCtorNames.traverseFilter { qn =>
                                   val vfqn = ValueFQN(key.moduleName, qn)
-                                  getFact(UncurriedValue.Key(vfqn, 0)).map(_.map(uv => (vfqn, uv)))
+                                  evaluateConstructorDataType(vfqn).map(_.map(dt => (vfqn, dt)))
                                 }
-      allCtorGroups           = allCtorsWithUv.groupBy((_, uv) => simpleType(constructorDataTypeST(uv.returnType)))
+      allCtorGroups           = allCtorsWithDataType.groupBy((_, dt) => dt)
       // Collect used constructors
       usedCtorVfqns           = usedValues.filter((vfqn, _) => isConstructor(vfqn)).keySet
       // Find PatternMatch handleCases impls and map to their data types
@@ -351,6 +351,33 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       classFile   <- singletonCg.generate[CompilerIO]()
     } yield classFile
   }
+
+  private def evaluateConstructorDataType(vfqn: ValueFQN): CompilerIO[Option[ValueFQN]] =
+    getFact(OperatorResolvedValue.Key(vfqn)).map {
+      case None           => Option.empty[ValueFQN]
+      case Some(resolved) =>
+        extractReturnTypeRef(resolved.typeStack.value.signature).map(CommonPatterns.stripDataTypeSuffix)
+    }
+
+  @scala.annotation.tailrec
+  private def stripFunctionLiterals(expr: OperatorResolvedExpression): OperatorResolvedExpression =
+    expr match {
+      case OperatorResolvedExpression.FunctionLiteral(_, _, body) => stripFunctionLiterals(body.value)
+      case other                                                  => other
+    }
+
+  @scala.annotation.tailrec
+  private def stripApplicationTargets(expr: OperatorResolvedExpression): OperatorResolvedExpression =
+    expr match {
+      case OperatorResolvedExpression.FunctionApplication(target, _) => stripApplicationTargets(target.value)
+      case other                                                     => other
+    }
+
+  private def extractReturnTypeRef(expr: OperatorResolvedExpression): Option[ValueFQN] =
+    stripApplicationTargets(stripFunctionLiterals(expr)) match {
+      case OperatorResolvedExpression.ValueReference(vfqn, _) => Some(vfqn.value)
+      case _                                                  => None
+    }
 
   private def extractTypeConstructorName(params: Seq[CoreExpression]): Option[String] =
     params.headOption.flatMap(findTypeName)

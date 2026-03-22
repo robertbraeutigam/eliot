@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.symbolic.types
+package com.vanillasource.eliot.eliotc.implementation.util
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
@@ -9,8 +9,8 @@ import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression,
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
-import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType
-import com.vanillasource.eliot.eliotc.symbolic.fact.SymbolicType.*
+import com.vanillasource.eliot.eliotc.implementation.util.SymbolicType
+import com.vanillasource.eliot.eliotc.implementation.util.SymbolicType.*
 
 object NormalFormEvaluator {
 

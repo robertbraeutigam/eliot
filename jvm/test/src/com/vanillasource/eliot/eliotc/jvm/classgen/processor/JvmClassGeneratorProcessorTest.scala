@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckProcessor
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
@@ -23,9 +22,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
-import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.uncurry.processor.{MonomorphicUncurryingProcessor, UncurryingProcessor}
+import com.vanillasource.eliot.eliotc.uncurry.processor.MonomorphicUncurryingProcessor
 import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
 import org.objectweb.asm.{ClassReader, ClassVisitor, MethodVisitor, Opcodes}
 import org.scalatest.flatspec.AsyncFlatSpec
@@ -55,13 +53,10 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
-      SymbolicTypeCheckProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
-      AbilityCheckProcessor(),
       MonomorphicTypeCheckProcessor(),
       UsedNamesProcessor(),
-      UncurryingProcessor(),
       MonomorphicUncurryingProcessor(),
       JvmClassGenerator()
     )

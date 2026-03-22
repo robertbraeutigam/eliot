@@ -8,10 +8,6 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{
   QualifiedName as ResolveQualifiedName,
   Qualifier as ResolveQualifier
 }
-import com.vanillasource.eliot.eliotc.symbolic.fact.{
-  QualifiedName as SymbolicQualifiedName,
-  Qualifier as SymbolicQualifier
-}
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
@@ -52,17 +48,6 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
         case Qualifier.Default    => ResolveQualifier.Default
         case Qualifier.Type       => ResolveQualifier.Type
         case Qualifier.Ability(n) => ResolveQualifier.Ability(n)
-        case _                    => throw IllegalArgumentException("Cannot convert AbilityImplementation in test helper")
-      }
-    )
-
-  def toSymbolic(qn: QualifiedName): SymbolicQualifiedName =
-    SymbolicQualifiedName(
-      qn.name,
-      qn.qualifier match {
-        case Qualifier.Default    => SymbolicQualifier.Default
-        case Qualifier.Type       => SymbolicQualifier.Type
-        case Qualifier.Ability(n) => SymbolicQualifier.Ability(n)
         case _                    => throw IllegalArgumentException("Cannot convert AbilityImplementation in test helper")
       }
     )

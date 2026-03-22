@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.abilitycheck.{AbilityCheckProcessor, AbilityCheckedValue}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
@@ -15,8 +14,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, 
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.symbolic.fact.{QuantifiedType, SymbolicType}
-import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
+
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class MonomorphicTypeCheckProcessorTest
@@ -41,10 +39,8 @@ class MonomorphicTypeCheckProcessorTest
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
-      SymbolicTypeCheckProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
-      AbilityCheckProcessor(),
       MonomorphicTypeCheckProcessor()
     ) {
 

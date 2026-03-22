@@ -14,8 +14,6 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
-import com.vanillasource.eliot.eliotc.abilitycheck.AbilityCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 /** Tests migrated from SymbolicTypeCheckProcessorTest. These verify type checking at the monomorphize level with
@@ -44,10 +42,8 @@ class MonomorphicTypeCheckFromSymbolicTest
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
-      SymbolicTypeCheckProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
-      AbilityCheckProcessor(),
       MonomorphicTypeCheckProcessor()
     ) {
 

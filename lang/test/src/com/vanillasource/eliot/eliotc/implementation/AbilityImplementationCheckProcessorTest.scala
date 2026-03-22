@@ -2,10 +2,10 @@ package com.vanillasource.eliot.eliotc.implementation
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.abilitycheck.{AbilityCheckProcessor, AbilityCheckedValue}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
+import com.vanillasource.eliot.eliotc.eval.processor.{DataTypeEvaluator, ExistingNamedValueEvaluator, SystemValueEvaluator}
 import com.vanillasource.eliot.eliotc.implementation.processor.{
   AbilityImplementationCheckProcessor,
   AbilityImplementationProcessor
@@ -17,10 +17,11 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleNamesProcessor,
   UnifiedModuleValueProcessor
 }
+import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
+import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class AbilityImplementationCheckProcessorTest
@@ -28,6 +29,9 @@ class AbilityImplementationCheckProcessorTest
       Tokenizer(),
       ASTParser(),
       CoreProcessor(),
+      SystemValueEvaluator(),
+      ExistingNamedValueEvaluator(),
+      DataTypeEvaluator(),
       ModuleNamesProcessor(),
       UnifiedModuleNamesProcessor(),
       ModuleValueProcessor(Seq(ModuleName.systemFunctionModuleName)),
@@ -35,10 +39,9 @@ class AbilityImplementationCheckProcessorTest
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
-      SymbolicTypeCheckProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
-      AbilityCheckProcessor()
+      MonomorphicTypeCheckProcessor()
     ) {
   "ability implementation check" should "pass when all methods are provided with correct signatures" in {
     runEngineForErrors(
@@ -101,7 +104,7 @@ class AbilityImplementationCheckProcessorTest
   private def runEngineForErrors(source: String): IO[Seq[TestError]] =
     runGenerator(
       source,
-      AbilityCheckedValue.Key(ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default))),
+      MonomorphicValue.Key(ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default)), Seq.empty),
       systemImports
     ).map(result => toTestErrors(result._1))
 }
