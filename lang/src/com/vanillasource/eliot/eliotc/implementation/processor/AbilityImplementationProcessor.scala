@@ -3,8 +3,10 @@ package com.vanillasource.eliot.eliotc.implementation.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.implementation.fact.{AbilityImplementation, AbilityImplementationCheck}
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.implementation.util.TypeExpressionEvaluator
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -13,7 +15,6 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Qualifier as ResolveQualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
-import com.vanillasource.eliot.eliotc.implementation.util.{NormalFormEvaluator, QuantifiedType, SymbolicType}
 
 class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] with Logging {
 
@@ -91,8 +92,6 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                       error[CompilerIO](s"Expected sibling for default '${abilityValueFQN.name.name}' but found none") >>
                         abort[ValueFQN]
                   }
-      // For default implementations, point back to the ability method and pass type args.
-      // Monomorphize will process the ability method's body with these type args.
       _        <- registerFactIfClear(
                     AbilityImplementation(key.abilityValueFQN, key.typeArguments, abilityValueFQN, key.typeArguments)
                   )
@@ -138,41 +137,43 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
           case ResolveQualifier.AbilityImplementation(resolvedAbilityFQN, paramExprs)
               if resolvedAbilityFQN == expectedAbilityFQN =>
             for {
-              symbolicParams <- resolveQualifierParams(resolved.name, paramExprs)
-              signatureType  <- NormalFormEvaluator.evaluate(
-                                  resolved.typeStack.as(resolved.typeStack.value.signature)
-                                )
-              qt              = QuantifiedType.fromSymbolicType(signatureType)
-              freeVarNames    = qt.typeParams.map(_._1).toSet
-              symbolicArgs    = expectedTypeArgs.map(SymbolicType.fromValue)
-            } yield if (implMatchesQuery(symbolicParams, freeVarNames, symbolicArgs)) Seq(vfqn) else Seq.empty
+              signatureType <- TypeExpressionEvaluator.evaluate(
+                                 resolved.typeStack.as(resolved.typeStack.value.signature)
+                               )
+              typeParams     = ExpressionValue.extractLeadingLambdaParams(signatureType).map(_._1)
+              freeVarNames   = typeParams.toSet
+              evalParams    <- resolveQualifierParams(resolved.name, paramExprs, freeVarNames)
+              exprArgs       = expectedTypeArgs.map(ExpressionValue.fromValue)
+            } yield if (implMatchesQuery(evalParams, freeVarNames, exprArgs)) Seq(vfqn) else Seq.empty
           case _ => Seq.empty.pure[CompilerIO]
         }
     }
 
   private def resolveQualifierParams(
       name: Sourced[?],
-      expressions: Seq[com.vanillasource.eliot.eliotc.resolve.fact.Expression]
-  ): CompilerIO[Seq[SymbolicType]] =
+      expressions: Seq[com.vanillasource.eliot.eliotc.resolve.fact.Expression],
+      freeVarNames: Set[String]
+  ): CompilerIO[Seq[ExpressionValue]] =
     expressions.traverse { expression =>
-      NormalFormEvaluator.evaluate(
-        name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(expression)))
+      TypeExpressionEvaluator.evaluate(
+        name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(expression))),
+        freeVarNames = freeVarNames
       )
     }
 
   private def implMatchesQuery(
-      implParams: Seq[SymbolicType],
+      implParams: Seq[ExpressionValue],
       freeVarNames: Set[String],
-      queryArgs: Seq[SymbolicType]
+      queryArgs: Seq[ExpressionValue]
   ): Boolean = {
     if (implParams.size != queryArgs.size) false
     else {
-      val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, SymbolicType]) { (acc, pair) =>
-        acc ++ SymbolicType.matchTypes(pair._1, pair._2, freeVarNames.contains)
+      val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, ExpressionValue]) { (acc, pair) =>
+        acc ++ ExpressionValue.matchTypes(pair._1, pair._2, freeVarNames.contains)
       }
       implParams.zip(queryArgs).forall { (implParam, queryArg) =>
         freeVarNames.foldLeft(implParam) { case (acc, name) =>
-          SymbolicType.substitute(acc, name, bindings.getOrElse(name, SymbolicType.TypeVariable(name)))
+          ExpressionValue.substitute(acc, name, bindings.getOrElse(name, ParameterReference(name, Value.Type)))
         } == queryArg
       }
     }

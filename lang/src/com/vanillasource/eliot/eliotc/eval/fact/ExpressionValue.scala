@@ -123,6 +123,27 @@ object ExpressionValue {
       case _                    => None
     }
 
+  /** Convert a concrete Value into application-chain ExpressionValue form. Type structures with type arguments are
+    * decomposed into FunctionApplication chains so they are structurally compatible with pattern-side ExpressionValues
+    * for use with matchTypes.
+    */
+  def fromValue(v: Value): ExpressionValue =
+    v match {
+      case Value.Structure(fields, Value.Type) =>
+        fields.get("$typeName") match {
+          case Some(typeName @ Value.Direct(_: ValueFQN, _)) =>
+            val typeArgFields = fields.removed("$typeName")
+            val base: ExpressionValue = ConcreteValue(Value.Structure(Map("$typeName" -> typeName), Value.Type))
+            if (typeArgFields.isEmpty) base
+            else
+              typeArgFields.toSeq.sortBy(_._1).foldLeft(base) { case (acc, (_, argValue)) =>
+                FunctionApplication(unsourced(acc), unsourced(fromValue(argValue)))
+              }
+          case _ => ConcreteValue(v)
+        }
+      case _                                   => ConcreteValue(v)
+    }
+
   /** Match a pattern ExpressionValue (with type variable placeholders) against a concrete ExpressionValue, returning a
     * map from type variable names to their concrete bindings. Type variable names are ParameterReferences accepted by
     * the given predicate (default: all).
