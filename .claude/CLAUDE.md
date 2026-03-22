@@ -90,12 +90,10 @@ Each of these is a package in the "lang" module, roughly in order of processing:
 7. eval: Evaluate data type and value definitions into typed structures.
 8. matchdesugar: Desugar pattern-match expressions into function applications. Checks exhaustiveness and handles nested patterns, multiple cases, constructor patterns, and wildcards.
 9. operator: Resolve infix operators with proper precedence and associativity. Transforms flat expressions into correctly structured function applications.
-10. symbolic: Symbolic type checker. Checks types as far as possible with generic parameters (symbols).
-11. implementation: Checks and returns a type-specific ability implementation.
-12. abilitycheck: Check abilities can be proven to exist. Also resolves abilities directly if all types are already known.
-13. monomorphize: Monomorphic type checker. Checks all types at their usage with all instantiated values.
-14. used: Collects all the used value names starting at a given "main".
-15. uncurry: Uncurries function calls, so its easier to generate on the backend.
+10. implementation: Checks and returns a type-specific ability implementation.
+11. monomorphize: Monomorphic type checker. Checks all types at their usage with all instantiated values.
+12. used: Collects all the used value names starting at a given "main".
+13. uncurry: Uncurries function calls, so its easier to generate on the backend.
 
 ### Error Handling
 
@@ -129,10 +127,8 @@ The main building blocks of the language are:
 ## Compiler Change Patterns
 
 - When making a field optional in `resolve.fact.Expression` case classes, update ALL pattern matches across
-  the codebase (symbolic, eval, monomorphize phases) **and** test files that directly construct those cases.
+  the codebase (eval, monomorphize phases) **and** test files that directly construct those cases.
 - `Evaluator` (eval/compile-time phase) cannot do type inference; use `compilerAbort` for types it can't resolve.
-- Symbolic phase type inference: generate unification variables (`generateUnificationVar`) for unknown types;
-  they resolve via constraint solving after all constraints are collected.
 
 ## Development Notes
 

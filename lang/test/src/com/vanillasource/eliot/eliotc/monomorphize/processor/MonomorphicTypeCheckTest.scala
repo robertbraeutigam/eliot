@@ -16,10 +16,9 @@ import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcess
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
-/** Tests migrated from SymbolicTypeCheckProcessorTest. These verify type checking at the monomorphize level with
-  * concrete types, instead of at the symbolic level with generic types.
+/** Tests that verify type checking at the monomorphize level with concrete types.
   */
-class MonomorphicTypeCheckFromSymbolicTest
+class MonomorphicTypeCheckTest
     extends ProcessorTest(
       Tokenizer(),
       ASTParser(),

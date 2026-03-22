@@ -22,14 +22,11 @@ namespace qualifier (`Qualifier.Default` vs `Qualifier.Type`).
 | resolve | `runtime` flag controls type stack level resolution | No — distinguishes meta-levels |
 | eval | Three evaluators split by qualifier | No — implementation strategy split (native vs interpreted), not type/value |
 | operator | None — types flow through as expressions | No |
-| symbolic | Separate `TypeExpressionEvaluator` and `BodyTypeInferrer` | No — evaluate vs infer, not type vs value |
-| **symbolic** | **`stripUniversalIntros` removes type param wrappers before constraining** | **Yes** |
 | matchdesugar | Separate `TypeMatchDesugarer` and `DataMatchDesugarer` | No — types are open unions (`typeMatch*`), data uses closed `handleWith` |
 | matchdesugar | `ConstructorTypeAnalyzer` checks `Qualifier.Type` for data type name lookup | No — namespace-aware lookup |
 | matchdesugar | `ConstructorTypeAnalyzer` skips `FunctionLiteral` when counting fields | Cascading |
 | **uncurry** | **`stripLeadingLambdas` excludes type params from uncurried parameter list** | **Yes** |
 | implementation | `stripUniversalTypeIntros()` before substitution | Cascading |
-| abilitycheck | `stripUniversalTypeIntros()` + `matchTypes()` | Cascading |
 | monomorphize | `extractBodyTypeParams` filters by `Value.Type` | Cascading |
 | used | None — post-monomorphization, all concrete | No |
 
@@ -49,11 +46,9 @@ dance to get at two things:
 
 | Processor | What it extracts | Purpose |
 |-----------|-----------------|---------|
-| symbolic (line 70) | Inner signature | Constrain against body's inferred type |
 | implementation (line 85) | Inner signature | Substitute type args, produce concrete signature |
 | implementation (line 122) | Type param names | Zip with type arguments to build substitution map |
 | implcheck (lines 122, 128, 132) | Both | Substitute and compare abstract vs impl signatures |
-| abilitycheck (lines 127-128) | Both | Match inner sig against concrete type to extract type args |
 | monomorphize (lines 34, 50) | Both | Build substitution map, evaluate signature with type args |
 | monomorphize (line 105) | Type param names | Check if a referenced value is generic |
 | monomorphize (line 138) | Inner signature | Match against call-site type to infer type args |
