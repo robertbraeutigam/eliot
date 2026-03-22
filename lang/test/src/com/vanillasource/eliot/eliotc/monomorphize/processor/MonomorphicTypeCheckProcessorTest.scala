@@ -102,28 +102,17 @@ class MonomorphicTypeCheckProcessorTest
     ).asserting(result => showType(result.signature) shouldBe "Function[Int, Function[String, Int]]")
   }
 
-  // This tests an internal invariant unreachable from Eliot source code.
-  // The symbolic type checker catches extra type arguments before monomorphization.
   it should "fail on type argument count mismatch" in {
-    val idVfqn      = ValueFQN(testModuleName, default("id"))
-    val dummyType   = intType
-    val signature   = QuantifiedType(
-      Seq(("A", SymbolicType.TypeReference(Types.typeFQN))),
-      SymbolicType.functionType(
-        SymbolicType.TypeVariable("A"),
-        SymbolicType.TypeVariable("A")
-      )
-    )
-    val typeChecked = AbilityCheckedValue(
-      idVfqn,
-      sourced(toSymbolic(default("id"))),
-      signature,
-      None
-    )
-    runGeneratorWithFacts(Seq(typeChecked), MonomorphicValue.Key(idVfqn, Seq(dummyType, dummyType)))
-      .asserting { case (_, errors) =>
-        errors.map(_.message) shouldBe Seq("Type argument count mismatch: expected 1, got 2")
-      }
+    runGenerator(
+      "def id[A](a: A): A = a",
+      MonomorphicValue.Key(
+        ValueFQN(testModuleName, default("id")),
+        Seq(intType, intType) // 2 args for 1-param function
+      ),
+      systemImports
+    ).asserting { case (errors, _) =>
+      errors.map(_.message) should contain("Type argument count mismatch: expected 1, got 2")
+    }
   }
 
   it should "monomorphize function literal in body" in {

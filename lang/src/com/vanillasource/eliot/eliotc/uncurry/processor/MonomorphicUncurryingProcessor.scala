@@ -1,0 +1,179 @@
+package com.vanillasource.eliot.eliotc.uncurry.processor
+
+import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
+import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
+import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
+import com.vanillasource.eliot.eliotc.uncurry.fact.*
+
+import scala.annotation.tailrec
+
+/** Processor that uncurries monomorphic values to a specific arity.
+  *
+  * Input: MonomorphicValue (monomorphized, concrete types) Output: UncurriedMonomorphicValue (multi-parameter form with
+  * specified arity)
+  */
+class MonomorphicUncurryingProcessor
+    extends TransformationProcessor[MonomorphicValue.Key, UncurriedMonomorphicValue.Key](key =>
+      MonomorphicValue.Key(key.vfqn, key.typeArguments)
+    )
+    with Logging {
+
+  override protected def generateFromKeyAndFact(
+      key: UncurriedMonomorphicValue.Key,
+      monomorphicValue: MonomorphicValue
+  ): CompilerIO[UncurriedMonomorphicValue] =
+    for {
+      _                               <- debug[CompilerIO](s"Uncurrying ${key.vfqn} (${key.typeArguments.map(_.show).mkString(",")}) to ${key.arity}")
+      (parameterTypes, returnType)    <- extractParameters(monomorphicValue.name, monomorphicValue.signature, key.arity)
+      (parameterNames, convertedBody) <- monomorphicValue.runtime match {
+                                           case Some(body) =>
+                                             convertBody(body, key.arity)
+                                           case None       =>
+                                             (
+                                               Range
+                                                 .inclusive(1, key.arity)
+                                                 .map(i => monomorphicValue.name.as("$p" + i)),
+                                               None
+                                             ).pure[CompilerIO]
+                                         }
+    } yield UncurriedMonomorphicValue(
+      vfqn = key.vfqn,
+      typeArguments = key.typeArguments,
+      arity = key.arity,
+      name = monomorphicValue.name,
+      signature = monomorphicValue.signature,
+      parameters = parameterNames.zip(parameterTypes).map(MonomorphicParameterDefinition(_, _)),
+      returnType = returnType,
+      body = convertedBody.map(_.map(_.expression))
+    )
+
+  /** Extract parameter types from a function type Value up to the specified arity. */
+  private def extractParameters(
+      name: Sourced[?],
+      signature: Value,
+      arity: Int
+  ): CompilerIO[(Seq[Value], Value)] =
+    if (arity === 0) {
+      (Seq.empty, signature).pure[CompilerIO]
+    } else {
+      signature match {
+        case Value.Structure(fields, Value.Type)
+            if fields.get("$typeName").exists(v => v match {
+              case Value.Direct(vfqn: ValueFQN, _) => vfqn === Types.functionDataTypeFQN
+              case _                               => false
+            }) =>
+          val paramType  = fields("A")
+          val returnType = fields("B")
+          extractParameters(name, returnType, arity - 1).map { (restParams, restReturn) =>
+            (paramType +: restParams, restReturn)
+          }
+        case _ =>
+          compilerAbort(
+            name.as("Could not extract parameters."),
+            Seq(s"Remaining arity: $arity", s"Signature: ${signature.show}")
+          )
+      }
+    }
+
+  private def convertBody(
+      expression: Sourced[MonomorphicExpression.Expression],
+      arity: Int
+  ): CompilerIO[(Seq[Sourced[String]], Option[Sourced[UncurriedMonomorphicExpression]])] =
+    for {
+      (parameterNames, body) <- stripLambdas(expression.value, arity, expression)
+    } yield (parameterNames, Some(expression.as(convertExpression(body))))
+
+  /** Strip lambda expressions from the body up to a maximum count. */
+  private def stripLambdas(
+      expression: MonomorphicExpression.Expression,
+      arity: Int,
+      sourced: Sourced[?]
+  ): CompilerIO[(Seq[Sourced[String]], MonomorphicExpression)] =
+    if (arity === 0) {
+      // Use a dummy type for the remaining expression — it's re-computed during conversion
+      (Seq.empty, MonomorphicExpression(Value.Type, expression)).pure[CompilerIO]
+    } else {
+      expression match {
+        case MonomorphicExpression.FunctionLiteral(parameterName, parameterType, body) =>
+          for {
+            (restParameters, restExpression) <- stripLambdas(body.value.expression, arity - 1, sourced)
+          } yield (parameterName +: restParameters, restExpression)
+        case _                                                                         =>
+          compilerAbort(sourced.as("Could not strip enough parameters from expression."))
+      }
+    }
+
+  /** Convert a MonomorphicExpression to UncurriedMonomorphicExpression. */
+  private def convertExpression(expr: MonomorphicExpression): UncurriedMonomorphicExpression =
+    expr.expression match {
+      case MonomorphicExpression.IntegerLiteral(value)                              =>
+        UncurriedMonomorphicExpression(expr.expressionType, UncurriedMonomorphicExpression.IntegerLiteral(value))
+      case MonomorphicExpression.StringLiteral(value)                               =>
+        UncurriedMonomorphicExpression(expr.expressionType, UncurriedMonomorphicExpression.StringLiteral(value))
+      case MonomorphicExpression.ParameterReference(paramName)                      =>
+        UncurriedMonomorphicExpression(expr.expressionType, UncurriedMonomorphicExpression.ParameterReference(paramName))
+      case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)          =>
+        UncurriedMonomorphicExpression(
+          expr.expressionType,
+          UncurriedMonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)
+        )
+      case MonomorphicExpression.FunctionApplication(target, argument)              =>
+        UncurriedMonomorphicExpression(expr.expressionType, convertApplication(target, argument))
+      case MonomorphicExpression.FunctionLiteral(paramName, paramType, body)        =>
+        UncurriedMonomorphicExpression(expr.expressionType, convertLambda(paramName, paramType, body))
+    }
+
+  /** Convert a function application, flattening nested applications. */
+  private def convertApplication(
+      target: Sourced[MonomorphicExpression],
+      argument: Sourced[MonomorphicExpression]
+  ): UncurriedMonomorphicExpression.Expression = {
+    val (finalTarget, arguments) = flattenApplication(target, Seq(argument))
+    val convertedTarget          = finalTarget.as(convertExpression(finalTarget.value))
+    val convertedArgs            = arguments.map(se => se.as(convertExpression(se.value)))
+    UncurriedMonomorphicExpression.FunctionApplication(convertedTarget, convertedArgs)
+  }
+
+  /** Flatten nested function applications into a single application with multiple arguments. */
+  @tailrec
+  private def flattenApplication(
+      target: Sourced[MonomorphicExpression],
+      arguments: Seq[Sourced[MonomorphicExpression]]
+  ): (Sourced[MonomorphicExpression], Seq[Sourced[MonomorphicExpression]]) =
+    target.value.expression match {
+      case MonomorphicExpression.FunctionApplication(innerTarget, innerArg) =>
+        flattenApplication(innerTarget, innerArg +: arguments)
+      case _                                                                =>
+        (target, arguments)
+    }
+
+  /** Convert a function literal, flattening nested lambdas. */
+  private def convertLambda(
+      paramName: Sourced[String],
+      paramType: Value,
+      body: Sourced[MonomorphicExpression]
+  ): UncurriedMonomorphicExpression.Expression = {
+    val firstParam          = MonomorphicParameterDefinition(paramName, paramType)
+    val (params, finalBody) = flattenLambda(Seq(firstParam), body)
+    UncurriedMonomorphicExpression.FunctionLiteral(params, body.as(convertExpression(finalBody.value)))
+  }
+
+  /** Flatten nested lambda expressions into a single lambda with multiple parameters. */
+  @tailrec
+  private def flattenLambda(
+      parameters: Seq[MonomorphicParameterDefinition],
+      body: Sourced[MonomorphicExpression]
+  ): (Seq[MonomorphicParameterDefinition], Sourced[MonomorphicExpression]) =
+    body.value.expression match {
+      case MonomorphicExpression.FunctionLiteral(paramName, paramType, innerBody) =>
+        flattenLambda(parameters :+ MonomorphicParameterDefinition(paramName, paramType), innerBody)
+      case _                                                                      =>
+        (parameters, body)
+    }
+}

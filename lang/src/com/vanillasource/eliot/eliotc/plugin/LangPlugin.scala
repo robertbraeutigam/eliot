@@ -34,7 +34,7 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.source.stat.FileStatProcessor
 import com.vanillasource.eliot.eliotc.symbolic.processor.SymbolicTypeCheckProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.uncurry.processor.UncurryingProcessor
+import com.vanillasource.eliot.eliotc.uncurry.processor.{MonomorphicUncurryingProcessor, UncurryingProcessor}
 import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
 import scopt.{OParser, OParserBuilder}
 
@@ -83,7 +83,8 @@ class LangPlugin extends CompilerPlugin {
             AbilityCheckProcessor(),
             MonomorphicTypeCheckProcessor(),
             UsedNamesProcessor(),
-            UncurryingProcessor()
+            UncurryingProcessor(),
+            MonomorphicUncurryingProcessor()
           )
         )
       )
