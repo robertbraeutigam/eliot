@@ -64,6 +64,30 @@ object MonomorphicTypeInference {
     resolveTypeParams(typeParams, argBindings, returnBindings, typeParamSubst, source)
   }
 
+  /** Infer type arguments from multiple argument types by walking the curried function type. Used for multi-argument
+    * application spines where some type parameters only appear in later arguments.
+    */
+  def inferFromMultipleArguments(
+      bodyType: ExpressionValue,
+      argTypes: Seq[Value],
+      expected: Expected,
+      typeParams: Seq[(String, Value)],
+      typeParamSubst: Map[String, Value],
+      source: Sourced[?]
+  ): CompilerIO[Seq[Value]] = {
+    val (remainingType, allBindings) = argTypes.foldLeft((bodyType, Map.empty[String, ExpressionValue])) {
+      case ((rt, bindings), argType) =>
+        ExpressionValue.extractFunctionParamAndReturn(rt) match {
+          case Some((paramType, returnType)) =>
+            val newBindings = ExpressionValue.matchTypes(paramType, ConcreteValue(argType))
+            (returnType, bindings ++ newBindings)
+          case None                          => (rt, bindings)
+        }
+    }
+    val returnBindings = computeReturnBindings(remainingType, expected, typeParams, allBindings)
+    resolveTypeParams(typeParams, allBindings, returnBindings, typeParamSubst, source)
+  }
+
   private def computeReturnBindings(
       bodyType: ExpressionValue,
       expected: Expected,

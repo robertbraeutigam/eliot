@@ -69,12 +69,12 @@ class MonomorphicTypeCheckTest
 
   it should "not compile if call site has arguments, but definition doesn't" in {
     runForErrors("data A\ndef f: A = b(1)\ndef b: A")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Expected function type." at "b(1)"))
   }
 
   it should "not compile if call site has no arguments, but definition has one" in {
     runForErrors("data A\ndef f: A = b\ndef b(x: A): A")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Type mismatch." at "b"))
   }
 
   // --- Generic type tests ---
@@ -96,17 +96,17 @@ class MonomorphicTypeCheckTest
 
   it should "fail if forward unification to concrete types produces conflict" in {
     runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(i)")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
   }
 
   it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
     runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(id(id(i)))")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Return type mismatch." at "id(id(i))"))
   }
 
   it should "fail when returning different, but non-constrained generic" in {
     runForErrors("def f[A, B](a: A, b: B): A = b", typeArgs = Seq(intType, stringType))
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Type mismatch." at "b"))
   }
 
   // --- Functions without body ---
@@ -145,12 +145,12 @@ class MonomorphicTypeCheckTest
 
   it should "fail when parameter type does not match return type" in {
     runForErrors("data TypeA(fieldA: TypeA)\ndata TypeB\ndef f(x: TypeA): TypeB = x")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Type mismatch." at "x"))
   }
 
   it should "fail if parameter is used as a wrong parameter in another function" in {
     runForErrors("data A\ndata B\ndef a(b: B): A\ndef f(x: A): A = a(x)")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Type mismatch." at "x"))
   }
 
   // --- Top level functions ---
@@ -209,17 +209,17 @@ class MonomorphicTypeCheckTest
 
   it should "fail when the explicit type arg conflicts with the value argument" in {
     runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[Int](s)")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Type mismatch." at "s"))
   }
 
   it should "fail when the explicit type arg conflicts with the declared return type" in {
     runForErrors("def id[A](a: A): A = a\ndef i: Int\ndef f(s: String): String = id[Int](i)")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
   }
 
   it should "fail with too many type arguments" in {
     runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[String, String](s)")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Too many type arguments: expected at most 1, got 2" at "s"))
   }
 
   it should "type check with too few explicit type args by inferring the rest" in {
@@ -229,7 +229,7 @@ class MonomorphicTypeCheckTest
 
   it should "fail with too few explicit type args that conflict with usage" in {
     runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = f2[Int](s, i)")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Type mismatch." at "s"))
   }
 
   it should "type check with explicit type args and multiple type params" in {
@@ -239,12 +239,12 @@ class MonomorphicTypeCheckTest
 
   it should "fail when explicit type args are in the wrong order" in {
     runForErrors("def g[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = g[Int, String](s, i)")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Type mismatch." at "s"))
   }
 
   it should "point type argument mismatch to the explicit type argument" in {
     runForErrors("data Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[Int](g)")
-      .asserting(_ should not be empty)
+      .asserting(_ shouldBe Seq("Return type mismatch." at "g"))
   }
 
   // --- Explicit type restrictions ---

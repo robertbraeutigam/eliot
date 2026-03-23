@@ -47,13 +47,42 @@ object ValueReferenceResolver {
       analysis          = TypeParameterAnalysis.fromEvaluatedType(refTypeExprValue)
       bodyExprValue     = ExpressionValue.stripLeadingLambdas(refTypeExprValue)
       typeArgs         <- if (vr.typeArgs.nonEmpty) {
-                            evaluateExplicitTypeArgs(vr.typeArgs, source)
+                            for {
+                              explicitArgs <- evaluateExplicitTypeArgs(vr.typeArgs, source)
+                              _            <- if (explicitArgs.length > analysis.allTypeParams.length)
+                                                compilerAbort(
+                                                  source.as(
+                                                    s"Too many type arguments: expected at most ${analysis.allTypeParams.length}, got ${explicitArgs.length}"
+                                                  )
+                                                )
+                                              else ().pure[CompilerIO]
+                              result       <- if (explicitArgs.length == analysis.allTypeParams.length)
+                                                explicitArgs.pure[CompilerIO]
+                                              else {
+                                                val explicitSubst       =
+                                                  analysis.allTypeParams.take(explicitArgs.length).map(_._1).zip(explicitArgs).toMap
+                                                val remainingBodyParams =
+                                                  analysis.bodyTypeParams.filterNot(p => explicitSubst.contains(p._1))
+                                                if (remainingBodyParams.nonEmpty)
+                                                  inferTypeArgs(
+                                                    TypeInfo(refTypeExprValue, bodyExprValue, remainingBodyParams)
+                                                  ).map { inferred =>
+                                                    val inferredSubst = remainingBodyParams.map(_._1).zip(inferred).toMap
+                                                    val combined      = explicitSubst ++ inferredSubst
+                                                    analysis.bodyTypeParams.map(p => combined(p._1))
+                                                  }
+                                                else explicitArgs.pure[CompilerIO]
+                                              }
+                            } yield result
                           } else if (analysis.bodyTypeParams.nonEmpty) {
                             inferTypeArgs(TypeInfo(refTypeExprValue, bodyExprValue, analysis.bodyTypeParams))
                           } else {
                             Seq.empty[Value].pure[CompilerIO]
                           }
-      typeArgSubst      = analysis.buildSubstitution(typeArgs, vr.typeArgs.nonEmpty)
+      typeArgSubst      = analysis.buildSubstitution(
+                            typeArgs,
+                            vr.typeArgs.nonEmpty && vr.typeArgs.length >= analysis.allTypeParams.length
+                          )
       concreteType     <- Evaluator.applyTypeArgsStripped(refTypeExprValue, analysis.allTypeParams, typeArgSubst, source)
       resolved         <- if (MonomorphicAbilityResolver.isAbilityRef(vr.valueName.value) && typeArgs.nonEmpty) {
                             MonomorphicAbilityResolver.resolve(vr.valueName, typeArgs, concreteType, source)

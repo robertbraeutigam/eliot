@@ -71,41 +71,143 @@ object MonomorphicExpressionTransformer {
       info =>
         MonomorphicTypeInference.inferFromCallSite(info.fullType, info.bodyTypeParams, expected, env, source),
       source
-    ).map(_._2)
+    ).map(_._2).flatMap(checkSynthesized(_, expected, source))
 
-  /** Transform a function application. For value reference targets, type arguments are inferred from argument types. */
+  /** Transform a function application. For value reference targets, type arguments are inferred from argument types.
+    * For multi-argument application spines with explicit type arguments on the target, collects all arguments and
+    * infers type arguments from the full spine.
+    */
   private def transformFunctionApplication(
       fa: OperatorResolvedExpression.FunctionApplication,
       expected: Expected,
       env: MonoEnv,
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
-    fa.target.value match {
-      case vr: OperatorResolvedExpression.ValueReference =>
-        transformApplicationWithValueTarget(vr, fa, expected, env, source)
-      case _                                             =>
-        for {
-          transformedTarget      <- transformExpression(
-                                      fa.target.value,
-                                      propagateExpected(fa.target.value, expected),
-                                      env,
-                                      fa.target
-                                    )
-          (paramType, returnType) <- ValueReferenceResolver.extractFunctionParamAndReturn(transformedTarget.expressionType, fa.target)
-          transformedArg         <- transformExpression(
-                                      fa.argument.value,
-                                      Expected.Check(paramType),
-                                      env,
-                                      fa.argument
-                                    )
-        } yield MonomorphicExpression(
-          returnType,
-          MonomorphicExpression.FunctionApplication(
-            fa.target.as(transformedTarget),
-            fa.argument.as(transformedArg)
-          )
-        )
+    collectVRApplicationSpine(fa) match {
+      case Some((vr, faNodes)) if vr.typeArgs.nonEmpty && faNodes.length > 1 =>
+        transformSpineWithExplicitTypeArgs(vr, faNodes, expected, env, source)
+      case _                                                                 =>
+        fa.target.value match {
+          case vr: OperatorResolvedExpression.ValueReference =>
+            transformApplicationWithValueTarget(vr, fa, expected, env, source)
+          case _                                             =>
+            for {
+              transformedTarget      <- transformExpression(
+                                          fa.target.value,
+                                          propagateExpected(fa.target.value, expected),
+                                          env,
+                                          fa.target
+                                        )
+              (paramType, returnType) <- ValueReferenceResolver.extractFunctionParamAndReturn(
+                                          transformedTarget.expressionType,
+                                          fa.target
+                                        )
+              transformedArg         <- transformExpression(
+                                          fa.argument.value,
+                                          Expected.Check(paramType),
+                                          env,
+                                          fa.argument
+                                        )
+            } yield MonomorphicExpression(
+              returnType,
+              MonomorphicExpression.FunctionApplication(
+                fa.target.as(transformedTarget),
+                fa.argument.as(transformedArg)
+              )
+            )
+        }
     }
+
+  /** Collect a curried application spine whose innermost target is a ValueReference. Returns the VR and the sequence of
+    * FunctionApplication nodes from inner to outer.
+    */
+  private def collectVRApplicationSpine(
+      fa: OperatorResolvedExpression.FunctionApplication
+  ): Option[
+    (OperatorResolvedExpression.ValueReference, Seq[OperatorResolvedExpression.FunctionApplication])
+  ] =
+    fa.target.value match {
+      case vr: OperatorResolvedExpression.ValueReference                     =>
+        Some((vr, Seq(fa)))
+      case innerFA: OperatorResolvedExpression.FunctionApplication           =>
+        collectVRApplicationSpine(innerFA).map((vr, innerFAs) => (vr, innerFAs :+ fa))
+      case _                                                                 => None
+    }
+
+  /** Transform a multi-argument application spine where the innermost target is a VR with explicit type args. Infers
+    * remaining type arguments from all arguments at once, then builds the curried application chain.
+    */
+  private def transformSpineWithExplicitTypeArgs(
+      vr: OperatorResolvedExpression.ValueReference,
+      faNodes: Seq[OperatorResolvedExpression.FunctionApplication],
+      expected: Expected,
+      env: MonoEnv,
+      source: Sourced[?]
+  ): CompilerIO[MonomorphicExpression] =
+    for {
+      (concreteType, refExpr) <- ValueReferenceResolver.resolve(
+                                   vr,
+                                   info =>
+                                     inferTypeArgsFromAllArguments(
+                                       info.bodyType,
+                                       info.bodyTypeParams,
+                                       faNodes.map(_.argument),
+                                       expected,
+                                       env,
+                                       source
+                                     ),
+                                   source
+                                 )
+      result                  <- buildApplicationChain(refExpr, concreteType, faNodes, env)
+    } yield result
+
+  /** Infer type arguments from all arguments in a curried application spine. */
+  private def inferTypeArgsFromAllArguments(
+      bodyType: ExpressionValue,
+      typeParams: Seq[(String, Value)],
+      allArgs: Seq[Sourced[OperatorResolvedExpression]],
+      expected: Expected,
+      env: MonoEnv,
+      source: Sourced[?]
+  ): CompilerIO[Seq[Value]] =
+    for {
+      argTypes <- allArgs.traverse(argExpr =>
+                    transformExpression(argExpr.value, Expected.Synthesize, env, argExpr).map(_.expressionType)
+                  )
+      result   <- MonomorphicTypeInference.inferFromMultipleArguments(
+                    bodyType,
+                    argTypes,
+                    expected,
+                    typeParams,
+                    env.typeParamSubst,
+                    source
+                  )
+    } yield result
+
+  /** Build a curried application chain from a resolved target expression and a sequence of FA nodes. */
+  private def buildApplicationChain(
+      refExpr: MonomorphicExpression,
+      concreteType: Value,
+      faNodes: Seq[OperatorResolvedExpression.FunctionApplication],
+      env: MonoEnv
+  ): CompilerIO[MonomorphicExpression] =
+    faNodes
+      .foldLeftM((refExpr, concreteType)) { case ((currentExpr, currentType), fa) =>
+        for {
+          (paramType, returnType) <- ValueReferenceResolver.extractFunctionParamAndReturn(currentType, fa.target)
+          transformedArg          <- transformExpression(fa.argument.value, Expected.Check(paramType), env, fa.argument)
+        } yield (
+          MonomorphicExpression(
+            returnType,
+            MonomorphicExpression.FunctionApplication(
+              fa.target.as(currentExpr),
+              fa.argument.as(transformedArg)
+            )
+          ),
+          returnType
+        )
+      }
+      .map(_._1)
 
   /** Transform a function application whose target is a value reference. Infers type arguments from argument types,
     * falling back to call-site return type matching for lambdas with inferred parameter types.
