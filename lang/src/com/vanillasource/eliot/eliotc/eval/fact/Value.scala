@@ -34,6 +34,46 @@ object Value {
         case Value.Type                 => Some(Types.typeFQN)
         case _                          => None
       }
+
+    /** If this value is a Function[A, B] type, extract (A, B).
+      */
+    def asFunctionType: Option[(Value, Value)] =
+      value match {
+        case Value.Structure(fields, Value.Type) =>
+          fields.get("$typeName").collect {
+            case Value.Direct(vfqn: ValueFQN, _) if vfqn === Types.functionDataTypeFQN =>
+              (fields("A"), fields("B"))
+          }
+        case _                                   => None
+      }
+
+    /** Extract the deepest non-function return type by following the B field of nested Function types.
+      */
+    @scala.annotation.tailrec
+    def deepReturnType: Value =
+      value.asFunctionType match {
+        case Some((_, returnType)) => returnType.deepReturnType
+        case None                  => value
+      }
+
+    /** Count the function nesting depth (arity).
+      */
+    def functionArity: Int =
+      value.asFunctionType match {
+        case Some((_, returnType)) => 1 + returnType.functionArity
+        case None                  => 0
+      }
+
+    /** Extract all parameter types and the final return type from a curried function type.
+      */
+    def extractParamAndReturnTypes: (Seq[Value], Value) =
+      value.asFunctionType match {
+        case Some((paramType, returnType)) =>
+          val (restParams, finalReturn) = returnType.extractParamAndReturnTypes
+          (paramType +: restParams, finalReturn)
+        case None                          =>
+          (Seq.empty, value)
+      }
   }
 
   def sameType(left: Value, right: Value): Boolean = left.typeFQN === right.typeFQN

@@ -73,6 +73,43 @@ object ExpressionValue {
       case _ => Seq.empty
     }
 
+  /** Extract parameter type and return type from a function type ExpressionValue. Handles both fully reduced types
+    * (ConcreteValue-based via FunctionType) and partially applied types (FunctionApplication chains without
+    * FunctionType match, e.g. NativeFunction-based).
+    */
+  def extractFunctionParamAndReturn(expr: ExpressionValue): Option[(ExpressionValue, ExpressionValue)] =
+    expr match {
+      case FunctionType(p, r)                    => Some((p, r))
+      case FunctionApplication(target, returnType) =>
+        target.value match {
+          case FunctionApplication(_, paramType) => Some((paramType.value, returnType.value))
+          case _                                 => None
+        }
+      case _                                       => None
+    }
+
+  /** Extract the deepest non-function return type from an ExpressionValue. Follows through both FunctionType and
+    * partially applied NativeFunction-based types.
+    */
+  @scala.annotation.tailrec
+  def extractDeepReturnType(expr: ExpressionValue): ExpressionValue =
+    extractFunctionParamAndReturn(expr) match {
+      case Some((_, returnType)) => extractDeepReturnType(returnType)
+      case None                  =>
+        expr match {
+          case FunctionApplication(target, returnType) if target.value.isInstanceOf[NativeFunction] =>
+            extractDeepReturnType(returnType.value)
+          case _                                                                                    => expr
+        }
+    }
+
+  /** Extract all return types at every nesting level. For `A -> B -> C`, returns `[B -> C, C]`. */
+  def extractAllReturnTypes(expr: ExpressionValue): Seq[ExpressionValue] =
+    extractFunctionParamAndReturn(expr) match {
+      case Some((_, returnType)) => returnType +: extractAllReturnTypes(returnType)
+      case None                  => Seq(expr)
+    }
+
   private def isFunctionTypeName(value: Value): Boolean =
     value match {
       case Value.Direct(vfqn: ValueFQN, _) => vfqn === Types.functionDataTypeFQN

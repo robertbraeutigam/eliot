@@ -139,4 +139,57 @@ object Evaluator {
     case _                        => None
   }
 
+  /** Apply concrete type arguments to a type ExpressionValue. For non-generic types, returns the concrete Value
+    * directly. For generic types (FunctionLiterals representing type lambdas), builds an application chain and reduces.
+    */
+  def applyTypeArgs(
+      typeExprValue: ExpressionValue,
+      typeArgs: Seq[Value],
+      source: Sourced[?]
+  ): CompilerIO[Value] =
+    if (typeArgs.isEmpty) {
+      typeExprValue match {
+        case ConcreteValue(v) => v.pure[CompilerIO]
+        case _                =>
+          compilerAbort(source.as("Non-generic type signature did not evaluate to concrete value."))
+      }
+    } else {
+      val applied = typeArgs.foldLeft[ExpressionValue](typeExprValue) { (fn, arg) =>
+        FunctionApplication(
+          ExpressionValue.unsourced(fn),
+          ExpressionValue.unsourced(ConcreteValue(arg))
+        )
+      }
+      reduce(applied, source).flatMap {
+        case ConcreteValue(v) => v.pure[CompilerIO]
+        case other            =>
+          compilerAbort(
+            source.as("Type signature did not evaluate to concrete value after applying type arguments."),
+            Seq(s"Result: ${other.show}")
+          )
+      }
+    }
+
+  /** Strip leading FunctionLiterals whose parameter names are NOT in the set of relevant params, then apply the
+    * relevant type arguments.
+    */
+  def applyTypeArgsStripped(
+      typeExprValue: ExpressionValue,
+      allTypeParams: Seq[(String, Value)],
+      typeParamSubst: Map[String, Value],
+      source: Sourced[?]
+  ): CompilerIO[Value] = {
+    val stripped      = stripConstraintOnlyLambdas(typeExprValue, typeParamSubst.keySet)
+    val relevantArgs  = allTypeParams.flatMap { (name, _) => typeParamSubst.get(name) }
+    applyTypeArgs(stripped, relevantArgs, source)
+  }
+
+  /** Strip leading FunctionLiterals whose parameter names are NOT in the set of relevant params. */
+  private def stripConstraintOnlyLambdas(ev: ExpressionValue, relevantParams: Set[String]): ExpressionValue =
+    ev match {
+      case FunctionLiteral(name, _, body) if !relevantParams.contains(name) =>
+        stripConstraintOnlyLambdas(body.value, relevantParams)
+      case _ => ev
+    }
+
 }

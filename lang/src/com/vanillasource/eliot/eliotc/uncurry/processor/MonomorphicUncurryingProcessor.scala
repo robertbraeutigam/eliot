@@ -1,9 +1,8 @@
 package com.vanillasource.eliot.eliotc.uncurry.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -62,18 +61,12 @@ class MonomorphicUncurryingProcessor
     if (arity === 0) {
       (Seq.empty, signature).pure[CompilerIO]
     } else {
-      signature match {
-        case Value.Structure(fields, Value.Type)
-            if fields.get("$typeName").exists(v => v match {
-              case Value.Direct(vfqn: ValueFQN, _) => vfqn === Types.functionDataTypeFQN
-              case _                               => false
-            }) =>
-          val paramType  = fields("A")
-          val returnType = fields("B")
+      signature.asFunctionType match {
+        case Some((paramType, returnType)) =>
           extractParameters(name, returnType, arity - 1).map { (restParams, restReturn) =>
             (paramType +: restParams, restReturn)
           }
-        case _ =>
+        case None                          =>
           compilerAbort(
             name.as("Could not extract parameters."),
             Seq(s"Remaining arity: $arity", s"Signature: ${signature.show}")

@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{Qualifier as CoreQualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Types, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
@@ -72,57 +72,13 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                        )
     } yield ()
 
-  /** Strip constraint-only FunctionLiterals from a type ExpressionValue and apply only the relevant type args. */
   private def applyTypeArgsStripped(
       typeExprValue: ExpressionValue,
       allTypeParams: Seq[(String, Value)],
       typeParamSubst: Map[String, Value],
       source: Sourced[?]
-  ): CompilerIO[Value] = {
-    // Strip leading FunctionLiterals for constraint-only params (those not in typeParamSubst)
-    val stripped = stripConstraintOnlyLambdas(typeExprValue, typeParamSubst.keySet)
-    val relevantArgs = allTypeParams.flatMap { (name, _) => typeParamSubst.get(name) }
-    applyTypeArgs(stripped, relevantArgs, source)
-  }
-
-  /** Strip leading FunctionLiterals whose parameter names are NOT in the set of relevant params. */
-  private def stripConstraintOnlyLambdas(ev: ExpressionValue, relevantParams: Set[String]): ExpressionValue =
-    ev match {
-      case FunctionLiteral(name, _, body) if !relevantParams.contains(name) =>
-        stripConstraintOnlyLambdas(body.value, relevantParams)
-      case _ => ev
-    }
-
-  /** Apply concrete type arguments to a type ExpressionValue. For non-generic types, returns the concrete Value
-    * directly. For generic types (FunctionLiterals representing type lambdas), builds application chain and reduces.
-    */
-  private def applyTypeArgs(
-      typeExprValue: ExpressionValue,
-      typeArgs: Seq[Value],
-      source: Sourced[?]
   ): CompilerIO[Value] =
-    if (typeArgs.isEmpty) {
-      typeExprValue match {
-        case ConcreteValue(v) => v.pure[CompilerIO]
-        case _                =>
-          compilerAbort(source.as("Non-generic type signature did not evaluate to concrete value."))
-      }
-    } else {
-      val applied = typeArgs.foldLeft[ExpressionValue](typeExprValue) { (fn, arg) =>
-        FunctionApplication(
-          ExpressionValue.unsourced(fn),
-          ExpressionValue.unsourced(ConcreteValue(arg))
-        )
-      }
-      Evaluator.reduce(applied, source).flatMap {
-        case ConcreteValue(v) => v.pure[CompilerIO]
-        case other            =>
-          compilerAbort(
-            source.as("Type signature did not evaluate to concrete value after applying type arguments."),
-            Seq(s"Result: ${other.show}")
-          )
-      }
-    }
+    Evaluator.applyTypeArgsStripped(typeExprValue, allTypeParams, typeParamSubst, source)
 
   /** Transform an OperatorResolvedExpression to a MonomorphicExpression, computing concrete types and recursively
     * monomorphizing called functions.
@@ -391,22 +347,6 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                           }
     } yield result
 
-  /** Extract parameter type and return type from a function type ExpressionValue (possibly partially evaluated). Handles
-    * both fully reduced types (ConcreteValue-based) and partially applied types (NativeFunction-based).
-    */
-  private def extractFunctionExprParamAndReturn(
-      expr: ExpressionValue
-  ): Option[(ExpressionValue, ExpressionValue)] =
-    expr match {
-      case ExpressionValue.FunctionType(p, r) => Some((p, r))
-      // Handle partially applied Function type constructor (NativeFunction base)
-      case FunctionApplication(target, returnType) =>
-        target.value match {
-          case FunctionApplication(_, paramType) => Some((paramType.value, returnType.value))
-          case _                                 => None
-        }
-      case _                                       => None
-    }
 
   /** Infer type arguments for a generic function application. For lambdas with inferred parameter types,
     * uses call-site return type matching. Otherwise uses argument-based inference.
@@ -457,7 +397,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       source: Sourced[?]
   ): CompilerIO[Seq[Value]] = {
     // Extract the return type from the function body type
-    val returnType = extractFunctionExprParamAndReturn(bodyType).map(_._2).getOrElse(bodyType)
+    val returnType = ExpressionValue.extractFunctionParamAndReturn(bodyType).map(_._2).getOrElse(bodyType)
     val bindings   = ExpressionValue.matchTypes(returnType, ConcreteValue(callSiteType))
 
     typeParams.traverse { (param, _) =>
@@ -482,7 +422,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       typeParamSubst: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[Seq[Value]] = {
-    val paramType   = extractFunctionExprParamAndReturn(bodyType).map(_._1).getOrElse(bodyType)
+    val paramType   = ExpressionValue.extractFunctionParamAndReturn(bodyType).map(_._1).getOrElse(bodyType)
     val argBindings = ExpressionValue.matchTypes(paramType, ConcreteValue(argType))
 
     // For unresolved params, try matching return types at various nesting levels against callSiteType.
@@ -492,13 +432,13 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       val unresolvedParams = typeParams.map(_._1).toSet -- argBindings.collect { case (k, _: ConcreteValue) => k }
       if (unresolvedParams.isEmpty) Map.empty[String, ExpressionValue]
       else {
-        val deepReturn   = extractDeepReturnType(bodyType)
+        val deepReturn   = ExpressionValue.extractDeepReturnType(bodyType)
         val deepBindings = ExpressionValue.matchTypes(deepReturn, ConcreteValue(callSiteType))
         if (unresolvedParams.forall(p => deepBindings.get(p).exists(_.isInstanceOf[ConcreteValue])))
           deepBindings
         else {
           // Try intermediate return types for partially-applied function matching
-          extractAllReturnTypes(bodyType)
+          ExpressionValue.extractAllReturnTypes(bodyType)
             .foldLeft(deepBindings) { (best, rt) =>
               val bindings = ExpressionValue.matchTypes(rt, ConcreteValue(callSiteType))
               val resolved = unresolvedParams.count(p => bindings.get(p).exists(_.isInstanceOf[ConcreteValue]))
@@ -537,38 +477,11 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
         )
     }
 
-  /** Extract all return types at every nesting level. For `A -> B -> C`, returns `[B -> C, C]`. */
-  private def extractAllReturnTypes(expr: ExpressionValue): Seq[ExpressionValue] =
-    extractFunctionExprParamAndReturn(expr) match {
-      case Some((_, returnType)) => returnType +: extractAllReturnTypes(returnType)
-      case None                  => Seq(expr)
-    }
-
-  @scala.annotation.tailrec
-  private def extractDeepReturnType(expr: ExpressionValue): ExpressionValue =
-    extractFunctionExprParamAndReturn(expr) match {
-      case Some((_, returnType)) => extractDeepReturnType(returnType)
-      case None                  =>
-        // Also follow through NativeFunction-based partially applied function types
-        // (e.g., Function(Bool, _) when the second type arg is a ParameterReference)
-        expr match {
-          case FunctionApplication(target, returnType) if target.value.isInstanceOf[NativeFunction] =>
-            extractDeepReturnType(returnType.value)
-          case _                                                                                    => expr
-        }
-    }
-
   /** Extract parameter type and return type from a function type Value. */
   private def extractFunctionParamAndReturn(functionType: Value, source: Sourced[?]): CompilerIO[(Value, Value)] =
-    functionType match {
-      case Value.Structure(fields, Value.Type) =>
-        fields.get("$typeName") match {
-          case Some(Value.Direct(vfqn: ValueFQN, _)) if vfqn === Types.functionDataTypeFQN =>
-            (fields("A"), fields("B")).pure[CompilerIO]
-          case _                                                                           =>
-            compilerAbort(source.as("Expected function type."), Seq(s"Found: ${functionType.show}"))
-        }
-      case _                                   =>
+    functionType.asFunctionType match {
+      case Some(result) => result.pure[CompilerIO]
+      case None         =>
         compilerAbort(source.as("Expected function type."), Seq(s"Found: ${functionType.show}"))
     }
 
@@ -634,13 +547,8 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
   private def extractSignatureReturnType(value: Value, depth: Int): Value =
     if (depth <= 0) value
     else
-      value match {
-        case Value.Structure(fields, Value.Type) =>
-          fields.get("$typeName") match {
-            case Some(Value.Direct(vfqn: ValueFQN, _)) if vfqn === Types.functionDataTypeFQN =>
-              extractSignatureReturnType(fields("B"), depth - 1)
-            case _                                                                           => value
-          }
-        case _                                   => value
+      value.asFunctionType match {
+        case Some((_, returnType)) => extractSignatureReturnType(returnType, depth - 1)
+        case None                  => value
       }
 }
