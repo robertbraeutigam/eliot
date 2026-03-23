@@ -101,6 +101,71 @@ class AbilityImplementationCheckProcessorTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Ability call resolution tests (migrated from AbilityCheckProcessorTest) ---
+
+  "ability calls" should "succeed when calling ability with generic type parameter covered by constraint" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndef f[A ~ Show[A]](x: A): A = show(x)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "succeed when calling ability with default generic type parameter covered by constraint" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndef f[A ~ Show](x: A): A = show(x)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "support empty abilities to be declared" in {
+    runEngineForErrors(
+      "ability Marker[A]\ndef f[A ~ Marker](x: A): A"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "support empty ability implementations" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail when calling ability with abstract type parameter not covered by constraint" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndef f[A](x: A): A = show(x)"
+    ).asserting(
+      _ shouldBe Seq(
+        "Cannot prove ability 'Show' is available for given type." at "show"
+      )
+    )
+  }
+
+  it should "fail when no implementation exists for the concrete type" in {
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndata Int\ndef f(x: Int): Int = show(x)"
+    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'." at "Show"))
+  }
+
+  it should "check derived abilities" in {
+    runEngineForErrors("""
+        data String
+        def someString: String
+
+        ability Show[A] {
+          def show(a: A): String
+        }
+
+        implement Show[String] {
+          def show(str: String): String = str
+        }
+
+        data Box[A](content: A)
+
+        implement[A ~ Show] Show[Box[A]] {
+          def show(box: Box[A]): String = show(content(box))
+        }
+
+        def f: String = show(Box(someString))
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
   private def runEngineForErrors(source: String): IO[Seq[TestError]] =
     runGenerator(
       source,

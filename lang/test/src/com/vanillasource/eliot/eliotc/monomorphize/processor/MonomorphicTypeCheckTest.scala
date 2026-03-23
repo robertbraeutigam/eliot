@@ -109,6 +109,84 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("Type mismatch." at "b"))
   }
 
+  // --- Multi-parameter unification ---
+
+  "multi-parameter unification" should "unify on multiple parameters" in {
+    runForErrors(
+      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndef f(s: String): String = g(someA, someA, s)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail, if unifying on multiple parameters fail at later stage" in {
+    runForErrors(
+      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndef f(i: BigInteger, s: String): String = g(someA, someA, i)"
+    ).asserting(_ shouldBe Seq("Return type mismatch." at "i"))
+  }
+
+  // --- Higher-kinded types ---
+
+  "higher-kinded types" should "type check through single generic placeholder" in {
+    runForErrors("def id[A](a: A): A\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject different arities of generic parameters" in {
+    runForErrors("def id[B, A[_]](a: A[B]): A[B]\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "unify generic parameters of generics via a non-parameterized generic" in {
+    runForErrors(
+      "data Foo\ndata Bar\ndef id[A](a: A): A\ndef f(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "type check higher-kinded parameter returning identity" in {
+    runForErrors("def f[F[_]](x: F[Int]): F[Int] = x", typeArgs = Seq(intType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check higher-kinded parameter with two type args" in {
+    runForErrors("def f[F[_, _]](x: F[Int, String]): F[Int, String] = x", typeArgs = Seq(intType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail when higher-kinded parameters mismatch" in {
+    runForErrors("def f[F[_]](x: F[Int]): F[String] = x", typeArgs = Seq(intType))
+      .asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "type check nested higher-kinded parameter" in {
+    runForErrors("def f[G[_], F[_[_]]](x: F[G]): F[G] = x", typeArgs = Seq(intType, stringType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Explicit type restrictions ---
+
+  "explicit type restrictions" should "type check with explicit Type restriction like implicit" in {
+    runForErrors("def f[A: Type](a: A): A = a", typeArgs = Seq(intType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit Function restriction like arity syntax" in {
+    runForErrors("def f[F: Function[Type, Type]](x: F[Int]): F[Int] = x", typeArgs = Seq(intType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit two-arg Function restriction" in {
+    runForErrors(
+      "def f[F: Function[Type, Function[Type, Type]]](x: F[Int, String]): F[Int, String] = x",
+      typeArgs = Seq(intType)
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit nested higher-kinded restriction" in {
+    runForErrors(
+      "def f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x",
+      typeArgs = Seq(intType, stringType)
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   // --- Functions without body ---
 
   "functions without body" should "be monomorphized with simple return type" in {
@@ -174,6 +252,12 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
+  it should "reject unannotated lambda when inferred type conflicts" in {
+    runForErrors(
+      "data Foo(l: Function[Unit, String])\ndef g(u: Unit): String\ndef f: Foo = Foo(unit -> g(unit))"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   // --- Integer and string literals ---
 
   "literals" should "monomorphize integer literal in body" in {
@@ -198,6 +282,28 @@ class MonomorphicTypeCheckTest
   "function application" should "monomorphize generic function call" in {
     runForErrors("def id[A](a: A): A = a\ndef f: BigInteger = id(42)")
       .asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Error reporting ---
+
+  "error reporting" should "issue error when referencing an undefined function" in {
+    runForErrors("data A\ndef f: A = c")
+      .asserting(_ shouldBe Seq("Name not defined." at "c"))
+  }
+
+  it should "not produce type checked results if arities mismatch" in {
+    runForErrors("data A\ndef f: A = b(3)\ndef b: A")
+      .asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "fail only once when a function is used wrong" in {
+    runForErrors("data A\ndata B\ndef a: A\ndef f: B = a")
+      .asserting(_ shouldBe Seq("Type mismatch." at "a"))
+  }
+
+  it should "fail if parameter is of wrong type" in {
+    runForErrors("data A\ndata B\ndef f(b: B): A = b")
+      .asserting(_ shouldBe Seq("Type mismatch." at "b"))
   }
 
   // --- Explicit type arguments ---
@@ -247,10 +353,8 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("Return type mismatch." at "g"))
   }
 
-  // --- Explicit type restrictions ---
-
-  "explicit type restrictions" should "type check with explicit Type restriction like implicit" in {
-    runForErrors("def f[A: Type](a: A): A = a", typeArgs = Seq(intType))
+  it should "type check with an applied generic type as a type argument" in {
+    runForErrors("def id[A](a: A): A = a\ndata Box(s: String)\ndef f(b: Box): Box = id[Box](b)")
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -260,6 +364,36 @@ class MonomorphicTypeCheckTest
     runForErrors(
       "def str: String\ndata Group\ndata Person[G: Group](name: String)\ndef f[G: Group]: Person[G] = Person[G](str)",
       typeArgs = Seq(Types.dataType(ValueFQN(testModuleName, QualifiedName("Group", Qualifier.Type))))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "calculate concrete literal values" in {
+    runForErrors(
+      "def one: BigInteger = 1\ndef oneDifferently: BigInteger = 1\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject calculated differing concrete literal values" in {
+    runForErrors(
+      "def one: BigInteger = 1\ndef two: BigInteger = 2\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[two](str)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "calculate concrete data values" in {
+    runForErrors(
+      "data Person(age: BigInteger)\ndef one: Person = Person(1)\ndef oneDifferently: Person = Person(1)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject calculated differing data values" in {
+    runForErrors(
+      "data Person(age: BigInteger)\ndef one: Person = Person(1)\ndef oneDifferently: Person = Person(2)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "accept type-level function calls that are not Type types" in {
+    runForErrors(
+      "def g(x: String): String = x\ndata Box[X: String](value: String)\ndef f[G: String](value: String): Box(g(G)) = Box[G](value)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
