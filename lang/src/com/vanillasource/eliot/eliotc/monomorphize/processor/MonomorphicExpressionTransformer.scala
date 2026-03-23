@@ -31,13 +31,25 @@ object MonomorphicExpressionTransformer {
   ): CompilerIO[MonomorphicExpression] =
     expr match {
       case OperatorResolvedExpression.IntegerLiteral(v)      =>
-        MonomorphicExpression(Types.bigIntType, MonomorphicExpression.IntegerLiteral(v)).pure[CompilerIO]
+        checkSynthesized(
+          MonomorphicExpression(Types.bigIntType, MonomorphicExpression.IntegerLiteral(v)),
+          expected,
+          v
+        )
       case OperatorResolvedExpression.StringLiteral(v)       =>
-        MonomorphicExpression(Types.stringType, MonomorphicExpression.StringLiteral(v)).pure[CompilerIO]
+        checkSynthesized(
+          MonomorphicExpression(Types.stringType, MonomorphicExpression.StringLiteral(v)),
+          expected,
+          v
+        )
       case OperatorResolvedExpression.ParameterReference(n)  =>
         env.runtimeParams.get(n.value) match {
           case Some(paramType) =>
-            MonomorphicExpression(paramType, MonomorphicExpression.ParameterReference(n)).pure[CompilerIO]
+            checkSynthesized(
+              MonomorphicExpression(paramType, MonomorphicExpression.ParameterReference(n)),
+              expected,
+              n
+            )
           case None            =>
             compilerAbort(n.as(s"Unknown parameter: ${n.value}"))
         }
@@ -270,5 +282,20 @@ object MonomorphicExpressionTransformer {
       case Some(result) => result.pure[CompilerIO]
       case None         =>
         compilerAbort(source.as("Expected function type."), Seq(s"Found: ${functionType.show}"))
+    }
+
+  private def checkSynthesized(
+      result: MonomorphicExpression,
+      expected: Expected,
+      source: Sourced[?]
+  ): CompilerIO[MonomorphicExpression] =
+    expected match {
+      case Expected.Check(expectedType)
+          if expectedType != Value.Type && expectedType != result.expressionType =>
+        compilerAbort(
+          source.as("Type mismatch."),
+          Seq(s"Expected: ${expectedType.show}", s"Actual: ${result.expressionType.show}")
+        )
+      case _ => result.pure[CompilerIO]
     }
 }
