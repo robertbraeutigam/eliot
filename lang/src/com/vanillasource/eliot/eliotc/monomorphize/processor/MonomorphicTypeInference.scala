@@ -23,24 +23,7 @@ object MonomorphicTypeInference {
   ): CompilerIO[Seq[Value]] = {
     val body     = ExpressionValue.stripLeadingLambdas(evalValue)
     val bindings = ExpressionValue.matchTypes(body, ConcreteValue(callSiteType))
-
-    typeParams.traverse { (param, _) =>
-      bindings.get(param) match {
-        case Some(ConcreteValue(v)) => v.pure[CompilerIO]
-        case Some(_)                =>
-          typeParamSubst.get(param) match {
-            case Some(v) => v.pure[CompilerIO]
-            case None    =>
-              compilerAbort(source.as(s"Cannot infer type argument for parameter: $param (non-concrete match)"))
-          }
-        case None                   =>
-          typeParamSubst.get(param) match {
-            case Some(v) => v.pure[CompilerIO]
-            case None    =>
-              compilerAbort(source.as(s"Cannot infer type argument for parameter: $param"))
-          }
-      }
-    }
+    resolveTypeParams(typeParams, bindings, Map.empty, typeParamSubst, source)
   }
 
   /** Infer type arguments by matching the function's return type against the call-site expected type. */
@@ -53,16 +36,7 @@ object MonomorphicTypeInference {
   ): CompilerIO[Seq[Value]] = {
     val returnType = ExpressionValue.extractFunctionParamAndReturn(bodyType).map(_._2).getOrElse(bodyType)
     val bindings   = ExpressionValue.matchTypes(returnType, ConcreteValue(callSiteType))
-
-    typeParams.traverse { (param, _) =>
-      bindings.get(param) match {
-        case Some(ConcreteValue(v)) => v.pure[CompilerIO]
-        case _                      =>
-          typeParamSubst.get(param).map(_.pure[CompilerIO]).getOrElse(
-            compilerAbort(source.as(s"Cannot infer type argument for parameter: $param"))
-          )
-      }
-    }
+    resolveTypeParams(typeParams, bindings, Map.empty, typeParamSubst, source)
   }
 
   /** Infer type arguments from argument type, with fallback to deep return type matching against the call-site type.
@@ -76,12 +50,21 @@ object MonomorphicTypeInference {
       typeParamSubst: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[Seq[Value]] = {
-    val paramType   = ExpressionValue.extractFunctionParamAndReturn(bodyType).map(_._1).getOrElse(bodyType)
-    val argBindings = ExpressionValue.matchTypes(paramType, ConcreteValue(argType))
+    val paramType      = ExpressionValue.extractFunctionParamAndReturn(bodyType).map(_._1).getOrElse(bodyType)
+    val argBindings    = ExpressionValue.matchTypes(paramType, ConcreteValue(argType))
+    val returnBindings = computeReturnBindings(bodyType, callSiteType, typeParams, argBindings)
+    resolveTypeParams(typeParams, argBindings, returnBindings, typeParamSubst, source)
+  }
 
-    val returnBindings = if (callSiteType != Value.Type) {
+  private def computeReturnBindings(
+      bodyType: ExpressionValue,
+      callSiteType: Value,
+      typeParams: Seq[(String, Value)],
+      argBindings: Map[String, ExpressionValue]
+  ): Map[String, ExpressionValue] =
+    if (callSiteType != Value.Type) {
       val unresolvedParams = typeParams.map(_._1).toSet -- argBindings.collect { case (k, _: ConcreteValue) => k }
-      if (unresolvedParams.isEmpty) Map.empty[String, ExpressionValue]
+      if (unresolvedParams.isEmpty) Map.empty
       else {
         val deepReturn   = ExpressionValue.extractDeepReturnType(bodyType)
         val deepBindings = ExpressionValue.matchTypes(deepReturn, ConcreteValue(callSiteType))
@@ -99,35 +82,24 @@ object MonomorphicTypeInference {
       }
     } else Map.empty
 
-    typeParams.traverse { (param, _) =>
-      argBindings.get(param) match {
-        case Some(ConcreteValue(v)) => v.pure[CompilerIO]
-        case Some(_)                =>
-          resolveFromReturnOrSubst(
-            param, returnBindings, typeParamSubst, source,
-            s"Cannot infer type argument for parameter: $param (non-concrete match)"
-          )
-        case None                   =>
-          resolveFromReturnOrSubst(
-            param, returnBindings, typeParamSubst, source,
-            s"Cannot infer type argument for parameter: $param"
-          )
-      }
-    }
-  }
-
-  private def resolveFromReturnOrSubst(
-      param: String,
-      returnBindings: Map[String, ExpressionValue],
+  private def resolveTypeParams(
+      typeParams: Seq[(String, Value)],
+      primaryBindings: Map[String, ExpressionValue],
+      secondaryBindings: Map[String, ExpressionValue],
       typeParamSubst: Map[String, Value],
-      source: Sourced[?],
-      errorMsg: String
-  ): CompilerIO[Value] =
-    returnBindings.get(param) match {
-      case Some(ConcreteValue(v)) => v.pure[CompilerIO]
-      case _                      =>
-        typeParamSubst.get(param).map(_.pure[CompilerIO]).getOrElse(
-          compilerAbort(source.as(errorMsg))
-        )
+      source: Sourced[?]
+  ): CompilerIO[Seq[Value]] =
+    typeParams.traverse { (param, _) =>
+      primaryBindings.get(param) match {
+        case Some(ConcreteValue(v)) => v.pure[CompilerIO]
+        case _                      =>
+          secondaryBindings.get(param) match {
+            case Some(ConcreteValue(v)) => v.pure[CompilerIO]
+            case _                      =>
+              typeParamSubst.get(param).map(_.pure[CompilerIO]).getOrElse(
+                compilerAbort(source.as(s"Cannot infer type argument for parameter: $param"))
+              )
+          }
+      }
     }
 }
