@@ -1,11 +1,13 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -33,9 +35,7 @@ class MonomorphicTypeCheckProcessor
       _             <- debug[CompilerIO](
                          s"Monomorphizing ${key.vfqn.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
                        )
-      typeExprValue <- Evaluator.evaluate(
-                         resolvedValue.typeStack.as(resolvedValue.typeStack.value.signature)
-                       )
+      typeExprValue <- evaluateTypeStack(resolvedValue.typeStack)
       analysis       = TypeParameterAnalysis.fromEvaluatedType(typeExprValue)
       _             <- if (key.typeArguments.length != analysis.allTypeParams.length &&
                            key.typeArguments.length != analysis.bodyTypeParams.length)
@@ -121,4 +121,88 @@ class MonomorphicTypeCheckProcessor
         case Some((_, returnType)) => extractSignatureReturnType(returnType, depth - 1)
         case None                  => value
       }
+
+  /** Evaluate the full type stack from top to bottom. Starts with an implicit top-level type of `Type` and walks each
+    * level, checking that its evaluated type matches the expected type from the level above. Returns the evaluated
+    * signature (bottom level) for downstream use.
+    */
+  private def evaluateTypeStack(
+      typeStack: Sourced[TypeStack[OperatorResolvedExpression]]
+  ): CompilerIO[ExpressionValue.InitialExpressionValue] = {
+    val levels = typeStack.value.levels.toSeq.reverse
+    for {
+      expectedTypeForSignature <- levels.init.foldLeftM(Value.Type: Value) { (expectedType, level) =>
+                                    for {
+                                      evaluated <- Evaluator.evaluate(typeStack.as(level))
+                                      _         <- checkExpressionHasType(evaluated, expectedType, typeStack)
+                                      value     <- ExpressionValue.concreteValueOf(evaluated) match {
+                                                     case Some(v) => v.pure[CompilerIO]
+                                                     case None    =>
+                                                       compilerAbort(
+                                                         typeStack.as("Type level expression did not evaluate to a concrete value.")
+                                                       )
+                                                   }
+                                    } yield value
+                                  }
+      signature                <- Evaluator.evaluate(typeStack.as(levels.last))
+      _                        <- checkExpressionHasType(signature, expectedTypeForSignature, typeStack)
+    } yield signature
+  }
+
+  /** Check that an evaluated expression has the given expected type. Recursively decomposes function types to verify
+    * parameter types match at each level.
+    */
+  private def checkExpressionHasType(
+      evaluated: ExpressionValue,
+      expectedType: Value,
+      source: Sourced[?]
+  ): CompilerIO[Unit] =
+    evaluated match {
+      case ConcreteValue(v)                                =>
+        if (v.valueType =!= expectedType)
+          compilerAbort(
+            source.as("Type mismatch in type stack."),
+            Seq(s"Expected: ${expectedType.show}", s"Actual:   ${v.valueType.show}")
+          )
+        else ().pure[CompilerIO]
+      case FunctionLiteral(_, paramType, body)             =>
+        expectedType.asFunctionType match {
+          case Some((expectedParam, expectedReturn)) =>
+            if (paramType =!= expectedParam)
+              compilerAbort(
+                source.as("Type parameter kind mismatch."),
+                Seq(s"Expected: ${expectedParam.show}", s"Actual:   ${paramType.show}")
+              )
+            else checkExpressionHasType(body.value, expectedReturn, source)
+          case None                                  =>
+            compilerAbort(
+              source.as("Expected non-function type but found function."),
+              Seq(s"Expected: ${expectedType.show}")
+            )
+        }
+      case NativeFunction(paramType, _)                    =>
+        expectedType.asFunctionType match {
+          case Some((expectedParam, _)) =>
+            if (paramType =!= expectedParam)
+              compilerAbort(
+                source.as("Type parameter kind mismatch."),
+                Seq(s"Expected: ${expectedParam.show}", s"Actual:   ${paramType.show}")
+              )
+            else ().pure[CompilerIO]
+          case None                     =>
+            compilerAbort(
+              source.as("Expected non-function type but found native function."),
+              Seq(s"Expected: ${expectedType.show}")
+            )
+        }
+      case ParameterReference(_, paramType)                =>
+        if (paramType =!= expectedType)
+          compilerAbort(
+            source.as("Type mismatch in type stack."),
+            Seq(s"Expected: ${expectedType.show}", s"Actual:   ${paramType.show}")
+          )
+        else ().pure[CompilerIO]
+      case FunctionApplication(_, _)                       =>
+        ().pure[CompilerIO]
+    }
 }

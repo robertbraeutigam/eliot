@@ -72,6 +72,11 @@ class MonomorphicTypeCheckTest
       .asserting(_ should not be empty)
   }
 
+  it should "not compile if call site has no arguments, but definition has one" in {
+    runForErrors("data A\ndef f: A = b\ndef b(x: A): A")
+      .asserting(_ should not be empty)
+  }
+
   // --- Generic type tests ---
 
   "generic types" should "type check when returning itself from a parameter" in {
@@ -94,6 +99,16 @@ class MonomorphicTypeCheckTest
       .asserting(_ should not be empty)
   }
 
+  it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(id(id(i)))")
+      .asserting(_ should not be empty)
+  }
+
+  it should "fail when returning different, but non-constrained generic" in {
+    runForErrors("def f[A, B](a: A, b: B): A = b", typeArgs = Seq(intType, stringType))
+      .asserting(_ should not be empty)
+  }
+
   // --- Functions without body ---
 
   "functions without body" should "be monomorphized with simple return type" in {
@@ -111,6 +126,16 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
+  it should "be monomorphized with multiple parameters" in {
+    runForErrors("data A\ndata B\ndata C\ndef f(a: A, b: B): C")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "be monomorphized with generic parameters and multiple arguments" in {
+    runForErrors("def f[A, B](a: A, b: B): A", typeArgs = Seq(intType, stringType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   // --- Parameter usage ---
 
   "parameter usage" should "type check when parameter type matches return type" in {
@@ -120,6 +145,11 @@ class MonomorphicTypeCheckTest
 
   it should "fail when parameter type does not match return type" in {
     runForErrors("data TypeA(fieldA: TypeA)\ndata TypeB\ndef f(x: TypeA): TypeB = x")
+      .asserting(_ should not be empty)
+  }
+
+  it should "fail if parameter is used as a wrong parameter in another function" in {
+    runForErrors("data A\ndata B\ndef a(b: B): A\ndef f(x: A): A = a(x)")
       .asserting(_ should not be empty)
   }
 
@@ -168,6 +198,69 @@ class MonomorphicTypeCheckTest
   "function application" should "monomorphize generic function call" in {
     runForErrors("def id[A](a: A): A = a\ndef f: BigInteger = id(42)")
       .asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Explicit type arguments ---
+
+  "explicit type arguments" should "type check when the explicit arg matches usage" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[String](s)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail when the explicit type arg conflicts with the value argument" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[Int](s)")
+      .asserting(_ should not be empty)
+  }
+
+  it should "fail when the explicit type arg conflicts with the declared return type" in {
+    runForErrors("def id[A](a: A): A = a\ndef i: Int\ndef f(s: String): String = id[Int](i)")
+      .asserting(_ should not be empty)
+  }
+
+  it should "fail with too many type arguments" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[String, String](s)")
+      .asserting(_ should not be empty)
+  }
+
+  it should "type check with too few explicit type args by inferring the rest" in {
+    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = f2[String](s, i)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail with too few explicit type args that conflict with usage" in {
+    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = f2[Int](s, i)")
+      .asserting(_ should not be empty)
+  }
+
+  it should "type check with explicit type args and multiple type params" in {
+    runForErrors("def g[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = g[String, Int](s, i)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail when explicit type args are in the wrong order" in {
+    runForErrors("def g[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = g[Int, String](s, i)")
+      .asserting(_ should not be empty)
+  }
+
+  it should "point type argument mismatch to the explicit type argument" in {
+    runForErrors("data Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[Int](g)")
+      .asserting(_ should not be empty)
+  }
+
+  // --- Explicit type restrictions ---
+
+  "explicit type restrictions" should "type check with explicit Type restriction like implicit" in {
+    runForErrors("def f[A: Type](a: A): A = a", typeArgs = Seq(intType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Type level functions ---
+
+  "type level functions" should "support non-type type parameters" in {
+    runForErrors(
+      "def str: String\ndata Group\ndata Person[G: Group](name: String)\ndef f[G: Group]: Person[G] = Person[G](str)",
+      typeArgs = Seq(Types.dataType(ValueFQN(testModuleName, QualifiedName("Group", Qualifier.Type))))
+    ).asserting(_ shouldBe Seq.empty)
   }
 
   // --- Recursion ---
