@@ -75,17 +75,18 @@ object MonomorphicTypeInference {
         val unresolvedParams = typeParams.map(_._1).toSet -- argBindings.collect { case (k, _: ConcreteValue) => k }
         if (unresolvedParams.isEmpty) Map.empty
         else {
-          val deepReturn   = ExpressionValue.extractDeepReturnType(bodyType)
-          val deepBindings = ExpressionValue.matchTypes(deepReturn, ConcreteValue(callSiteType))
-          if (unresolvedParams.forall(p => deepBindings.get(p).exists(_.isInstanceOf[ConcreteValue])))
-            deepBindings
+          val shallowReturns = ExpressionValue.extractAllReturnTypes(bodyType)
+          val shallowDeep    = shallowReturns.last
+          val shallowBindings = ExpressionValue.matchTypes(shallowDeep, ConcreteValue(callSiteType))
+          if (unresolvedParams.forall(p => shallowBindings.get(p).exists(_.isInstanceOf[ConcreteValue])))
+            shallowBindings
           else {
-            ExpressionValue.extractAllReturnTypes(bodyType)
-              .foldLeft(deepBindings) { (best, rt) =>
+            ExpressionValue.extractAllReturnTypesDeep(bodyType)
+              .foldLeft(Map.empty[String, ExpressionValue]) { (best, rt) =>
                 val bindings     = ExpressionValue.matchTypes(rt, ConcreteValue(callSiteType))
                 val resolved     = unresolvedParams.count(p => bindings.get(p).exists(_.isInstanceOf[ConcreteValue]))
                 val bestResolved = unresolvedParams.count(p => best.get(p).exists(_.isInstanceOf[ConcreteValue]))
-                if (resolved > bestResolved) bindings ++ best else best ++ bindings
+                if (resolved > bestResolved) best ++ bindings else bindings ++ best
               }
           }
         }

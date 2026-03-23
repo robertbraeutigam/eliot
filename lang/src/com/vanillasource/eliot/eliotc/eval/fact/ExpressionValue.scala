@@ -110,6 +110,20 @@ object ExpressionValue {
       case None                  => Seq(expr)
     }
 
+  /** Like [[extractAllReturnTypes]] but also follows through NativeFunction-based type constructor applications
+    * (e.g. `Box[A]` represented as `FA(NativeFunction, A)`).
+    */
+  def extractAllReturnTypesDeep(expr: ExpressionValue): Seq[ExpressionValue] =
+    extractFunctionParamAndReturn(expr) match {
+      case Some((_, returnType)) => returnType +: extractAllReturnTypesDeep(returnType)
+      case None                  =>
+        expr match {
+          case FunctionApplication(target, returnType) if target.value.isInstanceOf[NativeFunction] =>
+            returnType.value +: extractAllReturnTypesDeep(returnType.value)
+          case _                                                                                    => Seq(expr)
+        }
+    }
+
   private def isFunctionTypeName(value: Value): Boolean =
     value match {
       case Value.Direct(vfqn: ValueFQN, _) => vfqn === Types.functionDataTypeFQN
