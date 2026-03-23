@@ -13,20 +13,28 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   */
 object MonomorphicTypeInference {
 
-  /** Infer concrete type arguments by matching the call-site type against a polymorphic type signature. */
+  /** Infer concrete type arguments by matching the expected type against a polymorphic type signature. When
+    * [[Expected.Synthesize]], no call-site bindings are produced and resolution falls back to the environment's type
+    * parameter substitution.
+    */
   def inferFromCallSite(
       evalValue: ExpressionValue,
       typeParams: Seq[(String, Value)],
-      callSiteType: Value,
-      typeParamSubst: Map[String, Value],
+      expected: Expected,
+      env: MonoEnv,
       source: Sourced[?]
   ): CompilerIO[Seq[Value]] = {
     val body     = ExpressionValue.stripLeadingLambdas(evalValue)
-    val bindings = ExpressionValue.matchTypes(body, ConcreteValue(callSiteType))
-    resolveTypeParams(typeParams, bindings, Map.empty, typeParamSubst, source)
+    val bindings = expected match {
+      case Expected.Check(tpe) => ExpressionValue.matchTypes(body, ConcreteValue(tpe))
+      case Expected.Synthesize => Map.empty[String, ExpressionValue]
+    }
+    resolveTypeParams(typeParams, bindings, Map.empty, env.typeParamSubst, source)
   }
 
-  /** Infer type arguments by matching the function's return type against the call-site expected type. */
+  /** Infer type arguments by matching the function's return type against the call-site expected type. Only called when
+    * the expected type is known (from a [[Expected.Check]] context).
+    */
   def inferFromReturnType(
       bodyType: ExpressionValue,
       callSiteType: Value,
@@ -39,48 +47,50 @@ object MonomorphicTypeInference {
     resolveTypeParams(typeParams, bindings, Map.empty, typeParamSubst, source)
   }
 
-  /** Infer type arguments from argument type, with fallback to deep return type matching against the call-site type.
+  /** Infer type arguments from argument type, with fallback to deep return type matching against the expected type.
     * Handles curried applications where some type parameters only appear in the return position.
     */
   def inferFromArgumentAndReturn(
       bodyType: ExpressionValue,
       argType: Value,
-      callSiteType: Value,
+      expected: Expected,
       typeParams: Seq[(String, Value)],
       typeParamSubst: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[Seq[Value]] = {
     val paramType      = ExpressionValue.extractFunctionParamAndReturn(bodyType).map(_._1).getOrElse(bodyType)
     val argBindings    = ExpressionValue.matchTypes(paramType, ConcreteValue(argType))
-    val returnBindings = computeReturnBindings(bodyType, callSiteType, typeParams, argBindings)
+    val returnBindings = computeReturnBindings(bodyType, expected, typeParams, argBindings)
     resolveTypeParams(typeParams, argBindings, returnBindings, typeParamSubst, source)
   }
 
   private def computeReturnBindings(
       bodyType: ExpressionValue,
-      callSiteType: Value,
+      expected: Expected,
       typeParams: Seq[(String, Value)],
       argBindings: Map[String, ExpressionValue]
   ): Map[String, ExpressionValue] =
-    if (callSiteType != Value.Type) {
-      val unresolvedParams = typeParams.map(_._1).toSet -- argBindings.collect { case (k, _: ConcreteValue) => k }
-      if (unresolvedParams.isEmpty) Map.empty
-      else {
-        val deepReturn   = ExpressionValue.extractDeepReturnType(bodyType)
-        val deepBindings = ExpressionValue.matchTypes(deepReturn, ConcreteValue(callSiteType))
-        if (unresolvedParams.forall(p => deepBindings.get(p).exists(_.isInstanceOf[ConcreteValue])))
-          deepBindings
+    expected match {
+      case Expected.Check(callSiteType) =>
+        val unresolvedParams = typeParams.map(_._1).toSet -- argBindings.collect { case (k, _: ConcreteValue) => k }
+        if (unresolvedParams.isEmpty) Map.empty
         else {
-          ExpressionValue.extractAllReturnTypes(bodyType)
-            .foldLeft(deepBindings) { (best, rt) =>
-              val bindings     = ExpressionValue.matchTypes(rt, ConcreteValue(callSiteType))
-              val resolved     = unresolvedParams.count(p => bindings.get(p).exists(_.isInstanceOf[ConcreteValue]))
-              val bestResolved = unresolvedParams.count(p => best.get(p).exists(_.isInstanceOf[ConcreteValue]))
-              if (resolved > bestResolved) bindings ++ best else best ++ bindings
-            }
+          val deepReturn   = ExpressionValue.extractDeepReturnType(bodyType)
+          val deepBindings = ExpressionValue.matchTypes(deepReturn, ConcreteValue(callSiteType))
+          if (unresolvedParams.forall(p => deepBindings.get(p).exists(_.isInstanceOf[ConcreteValue])))
+            deepBindings
+          else {
+            ExpressionValue.extractAllReturnTypes(bodyType)
+              .foldLeft(deepBindings) { (best, rt) =>
+                val bindings     = ExpressionValue.matchTypes(rt, ConcreteValue(callSiteType))
+                val resolved     = unresolvedParams.count(p => bindings.get(p).exists(_.isInstanceOf[ConcreteValue]))
+                val bestResolved = unresolvedParams.count(p => best.get(p).exists(_.isInstanceOf[ConcreteValue]))
+                if (resolved > bestResolved) bindings ++ best else best ++ bindings
+              }
+          }
         }
-      }
-    } else Map.empty
+      case Expected.Synthesize         => Map.empty
+    }
 
   private def resolveTypeParams(
       typeParams: Seq[(String, Value)],

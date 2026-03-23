@@ -47,7 +47,12 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       _             <- debug[CompilerIO](s"Monomorphized ${key.vfqn.show} to: ${signature.show}")
       runtime       <- resolvedValue.runtime.traverse { body =>
                          MonomorphicExpressionTransformer
-                           .transformExpression(body.value, signature, typeParamSubst, Map.empty, body)
+                           .transformExpression(
+                             body.value,
+                             Expected.Check(signature),
+                             MonoEnv(typeParamSubst, Map.empty),
+                             body
+                           )
                            .map(body.as)
                        }
       _             <- runtime match {

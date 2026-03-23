@@ -15,17 +15,18 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   */
 object MonomorphicExpressionTransformer {
 
-  /** Transform an OperatorResolvedExpression to a MonomorphicExpression, computing concrete types and recursively
-    * monomorphizing called functions.
+  /** Transform an OperatorResolvedExpression to a MonomorphicExpression using bidirectional type checking.
     *
-    * @param callSiteType
-    *   The expected type of this expression from the enclosing context.
+    * @param expected
+    *   The type direction: [[Expected.Check]] when the expected type is known, [[Expected.Synthesize]] when the type
+    *   should be inferred bottom-up.
+    * @param env
+    *   The monomorphization environment containing type parameter substitution and runtime parameter types.
     */
   def transformExpression(
       expr: OperatorResolvedExpression,
-      callSiteType: Value,
-      typeParamSubst: Map[String, Value],
-      runtimeParams: Map[String, Value],
+      expected: Expected,
+      env: MonoEnv,
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
     expr match {
@@ -34,67 +35,59 @@ object MonomorphicExpressionTransformer {
       case OperatorResolvedExpression.StringLiteral(v)       =>
         MonomorphicExpression(Types.stringType, MonomorphicExpression.StringLiteral(v)).pure[CompilerIO]
       case OperatorResolvedExpression.ParameterReference(n)  =>
-        runtimeParams.get(n.value) match {
+        env.runtimeParams.get(n.value) match {
           case Some(paramType) =>
             MonomorphicExpression(paramType, MonomorphicExpression.ParameterReference(n)).pure[CompilerIO]
           case None            =>
             compilerAbort(n.as(s"Unknown parameter: ${n.value}"))
         }
       case vr: OperatorResolvedExpression.ValueReference     =>
-        transformValueReference(vr, callSiteType, typeParamSubst, runtimeParams, source)
+        transformValueReference(vr, expected, env, source)
       case fa: OperatorResolvedExpression.FunctionApplication =>
-        transformFunctionApplication(fa, callSiteType, typeParamSubst, runtimeParams, source)
+        transformFunctionApplication(fa, expected, env, source)
       case fl: OperatorResolvedExpression.FunctionLiteral    =>
-        transformFunctionLiteral(fl, callSiteType, typeParamSubst, runtimeParams, source)
+        transformFunctionLiteral(fl, expected, env, source)
     }
 
   /** Transform a value reference by determining concrete type arguments for the referenced value. */
   private def transformValueReference(
       vr: OperatorResolvedExpression.ValueReference,
-      callSiteType: Value,
-      typeParamSubst: Map[String, Value],
-      runtimeParams: Map[String, Value],
+      expected: Expected,
+      env: MonoEnv,
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
     resolveValueReference(
       vr,
       (fullType, _, bodyTypeParams) =>
-        MonomorphicTypeInference.inferFromCallSite(fullType, bodyTypeParams, callSiteType, typeParamSubst, source),
+        MonomorphicTypeInference.inferFromCallSite(fullType, bodyTypeParams, expected, env, source),
       source
     ).map(_._2)
 
   /** Transform a function application. For value reference targets, type arguments are inferred from argument types. */
   private def transformFunctionApplication(
       fa: OperatorResolvedExpression.FunctionApplication,
-      callSiteType: Value,
-      typeParamSubst: Map[String, Value],
-      runtimeParams: Map[String, Value],
+      expected: Expected,
+      env: MonoEnv,
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
     fa.target.value match {
       case vr: OperatorResolvedExpression.ValueReference =>
-        transformApplicationWithValueTarget(vr, fa, callSiteType, typeParamSubst, runtimeParams, source)
+        transformApplicationWithValueTarget(vr, fa, expected, env, source)
       case _                                             =>
-        val targetCallSiteType = fa.target.value match {
-          case _: OperatorResolvedExpression.FunctionApplication => callSiteType
-          case _                                                  => Value.Type
-        }
         for {
-          transformedTarget       <- transformExpression(
-                                       fa.target.value,
-                                       targetCallSiteType,
-                                       typeParamSubst,
-                                       runtimeParams,
-                                       fa.target
-                                     )
+          transformedTarget      <- transformExpression(
+                                      fa.target.value,
+                                      propagateExpected(fa.target.value, expected),
+                                      env,
+                                      fa.target
+                                    )
           (paramType, returnType) <- extractFunctionParamAndReturn(transformedTarget.expressionType, fa.target)
-          transformedArg          <- transformExpression(
-                                       fa.argument.value,
-                                       paramType,
-                                       typeParamSubst,
-                                       runtimeParams,
-                                       fa.argument
-                                     )
+          transformedArg         <- transformExpression(
+                                      fa.argument.value,
+                                      Expected.Check(paramType),
+                                      env,
+                                      fa.argument
+                                    )
         } yield MonomorphicExpression(
           returnType,
           MonomorphicExpression.FunctionApplication(
@@ -110,9 +103,8 @@ object MonomorphicExpressionTransformer {
   private def transformApplicationWithValueTarget(
       vr: OperatorResolvedExpression.ValueReference,
       fa: OperatorResolvedExpression.FunctionApplication,
-      callSiteType: Value,
-      typeParamSubst: Map[String, Value],
-      runtimeParams: Map[String, Value],
+      expected: Expected,
+      env: MonoEnv,
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
     for {
@@ -120,16 +112,15 @@ object MonomorphicExpressionTransformer {
                                    vr,
                                    (_, bodyType, bodyTypeParams) =>
                                      inferTypeArgsForApplication(
-                                       fa, bodyType, bodyTypeParams, callSiteType, typeParamSubst, runtimeParams, source
+                                       fa, bodyType, bodyTypeParams, expected, env, source
                                      ),
                                    source
                                  )
       (paramType, returnType) <- extractFunctionParamAndReturn(concreteType, fa.target)
       transformedArg          <- transformExpression(
                                    fa.argument.value,
-                                   paramType,
-                                   typeParamSubst,
-                                   runtimeParams,
+                                   Expected.Check(paramType),
+                                   env,
                                    fa.argument
                                  )
     } yield MonomorphicExpression(
@@ -147,9 +138,8 @@ object MonomorphicExpressionTransformer {
       fa: OperatorResolvedExpression.FunctionApplication,
       bodyType: ExpressionValue,
       typeParams: Seq[(String, Value)],
-      callSiteType: Value,
-      typeParamSubst: Map[String, Value],
-      runtimeParams: Map[String, Value],
+      expected: Expected,
+      env: MonoEnv,
       source: Sourced[?]
   ): CompilerIO[Seq[Value]] = {
     val argIsLambdaWithInferredType = fa.argument.value match {
@@ -157,51 +147,64 @@ object MonomorphicExpressionTransformer {
       case _                                                       => false
     }
 
-    if (argIsLambdaWithInferredType && callSiteType != Value.Type) {
-      MonomorphicTypeInference.inferFromReturnType(bodyType, callSiteType, typeParams, typeParamSubst, source)
-    } else {
-      val argCallSiteType = fa.argument.value match {
-        case _: OperatorResolvedExpression.FunctionApplication => callSiteType
-        case _                                                  => Value.Type
-      }
-      for {
-        transformedArgForInference <- transformExpression(
-                                         fa.argument.value, argCallSiteType, typeParamSubst, runtimeParams, fa.argument
-                                       )
-        args                       <- MonomorphicTypeInference.inferFromArgumentAndReturn(
-                                        bodyType, transformedArgForInference.expressionType, callSiteType,
-                                        typeParams, typeParamSubst, source
-                                      )
-      } yield args
+    expected match {
+      case Expected.Check(tpe) if argIsLambdaWithInferredType =>
+        MonomorphicTypeInference.inferFromReturnType(bodyType, tpe, typeParams, env.typeParamSubst, source)
+      case _                                                  =>
+        for {
+          transformedArgForInference <- transformExpression(
+                                          fa.argument.value,
+                                          propagateExpected(fa.argument.value, expected),
+                                          env,
+                                          fa.argument
+                                        )
+          args                       <- MonomorphicTypeInference.inferFromArgumentAndReturn(
+                                          bodyType, transformedArgForInference.expressionType, expected,
+                                          typeParams, env.typeParamSubst, source
+                                        )
+        } yield args
     }
   }
 
-  /** Transform a function literal. */
+  /** Transform a function literal using bidirectional checking. Requires [[Expected.Check]] to determine the parameter
+    * type.
+    */
   private def transformFunctionLiteral(
       fl: OperatorResolvedExpression.FunctionLiteral,
-      expectedType: Value,
-      typeParamSubst: Map[String, Value],
-      runtimeParams: Map[String, Value],
+      expected: Expected,
+      env: MonoEnv,
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
-    for {
-      (paramType, returnType) <- extractFunctionParamAndReturn(expectedType, source)
-      newRuntimeParams         = runtimeParams + (fl.parameterName.value -> paramType)
-      transformedBody         <- transformExpression(
-                                   fl.body.value,
-                                   returnType,
-                                   typeParamSubst,
-                                   newRuntimeParams,
-                                   fl.body
-                                 )
-    } yield MonomorphicExpression(
-      expectedType,
-      MonomorphicExpression.FunctionLiteral(
-        fl.parameterName,
-        paramType,
-        fl.body.as(transformedBody)
-      )
-    )
+    expected match {
+      case Expected.Check(expectedType) =>
+        for {
+          (paramType, returnType) <- extractFunctionParamAndReturn(expectedType, source)
+          transformedBody         <- transformExpression(
+                                       fl.body.value,
+                                       Expected.Check(returnType),
+                                       env.withParam(fl.parameterName.value, paramType),
+                                       fl.body
+                                     )
+        } yield MonomorphicExpression(
+          expectedType,
+          MonomorphicExpression.FunctionLiteral(
+            fl.parameterName,
+            paramType,
+            fl.body.as(transformedBody)
+          )
+        )
+      case Expected.Synthesize         =>
+        extractFunctionParamAndReturn(Value.Type, source).flatMap(_ => compilerAbort(source.as("unreachable")))
+    }
+
+  /** Propagate expected type through application spines. In a curried call chain `f(a)(b)`, the outermost expected type
+    * propagates through intermediate applications but not through non-application targets.
+    */
+  private def propagateExpected(expr: OperatorResolvedExpression, expected: Expected): Expected =
+    expr match {
+      case _: OperatorResolvedExpression.FunctionApplication => expected
+      case _                                                  => Expected.Synthesize
+    }
 
   /** Resolve a value reference to its concrete type and monomorphic expression. Handles type argument resolution
     * (explicit, inferred, or empty) and ability resolution.
