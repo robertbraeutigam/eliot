@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
+import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
@@ -19,11 +19,17 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   *   3. Walks the runtime expression body, computing concrete types and resolving abilities
   *   4. Produces a MonomorphicValue with fully concrete types
   */
-class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicValue.Key] with Logging {
+class MonomorphicTypeCheckProcessor
+    extends TransformationProcessor[OperatorResolvedValue.Key, MonomorphicValue.Key](key =>
+      OperatorResolvedValue.Key(key.vfqn)
+    )
+    with Logging {
 
-  override protected def generateFact(key: MonomorphicValue.Key): CompilerIO[Unit] =
+  override protected def generateFromKeyAndFact(
+      key: MonomorphicValue.Key,
+      resolvedValue: OperatorResolvedValue
+  ): CompilerIO[MonomorphicValue] =
     for {
-      resolvedValue <- getFactOrAbort(OperatorResolvedValue.Key(key.vfqn))
       _             <- debug[CompilerIO](
                          s"Monomorphizing ${key.vfqn.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
                        )
@@ -59,16 +65,13 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                          case Some(body) => checkReturnType(body.value.expression, signature, body)
                          case None       => ().pure[CompilerIO]
                        }
-      _             <- registerFactIfClear(
-                         MonomorphicValue(
-                           key.vfqn,
-                           key.typeArguments,
-                           resolvedValue.name,
-                           signature,
-                           runtime.map(_.map(_.expression))
-                         )
-                       )
-    } yield ()
+    } yield MonomorphicValue(
+      key.vfqn,
+      key.typeArguments,
+      resolvedValue.name,
+      signature,
+      runtime.map(_.map(_.expression))
+    )
 
   /** Post-hoc verification that the body's innermost return type matches the signature's return type at the same depth.
     * This complements the transformer's per-node type checking by catching mismatches in the outermost lambda chain
