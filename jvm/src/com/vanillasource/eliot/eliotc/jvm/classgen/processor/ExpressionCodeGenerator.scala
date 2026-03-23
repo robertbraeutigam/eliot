@@ -153,7 +153,13 @@ object ExpressionCodeGenerator {
       arguments: Seq[UncurriedMonomorphicExpression],
       expectedResultType: Value
   ): CompilationTypesIO[Seq[ClassFile]] = {
-    val dataTypeVfqn          = if (typeArgs.nonEmpty) valueType(typeArgs.head) else NativeType.systemAnyValue
+    val dataTypeVfqn          = calledVfqn.name.qualifier match {
+      case Qualifier.AbilityImplementation(_, params) =>
+        findTypeName(params)
+          .map(name => ValueFQN(calledVfqn.moduleName, QualifiedName(name, Qualifier.Default)))
+          .getOrElse(NativeType.systemAnyValue)
+      case _                                          => NativeType.systemAnyValue
+    }
     val singletonName         = patternMatchSingletonName(dataTypeVfqn)
     val singletonVfqn         = ValueFQN(calledVfqn.moduleName, QualifiedName(singletonName, Qualifier.Default))
     val singletonInternalName = convertToNestedClassName(singletonVfqn)
@@ -199,7 +205,11 @@ object ExpressionCodeGenerator {
                           case Some(uncurriedValue) =>
                             val parameterTypes = uncurriedValue.parameters.map(p => valueType(p.parameterType))
                             val returnType     = valueType(uncurriedValue.returnType)
-                            val methodName     = calledVfqn.name.name + mangleSuffix(typeArgs)
+                            val methodName     =
+                              if (DataClassGenerator.isConstructor(calledVfqn) || DataClassGenerator.isTypeConstructor(calledVfqn))
+                                calledVfqn.name.name
+                              else
+                                calledVfqn.name.name + mangleSuffix(typeArgs)
                             for {
                               classes <-
                                 arguments.flatTraverse(expression =>

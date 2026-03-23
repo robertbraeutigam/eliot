@@ -33,10 +33,10 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                        findImplementationsInModule(module, abilityValueFQN.name.name, abilityFQN.abilityName)
                      )
       matching    <- candidates.flatTraverse(vfqn => verifyImplementation(vfqn, abilityFQN, key.typeArguments))
-      deduplicated = matching.distinctBy(_.show)
+      deduplicated = matching.distinctBy(_._1.show)
       _           <- deduplicated match {
-                       case Seq(implFQN) =>
-                         registerFactIfClear(AbilityImplementation(abilityValueFQN, key.typeArguments, implFQN))
+                       case Seq((implFQN, implTypeArgs)) =>
+                         registerFactIfClear(AbilityImplementation(abilityValueFQN, key.typeArguments, implFQN, implTypeArgs))
                        case Seq()        =>
                          handleMissingImplementation(abilityValueFQN, abilityFQN, key)
                        case multiple     =>
@@ -87,8 +87,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       allImpls <- candidateModules.toSeq.flatTraverse(findAnyImplementationInModule(_, abilityFQN.abilityName))
       verified <- allImpls.flatTraverse(verifyImplementation(_, abilityFQN, key.typeArguments))
       sibling  <- verified.headOption match {
-                    case Some(fqn) => fqn.pure[CompilerIO]
-                    case None      =>
+                    case Some((fqn, _)) => fqn.pure[CompilerIO]
+                    case None           =>
                       error[CompilerIO](s"Expected sibling for default '${abilityValueFQN.name.name}' but found none") >>
                         abort[ValueFQN]
                   }
@@ -129,7 +129,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       vfqn: ValueFQN,
       expectedAbilityFQN: AbilityFQN,
       expectedTypeArgs: Seq[Value]
-  ): CompilerIO[Seq[ValueFQN]] =
+  ): CompilerIO[Seq[(ValueFQN, Seq[Value])]] =
     getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
       case None           => Seq.empty.pure[CompilerIO]
       case Some(resolved) =>
@@ -144,7 +144,15 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
               freeVarNames   = typeParams.toSet
               evalParams    <- resolveQualifierParams(resolved.name, paramExprs, freeVarNames)
               exprArgs       = expectedTypeArgs.map(ExpressionValue.fromValue)
-            } yield if (implMatchesQuery(evalParams, freeVarNames, exprArgs)) Seq(vfqn) else Seq.empty
+              matchResult    = implMatchesQueryWithBindings(evalParams, freeVarNames, exprArgs)
+            } yield matchResult match {
+              case Some(bindings) =>
+                val implTypeArgs = typeParams.map(p =>
+                  bindings.get(p).flatMap(ExpressionValue.concreteValueOf).getOrElse(Value.Type)
+                )
+                Seq((vfqn, implTypeArgs))
+              case None           => Seq.empty
+            }
           case _ => Seq.empty.pure[CompilerIO]
         }
     }
@@ -161,21 +169,22 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       )
     }
 
-  private def implMatchesQuery(
+  private def implMatchesQueryWithBindings(
       implParams: Seq[ExpressionValue],
       freeVarNames: Set[String],
       queryArgs: Seq[ExpressionValue]
-  ): Boolean = {
-    if (implParams.size != queryArgs.size) false
+  ): Option[Map[String, ExpressionValue]] = {
+    if (implParams.size != queryArgs.size) None
     else {
       val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, ExpressionValue]) { (acc, pair) =>
         acc ++ ExpressionValue.matchTypes(pair._1, pair._2, freeVarNames.contains)
       }
-      implParams.zip(queryArgs).forall { (implParam, queryArg) =>
+      val matches = implParams.zip(queryArgs).forall { (implParam, queryArg) =>
         freeVarNames.foldLeft(implParam) { case (acc, name) =>
           ExpressionValue.substitute(acc, name, bindings.getOrElse(name, ParameterReference(name, Value.Type)))
         } == queryArg
       }
+      if (matches) Some(bindings) else None
     }
   }
 

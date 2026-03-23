@@ -1,10 +1,10 @@
 package com.vanillasource.eliot.eliotc.eval.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.NamedEvaluable
+import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{functionDataTypeFQN, typeFQN}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator.evaluate
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.{CompilerIO, abort}
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -24,7 +24,16 @@ class ExistingNamedValueEvaluator
   override protected def generateFromKeyAndFact(key: NamedEvaluable.Key, fact: InputFact): CompilerIO[OutputFact] =
     fact.runtime match {
       case Some(runtimeExpression) =>
-        evaluate(runtimeExpression, Set(key.vfqn)).map(NamedEvaluable(key.vfqn, _))
+        val genericParams = extractGenericParams(fact.typeStack.value.signature)
+        val paramContext  = genericParams.map(_ -> Value.Type).toMap
+        evaluate(runtimeExpression, Set(key.vfqn), paramContext).map(NamedEvaluable(key.vfqn, _))
       case None                    => abort
+    }
+
+  private def extractGenericParams(expr: OperatorResolvedExpression): Seq[String] =
+    expr match {
+      case OperatorResolvedExpression.FunctionLiteral(paramName, _, body) =>
+        paramName.value +: extractGenericParams(body.value)
+      case _                                                              => Seq.empty
     }
 }

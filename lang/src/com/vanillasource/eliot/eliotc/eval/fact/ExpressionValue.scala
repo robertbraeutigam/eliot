@@ -162,6 +162,12 @@ object ExpressionValue {
         matchTypes(t1.value, t2.value, isTypeVar) ++ matchTypes(a1.value, a2.value, isTypeVar)
       case (FunctionLiteral(_, _, patBody), FunctionLiteral(_, _, tgtBody))                           =>
         matchTypes(patBody.value, tgtBody.value, isTypeVar)
+      case (_: FunctionApplication, ConcreteValue(v @ Value.Structure(fields, Value.Type)))
+          if fields.size > 1 && fields.contains("$typeName")                                           =>
+        matchTypes(pattern, fromValue(v), isTypeVar)
+      case (ConcreteValue(v @ Value.Structure(fields, Value.Type)), _: FunctionApplication)
+          if fields.size > 1 && fields.contains("$typeName")                                           =>
+        matchTypes(fromValue(v), concrete, isTypeVar)
       case _                                                                                           => Map.empty
     }
 

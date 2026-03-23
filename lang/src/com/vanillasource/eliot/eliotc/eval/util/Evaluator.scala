@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.eval.util
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.{Qualifier as CoreQualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType, typeFQN}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
@@ -23,10 +24,11 @@ object Evaluator {
     */
   def evaluate(
       expression: Sourced[OperatorResolvedExpression],
-      evaluating: Set[ValueFQN] = Set.empty
+      evaluating: Set[ValueFQN] = Set.empty,
+      paramContext: Map[String, Value] = Map.empty
   ): CompilerIO[InitialExpressionValue] =
     for {
-      value   <- toExpressionValue(expression.value, evaluating, Map.empty, expression)
+      value   <- toExpressionValue(expression.value, evaluating, paramContext, expression)
       reduced <- reduce(value, expression)
       result  <- reduced match {
                    case iv: InitialExpressionValue  => iv.pure[CompilerIO]
@@ -65,7 +67,12 @@ object Evaluator {
         getFact(NamedEvaluable.Key(vfqn)).flatMap {
           case Some(value) => value.value.pure[CompilerIO]
           case None        =>
-            compilerAbort(sourced.as("Could not evaluate expression."), Seq(s"Named value '${vfqn.show}' not found."))
+            vfqn.name.qualifier match {
+              case _: CoreQualifier.Ability | _: CoreQualifier.AbilityImplementation =>
+                ConcreteValue(Value.Type).pure[CompilerIO]
+              case _ =>
+                compilerAbort(sourced.as("Could not evaluate expression."), Seq(s"Named value '${vfqn.show}' not found."))
+            }
         }
       }
     case OperatorResolvedExpression.FunctionLiteral(paramName, None, _)               =>
@@ -75,9 +82,8 @@ object Evaluator {
         // TODO: Is it ok to ignore the type stack here?
         evaluatedParamTypeFull <-
           toExpressionValue(paramType.value.signature, evaluating, paramContext, paramType, callSite)
-        // TODO: We require a monomorphized type value here. This might require some parameters in some cases!
         evaluatedParamType     <- concreteValueOf(evaluatedParamTypeFull).fold(
-                                    compilerAbort(sourced.as("Type expression did not evaluate to a concrete value."))
+                                    Value.Type.pure[CompilerIO]
                                   )(_.pure[CompilerIO])
         newContext              = paramContext + (paramName.value -> evaluatedParamType)
         evaluatedBody          <- toExpressionValue(body.value, evaluating, newContext, body, callSite)
@@ -116,14 +122,16 @@ object Evaluator {
   }
 
   private def checkType(expectedType: Value, argument: ExpressionValue, sourced: Sourced[?]): CompilerIO[Unit] =
-    argumentType(argument) match {
-      case Some(actualType) if actualType != expectedType =>
-        compilerAbort(
-          sourced.as("Type mismatch."),
-          Seq(s"Expected: ${expectedType.show}", s"Actual:   ${actualType.show}")
-        )
-      case _                                              => ().pure[CompilerIO]
-    }
+    if (expectedType == Value.Type) ().pure[CompilerIO] // Value.Type acts as wildcard for non-concrete param types
+    else
+      argumentType(argument) match {
+        case Some(actualType) if actualType != expectedType =>
+          compilerAbort(
+            sourced.as("Type mismatch."),
+            Seq(s"Expected: ${expectedType.show}", s"Actual:   ${actualType.show}")
+          )
+        case _                                              => ().pure[CompilerIO]
+      }
 
   private def argumentType(argument: ExpressionValue): Option[Value] = argument match {
     case ConcreteValue(v)         => Some(v.valueType)

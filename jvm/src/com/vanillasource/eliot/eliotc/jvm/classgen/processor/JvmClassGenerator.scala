@@ -69,6 +69,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                   }
                                 }
       handleCasesMap          = handleCasesByDataType.toMap
+      _                      <- debug[CompilerIO](s"Module ${key.moduleName.show}: handleCasesMap=${handleCasesMap.keys.map(_.show).mkString(", ")}")
       // Collect ALL PatternMatch impl VFQNs to exclude from normal processing
       allPatternMatchVfqns    = usedValues.keys.filter { vfqn =>
                                   vfqn.name.qualifier match {
@@ -374,9 +375,29 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     }
 
   private def extractReturnTypeRef(expr: OperatorResolvedExpression): Option[ValueFQN] =
-    stripApplicationTargets(stripFunctionLiterals(expr)) match {
+    stripApplicationTargets(stripCurriedReturnType(stripFunctionLiterals(expr))) match {
       case OperatorResolvedExpression.ValueReference(vfqn, _) => Some(vfqn.value)
       case _                                                  => None
+    }
+
+  @scala.annotation.tailrec
+  private def stripCurriedReturnType(expr: OperatorResolvedExpression): OperatorResolvedExpression =
+    expr match {
+      case OperatorResolvedExpression.FunctionApplication(target, argument)
+          if isFunctionTypeApplication(target.value) =>
+        stripCurriedReturnType(argument.value)
+      case _ => expr
+    }
+
+  private def isFunctionTypeApplication(expr: OperatorResolvedExpression): Boolean =
+    expr match {
+      case OperatorResolvedExpression.FunctionApplication(innerTarget, _) =>
+        stripApplicationTargets(innerTarget.value) match {
+          case OperatorResolvedExpression.ValueReference(vfqn, _) =>
+            vfqn.value.name.name === "Function" && vfqn.value.name.qualifier === Qualifier.Type
+          case _                                                  => false
+        }
+      case _                                                              => false
     }
 
   private def extractTypeConstructorName(params: Seq[CoreExpression]): Option[String] =
