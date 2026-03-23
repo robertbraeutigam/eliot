@@ -3,11 +3,9 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{Qualifier as CoreQualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
-import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicExpression
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -41,13 +39,7 @@ object MonomorphicAbilityResolver {
         vfqn.moduleName,
         com.vanillasource.eliot.eliotc.core.fact.QualifiedName(abilityName, CoreQualifier.Ability(abilityName))
       )
-    evaluateValueType(markerVFQN, ExpressionValue.unsourced(()))
+    MonomorphicExpressionTransformer.evaluateValueType(markerVFQN)
       .map(ev => ExpressionValue.extractLeadingLambdaParams(ev).size)
   }
-
-  private def evaluateValueType(vfqn: ValueFQN, source: Sourced[?]): CompilerIO[ExpressionValue] =
-    for {
-      resolvedValue <- getFactOrAbort(OperatorResolvedValue.Key(vfqn))
-      typeExprValue <- Evaluator.evaluate(resolvedValue.typeStack.as(resolvedValue.typeStack.value.signature))
-    } yield typeExprValue
 }
