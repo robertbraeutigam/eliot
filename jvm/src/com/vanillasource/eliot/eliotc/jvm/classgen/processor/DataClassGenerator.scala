@@ -359,7 +359,7 @@ object DataClassGenerator {
               Seq(typeInterfaceName),
               None
             )
-      _  <- createFactoryMethod(outerClassGenerator, constructorVfqn, parameters, systemTypeValue)
+      _  <- createFactoryMethod(outerClassGenerator, constructorVfqn, parameters, systemAnyValue)
     } yield cs
   }
 
@@ -417,6 +417,7 @@ object DataClassGenerator {
           _ <- mg.addConstNull[F]()
           _ <- mg.addCallToApply[F]()
           _ <- mg.addLabel[F](endLabel)
+          _ <- mg.addCastTo[F](returnType).whenA(returnType =!= systemAnyValue)
         } yield ()
       }
   }
