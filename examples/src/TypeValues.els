@@ -4,7 +4,7 @@ data Box[A](a: A)
 
 def personName(t: Type): String = t match {
    case Person[name] -> name
-   case _            -> "<not a person>"
+   case _            -> 4
 }
 
 def main: IO[Unit] = println(personName(Person["John"]))

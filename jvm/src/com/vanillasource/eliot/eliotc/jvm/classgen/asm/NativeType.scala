@@ -25,7 +25,8 @@ object NativeType {
       (systemLangType("String"), eliot_lang_String),
       (systemLangType("Function"), eliot_lang_Function),
       (systemLangType("Unit"), eliot_lang_Unit),
-      (systemLangType("Any"), eliot_lang_Any)
+      (systemLangType("Any"), eliot_lang_Any),
+      (systemLangType("BigInteger"), eliot_lang_BigInteger)
     )
   )
 
@@ -78,6 +79,10 @@ object NativeType {
   // TODO: This is not a "real" eliot type, just there to map to Object
   private def eliot_lang_Any: NativeType = new NativeType {
     override def javaClass: Class[?] = classOf[java.lang.Object]
+  }
+
+  private def eliot_lang_BigInteger: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[java.lang.Long]
   }
 
   private def eliot_lang_Function: NativeType = new NativeType {

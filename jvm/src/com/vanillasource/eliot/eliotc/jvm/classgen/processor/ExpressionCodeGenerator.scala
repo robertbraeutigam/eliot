@@ -16,6 +16,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression.*
+import org.objectweb.asm.Opcodes
 
 object ExpressionCodeGenerator {
 
@@ -35,7 +36,19 @@ object ExpressionCodeGenerator {
           arguments.map(_.value),
           uncurriedExpression.expressionType
         )
-      case IntegerLiteral(integerLiteral)                   => ???
+      case IntegerLiteral(integerLiteral)                   =>
+        for {
+          _ <- methodGenerator.addLdcInsn[CompilationTypesIO](java.lang.Long.valueOf(integerLiteral.value.toLong))
+          _ <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                 mv.visitMethodInsn(
+                   Opcodes.INVOKESTATIC,
+                   "java/lang/Long",
+                   "valueOf",
+                   "(J)Ljava/lang/Long;",
+                   false
+                 )
+               }
+        } yield Seq.empty
       case StringLiteral(stringLiteral)                     =>
         methodGenerator.addLdcInsn[CompilationTypesIO](stringLiteral.value).as(Seq.empty)
       case ParameterReference(sourcedParameterName)         =>
