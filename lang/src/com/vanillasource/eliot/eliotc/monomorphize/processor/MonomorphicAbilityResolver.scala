@@ -39,7 +39,7 @@ object MonomorphicAbilityResolver {
         vfqn.moduleName,
         com.vanillasource.eliot.eliotc.core.fact.QualifiedName(abilityName, CoreQualifier.Ability(abilityName))
       )
-    MonomorphicExpressionTransformer.evaluateValueType(markerVFQN)
+    ValueReferenceResolver.evaluateValueType(markerVFQN)
       .map(ev => TypeParameterAnalysis.fromEvaluatedType(ev).allTypeParams.size)
   }
 }

@@ -75,23 +75,42 @@ object MonomorphicTypeInference {
         val unresolvedParams = typeParams.map(_._1).toSet -- argBindings.collect { case (k, _: ConcreteValue) => k }
         if (unresolvedParams.isEmpty) Map.empty
         else {
-          val shallowReturns = ExpressionValue.extractAllReturnTypes(bodyType)
-          val shallowDeep    = shallowReturns.last
-          val shallowBindings = ExpressionValue.matchTypes(shallowDeep, ConcreteValue(callSiteType))
-          if (unresolvedParams.forall(p => shallowBindings.get(p).exists(_.isInstanceOf[ConcreteValue])))
-            shallowBindings
-          else {
-            ExpressionValue.extractAllReturnTypesDeep(bodyType)
-              .foldLeft(Map.empty[String, ExpressionValue]) { (best, rt) =>
-                val bindings     = ExpressionValue.matchTypes(rt, ConcreteValue(callSiteType))
-                val resolved     = unresolvedParams.count(p => bindings.get(p).exists(_.isInstanceOf[ConcreteValue]))
-                val bestResolved = unresolvedParams.count(p => best.get(p).exists(_.isInstanceOf[ConcreteValue]))
-                if (resolved > bestResolved) best ++ bindings else bindings ++ best
-              }
-          }
+          val shallow = bindFromShallowReturn(bodyType, callSiteType)
+          if (unresolvedParams.forall(p => shallow.get(p).exists(_.isInstanceOf[ConcreteValue])))
+            shallow
+          else
+            bindFromDeepReturns(bodyType, callSiteType, unresolvedParams)
         }
       case Expected.Synthesize         => Map.empty
     }
+
+  /** Match unresolved params against the deepest shallow return type (the final return type ignoring
+    * NativeFunction wrappers). This is the fast path that works for most generic functions.
+    */
+  private def bindFromShallowReturn(
+      bodyType: ExpressionValue,
+      callSiteType: Value
+  ): Map[String, ExpressionValue] = {
+    val returnTypes = ExpressionValue.extractAllReturnTypes(bodyType)
+    ExpressionValue.matchTypes(returnTypes.last, ConcreteValue(callSiteType))
+  }
+
+  /** Match unresolved params against all return types at every depth, including through NativeFunction wrappers
+    * (e.g. type constructor applications like `Box[A]`). When multiple depths produce matches, prefer the depth
+    * that resolves the most unresolved parameters.
+    */
+  private def bindFromDeepReturns(
+      bodyType: ExpressionValue,
+      callSiteType: Value,
+      unresolvedParams: Set[String]
+  ): Map[String, ExpressionValue] =
+    ExpressionValue.extractAllReturnTypesDeep(bodyType)
+      .foldLeft(Map.empty[String, ExpressionValue]) { (best, rt) =>
+        val bindings     = ExpressionValue.matchTypes(rt, ConcreteValue(callSiteType))
+        val resolved     = unresolvedParams.count(p => bindings.get(p).exists(_.isInstanceOf[ConcreteValue]))
+        val bestResolved = unresolvedParams.count(p => best.get(p).exists(_.isInstanceOf[ConcreteValue]))
+        if (resolved > bestResolved) best ++ bindings else bindings ++ best
+      }
 
   private def resolveTypeParams(
       typeParams: Seq[(String, Value)],

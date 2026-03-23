@@ -70,6 +70,11 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
                        )
     } yield ()
 
+  /** Post-hoc verification that the body's innermost return type matches the signature's return type at the same depth.
+    * This complements the transformer's per-node type checking by catching mismatches in the outermost lambda chain
+    * that bidirectional checking alone may not flag (e.g., when the body is a value reference whose type was resolved
+    * independently of the enclosing signature).
+    */
   private def checkReturnType(
       bodyExpr: MonomorphicExpression.Expression,
       signature: Value,
@@ -90,6 +95,9 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       case None                                      => ().pure[CompilerIO]
     }
 
+  /** Walk the outermost chain of FunctionLiterals in the body, returning the innermost return type, its source
+    * position, and the nesting depth. Returns None if the body is not a lambda (no return type to check).
+    */
   private def extractMonomorphicReturnType(
       expr: MonomorphicExpression.Expression
   ): Option[(Value, Sourced[?], Int)] =
@@ -102,6 +110,7 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       case _                                                => None
     }
 
+  /** Extract the return type from the signature at the same lambda nesting depth, so the two sides can be compared. */
   private def extractSignatureReturnType(value: Value, depth: Int): Value =
     if (depth <= 0) value
     else

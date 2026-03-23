@@ -2,10 +2,8 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
-import com.vanillasource.eliot.eliotc.eval.util.Evaluator
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicExpression
-import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
@@ -68,10 +66,10 @@ object MonomorphicExpressionTransformer {
       env: MonoEnv,
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
-    resolveValueReference(
+    ValueReferenceResolver.resolve(
       vr,
-      (fullType, _, bodyTypeParams) =>
-        MonomorphicTypeInference.inferFromCallSite(fullType, bodyTypeParams, expected, env, source),
+      info =>
+        MonomorphicTypeInference.inferFromCallSite(info.fullType, info.bodyTypeParams, expected, env, source),
       source
     ).map(_._2)
 
@@ -93,7 +91,7 @@ object MonomorphicExpressionTransformer {
                                       env,
                                       fa.target
                                     )
-          (paramType, returnType) <- extractFunctionParamAndReturn(transformedTarget.expressionType, fa.target)
+          (paramType, returnType) <- ValueReferenceResolver.extractFunctionParamAndReturn(transformedTarget.expressionType, fa.target)
           transformedArg         <- transformExpression(
                                       fa.argument.value,
                                       Expected.Check(paramType),
@@ -120,15 +118,15 @@ object MonomorphicExpressionTransformer {
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
     for {
-      (concreteType, refExpr) <- resolveValueReference(
+      (concreteType, refExpr) <- ValueReferenceResolver.resolve(
                                    vr,
-                                   (_, bodyType, bodyTypeParams) =>
-                                     inferTypeArgsForApplication(
-                                       fa, bodyType, bodyTypeParams, expected, env, source
+                                   info =>
+                                     inferTypeArgsFromArgument(
+                                       fa, info.bodyType, info.bodyTypeParams, expected, env, source
                                      ),
                                    source
                                  )
-      (paramType, returnType) <- extractFunctionParamAndReturn(concreteType, fa.target)
+      (paramType, returnType) <- ValueReferenceResolver.extractFunctionParamAndReturn(concreteType, fa.target)
       transformedArg          <- transformExpression(
                                    fa.argument.value,
                                    Expected.Check(paramType),
@@ -143,10 +141,14 @@ object MonomorphicExpressionTransformer {
       )
     )
 
-  /** Infer type arguments for a generic function application. For lambdas with inferred parameter types, uses call-site
-    * return type matching. Otherwise uses argument-based inference.
+  /** Infer type arguments for a generic function application from the argument's type and the call-site expected type.
+    *
+    * For lambdas with inferred parameter types, uses return-type matching against the expected type (since the lambda's
+    * parameter type is not yet known). Otherwise, the argument is transformed to discover its synthesized type. Note:
+    * the caller will re-transform the argument with `Check(paramType)` to propagate richer type information downward,
+    * so the transformation here is only used for type discovery.
     */
-  private def inferTypeArgsForApplication(
+  private def inferTypeArgsFromArgument(
       fa: OperatorResolvedExpression.FunctionApplication,
       bodyType: ExpressionValue,
       typeParams: Seq[(String, Value)],
@@ -164,16 +166,16 @@ object MonomorphicExpressionTransformer {
         MonomorphicTypeInference.inferFromReturnType(bodyType, tpe, typeParams, env.typeParamSubst, source)
       case _                                                  =>
         for {
-          transformedArgForInference <- transformExpression(
-                                          fa.argument.value,
-                                          propagateExpected(fa.argument.value, expected),
-                                          env,
-                                          fa.argument
-                                        )
-          args                       <- MonomorphicTypeInference.inferFromArgumentAndReturn(
-                                          bodyType, transformedArgForInference.expressionType, expected,
-                                          typeParams, env.typeParamSubst, source
-                                        )
+          argTypeDiscovery <- transformExpression(
+                                fa.argument.value,
+                                propagateExpected(fa.argument.value, expected),
+                                env,
+                                fa.argument
+                              )
+          args             <- MonomorphicTypeInference.inferFromArgumentAndReturn(
+                                bodyType, argTypeDiscovery.expressionType, expected,
+                                typeParams, env.typeParamSubst, source
+                              )
         } yield args
     }
   }
@@ -190,7 +192,7 @@ object MonomorphicExpressionTransformer {
     expected match {
       case Expected.Check(expectedType) =>
         for {
-          (paramType, returnType) <- extractFunctionParamAndReturn(expectedType, source)
+          (paramType, returnType) <- ValueReferenceResolver.extractFunctionParamAndReturn(expectedType, source)
           transformedBody         <- transformExpression(
                                        fl.body.value,
                                        Expected.Check(returnType),
@@ -206,7 +208,7 @@ object MonomorphicExpressionTransformer {
           )
         )
       case Expected.Synthesize         =>
-        extractFunctionParamAndReturn(Value.Type, source).flatMap(_ => compilerAbort(source.as("unreachable")))
+        ValueReferenceResolver.extractFunctionParamAndReturn(Value.Type, source).flatMap(_ => compilerAbort(source.as("unreachable")))
     }
 
   /** Propagate expected type through application spines. In a curried call chain `f(a)(b)`, the outermost expected type
@@ -216,72 +218,6 @@ object MonomorphicExpressionTransformer {
     expr match {
       case _: OperatorResolvedExpression.FunctionApplication => expected
       case _                                                  => Expected.Synthesize
-    }
-
-  /** Resolve a value reference to its concrete type and monomorphic expression. Handles type argument resolution
-    * (explicit, inferred, or empty) and ability resolution.
-    *
-    * @param inferTypeArgs
-    *   Callback to infer type arguments when not explicitly provided. Receives the full evaluated type, the body type
-    *   (with leading lambdas stripped), and the body-visible type parameters.
-    */
-  private def resolveValueReference(
-      vr: OperatorResolvedExpression.ValueReference,
-      inferTypeArgs: (ExpressionValue, ExpressionValue, Seq[(String, Value)]) => CompilerIO[Seq[Value]],
-      source: Sourced[?]
-  ): CompilerIO[(Value, MonomorphicExpression)] =
-    for {
-      refTypeExprValue <- evaluateValueType(vr.valueName.value)
-      analysis          = TypeParameterAnalysis.fromEvaluatedType(refTypeExprValue)
-      bodyExprValue     = ExpressionValue.stripLeadingLambdas(refTypeExprValue)
-      typeArgs         <- if (vr.typeArgs.nonEmpty) {
-                            evaluateExplicitTypeArgs(vr.typeArgs, source)
-                          } else if (analysis.bodyTypeParams.nonEmpty) {
-                            inferTypeArgs(refTypeExprValue, bodyExprValue, analysis.bodyTypeParams)
-                          } else {
-                            Seq.empty[Value].pure[CompilerIO]
-                          }
-      typeArgSubst      = analysis.buildSubstitution(typeArgs, vr.typeArgs.nonEmpty)
-      concreteType     <- Evaluator.applyTypeArgsStripped(refTypeExprValue, analysis.allTypeParams, typeArgSubst, source)
-      resolved         <- if (MonomorphicAbilityResolver.isAbilityRef(vr.valueName.value) && typeArgs.nonEmpty) {
-                            MonomorphicAbilityResolver.resolve(vr.valueName, typeArgs, concreteType, source)
-                          } else {
-                            MonomorphicExpression(
-                              concreteType,
-                              MonomorphicExpression.MonomorphicValueReference(vr.valueName, typeArgs)
-                            ).pure[CompilerIO]
-                          }
-    } yield (concreteType, resolved)
-
-  /** Evaluate a value's type signature from its OperatorResolvedValue's type stack. */
-  private[processor] def evaluateValueType(vfqn: ValueFQN): CompilerIO[ExpressionValue] =
-    for {
-      resolvedValue <- getFactOrAbort(OperatorResolvedValue.Key(vfqn))
-      typeExprValue <- Evaluator.evaluate(resolvedValue.typeStack.as(resolvedValue.typeStack.value.signature))
-    } yield typeExprValue
-
-  /** Evaluate explicit type arguments from ValueReference.typeArgs to concrete Values. */
-  private def evaluateExplicitTypeArgs(
-      typeArgs: Seq[Sourced[OperatorResolvedExpression]],
-      source: Sourced[?]
-  ): CompilerIO[Seq[Value]] =
-    typeArgs.traverse { argExpr =>
-      for {
-        evaluated <- Evaluator.evaluate(argExpr)
-        value     <- ExpressionValue.concreteValueOf(evaluated) match {
-                       case Some(v) => v.pure[CompilerIO]
-                       case None    =>
-                         compilerAbort(argExpr.as("Type argument did not evaluate to concrete value"))
-                     }
-      } yield value
-    }
-
-  /** Extract parameter type and return type from a function type Value. */
-  private def extractFunctionParamAndReturn(functionType: Value, source: Sourced[?]): CompilerIO[(Value, Value)] =
-    functionType.asFunctionType match {
-      case Some(result) => result.pure[CompilerIO]
-      case None         =>
-        compilerAbort(source.as("Expected function type."), Seq(s"Found: ${functionType.show}"))
     }
 
   private def checkSynthesized(
