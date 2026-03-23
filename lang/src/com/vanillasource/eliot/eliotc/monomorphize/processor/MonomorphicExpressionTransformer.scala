@@ -1,9 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Types, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicExpression
@@ -219,21 +217,17 @@ object MonomorphicExpressionTransformer {
   ): CompilerIO[(Value, MonomorphicExpression)] =
     for {
       refTypeExprValue <- evaluateValueType(vr.valueName.value)
-      allTypeParams     = ExpressionValue.extractLeadingLambdaParams(refTypeExprValue)
+      analysis          = TypeParameterAnalysis.fromEvaluatedType(refTypeExprValue)
       bodyExprValue     = ExpressionValue.stripLeadingLambdas(refTypeExprValue)
-      bodyTypeParams    = allTypeParams.filter((name, _) => ExpressionValue.containsVar(bodyExprValue, name))
       typeArgs         <- if (vr.typeArgs.nonEmpty) {
                             evaluateExplicitTypeArgs(vr.typeArgs, source)
-                          } else if (bodyTypeParams.nonEmpty) {
-                            inferTypeArgs(refTypeExprValue, bodyExprValue, bodyTypeParams)
+                          } else if (analysis.bodyTypeParams.nonEmpty) {
+                            inferTypeArgs(refTypeExprValue, bodyExprValue, analysis.bodyTypeParams)
                           } else {
                             Seq.empty[Value].pure[CompilerIO]
                           }
-      typeArgSubst      = if (vr.typeArgs.nonEmpty)
-                            allTypeParams.map(_._1).zip(typeArgs).toMap
-                          else
-                            bodyTypeParams.map(_._1).zip(typeArgs).toMap
-      concreteType     <- Evaluator.applyTypeArgsStripped(refTypeExprValue, allTypeParams, typeArgSubst, source)
+      typeArgSubst      = analysis.buildSubstitution(typeArgs, vr.typeArgs.nonEmpty)
+      concreteType     <- Evaluator.applyTypeArgsStripped(refTypeExprValue, analysis.allTypeParams, typeArgSubst, source)
       resolved         <- if (MonomorphicAbilityResolver.isAbilityRef(vr.valueName.value) && typeArgs.nonEmpty) {
                             MonomorphicAbilityResolver.resolve(vr.valueName, typeArgs, concreteType, source)
                           } else {

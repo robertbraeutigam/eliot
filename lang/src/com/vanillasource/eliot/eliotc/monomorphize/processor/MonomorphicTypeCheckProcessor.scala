@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
@@ -30,22 +30,20 @@ class MonomorphicTypeCheckProcessor extends SingleKeyTypeProcessor[MonomorphicVa
       typeExprValue <- Evaluator.evaluate(
                          resolvedValue.typeStack.as(resolvedValue.typeStack.value.signature)
                        )
-      allTypeParams  = ExpressionValue.extractLeadingLambdaParams(typeExprValue)
-      bodyExprValue  = ExpressionValue.stripLeadingLambdas(typeExprValue)
-      typeParams     = allTypeParams.filter((name, _) => ExpressionValue.containsVar(bodyExprValue, name))
-      _             <- if (key.typeArguments.length != allTypeParams.length &&
-                           key.typeArguments.length != typeParams.length)
+      analysis       = TypeParameterAnalysis.fromEvaluatedType(typeExprValue)
+      _             <- if (key.typeArguments.length != analysis.allTypeParams.length &&
+                           key.typeArguments.length != analysis.bodyTypeParams.length)
                          compilerAbort(
                            resolvedValue.name.as(
-                             s"Type argument count mismatch: expected ${typeParams.length}, got ${key.typeArguments.length}"
+                             s"Type argument count mismatch: expected ${analysis.bodyTypeParams.length}, got ${key.typeArguments.length}"
                            )
                          )
                        else ().pure[CompilerIO]
-      typeParamSubst = if (key.typeArguments.length == allTypeParams.length)
-                         allTypeParams.map(_._1).zip(key.typeArguments).toMap
-                       else
-                         typeParams.map(_._1).zip(key.typeArguments).toMap
-      signature     <- Evaluator.applyTypeArgsStripped(typeExprValue, allTypeParams, typeParamSubst, resolvedValue.name)
+      typeParamSubst = analysis.buildSubstitution(
+                         key.typeArguments,
+                         key.typeArguments.length == analysis.allTypeParams.length
+                       )
+      signature     <- Evaluator.applyTypeArgsStripped(typeExprValue, analysis.allTypeParams, typeParamSubst, resolvedValue.name)
       _             <- debug[CompilerIO](s"Monomorphized ${key.vfqn.show} to: ${signature.show}")
       runtime       <- resolvedValue.runtime.traverse { body =>
                          MonomorphicExpressionTransformer

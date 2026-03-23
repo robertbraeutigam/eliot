@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{Qualifier as CoreQualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicExpression
@@ -40,6 +40,6 @@ object MonomorphicAbilityResolver {
         com.vanillasource.eliot.eliotc.core.fact.QualifiedName(abilityName, CoreQualifier.Ability(abilityName))
       )
     MonomorphicExpressionTransformer.evaluateValueType(markerVFQN)
-      .map(ev => ExpressionValue.extractLeadingLambdaParams(ev).size)
+      .map(ev => TypeParameterAnalysis.fromEvaluatedType(ev).allTypeParams.size)
   }
 }
