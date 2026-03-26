@@ -1,10 +1,10 @@
-package com.vanillasource.eliot.eliotc.monomorphize2.processor
+package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints
 
 import cats.Show
 import cats.kernel.Monoid
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.monomorphize2.processor.Constraints.Constraint
+import Constraints.Constraint
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 case class Constraints(constraints: Seq[Constraint])

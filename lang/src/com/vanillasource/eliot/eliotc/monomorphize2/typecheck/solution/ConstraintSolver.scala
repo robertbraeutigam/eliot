@@ -1,12 +1,12 @@
-package com.vanillasource.eliot.eliotc.monomorphize2.processor
+package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.monomorphize2.processor.Constraints.Constraint
+import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints
+import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints.Constraint
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -55,10 +55,9 @@ object ConstraintSolver extends Logging {
           if (isUnificationVar(name))
             substitutions.get(name).map(s => substitute(s.value)).getOrElse(ParameterReference(name, pt))
           else ParameterReference(name, pt),
-        onFunApp = (target, arg) =>
-          FunctionApplication(ExpressionValue.unsourced(target), ExpressionValue.unsourced(arg)),
-        onFunLit = (name, pt, body) =>
-          FunctionLiteral(name, pt, ExpressionValue.unsourced(body))
+        onFunApp =
+          (target, arg) => FunctionApplication(ExpressionValue.unsourced(target), ExpressionValue.unsourced(arg)),
+        onFunLit = (name, pt, body) => FunctionLiteral(name, pt, ExpressionValue.unsourced(body))
       )(expr)
   }
 
@@ -104,14 +103,14 @@ object ConstraintSolver extends Logging {
         } yield ()
 
       // Both concrete values: check equality
-      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
+      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2         =>
         StateT.pure(())
 
-      case (ConcreteValue(_), ConcreteValue(_)) =>
+      case (ConcreteValue(_), ConcreteValue(_))                       =>
         issueError(constraint, constraint.errorMessage)
 
       // Function types: decompose into parameter and return type constraints
-      case (FunctionType(p1, r1), FunctionType(p2, r2)) =>
+      case (FunctionType(p1, r1), FunctionType(p2, r2))               =>
         for {
           _ <- solveConstraint(Constraint(p1, constraint.right.as(p2), "Parameter type mismatch."))
           _ <- solveConstraint(Constraint(r1, constraint.right.as(r2), "Return type mismatch."))
@@ -143,11 +142,11 @@ object ConstraintSolver extends Logging {
         } yield ()
 
       // NativeFunction: match parameter types
-      case (NativeFunction(pt1, _), NativeFunction(pt2, _)) if pt1 == pt2 =>
+      case (NativeFunction(pt1, _), NativeFunction(pt2, _)) if pt1 == pt2   =>
         StateT.pure(())
 
       // Anything else is a type error
-      case _ =>
+      case _                                                                =>
         debug[SolverIO](
           s"Constraint failed, expected ${constraint.left.show}, found: ${constraint.right.value.show}"
         ) >> issueError(constraint, constraint.errorMessage)
@@ -171,7 +170,7 @@ object ConstraintSolver extends Logging {
     * values.
     */
   private def extractSolution(state: SolverState): CompilerIO[Solution] = {
-    val resolved = state.substitutions.map { case (name, sourced) =>
+    val resolved    = state.substitutions.map { case (name, sourced) =>
       val fullyResolved = state.substitute(sourced.value)
       name -> fullyResolved
     }

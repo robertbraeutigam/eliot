@@ -1,9 +1,8 @@
-package com.vanillasource.eliot.eliotc.monomorphize2.processor
+package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution
 
 import cats.Show
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.valueUserDisplay
 
 case class Solution(substitutions: Map[String, Value] = Map.empty) {

@@ -1,10 +1,10 @@
-package com.vanillasource.eliot.eliotc.monomorphize2.processor
+package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ParameterReference
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
+import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -38,7 +38,5 @@ object TypeCheckState {
     StateT.modify(state => state.copy(constraints = state.constraints |+| constraint))
 
   def recordValueRefType(source: Sourced[?], exprType: ExpressionValue): TypeGraphIO[Unit] =
-    StateT.modify(state =>
-      state.copy(valueRefTypes = state.valueRefTypes + ((source.uri, source.range) -> exprType))
-    )
+    StateT.modify(state => state.copy(valueRefTypes = state.valueRefTypes + ((source.uri, source.range) -> exprType)))
 }

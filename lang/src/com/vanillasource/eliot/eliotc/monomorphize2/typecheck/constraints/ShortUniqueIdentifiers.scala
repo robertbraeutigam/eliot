@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.monomorphize2.processor
+package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints
 
 import scala.annotation.tailrec
 
