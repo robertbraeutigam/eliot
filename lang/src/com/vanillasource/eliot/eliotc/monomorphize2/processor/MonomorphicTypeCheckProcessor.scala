@@ -1,8 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize2.processor
 
-import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{
   bigIntType,
   fullyQualifiedNameType,
@@ -14,9 +12,8 @@ import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize2.fact.*
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.ConstraintExtract.extractConstraints
-import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution.ConstraintSolver.solve
-import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.TypeCheckState.*
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.{Constraints, TypeCheckState}
+import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution.ConstraintSolver.solve
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution.Solution
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
