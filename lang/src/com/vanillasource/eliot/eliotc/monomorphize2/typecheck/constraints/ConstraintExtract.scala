@@ -66,7 +66,6 @@ object ConstraintExtract {
         for {
           resolved        <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
           rawValueType    <- StateT.liftF(Evaluator.evaluate(resolved.typeStack.map(_.signature)))
-          typeParams       = ExpressionValue.extractLeadingLambdaParams(rawValueType)
           state           <- StateT.get[CompilerIO, TypeCheckState]
           evaluatedArgs   <-
             typeArgs.traverse(ta =>
@@ -76,7 +75,7 @@ object ConstraintExtract {
               )
             )
           instantiatedArgs = evaluatedArgs.map(substituteTypeArgs(_, state.typeArgSubstitution))
-          valueType       <- instantiateValueType(rawValueType, typeParams, instantiatedArgs)
+          valueType       <- instantiateValueType(rawValueType, instantiatedArgs)
           _               <- recordValueRefType(vfqn, valueType)
           _               <- tellConstraint(
                                Constraints.constraint(resultType, vfqn.as(valueType), "Type mismatch.")
@@ -123,14 +122,20 @@ object ConstraintExtract {
 
   private def instantiateValueType(
       rawValueType: ExpressionValue,
-      typeParams: Seq[(String, Value)],
       evaluatedArgs: Seq[ExpressionValue]
-  ): TypeGraphIO[ExpressionValue] =
-    for {
-      extraVars <- (evaluatedArgs.size until typeParams.size).toList.traverse(_ => generateUnificationVar)
-      allArgs    = evaluatedArgs ++ extraVars
-      applied    = allArgs.foldLeft(rawValueType) { (expr, arg) => expr(arg) }
-    } yield ExpressionValue.betaReduce(applied)
+  ): TypeGraphIO[ExpressionValue] = {
+    val applied = ExpressionValue.betaReduce(
+      evaluatedArgs.foldLeft(rawValueType) { (expr, arg) => expr(arg) }
+    )
+    fillRemainingTypeParams(applied)
+  }
+
+  private def fillRemainingTypeParams(expr: ExpressionValue): TypeGraphIO[ExpressionValue] =
+    expr match {
+      case ExpressionValue.FunctionLiteral(_, Value.Type, _) =>
+        generateUnificationVar.flatMap(v => fillRemainingTypeParams(ExpressionValue.betaReduce(expr(v))))
+      case _                                                 => expr.pure[TypeGraphIO]
+    }
 
   private def substituteTypeArgs(expr: ExpressionValue, subst: Map[String, Value]): ExpressionValue =
     subst.foldLeft(expr) { case (e, (name, value)) =>
