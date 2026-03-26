@@ -11,7 +11,12 @@ import scala.annotation.tailrec
 
 /** The result of an expression evaluation.
   */
-sealed trait ExpressionValue
+sealed trait ExpressionValue {
+
+  /** Apply this expression to an argument, creating a FunctionApplication. */
+  def apply(argument: ExpressionValue): ExpressionValue =
+    ExpressionValue.FunctionApplication(ExpressionValue.unsourced(this), ExpressionValue.unsourced(argument))
+}
 
 object ExpressionValue {
 
