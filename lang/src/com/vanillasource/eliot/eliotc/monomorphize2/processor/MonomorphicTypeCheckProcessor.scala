@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize2.fact.*
-import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.ConstraintExtract.extractConstraints
+import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.ConstraintExtract.collectConstraints
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.{Constraints, TypeCheckState}
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution.ConstraintSolver.solve
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution.Solution
@@ -32,7 +32,7 @@ class MonomorphicTypeCheckProcessor
       resolvedValue: OperatorResolvedValue
   ): CompilerIO[MonomorphicValue] =
     for {
-      endState             <- extractConstraints(key, resolvedValue).runS(TypeCheckState())
+      endState             <- collectConstraints(key, resolvedValue).runS(TypeCheckState())
       _                    <- debug[CompilerIO](s"Constraints (of ${key.vfqn.show}): ${endState.constraints.show}")
       solution             <- solve(endState.constraints)
       _                    <- debug[CompilerIO](s"Solution (of ${key.vfqn.show}): ${solution.show}")

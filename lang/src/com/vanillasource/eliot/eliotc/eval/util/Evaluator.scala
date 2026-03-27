@@ -26,7 +26,7 @@ object Evaluator {
       expression: Sourced[OperatorResolvedExpression],
       evaluating: Set[ValueFQN] = Set.empty,
       paramContext: Map[String, Value] = Map.empty
-  ): CompilerIO[InitialExpressionValue] =
+  ): CompilerIO[ExpressionValue] =
     for {
       value   <- toExpressionValue(expression.value, evaluating, paramContext, expression)
       reduced <- reduce(value, expression)
@@ -70,8 +70,11 @@ object Evaluator {
             vfqn.name.qualifier match {
               case _: CoreQualifier.Ability | _: CoreQualifier.AbilityImplementation =>
                 ConcreteValue(Value.Type).pure[CompilerIO]
-              case _ =>
-                compilerAbort(sourced.as("Could not evaluate expression."), Seq(s"Named value '${vfqn.show}' not found."))
+              case _                                                                 =>
+                compilerAbort(
+                  sourced.as("Could not evaluate expression."),
+                  Seq(s"Named value '${vfqn.show}' not found.")
+                )
             }
         }
       }
@@ -179,8 +182,8 @@ object Evaluator {
       typeParamSubst: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[Value] = {
-    val stripped      = stripConstraintOnlyLambdas(typeExprValue, typeParamSubst.keySet)
-    val relevantArgs  = allTypeParams.flatMap { (name, _) => typeParamSubst.get(name) }
+    val stripped     = stripConstraintOnlyLambdas(typeExprValue, typeParamSubst.keySet)
+    val relevantArgs = allTypeParams.flatMap { (name, _) => typeParamSubst.get(name) }
     applyTypeArgs(stripped, relevantArgs, source)
   }
 
@@ -189,7 +192,7 @@ object Evaluator {
     ev match {
       case FunctionLiteral(name, _, body) if !relevantParams.contains(name) =>
         stripConstraintOnlyLambdas(body.value, relevantParams)
-      case _ => ev
+      case _                                                                => ev
     }
 
 }

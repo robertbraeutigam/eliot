@@ -11,12 +11,7 @@ import scala.annotation.tailrec
 
 /** The result of an expression evaluation.
   */
-sealed trait ExpressionValue {
-
-  /** Apply this expression to an argument, creating a FunctionApplication. */
-  def apply(argument: ExpressionValue): ExpressionValue =
-    ExpressionValue.FunctionApplication(ExpressionValue.unsourced(this), ExpressionValue.unsourced(argument))
-}
+sealed trait ExpressionValue
 
 object ExpressionValue {
 
@@ -39,8 +34,10 @@ object ExpressionValue {
       case NativeFunction(paramType, _)           => onNative(paramType)
       case ParameterReference(name, paramType)    => onParamRef(name, paramType)
       case FunctionApplication(target, arg)       =>
-        onFunApp(fold(onConcrete, onNative, onParamRef, onFunApp, onFunLit)(target.value),
-                 fold(onConcrete, onNative, onParamRef, onFunApp, onFunLit)(arg.value))
+        onFunApp(
+          fold(onConcrete, onNative, onParamRef, onFunApp, onFunLit)(target.value),
+          fold(onConcrete, onNative, onParamRef, onFunApp, onFunLit)(arg.value)
+        )
       case FunctionLiteral(name, paramType, body) =>
         onFunLit(name, paramType, fold(onConcrete, onNative, onParamRef, onFunApp, onFunLit)(body.value))
     }
@@ -70,12 +67,11 @@ object ExpressionValue {
     */
   def extractFunctionTypeParams(expr: ExpressionValue): Seq[Value] =
     expr match {
-      case ConcreteValue(Value.Structure(fields, Value.Type))
-          if fields.get("$typeName").exists(isFunctionTypeName) =>
+      case ConcreteValue(Value.Structure(fields, Value.Type)) if fields.get("$typeName").exists(isFunctionTypeName) =>
         val paramType  = fields("A")
         val returnType = fields("B")
         paramType +: extractFunctionTypeParams(ConcreteValue(returnType))
-      case _ => Seq.empty
+      case _                                                                                                        => Seq.empty
     }
 
   /** Extract parameter type and return type from a function type ExpressionValue. Handles both fully reduced types
@@ -84,7 +80,7 @@ object ExpressionValue {
     */
   def extractFunctionParamAndReturn(expr: ExpressionValue): Option[(ExpressionValue, ExpressionValue)] =
     expr match {
-      case FunctionType(p, r)                    => Some((p, r))
+      case FunctionType(p, r)                      => Some((p, r))
       case FunctionApplication(target, returnType) =>
         target.value match {
           case FunctionApplication(_, paramType) => Some((paramType.value, returnType.value))
@@ -115,8 +111,8 @@ object ExpressionValue {
       case None                  => Seq(expr)
     }
 
-  /** Like [[extractAllReturnTypes]] but also follows through NativeFunction-based type constructor applications
-    * (e.g. `Box[A]` represented as `FA(NativeFunction, A)`).
+  /** Like [[extractAllReturnTypes]] but also follows through NativeFunction-based type constructor applications (e.g.
+    * `Box[A]` represented as `FA(NativeFunction, A)`).
     */
   def extractAllReturnTypesDeep(expr: ExpressionValue): Seq[ExpressionValue] =
     extractFunctionParamAndReturn(expr) match {
@@ -150,7 +146,7 @@ object ExpressionValue {
   /** Beta-reduce all FunctionApplication(FunctionLiteral, arg) redexes without type checking. */
   def betaReduce(expr: ExpressionValue): ExpressionValue =
     expr match {
-      case FunctionApplication(target, arg) =>
+      case FunctionApplication(target, arg)       =>
         betaReduce(target.value) match {
           case FunctionLiteral(name, _, body) =>
             betaReduce(substitute(body.value, name, betaReduce(arg.value)))
@@ -159,7 +155,7 @@ object ExpressionValue {
         }
       case FunctionLiteral(name, paramType, body) =>
         FunctionLiteral(name, paramType, body.map(betaReduce))
-      case other => other
+      case other                                  => other
     }
 
   given Show[ExpressionValue] with {
@@ -188,14 +184,14 @@ object ExpressionValue {
       case Value.Structure(fields, Value.Type) =>
         fields.get("$typeName") match {
           case Some(typeName @ Value.Direct(_: ValueFQN, _)) =>
-            val typeArgFields = fields.removed("$typeName")
+            val typeArgFields         = fields.removed("$typeName")
             val base: ExpressionValue = ConcreteValue(Value.Structure(Map("$typeName" -> typeName), Value.Type))
             if (typeArgFields.isEmpty) base
             else
               typeArgFields.toSeq.sortBy(_._1).foldLeft(base) { case (acc, (_, argValue)) =>
                 FunctionApplication(unsourced(acc), unsourced(fromValue(argValue)))
               }
-          case _ => ConcreteValue(v)
+          case _                                             => ConcreteValue(v)
         }
       case _                                   => ConcreteValue(v)
     }
@@ -210,38 +206,40 @@ object ExpressionValue {
       isTypeVar: String => Boolean = _ => true
   ): Map[String, ExpressionValue] =
     (pattern, concrete) match {
-      case (ParameterReference(name, _), _) if isTypeVar(name)                                        =>
+      case (ParameterReference(name, _), _) if isTypeVar(name)              =>
         Map(name -> concrete)
-      case (FunctionType(p1, r1), FunctionType(p2, r2))                                               =>
+      case (FunctionType(p1, r1), FunctionType(p2, r2))                     =>
         matchTypes(p1, p2, isTypeVar) ++ matchTypes(r1, r2, isTypeVar)
-      case (FunctionApplication(t1, a1), FunctionApplication(t2, a2))                                 =>
+      case (FunctionApplication(t1, a1), FunctionApplication(t2, a2))       =>
         matchTypes(t1.value, t2.value, isTypeVar) ++ matchTypes(a1.value, a2.value, isTypeVar)
-      case (FunctionLiteral(_, _, patBody), FunctionLiteral(_, _, tgtBody))                           =>
+      case (FunctionLiteral(_, _, patBody), FunctionLiteral(_, _, tgtBody)) =>
         matchTypes(patBody.value, tgtBody.value, isTypeVar)
       case (_: FunctionApplication, ConcreteValue(v @ Value.Structure(fields, Value.Type)))
-          if fields.size > 1 && fields.contains("$typeName")                                           =>
+          if fields.size > 1 && fields.contains("$typeName") =>
         matchTypes(pattern, fromValue(v), isTypeVar)
       case (ConcreteValue(v @ Value.Structure(fields, Value.Type)), _: FunctionApplication)
-          if fields.size > 1 && fields.contains("$typeName")                                           =>
+          if fields.size > 1 && fields.contains("$typeName") =>
         matchTypes(fromValue(v), concrete, isTypeVar)
-      case _                                                                                           => Map.empty
+      case _                                                                => Map.empty
     }
 
   /** Create a function type: paramType -> returnType. Uses the standard Function^Type representation. */
   def functionType(paramType: ExpressionValue, returnType: ExpressionValue): ExpressionValue =
-    FunctionApplication(unsourced(FunctionApplication(unsourced(Types.functionDataTypeExpr), unsourced(paramType))), unsourced(returnType))
+    FunctionApplication(
+      unsourced(FunctionApplication(unsourced(Types.functionDataTypeExpr), unsourced(paramType))),
+      unsourced(returnType)
+    )
 
   /** Extractor for function types. Matches FunctionApplication chains with Function^Type. */
   object FunctionType {
     def unapply(expr: ExpressionValue): Option[(ExpressionValue, ExpressionValue)] =
       expr match {
-        case FunctionApplication(target, returnType)
-            if isFunctionApplicationOfDataType(target.value) =>
+        case FunctionApplication(target, returnType) if isFunctionApplicationOfDataType(target.value) =>
           target.value match {
             case FunctionApplication(_, paramType) => Some((paramType.value, returnType.value))
             case _                                 => None
           }
-        case _ => None
+        case _                                                                                        => None
       }
 
     private def isFunctionApplicationOfDataType(expr: ExpressionValue): Boolean =
@@ -282,7 +280,7 @@ object ExpressionValue {
       case FunctionLiteral(n, t, b) => parameterName == n && parameterType == t && body.value == b.value
       case _                        => false
     }
-    override def hashCode(): Int = (parameterName, parameterType, body.value).hashCode()
+    override def hashCode(): Int            = (parameterName, parameterType, body.value).hashCode()
   }
 
   /** A native function that needs to be called with exact parameters.
@@ -307,6 +305,6 @@ object ExpressionValue {
       case FunctionApplication(t, a) => target.value == t.value && argument.value == a.value
       case _                         => false
     }
-    override def hashCode(): Int = (target.value, argument.value).hashCode()
+    override def hashCode(): Int            = (target.value, argument.value).hashCode()
   }
 }
