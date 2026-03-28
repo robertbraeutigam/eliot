@@ -28,6 +28,7 @@ object ConstraintExtract extends Logging {
                        (assumedType, level) =>
                          inferType(assumedType, level) >> StateT.liftF(evaluate(level))
                      }
+      // Handle the signature level
       typeParams   = ExpressionValue.extractLeadingLambdaParams(signature)
       body         = ExpressionValue.stripLeadingLambdas(signature)
       runtimeType <- typeParams.zip(key.typeArguments).foldLeftM[TypeGraphIO, ExpressionValue](body) {
@@ -46,6 +47,7 @@ object ConstraintExtract extends Logging {
                                      )
                          } yield ExpressionValue.substitute(currentBody, paramName, uniVar)
                      }
+      // Handle runtime level. Infer runtime body type, if available.
       _           <- resolvedValue.runtime.traverse_(inferType(runtimeType, _))
     } yield ()
   }
@@ -133,8 +135,8 @@ object ConstraintExtract extends Logging {
   ): TypeGraphIO[ExpressionValue] = {
     val applied = ExpressionValue.betaReduce(
       evaluatedArgs.foldLeft(rawValueType) { (expr, arg) =>
-      ExpressionValue.FunctionApplication(ExpressionValue.unsourced(expr), ExpressionValue.unsourced(arg))
-    }
+        ExpressionValue.FunctionApplication(ExpressionValue.unsourced(expr), ExpressionValue.unsourced(arg))
+      }
     )
     fillRemainingTypeParams(applied)
   }
@@ -143,12 +145,12 @@ object ConstraintExtract extends Logging {
     expr match {
       case ExpressionValue.FunctionLiteral(_, Value.Type, _) =>
         generateUnificationVar.flatMap(v =>
-        fillRemainingTypeParams(
-          ExpressionValue.betaReduce(
-            ExpressionValue.FunctionApplication(ExpressionValue.unsourced(expr), ExpressionValue.unsourced(v))
+          fillRemainingTypeParams(
+            ExpressionValue.betaReduce(
+              ExpressionValue.FunctionApplication(ExpressionValue.unsourced(expr), ExpressionValue.unsourced(v))
+            )
           )
         )
-      )
       case _                                                 => expr.pure[TypeGraphIO]
     }
 
