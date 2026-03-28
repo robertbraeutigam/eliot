@@ -30,7 +30,7 @@ object ConstraintExtract extends Logging {
                      }
       // Infer the signature level, consuming type arguments through leading lambdas
       runtimeType <- inferType(kindType, signatureLevel, key.typeArguments)
-      // Handle runtime level
+      // Handle runtime level, if available
       _           <- resolvedValue.runtime.traverse_(inferType(runtimeType, _).void)
     } yield ()
   }
