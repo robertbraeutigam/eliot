@@ -64,16 +64,14 @@ object ConstraintExtract extends Logging {
         } yield exprType
       case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                 =>
         for {
-          _             <- checkNoTypeArgs(expression, typeArguments)
-          resolved      <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-          rawValueType  <- StateT.liftF(Evaluator.evaluate(resolved.typeStack.map(_.signature)))
-          evaluatedArgs <- typeArgs.traverse(ta => StateT.liftF(Evaluator.evaluate(ta)))
-          valueType     <- instantiateValueType(rawValueType, evaluatedArgs)
-          _             <- recordValueRefType(vfqn, valueType)
-          _             <- tellConstraint(
-                             Constraints.constraint(assumedType, vfqn.as(valueType), "Type mismatch.")
-                           )
-        } yield valueType
+          _            <- checkNoTypeArgs(expression, typeArguments)
+          resolved     <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
+          rawValueType <- StateT.liftF(Evaluator.evaluate(resolved.typeStack.map(_.signature)))
+          _            <- recordValueRefType(vfqn, rawValueType)
+          _            <- tellConstraint(
+                            Constraints.constraint(assumedType, vfqn.as(rawValueType), "Type mismatch.")
+                          )
+        } yield rawValueType
       case OperatorResolvedExpression.FunctionApplication(target, arg)               =>
         for {
           _          <- checkNoTypeArgs(expression, typeArguments)
@@ -119,30 +117,5 @@ object ConstraintExtract extends Logging {
     StateT
       .liftF(compilerAbort[Unit](expression.as("Unconsumed type arguments in non-lambda expression.")))
       .whenA(typeArguments.nonEmpty)
-
-  private def instantiateValueType(
-      rawValueType: ExpressionValue,
-      evaluatedArgs: Seq[ExpressionValue]
-  ): TypeGraphIO[ExpressionValue] = {
-    val applied = ExpressionValue.betaReduce(
-      evaluatedArgs.foldLeft(rawValueType) { (expr, arg) =>
-        ExpressionValue.FunctionApplication(ExpressionValue.unsourced(expr), ExpressionValue.unsourced(arg))
-      }
-    )
-    fillRemainingTypeParams(applied)
-  }
-
-  private def fillRemainingTypeParams(expr: ExpressionValue): TypeGraphIO[ExpressionValue] =
-    expr match {
-      case ExpressionValue.FunctionLiteral(_, Value.Type, _) =>
-        generateUnificationVar.flatMap(v =>
-          fillRemainingTypeParams(
-            ExpressionValue.betaReduce(
-              ExpressionValue.FunctionApplication(ExpressionValue.unsourced(expr), ExpressionValue.unsourced(v))
-            )
-          )
-        )
-      case _                                                 => expr.pure[TypeGraphIO]
-    }
 
 }
