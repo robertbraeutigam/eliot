@@ -68,7 +68,6 @@ object ConstraintExtract extends Logging {
           _            <- checkNoTypeArgs(expression, typeArguments)
           resolved     <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
           rawValueType <- StateT.liftF(Evaluator.evaluate(resolved.typeStack.map(_.signature)))
-          _            <- recordValueRefType(vfqn, rawValueType)
           _            <- tellConstraint(
                             Constraints.constraint(assumedType, vfqn.as(rawValueType), "Type mismatch.")
                           )

@@ -5,17 +5,13 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ParameterReference
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints
-import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-
-import java.net.URI
 
 case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
     parameterTypes: Map[String, Sourced[ExpressionValue]] = Map.empty,
-    constraints: Constraints = Constraints.empty,
-    valueRefTypes: Map[(URI, PositionRange), ExpressionValue] = Map.empty // TODO: Is this needed?
+    constraints: Constraints = Constraints.empty
 )
 
 object TypeCheckState {
@@ -36,6 +32,4 @@ object TypeCheckState {
   def tellConstraint(constraint: Constraints): TypeGraphIO[Unit] =
     StateT.modify(state => state.copy(constraints = state.constraints |+| constraint))
 
-  def recordValueRefType(source: Sourced[?], exprType: ExpressionValue): TypeGraphIO[Unit] =
-    StateT.modify(state => state.copy(valueRefTypes = state.valueRefTypes + ((source.uri, source.range) -> exprType)))
 }

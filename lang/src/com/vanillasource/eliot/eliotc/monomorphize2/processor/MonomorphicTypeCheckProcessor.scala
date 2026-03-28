@@ -61,7 +61,7 @@ class MonomorphicTypeCheckProcessor
                        )
       paramTypes     = resolveParameterTypes(endState, solution)
       runtime       <- resolvedValue.runtime.traverse { body =>
-                         buildMonomorphicExpression(body.value, solution, endState, paramTypes, body).map(body.as)
+                         buildMonomorphicExpression(body.value, paramTypes, body).map(body.as)
                        }
     } yield (signature, runtime.map(_.map(_.expression)))
 
@@ -73,8 +73,6 @@ class MonomorphicTypeCheckProcessor
 
   private def buildMonomorphicExpression(
       expression: OperatorResolvedExpression,
-      solution: Solution,
-      endState: TypeCheckState,
       paramTypes: Map[String, Value],
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
@@ -92,22 +90,21 @@ class MonomorphicTypeCheckProcessor
         }
       case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                 =>
         for {
-          concreteTypeArgs <- resolveValueRefTypeArgs(vfqn, solution, endState)
-          resolved         <- getFactOrAbort(OperatorResolvedValue.Key(vfqn.value))
-          rawValueType     <- Evaluator.evaluate(resolved.typeStack.map(_.signature))
-          valueType        <- Evaluator.applyTypeArgs(
-                                ExpressionValue.stripLeadingLambdas(rawValueType),
-                                concreteTypeArgs,
-                                vfqn
-                              )
+          resolved     <- getFactOrAbort(OperatorResolvedValue.Key(vfqn.value))
+          rawValueType <- Evaluator.evaluate(resolved.typeStack.map(_.signature))
+          valueType    <- Evaluator.applyTypeArgs(
+                            ExpressionValue.stripLeadingLambdas(rawValueType),
+                            Seq.empty,
+                            vfqn
+                          )
         } yield MonomorphicExpression(
           valueType,
-          MonomorphicExpression.MonomorphicValueReference(vfqn, concreteTypeArgs)
+          MonomorphicExpression.MonomorphicValueReference(vfqn, Seq.empty)
         )
       case OperatorResolvedExpression.FunctionApplication(target, arg)               =>
         for {
-          targetExpr <- buildMonomorphicExpression(target.value, solution, endState, paramTypes, target)
-          argExpr    <- buildMonomorphicExpression(arg.value, solution, endState, paramTypes, arg)
+          targetExpr <- buildMonomorphicExpression(target.value, paramTypes, target)
+          argExpr    <- buildMonomorphicExpression(arg.value, paramTypes, arg)
           returnType  = targetExpr.expressionType.asFunctionType match {
                           case Some((_, ret)) => ret
                           case None           => Value.Type
@@ -119,7 +116,7 @@ class MonomorphicTypeCheckProcessor
       case OperatorResolvedExpression.FunctionLiteral(paramName, paramTypeOpt, body) =>
         val paramType = paramTypes.getOrElse(paramName.value, Value.Type)
         for {
-          bodyExpr <- buildMonomorphicExpression(body.value, solution, endState, paramTypes, body)
+          bodyExpr <- buildMonomorphicExpression(body.value, paramTypes, body)
           funcType  = Value.Structure(
                         Map(
                           "$typeName" -> Value.Direct(functionDataTypeFQN, fullyQualifiedNameType),
@@ -134,30 +131,4 @@ class MonomorphicTypeCheckProcessor
         )
     }
 
-  /** Resolve the concrete type arguments for a value reference by matching the solved instantiated type against the raw
-    * type pattern.
-    */
-  private def resolveValueRefTypeArgs(
-      vfqn: Sourced[?],
-      solution: Solution,
-      endState: TypeCheckState
-  ): CompilerIO[Seq[Value]] =
-    endState.valueRefTypes.get((vfqn.uri, vfqn.range)) match {
-      case Some(instantiatedType) =>
-        val concreteExpr = solution.resolveExpressionValue(instantiatedType)
-        for {
-          resolved     <-
-            getFactOrAbort(
-              OperatorResolvedValue.Key(vfqn.value.asInstanceOf[com.vanillasource.eliot.eliotc.module.fact.ValueFQN])
-            )
-          rawValueType <- Evaluator.evaluate(resolved.typeStack.map(_.signature))
-          typeParams    = ExpressionValue.extractLeadingLambdaParams(rawValueType)
-          body          = ExpressionValue.stripLeadingLambdas(rawValueType)
-          bindings      = ExpressionValue.matchTypes(body, concreteExpr)
-        } yield typeParams.map { case (name, _) =>
-          bindings.get(name).flatMap(ExpressionValue.concreteValueOf).getOrElse(Value.Type)
-        }
-      case None                   =>
-        Seq.empty.pure[CompilerIO]
-    }
 }
