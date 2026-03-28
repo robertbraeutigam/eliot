@@ -64,6 +64,7 @@ object ConstraintExtract extends Logging {
         } yield exprType
       case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                 =>
         for {
+          // TODO: Ignores typeArgs!
           _            <- checkNoTypeArgs(expression, typeArguments)
           resolved     <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
           rawValueType <- StateT.liftF(Evaluator.evaluate(resolved.typeStack.map(_.signature)))

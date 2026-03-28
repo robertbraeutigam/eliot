@@ -15,7 +15,7 @@ case class TypeCheckState(
     shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers(),
     parameterTypes: Map[String, Sourced[ExpressionValue]] = Map.empty,
     constraints: Constraints = Constraints.empty,
-    valueRefTypes: Map[(URI, PositionRange), ExpressionValue] = Map.empty
+    valueRefTypes: Map[(URI, PositionRange), ExpressionValue] = Map.empty // TODO: Is this needed?
 )
 
 object TypeCheckState {
