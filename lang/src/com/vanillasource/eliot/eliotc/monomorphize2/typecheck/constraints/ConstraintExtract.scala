@@ -64,15 +64,15 @@ object ConstraintExtract extends Logging {
         } yield exprType
       case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                 =>
         for {
-          _              <- checkNoTypeArgs(expression, typeArguments)
-          resolved       <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-          rawValueType   <- StateT.liftF(Evaluator.evaluate(resolved.typeStack.map(_.signature)))
-          evaluatedArgs  <- typeArgs.traverse(ta => StateT.liftF(Evaluator.evaluate(ta)))
-          valueType      <- instantiateValueType(rawValueType, evaluatedArgs)
-          _              <- recordValueRefType(vfqn, valueType)
-          _              <- tellConstraint(
-                              Constraints.constraint(assumedType, vfqn.as(valueType), "Type mismatch.")
-                            )
+          _             <- checkNoTypeArgs(expression, typeArguments)
+          resolved      <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
+          rawValueType  <- StateT.liftF(Evaluator.evaluate(resolved.typeStack.map(_.signature)))
+          evaluatedArgs <- typeArgs.traverse(ta => StateT.liftF(Evaluator.evaluate(ta)))
+          valueType     <- instantiateValueType(rawValueType, evaluatedArgs)
+          _             <- recordValueRefType(vfqn, valueType)
+          _             <- tellConstraint(
+                             Constraints.constraint(assumedType, vfqn.as(valueType), "Type mismatch.")
+                           )
         } yield valueType
       case OperatorResolvedExpression.FunctionApplication(target, arg)               =>
         for {
@@ -116,9 +116,9 @@ object ConstraintExtract extends Logging {
       expression: Sourced[OperatorResolvedExpression],
       typeArguments: Seq[Value]
   ): TypeGraphIO[Unit] =
-    if (typeArguments.nonEmpty)
-      StateT.liftF(compilerAbort[Unit](expression.as("Unconsumed type arguments in non-lambda expression.")))
-    else ().pure[TypeGraphIO]
+    StateT
+      .liftF(compilerAbort[Unit](expression.as("Unconsumed type arguments in non-lambda expression.")))
+      .whenA(typeArguments.nonEmpty)
 
   private def instantiateValueType(
       rawValueType: ExpressionValue,
