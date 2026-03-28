@@ -29,7 +29,7 @@ object ConstraintExtract extends Logging {
                          inferType(assumedType, level).void >> StateT.liftF(evaluate(level))
                      }
       // Infer the signature level, consuming type arguments through leading lambdas
-      runtimeType <- inferType(kindType, signatureLevel, key.typeArguments)
+      runtimeType <- inferType(kindType, signatureLevel, key.typeArguments.map(ConcreteValue(_)))
       // Handle runtime level, if available
       _           <- resolvedValue.runtime.traverse_(inferType(runtimeType, _).void)
     } yield ()
@@ -38,7 +38,7 @@ object ConstraintExtract extends Logging {
   private def inferType(
       assumedType: ExpressionValue,
       expression: Sourced[OperatorResolvedExpression],
-      typeArguments: Seq[Value] = Seq.empty
+      typeArguments: Seq[ExpressionValue] = Seq.empty
   ): TypeGraphIO[ExpressionValue] =
     expression.value match {
       case OperatorResolvedExpression.IntegerLiteral(_)                              =>
@@ -64,14 +64,12 @@ object ConstraintExtract extends Logging {
         } yield exprType
       case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                 =>
         for {
-          // TODO: Ignores typeArgs!
-          _            <- checkNoTypeArgs(expression, typeArguments)
-          resolved     <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-          rawValueType <- StateT.liftF(Evaluator.evaluate(resolved.typeStack.map(_.signature)))
-          _            <- tellConstraint(
-                            Constraints.constraint(assumedType, vfqn.as(rawValueType), "Type mismatch.")
-                          )
-        } yield rawValueType
+          _             <- checkNoTypeArgs(expression, typeArguments)
+          resolved      <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
+          sigExpr        = resolved.typeStack.map(_.signature)
+          evaluatedArgs <- typeArgs.traverse(ta => StateT.liftF(Evaluator.evaluate(ta)))
+          valueType     <- inferType(assumedType, sigExpr, evaluatedArgs)
+        } yield valueType
       case OperatorResolvedExpression.FunctionApplication(target, arg)               =>
         for {
           _          <- checkNoTypeArgs(expression, typeArguments)
@@ -95,7 +93,7 @@ object ConstraintExtract extends Logging {
                               tellConstraint(
                                 Constraints.constraint(
                                   typedParamType,
-                                  ExpressionValue.unsourced(ConcreteValue(typeArg)),
+                                  ExpressionValue.unsourced(typeArg),
                                   "Type argument mismatch."
                                 )
                               )
@@ -112,7 +110,7 @@ object ConstraintExtract extends Logging {
 
   private def checkNoTypeArgs(
       expression: Sourced[OperatorResolvedExpression],
-      typeArguments: Seq[Value]
+      typeArguments: Seq[ExpressionValue]
   ): TypeGraphIO[Unit] =
     StateT
       .liftF(compilerAbort[Unit](expression.as("Unconsumed type arguments in non-lambda expression.")))
