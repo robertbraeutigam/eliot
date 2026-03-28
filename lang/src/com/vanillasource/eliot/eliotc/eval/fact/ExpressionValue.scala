@@ -263,11 +263,9 @@ object ExpressionValue {
       }
   }
 
-  sealed trait InitialExpressionValue extends ExpressionValue
-
   /** A concrete value of some type.
     */
-  case class ConcreteValue(value: Value) extends InitialExpressionValue
+  case class ConcreteValue(value: Value) extends ExpressionValue
 
   /** A function that "survived" the evaluation, i.e. there were no applications to evaluate it.
     */
@@ -275,7 +273,7 @@ object ExpressionValue {
       parameterName: String,
       parameterType: Value,
       body: Sourced[ExpressionValue]
-  ) extends InitialExpressionValue {
+  ) extends ExpressionValue {
     override def equals(that: Any): Boolean = that match {
       case FunctionLiteral(n, t, b) => parameterName == n && parameterType == t && body.value == b.value
       case _                        => false
@@ -288,7 +286,7 @@ object ExpressionValue {
   case class NativeFunction(
       parameterType: Value,
       body: Value => ExpressionValue
-  ) extends InitialExpressionValue
+  ) extends ExpressionValue
 
   /** A reference to a function parameter. Note: that this is only allowed somewhere in a function literal's body, not
     * on top level.

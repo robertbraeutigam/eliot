@@ -5,7 +5,6 @@ import com.vanillasource.eliot.eliotc.core.fact.Qualifier
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{
   ConcreteValue,
   FunctionLiteral,
-  InitialExpressionValue,
   NativeFunction
 }
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
@@ -60,7 +59,7 @@ class DataTypeEvaluator
       vfqn: ValueFQN,
       remainingParams: Seq[(String, Value)],
       collectedArgs: Map[String, Value] = Map.empty
-  ): InitialExpressionValue =
+  ): ExpressionValue =
     remainingParams match {
       case (name, paramType) +: tail =>
         NativeFunction(paramType, arg => createDataTypeEvaluable(vfqn, tail, collectedArgs + (name -> arg)))

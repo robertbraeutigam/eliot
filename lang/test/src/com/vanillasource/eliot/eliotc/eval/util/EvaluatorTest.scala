@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
@@ -40,7 +40,7 @@ class EvaluatorTest extends ProcessorTest() {
     val expr = intFunLit("x", paramRef("x"))
     runEvaluator(expr).asserting {
       case FunctionLiteral("x", _, body) if body.value.isInstanceOf[ParameterReference] => succeed
-      case other => fail(s"Unexpected result: $other")
+      case other                                                                        => fail(s"Unexpected result: $other")
     }
   }
 
@@ -52,11 +52,11 @@ class EvaluatorTest extends ProcessorTest() {
           case FunctionLiteral("y", _, innerBody) =>
             innerBody.value match {
               case ParameterReference("x", _) => succeed
-              case other => fail(s"Unexpected inner body: $other")
+              case other                      => fail(s"Unexpected inner body: $other")
             }
-          case other => fail(s"Unexpected outer body: $other")
+          case other                              => fail(s"Unexpected outer body: $other")
         }
-      case other => fail(s"Unexpected result: $other")
+      case other                              => fail(s"Unexpected result: $other")
     }
   }
 
@@ -84,7 +84,7 @@ class EvaluatorTest extends ProcessorTest() {
     runEvaluator(expr).asserting {
       case FunctionLiteral("y", _, body) =>
         body.value shouldBe ConcreteValue(Value.Direct(42, bigIntType))
-      case other => fail(s"Unexpected result: $other")
+      case other                         => fail(s"Unexpected result: $other")
     }
   }
 
@@ -101,9 +101,9 @@ class EvaluatorTest extends ProcessorTest() {
       case FunctionLiteral("x", _, body) =>
         body.value match {
           case ParameterReference("x", _) => succeed
-          case other => fail(s"Unexpected body: $other")
+          case other                      => fail(s"Unexpected body: $other")
         }
-      case other => fail(s"Unexpected result: $other")
+      case other                         => fail(s"Unexpected result: $other")
     }
   }
 
@@ -114,10 +114,10 @@ class EvaluatorTest extends ProcessorTest() {
   }
 
   it should "resolve function value reference and apply" in {
-    val vfqn = ValueFQN(testModuleName, QualifiedName("identity", Qualifier.Default))
+    val vfqn       = ValueFQN(testModuleName, QualifiedName("identity", Qualifier.Default))
     val identityFn = FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x", bigIntType)))
-    val fact = NamedEvaluable(vfqn, identityFn)
-    val expr = funApp(valueRef(vfqn), intLit(42))
+    val fact       = NamedEvaluable(vfqn, identityFn)
+    val expr       = funApp(valueRef(vfqn), intLit(42))
     runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
   }
 
@@ -134,11 +134,14 @@ class EvaluatorTest extends ProcessorTest() {
   }
 
   it should "detect recursion through function application argument" in {
-    val vfqn    = ValueFQN(testModuleName, QualifiedName("recursive", Qualifier.Default))
-    val fnVfqn  = ValueFQN(testModuleName, QualifiedName("fn", Qualifier.Default))
-    val fnFact  = NamedEvaluable(fnVfqn, FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x", bigIntType))))
-    val expr    = funApp(valueRef(fnVfqn), valueRef(vfqn))
-    runEvaluatorWithFactsAndTracking(expr, Seq(fnFact), Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
+    val vfqn   = ValueFQN(testModuleName, QualifiedName("recursive", Qualifier.Default))
+    val fnVfqn = ValueFQN(testModuleName, QualifiedName("fn", Qualifier.Default))
+    val fnFact =
+      NamedEvaluable(fnVfqn, FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x", bigIntType))))
+    val expr   = funApp(valueRef(fnVfqn), valueRef(vfqn))
+    runEvaluatorWithFactsAndTracking(expr, Seq(fnFact), Set(vfqn)).asserting(
+      _ shouldBe Left("Recursive evaluation detected.")
+    )
   }
 
   it should "fail when applying concrete value as function" in {
@@ -153,35 +156,38 @@ class EvaluatorTest extends ProcessorTest() {
   }
 
   it should "apply native function to concrete argument" in {
-    val vfqn = ValueFQN(testModuleName, QualifiedName("double", Qualifier.Default))
-    val nativeFn = NativeFunction(bigIntType, {
-      case Value.Direct(n: BigInt, t) => ConcreteValue(Value.Direct(n * 2, t))
-      case v                          => ConcreteValue(v)
-    })
-    val fact = NamedEvaluable(vfqn, nativeFn)
-    val expr = funApp(valueRef(vfqn), intLit(21))
+    val vfqn     = ValueFQN(testModuleName, QualifiedName("double", Qualifier.Default))
+    val nativeFn = NativeFunction(
+      bigIntType,
+      {
+        case Value.Direct(n: BigInt, t) => ConcreteValue(Value.Direct(n * 2, t))
+        case v                          => ConcreteValue(v)
+      }
+    )
+    val fact     = NamedEvaluable(vfqn, nativeFn)
+    val expr     = funApp(valueRef(vfqn), intLit(21))
     runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
   }
 
   it should "leave native function application unreduced when argument is not concrete" in {
-    val vfqn = ValueFQN(testModuleName, QualifiedName("nativeFn", Qualifier.Default))
+    val vfqn     = ValueFQN(testModuleName, QualifiedName("nativeFn", Qualifier.Default))
     val nativeFn = NativeFunction(bigIntType, v => ConcreteValue(v))
-    val fact = NamedEvaluable(vfqn, nativeFn)
-    val outerFn = intFunLit("y", funApp(valueRef(vfqn), paramRef("y")))
+    val fact     = NamedEvaluable(vfqn, nativeFn)
+    val outerFn  = intFunLit("y", funApp(valueRef(vfqn), paramRef("y")))
     runEvaluatorWithFacts(outerFn, Seq(fact)).asserting {
       case FunctionLiteral("y", _, body) =>
         body.value match {
           case FunctionApplication(target, arg) =>
             target.value.isInstanceOf[NativeFunction] shouldBe true
             arg.value shouldBe a[ParameterReference]
-          case other => fail(s"Unexpected body: $other")
+          case other                            => fail(s"Unexpected body: $other")
         }
-      case other => fail(s"Unexpected result: $other")
+      case other                         => fail(s"Unexpected result: $other")
     }
   }
 
   it should "leave function application unreduced when target is parameter reference" in {
-    val fn   = intFunLit("f", funApp(paramRef("f"), intLit(42)))
+    val fn = intFunLit("f", funApp(paramRef("f"), intLit(42)))
     runEvaluator(fn).asserting {
       case FunctionLiteral("f", _, body) =>
         body.value match {
@@ -189,11 +195,11 @@ class EvaluatorTest extends ProcessorTest() {
             target.value shouldBe a[ParameterReference]
             arg.value match {
               case ConcreteValue(Value.Direct(42, _)) => succeed
-              case other => fail(s"Unexpected arg: $other")
+              case other                              => fail(s"Unexpected arg: $other")
             }
-          case other => fail(s"Unexpected body: $other")
+          case other                            => fail(s"Unexpected body: $other")
         }
-      case other => fail(s"Unexpected result: $other")
+      case other                         => fail(s"Unexpected result: $other")
     }
   }
 
@@ -210,7 +216,7 @@ class EvaluatorTest extends ProcessorTest() {
     runEvaluator(fn).asserting {
       case FunctionLiteral("y", _, body) =>
         body.value shouldBe ConcreteValue(Value.Direct(1, bigIntType))
-      case other => fail(s"Unexpected result: $other")
+      case other                         => fail(s"Unexpected result: $other")
     }
   }
 
@@ -228,7 +234,7 @@ class EvaluatorTest extends ProcessorTest() {
     val expr  = valueRef(vfqn2)
     runEvaluatorWithFactsAndTracking(expr, Seq(fact1, fact2), Set(vfqn1)).asserting {
       case Right(ConcreteValue(Value.Direct(2, _))) => succeed
-      case other => fail(s"Unexpected result: $other")
+      case other                                    => fail(s"Unexpected result: $other")
     }
   }
 
@@ -272,15 +278,23 @@ class EvaluatorTest extends ProcessorTest() {
     runEvaluatorWithTracking(expr, Set(vfqn)).asserting(_ shouldBe Left("Recursive evaluation detected."))
   }
 
-  private def intLit(value: BigInt): OperatorResolvedExpression = OperatorResolvedExpression.IntegerLiteral(sourced(value))
+  private def intLit(value: BigInt): OperatorResolvedExpression =
+    OperatorResolvedExpression.IntegerLiteral(sourced(value))
 
-  private def strLit(value: String): OperatorResolvedExpression = OperatorResolvedExpression.StringLiteral(sourced(value))
+  private def strLit(value: String): OperatorResolvedExpression =
+    OperatorResolvedExpression.StringLiteral(sourced(value))
 
-  private def paramRef(name: String): OperatorResolvedExpression = OperatorResolvedExpression.ParameterReference(sourced(name))
+  private def paramRef(name: String): OperatorResolvedExpression =
+    OperatorResolvedExpression.ParameterReference(sourced(name))
 
-  private def valueRef(vfqn: ValueFQN): OperatorResolvedExpression = OperatorResolvedExpression.ValueReference(sourced(vfqn))
+  private def valueRef(vfqn: ValueFQN): OperatorResolvedExpression =
+    OperatorResolvedExpression.ValueReference(sourced(vfqn))
 
-  private def funLit(param: String, paramTypeExpr: OperatorResolvedExpression, body: OperatorResolvedExpression): OperatorResolvedExpression =
+  private def funLit(
+      param: String,
+      paramTypeExpr: OperatorResolvedExpression,
+      body: OperatorResolvedExpression
+  ): OperatorResolvedExpression =
     OperatorResolvedExpression.FunctionLiteral(
       sourced(param),
       Some(sourced(TypeStack(NonEmptySeq.of(paramTypeExpr)))),
@@ -297,13 +311,13 @@ class EvaluatorTest extends ProcessorTest() {
       sourced(arg)
     )
 
-  private def runEvaluator(expression: OperatorResolvedExpression): IO[InitialExpressionValue] =
+  private def runEvaluator(expression: OperatorResolvedExpression): IO[ExpressionValue] =
     runEvaluatorWithFacts(expression, Seq.empty)
 
   private def runEvaluatorWithFacts(
       expression: OperatorResolvedExpression,
       facts: Seq[CompilerFact]
-  ): IO[InitialExpressionValue] =
+  ): IO[ExpressionValue] =
     for {
       generator <- createGenerator(Seq(bigIntTypeFact, stringTypeFact) ++ facts)
       result    <- Evaluator.evaluate(sourced(expression)).run(generator).run(Chain.empty).value
@@ -331,21 +345,21 @@ class EvaluatorTest extends ProcessorTest() {
   private def runEvaluatorWithTracking(
       expression: OperatorResolvedExpression,
       evaluating: Set[ValueFQN]
-  ): IO[Either[String, InitialExpressionValue]] =
+  ): IO[Either[String, ExpressionValue]] =
     runEvaluatorWithFactsAndTracking(expression, Seq.empty, evaluating)
 
   private def runEvaluatorWithFactsAndTracking(
       expression: OperatorResolvedExpression,
       facts: Seq[CompilerFact],
       evaluating: Set[ValueFQN]
-  ): IO[Either[String, InitialExpressionValue]] =
+  ): IO[Either[String, ExpressionValue]] =
     for {
       generator <- createGenerator(Seq(bigIntTypeFact, stringTypeFact) ++ facts)
       result    <- Evaluator.evaluate(sourced(expression), evaluating).run(generator).run(Chain.empty).value
     } yield result match {
-      case Right((_, value))                     => Right(value)
-      case Left(errors) if errors.nonEmpty       => Left(errors.toList.head.message)
-      case Left(_)                               => Left("Unknown error")
+      case Right((_, value))               => Right(value)
+      case Left(errors) if errors.nonEmpty => Left(errors.toList.head.message)
+      case Left(_)                         => Left("Unknown error")
     }
 
 }

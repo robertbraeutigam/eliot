@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.{NamedEvaluable, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.eval.fact.Value.{Direct, Structure, Type}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.fullyQualifiedNameType
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
@@ -190,13 +190,13 @@ class DataTypeEvaluatorTest extends ProcessorTest(DataTypeEvaluator()) {
   private def runDataTypeEvaluator(
       vfqn: ValueFQN,
       resolvedValue: OperatorResolvedValue
-  ): IO[InitialExpressionValue] =
+  ): IO[ExpressionValue] =
     runDataTypeEvaluatorWithFacts(vfqn, Seq(resolvedValue))
 
   private def runDataTypeEvaluatorWithFacts(
       vfqn: ValueFQN,
       resolvedValues: Seq[OperatorResolvedValue]
-  ): IO[InitialExpressionValue] =
+  ): IO[ExpressionValue] =
     runGeneratorWithFacts(typeEvaluable +: resolvedValues, NamedEvaluable.Key(vfqn)).map {
       case (Some(namedEvaluable), _) => namedEvaluable.value
       case _                         => throw new Exception(s"No NamedEvaluable generated for $vfqn")

@@ -16,10 +16,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 /** Processor that monomorphizes (specializes) generic functions.
   *
   * Given a MonomorphicValue.Key(vfqn, typeArgs), it:
-  *   1. Fetches the OperatorResolvedValue for vfqn
-  *   2. Evaluates the type signature with concrete type args using the eval package
-  *   3. Walks the runtime expression body, computing concrete types and resolving abilities
-  *   4. Produces a MonomorphicValue with fully concrete types
+  *   1. Fetches the OperatorResolvedValue for vfqn 2. Evaluates the type signature with concrete type args using the
+  *      eval package 3. Walks the runtime expression body, computing concrete types and resolving abilities 4. Produces
+  *      a MonomorphicValue with fully concrete types
   */
 class MonomorphicTypeCheckProcessor
     extends TransformationProcessor[OperatorResolvedValue.Key, MonomorphicValue.Key](key =>
@@ -37,19 +36,23 @@ class MonomorphicTypeCheckProcessor
                        )
       typeExprValue <- evaluateTypeStack(resolvedValue.typeStack)
       analysis       = TypeParameterAnalysis.fromEvaluatedType(typeExprValue)
-      _             <- if (key.typeArguments.length != analysis.allTypeParams.length &&
-                           key.typeArguments.length != analysis.bodyTypeParams.length)
-                         compilerAbort(
-                           resolvedValue.name.as(
-                             s"Type argument count mismatch: expected ${analysis.bodyTypeParams.length}, got ${key.typeArguments.length}"
-                           )
-                         )
-                       else ().pure[CompilerIO]
+      _             <-
+        if (
+          key.typeArguments.length != analysis.allTypeParams.length &&
+          key.typeArguments.length != analysis.bodyTypeParams.length
+        )
+          compilerAbort(
+            resolvedValue.name.as(
+              s"Type argument count mismatch: expected ${analysis.bodyTypeParams.length}, got ${key.typeArguments.length}"
+            )
+          )
+        else ().pure[CompilerIO]
       typeParamSubst = analysis.buildSubstitution(
                          key.typeArguments,
                          key.typeArguments.length == analysis.allTypeParams.length
                        )
-      signature     <- Evaluator.applyTypeArgsStripped(typeExprValue, analysis.allTypeParams, typeParamSubst, resolvedValue.name)
+      signature     <-
+        Evaluator.applyTypeArgsStripped(typeExprValue, analysis.allTypeParams, typeParamSubst, resolvedValue.name)
       _             <- debug[CompilerIO](s"Monomorphized ${key.vfqn.show} to: ${signature.show}")
       runtime       <- resolvedValue.runtime.traverse { body =>
                          MonomorphicExpressionTransformer
@@ -110,7 +113,7 @@ class MonomorphicTypeCheckProcessor
           case Some((v, s, d)) => Some((v, s, d + 1))
           case None            => Some((body.value.expressionType, body, 1))
         }
-      case _                                                => None
+      case _                                                 => None
     }
 
   /** Extract the return type from the signature at the same lambda nesting depth, so the two sides can be compared. */
@@ -128,7 +131,7 @@ class MonomorphicTypeCheckProcessor
     */
   private def evaluateTypeStack(
       typeStack: Sourced[TypeStack[OperatorResolvedExpression]]
-  ): CompilerIO[ExpressionValue.InitialExpressionValue] = {
+  ): CompilerIO[ExpressionValue] = {
     val levels = typeStack.value.levels.toSeq.reverse
     for {
       expectedTypeForSignature <- levels.init.foldLeftM(Value.Type: Value) { (expectedType, level) =>
@@ -139,7 +142,9 @@ class MonomorphicTypeCheckProcessor
                                                      case Some(v) => v.pure[CompilerIO]
                                                      case None    =>
                                                        compilerAbort(
-                                                         typeStack.as("Type level expression did not evaluate to a concrete value.")
+                                                         typeStack.as(
+                                                           "Type level expression did not evaluate to a concrete value."
+                                                         )
                                                        )
                                                    }
                                     } yield value
@@ -158,14 +163,14 @@ class MonomorphicTypeCheckProcessor
       source: Sourced[?]
   ): CompilerIO[Unit] =
     evaluated match {
-      case ConcreteValue(v)                                =>
+      case ConcreteValue(v)                    =>
         if (v.valueType =!= expectedType)
           compilerAbort(
             source.as("Type mismatch in type stack."),
             Seq(s"Expected: ${expectedType.show}", s"Actual:   ${v.valueType.show}")
           )
         else ().pure[CompilerIO]
-      case FunctionLiteral(_, paramType, body)             =>
+      case FunctionLiteral(_, paramType, body) =>
         expectedType.asFunctionType match {
           case Some((expectedParam, expectedReturn)) =>
             if (paramType =!= expectedParam)
@@ -180,7 +185,7 @@ class MonomorphicTypeCheckProcessor
               Seq(s"Expected: ${expectedType.show}")
             )
         }
-      case NativeFunction(paramType, _)                    =>
+      case NativeFunction(paramType, _)        =>
         expectedType.asFunctionType match {
           case Some((expectedParam, _)) =>
             if (paramType =!= expectedParam)
@@ -195,14 +200,14 @@ class MonomorphicTypeCheckProcessor
               Seq(s"Expected: ${expectedType.show}")
             )
         }
-      case ParameterReference(_, paramType)                =>
+      case ParameterReference(_, paramType)    =>
         if (paramType =!= expectedType)
           compilerAbort(
             source.as("Type mismatch in type stack."),
             Seq(s"Expected: ${expectedType.show}", s"Actual:   ${paramType.show}")
           )
         else ().pure[CompilerIO]
-      case FunctionApplication(_, _)                       =>
+      case FunctionApplication(_, _)           =>
         ().pure[CompilerIO]
     }
 }

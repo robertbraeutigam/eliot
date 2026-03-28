@@ -31,11 +31,11 @@ object Evaluator {
       value   <- toExpressionValue(expression.value, evaluating, paramContext, expression)
       reduced <- reduce(value, expression)
       result  <- reduced match {
-                   case iv: InitialExpressionValue  => iv.pure[CompilerIO]
-                   case ParameterReference(name, _) =>
+                   case ParameterReference(name, _)      =>
                      compilerAbort(expression.as(s"Unbound parameter reference: $name"))
-                   case FunctionApplication(_, _)   =>
+                   case FunctionApplication(_, _)        =>
                      compilerAbort(expression.as("Could not reduce function application."))
+                   case expressionValue: ExpressionValue => expressionValue.pure[CompilerIO]
                  }
     } yield result
 
