@@ -18,7 +18,6 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 
 object ConstraintExtract extends Logging {
   def collectConstraints(key: MonomorphicValue.Key, resolvedValue: OperatorResolvedValue): TypeGraphIO[Unit] = {
-    // TODO: remember to apply generic parameters to signature when it is converted
     val typeExpressions = resolvedValue.typeStack.value.levels.map(resolvedValue.typeStack.as(_)).reverse
 
     for {
@@ -29,8 +28,25 @@ object ConstraintExtract extends Logging {
                        (assumedType, level) =>
                          inferType(assumedType, level) >> StateT.liftF(evaluate(level))
                      }
-      // The signature may have type parameters
-      runtimeType <- key.typeArguments.foldLeft(typeExpressions.last) { (expr, param) => ??? }
+      typeParams   = ExpressionValue.extractLeadingLambdaParams(signature)
+      body         = ExpressionValue.stripLeadingLambdas(signature)
+      runtimeType <- typeParams.zip(key.typeArguments).foldLeftM[TypeGraphIO, ExpressionValue](body) {
+                       case (currentBody, ((paramName, _), typeArg)) =>
+                         for {
+                           _      <- StateT.modify[CompilerIO, TypeCheckState](s =>
+                                       s.copy(typeArgSubstitution = s.typeArgSubstitution + (paramName -> typeArg))
+                                     )
+                           uniVar <- generateUnificationVar
+                           _      <- tellConstraint(
+                                       Constraints.constraint(
+                                         uniVar,
+                                         ExpressionValue.unsourced(ConcreteValue(typeArg)),
+                                         "Type argument mismatch."
+                                       )
+                                     )
+                         } yield ExpressionValue.substitute(currentBody, paramName, uniVar)
+                     }
+      _           <- resolvedValue.runtime.traverse_(inferType(runtimeType, _))
     } yield ()
   }
 
@@ -40,13 +56,9 @@ object ConstraintExtract extends Logging {
   ): TypeGraphIO[Unit] =
     expression.value match {
       case OperatorResolvedExpression.IntegerLiteral(_)                              =>
-        val exprType = ConcreteValue(bigIntType)
-        tellConstraint(Constraints.constraint(assumedType, expression.as(exprType), "Type mismatch.")) *>
-          exprType.pure[TypeGraphIO]
+        tellConstraint(Constraints.constraint(assumedType, expression.as(ConcreteValue(bigIntType)), "Type mismatch."))
       case OperatorResolvedExpression.StringLiteral(_)                               =>
-        val exprType = ConcreteValue(stringType)
-        tellConstraint(Constraints.constraint(assumedType, expression.as(exprType), "Type mismatch.")) *>
-          exprType.pure[TypeGraphIO]
+        tellConstraint(Constraints.constraint(assumedType, expression.as(ConcreteValue(stringType)), "Type mismatch."))
       case OperatorResolvedExpression.ParameterReference(name)                       =>
         for {
           maybeType <- lookupParameter(name.value)
@@ -56,7 +68,7 @@ object ConstraintExtract extends Logging {
                            StateT.liftF(compilerAbort[ExpressionValue](name.as("Parameter not found.")))
                        }
           _         <- tellConstraint(Constraints.constraint(assumedType, expression.as(exprType), "Type mismatch."))
-        } yield exprType
+        } yield ()
       case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                 =>
         for {
           resolved        <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
@@ -75,7 +87,7 @@ object ConstraintExtract extends Logging {
           _               <- tellConstraint(
                                Constraints.constraint(assumedType, vfqn.as(valueType), "Type mismatch.")
                              )
-        } yield valueType
+        } yield ()
       case OperatorResolvedExpression.FunctionApplication(target, arg)               =>
         for {
           argTypeVar <- generateUnificationVar
@@ -85,7 +97,7 @@ object ConstraintExtract extends Logging {
           _          <- tellConstraint(
                           Constraints.constraint(assumedType, expression.as(retTypeVar), "Type mismatch.")
                         )
-        } yield retTypeVar
+        } yield ()
       case OperatorResolvedExpression.FunctionLiteral(paramName, paramTypeOpt, body) =>
         for {
           state          <- StateT.get[CompilerIO, TypeCheckState]
@@ -112,7 +124,7 @@ object ConstraintExtract extends Logging {
           _              <- tellConstraint(
                               Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
                             )
-        } yield funcType
+        } yield ()
     }
 
   private def instantiateValueType(
@@ -120,7 +132,9 @@ object ConstraintExtract extends Logging {
       evaluatedArgs: Seq[ExpressionValue]
   ): TypeGraphIO[ExpressionValue] = {
     val applied = ExpressionValue.betaReduce(
-      evaluatedArgs.foldLeft(rawValueType) { (expr, arg) => expr(arg) }
+      evaluatedArgs.foldLeft(rawValueType) { (expr, arg) =>
+      ExpressionValue.FunctionApplication(ExpressionValue.unsourced(expr), ExpressionValue.unsourced(arg))
+    }
     )
     fillRemainingTypeParams(applied)
   }
@@ -128,7 +142,13 @@ object ConstraintExtract extends Logging {
   private def fillRemainingTypeParams(expr: ExpressionValue): TypeGraphIO[ExpressionValue] =
     expr match {
       case ExpressionValue.FunctionLiteral(_, Value.Type, _) =>
-        generateUnificationVar.flatMap(v => fillRemainingTypeParams(ExpressionValue.betaReduce(expr(v))))
+        generateUnificationVar.flatMap(v =>
+        fillRemainingTypeParams(
+          ExpressionValue.betaReduce(
+            ExpressionValue.FunctionApplication(ExpressionValue.unsourced(expr), ExpressionValue.unsourced(v))
+          )
+        )
+      )
       case _                                                 => expr.pure[TypeGraphIO]
     }
 
