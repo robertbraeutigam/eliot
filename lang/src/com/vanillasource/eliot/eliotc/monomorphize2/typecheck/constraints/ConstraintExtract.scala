@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
-import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType}
+import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType, typeFQN}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize2.fact.MonomorphicValue
@@ -22,15 +22,20 @@ object ConstraintExtract extends Logging {
     val signatureLevel  = typeExpressions.last
 
     for {
-      _           <- debug[TypeGraphIO]("Type checking top...")
+      _           <- debug[TypeGraphIO]("Collecting constraints from higher levels...")
       // Iterate levels above signature, where each level computes the type of the underlying level
       kindType    <- aboveLevels.foldLeftM[TypeGraphIO, ExpressionValue](ExpressionValue.ConcreteValue(Value.Type)) {
                        (assumedType, level) =>
                          inferType(assumedType, level).void >> StateT.liftF(evaluate(level))
                      }
       // Infer the signature level, consuming type arguments through leading lambdas
+      _           <-
+        debug[TypeGraphIO](
+          s"Collecting constraints from signature, kind: ${kindType.show}, signature: ${signatureLevel.value.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
+        )
       runtimeType <- inferType(kindType, signatureLevel, key.typeArguments.map(ConcreteValue(_)))
       // Handle runtime level, if available
+      _           <- debug[TypeGraphIO](s"Collecting constraints from runtime, signature: ${runtimeType.show}")
       _           <- resolvedValue.runtime.traverse_(inferType(runtimeType, _).void)
     } yield ()
   }
@@ -41,17 +46,17 @@ object ConstraintExtract extends Logging {
       typeArguments: Seq[ExpressionValue] = Seq.empty
   ): TypeGraphIO[ExpressionValue] =
     expression.value match {
-      case OperatorResolvedExpression.IntegerLiteral(_)                              =>
+      case OperatorResolvedExpression.IntegerLiteral(_)                                 =>
         val exprType = ConcreteValue(bigIntType)
         checkNoTypeArgs(expression, typeArguments) >>
           tellConstraint(Constraints.constraint(assumedType, expression.as(exprType), "Type mismatch."))
             .as(exprType)
-      case OperatorResolvedExpression.StringLiteral(_)                               =>
+      case OperatorResolvedExpression.StringLiteral(_)                                  =>
         val exprType = ConcreteValue(stringType)
         checkNoTypeArgs(expression, typeArguments) >>
           tellConstraint(Constraints.constraint(assumedType, expression.as(exprType), "Type mismatch."))
             .as(exprType)
-      case OperatorResolvedExpression.ParameterReference(name)                       =>
+      case OperatorResolvedExpression.ParameterReference(name)                          =>
         for {
           _         <- checkNoTypeArgs(expression, typeArguments)
           maybeType <- lookupParameter(name.value)
@@ -62,15 +67,19 @@ object ConstraintExtract extends Logging {
                        }
           _         <- tellConstraint(Constraints.constraint(assumedType, expression.as(exprType), "Type mismatch."))
         } yield exprType
-      case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                 =>
+      case OperatorResolvedExpression.ValueReference(vfqn, _) if vfqn.value === typeFQN =>
+        checkNoTypeArgs(expression, typeArguments) >>
+          ConcreteValue(Value.Type).pure[TypeGraphIO]
+      case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                    =>
         for {
+          _             <- debug[TypeGraphIO](s"Dereferencing value ${vfqn.show}")
           _             <- checkNoTypeArgs(expression, typeArguments)
           resolved      <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
           sigExpr        = resolved.typeStack.map(_.signature)
           evaluatedArgs <- typeArgs.traverse(ta => StateT.liftF(Evaluator.evaluate(ta)))
           valueType     <- inferType(assumedType, sigExpr, evaluatedArgs)
         } yield valueType
-      case OperatorResolvedExpression.FunctionApplication(target, arg)               =>
+      case OperatorResolvedExpression.FunctionApplication(target, arg)                  =>
         for {
           _          <- checkNoTypeArgs(expression, typeArguments)
           argTypeVar <- generateUnificationVar
@@ -81,7 +90,7 @@ object ConstraintExtract extends Logging {
                           Constraints.constraint(assumedType, expression.as(retTypeVar), "Type mismatch.")
                         )
         } yield retTypeVar
-      case OperatorResolvedExpression.FunctionLiteral(paramName, paramTypeOpt, body) =>
+      case OperatorResolvedExpression.FunctionLiteral(paramName, paramTypeOpt, body)    =>
         for {
           typedParamType <- paramTypeOpt match {
                               case Some(paramTypeStack) =>

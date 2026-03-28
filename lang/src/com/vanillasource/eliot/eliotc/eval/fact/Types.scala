@@ -14,9 +14,6 @@ object Types {
       QualifiedName("FullyQualifiedName", Qualifier.Default)
     )
   val typeFQN: ValueFQN =
-    ValueFQN(ModuleName(Seq("eliot", "lang"), "Type"), QualifiedName("Type", Qualifier.Default))
-
-  val typeFQNType: ValueFQN =
     ValueFQN(ModuleName(Seq("eliot", "lang"), "Type"), QualifiedName("Type", Qualifier.Type))
 
   val functionDataTypeFQN = ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
