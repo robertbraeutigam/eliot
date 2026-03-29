@@ -112,12 +112,12 @@ object ConstraintExtract extends Logging {
                             }
           _              <- bindParameter(paramName.value, paramName.as(typedParamType))
           retTypeVar     <- generateUnificationVar
-          bodyType       <- collectConstraints(retTypeVar, body, typeArguments.drop(1))
+          bodyEvaled     <- collectConstraints(retTypeVar, body, typeArguments.drop(1))
           funcType        = ExpressionValue.functionType(typedParamType, retTypeVar)
           _              <- tellConstraint(
                               Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
                             )
-        } yield if (typeArguments.nonEmpty) bodyType else funcType // FIXME: eval
+        } yield bodyEvaled
     }
 
   private def checkNoTypeArgs(
