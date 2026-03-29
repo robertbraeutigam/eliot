@@ -28,12 +28,13 @@ object ConstraintExtract extends Logging {
                        (assumedType, level) =>
                          inferType(assumedType, level).void >> StateT.liftF(evaluate(level))
                      }
-      // Infer the signature level, consuming type arguments through leading lambdas
+      // Infer the signature level, with adding supplied type arguments (this differs from above)
       _           <-
         debug[TypeGraphIO](
           s"Collecting constraints from signature, kind: ${kindType.show}, signature: ${signatureLevel.value.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
         )
-      runtimeType <- inferType(kindType, signatureLevel, key.typeArguments.map(ConcreteValue(_)))
+      _           <- inferType(kindType, signatureLevel, key.typeArguments.map(ConcreteValue(_)))
+      runtimeType <- StateT.liftF(evaluate(signatureLevel))
       // Handle runtime level, if available
       _           <- debug[TypeGraphIO](s"Collecting constraints from runtime, signature: ${runtimeType.show}")
       _           <- resolvedValue.runtime.traverse_(inferType(runtimeType, _).void)
