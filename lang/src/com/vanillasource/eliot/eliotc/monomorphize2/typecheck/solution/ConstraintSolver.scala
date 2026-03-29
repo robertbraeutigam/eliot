@@ -20,16 +20,16 @@ object ConstraintSolver extends Logging {
 
     def resolveHead(expr: ExpressionValue): ExpressionValue =
       expr match {
-        case ParameterReference(name, _) if isUnificationVar(name) =>
+        case ParameterReference(name, _) =>
           substitutions.get(name).map(s => resolveHead(s.value)).getOrElse(expr)
-        case other                                                 => other
+        case other                       => other
       }
 
     def resolveHeadSourced(sourced: Sourced[ExpressionValue]): Sourced[ExpressionValue] =
       sourced.value match {
-        case ParameterReference(name, _) if isUnificationVar(name) =>
+        case ParameterReference(name, _) =>
           substitutions.get(name).map(resolveHeadSourced).getOrElse(sourced)
-        case _                                                     => sourced
+        case _                           => sourced
       }
 
     def containsVar(expr: ExpressionValue, varName: String): Boolean =
@@ -50,9 +50,7 @@ object ConstraintSolver extends Logging {
         onConcrete = v => ConcreteValue(v),
         onNative = pt => NativeFunction(pt, _ => ConcreteValue(Value.Type)),
         onParamRef = (name, pt) =>
-          if (isUnificationVar(name))
-            substitutions.get(name).map(s => substitute(s.value)).getOrElse(ParameterReference(name, pt))
-          else ParameterReference(name, pt),
+          substitutions.get(name).map(s => substitute(s.value)).getOrElse(ParameterReference(name, pt)),
         onFunApp =
           (target, arg) => FunctionApplication(ExpressionValue.unsourced(target), ExpressionValue.unsourced(arg)),
         onFunLit = (name, pt, body) =>
@@ -82,7 +80,7 @@ object ConstraintSolver extends Logging {
 
     (left, right) match {
       // Unification variable on left: bind (with occurs check)
-      case (ParameterReference(name, _), _) if isUnificationVar(name) =>
+      case (ParameterReference(name, _), _) =>
         for {
           state <- StateT.get[CompilerIO, SolverState]
           _     <- if (state.containsVar(right, name))
@@ -92,7 +90,7 @@ object ConstraintSolver extends Logging {
         } yield ()
 
       // Unification variable on right: bind (with occurs check)
-      case (_, ParameterReference(name, _)) if isUnificationVar(name) =>
+      case (_, ParameterReference(name, _)) =>
         for {
           state <- StateT.get[CompilerIO, SolverState]
           _     <- if (state.containsVar(left, name))
@@ -142,8 +140,6 @@ object ConstraintSolver extends Logging {
         ) >> issueError(constraint, constraint.errorMessage)
     }
   }
-
-  private def isUnificationVar(name: String): Boolean = name.startsWith("$")
 
   private def issueError(constraint: Constraint, message: String): SolverIO[Unit] =
     StateT.liftF(
