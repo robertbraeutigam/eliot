@@ -53,7 +53,7 @@ class MonomorphicTypeCheckTest
   }
 
   it should "not compile if call site has arguments, but definition doesn't" in {
-    runForErrors("data A\ndef f: A = b(1)\ndef b: A")
+    runForErrors("def f: String = b(1)\ndef b: String")
       .asserting(_ shouldBe Seq("Expected function type." at "b(1)"))
   }
 

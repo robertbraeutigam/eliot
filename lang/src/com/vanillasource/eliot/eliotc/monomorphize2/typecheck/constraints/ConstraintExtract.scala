@@ -72,7 +72,6 @@ object ConstraintExtract extends Logging {
           ConcreteValue(Value.Type).pure[TypeGraphIO]
       case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                    =>
         for {
-          _             <- debug[TypeGraphIO](s"Dereferencing value ${vfqn.show}")
           _             <- checkNoTypeArgs(expression, typeArguments)
           resolved      <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
           sigExpr        = resolved.typeStack.map(_.signature)
