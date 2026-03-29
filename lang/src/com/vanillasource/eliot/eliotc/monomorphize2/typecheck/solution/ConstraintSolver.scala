@@ -1,9 +1,10 @@
 package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution
 
-import cats.data.StateT
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints.Constraint
@@ -11,157 +12,117 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
-/** Solves unification constraints using Robinson's algorithm. Adapted from the deleted symbolic ConstraintSolver but
-  * works with ExpressionValue instead of SymbolicType, and has no universal variables.
+/** Solves constraints by propagation and evaluation. Binds unification variables to concrete Values, substitutes
+  * bindings into expressions, evaluates via Evaluator.reduce, and iterates until all constraints are resolved.
   */
 object ConstraintSolver extends Logging {
 
-  private case class SolverState(substitutions: Map[String, Sourced[ExpressionValue]] = Map.empty) {
-
-    def resolveHead(expr: ExpressionValue): ExpressionValue =
-      expr match {
-        case ParameterReference(name) =>
-          substitutions.get(name).map(s => resolveHead(s.value)).getOrElse(expr)
-        case other                    => other
-      }
-
-    def resolveHeadSourced(sourced: Sourced[ExpressionValue]): Sourced[ExpressionValue] =
-      sourced.value match {
-        case ParameterReference(name) =>
-          substitutions.get(name).map(resolveHeadSourced).getOrElse(sourced)
-        case _                        => sourced
-      }
-
-    def containsVar(expr: ExpressionValue, varName: String): Boolean =
-      expr match {
-        case ParameterReference(name) if name == varName => true
-        case ParameterReference(name)                    =>
-          substitutions.get(name).exists(s => containsVar(s.value, varName))
-        case FunctionApplication(target, arg)            =>
-          containsVar(target.value, varName) || containsVar(arg.value, varName)
-        case _                                           => false
-      }
-
-    def bind(varName: String, value: Sourced[ExpressionValue]): SolverState =
-      copy(substitutions = substitutions + (varName -> value))
-
-    def substitute(expr: ExpressionValue): ExpressionValue =
-      ExpressionValue.fold(
-        onConcrete = v => ConcreteValue(v),
-        onNative = pt => NativeFunction(pt, _ => ConcreteValue(Value.Type)),
-        onParamRef =
-          (name) => substitutions.get(name).map(s => substitute(s.value)).getOrElse(ParameterReference(name)),
-        onFunApp =
-          (target, arg) => FunctionApplication(ExpressionValue.unsourced(target), ExpressionValue.unsourced(arg)),
-        onFunLit = (name, pt, body) => throw IllegalStateException("FunctionLiteral should not appear in constraints")
-      )(expr)
-  }
-
-  private type SolverIO[T] = StateT[CompilerIO, SolverState, T]
-
   def solve(constraints: Constraints): CompilerIO[Solution] =
+    propagate(constraints.constraints, Map.empty)
+
+  private def propagate(pending: Seq[Constraint], bindings: Map[String, Value]): CompilerIO[Solution] =
     for {
-      endState <- constraints.constraints.traverse(solveConstraint).runS(SolverState())
-      solution <- extractSolution(endState)
+      result   <- pending.foldLeftM[CompilerIO, (Seq[Constraint], Map[String, Value])]((Seq.empty, bindings)) {
+                    case ((deferred, currentBindings), constraint) =>
+                      processConstraint(constraint, currentBindings).map {
+                        case (None, newBindings)              => (deferred, currentBindings ++ newBindings)
+                        case (Some(remaining), newBindings)   => (deferred :+ remaining, currentBindings ++ newBindings)
+                      }
+                  }
+      (stillPending, newBindings) = result
+      solution <- if (stillPending.isEmpty)
+                    Solution(newBindings).pure[CompilerIO]
+                  else if (newBindings.size > bindings.size)
+                    propagate(stillPending, newBindings)
+                  else
+                    reportUnresolved(stillPending) >> Solution(newBindings).pure[CompilerIO]
     } yield solution
 
-  private def solveConstraint(constraint: Constraint): SolverIO[Unit] =
+  /** Process a single constraint. Returns (None, newBindings) if fully resolved, or (Some(constraint), newBindings) if
+    * deferred.
+    */
+  private def processConstraint(
+      constraint: Constraint,
+      bindings: Map[String, Value]
+  ): CompilerIO[(Option[Constraint], Map[String, Value])] =
     for {
-      state        <- StateT.get[CompilerIO, SolverState]
-      leftResolved  = state.resolveHead(constraint.left)
-      rightResolved = state.resolveHeadSourced(constraint.right)
-      _            <- unify(constraint.copy(left = leftResolved, right = rightResolved))
-    } yield ()
+      leftReduced  <- substituteAndReduce(constraint.left, bindings)
+      rightReduced <- substituteAndReduce(constraint.right.value, bindings)
+      result       <- (leftReduced, rightReduced) match {
+                        // Both fully evaluated: check equality
+                        case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
+                          (None, Map.empty[String, Value]).pure[CompilerIO]
+                        case (ConcreteValue(_), ConcreteValue(_))               =>
+                          issueError(constraint, leftReduced, rightReduced) >>
+                            (None, Map.empty[String, Value]).pure[CompilerIO]
 
-  private def unify(constraint: Constraint): SolverIO[Unit] = {
-    val left  = constraint.left
-    val right = constraint.right.value
+                        // Unification variable vs concrete value: bind
+                        case (ParameterReference(name), ConcreteValue(v))       =>
+                          (None, Map(name -> v)).pure[CompilerIO]
+                        case (ConcreteValue(v), ParameterReference(name))       =>
+                          (None, Map(name -> v)).pure[CompilerIO]
 
-    (left, right) match {
-      // Unification variable on left: bind (with occurs check)
-      case (ParameterReference(name), _)                      =>
-        for {
-          state <- StateT.get[CompilerIO, SolverState]
-          _     <- if (state.containsVar(right, name))
-                     issueError(constraint, "Infinite type detected.")
-                   else
-                     StateT.modify[CompilerIO, SolverState](_.bind(name, constraint.right))
-        } yield ()
+                        // Both unification variables: defer
+                        case (ParameterReference(_), ParameterReference(_))     =>
+                          (Some(constraint), Map.empty[String, Value]).pure[CompilerIO]
 
-      // Unification variable on right: bind (with occurs check)
-      case (_, ParameterReference(name))                      =>
-        for {
-          state <- StateT.get[CompilerIO, SolverState]
-          _     <- if (state.containsVar(left, name))
-                     issueError(constraint, "Infinite type detected.")
-                   else
-                     StateT.modify[CompilerIO, SolverState](_.bind(name, constraint.right.as(left)))
-        } yield ()
+                        // One side concrete, other has free vars: try matchTypes to extract bindings
+                        case (_, ConcreteValue(_))                              =>
+                          extractBindingsOrDefer(constraint, leftReduced, rightReduced)
+                        case (ConcreteValue(_), _)                              =>
+                          extractBindingsOrDefer(constraint, rightReduced, leftReduced)
 
-      // Both concrete values: check equality
-      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
-        StateT.pure(())
+                        // Both sides have free vars: defer
+                        case _                                                  =>
+                          (Some(constraint), Map.empty[String, Value]).pure[CompilerIO]
+                      }
+    } yield result
 
-      case (ConcreteValue(_), ConcreteValue(_))                       =>
-        issueError(constraint, constraint.errorMessage)
-
-      // Function types: decompose into parameter and return type constraints
-      case (FunctionType(p1, r1), FunctionType(p2, r2))               =>
-        for {
-          _ <- solveConstraint(Constraint(p1, constraint.right.as(p2), "Parameter type mismatch."))
-          _ <- solveConstraint(Constraint(r1, constraint.right.as(r2), "Return type mismatch."))
-        } yield ()
-
-      // Generic FunctionApplication: structural comparison
-      case (FunctionApplication(t1, a1), FunctionApplication(t2, a2)) =>
-        for {
-          _ <- solveConstraint(Constraint(t1.value, constraint.right.as(t2.value), "Type constructor mismatch."))
-          _ <- solveConstraint(Constraint(a1.value, constraint.right.as(a2.value), "Type argument mismatch."))
-        } yield ()
-
-      // ConcreteValue with type args vs FunctionApplication: normalize and retry
-      case (_: FunctionApplication, ConcreteValue(v @ Value.Structure(fields, Value.Type)))
-          if fields.size > 1 && fields.contains("$typeName") =>
-        unify(constraint.copy(right = constraint.right.as(ExpressionValue.fromValue(v))))
-
-      case (ConcreteValue(v @ Value.Structure(fields, Value.Type)), _: FunctionApplication)
-          if fields.size > 1 && fields.contains("$typeName") =>
-        unify(constraint.copy(left = ExpressionValue.fromValue(v)))
-
-      // NativeFunction: match parameter types
-      case (NativeFunction(pt1, _), NativeFunction(pt2, _)) if pt1 == pt2 =>
-        StateT.pure(())
-
-      // Anything else is a type error
-      case _                                                              =>
-        debug[SolverIO](
-          s"Constraint failed, expected ${constraint.left.show}, found: ${constraint.right.value.show}"
-        ) >> issueError(constraint, constraint.errorMessage)
+  /** Try to extract bindings using matchTypes. If bindings found, return them. Otherwise defer. */
+  private def extractBindingsOrDefer(
+      constraint: Constraint,
+      withVars: ExpressionValue,
+      concrete: ExpressionValue
+  ): CompilerIO[(Option[Constraint], Map[String, Value])] = {
+    val matched      = ExpressionValue.matchTypes(withVars, concrete)
+    val valueMatches = matched.flatMap { case (name, expr) =>
+      ExpressionValue.concreteValueOf(expr).map(name -> _)
     }
+    if (valueMatches.nonEmpty)
+      (None, valueMatches).pure[CompilerIO]
+    else
+      (Some(constraint), Map.empty[String, Value]).pure[CompilerIO]
   }
 
-  private def issueError(constraint: Constraint, message: String): SolverIO[Unit] =
-    StateT.liftF(
-      compilerError(
-        constraint.right.as(message),
-        Seq(
-          s"Expected: ${constraint.left.show}",
-          s"Found:    ${constraint.right.value.show}"
-        )
+  /** Substitute all known bindings into an expression and reduce it. */
+  private def substituteAndReduce(expr: ExpressionValue, bindings: Map[String, Value]): CompilerIO[ExpressionValue] = {
+    val substituted = bindings.foldLeft(expr) { case (e, (name, value)) =>
+      ExpressionValue.substitute(e, name, ConcreteValue(value))
+    }
+    Evaluator.reduce(substituted, ExpressionValue.unsourced(substituted))
+  }
+
+  private def issueError(
+      constraint: Constraint,
+      leftReduced: ExpressionValue,
+      rightReduced: ExpressionValue
+  ): CompilerIO[Unit] =
+    compilerError(
+      constraint.right.as(constraint.errorMessage),
+      Seq(
+        s"Expected: ${leftReduced.show}",
+        s"Found:    ${rightReduced.show}"
       )
     )
 
-  /** Extract the final solution by fully substituting all unification vars and verifying they resolve to concrete
-    * values.
-    */
-  private def extractSolution(state: SolverState): CompilerIO[Solution] = {
-    val resolved    = state.substitutions.map { case (name, sourced) =>
-      val fullyResolved = state.substitute(sourced.value)
-      name -> fullyResolved
+  private def reportUnresolved(constraints: Seq[Constraint]): CompilerIO[Unit] =
+    constraints.traverse_ { constraint =>
+      compilerError(
+        constraint.right.as("Could not resolve type."),
+        Seq(
+          s"Left:  ${constraint.left.show}",
+          s"Right: ${constraint.right.value.show}"
+        )
+      )
     }
-    val concreteMap = resolved.flatMap { case (name, expr) =>
-      ExpressionValue.concreteValueOf(expr).map(name -> _)
-    }
-    Solution(concreteMap).pure[CompilerIO]
-  }
 }
