@@ -80,19 +80,19 @@ object ConstraintExtract extends Logging {
           resolved      <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
           sigExpr        = resolved.typeStack.map(_.signature)
           evaluatedArgs <- typeArgs.traverse(ta => StateT.liftF(Evaluator.evaluate(ta)))
-          valueType     <- collectConstraints(assumedType, sigExpr, evaluatedArgs)
-        } yield valueType
+          sigEvaled     <- collectConstraints(assumedType, sigExpr, evaluatedArgs)
+        } yield sigEvaled
       case OperatorResolvedExpression.FunctionApplication(target, arg)                  =>
         for {
-          _          <- checkNoTypeArgs(expression, typeArguments)
-          argTypeVar <- generateUnificationVar
-          retTypeVar <- generateUnificationVar
-          _          <- collectConstraints(ExpressionValue.functionType(argTypeVar, retTypeVar), target)
-          _          <- collectConstraints(argTypeVar, arg)
-          _          <- tellConstraint(
-                          Constraints.constraint(assumedType, expression.as(retTypeVar), "Type mismatch.")
-                        )
-        } yield retTypeVar
+          _            <- checkNoTypeArgs(expression, typeArguments)
+          argTypeVar   <- generateUnificationVar
+          retTypeVar   <- generateUnificationVar
+          targetEvaled <- collectConstraints(ExpressionValue.functionType(argTypeVar, retTypeVar), target)
+          argEvaled    <- collectConstraints(argTypeVar, arg)
+          _            <- tellConstraint(
+                            Constraints.constraint(assumedType, expression.as(retTypeVar), "Type mismatch.")
+                          )
+        } yield ExpressionValue.FunctionApplication(target.as(targetEvaled), arg.as(argEvaled))
       case OperatorResolvedExpression.FunctionLiteral(paramName, paramTypeOpt, body)    =>
         for {
           typedParamType <- paramTypeOpt match {
@@ -117,7 +117,7 @@ object ConstraintExtract extends Logging {
           _              <- tellConstraint(
                               Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
                             )
-        } yield if (typeArguments.nonEmpty) bodyType else funcType
+        } yield if (typeArguments.nonEmpty) bodyType else funcType // FIXME: eval
     }
 
   private def checkNoTypeArgs(
