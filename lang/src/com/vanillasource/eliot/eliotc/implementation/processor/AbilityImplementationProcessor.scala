@@ -37,9 +37,9 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       _           <- deduplicated match {
                        case Seq((implFQN, implTypeArgs)) =>
                          registerFactIfClear(AbilityImplementation(abilityValueFQN, key.typeArguments, implFQN, implTypeArgs))
-                       case Seq()        =>
+                       case Seq()                        =>
                          handleMissingImplementation(abilityValueFQN, abilityFQN, key)
-                       case multiple     =>
+                       case multiple                     =>
                          for {
                            resolved <- getFactOrAbort(OperatorResolvedValue.Key(abilityValueFQN))
                            _        <-
@@ -147,9 +147,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
               matchResult    = implMatchesQueryWithBindings(evalParams, freeVarNames, exprArgs)
             } yield matchResult match {
               case Some(bindings) =>
-                val implTypeArgs = typeParams.map(p =>
-                  bindings.get(p).flatMap(ExpressionValue.concreteValueOf).getOrElse(Value.Type)
-                )
+                val implTypeArgs =
+                  typeParams.map(p => bindings.get(p).flatMap(ExpressionValue.concreteValueOf).getOrElse(Value.Type))
                 Seq((vfqn, implTypeArgs))
               case None           => Seq.empty
             }
@@ -179,9 +178,9 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, ExpressionValue]) { (acc, pair) =>
         acc ++ ExpressionValue.matchTypes(pair._1, pair._2, freeVarNames.contains)
       }
-      val matches = implParams.zip(queryArgs).forall { (implParam, queryArg) =>
+      val matches  = implParams.zip(queryArgs).forall { (implParam, queryArg) =>
         freeVarNames.foldLeft(implParam) { case (acc, name) =>
-          ExpressionValue.substitute(acc, name, bindings.getOrElse(name, ParameterReference(name, Value.Type)))
+          ExpressionValue.substitute(acc, name, bindings.getOrElse(name, ParameterReference(name)))
         } == queryArg
       }
       if (matches) Some(bindings) else None

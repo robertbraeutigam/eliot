@@ -20,7 +20,7 @@ object TypeCheckState {
   def generateUnificationVar: TypeGraphIO[ParameterReference] =
     StateT { state =>
       val (id, newShortIds) = state.shortIds.generateNext()
-      (state.copy(shortIds = newShortIds), ParameterReference(id, Value.Type)).pure[CompilerIO]
+      (state.copy(shortIds = newShortIds), ParameterReference(id)).pure[CompilerIO]
     }
 
   def bindParameter(name: String, typ: Sourced[ExpressionValue]): TypeGraphIO[Unit] =

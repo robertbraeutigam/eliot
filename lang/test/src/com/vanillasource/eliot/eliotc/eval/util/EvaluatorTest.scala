@@ -51,7 +51,7 @@ class EvaluatorTest extends ProcessorTest() {
         outerBody.value match {
           case FunctionLiteral("y", _, innerBody) =>
             innerBody.value match {
-              case ParameterReference("x", _) => succeed
+              case ParameterReference("x") => succeed
               case other                      => fail(s"Unexpected inner body: $other")
             }
           case other                              => fail(s"Unexpected outer body: $other")
@@ -100,7 +100,7 @@ class EvaluatorTest extends ProcessorTest() {
     runEvaluator(expr).asserting {
       case FunctionLiteral("x", _, body) =>
         body.value match {
-          case ParameterReference("x", _) => succeed
+          case ParameterReference("x") => succeed
           case other                      => fail(s"Unexpected body: $other")
         }
       case other                         => fail(s"Unexpected result: $other")
@@ -115,7 +115,7 @@ class EvaluatorTest extends ProcessorTest() {
 
   it should "resolve function value reference and apply" in {
     val vfqn       = ValueFQN(testModuleName, QualifiedName("identity", Qualifier.Default))
-    val identityFn = FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x", bigIntType)))
+    val identityFn = FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x")))
     val fact       = NamedEvaluable(vfqn, identityFn)
     val expr       = funApp(valueRef(vfqn), intLit(42))
     runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
@@ -137,7 +137,7 @@ class EvaluatorTest extends ProcessorTest() {
     val vfqn   = ValueFQN(testModuleName, QualifiedName("recursive", Qualifier.Default))
     val fnVfqn = ValueFQN(testModuleName, QualifiedName("fn", Qualifier.Default))
     val fnFact =
-      NamedEvaluable(fnVfqn, FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x", bigIntType))))
+      NamedEvaluable(fnVfqn, FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x"))))
     val expr   = funApp(valueRef(fnVfqn), valueRef(vfqn))
     runEvaluatorWithFactsAndTracking(expr, Seq(fnFact), Set(vfqn)).asserting(
       _ shouldBe Left("Recursive evaluation detected.")

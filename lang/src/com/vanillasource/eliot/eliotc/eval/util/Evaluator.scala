@@ -31,7 +31,7 @@ object Evaluator {
       value   <- toExpressionValue(expression.value, evaluating, paramContext, expression)
       reduced <- reduce(value, expression)
       result  <- reduced match {
-                   case ParameterReference(name, _)      =>
+                   case ParameterReference(name)         =>
                      compilerAbort(expression.as(s"Unbound parameter reference: $name"))
                    case FunctionApplication(_, _)        =>
                      compilerAbort(expression.as("Could not reduce function application."))
@@ -53,7 +53,7 @@ object Evaluator {
     case OperatorResolvedExpression.ParameterReference(s)                             =>
       val name = s.value
       paramContext.get(name) match {
-        case Some(paramType) => ParameterReference(name, paramType).pure[CompilerIO]
+        case Some(paramType) => ParameterReference(name).pure[CompilerIO]
         case None            => compilerAbort(callSite.getOrElse(s).as(s"Unknown parameter: $name"))
       }
     case OperatorResolvedExpression.ValueReference(s, _)                              =>
@@ -137,9 +137,8 @@ object Evaluator {
       }
 
   private def argumentType(argument: ExpressionValue): Option[Value] = argument match {
-    case ConcreteValue(v)         => Some(v.valueType)
-    case ParameterReference(_, t) => Some(t)
-    case _                        => None
+    case ConcreteValue(v) => Some(v.valueType)
+    case _                => None
   }
 
   /** Apply concrete type arguments to a type ExpressionValue. For non-generic types, returns the concrete Value

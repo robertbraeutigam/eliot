@@ -25,14 +25,14 @@ object ExpressionValue {
   def fold[A](
       onConcrete: Value => A,
       onNative: Value => A,
-      onParamRef: (String, Value) => A,
+      onParamRef: String => A,
       onFunApp: (A, A) => A,
       onFunLit: (String, Value, A) => A
   )(expr: ExpressionValue): A =
     expr match {
       case ConcreteValue(v)                       => onConcrete(v)
       case NativeFunction(paramType, _)           => onNative(paramType)
-      case ParameterReference(name, paramType)    => onParamRef(name, paramType)
+      case ParameterReference(name)               => onParamRef(name)
       case FunctionApplication(target, arg)       =>
         onFunApp(
           fold(onConcrete, onNative, onParamRef, onFunApp, onFunLit)(target.value),
@@ -44,7 +44,7 @@ object ExpressionValue {
 
   /** Check if an expression contains a variable with the given name. Used for occurs check in unification. */
   def containsVar(expr: ExpressionValue, varName: String): Boolean =
-    fold(_ => false, _ => false, (name, _) => name == varName, _ || _, (_, _, inBody) => inBody)(expr)
+    fold(_ => false, _ => false, name => name == varName, _ || _, (_, _, inBody) => inBody)(expr)
 
   /** Strip all leading FunctionLiteral wrappers, returning the innermost body. */
   @tailrec
@@ -134,8 +134,8 @@ object ExpressionValue {
   /** Capture-avoiding substitution: replace all free occurrences of paramName with argValue. */
   def substitute(body: ExpressionValue, paramName: String, argValue: ExpressionValue): ExpressionValue =
     body match {
-      case ParameterReference(name, _) if name == paramName                 => argValue
-      case ParameterReference(_, _)                                         => body
+      case ParameterReference(name) if name == paramName                    => argValue
+      case ParameterReference(_)                                            => body
       case FunctionApplication(target, arg)                                 =>
         FunctionApplication(target.map(substitute(_, paramName, argValue)), arg.map(substitute(_, paramName, argValue)))
       case FunctionLiteral(name, paramType, innerBody) if name != paramName =>
@@ -164,7 +164,7 @@ object ExpressionValue {
       case ConcreteValue(v)                       => v.show
       case FunctionLiteral(name, paramType, body) => s"(($name: ${paramType.show}) -> ${body.value.show})"
       case NativeFunction(paramType, _)           => s"native(${paramType.show})"
-      case ParameterReference(name, _)            => name
+      case ParameterReference(name)            => name
       case FunctionApplication(target, arg)       => s"${target.value.show}(${arg.value.show})"
     }
   }
@@ -206,7 +206,7 @@ object ExpressionValue {
       isTypeVar: String => Boolean = _ => true
   ): Map[String, ExpressionValue] =
     (pattern, concrete) match {
-      case (ParameterReference(name, _), _) if isTypeVar(name)              =>
+      case (ParameterReference(name), _) if isTypeVar(name)              =>
         Map(name -> concrete)
       case (FunctionType(p1, r1), FunctionType(p2, r2))                     =>
         matchTypes(p1, p2, isTypeVar) ++ matchTypes(r1, r2, isTypeVar)
@@ -291,7 +291,7 @@ object ExpressionValue {
   /** A reference to a function parameter. Note: that this is only allowed somewhere in a function literal's body, not
     * on top level.
     */
-  case class ParameterReference(parameterName: String, parameterType: Value) extends ExpressionValue
+  case class ParameterReference(parameterName: String) extends ExpressionValue
 
   /** An application of a function.
     */

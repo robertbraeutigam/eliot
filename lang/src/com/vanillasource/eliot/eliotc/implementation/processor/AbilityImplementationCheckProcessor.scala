@@ -191,7 +191,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       }
       implParams.zip(queryArgs).forall { (implParam, queryArg) =>
         freeVarNames.foldLeft(implParam) { case (acc, name) =>
-          ExpressionValue.substitute(acc, name, bindings.getOrElse(name, ParameterReference(name, Value.Type)))
+          ExpressionValue.substitute(acc, name, bindings.getOrElse(name, ParameterReference(name)))
         } == queryArg
       }
     }

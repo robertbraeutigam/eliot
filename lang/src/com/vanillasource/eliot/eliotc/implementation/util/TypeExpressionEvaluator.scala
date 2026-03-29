@@ -40,7 +40,7 @@ object TypeExpressionEvaluator {
       ConcreteValue(Value.Direct(s.value, stringType)).pure[CompilerIO]
     case OperatorResolvedExpression.ParameterReference(s)                             =>
       if (freeVarNames.contains(s.value))
-        ParameterReference(s.value, Value.Type).pure[CompilerIO]
+        ParameterReference(s.value).pure[CompilerIO]
       else
         compilerAbort(s.as(s"Unknown parameter: ${s.value}"))
     case OperatorResolvedExpression.ValueReference(s, _)                              =>
@@ -77,7 +77,7 @@ object TypeExpressionEvaluator {
             case None =>
               rawVfqn.name.qualifier match {
                 case _: Qualifier.Ability | _: Qualifier.AbilityImplementation =>
-                  ParameterReference(rawVfqn.show + "$", Value.Type).pure[CompilerIO]
+                  ParameterReference(rawVfqn.show + "$").pure[CompilerIO]
                 case _                                                         =>
                   ConcreteValue(Types.dataType(typeFqn)).pure[CompilerIO]
               }
@@ -90,7 +90,7 @@ object TypeExpressionEvaluator {
             case None       =>
               rawVfqn.name.qualifier match {
                 case _: Qualifier.Ability | _: Qualifier.AbilityImplementation =>
-                  ParameterReference(rawVfqn.show + "$", Value.Type).pure[CompilerIO]
+                  ParameterReference(rawVfqn.show + "$").pure[CompilerIO]
                 case _                                                         =>
                   ConcreteValue(Types.dataType(rawVfqn)).pure[CompilerIO]
               }
@@ -107,7 +107,11 @@ object TypeExpressionEvaluator {
     else ValueFQN(vfqn.moduleName, QualifiedName(vfqn.name.name, Qualifier.Type))
 
   private val bigIntType: Value =
-    Types.dataType(ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type)))
+    Types.dataType(
+      ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type))
+    )
   private val stringType: Value =
-    Types.dataType(ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type)))
+    Types.dataType(
+      ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type))
+    )
 }

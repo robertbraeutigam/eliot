@@ -20,26 +20,26 @@ object ConstraintSolver extends Logging {
 
     def resolveHead(expr: ExpressionValue): ExpressionValue =
       expr match {
-        case ParameterReference(name, _) =>
+        case ParameterReference(name) =>
           substitutions.get(name).map(s => resolveHead(s.value)).getOrElse(expr)
-        case other                       => other
+        case other                    => other
       }
 
     def resolveHeadSourced(sourced: Sourced[ExpressionValue]): Sourced[ExpressionValue] =
       sourced.value match {
-        case ParameterReference(name, _) =>
+        case ParameterReference(name) =>
           substitutions.get(name).map(resolveHeadSourced).getOrElse(sourced)
-        case _                           => sourced
+        case _                        => sourced
       }
 
     def containsVar(expr: ExpressionValue, varName: String): Boolean =
       expr match {
-        case ParameterReference(name, _) if name == varName => true
-        case ParameterReference(name, _)                    =>
+        case ParameterReference(name) if name == varName => true
+        case ParameterReference(name)                    =>
           substitutions.get(name).exists(s => containsVar(s.value, varName))
-        case FunctionApplication(target, arg)               =>
+        case FunctionApplication(target, arg)            =>
           containsVar(target.value, varName) || containsVar(arg.value, varName)
-        case _                                              => false
+        case _                                           => false
       }
 
     def bind(varName: String, value: Sourced[ExpressionValue]): SolverState =
@@ -49,12 +49,11 @@ object ConstraintSolver extends Logging {
       ExpressionValue.fold(
         onConcrete = v => ConcreteValue(v),
         onNative = pt => NativeFunction(pt, _ => ConcreteValue(Value.Type)),
-        onParamRef = (name, pt) =>
-          substitutions.get(name).map(s => substitute(s.value)).getOrElse(ParameterReference(name, pt)),
+        onParamRef =
+          (name) => substitutions.get(name).map(s => substitute(s.value)).getOrElse(ParameterReference(name)),
         onFunApp =
           (target, arg) => FunctionApplication(ExpressionValue.unsourced(target), ExpressionValue.unsourced(arg)),
-        onFunLit = (name, pt, body) =>
-          throw IllegalStateException("FunctionLiteral should not appear in constraints")
+        onFunLit = (name, pt, body) => throw IllegalStateException("FunctionLiteral should not appear in constraints")
       )(expr)
   }
 
@@ -80,7 +79,7 @@ object ConstraintSolver extends Logging {
 
     (left, right) match {
       // Unification variable on left: bind (with occurs check)
-      case (ParameterReference(name, _), _) =>
+      case (ParameterReference(name), _)                      =>
         for {
           state <- StateT.get[CompilerIO, SolverState]
           _     <- if (state.containsVar(right, name))
@@ -90,7 +89,7 @@ object ConstraintSolver extends Logging {
         } yield ()
 
       // Unification variable on right: bind (with occurs check)
-      case (_, ParameterReference(name, _)) =>
+      case (_, ParameterReference(name))                      =>
         for {
           state <- StateT.get[CompilerIO, SolverState]
           _     <- if (state.containsVar(left, name))
@@ -100,7 +99,7 @@ object ConstraintSolver extends Logging {
         } yield ()
 
       // Both concrete values: check equality
-      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2         =>
+      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
         StateT.pure(())
 
       case (ConcreteValue(_), ConcreteValue(_))                       =>
@@ -130,11 +129,11 @@ object ConstraintSolver extends Logging {
         unify(constraint.copy(left = ExpressionValue.fromValue(v)))
 
       // NativeFunction: match parameter types
-      case (NativeFunction(pt1, _), NativeFunction(pt2, _)) if pt1 == pt2   =>
+      case (NativeFunction(pt1, _), NativeFunction(pt2, _)) if pt1 == pt2 =>
         StateT.pure(())
 
       // Anything else is a type error
-      case _                                                                =>
+      case _                                                              =>
         debug[SolverIO](
           s"Constraint failed, expected ${constraint.left.show}, found: ${constraint.right.value.show}"
         ) >> issueError(constraint, constraint.errorMessage)

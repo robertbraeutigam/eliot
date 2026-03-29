@@ -200,13 +200,8 @@ class MonomorphicTypeCheckProcessor
               Seq(s"Expected: ${expectedType.show}")
             )
         }
-      case ParameterReference(_, paramType)    =>
-        if (paramType =!= expectedType)
-          compilerAbort(
-            source.as("Type mismatch in type stack."),
-            Seq(s"Expected: ${expectedType.show}", s"Actual:   ${paramType.show}")
-          )
-        else ().pure[CompilerIO]
+      case ParameterReference(_)               =>
+        ().pure[CompilerIO]
       case FunctionApplication(_, _)           =>
         ().pure[CompilerIO]
     }
