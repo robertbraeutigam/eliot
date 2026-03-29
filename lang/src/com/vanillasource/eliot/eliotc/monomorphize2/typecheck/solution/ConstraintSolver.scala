@@ -39,8 +39,6 @@ object ConstraintSolver extends Logging {
           substitutions.get(name).exists(s => containsVar(s.value, varName))
         case FunctionApplication(target, arg)               =>
           containsVar(target.value, varName) || containsVar(arg.value, varName)
-        case FunctionLiteral(_, _, body)                    =>
-          containsVar(body.value, varName)
         case _                                              => false
       }
 
@@ -57,7 +55,8 @@ object ConstraintSolver extends Logging {
           else ParameterReference(name, pt),
         onFunApp =
           (target, arg) => FunctionApplication(ExpressionValue.unsourced(target), ExpressionValue.unsourced(arg)),
-        onFunLit = (name, pt, body) => FunctionLiteral(name, pt, ExpressionValue.unsourced(body))
+        onFunLit = (name, pt, body) =>
+          throw IllegalStateException("FunctionLiteral should not appear in constraints")
       )(expr)
   }
 
@@ -131,15 +130,6 @@ object ConstraintSolver extends Logging {
       case (ConcreteValue(v @ Value.Structure(fields, Value.Type)), _: FunctionApplication)
           if fields.size > 1 && fields.contains("$typeName") =>
         unify(constraint.copy(left = ExpressionValue.fromValue(v)))
-
-      // FunctionLiteral: structural comparison
-      case (FunctionLiteral(_, pt1, body1), FunctionLiteral(_, pt2, body2)) =>
-        for {
-          _ <- solveConstraint(
-                 Constraint(ConcreteValue(pt1), constraint.right.as(ConcreteValue(pt2)), "Parameter type mismatch.")
-               )
-          _ <- solveConstraint(Constraint(body1.value, constraint.right.as(body2.value), "Body type mismatch."))
-        } yield ()
 
       // NativeFunction: match parameter types
       case (NativeFunction(pt1, _), NativeFunction(pt2, _)) if pt1 == pt2   =>

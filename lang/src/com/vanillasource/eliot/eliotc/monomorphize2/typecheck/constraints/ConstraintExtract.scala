@@ -12,7 +12,6 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.getFactOrAbort
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import TypeCheckState.*
-import com.vanillasource.eliot.eliotc.eval.util.Evaluator.evaluate
 import com.vanillasource.eliot.eliotc.feedback.Logging
 
 object ConstraintExtract extends Logging {
@@ -25,16 +24,14 @@ object ConstraintExtract extends Logging {
       _           <- debug[TypeGraphIO]("Collecting constraints from higher levels...")
       // Iterate levels above signature, where each level computes the type of the underlying level
       kindType    <- aboveLevels.foldLeftM[TypeGraphIO, ExpressionValue](ExpressionValue.ConcreteValue(Value.Type)) {
-                       (assumedType, level) =>
-                         inferType(assumedType, level).void >> StateT.liftF(evaluate(level))
+                       (assumedType, level) => inferType(assumedType, level)
                      }
       // Infer the signature level, with adding supplied type arguments (this differs from above)
       _           <-
         debug[TypeGraphIO](
           s"Collecting constraints from signature, kind: ${kindType.show}, signature: ${signatureLevel.value.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
         )
-      _           <- inferType(kindType, signatureLevel, key.typeArguments.map(ConcreteValue(_)))
-      runtimeType <- StateT.liftF(evaluate(signatureLevel))
+      runtimeType <- inferType(kindType, signatureLevel, key.typeArguments.map(ConcreteValue(_)))
       // Handle runtime level, if available
       _           <- debug[TypeGraphIO](s"Collecting constraints from runtime, signature: ${runtimeType.show}")
       _           <- resolvedValue.runtime.traverse_(inferType(runtimeType, _).void)
