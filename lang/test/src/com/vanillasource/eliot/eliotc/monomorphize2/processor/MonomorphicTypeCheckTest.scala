@@ -48,7 +48,7 @@ class MonomorphicTypeCheckTest
   // --- Function call tests ---
 
   "function call" should "compile if same number of arguments" in {
-    runForErrors("data A\ndef f: A = b\ndef b: A")
+    runForErrors("def f: String = b\ndef b: String")
       .asserting(_ shouldBe Seq.empty)
   }
 

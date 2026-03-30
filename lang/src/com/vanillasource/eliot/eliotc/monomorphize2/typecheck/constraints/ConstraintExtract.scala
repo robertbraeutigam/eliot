@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize2.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.getFactOrAbort
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.{getFact, getFactOrAbort}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import TypeCheckState.*
@@ -77,11 +77,25 @@ object ConstraintExtract extends Logging {
       case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                    =>
         for {
           _             <- checkNoTypeArgs(expression, typeArguments)
-          resolved      <- StateT.liftF(getFactOrAbort(OperatorResolvedValue.Key(vfqn.value)))
-          sigExpr        = resolved.typeStack.map(_.signature)
-          evaluatedArgs <- typeArgs.traverse(ta => StateT.liftF(Evaluator.evaluate(ta)))
-          sigEvaled     <- collectConstraints(assumedType, sigExpr, evaluatedArgs)
-        } yield sigEvaled
+          // Bind the assumed type to the type of the resolved value's signature.
+          // We don't check the signature here, but it will be checked when it is monomorphized
+          resolvedMaybe <- StateT.liftF(getFact(OperatorResolvedValue.Key(vfqn.value)))
+          _             <- resolvedMaybe match {
+                             case Some(resolved) =>
+                               for {
+                                 // TODO: We don't supply type arguments here, so that's a problem
+                                 signatureType <- StateT.liftF(Evaluator.evaluate(resolved.typeStack.map(_.signature)))
+                                 _             <- tellConstraint(
+                                                    Constraints.constraint(assumedType, vfqn.as(signatureType), "Type mismatch.")
+                                                  )
+                               } yield ()
+                             case None           => StateT.liftF(compilerAbort(vfqn.as(s"Value not defined.")))
+                           }
+          // We need to return the evaluated call, but remember, that the runtime maybe
+          // specialized to the eval, so we need to call eval on the current expression (which is a value call)
+          // TODO: This has bad parameter names, not referring to unification vars
+          bodyEvaled    <- StateT.liftF(Evaluator.evaluate(expression))
+        } yield bodyEvaled
       case OperatorResolvedExpression.FunctionApplication(target, arg)                  =>
         for {
           _            <- checkNoTypeArgs(expression, typeArguments)
