@@ -25,17 +25,17 @@ object ConstraintExtract extends Logging {
       _           <- debug[TypeGraphIO]("Collecting constraints from higher levels...")
       // Iterate levels above signature, where each level computes the type of the underlying level
       kindType    <- aboveLevels.foldLeftM[TypeGraphIO, ExpressionValue](ExpressionValue.ConcreteValue(Value.Type)) {
-                       (assumedType, level) => collectConstraints(assumedType, level)
+                       (assumedType, level) => collectConstraints(assumedType, level, Seq.empty, false)
                      }
       // Infer the signature level, with adding supplied type arguments (this differs from above)
       _           <-
         debug[TypeGraphIO](
           s"Collecting constraints from signature, kind: ${kindType.show}, signature: ${signatureLevel.value.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
         )
-      runtimeType <- collectConstraints(kindType, signatureLevel, key.typeArguments.map(ConcreteValue(_)))
-      // Handle runtime level, if available
+      runtimeType <- collectConstraints(kindType, signatureLevel, key.typeArguments.map(ConcreteValue(_)), false)
+      // Create constraints from runtime level against the signature, if runtime is available
       _           <- debug[TypeGraphIO](s"Collecting constraints from runtime, signature: ${runtimeType.show}")
-      _           <- resolvedValue.runtime.traverse_(collectConstraints(runtimeType, _).void)
+      _           <- resolvedValue.runtime.traverse_(collectConstraints(runtimeType, _, Seq.empty, true).void)
     } yield ()
   }
 
@@ -45,7 +45,8 @@ object ConstraintExtract extends Logging {
   private def collectConstraints(
       assumedType: ExpressionValue,
       expression: Sourced[OperatorResolvedExpression],
-      typeArguments: Seq[ExpressionValue] = Seq.empty
+      typeArguments: Seq[ExpressionValue],
+      runtime: Boolean // Prevent evaluations if in runtime
   ): TypeGraphIO[ExpressionValue] =
     expression.value match {
       case OperatorResolvedExpression.IntegerLiteral(integerLiteral)                    =>
@@ -94,15 +95,23 @@ object ConstraintExtract extends Logging {
           // We need to return the evaluated call, but remember, that the runtime maybe
           // specialized to the eval, so we need to call eval on the current expression (which is a value call)
           // TODO: This has bad parameter names, not referring to unification vars
-          bodyEvaled    <- StateT.liftF(Evaluator.evaluate(expression))
+          bodyEvaled    <- if (runtime) {
+                             // If we're in runtime, we don't need to evaluate the body, maybe it's not even there
+                             ExpressionValue
+                               .ConcreteValue(Value.Type)
+                               .pure[TypeGraphIO] // This is ignored, so can be anything
+                           } else {
+                             StateT.liftF(Evaluator.evaluate(expression))
+                           }
         } yield bodyEvaled
       case OperatorResolvedExpression.FunctionApplication(target, arg)                  =>
         for {
           _            <- checkNoTypeArgs(expression, typeArguments)
           argTypeVar   <- generateUnificationVar
           retTypeVar   <- generateUnificationVar
-          targetEvaled <- collectConstraints(ExpressionValue.functionType(argTypeVar, retTypeVar), target)
-          argEvaled    <- collectConstraints(argTypeVar, arg)
+          targetEvaled <-
+            collectConstraints(ExpressionValue.functionType(argTypeVar, retTypeVar), target, Seq.empty, runtime)
+          argEvaled    <- collectConstraints(argTypeVar, arg, Seq.empty, runtime)
           _            <- tellConstraint(
                             Constraints.constraint(assumedType, expression.as(retTypeVar), "Type mismatch.")
                           )
@@ -130,7 +139,7 @@ object ConstraintExtract extends Logging {
                         }
           _          <- bindParameter(paramName.value, paramName.as(paramVar))
           retTypeVar <- generateUnificationVar
-          bodyEvaled <- collectConstraints(retTypeVar, body, typeArguments.drop(1))
+          bodyEvaled <- collectConstraints(retTypeVar, body, typeArguments.drop(1), runtime)
           funcType    = ExpressionValue.functionType(paramVar, retTypeVar)
           _          <- tellConstraint(
                           Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
