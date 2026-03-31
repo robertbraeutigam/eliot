@@ -66,35 +66,13 @@ object ConstraintSolver extends Logging {
                         case (ParameterReference(_), ParameterReference(_))     =>
                           (Some(constraint), Map.empty[String, Value]).pure[CompilerIO]
 
-                        // One side concrete, other has free vars: try matchTypes to extract bindings
-                        case (_, ConcreteValue(_))                              =>
-                          extractBindingsOrDefer(constraint, leftReduced, rightReduced)
-                        case (ConcreteValue(_), _)                              =>
-                          extractBindingsOrDefer(constraint, rightReduced, leftReduced)
-
                         // Both sides have free vars: defer
                         case _                                                  =>
                           (Some(constraint), Map.empty[String, Value]).pure[CompilerIO]
                       }
     } yield result
 
-  /** Try to extract bindings using matchTypes. If bindings found, return them. Otherwise defer. */
-  private def extractBindingsOrDefer(
-      constraint: Constraint,
-      withVars: ExpressionValue,
-      concrete: ExpressionValue
-  ): CompilerIO[(Option[Constraint], Map[String, Value])] = {
-    val matched      = ExpressionValue.matchTypes(withVars, concrete)
-    val valueMatches = matched.flatMap { case (name, expr) =>
-      ExpressionValue.concreteValueOf(expr).map(name -> _)
-    }
-    if (valueMatches.nonEmpty)
-      (None, valueMatches).pure[CompilerIO]
-    else
-      (Some(constraint), Map.empty[String, Value]).pure[CompilerIO]
-  }
-
-  /** Substitute all known bindings into an expression and reduce it. */
+    /** Substitute all known bindings into an expression and reduce it. */
   private def substituteAndReduce(expr: ExpressionValue, bindings: Map[String, Value]): CompilerIO[ExpressionValue] = {
     val substituted = bindings.foldLeft(expr) { case (e, (name, value)) =>
       ExpressionValue.substitute(e, name, ConcreteValue(value))
