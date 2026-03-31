@@ -71,14 +71,16 @@ object ConstraintSolver extends Logging {
       constraint: Constraint,
       leftReduced: ExpressionValue,
       rightReduced: ExpressionValue
-  ): CompilerIO[Unit] =
-    compilerError(
-      constraint.right.as(constraint.errorMessage),
-      Seq(
-        s"Expected: ${leftReduced.show}",
-        s"Found:    ${rightReduced.show}"
+  ): CompilerIO[Unit] = {
+    debug[CompilerIO](s"Type error (${constraint.errorMessage}): ${leftReduced.show} vs. ${rightReduced.show}") >>
+      compilerError(
+        constraint.right.as(constraint.errorMessage),
+        Seq(
+          s"Expected: ${leftReduced.show}",
+          s"Found:    ${rightReduced.show}"
+        )
       )
-    )
+  }
 
   private def reportUnresolved(constraints: Seq[Constraint]): CompilerIO[Unit] =
     constraints.traverse_ { constraint =>
