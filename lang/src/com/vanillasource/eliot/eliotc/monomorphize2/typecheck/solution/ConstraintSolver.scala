@@ -24,11 +24,13 @@ object ConstraintSolver extends Logging {
     for {
       constraints  <- getPending
       _            <- resetPending
+      _            <- resetProgress
       _            <- constraints.traverse_(processConstraint)
       stillPending <- getPending
+      progressed   <- hasProgressed
       solution     <- if (stillPending.isEmpty)
                         currentBindings.map(Solution(_))
-                      else if (stillPending.size < constraints.size)
+                      else if (progressed)
                         propagate
                       else
                         StateT.liftF(reportUnresolved(stillPending)) >> currentBindings.map(Solution(_))
@@ -40,13 +42,13 @@ object ConstraintSolver extends Logging {
       rightReduced <- substituteAndReduce(constraint.right.value)
       _            <- (leftReduced, rightReduced) match {
                         case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
-                          ().pure[SolverIO]
+                          markProgress
                         case (ConcreteValue(_), ConcreteValue(_))               =>
-                          StateT.liftF(issueError(constraint, leftReduced, rightReduced))
+                          markProgress >> StateT.liftF(issueError(constraint, leftReduced, rightReduced))
                         case (ParameterReference(name), ConcreteValue(v))       =>
-                          bind(name, v)
+                          markProgress >> bind(name, v)
                         case (ConcreteValue(v), ParameterReference(name))       =>
-                          bind(name, v)
+                          markProgress >> bind(name, v)
                         case _                                                  =>
                           defer(constraint)
                       }
