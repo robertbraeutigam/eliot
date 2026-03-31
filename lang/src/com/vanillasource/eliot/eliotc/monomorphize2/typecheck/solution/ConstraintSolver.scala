@@ -22,37 +22,37 @@ object ConstraintSolver extends Logging {
 
   private def propagate: SolverIO[Solution] =
     for {
-      constraints  <- getPending
-      _            <- resetPending
-      _            <- resetProgress
-      _            <- constraints.traverse_(processConstraint)
-      stillPending <- getPending
-      progressed   <- hasProgressed
+      constraints  <- takePending
+      anyResolved  <- constraints.foldLeftM(false) { (progress, constraint) =>
+                        processConstraint(constraint).map(_ || progress)
+                      }
+      stillPending <- takePending
       solution     <- if (stillPending.isEmpty)
                         currentBindings.map(Solution(_))
-                      else if (progressed)
-                        propagate
+                      else if (anyResolved)
+                        stillPending.traverse_(defer) >> propagate
                       else
                         StateT.liftF(reportUnresolved(stillPending)) >> currentBindings.map(Solution(_))
     } yield solution
 
-  private def processConstraint(constraint: Constraint): SolverIO[Unit] =
+  /** Returns true if the constraint was resolved, false if deferred. */
+  private def processConstraint(constraint: Constraint): SolverIO[Boolean] =
     for {
       leftReduced  <- substituteAndReduce(constraint.left)
       rightReduced <- substituteAndReduce(constraint.right.value)
-      _            <- (leftReduced, rightReduced) match {
+      resolved     <- (leftReduced, rightReduced) match {
                         case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
-                          markProgress
+                          true.pure[SolverIO]
                         case (ConcreteValue(_), ConcreteValue(_))               =>
-                          markProgress >> StateT.liftF(issueError(constraint, leftReduced, rightReduced))
+                          StateT.liftF(issueError(constraint, leftReduced, rightReduced)).as(true)
                         case (ParameterReference(name), ConcreteValue(v))       =>
-                          markProgress >> bind(name, v)
+                          bind(name, v).as(true)
                         case (ConcreteValue(v), ParameterReference(name))       =>
-                          markProgress >> bind(name, v)
+                          bind(name, v).as(true)
                         case _                                                  =>
-                          defer(constraint)
+                          defer(constraint).as(false)
                       }
-    } yield ()
+    } yield resolved
 
   /** Substitute all known bindings into an expression and reduce it. */
   // TODO: move this into ExpressionValue, there should not be non-reduced ExpressionValues
