@@ -1,16 +1,16 @@
 package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution
 
+import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints.Constraint
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
+import SolverState.*
 
 /** Solves constraints by propagation and evaluation. Binds unification variables to concrete Values, substitutes
   * bindings into expressions, evaluates via Evaluator.reduce, and iterates until all constraints are resolved.
@@ -18,68 +18,52 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 object ConstraintSolver extends Logging {
 
   def solve(constraints: Constraints): CompilerIO[Solution] =
-    propagate(constraints.constraints, Map.empty)
+    propagate.runA(SolverState(pending = constraints.constraints))
 
-  private def propagate(pending: Seq[Constraint], bindings: Map[String, Value]): CompilerIO[Solution] =
+  private def propagate: SolverIO[Solution] =
     for {
-      result                     <- pending.foldLeftM[CompilerIO, (Seq[Constraint], Map[String, Value])]((Seq.empty, bindings)) {
-                                      case ((deferred, currentBindings), constraint) =>
-                                        processConstraint(constraint, currentBindings).map {
-                                          case (None, newBindings)            => (deferred, currentBindings ++ newBindings)
-                                          case (Some(remaining), newBindings) => (deferred :+ remaining, currentBindings ++ newBindings)
-                                        }
-                                    }
-      (stillPending, newBindings) = result
-      solution                   <- if (stillPending.isEmpty)
-                                      Solution(newBindings).pure[CompilerIO]
-                                    else if (newBindings.size > bindings.size)
-                                      propagate(stillPending, newBindings)
-                                    else
-                                      reportUnresolved(stillPending) >> Solution(newBindings).pure[CompilerIO]
+      constraints  <- getPending
+      _            <- resetPending
+      prevSize     <- currentBindings.map(_.size)
+      _            <- constraints.traverse_(processConstraint)
+      stillPending <- getPending
+      newSize      <- currentBindings.map(_.size)
+      solution     <- if (stillPending.isEmpty)
+                        currentBindings.map(Solution(_))
+                      else if (newSize > prevSize)
+                        propagate
+                      else
+                        StateT.liftF(reportUnresolved(stillPending)) >> currentBindings.map(Solution(_))
     } yield solution
 
-  /** Process a single constraint. Returns (None, newBindings) if fully resolved, or (Some(constraint), newBindings) if
-    * deferred.
-    */
-  private def processConstraint(
-      constraint: Constraint,
-      bindings: Map[String, Value]
-  ): CompilerIO[(Option[Constraint], Map[String, Value])] =
+  private def processConstraint(constraint: Constraint): SolverIO[Unit] =
     for {
-      leftReduced  <- substituteAndReduce(constraint.left, bindings)
-      rightReduced <- substituteAndReduce(constraint.right.value, bindings)
-      result       <- (leftReduced, rightReduced) match {
-                        // Both fully evaluated: check equality
+      leftReduced  <- substituteAndReduce(constraint.left)
+      rightReduced <- substituteAndReduce(constraint.right.value)
+      _            <- (leftReduced, rightReduced) match {
                         case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
-                          (None, Map.empty[String, Value]).pure[CompilerIO]
+                          ().pure[SolverIO]
                         case (ConcreteValue(_), ConcreteValue(_))               =>
-                          issueError(constraint, leftReduced, rightReduced) >>
-                            (None, Map.empty[String, Value]).pure[CompilerIO]
-
-                        // Unification variable vs concrete value: bind
+                          StateT.liftF(issueError(constraint, leftReduced, rightReduced))
                         case (ParameterReference(name), ConcreteValue(v))       =>
-                          (None, Map(name -> v)).pure[CompilerIO]
+                          bind(name, v)
                         case (ConcreteValue(v), ParameterReference(name))       =>
-                          (None, Map(name -> v)).pure[CompilerIO]
-
-                        // Both unification variables: defer
-                        case (ParameterReference(_), ParameterReference(_))     =>
-                          (Some(constraint), Map.empty[String, Value]).pure[CompilerIO]
-
-                        // Both sides have free vars: defer
+                          bind(name, v)
                         case _                                                  =>
-                          (Some(constraint), Map.empty[String, Value]).pure[CompilerIO]
+                          defer(constraint)
                       }
-    } yield result
+    } yield ()
 
   /** Substitute all known bindings into an expression and reduce it. */
   // TODO: move this into ExpressionValue, there should not be non-reduced ExpressionValues
-  private def substituteAndReduce(expr: ExpressionValue, bindings: Map[String, Value]): CompilerIO[ExpressionValue] = {
-    val substituted = bindings.foldLeft(expr) { case (e, (name, value)) =>
-      ExpressionValue.substitute(e, name, ConcreteValue(value))
-    }
-    Evaluator.reduce(substituted, ExpressionValue.unsourced(substituted))
-  }
+  private def substituteAndReduce(expr: ExpressionValue): SolverIO[ExpressionValue] =
+    for {
+      bindings <- currentBindings
+      substituted = bindings.foldLeft(expr) { case (e, (name, value)) =>
+                      ExpressionValue.substitute(e, name, ConcreteValue(value))
+                    }
+      reduced  <- StateT.liftF(Evaluator.reduce(substituted, ExpressionValue.unsourced(substituted)))
+    } yield reduced
 
   private def issueError(
       constraint: Constraint,
