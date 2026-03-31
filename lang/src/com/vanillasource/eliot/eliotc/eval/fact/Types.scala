@@ -18,10 +18,6 @@ object Types {
 
   val functionDataTypeFQN = ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
 
-  /** The Function data type as an ExpressionValue reference for use in type expressions.
-    */
-  val functionDataTypeExpr: ExpressionValue = ConcreteValue(dataType(functionDataTypeFQN))
-
   /** The type of FullyQualifiedName.
     */
   val fullyQualifiedNameType: Value =

@@ -164,7 +164,7 @@ object ExpressionValue {
       case ConcreteValue(v)                       => v.show
       case FunctionLiteral(name, paramType, body) => s"(($name: ${paramType.show}) -> ${body.value.show})"
       case NativeFunction(paramType, _)           => s"native(${paramType.show})"
-      case ParameterReference(name)            => name
+      case ParameterReference(name)               => name
       case FunctionApplication(target, arg)       => s"${target.value.show}(${arg.value.show})"
     }
   }
@@ -206,7 +206,7 @@ object ExpressionValue {
       isTypeVar: String => Boolean = _ => true
   ): Map[String, ExpressionValue] =
     (pattern, concrete) match {
-      case (ParameterReference(name), _) if isTypeVar(name)              =>
+      case (ParameterReference(name), _) if isTypeVar(name)                 =>
         Map(name -> concrete)
       case (FunctionType(p1, r1), FunctionType(p2, r2))                     =>
         matchTypes(p1, p2, isTypeVar) ++ matchTypes(r1, r2, isTypeVar)
@@ -222,13 +222,6 @@ object ExpressionValue {
         matchTypes(fromValue(v), concrete, isTypeVar)
       case _                                                                => Map.empty
     }
-
-  /** Create a function type: paramType -> returnType. Uses the standard Function^Type representation. */
-  def functionType(paramType: ExpressionValue, returnType: ExpressionValue): ExpressionValue =
-    FunctionApplication(
-      unsourced(FunctionApplication(unsourced(Types.functionDataTypeExpr), unsourced(paramType))),
-      unsourced(returnType)
-    )
 
   /** Extractor for function types. Matches FunctionApplication chains with Function^Type. */
   object FunctionType {

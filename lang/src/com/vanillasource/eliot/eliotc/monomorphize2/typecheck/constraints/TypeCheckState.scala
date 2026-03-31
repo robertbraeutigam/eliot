@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ParameterReference
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
@@ -17,10 +16,10 @@ case class TypeCheckState(
 object TypeCheckState {
   type TypeGraphIO[T] = StateT[CompilerIO, TypeCheckState, T]
 
-  def generateUnificationVar: TypeGraphIO[ParameterReference] =
+  def generateUnificationVar: TypeGraphIO[String] =
     StateT { state =>
       val (id, newShortIds) = state.shortIds.generateNext()
-      (state.copy(shortIds = newShortIds), ParameterReference(id)).pure[CompilerIO]
+      (state.copy(shortIds = newShortIds), id).pure[CompilerIO]
     }
 
   def bindParameter(name: String, typ: Sourced[ExpressionValue]): TypeGraphIO[Unit] =

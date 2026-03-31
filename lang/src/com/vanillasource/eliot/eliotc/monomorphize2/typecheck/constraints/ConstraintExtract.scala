@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{ConcreteValue, ParameterReference}
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType, typeFQN}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
@@ -109,38 +109,38 @@ object ConstraintExtract extends Logging {
           _            <- checkNoTypeArgs(expression, typeArguments)
           argTypeVar   <- generateUnificationVar
           retTypeVar   <- generateUnificationVar
-          targetEvaled <-
-            collectConstraints(ExpressionValue.functionType(argTypeVar, retTypeVar), target, Seq.empty, runtime)
-          argEvaled    <- collectConstraints(argTypeVar, arg, Seq.empty, runtime)
+          funcType     <- StateT.liftF(Evaluator.functionType(argTypeVar, retTypeVar))
+          targetEvaled <- collectConstraints(funcType, target, Seq.empty, runtime)
+          argEvaled    <- collectConstraints(ParameterReference(argTypeVar), arg, Seq.empty, runtime)
           _            <- tellConstraint(
-                            Constraints.constraint(assumedType, expression.as(retTypeVar), "Type mismatch.")
+                            Constraints.constraint(assumedType, expression.as(ParameterReference(retTypeVar)), "Type mismatch.")
                           )
         } yield ExpressionValue.FunctionApplication(target.as(targetEvaled), arg.as(argEvaled))
       case OperatorResolvedExpression.FunctionLiteral(paramName, paramTypeOpt, body)    =>
         for {
-          paramVar   <- generateUnificationVar.map(v => v: ExpressionValue)
+          paramVar   <- generateUnificationVar
           _          <- paramTypeOpt.traverse_ { paramType =>
                           // TODO: I think this ignores the rest of the stack
                           for {
                             paramTypeEvaled <- StateT.liftF(Evaluator.evaluate(paramType.map(_.signature)))
                             _               <- tellConstraint(
-                                                 Constraints.constraint(paramVar, paramType.as(paramTypeEvaled), "Type argument mismatch.")
+                                                 Constraints.constraint(ParameterReference(paramVar), paramType.as(paramTypeEvaled), "Type argument mismatch.")
                                                )
                           } yield ()
                         }
           _          <- typeArguments.headOption.traverse_ { typeArg =>
                           tellConstraint(
                             Constraints.constraint(
-                              paramVar,
+                              ParameterReference(paramVar),
                               ExpressionValue.unsourced(typeArg),
                               "Type argument mismatch."
                             )
                           )
                         }
-          _          <- bindParameter(paramName.value, paramName.as(paramVar))
+          _          <- bindParameter(paramName.value, paramName.as(ParameterReference(paramVar)))
           retTypeVar <- generateUnificationVar
-          bodyEvaled <- collectConstraints(retTypeVar, body, typeArguments.drop(1), runtime)
-          funcType    = ExpressionValue.functionType(paramVar, retTypeVar)
+          bodyEvaled <- collectConstraints(ParameterReference(retTypeVar), body, typeArguments.drop(1), runtime)
+          funcType   <- StateT.liftF(Evaluator.functionType(paramVar, retTypeVar))
           _          <- tellConstraint(
                           Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
                         )

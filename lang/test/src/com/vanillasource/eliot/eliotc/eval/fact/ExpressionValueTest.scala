@@ -12,13 +12,13 @@ class ExpressionValueTest extends AnyFlatSpec with Matchers {
   private val intType        = Types.dataType(intVfqn)
 
   "stripLeadingLambdas" should "strip single FunctionLiteral" in {
-    val inner = ExpressionValue.functionType(ParameterReference("A"), ParameterReference("A"))
+    val inner = FunctionApplication(unsourced(ParameterReference("A")), unsourced(ParameterReference("A")))
     val sig   = FunctionLiteral("A", Value.Type, unsourced(inner))
     ExpressionValue.stripLeadingLambdas(sig) shouldBe inner
   }
 
   it should "strip multiple FunctionLiterals" in {
-    val inner = ExpressionValue.functionType(ParameterReference("A"), ParameterReference("B"))
+    val inner = FunctionApplication(unsourced(ParameterReference("A")), unsourced(ParameterReference("B")))
     val sig   = FunctionLiteral("A", Value.Type, unsourced(FunctionLiteral("B", Value.Type, unsourced(inner))))
     ExpressionValue.stripLeadingLambdas(sig) shouldBe inner
   }

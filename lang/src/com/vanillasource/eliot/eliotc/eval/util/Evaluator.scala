@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.eval.util
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{Qualifier as CoreQualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, stringType, typeFQN}
+import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, functionDataTypeFQN, stringType, typeFQN}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
@@ -184,6 +184,23 @@ object Evaluator {
     val stripped     = stripConstraintOnlyLambdas(typeExprValue, typeParamSubst.keySet)
     val relevantArgs = allTypeParams.flatMap { (name, _) => typeParamSubst.get(name) }
     applyTypeArgs(stripped, relevantArgs, source)
+  }
+
+  /** Build a function type expression Function(paramVar, retVar) using the evaluated Function constructor. The parameter
+    * names are unification variables that remain as ParameterReferences in the result.
+    */
+  def functionType(paramVarName: String, retVarName: String): CompilerIO[ExpressionValue] = {
+    def s[T](value: T): Sourced[T] = ExpressionValue.unsourced(value)
+    val paramRef: OperatorResolvedExpression     = OperatorResolvedExpression.ParameterReference(s(paramVarName))
+    val retRef: OperatorResolvedExpression       = OperatorResolvedExpression.ParameterReference(s(retVarName))
+    val funcRef: OperatorResolvedExpression      = OperatorResolvedExpression.ValueReference(s(functionDataTypeFQN))
+    val inner: OperatorResolvedExpression        = OperatorResolvedExpression.FunctionApplication(s(funcRef), s(paramRef))
+    val ore: OperatorResolvedExpression          = OperatorResolvedExpression.FunctionApplication(s(inner), s(retRef))
+    val paramContext: Map[String, Value]         = Map(paramVarName -> Value.Type, retVarName -> Value.Type)
+    for {
+      value   <- toExpressionValue(ore, Set.empty, paramContext, s(ore))
+      reduced <- reduce(value, s(ore))
+    } yield reduced
   }
 
   /** Strip leading FunctionLiterals whose parameter names are NOT in the set of relevant params. */
