@@ -22,6 +22,7 @@ object ConstraintSolver extends Logging {
 
   private def propagate: SolverIO[Solution] =
     for {
+      _            <- debug[SolverIO]("Starting a solver cycle...")
       constraints  <- takePending
       anyResolved  <- constraints.foldLeftM(false) { (progress, constraint) =>
                         processConstraint(constraint).map(_ || progress)
@@ -40,6 +41,7 @@ object ConstraintSolver extends Logging {
     for {
       leftReduced  <- substituteAndReduce(constraint.left)
       rightReduced <- substituteAndReduce(constraint.right.value)
+      _            <- debug[SolverIO](s"Checking ${leftReduced.show} vs. ${rightReduced.show}")
       resolved     <- (leftReduced, rightReduced) match {
                         case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
                           true.pure[SolverIO]
@@ -58,11 +60,11 @@ object ConstraintSolver extends Logging {
   // TODO: move this into ExpressionValue, there should not be non-reduced ExpressionValues
   private def substituteAndReduce(expr: ExpressionValue): SolverIO[ExpressionValue] =
     for {
-      bindings <- currentBindings
+      bindings   <- currentBindings
       substituted = bindings.foldLeft(expr) { case (e, (name, value)) =>
                       ExpressionValue.substitute(e, name, ConcreteValue(value))
                     }
-      reduced  <- StateT.liftF(Evaluator.reduce(substituted, ExpressionValue.unsourced(substituted)))
+      reduced    <- StateT.liftF(Evaluator.reduce(substituted, ExpressionValue.unsourced(substituted)))
     } yield reduced
 
   private def issueError(
