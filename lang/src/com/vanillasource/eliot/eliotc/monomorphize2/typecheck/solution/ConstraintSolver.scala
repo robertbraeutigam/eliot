@@ -24,13 +24,11 @@ object ConstraintSolver extends Logging {
     for {
       constraints  <- getPending
       _            <- resetPending
-      prevSize     <- currentBindings.map(_.size)
       _            <- constraints.traverse_(processConstraint)
       stillPending <- getPending
-      newSize      <- currentBindings.map(_.size)
       solution     <- if (stillPending.isEmpty)
                         currentBindings.map(Solution(_))
-                      else if (newSize > prevSize)
+                      else if (stillPending.size < constraints.size)
                         propagate
                       else
                         StateT.liftF(reportUnresolved(stillPending)) >> currentBindings.map(Solution(_))
