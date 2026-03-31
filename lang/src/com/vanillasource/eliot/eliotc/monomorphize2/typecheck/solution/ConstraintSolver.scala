@@ -72,7 +72,8 @@ object ConstraintSolver extends Logging {
                       }
     } yield result
 
-    /** Substitute all known bindings into an expression and reduce it. */
+  /** Substitute all known bindings into an expression and reduce it. */
+  // TODO: move this into ExpressionValue, there should not be non-reduced ExpressionValues
   private def substituteAndReduce(expr: ExpressionValue, bindings: Map[String, Value]): CompilerIO[ExpressionValue] = {
     val substituted = bindings.foldLeft(expr) { case (e, (name, value)) =>
       ExpressionValue.substitute(e, name, ConcreteValue(value))
