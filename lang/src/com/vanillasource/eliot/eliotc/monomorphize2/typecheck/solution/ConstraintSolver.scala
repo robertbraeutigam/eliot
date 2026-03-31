@@ -22,20 +22,20 @@ object ConstraintSolver extends Logging {
 
   private def propagate(pending: Seq[Constraint], bindings: Map[String, Value]): CompilerIO[Solution] =
     for {
-      result   <- pending.foldLeftM[CompilerIO, (Seq[Constraint], Map[String, Value])]((Seq.empty, bindings)) {
-                    case ((deferred, currentBindings), constraint) =>
-                      processConstraint(constraint, currentBindings).map {
-                        case (None, newBindings)              => (deferred, currentBindings ++ newBindings)
-                        case (Some(remaining), newBindings)   => (deferred :+ remaining, currentBindings ++ newBindings)
-                      }
-                  }
+      result                     <- pending.foldLeftM[CompilerIO, (Seq[Constraint], Map[String, Value])]((Seq.empty, bindings)) {
+                                      case ((deferred, currentBindings), constraint) =>
+                                        processConstraint(constraint, currentBindings).map {
+                                          case (None, newBindings)            => (deferred, currentBindings ++ newBindings)
+                                          case (Some(remaining), newBindings) => (deferred :+ remaining, currentBindings ++ newBindings)
+                                        }
+                                    }
       (stillPending, newBindings) = result
-      solution <- if (stillPending.isEmpty)
-                    Solution(newBindings).pure[CompilerIO]
-                  else if (newBindings.size > bindings.size)
-                    propagate(stillPending, newBindings)
-                  else
-                    reportUnresolved(stillPending) >> Solution(newBindings).pure[CompilerIO]
+      solution                   <- if (stillPending.isEmpty)
+                                      Solution(newBindings).pure[CompilerIO]
+                                    else if (newBindings.size > bindings.size)
+                                      propagate(stillPending, newBindings)
+                                    else
+                                      reportUnresolved(stillPending) >> Solution(newBindings).pure[CompilerIO]
     } yield solution
 
   /** Process a single constraint. Returns (None, newBindings) if fully resolved, or (Some(constraint), newBindings) if
@@ -117,12 +117,15 @@ object ConstraintSolver extends Logging {
 
   private def reportUnresolved(constraints: Seq[Constraint]): CompilerIO[Unit] =
     constraints.traverse_ { constraint =>
-      compilerError(
-        constraint.right.as("Could not resolve type."),
-        Seq(
-          s"Left:  ${constraint.left.show}",
-          s"Right: ${constraint.right.value.show}"
+      debug[CompilerIO](
+        s"Constraint unresolved: ${constraint.left.show} vs ${constraint.right.value.show} (${constraint.errorMessage})"
+      ) >>
+        compilerError(
+          constraint.right.as("Could not resolve type."),
+          Seq(
+            s"Left:  ${constraint.left.show}",
+            s"Right: ${constraint.right.value.show}"
+          )
         )
-      )
     }
 }
