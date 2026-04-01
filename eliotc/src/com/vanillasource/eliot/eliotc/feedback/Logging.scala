@@ -7,6 +7,8 @@ import org.apache.logging.log4j.{Level, LogManager, Logger}
 trait Logging {
   private val logger: Logger = LogManager.getLogger(this.getClass)
 
+  def trace[F[_]: Sync](msg: String): F[Unit]               = log[F](logger, Level.TRACE, msg, null)
+  def trace[F[_]: Sync](msg: String, t: Throwable): F[Unit] = log[F](logger, Level.TRACE, msg, t)
   def debug[F[_]: Sync](msg: String): F[Unit]               = log[F](logger, Level.DEBUG, msg, null)
   def debug[F[_]: Sync](msg: String, t: Throwable): F[Unit] = log[F](logger, Level.DEBUG, msg, t)
   def info[F[_]: Sync](msg: String): F[Unit]                = log[F](logger, Level.INFO, msg, null)

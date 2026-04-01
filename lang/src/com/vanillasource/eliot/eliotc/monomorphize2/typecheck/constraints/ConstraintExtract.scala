@@ -66,6 +66,7 @@ object ConstraintExtract extends Logging {
             .as(ConcreteValue(Direct(stringLiteral.value, stringType)))
       case OperatorResolvedExpression.ParameterReference(name)                          =>
         for {
+          _         <- trace[TypeGraphIO](s"Collecting from parameter reference '${name.value}'")
           _         <- checkNoTypeArgs(expression, typeArguments)
           maybeType <- lookupParameter(name.value)
           exprType  <- maybeType match {
@@ -80,6 +81,7 @@ object ConstraintExtract extends Logging {
           ConcreteValue(Value.Type).pure[TypeGraphIO]
       case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                    =>
         for {
+          _             <- trace[TypeGraphIO](s"Collecting from value reference '${vfqn.show}'")
           _             <- checkNoTypeArgs(expression, typeArguments)
           // Bind the assumed type to the type of the resolved value's signature.
           // We don't check the signature here, but it will be checked when it is monomorphized
@@ -109,6 +111,7 @@ object ConstraintExtract extends Logging {
         } yield bodyEvaled
       case OperatorResolvedExpression.FunctionApplication(target, arg)                  =>
         for {
+          _            <- trace[TypeGraphIO](s"Collecting from function application")
           _            <- checkNoTypeArgs(expression, typeArguments)
           argTypeVar   <- generateUnificationVar
           retTypeVar   <- generateUnificationVar
@@ -127,6 +130,7 @@ object ConstraintExtract extends Logging {
         } yield result
       case OperatorResolvedExpression.FunctionLiteral(paramName, paramTypeOpt, body)    =>
         for {
+          _          <- trace[TypeGraphIO](s"Collecting from function literal")
           paramVar   <- generateUnificationVar
           _          <- paramTypeOpt.traverse_ { paramType =>
                           // TODO: I think this ignores the rest of the stack
