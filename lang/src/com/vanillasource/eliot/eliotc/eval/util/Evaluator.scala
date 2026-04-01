@@ -152,8 +152,8 @@ object Evaluator {
     } else {
       val applied = typeArgs.foldLeft[ExpressionValue](typeExprValue) { (fn, arg) =>
         FunctionApplication(
-          ExpressionValue.unsourced(fn),
-          ExpressionValue.unsourced(ConcreteValue(arg))
+          source.as(fn),
+          source.as(ConcreteValue(arg))
         )
       }
       reduce(applied, source).flatMap {
@@ -183,8 +183,8 @@ object Evaluator {
   /** Build a function type expression Function(paramVar, retVar) using the evaluated Function constructor. The parameter
     * names are unification variables that remain as ParameterReferences in the result.
     */
-  def functionType(paramVarName: String, retVarName: String): CompilerIO[ExpressionValue] = {
-    def s[T](value: T): Sourced[T] = ExpressionValue.unsourced(value)
+  def functionType(paramVarName: String, retVarName: String, source: Sourced[?]): CompilerIO[ExpressionValue] = {
+    def s[T](value: T): Sourced[T] = Sourced(source.uri, source.range, value)
     val paramRef: OperatorResolvedExpression     = OperatorResolvedExpression.ParameterReference(s(paramVarName))
     val retRef: OperatorResolvedExpression       = OperatorResolvedExpression.ParameterReference(s(retVarName))
     val funcRef: OperatorResolvedExpression      = OperatorResolvedExpression.ValueReference(s(functionDataTypeFQN))

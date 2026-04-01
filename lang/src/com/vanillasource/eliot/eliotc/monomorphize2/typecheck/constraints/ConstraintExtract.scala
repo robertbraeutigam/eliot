@@ -115,7 +115,7 @@ object ConstraintExtract extends Logging {
           _            <- checkNoTypeArgs(expression, typeArguments)
           argTypeVar   <- generateUnificationVar
           retTypeVar   <- generateUnificationVar
-          funcType     <- StateT.liftF(Evaluator.functionType(argTypeVar, retTypeVar))
+          funcType     <- StateT.liftF(Evaluator.functionType(argTypeVar, retTypeVar, expression))
           targetEvaled <- collectConstraints(funcType, target, Seq.empty, runtime)
           argEvaled    <- collectConstraints(ParameterReference(argTypeVar), arg, Seq.empty, runtime)
           _            <- tellConstraint(
@@ -149,7 +149,7 @@ object ConstraintExtract extends Logging {
                           tellConstraint(
                             Constraints.constraint(
                               ParameterReference(paramVar),
-                              ExpressionValue.unsourced(typeArg),
+                              expression.as(typeArg),
                               "Type argument mismatch."
                             )
                           )
@@ -157,7 +157,7 @@ object ConstraintExtract extends Logging {
           _          <- bindParameter(paramName.value, paramName.as(ParameterReference(paramVar)))
           retTypeVar <- generateUnificationVar
           bodyEvaled <- collectConstraints(ParameterReference(retTypeVar), body, typeArguments.drop(1), runtime)
-          funcType   <- StateT.liftF(Evaluator.functionType(paramVar, retTypeVar))
+          funcType   <- StateT.liftF(Evaluator.functionType(paramVar, retTypeVar, expression))
           _          <- tellConstraint(
                           Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
                         )

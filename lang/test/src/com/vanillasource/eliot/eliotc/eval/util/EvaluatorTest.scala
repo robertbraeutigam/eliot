@@ -115,7 +115,7 @@ class EvaluatorTest extends ProcessorTest() {
 
   it should "resolve function value reference and apply" in {
     val vfqn       = ValueFQN(testModuleName, QualifiedName("identity", Qualifier.Default))
-    val identityFn = FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x")))
+    val identityFn = FunctionLiteral("x", bigIntType, sourced(ParameterReference("x")))
     val fact       = NamedEvaluable(vfqn, identityFn)
     val expr       = funApp(valueRef(vfqn), intLit(42))
     runEvaluatorWithFacts(expr, Seq(fact)).asserting(_ shouldBe ConcreteValue(Value.Direct(42, bigIntType)))
@@ -137,7 +137,7 @@ class EvaluatorTest extends ProcessorTest() {
     val vfqn   = ValueFQN(testModuleName, QualifiedName("recursive", Qualifier.Default))
     val fnVfqn = ValueFQN(testModuleName, QualifiedName("fn", Qualifier.Default))
     val fnFact =
-      NamedEvaluable(fnVfqn, FunctionLiteral("x", bigIntType, unsourced(ParameterReference("x"))))
+      NamedEvaluable(fnVfqn, FunctionLiteral("x", bigIntType, sourced(ParameterReference("x"))))
     val expr   = funApp(valueRef(fnVfqn), valueRef(vfqn))
     runEvaluatorWithFactsAndTracking(expr, Seq(fnFact), Set(vfqn)).asserting(
       _ shouldBe Left("Recursive evaluation detected.")

@@ -3,10 +3,8 @@ package com.vanillasource.eliot.eliotc.eval.fact
 import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-import java.net.URI
 import scala.annotation.tailrec
 
 /** The result of an expression evaluation.
@@ -14,10 +12,6 @@ import scala.annotation.tailrec
 sealed trait ExpressionValue
 
 object ExpressionValue {
-
-  private val syntheticUri = URI.create("")
-
-  def unsourced[T](value: T): Sourced[T] = Sourced(syntheticUri, PositionRange.zero, value)
 
   /** Generic fold over an ExpressionValue tree. Recurses into children first (bottom-up), then combines with the
     * provided functions.
@@ -164,7 +158,7 @@ object ExpressionValue {
     * decomposed into FunctionApplication chains so they are structurally compatible with pattern-side ExpressionValues
     * for use with matchTypes.
     */
-  def fromValue(v: Value): ExpressionValue =
+  def fromValue(v: Value, source: Sourced[?]): ExpressionValue =
     v match {
       case Value.Structure(fields, Value.Type) =>
         fields.get("$typeName") match {
@@ -174,7 +168,7 @@ object ExpressionValue {
             if (typeArgFields.isEmpty) base
             else
               typeArgFields.toSeq.sortBy(_._1).foldLeft(base) { case (acc, (_, argValue)) =>
-                FunctionApplication(unsourced(acc), unsourced(fromValue(argValue)))
+                FunctionApplication(source.as(acc), source.as(fromValue(argValue, source)))
               }
           case _                                             => ConcreteValue(v)
         }
@@ -199,12 +193,12 @@ object ExpressionValue {
         matchTypes(t1.value, t2.value, isTypeVar) ++ matchTypes(a1.value, a2.value, isTypeVar)
       case (FunctionLiteral(_, _, patBody), FunctionLiteral(_, _, tgtBody)) =>
         matchTypes(patBody.value, tgtBody.value, isTypeVar)
-      case (_: FunctionApplication, ConcreteValue(v @ Value.Structure(fields, Value.Type)))
+      case (fa: FunctionApplication, ConcreteValue(v @ Value.Structure(fields, Value.Type)))
           if fields.size > 1 && fields.contains("$typeName") =>
-        matchTypes(pattern, fromValue(v), isTypeVar)
-      case (ConcreteValue(v @ Value.Structure(fields, Value.Type)), _: FunctionApplication)
+        matchTypes(pattern, fromValue(v, fa.target), isTypeVar)
+      case (ConcreteValue(v @ Value.Structure(fields, Value.Type)), fa: FunctionApplication)
           if fields.size > 1 && fields.contains("$typeName") =>
-        matchTypes(fromValue(v), concrete, isTypeVar)
+        matchTypes(fromValue(v, fa.target), concrete, isTypeVar)
       case _                                                                => Map.empty
     }
 

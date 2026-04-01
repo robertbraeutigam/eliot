@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints.Constraint
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import SolverState.*
 
@@ -39,8 +40,8 @@ object ConstraintSolver extends Logging {
   /** Returns true if the constraint was resolved, false if deferred. */
   private def processConstraint(constraint: Constraint): SolverIO[Boolean] =
     for {
-      leftReduced  <- substituteAndReduce(constraint.left)
-      rightReduced <- substituteAndReduce(constraint.right.value)
+      leftReduced  <- substituteAndReduce(constraint.left, constraint.right)
+      rightReduced <- substituteAndReduce(constraint.right.value, constraint.right)
       _            <- debug[SolverIO](s"Checking ${leftReduced.show} vs. ${rightReduced.show}")
       resolved     <- (leftReduced, rightReduced) match {
                         case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
@@ -58,13 +59,13 @@ object ConstraintSolver extends Logging {
 
   /** Substitute all known bindings into an expression and reduce it. */
   // TODO: move this into ExpressionValue, there should not be non-reduced ExpressionValues
-  private def substituteAndReduce(expr: ExpressionValue): SolverIO[ExpressionValue] =
+  private def substituteAndReduce(expr: ExpressionValue, source: Sourced[?]): SolverIO[ExpressionValue] =
     for {
       bindings   <- currentBindings
       substituted = bindings.foldLeft(expr) { case (e, (name, value)) =>
                       ExpressionValue.substitute(e, name, ConcreteValue(value))
                     }
-      reduced    <- StateT.liftF(Evaluator.reduce(substituted, ExpressionValue.unsourced(substituted)))
+      reduced    <- StateT.liftF(Evaluator.reduce(substituted, source))
     } yield reduced
 
   private def issueError(

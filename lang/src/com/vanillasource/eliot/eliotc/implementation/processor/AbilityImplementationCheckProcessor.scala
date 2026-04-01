@@ -81,7 +81,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
               for {
                 evalParams  <- resolveQualifierParams(method.name, paramExprs, method.typeParams.toSet)
                 freeVarNames = method.typeParams.toSet
-                exprArgs     = typeArguments.map(ExpressionValue.fromValue)
+                exprArgs     = typeArguments.map(ExpressionValue.fromValue(_, method.name))
               } yield if (implMatchesQuery(evalParams, freeVarNames, exprArgs)) Some(method) else None
             case _ => None.pure[CompilerIO]
           }

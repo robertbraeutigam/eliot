@@ -1,8 +1,10 @@
 package com.vanillasource.eliot.eliotc.source.content
 
+import cats.effect.IO
 import cats.implicits.*
 import cats.{Functor, Show}
-import com.vanillasource.eliot.eliotc.feedback.CompilerError
+import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
+import com.vanillasource.eliot.eliotc.feedback.User.*
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 
@@ -12,20 +14,30 @@ import java.net.URI
   */
 case class Sourced[+T](uri: URI, range: PositionRange, value: T) {
   def reFocus(newRange: PositionRange): Sourced[T] = copy(range = newRange)
-
-  /** Use this source if it has real positioning, otherwise fall back to the given source's positioning. */
-  def withFallback(fallback: Sourced[?]): Sourced[T] =
-    if (uri.toString.isEmpty) Sourced(fallback.uri, fallback.range, value) else this
 }
 
-object Sourced {
+object Sourced extends Logging {
 
   /** Issue a compiler error based on sourced content.
     */
   def compilerError(message: Sourced[String], description: Seq[String] = Seq.empty): CompilerIO[Unit] =
     for {
-      sourceContent <- getFactOrAbort(SourceContent.Key(message.uri))
-      _             <- compilerErrorWithContent(message, sourceContent.content.value, description)
+      sourceContent <- getFact(SourceContent.Key(message.uri))
+      _             <- sourceContent match {
+                         case Some(sc) => compilerErrorWithContent(message, sc.content.value, description)
+                         case None     =>
+                           error[CompilerIO](s"Source content not found for URI: ${message.uri}") >>
+                             compilerGlobalError(message.value).to[CompilerIO] >>
+                             registerCompilerError(
+                               CompilerError(
+                                 message.value,
+                                 description,
+                                 Option(message.uri.getPath).getOrElse("<unknown>"),
+                                 "",
+                                 PositionRange.zero
+                               )
+                             )
+                       }
     } yield ()
 
   def compilerErrorWithContent(

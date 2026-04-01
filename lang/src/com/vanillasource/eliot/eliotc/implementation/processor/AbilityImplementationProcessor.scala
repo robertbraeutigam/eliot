@@ -143,7 +143,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
               typeParams     = ExpressionValue.extractLeadingLambdaParams(signatureType).map(_._1)
               freeVarNames   = typeParams.toSet
               evalParams    <- resolveQualifierParams(resolved.name, paramExprs, freeVarNames)
-              exprArgs       = expectedTypeArgs.map(ExpressionValue.fromValue)
+              exprArgs       = expectedTypeArgs.map(ExpressionValue.fromValue(_, resolved.name))
               matchResult    = implMatchesQueryWithBindings(evalParams, freeVarNames, exprArgs)
             } yield matchResult match {
               case Some(bindings) =>
