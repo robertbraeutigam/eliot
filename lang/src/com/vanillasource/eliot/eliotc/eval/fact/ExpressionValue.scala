@@ -22,7 +22,7 @@ object ExpressionValue {
   /** Generic fold over an ExpressionValue tree. Recurses into children first (bottom-up), then combines with the
     * provided functions.
     */
-  def fold[A](
+  private def fold[A](
       onConcrete: Value => A,
       onNative: Value => A,
       onParamRef: String => A,
@@ -65,7 +65,7 @@ object ExpressionValue {
     * ConcreteValue(Structure(Map("$typeName"->Function, "A"->paramType, "B"->returnType), Type)). This method extracts
     * parameter types from such structures.
     */
-  def extractFunctionTypeParams(expr: ExpressionValue): Seq[Value] =
+  private[eval] def extractFunctionTypeParams(expr: ExpressionValue): Seq[Value] =
     expr match {
       case ConcreteValue(Value.Structure(fields, Value.Type)) if fields.get("$typeName").exists(isFunctionTypeName) =>
         val paramType  = fields("A")
@@ -87,21 +87,6 @@ object ExpressionValue {
           case _                                 => None
         }
       case _                                       => None
-    }
-
-  /** Extract the deepest non-function return type from an ExpressionValue. Follows through both FunctionType and
-    * partially applied NativeFunction-based types.
-    */
-  @scala.annotation.tailrec
-  def extractDeepReturnType(expr: ExpressionValue): ExpressionValue =
-    extractFunctionParamAndReturn(expr) match {
-      case Some((_, returnType)) => extractDeepReturnType(returnType)
-      case None                  =>
-        expr match {
-          case FunctionApplication(target, returnType) if target.value.isInstanceOf[NativeFunction] =>
-            extractDeepReturnType(returnType.value)
-          case _                                                                                    => expr
-        }
     }
 
   /** Extract all return types at every nesting level. For `A -> B -> C`, returns `[B -> C, C]`. */
@@ -224,7 +209,7 @@ object ExpressionValue {
     }
 
   /** Extractor for function types. Matches FunctionApplication chains with Function^Type. */
-  object FunctionType {
+  private object FunctionType {
     def unapply(expr: ExpressionValue): Option[(ExpressionValue, ExpressionValue)] =
       expr match {
         case FunctionApplication(target, returnType) if isFunctionApplicationOfDataType(target.value) =>

@@ -76,8 +76,6 @@ object Value {
       }
   }
 
-  def sameType(left: Value, right: Value): Boolean = left.typeFQN === right.typeFQN
-
   given Eq[Value] = Eq.fromUniversalEquals
 
   given valueUserDisplay: Show[Value] = {
