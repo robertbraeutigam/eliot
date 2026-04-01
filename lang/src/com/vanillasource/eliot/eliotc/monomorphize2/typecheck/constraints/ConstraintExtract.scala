@@ -130,37 +130,38 @@ object ConstraintExtract extends Logging {
         } yield result
       case OperatorResolvedExpression.FunctionLiteral(paramName, paramTypeOpt, body)    =>
         for {
-          _          <- trace[TypeGraphIO](s"Collecting from function literal")
-          paramVar   <- generateUnificationVar
-          _          <- paramTypeOpt.traverse_ { paramType =>
-                          // TODO: I think this ignores the rest of the stack
-                          for {
-                            paramTypeEvaled <- StateT.liftF(Evaluator.evaluate(paramType.map(_.signature)))
-                            _               <- tellConstraint(
-                                                 Constraints.constraint(
-                                                   ParameterReference(paramVar),
-                                                   paramType.as(paramTypeEvaled),
-                                                   "Type argument mismatch."
+          _            <- trace[TypeGraphIO](s"Collecting from function literal")
+          paramTypeVar <- generateUnificationVar
+          _            <- paramTypeOpt.traverse_ { paramType =>
+                            // TODO: I think this ignores the rest of the stack
+                            for {
+                              paramTypeEvaled <- StateT.liftF(Evaluator.evaluate(paramType.map(_.signature)))
+                              _               <- tellConstraint(
+                                                   Constraints.constraint(
+                                                     ParameterReference(paramTypeVar),
+                                                     paramType.as(paramTypeEvaled),
+                                                     "Type argument mismatch."
+                                                   )
                                                  )
-                                               )
-                          } yield ()
-                        }
-          _          <- typeArguments.headOption.traverse_ { typeArg =>
-                          tellConstraint(
-                            Constraints.constraint(
-                              ParameterReference(paramVar),
-                              expression.as(typeArg),
-                              "Type argument mismatch."
+                            } yield ()
+                          }
+          paramVar     <- generateUnificationVar
+          _            <- typeArguments.headOption.traverse_ { typeArg =>
+                            tellConstraint(
+                              Constraints.constraint(
+                                ParameterReference(paramVar),
+                                expression.as(typeArg),
+                                "Type argument mismatch."
+                              )
                             )
+                          }
+          _            <- bindParameter(paramName.value, paramName.as(ParameterReference(paramVar)))
+          retTypeVar   <- generateUnificationVar
+          bodyEvaled   <- collectConstraints(ParameterReference(retTypeVar), body, typeArguments.drop(1), runtime)
+          funcType     <- StateT.liftF(Evaluator.functionType(paramTypeVar, retTypeVar, expression))
+          _            <- tellConstraint(
+                            Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
                           )
-                        }
-          _          <- bindParameter(paramName.value, paramName.as(ParameterReference(paramVar)))
-          retTypeVar <- generateUnificationVar
-          bodyEvaled <- collectConstraints(ParameterReference(retTypeVar), body, typeArguments.drop(1), runtime)
-          funcType   <- StateT.liftF(Evaluator.functionType(paramVar, retTypeVar, expression))
-          _          <- tellConstraint(
-                          Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
-                        )
         } yield bodyEvaled
     }
 
