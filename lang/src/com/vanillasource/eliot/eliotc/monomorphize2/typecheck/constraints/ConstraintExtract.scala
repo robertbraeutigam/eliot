@@ -22,10 +22,13 @@ object ConstraintExtract extends Logging {
     val signatureLevel  = typeExpressions.last
 
     for {
-      _           <- debug[TypeGraphIO]("Collecting constraints from higher levels...")
       // Iterate levels above signature, where each level computes the type of the underlying level
       kindType    <- aboveLevels.foldLeftM[TypeGraphIO, ExpressionValue](ExpressionValue.ConcreteValue(Value.Type)) {
-                       (assumedType, level) => collectConstraints(assumedType, level, Seq.empty, false)
+                       (assumedType, level) =>
+                         debug[TypeGraphIO](
+                           s"Collecting constraints from higher levels, kind: ${assumedType.show}, type expression: ${level.value.show}"
+                         ) >>
+                           collectConstraints(assumedType, level, Seq.empty, false)
                      }
       // Infer the signature level, with adding supplied type arguments (this differs from above)
       _           <-
@@ -124,7 +127,11 @@ object ConstraintExtract extends Logging {
                           for {
                             paramTypeEvaled <- StateT.liftF(Evaluator.evaluate(paramType.map(_.signature)))
                             _               <- tellConstraint(
-                                                 Constraints.constraint(ParameterReference(paramVar), paramType.as(paramTypeEvaled), "Type argument mismatch.")
+                                                 Constraints.constraint(
+                                                   ParameterReference(paramVar),
+                                                   paramType.as(paramTypeEvaled),
+                                                   "Type argument mismatch."
+                                                 )
                                                )
                           } yield ()
                         }
