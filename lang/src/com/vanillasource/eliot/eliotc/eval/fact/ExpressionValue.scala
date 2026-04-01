@@ -163,7 +163,7 @@ object ExpressionValue {
       case FunctionType(paramType, returnType)    => s"Function(${paramType.show}, ${returnType.show})"
       case ConcreteValue(v)                       => v.show
       case FunctionLiteral(name, paramType, body) => s"(($name: ${paramType.show}) -> ${body.value.show})"
-      case NativeFunction(paramType, _)           => s"native(${paramType.show})"
+      case NativeFunction(paramType, _)           => s"native[${paramType.show}]"
       case ParameterReference(name)               => name
       case FunctionApplication(target, arg)       => s"${target.value.show}(${arg.value.show})"
     }
