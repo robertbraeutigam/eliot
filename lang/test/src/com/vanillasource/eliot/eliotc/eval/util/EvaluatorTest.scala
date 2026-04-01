@@ -238,15 +238,15 @@ class EvaluatorTest extends ProcessorTest() {
     }
   }
 
-  it should "abort when top-level parameter reference is unbound" in {
-    val expr = paramRef("unbound")
-    runEvaluatorForError(expr).asserting(_ shouldBe "Unknown parameter: unbound")
+  it should "evaluate unknown parameter reference to ParameterReference" in {
+    val expr = paramRef("unknown")
+    runEvaluator(expr).asserting(_ shouldBe ParameterReference("unknown"))
   }
 
   it should "abort when top-level function application cannot be reduced" in {
     val fn   = intFunLit("x", funApp(paramRef("f"), paramRef("x")))
     val expr = funApp(fn, intLit(1))
-    runEvaluatorForError(expr).asserting(_ shouldBe "Unknown parameter: f")
+    runEvaluatorForError(expr).asserting(_ shouldBe "Could not reduce function application.")
   }
 
   it should "chain multiple value references" in {

@@ -31,8 +31,6 @@ object Evaluator {
       value   <- toExpressionValue(expression.value, evaluating, paramContext, expression)
       reduced <- reduce(value, expression)
       result  <- reduced match {
-                   case ParameterReference(name)         =>
-                     compilerAbort(expression.as(s"Unbound parameter reference: $name"))
                    case FunctionApplication(_, _)        =>
                      compilerAbort(expression.as("Could not reduce function application."))
                    case expressionValue: ExpressionValue => expressionValue.pure[CompilerIO]
@@ -51,11 +49,7 @@ object Evaluator {
     case OperatorResolvedExpression.StringLiteral(s)                                  =>
       ConcreteValue(Value.Direct(s.value, stringType)).pure[CompilerIO]
     case OperatorResolvedExpression.ParameterReference(s)                             =>
-      val name = s.value
-      paramContext.get(name) match {
-        case Some(paramType) => ParameterReference(name).pure[CompilerIO]
-        case None            => compilerAbort(callSite.getOrElse(s).as(s"Unknown parameter: $name"))
-      }
+      ParameterReference(s.value).pure[CompilerIO]
     case OperatorResolvedExpression.ValueReference(s, _)                              =>
       val vfqn = s.value
       if (vfqn === typeFQN) {
