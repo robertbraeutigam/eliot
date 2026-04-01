@@ -118,7 +118,13 @@ object ConstraintExtract extends Logging {
           _            <- tellConstraint(
                             Constraints.constraint(assumedType, expression.as(ParameterReference(retTypeVar)), "Type mismatch.")
                           )
-        } yield ExpressionValue.FunctionApplication(target.as(targetEvaled), arg.as(argEvaled))
+          result       <- StateT.liftF(
+                            Evaluator.reduce(
+                              ExpressionValue.FunctionApplication(target.as(targetEvaled), arg.as(argEvaled)),
+                              expression
+                            )
+                          )
+        } yield result
       case OperatorResolvedExpression.FunctionLiteral(paramName, paramTypeOpt, body)    =>
         for {
           paramVar   <- generateUnificationVar
