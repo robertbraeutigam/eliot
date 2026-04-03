@@ -290,7 +290,8 @@ def validateOrRecompute(
 
 | File | Package | Purpose |
 |------|---------|---------|
-| `Initial.scala` | `compiler.cache` | `Initial` fact, key, and processor |
+| `Initial.scala` | `compiler.cache` | `Initial` fact, key, and processor (carries `cacheTimestamp`) |
+| `OutputFileStat.scala` | `compiler.cache` | `OutputFileStat` fact, key, and processor |
 | `CacheEntry.scala` | `compiler.cache` | Cache entry data structure |
 | `FactCache.scala` | `compiler.cache` | Cache persistence (load/save) |
 | `CacheValidator.scala` | `compiler.cache` | Recursive validation + propagation cutoff |
@@ -317,7 +318,7 @@ package com.vanillasource.eliot.eliotc.compiler.cache
 import java.time.Instant
 import com.vanillasource.eliot.eliotc.processor.*
 
-case class Initial(startTime: Instant) extends CompilerFact {
+case class Initial(startTime: Instant, cacheTimestamp: Option[Instant]) extends CompilerFact {
   override def key(): CompilerFactKey[Initial] = Initial.Key
 }
 
@@ -327,14 +328,71 @@ object Initial {
 ```
 
 ```scala
-class InitialProcessor(startTime: Instant)
+class InitialProcessor(startTime: Instant, cacheTimestamp: Option[Instant])
     extends SingleKeyTypeProcessor[Initial.Key.type] {
   override protected def generateFact(key: Initial.Key.type): CompilerIO[Unit] =
-    registerFactIfClear(Initial(startTime))
+    registerFactIfClear(Initial(startTime, cacheTimestamp))
 }
 ```
 
-The `startTime` is captured once at compilation start and injected into the processor. This ensures `Initial` produces a deterministic value within a single run but a different value across runs.
+- `startTime` is captured once at compilation start, ensuring `Initial` produces a deterministic value within a single run but a different value across runs.
+- `cacheTimestamp` is the modification time of the cache file when it was loaded (or `None` on a cold start with no cache). This is used by `OutputFileStat` to determine whether output files are still valid (see below).
+
+### OutputFileStat (new fact in `eliotc` module)
+
+Output files (like JAR files) are side effects of fact generation. The cache has no way to know if they were deleted externally. `OutputFileStat` bridges this gap by checking whether an output file is still present and unmodified since the last compilation.
+
+```scala
+package com.vanillasource.eliot.eliotc.compiler.cache
+
+import java.io.File
+import com.vanillasource.eliot.eliotc.processor.*
+
+case class OutputFileStat(file: File, upToDate: Boolean) extends CompilerFact {
+  override def key(): CompilerFactKey[OutputFileStat] = OutputFileStat.Key(file)
+}
+
+object OutputFileStat {
+  case class Key(file: File) extends CompilerFactKey[OutputFileStat]
+}
+```
+
+```scala
+class OutputFileStatProcessor extends SingleFactProcessor[OutputFileStat.Key] with Logging {
+  override protected def generateSingleFact(key: OutputFileStat.Key): CompilerIO[OutputFileStat] =
+    for {
+      initial <- getFactOrAbort(Initial.Key)  // depend on Initial → always re-run
+      result   = initial.cacheTimestamp match {
+                   case None =>
+                     // Cold start (no cache). Everything will be computed fresh anyway.
+                     // Return true so the hash is stable for future runs.
+                     OutputFileStat(key.file, upToDate = true)
+                   case Some(cacheTime) =>
+                     val fileExists    = key.file.exists()
+                     val fileOlderThanCache = key.file.lastModified() <= cacheTime.toEpochMilli
+                     OutputFileStat(key.file, upToDate = fileExists && fileOlderThanCache)
+                 }
+    } yield result
+}
+```
+
+**How it works across runs:**
+
+- **Run 1 (cold start, no cache):** `cacheTimestamp` is `None` → returns `upToDate = true`. This value is stored in the cache. Since there's no prior cache, every fact is computed fresh anyway — the hash value only matters as a seed for future runs.
+- **Run 2 (nothing changed, JAR exists):** `cacheTimestamp` is `Some(t)`, JAR exists with mtime ≤ t → returns `upToDate = true`. Same hash as Run 1 → no invalidation → zero extra work.
+- **Run N (JAR deleted):** `cacheTimestamp` is `Some(t)`, JAR missing → returns `upToDate = false`. Hash differs → invalidates the downstream `GenerateExecutableJar` → JAR gets regenerated. All upstream facts (`GeneratedModule`, etc.) are still cached and unchanged.
+- **Run N+1 (JAR restored):** Returns `upToDate = true` again → same hash as before deletion → stable.
+
+**Dependency chain for JAR generation:**
+
+```
+Initial (always fresh, carries cacheTimestamp)
+  ← OutputFileStat(target/Hello.jar) (always runs, checks file presence)
+    ← GenerateExecutableJar (depends on OutputFileStat + GeneratedModules)
+      ← GeneratedModule(s) (cached if sources unchanged)
+```
+
+**Side-effecting processors** that write files (like `JvmProgramGenerator`) add a dependency on `OutputFileStat` for their output path. If the output is up-to-date, the fact is cached and the write is skipped entirely. If not, the fact is invalidated, the processor re-runs, and rewrites the file.
 
 ### FileStat (existing fact — modified processor)
 
@@ -479,6 +537,13 @@ object FactCache {
       oos.writeObject(data)
       oos.close()
     }
+
+  def timestamp(targetDir: Path): IO[Option[Instant]] =
+    IO.blocking {
+      val cacheFile = targetDir.resolve(CACHE_FILE).toFile
+      if (cacheFile.exists()) Some(Instant.ofEpochMilli(cacheFile.lastModified()))
+      else None
+    }.handleError(_ => None)
 }
 ```
 
@@ -637,8 +702,9 @@ Not all facts are worth serializing to disk. Below is the complete list of curre
 
 | Fact Type | Category | Rationale |
 |-----------|----------|-----------|
-| `Initial` | **Never cached** | Always changes (compilation start time) |
+| `Initial` | **Never cached** | Always changes (compilation start time + cache timestamp) |
 | `FileStat` | Ephemeral | Always re-runs (stat call), cheap |
+| `OutputFileStat` | Ephemeral | Always re-runs (stat call), cheap |
 | `FileContent` | Ephemeral | Re-read from disk if needed |
 | `ResourceContent` | Ephemeral | Re-read from classpath if needed |
 | `SourceContent` | Ephemeral | Delegates to FileContent/ResourceContent |
@@ -695,6 +761,14 @@ override def ephemeralFactTypes(): Set[Class[? <: CompilerFactKey[?]]] = Set(
 )
 ```
 
+`JvmPlugin` declares `OutputFileStat` as ephemeral (it always re-runs to check file presence):
+
+```scala
+override def ephemeralFactTypes(): Set[Class[? <: CompilerFactKey[?]]] = Set(
+  classOf[OutputFileStat.Key]
+)
+```
+
 ## 11. Integration with Compiler.scala
 
 ### Current Compilation Flow
@@ -724,19 +798,20 @@ private def runWithConfiguration(configuration: Configuration, plugins: Seq[Comp
         // Collect ephemeral fact types from all plugins
         ephemeralTypes    = activatedPlugins.flatMap(_.ephemeralFactTypes()).toSet
 
+        // Load persistent cache (moved before processor init, need timestamp)
+        targetPath        = newConfiguration.get(targetPathKey).get
+        cacheData        <- FactCache.load(targetPath)
+        cacheTimestamp   <- FactCache.timestamp(targetPath)  // mtime of cache file, None if absent
+
         // Collect processors, prepending Initial processor (replaces NullProcessor)
         startTime        <- IO.realTimeInstant
         processor        <- activatedPlugins.traverse_(_.initialize(newConfiguration)).runS(
-                              InitialProcessor(startTime)  // replaces NullProcessor()
+                              InitialProcessor(startTime, cacheTimestamp)  // replaces NullProcessor()
                             )
 
         // Wrap with visualization tracking (as before)
         tracker          <- FactVisualizationTracker.create()
         wrappedProcessors = processor.wrapWith(wrapProcessor(_, tracker))
-
-        // Load persistent cache
-        targetPath        = newConfiguration.get(targetPathKey).get
-        cacheData        <- FactCache.load(targetPath)
 
         // Create incremental fact generator (replaces FactGenerator.create)
         generator        <- IncrementalFactGenerator.create(
@@ -773,11 +848,12 @@ The fast path emerges naturally from the fact system:
 
 1. Plugin calls `getFact(GenerateExecutableJar.Key(main))`
 2. `IncrementalFactGenerator` finds it in cache, recursively validates dependencies
-3. Validation walks down to `FileStat` facts → each re-runs (depends on `Initial` which changed) → stat files
-4. All mtimes match → all hashes match → validation propagates back up → return cached fact
-5. **Zero file reads, zero deserialization of intermediate facts, zero computation**
+3. Validation walks down to `FileStat` facts → each re-runs (depends on `Initial` which changed) → stat source files
+4. Validation also walks to `OutputFileStat(target/Hello.jar)` → re-runs → JAR exists and older than cache → `upToDate = true` → same hash
+5. All source mtimes match, output file present → all hashes match → validation propagates back up → return cached fact
+6. **Zero file reads, zero deserialization of intermediate facts, zero computation, zero JAR writes**
 
-The only work done is: load cache file + N stat calls + recursive hash comparisons + deserialize the one requested fact.
+The only work done is: load cache file + N source stat calls + 1 output stat call + recursive hash comparisons + deserialize the one requested fact.
 
 ## 12. Building the Cache After Compilation
 
@@ -828,7 +904,11 @@ Not in cache → `FileStat(file)` has no cached entry → generated fresh → `F
 
 ### Side-Effecting Processors (JAR Writing)
 
-`JvmProgramGenerator` writes JAR files during fact generation. If the fact is cached and valid, the JAR from the previous run is still valid — no regeneration, no writing. If the JAR is manually deleted but the cache thinks it's valid, the user must clean the cache (`rm -rf target/`).
+`JvmProgramGenerator` writes JAR files during fact generation and depends on `OutputFileStat` for its output path. This handles all cases:
+
+- **JAR exists, sources unchanged:** `OutputFileStat` returns `upToDate = true` (same as cached) → `GenerateExecutableJar` is valid → no rewrite.
+- **JAR deleted, sources unchanged:** `OutputFileStat` returns `upToDate = false` (differs from cached `true`) → `GenerateExecutableJar` invalidated → processor re-runs, rewrites JAR. All upstream `GeneratedModule` facts are still cached.
+- **JAR exists, sources changed:** Upstream invalidation propagates through `GeneratedModule` → `GenerateExecutableJar` re-runs regardless of `OutputFileStat`.
 
 ## 14. Required Changes Summary
 
@@ -852,6 +932,8 @@ All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 | `lang/.../source/stat/FileStatProcessor.scala` | Add `getFactOrAbort(Initial.Key)` before stat call |
 | `lang/.../source/file/FileContentReader.scala` | Add `getFactOrAbort(FileStat.Key(key.file))` before reading file |
 | `lang/.../plugin/LangPlugin.scala` | Override `ephemeralFactTypes()` to declare cheap fact types |
+| `jvm/.../jargen/JvmProgramGenerator.scala` | Add `getFactOrAbort(OutputFileStat.Key(jarFile))` dependency before writing JAR |
+| `jvm/.../plugin/JvmPlugin.scala` | Register `OutputFileStatProcessor`, override `ephemeralFactTypes()` for `OutputFileStat` |
 
 ### No Changes Required
 
@@ -860,7 +942,6 @@ All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 - No changes to `CompilerIO` monad
 - No changes to `CompilerFactKey` or `CompilerFact` traits
 - No changes to `SourceContentReader` (it already depends on `FileContent` which will depend on `FileStat`)
-- JVM module unchanged (except `GenerateExecutableJar` facts are cached like any other)
 
 ## 15. Performance Characteristics
 
@@ -874,9 +955,8 @@ All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 
 ## 16. Future Enhancements
 
-1. **Output file existence checks**: Verify that side-effect outputs (JAR files) still exist before declaring cache valid
-2. **Parallel `FileStat` computation**: Run `FileStat` facts concurrently for faster startup
-3. **Partial cache loading**: Deserialize only requested facts, not the entire cache file
-4. **Fine-grained fact hashing**: Hash "signature" and "body" parts of facts separately for better propagation cutoff
-5. **CompilerIO purity enforcement**: Restrict the `CompilerIO` monad to prevent processors from performing arbitrary IO, formally guaranteeing the pure function property that the cache relies on
-6. **File watching mode**: Use filesystem watchers for instant change detection in a long-running compiler daemon
+1. **Parallel `FileStat` computation**: Run `FileStat` facts concurrently for faster startup
+2. **Partial cache loading**: Deserialize only requested facts, not the entire cache file
+3. **Fine-grained fact hashing**: Hash "signature" and "body" parts of facts separately for better propagation cutoff
+4. **CompilerIO purity enforcement**: Restrict the `CompilerIO` monad to prevent processors from performing arbitrary IO, formally guaranteeing the pure function property that the cache relies on
+5. **File watching mode**: Use filesystem watchers for instant change detection in a long-running compiler daemon
