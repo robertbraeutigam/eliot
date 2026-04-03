@@ -27,7 +27,7 @@ A fact `Initial(compilerStart: Instant)` is produced at the start of every compi
 
 A fact `UpdateTime(file, lastModified: Long)` depends on `Initial`. Because `Initial` always changes, `UpdateTime` is always regenerated — it stats the file and returns its modification time. This is a cheap operation (one `stat` syscall per file).
 
-The key property: **if the file hasn't changed, `UpdateTime` produces the same value as last time**. This makes it an ideal sentinel for cache validation.
+The key property: **if the file hasn't changed, `UpdateTime` produces the same value as last time**. This makes it the natural boundary between the external world and the deterministic fact system.
 
 ### How SourceContentReader Fits In
 
@@ -56,82 +56,94 @@ Initial (always changes)
 
 If the file's mtime is unchanged, `UpdateTime` produces the same hash as cached → `SourceContent` doesn't need to re-run → nothing downstream runs.
 
-## 3. Flat Sentinel Hashes: Non-Recursive Validation
+## 3. Recursive Dependency Validation
 
-### The Problem with Recursive Validation
+### How Validation Works
 
-A naive cache validator would recursively walk the dependency tree to check if a fact is valid: check each dependency, which checks its dependencies, and so on down to source files. This is expensive — for a deeply nested dependency chain, validation itself becomes a significant cost.
-
-### Flat Sentinel Approach
-
-Instead, each cached fact stores a **pre-computed flat map of all sentinel facts it transitively depends on**, along with their hashes at computation time:
+The incremental engine has no knowledge of which facts are "special." It only knows three things about each cached fact: what its direct dependencies were, what their hashes were, and what its own content hash was.
 
 ```scala
 case class CacheEntry(
-    sentinelHashes: Map[CompilerFactKey[?], Long],
+    directDependencies: Set[CompilerFactKey[?]],
     directDependencyHashes: Map[CompilerFactKey[?], Long],
     contentHash: Long,
     serializedFact: Option[Array[Byte]]
 )
 ```
 
-The `sentinelHashes` field contains keys like `UpdateTime.Key(Foo.els) → 839271` — the hash of each `UpdateTime` fact that this cached fact transitively depends on. This is a **flattened transitive closure** computed once when the cache is saved.
-
-### Validation is O(S) with No Recursion
-
-To validate a cached fact:
-
-1. Run all `UpdateTime` facts referenced in `sentinelHashes` (cheap stat calls)
-2. Hash each result
-3. Compare with stored hashes
-4. If ALL match → fact is valid → return from cache
-
-No dependency tree walking. No intermediate fact checking. Just sentinel comparisons.
+To validate a cached fact, the engine recursively validates its direct dependencies first (each of which validates its own dependencies, and so on). Once all dependencies are validated or recomputed, their current hashes are compared against the stored `directDependencyHashes`. If all match, the fact is still valid.
 
 ```scala
-def isValid(entry: CacheEntry, currentSentinelHashes: Map[CompilerFactKey[?], Long]): Boolean =
-  entry.sentinelHashes.forall { case (key, expectedHash) =>
-    currentSentinelHashes.get(key).contains(expectedHash)
+def validate(
+    key: CompilerFactKey[?],
+    cache: FactCacheData,
+    currentHashes: mutable.Map[CompilerFactKey[?], Long]
+): Boolean = {
+  if (currentHashes.contains(key)) return true  // already validated this run
+
+  cache.entries.get(key) match {
+    case None => false  // not in cache, must generate
+    case Some(entry) =>
+      // First, recursively validate all dependencies
+      entry.directDependencies.foreach(dep => validate(dep, cache, currentHashes))
+
+      // Then check if dependency hashes still match
+      val depsUnchanged = entry.directDependencyHashes.forall {
+        case (depKey, expectedHash) =>
+          currentHashes.get(depKey).contains(expectedHash)
+      }
+      if (depsUnchanged) {
+        currentHashes(key) = entry.contentHash
+        true
+      } else {
+        false  // must recompute
+      }
   }
-```
-
-### Computing Sentinel Hashes
-
-During compilation, sentinel hashes propagate upward through the dependency chain:
-
-- **Sentinel facts** (depend directly on `Initial`): `sentinelHashes = {self.key → hash(self)}`
-- **Derived facts**: `sentinelHashes = union of all dependencies' sentinelHashes`
-
-This is computed incrementally during compilation via the dependency tracker.
-
-Example for `TypeCheckedValue(Foo.bar)` which depends on files `Foo.els` and `String.els`:
-
-```
-TypeCheckedValue(Foo.bar).sentinelHashes = {
-  UpdateTime.Key(Foo.els) → 7392841,
-  UpdateTime.Key(String.els) → 1829374,
-  UpdateTime.Key(Unit.els) → 9283741
 }
 ```
 
-Validation: run three `stat` calls, hash results, compare. Done.
+### Why This Is Not Expensive
+
+The recursion bottoms out naturally at facts with no dependencies in the cache — either because they were freshly registered at startup (like `Initial`), or because they have no cached entry. Each fact is visited at most once thanks to the `currentHashes` memoization map. The total work is proportional to the number of dependency edges, traversed once.
+
+In the common case (nothing changed), `Initial` is already in memory with a fresh value → `UpdateTime` facts are recomputed (cheap `stat` calls) → their hashes match → validation propagates up instantly, each fact confirmed in O(number of direct dependencies).
+
+### Example
+
+For `TypeCheckedValue(Foo.bar)` which transitively depends on `Foo.els` and `String.els`:
+
+```
+validate(TypeCheckedValue(Foo.bar))
+  → validate(ResolvedValue(Foo.bar))
+    → validate(ModuleValue(Foo.els, Foo.bar))
+      → validate(SourceContent(Foo.els))
+        → validate(UpdateTime(Foo.els))
+          → validate(Initial)
+             Initial is in memory (fresh) → hash differs from cached → return false
+          → UpdateTime must recompute → stat file → same mtime → same hash ✓
+        → SourceContent deps unchanged → valid ✓
+      → ModuleValue deps unchanged → valid ✓
+    → also validates String.els chain (similar)
+    → ResolvedValue deps unchanged → valid ✓
+  → TypeCheckedValue deps unchanged → valid ✓
+```
+
+Each node is visited once. Second time `Initial` is reached (via `String.els` chain), it's already in `currentHashes` — instant return.
 
 ## 4. Hash-Based Propagation Cutoff on Recomputation
 
-When a sentinel hash changes (a file was modified), facts depending on it need recomputation. But not necessarily ALL of them — hash-based cutoff minimizes work.
+When a dependency hash changes (e.g., a file was modified), facts depending on it need recomputation. But not necessarily ALL of them — hash-based cutoff minimizes work.
 
 ### The Mechanism
 
-Each cache entry also stores `directDependencyHashes` — the content hashes of its immediate dependencies at the time it was computed. When recomputing the dirty subtree:
+Each cache entry stores `directDependencyHashes` — the content hashes of its immediate dependencies at the time it was computed. When a fact's validation fails (some dependency hash differs):
 
-1. **Identify dirty sentinels**: `UpdateTime` facts whose hash differs from cached
-2. **Identify potentially dirty facts**: All facts whose `sentinelHashes` reference a dirty sentinel
-3. **Process in dependency order** (from sentinels toward final outputs):
-   - For each potentially dirty fact, check `directDependencyHashes`
-   - If all direct dependencies' current hashes match → **cutoff**: fact is actually clean, skip
-   - If any differ → recompute → hash result → compare with cached `contentHash`:
-     - If matches → content unchanged despite input change → propagation stops here
-     - If differs → fact truly changed → continue to dependents
+1. **Recompute the fact** using its processor
+2. **Hash the result** and compare with the cached `contentHash`:
+   - If the hash matches → content is unchanged despite input change → **cutoff**: dependents are still valid
+   - If the hash differs → fact truly changed → dependents must be revalidated
+
+This is integrated directly into the recursive validation from Section 3. When validation finds a dependency mismatch, it recomputes the fact, and if the new content hash matches the cached one, it records the same hash — making the fact appear unchanged to its dependents.
 
 ### Example: Signature Unchanged
 
@@ -154,33 +166,46 @@ File `Foo.els` changes, but `Foo.bar`'s type signature stays the same (only body
 10. Everything downstream of Other.baz → untouched ✓
 ```
 
-### Dependency Order Processing
+### Integration with Recursive Validation
 
-The dirty subtree is processed bottom-up (from sentinels toward outputs). This ensures that when checking a fact's `directDependencyHashes`, all dependencies have already been processed and their current hashes are known.
+Propagation cutoff is part of the validation logic from Section 3. When a fact fails the dependency hash check, instead of immediately declaring it invalid, the engine recomputes it and checks the content hash:
 
 ```scala
-def recomputeDirtySubtree(
-    dirtyFacts: Set[CompilerFactKey[?]],
+def validateOrRecompute(
+    key: CompilerFactKey[?],
     cache: FactCacheData,
     currentHashes: mutable.Map[CompilerFactKey[?], Long]
 ): Unit = {
-  val sorted = topologicalSort(dirtyFacts, cache)
-  for (key <- sorted) {
-    val entry = cache.entries(key)
-    val depsUnchanged = entry.directDependencyHashes.forall {
-      case (depKey, expectedHash) =>
-        currentHashes.getOrElse(depKey, expectedHash) == expectedHash
-    }
-    if (depsUnchanged) {
-      // Cutoff: all inputs unchanged, fact is clean
-      currentHashes(key) = entry.contentHash
-    } else {
-      // Must recompute
-      val newFact = recompute(key)
-      val newHash = computeHash(newFact)
-      currentHashes(key) = newHash
-      // If hash matches cached, dependents may still be clean
-    }
+  if (currentHashes.contains(key)) return  // already handled
+
+  cache.entries.get(key) match {
+    case None =>
+      // Not in cache — generate fresh, record hash
+      val fact = generate(key)
+      currentHashes(key) = computeHash(fact)
+
+    case Some(entry) =>
+      // Recursively validate dependencies first
+      entry.directDependencies.foreach(dep =>
+        validateOrRecompute(dep, cache, currentHashes)
+      )
+
+      val depsUnchanged = entry.directDependencyHashes.forall {
+        case (depKey, expectedHash) =>
+          currentHashes.get(depKey).contains(expectedHash)
+      }
+
+      if (depsUnchanged) {
+        // All inputs unchanged → fact is clean
+        currentHashes(key) = entry.contentHash
+      } else {
+        // Some input changed → recompute
+        val newFact = generate(key)
+        val newHash = computeHash(newFact)
+        currentHashes(key) = newHash
+        // If newHash == entry.contentHash, dependents will see
+        // unchanged hashes → cutoff propagates naturally
+      }
   }
 }
 ```
@@ -201,12 +226,15 @@ def recomputeDirtySubtree(
 │                                                              │
 │  On getFact(key):                                            │
 │   1. In-memory cache hit? → return                           │
-│   2. Persistent cache hit + sentinel hashes valid? → return  │
-│   3. Otherwise → generate with DependencyTrackingProcess     │
+│   2. Persistent cache entry exists?                          │
+│      → recursively validate dependencies                     │
+│      → all dep hashes match? → return from cache             │
+│      → some differ? → recompute → check content hash cutoff  │
+│   3. Not in cache → generate with DependencyTrackingProcess  │
 │                                                              │
 │  ┌───────────────────┐  ┌────────────────────────┐           │
 │  │ DependencyTracking │  │   CacheValidator       │           │
-│  │ Process            │  │   (flat sentinel check  │           │
+│  │ Process            │  │   (recursive dep check  │           │
 │  │ (records getFact   │  │    + propagation cutoff)│           │
 │  │  calls per fact)   │  │                        │           │
 │  └───────────────────┘  └────────────────────────┘           │
@@ -214,7 +242,6 @@ def recomputeDirtySubtree(
 │  ┌───────────────────────────────────────────────┐           │
 │  │              FactCache                         │           │
 │  │  (persistent storage on disk)                  │           │
-│  │  - cache entries with sentinel hashes          │           │
 │  │  - direct dependency hashes                    │           │
 │  │  - content hashes                              │           │
 │  │  - serialized facts (persistent only)          │           │
@@ -230,7 +257,7 @@ def recomputeDirtySubtree(
 | `UpdateTime.scala` | `compiler.cache` | `UpdateTime` fact, key, and processor |
 | `CacheEntry.scala` | `compiler.cache` | Cache entry data structure |
 | `FactCache.scala` | `compiler.cache` | Cache persistence (load/save) |
-| `CacheValidator.scala` | `compiler.cache` | Flat validation + propagation cutoff |
+| `CacheValidator.scala` | `compiler.cache` | Recursive validation + propagation cutoff |
 | `DependencyTrackingProcess.scala` | `compiler.cache` | Records fact dependencies |
 | `IncrementalFactGenerator.scala` | `compiler` | Cache-aware `CompilationProcess` |
 
@@ -339,36 +366,9 @@ final class DependencyTrackingProcess(
 
 Each fact generation runs in its own fiber (via `.start` in `FactGenerator`), and gets its own `DependencyTrackingProcess` instance — no concurrency issues.
 
-### Sentinel Hash Propagation
+### What Gets Stored
 
-After compilation, sentinel hashes are computed by propagating through the dependency graph:
-
-```scala
-def computeSentinelHashes(
-    factKey: CompilerFactKey[?],
-    directDeps: Map[CompilerFactKey[?], Set[CompilerFactKey[?]]],
-    factHashes: Map[CompilerFactKey[?], Long],
-    memo: mutable.Map[CompilerFactKey[?], Map[CompilerFactKey[?], Long]]
-): Map[CompilerFactKey[?], Long] = {
-  memo.getOrElseUpdate(factKey, {
-    val deps = directDeps.getOrElse(factKey, Set.empty)
-    if (deps.isEmpty) {
-      // Leaf fact (no dependencies) — not a sentinel
-      Map.empty
-    } else if (deps.contains(Initial.Key)) {
-      // This fact depends on Initial → it IS a sentinel
-      Map(factKey -> factHashes(factKey))
-    } else {
-      // Union of all dependencies' sentinel hashes
-      deps.flatMap(dep =>
-        computeSentinelHashes(dep, directDeps, factHashes, memo)
-      ).toMap
-    }
-  })
-}
-```
-
-This runs once at cache save time. The result is stored per cache entry.
+After compilation, each fact's recorded dependencies and content hash are saved to the cache. No transitive analysis is needed at save time — the recursive validation at load time handles transitivity naturally.
 
 ## 8. Cache Storage Format
 
@@ -376,7 +376,7 @@ This runs once at cache save time. The result is stored per cache entry.
 
 ```scala
 case class CacheEntry(
-    sentinelHashes: Map[CompilerFactKey[?], Long],
+    directDependencies: Set[CompilerFactKey[?]],
     directDependencyHashes: Map[CompilerFactKey[?], Long],
     contentHash: Long,
     serializedFact: Option[Array[Byte]]  // None for ephemeral facts
@@ -385,7 +385,7 @@ case class CacheEntry(
 
 | Field | Purpose |
 |-------|---------|
-| `sentinelHashes` | Flat map of `UpdateTime` keys → hashes. For fast O(S) validation. |
+| `directDependencies` | Set of immediate dependency keys. For recursive validation traversal. |
 | `directDependencyHashes` | Hashes of immediate dependencies. For propagation cutoff during recomputation. |
 | `contentHash` | Hash of this fact's serialized form. For cutoff: detect unchanged content. |
 | `serializedFact` | Serialized fact data. `None` for ephemeral facts. |
@@ -399,7 +399,7 @@ case class FactCacheData(
 )
 ```
 
-No separate source fingerprints needed — file freshness is modeled as `UpdateTime` sentinel facts within the same system.
+No separate source fingerprints needed — file freshness is modeled as `UpdateTime` facts within the same system.
 
 ### Persistence
 
@@ -454,22 +454,19 @@ getFact(key)
   │
   ├─ Persistent cache entry exists?
   │    │
-  │    ├─ Is key a sentinel (depends on Initial)?
-  │    │    │
-  │    │    Yes → always generate fresh
-  │    │         (UpdateTime: stat the file)
+  │    ├─ Recursively validate all direct dependencies
+  │    │   (each dependency validates its own dependencies, etc.)
   │    │
-  │    ├─ All sentinelHashes match current? ──Yes──► deserialize & return
-  │    │                                             (or regenerate if ephemeral)
+  │    ├─ All dependency hashes match cached? ──Yes──► deserialize & return
+  │    │                                               (or regenerate if ephemeral)
   │    │
-  │    └─ Some sentinel changed:
-  │         Check directDependencyHashes
-  │         against current dependency hashes
+  │    └─ Some dependency hash differs:
+  │         Recompute fact → hash result
   │         │
-  │         ├─ All match → CUTOFF: fact is clean
-  │         │   despite sentinel change → return cached
+  │         ├─ Content hash matches cached → CUTOFF
+  │         │   (dependents see unchanged hash)
   │         │
-  │         └─ Some differ → generate fresh
+  │         └─ Content hash differs → propagate
   │
   └─ Not in cache → generate fresh (with dependency tracking)
 ```
@@ -502,10 +499,8 @@ final class IncrementalFactGenerator(
       key: K
   ): IO[Option[V]] =
     cache.flatMap(_.entries.get(key)) match {
-      case Some(entry) if !isSentinel(entry) =>
-        validateAndReturn(key, entry)
-      case _ =>
-        generateFresh(key)
+      case Some(entry) => validateAndReturn(key, entry)
+      case None        => generateFresh(key)
     }
 
   private def validateAndReturn[V <: CompilerFact, K <: CompilerFactKey[V]](
@@ -513,33 +508,26 @@ final class IncrementalFactGenerator(
       entry: CacheEntry
   ): IO[Option[V]] =
     for {
-      // Ensure all referenced sentinels have been computed this run
-      _              <- entry.sentinelHashes.keys.toList.traverse_(ensureSentinelComputed)
-      sentinelHashes <- currentHashes.get
-      sentinelsValid  = entry.sentinelHashes.forall { case (sk, sh) =>
-                          sentinelHashes.get(sk).contains(sh)
-                        }
-      result         <- if (sentinelsValid) loadFromCache(key, entry)
-                        else checkCutoffOrRegenerate(key, entry)
-    } yield result
-
-  /** Check if direct dependency hashes match — propagation cutoff. */
-  private def checkCutoffOrRegenerate[V <: CompilerFact, K <: CompilerFactKey[V]](
-      key: K,
-      entry: CacheEntry
-  ): IO[Option[V]] =
-    for {
+      // Recursively validate all direct dependencies first
+      _        <- entry.directDependencies.toList.traverse_(dep => getFact(dep))
       hashes   <- currentHashes.get
       depsMatch = entry.directDependencyHashes.forall { case (dk, dh) =>
                     hashes.get(dk).contains(dh)
                   }
-      result   <- if (depsMatch) {
-                    // CUTOFF: direct inputs unchanged despite sentinel change
-                    currentHashes.update(_.updated(key, entry.contentHash)) >>
-                      loadFromCache(key, entry)
-                  } else {
-                    generateFresh(key)
-                  }
+      result   <- if (depsMatch) loadFromCache(key, entry)
+                  else recomputeWithCutoff(key, entry)
+    } yield result
+
+  /** Recompute fact, but check if content hash is unchanged (cutoff). */
+  private def recomputeWithCutoff[V <: CompilerFact, K <: CompilerFactKey[V]](
+      key: K,
+      entry: CacheEntry
+  ): IO[Option[V]] =
+    for {
+      result  <- generateFresh(key)
+      hashes  <- currentHashes.get
+      // If the new content hash matches cached, dependents see no change
+      // (cutoff happens naturally — their dependency hashes will still match)
     } yield result
 
   private def loadFromCache[V <: CompilerFact, K <: CompilerFactKey[V]](
@@ -549,7 +537,8 @@ final class IncrementalFactGenerator(
     entry.serializedFact match {
       case Some(bytes) =>
         val fact = deserialize(bytes).asInstanceOf[V]
-        registerInMemory(key, Some(fact)).as(Some(fact))
+        currentHashes.update(_.updated(key, entry.contentHash)) >>
+          registerInMemory(key, Some(fact)).as(Some(fact))
       case None =>
         // Ephemeral fact — not serialized, must regenerate
         generateFresh(key)
@@ -585,16 +574,7 @@ final class IncrementalFactGenerator(
 }
 ```
 
-### Sentinel Detection
-
-A sentinel fact is one that depends directly on `Initial.Key`. This is determined from the cached dependency graph:
-
-```scala
-private def isSentinel(entry: CacheEntry): Boolean =
-  entry.directDependencyHashes.contains(Initial.Key)
-```
-
-Sentinels are never served from cache — they're always regenerated (they're cheap, like `stat` calls).
+The engine has no concept of "sentinel" or "special" facts. `Initial` happens to always be freshly registered at startup (so it's always in-memory with a new value), and `UpdateTime` depends on `Initial` (so it always recomputes). But the engine doesn't know or care — it just sees facts, dependencies, and hashes.
 
 ## 10. Persistent vs Ephemeral Facts
 
@@ -605,7 +585,7 @@ Not all facts are worth serializing to disk:
 | Fact Type | Category | Rationale |
 |-----------|----------|-----------|
 | `Initial` | **Never cached** | Always changes |
-| `UpdateTime` | **Sentinel** | Always re-runs (stat call) |
+| `UpdateTime` | Ephemeral | Always re-runs (stat call), cheap |
 | `SourceContent` | Ephemeral | Re-read from disk if needed |
 | `PathScan` | Ephemeral | Cheap to recompute |
 | `SourceTokens` | Ephemeral | Tokenization is fast |
@@ -624,9 +604,9 @@ Not all facts are worth serializing to disk:
 
 ### How Ephemeral Facts Work
 
-For ephemeral facts, the cache stores the `sentinelHashes`, `directDependencyHashes`, and `contentHash` — but NOT the `serializedFact` (it's `None`).
+For ephemeral facts, the cache stores the `directDependencies`, `directDependencyHashes`, and `contentHash` — but NOT the `serializedFact` (it's `None`).
 
-- **Nothing changed**: Sentinel hashes match → the persistent facts downstream are loaded from cache. Ephemeral facts are never needed (they're intermediaries).
+- **Nothing changed**: Dependency hashes match all the way down → the persistent facts downstream are loaded from cache. Ephemeral facts are never needed (they're intermediaries).
 - **Something changed**: Ephemeral facts in the dirty subtree are regenerated. This is fast (they're cheap computations). Their new hashes participate in propagation cutoff.
 
 ### Plugin Registration
@@ -714,12 +694,12 @@ private def runWithConfiguration(
 The fast path emerges naturally from the fact system:
 
 1. Plugin calls `getFact(GenerateExecutableJar.Key(main))`
-2. `IncrementalFactGenerator` finds it in cache, checks sentinel hashes
-3. Sentinel hashes reference `UpdateTime` facts → stat all source files
-4. All mtimes match → all sentinel hashes match → return cached fact
+2. `IncrementalFactGenerator` finds it in cache, recursively validates dependencies
+3. Validation walks down to `UpdateTime` facts → each re-runs (depends on `Initial` which changed) → stat files
+4. All mtimes match → all hashes match → validation propagates back up → return cached fact
 5. **Zero file reads, zero deserialization of intermediate facts, zero computation**
 
-The only work done is: load cache file + N stat calls + deserialize the one requested fact.
+The only work done is: load cache file + N stat calls + recursive hash comparisons + deserialize the one requested fact.
 
 ## 12. Building the Cache After Compilation
 
@@ -731,23 +711,18 @@ def buildCacheData(): IO[FactCacheData] =
     allFacts  <- collectAllFacts()
     deps      <- directDependencies.get
     hashes    <- currentHashes.get
-    entries    = allFacts.flatMap { case (key, fact) =>
-                   // Skip Initial — never cached
-                   if (key == Initial.Key) None
-                   else {
-                     val serialized   = serialize(fact)
-                     val contentHash  = MurmurHash3.bytesHash(serialized).toLong
-                     val isPersistent = !ephemeralTypes.contains(key.getClass)
-                     val factDeps     = deps.getOrElse(key, Set.empty)
-                     val depHashes    = factDeps.flatMap(d => hashes.get(d).map(d -> _)).toMap
-                     val sentinels    = computeSentinelHashes(key, deps, hashes)
-                     Some(key -> CacheEntry(
-                       sentinelHashes = sentinels,
-                       directDependencyHashes = depHashes,
-                       contentHash = contentHash,
-                       serializedFact = if (isPersistent) Some(serialized) else None
-                     ))
-                   }
+    entries    = allFacts.map { case (key, fact) =>
+                   val serialized   = serialize(fact)
+                   val contentHash  = MurmurHash3.bytesHash(serialized).toLong
+                   val isPersistent = !ephemeralTypes.contains(key.getClass)
+                   val factDeps     = deps.getOrElse(key, Set.empty)
+                   val depHashes    = factDeps.flatMap(d => hashes.get(d).map(d -> _)).toMap
+                   key -> CacheEntry(
+                     directDependencies = factDeps,
+                     directDependencyHashes = depHashes,
+                     contentHash = contentHash,
+                     serializedFact = if (isPersistent) Some(serialized) else None
+                   )
                  }
   } yield FactCacheData(
     version = FactCache.CACHE_VERSION,
@@ -767,7 +742,7 @@ Not in cache → `UpdateTime(file)` has no cached entry → generated fresh → 
 
 ### Synthetic Sources (JvmProgramGenerator)
 
-`JvmProgramGenerator` calls `addSource(file, content)` to register a synthetic `SourceContent` directly. This fact doesn't depend on `UpdateTime` — it depends on the processor's inputs (`UsedNames`, etc.). It's tracked like any derived fact, with its sentinel hashes being the union of its dependencies' sentinels.
+`JvmProgramGenerator` calls `addSource(file, content)` to register a synthetic `SourceContent` directly. This fact doesn't depend on `UpdateTime` — it depends on the processor's inputs (`UsedNames`, etc.). It's tracked like any other derived fact through the generic dependency mechanism.
 
 ### Cache Corruption
 
@@ -821,7 +796,7 @@ All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 ## 16. Future Enhancements
 
 1. **Output file existence checks**: Verify that side-effect outputs (JAR files) still exist before declaring cache valid
-2. **Parallel sentinel computation**: Run `UpdateTime` facts concurrently for faster startup
+2. **Parallel `UpdateTime` computation**: Run `UpdateTime` facts concurrently for faster startup
 3. **Partial cache loading**: Deserialize only requested facts, not the entire cache file
 4. **Fine-grained fact hashing**: Hash "signature" and "body" parts of facts separately for better propagation cutoff
 5. **CompilerIO purity enforcement**: Restrict the `CompilerIO` monad to prevent processors from performing arbitrary IO, formally guaranteeing the pure function property that the cache relies on
