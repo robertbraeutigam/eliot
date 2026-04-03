@@ -15,46 +15,70 @@ Currently, every invocation of the ELIOT compiler recomputes all facts from scra
 
 All `CompilerProcessor` implementations are stateless and deterministic: given the same input facts, they produce the same output facts. The only external inputs are source files (read by `SourceContentReader`). Therefore, if we can determine that all inputs to a fact are unchanged, the fact itself is unchanged.
 
-## 2. Core Idea: I/O as Facts with Initial and UpdateTime
+## 2. Core Idea: I/O as Facts with Initial and FileStat
 
-The central design insight is to model I/O operations as facts within the existing fact system, using two new built-in facts:
+The central design insight is to model I/O operations as facts within the existing fact system:
 
 ### Initial Fact
 
 A fact `Initial(compilerStart: Instant)` is produced at the start of every compilation run. Its value is the current timestamp, so it **naturally changes with every invocation**. Any fact that depends on `Initial` will always be regenerated.
 
-### UpdateTime Fact
+### Reusing the Existing FileStat Fact
 
-A fact `UpdateTime(file, lastModified: Long)` depends on `Initial`. Because `Initial` always changes, `UpdateTime` is always regenerated — it stats the file and returns its modification time. This is a cheap operation (one `stat` syscall per file).
+The codebase already has `FileStat(file: File, lastModified: Option[Instant])` and `FileStatProcessor` in the `source.stat` package. `FileStatProcessor` performs the `stat` syscall and returns the file's modification time. This is exactly what the plan needs for change detection.
 
-The key property: **if the file hasn't changed, `UpdateTime` produces the same value as last time**. This makes it the natural boundary between the external world and the deterministic fact system.
-
-### How SourceContentReader Fits In
-
-Currently, `SourceContentReader` reads a file from disk whenever `SourceContent.Key(file)` is requested. With incremental compilation, it is modified to first request `UpdateTime.Key(file)`:
+Rather than introducing a new `UpdateTime` fact, we modify `FileStatProcessor` to depend on `Initial`:
 
 ```scala
-class SourceContentReader extends SingleKeyTypeProcessor[SourceContent.Key] {
-  override protected def generateFact(key: SourceContent.Key): CompilerIO[Unit] =
+class FileStatProcessor extends SingleFactProcessor[FileStat.Key] with Logging {
+  override protected def generateSingleFact(key: FileStat.Key): CompilerIO[FileStat] =
     for {
-      _       <- getFactOrAbort(UpdateTime.Key(key.file))  // ← new: establishes dependency
-      content <- readFileContent(key.file)
-      _       <- content.traverse_(registerFactIfClear)
-    } yield ()
+      _ <- getFactOrAbort(Initial.Key)  // ← new: depend on Initial → always re-run
+      result <- IO(key.file.lastModified()).attempt
+                  .map(_.toOption)
+                  .map(lastModified => FileStat(key.file, lastModified.filter(_ > 0L).map(Instant.ofEpochMilli)))
+                  .to[CompilerIO]
+    } yield result
 }
 ```
 
-This single line change creates the dependency chain that makes everything work:
+The key property: **if the file hasn't changed, `FileStat` produces the same value as last time**. This makes it the natural boundary between the external world and the deterministic fact system.
+
+### How the Existing Dependency Chain Works
+
+The current codebase already has the following dependency chain for file-based sources:
+
+```
+SourceContent(uri) → FileContent(file) → [reads file directly]
+                   → ResourceContent(uri) → [reads resource directly]
+```
+
+`FileStatProcessor` exists but is not currently in the dependency chain for `FileContent`. With incremental compilation, `FileContentReader` is modified to depend on `FileStat`:
+
+```scala
+class FileContentReader extends SingleFactProcessor[FileContent.Key] with Logging {
+  override protected def generateSingleFact(key: FileContent.Key): CompilerIO[FileContent] =
+    for {
+      _ <- getFactOrAbort(FileStat.Key(key.file))  // ← new: establishes dependency
+      // ... existing file reading logic ...
+    } yield result
+}
+```
+
+This creates the dependency chain that makes everything work:
 
 ```
 Initial (always changes)
-  ← UpdateTime(Foo.els) (always runs, produces file mtime)
-    ← SourceContent(Foo.els) (only runs if mtime changed)
-      ← SourceTokens(Foo.els) (only runs if content changed)
-        ← ... entire downstream pipeline
+  ← FileStat(Foo.els) (always runs, produces file mtime)
+    ← FileContent(Foo.els) (only runs if mtime changed)
+      ← SourceContent(Foo.els) (only runs if content changed)
+        ← SourceTokens(Foo.els) (only runs if content changed)
+          ← ... entire downstream pipeline
 ```
 
-If the file's mtime is unchanged, `UpdateTime` produces the same hash as cached → `SourceContent` doesn't need to re-run → nothing downstream runs.
+If the file's mtime is unchanged, `FileStat` produces the same hash as cached → `FileContent` doesn't need to re-run → nothing downstream runs.
+
+**Note:** `SourceContentReader` handles both `file://` URIs (via `FileContent`) and resource URIs (via `ResourceContent`). Resource content is read from the classpath and is effectively immutable at compile time, so it does not need `Initial`-based invalidation.
 
 ## 3. Recursive Dependency Validation
 
@@ -106,26 +130,34 @@ def validate(
 
 The recursion bottoms out naturally at facts with no dependencies in the cache — either because they were freshly registered at startup (like `Initial`), or because they have no cached entry. Each fact is visited at most once thanks to the `currentHashes` memoization map. The total work is proportional to the number of dependency edges, traversed once.
 
-In the common case (nothing changed), `Initial` is already in memory with a fresh value → `UpdateTime` facts are recomputed (cheap `stat` calls) → their hashes match → validation propagates up instantly, each fact confirmed in O(number of direct dependencies).
+In the common case (nothing changed), `Initial` is already in memory with a fresh value → `FileStat` facts are recomputed (cheap `stat` calls) → their hashes match → validation propagates up instantly, each fact confirmed in O(number of direct dependencies).
 
 ### Example
 
-For `TypeCheckedValue(Foo.bar)` which transitively depends on `Foo.els` and `String.els`:
+For `MonomorphicValue(Foo.bar)` which transitively depends on `Foo.els` and `String.els`:
 
 ```
-validate(TypeCheckedValue(Foo.bar))
-  → validate(ResolvedValue(Foo.bar))
-    → validate(ModuleValue(Foo.els, Foo.bar))
-      → validate(SourceContent(Foo.els))
-        → validate(UpdateTime(Foo.els))
-          → validate(Initial)
-             Initial is in memory (fresh) → hash differs from cached → return false
-          → UpdateTime must recompute → stat file → same mtime → same hash ✓
-        → SourceContent deps unchanged → valid ✓
-      → ModuleValue deps unchanged → valid ✓
-    → also validates String.els chain (similar)
-    → ResolvedValue deps unchanged → valid ✓
-  → TypeCheckedValue deps unchanged → valid ✓
+validate(MonomorphicValue(Foo.bar))
+  → validate(OperatorResolvedValue(Foo.bar))
+    → validate(MatchDesugaredValue(Foo.bar))
+      → validate(ResolvedValue(Foo.bar))
+        → validate(UnifiedModuleValue(Foo.bar))
+          → validate(ModuleValue(Foo.els, Foo.bar))
+            → validate(SourceContent(Foo.els))
+              → validate(FileContent(Foo.els))
+                → validate(FileStat(Foo.els))
+                  → validate(Initial)
+                     Initial is in memory (fresh) → hash differs from cached → return false
+                  → FileStat must recompute → stat file → same mtime → same hash ✓
+                → FileContent deps unchanged → valid ✓
+              → SourceContent deps unchanged → valid ✓
+            → ModuleValue deps unchanged → valid ✓
+          → UnifiedModuleValue deps unchanged → valid ✓
+        → ResolvedValue deps unchanged → valid ✓
+      → MatchDesugaredValue deps unchanged → valid ✓
+    → OperatorResolvedValue deps unchanged → valid ✓
+  → also validates String.els chain (similar)
+  → MonomorphicValue deps unchanged → valid ✓
 ```
 
 Each node is visited once. Second time `Initial` is reached (via `String.els` chain), it's already in `currentHashes` — instant return.
@@ -150,20 +182,24 @@ This is integrated directly into the recursive validation from Section 3. When v
 File `Foo.els` changes, but `Foo.bar`'s type signature stays the same (only body changes):
 
 ```
-1. UpdateTime(Foo.els) → CHANGED (new mtime)
-2. SourceContent(Foo.els) → dirty → recompute (re-read file) → hash CHANGED
-3. SourceTokens(Foo.els) → dirty → recompute → hash CHANGED
-4. SourceAST(Foo.els) → dirty → recompute → hash CHANGED
-5. CoreAST(Foo.els) → dirty → recompute → hash CHANGED
-6. ModuleValue(Foo.els, Foo.bar) → dirty → recompute → hash CHANGED (body differs)
-7. ResolvedValue(Foo.bar) → dirty → recompute → hash CHANGED
-8. TypeCheckedValue(Foo.bar) → dirty → recompute → hash CHANGED (body differs)
-9. TypeCheckedValue(Other.baz) calls Foo.bar:
-   - Check directDependencyHashes:
-     TypeCheckedValue(Foo.bar) hash CHANGED
-   - Must recompute → result is SAME (only uses Foo.bar's signature)
-   → contentHash MATCHES cached → CUTOFF: propagation stops
-10. Everything downstream of Other.baz → untouched ✓
+1.  FileStat(Foo.els) → CHANGED (new mtime)
+2.  FileContent(Foo.els) → dirty → recompute (re-read file) → hash CHANGED
+3.  SourceContent(Foo.els) → dirty → recompute → hash CHANGED
+4.  SourceTokens(Foo.els) → dirty → recompute → hash CHANGED
+5.  SourceAST(Foo.els) → dirty → recompute → hash CHANGED
+6.  CoreAST(Foo.els) → dirty → recompute → hash CHANGED
+7.  ModuleValue(Foo.els, Foo.bar) → dirty → recompute → hash CHANGED (body differs)
+8.  UnifiedModuleValue(Foo.bar) → dirty → recompute → hash CHANGED
+9.  ResolvedValue(Foo.bar) → dirty → recompute → hash CHANGED
+10. MatchDesugaredValue(Foo.bar) → dirty → recompute → hash CHANGED
+11. OperatorResolvedValue(Foo.bar) → dirty → recompute → hash CHANGED
+12. MonomorphicValue(Foo.bar) → dirty → recompute → hash CHANGED (body differs)
+13. MonomorphicValue(Other.baz) calls Foo.bar:
+    - Check directDependencyHashes:
+      MonomorphicValue(Foo.bar) hash CHANGED
+    - Must recompute → result is SAME (only uses Foo.bar's signature)
+    → contentHash MATCHES cached → CUTOFF: propagation stops
+14. Everything downstream of Other.baz → untouched ✓
 ```
 
 ### Integration with Recursive Validation
@@ -216,12 +252,13 @@ def validateOrRecompute(
 ┌──────────────────────────────────────────────────────────────┐
 │                      Compiler.scala                          │
 │  (load cache → create generator → run → save cache)         │
+│  Uses InitialProcessor instead of NullProcessor              │
 └──────────────────────┬───────────────────────────────────────┘
                        │
                        ▼
 ┌──────────────────────────────────────────────────────────────┐
 │            IncrementalFactGenerator                           │
-│  (implements CompilationProcess, wraps normal generation      │
+│  (implements CompilationProcess, replaces FactGenerator       │
 │   with cache lookups and dependency tracking)                 │
 │                                                              │
 │  On getFact(key):                                            │
@@ -254,7 +291,6 @@ def validateOrRecompute(
 | File | Package | Purpose |
 |------|---------|---------|
 | `Initial.scala` | `compiler.cache` | `Initial` fact, key, and processor |
-| `UpdateTime.scala` | `compiler.cache` | `UpdateTime` fact, key, and processor |
 | `CacheEntry.scala` | `compiler.cache` | Cache entry data structure |
 | `FactCache.scala` | `compiler.cache` | Cache persistence (load/save) |
 | `CacheValidator.scala` | `compiler.cache` | Recursive validation + propagation cutoff |
@@ -265,14 +301,15 @@ def validateOrRecompute(
 
 | File | Change |
 |------|--------|
-| `Compiler.scala` | Register `Initial`/`UpdateTime` processors, load/save cache |
-| `CompilerPlugin.scala` | Add `ephemeralFactTypes()` method |
-| `SourceContentReader.scala` | Add `getFactOrAbort(UpdateTime.Key(file))` call |
-| `BasePlugin.scala` | Override `ephemeralFactTypes()` |
+| `Compiler.scala` (eliotc) | Register `Initial` processor, load/save cache, use `IncrementalFactGenerator` |
+| `CompilerPlugin.scala` (eliotc) | Add `ephemeralFactTypes()` method (default: empty set) |
+| `FileStatProcessor.scala` (lang) | Add `getFactOrAbort(Initial.Key)` before stat call |
+| `FileContentReader.scala` (lang) | Add `getFactOrAbort(FileStat.Key(key.file))` before reading file |
+| `LangPlugin.scala` (lang) | Override `ephemeralFactTypes()` to declare cheap fact types |
 
-## 6. New Facts and Processors
+## 6. New Facts and Modified Processors
 
-### Initial
+### Initial (new fact in `eliotc` module)
 
 ```scala
 package com.vanillasource.eliot.eliotc.compiler.cache
@@ -299,47 +336,61 @@ class InitialProcessor(startTime: Instant)
 
 The `startTime` is captured once at compilation start and injected into the processor. This ensures `Initial` produces a deterministic value within a single run but a different value across runs.
 
-### UpdateTime
+### FileStat (existing fact — modified processor)
+
+`FileStat` already exists in `lang/source/stat/` with the right structure:
 
 ```scala
-package com.vanillasource.eliot.eliotc.compiler.cache
-
-import java.io.File
-import com.vanillasource.eliot.eliotc.processor.*
-
-case class UpdateTime(file: File, lastModified: Long) extends CompilerFact {
-  override def key(): CompilerFactKey[UpdateTime] = UpdateTime.Key(file)
+case class FileStat(file: File, lastModified: Option[Instant]) extends CompilerFact {
+  override def key(): CompilerFactKey[FileStat] = FileStat.Key(file)
 }
 
-object UpdateTime {
-  case class Key(file: File) extends CompilerFactKey[UpdateTime]
+object FileStat {
+  case class Key(file: File) extends CompilerFactKey[FileStat]
 }
 ```
 
+`FileStatProcessor` is modified to depend on `Initial`:
+
 ```scala
-class UpdateTimeProcessor
-    extends SingleKeyTypeProcessor[UpdateTime.Key] {
-  override protected def generateFact(key: UpdateTime.Key): CompilerIO[Unit] =
+class FileStatProcessor extends SingleFactProcessor[FileStat.Key] with Logging {
+  override protected def generateSingleFact(key: FileStat.Key): CompilerIO[FileStat] =
     for {
-      _ <- getFactOrAbort(Initial.Key)  // depend on Initial → always re-run
-      mtime <- IO.blocking(key.file.lastModified()).to[CompilerIO]
-      _ <- registerFactIfClear(UpdateTime(key.file, mtime))
-    } yield ()
+      _ <- getFactOrAbort(Initial.Key)  // ← new: depend on Initial → always re-run
+      result <- IO(key.file.lastModified()).attempt
+                  .map(_.toOption)
+                  .map(lastModified => FileStat(key.file, lastModified.filter(_ > 0L).map(Instant.ofEpochMilli)))
+                  .to[CompilerIO]
+    } yield result
+}
+```
+
+### FileContent (existing fact — modified processor)
+
+`FileContentReader` is modified to explicitly depend on `FileStat`, creating the invalidation chain:
+
+```scala
+class FileContentReader extends SingleFactProcessor[FileContent.Key] with Logging {
+  override protected def generateSingleFact(key: FileContent.Key): CompilerIO[FileContent] =
+    for {
+      _ <- getFactOrAbort(FileStat.Key(key.file))  // ← new: establishes dependency on file mtime
+      // ... existing file reading logic unchanged ...
+    } yield result
 }
 ```
 
 ### Why This Works
 
-- `Initial` changes every run → `UpdateTime` always re-runs (it depends on `Initial`)
-- `UpdateTime` is a cheap `stat` call → negligible cost even for many files
-- If file is unchanged → `UpdateTime` produces same `lastModified` → same hash → downstream is cached
-- If file changed → `UpdateTime` produces different `lastModified` → different hash → downstream recomputes
+- `Initial` changes every run → `FileStat` always re-runs (it depends on `Initial`)
+- `FileStat` is a cheap `stat` call → negligible cost even for many files
+- If file is unchanged → `FileStat` produces same `lastModified` → same hash → downstream is cached
+- If file changed → `FileStat` produces different `lastModified` → different hash → downstream recomputes
 
-The beauty is that this integrates naturally with the fact system. No special external fingerprinting mechanism needed — it's all facts and dependencies.
+The beauty is that this integrates naturally with the existing fact system. No special external fingerprinting mechanism needed — it's all facts and dependencies, reusing the infrastructure already in place.
 
 ## 7. Dependency Tracking
 
-During fact generation, we record which facts each generated fact depends on. This follows the existing `TrackedCompilationProcess` pattern from the visualization system.
+During fact generation, we record which facts each generated fact depends on. This follows the existing `TrackedCompilationProcess` pattern from the visualization system (`eliotc/.../visualization/TrackedCompilationProcess.scala`), which already wraps `CompilationProcess` to record `getFact` and `registerFact` calls for the fact graph visualization.
 
 ### DependencyTrackingProcess
 
@@ -399,7 +450,7 @@ case class FactCacheData(
 )
 ```
 
-No separate source fingerprints needed — file freshness is modeled as `UpdateTime` facts within the same system.
+No separate source fingerprints needed — file freshness is modeled as `FileStat` facts within the same system.
 
 ### Persistence
 
@@ -574,33 +625,42 @@ final class IncrementalFactGenerator(
 }
 ```
 
-The engine has no concept of "sentinel" or "special" facts. `Initial` happens to always be freshly registered at startup (so it's always in-memory with a new value), and `UpdateTime` depends on `Initial` (so it always recomputes). But the engine doesn't know or care — it just sees facts, dependencies, and hashes.
+The engine has no concept of "sentinel" or "special" facts. `Initial` happens to always be freshly registered at startup (so it's always in-memory with a new value), and `FileStat` depends on `Initial` (so it always recomputes). But the engine doesn't know or care — it just sees facts, dependencies, and hashes.
+
+**Relationship to existing `FactGenerator`**: `IncrementalFactGenerator` replaces `FactGenerator` entirely. It reuses the same `Deferred`-based in-memory caching pattern (see `FactGenerator.modifyAtomicallyFor`) but adds persistent cache lookups, dependency tracking, and hash-based validation on top.
 
 ## 10. Persistent vs Ephemeral Facts
 
 ### Rationale
 
-Not all facts are worth serializing to disk:
+Not all facts are worth serializing to disk. Below is the complete list of current fact types:
 
 | Fact Type | Category | Rationale |
 |-----------|----------|-----------|
-| `Initial` | **Never cached** | Always changes |
-| `UpdateTime` | Ephemeral | Always re-runs (stat call), cheap |
-| `SourceContent` | Ephemeral | Re-read from disk if needed |
-| `PathScan` | Ephemeral | Cheap to recompute |
+| `Initial` | **Never cached** | Always changes (compilation start time) |
+| `FileStat` | Ephemeral | Always re-runs (stat call), cheap |
+| `FileContent` | Ephemeral | Re-read from disk if needed |
+| `ResourceContent` | Ephemeral | Re-read from classpath if needed |
+| `SourceContent` | Ephemeral | Delegates to FileContent/ResourceContent |
+| `PathScan` | Ephemeral | Cheap filesystem scan |
 | `SourceTokens` | Ephemeral | Tokenization is fast |
 | `SourceAST` | Ephemeral | Parsing is fast |
 | `CoreAST` | Ephemeral | Pure transformation, fast |
-| `ModuleNames` | Ephemeral | Simple extraction |
-| `ModuleValue` | Ephemeral | Simple extraction |
-| `UnifiedModuleNames` | **Persistent** | Cross-file checkpoint |
-| `UnifiedModuleValue` | **Persistent** | Cross-file checkpoint |
-| `ResolvedValue` | **Persistent** | Name resolution |
-| `TypeCheckedValue` | **Persistent** | Type checking is expensive |
+| `ModuleNames` | Ephemeral | Simple extraction from CoreAST |
+| `ModuleValue` | Ephemeral | Simple extraction from CoreAST |
+| `UnifiedModuleNames` | **Persistent** | Cross-file merge checkpoint |
+| `UnifiedModuleValue` | **Persistent** | Cross-file merge checkpoint |
+| `NamedEvaluable` | **Persistent** | Type evaluation of values and data types |
+| `ResolvedValue` | **Persistent** | Name resolution is cross-module |
+| `MatchDesugaredValue` | **Persistent** | Match exhaustiveness checking |
+| `OperatorResolvedValue` | **Persistent** | Operator precedence resolution |
+| `AbilityImplementation` | **Persistent** | Cross-module ability lookup |
+| `AbilityImplementationCheck` | **Persistent** | Implementation validation |
 | `MonomorphicValue` | **Persistent** | Monomorphization is expensive |
 | `UsedNames` | **Persistent** | Reachability analysis |
-| `UncurriedValue` | **Persistent** | Checkpoint before codegen |
+| `UncurriedMonomorphicValue` | **Persistent** | Checkpoint before codegen |
 | `GeneratedModule` | **Persistent** | Bytecode generation is expensive |
+| `GenerateExecutableJar` | **Persistent** | Final JAR output |
 
 ### How Ephemeral Facts Work
 
@@ -618,10 +678,13 @@ Plugins declare ephemeral fact types via a new method on `CompilerPlugin`:
 def ephemeralFactTypes(): Set[Class[? <: CompilerFactKey[?]]] = Set.empty
 ```
 
-`BasePlugin` overrides:
+`LangPlugin` overrides (this is the plugin that registers all language processors):
 
 ```scala
 override def ephemeralFactTypes(): Set[Class[? <: CompilerFactKey[?]]] = Set(
+  classOf[FileStat.Key],
+  classOf[FileContent.Key],
+  classOf[ResourceContent.Key],
   classOf[SourceContent.Key],
   classOf[PathScan.Key],
   classOf[SourceTokens.Key],
@@ -634,60 +697,75 @@ override def ephemeralFactTypes(): Set[Class[? <: CompilerFactKey[?]]] = Set(
 
 ## 11. Integration with Compiler.scala
 
+### Current Compilation Flow
+
+The current `Compiler.runWithConfiguration` does the following:
+1. Selects target plugin via `isSelectedBy()`
+2. Collects activated plugins via `collectActivatedPlugins()`
+3. Configures plugins via `configure()` (StateT over Configuration)
+4. Initializes processors via `initialize()` (StateT over CompilerProcessor, starting with `NullProcessor()`)
+5. Creates `FactVisualizationTracker` and wraps processors with `TrackedCompilerProcessor`
+6. Creates `FactGenerator` (in-memory only, no persistence)
+7. Runs target plugin
+8. Prints errors and generates visualization
+
 ### Modified Compilation Flow
 
 ```scala
-private def runWithConfiguration(
-    configuration: Configuration,
-    plugins: Seq[CompilerPlugin]
-): IO[Unit] =
+private def runWithConfiguration(configuration: Configuration, plugins: Seq[CompilerPlugin]): IO[Unit] =
   plugins.find(_.isSelectedBy(configuration)) match {
     case None => User.compilerGlobalError("No target plugin selected.")
     case Some(targetPlugin) =>
       for {
-        activatedPlugins  <- // ... as before ...
-        newConfiguration  <- // ... as before ...
+        _                <- debug[IO](s"Selected target plugin: ${targetPlugin.getClass.getSimpleName}")
+        activatedPlugins  = collectActivatedPlugins(targetPlugin, configuration, plugins)
+        newConfiguration <- activatedPlugins.traverse_(_.configure()).runS(configuration)
 
         // Collect ephemeral fact types from all plugins
-        ephemeralTypes = activatedPlugins.flatMap(_.ephemeralFactTypes()).toSet
+        ephemeralTypes    = activatedPlugins.flatMap(_.ephemeralFactTypes()).toSet
 
-        // Collect processors, prepending Initial and UpdateTime processors
-        startTime     <- IO.realTimeInstant
-        processor     <- activatedPlugins.traverse_(_.initialize(newConfiguration)).runS(
-                           SequentialCompilerProcessors(Seq(
-                             InitialProcessor(startTime),
-                             UpdateTimeProcessor()
-                             // NullProcessor() replaced by these
-                           ))
-                         )
+        // Collect processors, prepending Initial processor (replaces NullProcessor)
+        startTime        <- IO.realTimeInstant
+        processor        <- activatedPlugins.traverse_(_.initialize(newConfiguration)).runS(
+                              InitialProcessor(startTime)  // replaces NullProcessor()
+                            )
 
         // Wrap with visualization tracking (as before)
-        tracker       <- FactVisualizationTracker.create()
+        tracker          <- FactVisualizationTracker.create()
         wrappedProcessors = processor.wrapWith(wrapProcessor(_, tracker))
 
         // Load persistent cache
-        targetPath     = newConfiguration.get(targetPathKey).get
-        cacheData     <- FactCache.load(targetPath)
+        targetPath        = newConfiguration.get(targetPathKey).get
+        cacheData        <- FactCache.load(targetPath)
 
-        // Create incremental fact generator
-        generator     <- IncrementalFactGenerator.create(
-                           wrappedProcessors, cacheData, ephemeralTypes
-                         )
+        // Create incremental fact generator (replaces FactGenerator.create)
+        generator        <- IncrementalFactGenerator.create(
+                              wrappedProcessors, cacheData, ephemeralTypes
+                            )
 
         // Run compilation
-        _             <- targetPlugin.run(newConfiguration, generator)
+        _                <- targetPlugin.run(newConfiguration, generator)
 
         // Save updated cache
-        newCacheData  <- generator.buildCacheData()
-        _             <- FactCache.save(targetPath, newCacheData)
+        newCacheData     <- generator.buildCacheData()
+        _                <- FactCache.save(targetPath, newCacheData)
 
         // Print errors, generate visualization (as before)
-        errors        <- generator.currentErrors()
-        _             <- errors.traverse_(_.print())
-        _             <- tracker.generateVisualization(...)
+        errors           <- generator.currentErrors()
+        _                <- errors.traverse_(_.print())
+        _                <- tracker.generateVisualization(
+                              newConfiguration.get(visualizeFactsKey)
+                                .getOrElse(targetPath.resolve("fact-visualization.html"))
+                            )
       } yield ()
   }
 ```
+
+**Key changes from current code:**
+- `NullProcessor()` replaced by `InitialProcessor(startTime)` as the initial processor
+- `FactGenerator.create(wrappedProcessors)` replaced by `IncrementalFactGenerator.create(...)`
+- Cache load/save added around compilation
+- Ephemeral types collected from plugins
 
 ### Fast Path
 
@@ -695,7 +773,7 @@ The fast path emerges naturally from the fact system:
 
 1. Plugin calls `getFact(GenerateExecutableJar.Key(main))`
 2. `IncrementalFactGenerator` finds it in cache, recursively validates dependencies
-3. Validation walks down to `UpdateTime` facts → each re-runs (depends on `Initial` which changed) → stat files
+3. Validation walks down to `FileStat` facts → each re-runs (depends on `Initial` which changed) → stat files
 4. All mtimes match → all hashes match → validation propagates back up → return cached fact
 5. **Zero file reads, zero deserialization of intermediate facts, zero computation**
 
@@ -734,15 +812,15 @@ def buildCacheData(): IO[FactCacheData] =
 
 ### New Source Files
 
-Not in cache → `UpdateTime(file)` has no cached entry → generated fresh → `SourceContent(file)` generated fresh → all downstream fresh. Cache updated to include the new file on save.
+Not in cache → `FileStat(file)` has no cached entry → generated fresh → `FileContent(file)` generated fresh → `SourceContent(uri)` generated fresh → all downstream fresh. Cache updated to include the new file on save.
 
 ### Deleted Source Files
 
-`UpdateTime(file)` runs → file doesn't exist → `lastModified` returns 0 → hash differs from cached → downstream invalidated. `SourceContentReader` silently ignores missing files (no fact produced). Facts that depended on the deleted file fail to generate (as today).
+`FileStat(file)` runs → file doesn't exist → `lastModified` returns `None` → hash differs from cached → downstream invalidated. `FileContentReader` reports a compiler error for missing files and aborts that fact chain. Facts that depended on the deleted file fail to generate (as today).
 
 ### Synthetic Sources (JvmProgramGenerator)
 
-`JvmProgramGenerator` calls `addSource(file, content)` to register a synthetic `SourceContent` directly. This fact doesn't depend on `UpdateTime` — it depends on the processor's inputs (`UsedNames`, etc.). It's tracked like any other derived fact through the generic dependency mechanism.
+`JvmProgramGenerator` calls `addSource(file, content)` to register a synthetic `SourceContent` directly. This fact doesn't depend on `FileStat` — it depends on the processor's inputs (`UsedNames`, etc.). It's tracked like any other derived fact through the generic dependency mechanism.
 
 ### Cache Corruption
 
@@ -759,35 +837,36 @@ Not in cache → `UpdateTime(file)` has no cached entry → generated fresh → 
 All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 
 1. **`compiler/cache/Initial.scala`** — `Initial` fact + `InitialProcessor`
-2. **`compiler/cache/UpdateTime.scala`** — `UpdateTime` fact + `UpdateTimeProcessor`
-3. **`compiler/cache/CacheEntry.scala`** — `CacheEntry` and `FactCacheData`
-4. **`compiler/cache/FactCache.scala`** — Cache persistence (load/save)
-5. **`compiler/cache/CacheValidator.scala`** — Validation + propagation cutoff
-6. **`compiler/cache/DependencyTrackingProcess.scala`** — Dependency recording
-7. **`compiler/IncrementalFactGenerator.scala`** — Cache-aware `CompilationProcess`
+2. **`compiler/cache/CacheEntry.scala`** — `CacheEntry` and `FactCacheData`
+3. **`compiler/cache/FactCache.scala`** — Cache persistence (load/save)
+4. **`compiler/cache/CacheValidator.scala`** — Validation + propagation cutoff
+5. **`compiler/cache/DependencyTrackingProcess.scala`** — Dependency recording
+6. **`compiler/IncrementalFactGenerator.scala`** — Cache-aware `CompilationProcess`
 
 ### Modified Files
 
 | File | Change |
 |------|--------|
-| `eliotc/.../compiler/Compiler.scala` | Register `Initial`/`UpdateTime` processors, load/save cache, use `IncrementalFactGenerator` |
+| `eliotc/.../compiler/Compiler.scala` | Register `InitialProcessor`, load/save cache, use `IncrementalFactGenerator` instead of `FactGenerator` |
 | `eliotc/.../plugin/CompilerPlugin.scala` | Add `ephemeralFactTypes()` method (default: empty set) |
-| `base/.../source/content/SourceContentReader.scala` | Add `getFactOrAbort(UpdateTime.Key(key.file))` before reading file |
-| `base/.../plugin/BasePlugin.scala` | Override `ephemeralFactTypes()` to declare cheap fact types |
+| `lang/.../source/stat/FileStatProcessor.scala` | Add `getFactOrAbort(Initial.Key)` before stat call |
+| `lang/.../source/file/FileContentReader.scala` | Add `getFactOrAbort(FileStat.Key(key.file))` before reading file |
+| `lang/.../plugin/LangPlugin.scala` | Override `ephemeralFactTypes()` to declare cheap fact types |
 
 ### No Changes Required
 
-- No processor implementations (except `SourceContentReader`) need modification
+- No other processor implementations need modification
 - No fact types need modification (already `Serializable` via case class)
 - No changes to `CompilerIO` monad
 - No changes to `CompilerFactKey` or `CompilerFact` traits
-- JVM module unchanged
+- No changes to `SourceContentReader` (it already depends on `FileContent` which will depend on `FileStat`)
+- JVM module unchanged (except `GenerateExecutableJar` facts are cached like any other)
 
 ## 15. Performance Characteristics
 
 | Scenario | Work Done |
 |----------|-----------|
-| Nothing changed | Load cache + N `stat` calls + deserialize requested facts. Microseconds to milliseconds. |
+| Nothing changed | Load cache + N `stat` calls (via `FileStat`) + deserialize requested facts. Microseconds to milliseconds. |
 | One file changed, no signature changes | Re-stat all files + re-read changed file + recompute its pipeline + hash comparisons at each level. Cutoff stops at first unchanged signature. |
 | One file changed, signature changed | Same as above but propagation continues further. Cutoff stops when downstream fact content matches. |
 | Everything changed | Full recompilation + cache save overhead. |
@@ -796,7 +875,7 @@ All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 ## 16. Future Enhancements
 
 1. **Output file existence checks**: Verify that side-effect outputs (JAR files) still exist before declaring cache valid
-2. **Parallel `UpdateTime` computation**: Run `UpdateTime` facts concurrently for faster startup
+2. **Parallel `FileStat` computation**: Run `FileStat` facts concurrently for faster startup
 3. **Partial cache loading**: Deserialize only requested facts, not the entire cache file
 4. **Fine-grained fact hashing**: Hash "signature" and "body" parts of facts separately for better propagation cutoff
 5. **CompilerIO purity enforcement**: Restrict the `CompilerIO` monad to prevent processors from performing arbitrary IO, formally guaranteeing the pure function property that the cache relies on
