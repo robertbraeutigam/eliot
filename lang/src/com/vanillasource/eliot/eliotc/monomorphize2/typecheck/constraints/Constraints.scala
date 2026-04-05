@@ -3,24 +3,24 @@ package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints
 import cats.Show
 import cats.kernel.Monoid
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
 import Constraints.Constraint
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 case class Constraints(constraints: Seq[Constraint])
 
 object Constraints {
   case class Constraint(
-      left: ExpressionValue,
-      right: Sourced[ExpressionValue],
+      left: OperatorResolvedExpression,
+      right: Sourced[OperatorResolvedExpression],
       errorMessage: String
   )
 
   def empty: Constraints = Constraints(Seq.empty)
 
   def constraint(
-      left: ExpressionValue,
-      right: Sourced[ExpressionValue],
+      left: OperatorResolvedExpression,
+      right: Sourced[OperatorResolvedExpression],
       errorMessage: String
   ): Constraints =
     Constraints(Seq(Constraint(left, right, errorMessage)))

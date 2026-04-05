@@ -8,14 +8,18 @@ import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackag
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 
 object Types {
+  // TODO: this shouldn't be here
   private val fqnFQN: ValueFQN =
     ValueFQN(
       ModuleName(Seq("eliot", "lang"), "FullyQualifiedName"),
       QualifiedName("FullyQualifiedName", Qualifier.Default)
     )
-  val typeFQN: ValueFQN        =
+
+  // TODO: this shouldn't be here
+  val typeFQN: ValueFQN =
     ValueFQN(ModuleName(Seq("eliot", "lang"), "Type"), QualifiedName("Type", Qualifier.Type))
 
+  // TODO: this shouldn't be here
   val functionDataTypeFQN = ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
 
   /** The type of FullyQualifiedName.
@@ -44,10 +48,11 @@ object Types {
       Type
     )
 
-  val bigIntType: Value = dataType(
-    ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type))
-  )
-  val stringType: Value = dataType(
-    ValueFQN(ModuleName(defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type))
-  )
+  val bigIntFQN = ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type))
+
+  val bigIntType: Value = dataType(bigIntFQN)
+
+  val stringFQN = ValueFQN(ModuleName(defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type))
+
+  val stringType: Value = dataType(stringFQN)
 }
