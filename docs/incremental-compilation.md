@@ -15,30 +15,23 @@ Currently, every invocation of the ELIOT compiler recomputes all facts from scra
 
 All `CompilerProcessor` implementations are stateless and deterministic: given the same input facts, they produce the same output facts. The only external inputs are source files (read by `SourceContentReader`). Therefore, if we can determine that all inputs to a fact are unchanged, the fact itself is unchanged.
 
-## 2. Core Idea: I/O as Facts with Initial and FileStat
+## 2. Core Idea: Leaf Facts as the External Boundary
 
-The central design insight is to model I/O operations as facts within the existing fact system:
+The central design insight is that **leaf facts** — facts with no dependencies — form the boundary between the external world and the deterministic fact system. The incremental engine always recomputes leaf facts (since there are no dependencies to check), then uses equality comparison to determine if anything changed.
 
-### Initial Fact
+### FileStat as a Leaf Fact
 
-A fact `Initial(compilerStart: Instant)` is produced at the start of every compilation run. Its value is the current timestamp, so it **naturally changes with every invocation**. Any fact that depends on `Initial` will always be regenerated.
+The codebase already has `FileStat(file: File, lastModified: Option[Instant])` and `FileStatProcessor` in the `source.stat` package. `FileStatProcessor` performs the `stat` syscall and returns the file's modification time.
 
-### Reusing the Existing FileStat Fact
-
-The codebase already has `FileStat(file: File, lastModified: Option[Instant])` and `FileStatProcessor` in the `source.stat` package. `FileStatProcessor` performs the `stat` syscall and returns the file's modification time. This is exactly what the plan needs for change detection.
-
-Rather than introducing a new `UpdateTime` fact, we modify `FileStatProcessor` to depend on `Initial`:
+`FileStat` has **no fact dependencies** — it only performs a syscall. This makes it a natural leaf: the incremental engine always recomputes it, and if the result equals the cached value, nothing downstream needs to run.
 
 ```scala
 class FileStatProcessor extends SingleFactProcessor[FileStat.Key] with Logging {
   override protected def generateSingleFact(key: FileStat.Key): CompilerIO[FileStat] =
-    for {
-      _ <- getFactOrAbort(Initial.Key)  // ← new: depend on Initial → always re-run
-      result <- IO(key.file.lastModified()).attempt
-                  .map(_.toOption)
-                  .map(lastModified => FileStat(key.file, lastModified.filter(_ > 0L).map(Instant.ofEpochMilli)))
-                  .to[CompilerIO]
-    } yield result
+    IO(key.file.lastModified()).attempt
+      .map(_.toOption)
+      .map(lastModified => FileStat(key.file, lastModified.filter(_ > 0L).map(Instant.ofEpochMilli)))
+      .to[CompilerIO]
 }
 ```
 
@@ -68,17 +61,16 @@ class FileContentReader extends SingleFactProcessor[FileContent.Key] with Loggin
 This creates the dependency chain that makes everything work:
 
 ```
-Initial (always changes)
-  ← FileStat(Foo.els) (always runs, produces file mtime)
-    ← FileContent(Foo.els) (only runs if mtime changed)
-      ← SourceContent(Foo.els) (only runs if content changed)
-        ← SourceTokens(Foo.els) (only runs if content changed)
-          ← ... entire downstream pipeline
+FileStat(Foo.els) (leaf — always recomputed, produces file mtime)
+  ← FileContent(Foo.els) (only runs if mtime changed)
+    ← SourceContent(Foo.els) (only runs if content changed)
+      ← SourceTokens(Foo.els) (only runs if content changed)
+        ← ... entire downstream pipeline
 ```
 
 If the file's mtime is unchanged, `FileStat` produces the same value as cached → `FileContent` doesn't need to re-run → nothing downstream runs.
 
-**Note:** `SourceContentReader` handles both `file://` URIs (via `FileContent`) and resource URIs (via `ResourceContent`). Resource content is read from the classpath and is effectively immutable at compile time, so it does not need `Initial`-based invalidation.
+**Note:** `SourceContentReader` handles both `file://` URIs (via `FileContent`) and resource URIs (via `ResourceContent`). Resource content is read from the classpath and is effectively immutable at compile time, so it has no leaf dependencies and doesn't need revalidation.
 
 ## 3. Leaf-Based Forward Validation
 
@@ -96,7 +88,7 @@ case class CacheEntry(
 
 | Field | Purpose |
 |-------|---------|
-| `leafDependencies` | Transitive leaf facts — the boundary between external world and deterministic computation. These are facts whose only dependency is `Initial` (e.g., `FileStat` keys, `OutputFileStat` keys). |
+| `leafDependencies` | Transitive leaf facts — the boundary between external world and deterministic computation. A leaf is any fact with no dependencies (e.g., `FileStat` keys, `OutputFileStat` keys). Leaves are always recomputed because there are no dependencies to validate. |
 | `forwardKeys` | Facts that directly depend on THIS fact (reverse/forward edges). If A depends on B, then B's `forwardKeys` contains A. Used for forward propagation walk. |
 | `fact` | The actual cached `CompilerFact` value. Compared by structural equality (`==`) for cutoff detection. |
 
@@ -207,7 +199,6 @@ Using structural equality on the actual fact values (rather than comparing hashe
 ┌──────────────────────────────────────────────────────────────┐
 │                      Compiler.scala                          │
 │  (load cache → create generator → run → save cache)         │
-│  Uses InitialProcessor instead of NullProcessor              │
 └──────────────────────┬───────────────────────────────────────┘
                        │
                        ▼
@@ -245,7 +236,6 @@ Using structural equality on the actual fact values (rather than comparing hashe
 
 | File | Package | Purpose |
 |------|---------|---------|
-| `Initial.scala` | `compiler.cache` | `Initial` fact, key, and processor (carries `cacheTimestamp`) |
 | `OutputFileStat.scala` | `compiler.cache` | `OutputFileStat` fact, key, and processor |
 | `CacheEntry.scala` | `compiler.cache` | Cache entry data structure |
 | `FactCache.scala` | `compiler.cache` | Cache persistence (load/save) |
@@ -256,41 +246,12 @@ Using structural equality on the actual fact values (rather than comparing hashe
 
 | File | Change |
 |------|--------|
-| `Compiler.scala` (eliotc) | Register `Initial` processor, load/save cache, use `IncrementalFactGenerator` |
-| `FileStatProcessor.scala` (lang) | Add `getFactOrAbort(Initial.Key)` before stat call |
+| `Compiler.scala` (eliotc) | Load/save cache, use `IncrementalFactGenerator` instead of `FactGenerator` |
 | `FileContentReader.scala` (lang) | Add `getFactOrAbort(FileStat.Key(key.file))` before reading file |
 | `JvmProgramGenerator.scala` (jvm) | Add `getFactOrAbort(OutputFileStat.Key(jarFile))` dependency before writing JAR |
 | `JvmPlugin.scala` (jvm) | Register `OutputFileStatProcessor` |
 
 ## 6. New Facts and Modified Processors
-
-### Initial (new fact in `eliotc` module)
-
-```scala
-package com.vanillasource.eliot.eliotc.compiler.cache
-
-import java.time.Instant
-import com.vanillasource.eliot.eliotc.processor.*
-
-case class Initial(startTime: Instant, cacheTimestamp: Option[Instant]) extends CompilerFact {
-  override def key(): CompilerFactKey[Initial] = Initial.Key
-}
-
-object Initial {
-  case object Key extends CompilerFactKey[Initial]
-}
-```
-
-```scala
-class InitialProcessor(startTime: Instant, cacheTimestamp: Option[Instant])
-    extends SingleKeyTypeProcessor[Initial.Key.type] {
-  override protected def generateFact(key: Initial.Key.type): CompilerIO[Unit] =
-    registerFactIfClear(Initial(startTime, cacheTimestamp))
-}
-```
-
-- `startTime` is captured once at compilation start, ensuring `Initial` produces a deterministic value within a single run but a different value across runs.
-- `cacheTimestamp` is the modification time of the cache file when it was loaded (or `None` on a cold start with no cache). This is used by `OutputFileStat` to determine whether output files are still valid (see below).
 
 ### OutputFileStat (new fact in `eliotc` module)
 
@@ -312,23 +273,26 @@ object OutputFileStat {
 ```
 
 ```scala
-class OutputFileStatProcessor extends SingleFactProcessor[OutputFileStat.Key] with Logging {
-  override protected def generateSingleFact(key: OutputFileStat.Key): CompilerIO[OutputFileStat] =
-    for {
-      initial <- getFactOrAbort(Initial.Key)  // depend on Initial → always re-run
-      result   = initial.cacheTimestamp match {
-                   case None =>
-                     // Cold start (no cache). Everything will be computed fresh anyway.
-                     // Return true so the value is stable for future runs.
-                     OutputFileStat(key.file, upToDate = true)
-                   case Some(cacheTime) =>
-                     val fileExists    = key.file.exists()
-                     val fileOlderThanCache = key.file.lastModified() <= cacheTime.toEpochMilli
-                     OutputFileStat(key.file, upToDate = fileExists && fileOlderThanCache)
-                 }
-    } yield result
+class OutputFileStatProcessor(cacheTimestamp: Option[Instant])
+    extends SingleFactProcessor[OutputFileStat.Key] with Logging {
+  override protected def generateSingleFact(key: OutputFileStat.Key): CompilerIO[OutputFileStat] = {
+    // No fact dependencies — this is a leaf fact, always recomputed
+    val result = cacheTimestamp match {
+      case None =>
+        // Cold start (no cache). Everything will be computed fresh anyway.
+        // Return true so the value is stable for future runs.
+        OutputFileStat(key.file, upToDate = true)
+      case Some(cacheTime) =>
+        val fileExists         = key.file.exists()
+        val fileOlderThanCache = key.file.lastModified() <= cacheTime.toEpochMilli
+        OutputFileStat(key.file, upToDate = fileExists && fileOlderThanCache)
+    }
+    IO.pure(result).to[CompilerIO]
+  }
 }
 ```
+
+`OutputFileStat` is a **leaf fact** — it has no fact dependencies. The `cacheTimestamp` (modification time of the cache file, or `None` on cold start) is passed as a constructor parameter to the processor, not obtained via `getFact`.
 
 **How it works across runs:**
 
@@ -340,17 +304,16 @@ class OutputFileStatProcessor extends SingleFactProcessor[OutputFileStat.Key] wi
 **Dependency chain for JAR generation:**
 
 ```
-Initial (always fresh, carries cacheTimestamp)
-  ← OutputFileStat(target/Hello.jar) (always runs, checks file presence)
-    ← GenerateExecutableJar (depends on OutputFileStat + GeneratedModules)
-      ← GeneratedModule(s) (cached if sources unchanged)
+OutputFileStat(target/Hello.jar) (leaf — always recomputed, checks file presence)
+  ← GenerateExecutableJar (depends on OutputFileStat + GeneratedModules)
+    ← GeneratedModule(s) (cached if sources unchanged)
 ```
 
 **Side-effecting processors** that write files (like `JvmProgramGenerator`) add a dependency on `OutputFileStat` for their output path. If the output is up-to-date, the fact is cached and the write is skipped entirely. If not, the fact is invalidated, the processor re-runs, and rewrites the file.
 
-### FileStat (existing fact — modified processor)
+### FileStat (existing fact — no modification needed)
 
-`FileStat` already exists in `lang/source/stat/` with the right structure:
+`FileStat` already exists in `lang/source/stat/` with the right structure and is already a leaf fact (no fact dependencies):
 
 ```scala
 case class FileStat(file: File, lastModified: Option[Instant]) extends CompilerFact {
@@ -362,20 +325,19 @@ object FileStat {
 }
 ```
 
-`FileStatProcessor` is modified to depend on `Initial`:
+`FileStatProcessor` has no fact dependencies — it just performs a `stat` syscall:
 
 ```scala
 class FileStatProcessor extends SingleFactProcessor[FileStat.Key] with Logging {
   override protected def generateSingleFact(key: FileStat.Key): CompilerIO[FileStat] =
-    for {
-      _ <- getFactOrAbort(Initial.Key)  // ← new: depend on Initial → always re-run
-      result <- IO(key.file.lastModified()).attempt
-                  .map(_.toOption)
-                  .map(lastModified => FileStat(key.file, lastModified.filter(_ > 0L).map(Instant.ofEpochMilli)))
-                  .to[CompilerIO]
-    } yield result
+    IO(key.file.lastModified()).attempt
+      .map(_.toOption)
+      .map(lastModified => FileStat(key.file, lastModified.filter(_ > 0L).map(Instant.ofEpochMilli)))
+      .to[CompilerIO]
 }
 ```
+
+Because `FileStat` has no dependencies, the incremental engine treats it as a leaf and always recomputes it. No modification to the existing processor is needed.
 
 ### FileContent (existing fact — modified processor)
 
@@ -393,12 +355,12 @@ class FileContentReader extends SingleFactProcessor[FileContent.Key] with Loggin
 
 ### Why This Works
 
-- `Initial` changes every run → `FileStat` always re-runs (it depends on `Initial`)
+- `FileStat` is a leaf (no dependencies) → always recomputed by the incremental engine
 - `FileStat` is a cheap `stat` call → negligible cost even for many files
 - If file is unchanged → `FileStat` produces same value → equality check passes → downstream is cached
 - If file changed → `FileStat` produces different value → equality check fails → forward walk begins
 
-The beauty is that this integrates naturally with the existing fact system. No special external fingerprinting mechanism needed — it's all facts and dependencies, reusing the infrastructure already in place.
+The beauty is that this integrates naturally with the existing fact system. No special sentinel facts or external fingerprinting needed — leaf facts are simply facts with no dependencies, and the engine always recomputes them.
 
 ## 7. Dependency Tracking
 
@@ -433,7 +395,7 @@ Each fact generation runs in its own fiber (via `.start` in `FactGenerator`), an
 
 After compilation, the recorded direct dependencies are used to compute two derived structures for each cache entry:
 
-- **`leafDependencies`**: Computed by walking the direct dependency graph transitively until reaching facts whose only dependency is `Initial` (i.e., leaf facts like `FileStat` and `OutputFileStat`). These are the external-world boundary for this fact.
+- **`leafDependencies`**: Computed by walking the direct dependency graph transitively until reaching facts with no dependencies (i.e., leaf facts like `FileStat` and `OutputFileStat`). These are the external-world boundary for this fact.
 - **`forwardKeys`**: The inverse of direct dependencies. For each dependency edge A → B (A depends on B), B's `forwardKeys` includes A. This enables the forward walk from changed leaves.
 
 ## 8. Cache Storage Format
@@ -717,16 +679,14 @@ private def runWithConfiguration(configuration: Configuration, plugins: Seq[Comp
         activatedPlugins  = collectActivatedPlugins(targetPlugin, configuration, plugins)
         newConfiguration <- activatedPlugins.traverse_(_.configure()).runS(configuration)
 
-        // Load persistent cache (moved before processor init, need timestamp)
+        // Load persistent cache
         targetPath        = newConfiguration.get(targetPathKey).get
         cacheData        <- FactCache.load(targetPath)
-        cacheTimestamp   <- FactCache.timestamp(targetPath)  // mtime of cache file, None if absent
+        cacheTimestamp   <- FactCache.timestamp(targetPath)
 
-        // Collect processors, prepending Initial processor (replaces NullProcessor)
-        startTime        <- IO.realTimeInstant
-        processor        <- activatedPlugins.traverse_(_.initialize(newConfiguration)).runS(
-                              InitialProcessor(startTime, cacheTimestamp)  // replaces NullProcessor()
-                            )
+        // Collect processors (OutputFileStatProcessor needs cacheTimestamp)
+        processor        <- activatedPlugins.traverse_(_.initialize(newConfiguration, cacheTimestamp))
+                              .runS(NullProcessor())
 
         // Wrap with visualization tracking (as before)
         tracker          <- FactVisualizationTracker.create()
@@ -754,9 +714,9 @@ private def runWithConfiguration(configuration: Configuration, plugins: Seq[Comp
 ```
 
 **Key changes from current code:**
-- `NullProcessor()` replaced by `InitialProcessor(startTime, cacheTimestamp)` as the initial processor
 - `FactGenerator.create(wrappedProcessors)` replaced by `IncrementalFactGenerator.create(wrappedProcessors, cacheData)`
 - Cache load/save added around compilation
+- `cacheTimestamp` passed to plugin initialization (needed by `OutputFileStatProcessor`)
 
 ### Fast Path
 
@@ -764,7 +724,7 @@ The fast path emerges naturally from the fact system:
 
 1. Plugin calls `getFact(GenerateExecutableJar.Key(main))`
 2. `IncrementalFactGenerator` finds it in cache, checks its `leafDependencies`
-3. Recomputes each leaf: `FileStat` facts (stat source files) and `OutputFileStat(target/Hello.jar)` (check JAR presence)
+3. Recomputes each leaf (facts with no dependencies): `FileStat` facts (stat source files) and `OutputFileStat(target/Hello.jar)` (check JAR presence)
 4. All leaves equal to cached values → return cached fact immediately
 5. **Zero file reads, zero intermediate fact computation, zero JAR writes**
 
@@ -806,14 +766,14 @@ def buildCacheData(): IO[FactCacheData] =
   )
 
 /** Walk the dependency graph to find leaf facts.
-  * A leaf is a fact whose only dependency is Initial (or has no dependencies). */
+  * A leaf is a fact with no dependencies. */
 private def computeLeafSet(
     key: CompilerFactKey[?],
     deps: Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]
 ): Set[CompilerFactKey[?]] = {
   val factDeps = deps.getOrElse(key, Set.empty)
-  if (factDeps.isEmpty || factDeps == Set(Initial.Key)) {
-    // This fact IS a leaf (depends only on Initial or nothing)
+  if (factDeps.isEmpty) {
+    // This fact IS a leaf (no dependencies)
     Set(key)
   } else {
     // Recurse: this fact's leaves are the union of its dependencies' leaves
@@ -854,19 +814,17 @@ Not in cache → `FileStat(file)` has no cached entry → generated fresh → `F
 
 All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 
-1. **`compiler/cache/Initial.scala`** — `Initial` fact + `InitialProcessor`
-2. **`compiler/cache/OutputFileStat.scala`** — `OutputFileStat` fact + `OutputFileStatProcessor`
-3. **`compiler/cache/CacheEntry.scala`** — `CacheEntry` and `FactCacheData`
-4. **`compiler/cache/FactCache.scala`** — Cache persistence (load/save)
-5. **`compiler/cache/DependencyTrackingProcess.scala`** — Dependency recording
-6. **`compiler/IncrementalFactGenerator.scala`** — Cache-aware `CompilationProcess`
+1. **`compiler/cache/OutputFileStat.scala`** — `OutputFileStat` fact + `OutputFileStatProcessor`
+2. **`compiler/cache/CacheEntry.scala`** — `CacheEntry` and `FactCacheData`
+3. **`compiler/cache/FactCache.scala`** — Cache persistence (load/save)
+4. **`compiler/cache/DependencyTrackingProcess.scala`** — Dependency recording
+5. **`compiler/IncrementalFactGenerator.scala`** — Cache-aware `CompilationProcess`
 
 ### Modified Files
 
 | File | Change |
 |------|--------|
-| `eliotc/.../compiler/Compiler.scala` | Register `InitialProcessor`, load/save cache, use `IncrementalFactGenerator` instead of `FactGenerator` |
-| `lang/.../source/stat/FileStatProcessor.scala` | Add `getFactOrAbort(Initial.Key)` before stat call |
+| `eliotc/.../compiler/Compiler.scala` | Load/save cache, use `IncrementalFactGenerator` instead of `FactGenerator` |
 | `lang/.../source/file/FileContentReader.scala` | Add `getFactOrAbort(FileStat.Key(key.file))` before reading file |
 | `jvm/.../jargen/JvmProgramGenerator.scala` | Add `getFactOrAbort(OutputFileStat.Key(jarFile))` dependency before writing JAR |
 | `jvm/.../plugin/JvmPlugin.scala` | Register `OutputFileStatProcessor` |
@@ -878,6 +836,7 @@ All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 - No changes to `CompilerIO` monad
 - No changes to `CompilerFactKey` or `CompilerFact` traits
 - No changes to `CompilerPlugin` trait
+- No changes to `FileStatProcessor` (already a leaf with no dependencies)
 - No changes to `LangPlugin` or any plugin's configuration
 - No changes to `SourceContentReader` (it already depends on `FileContent` which will depend on `FileStat`)
 
