@@ -6,10 +6,10 @@ Currently, every invocation of the ELIOT compiler recomputes all facts from scra
 
 ### Goals
 
-1. **Fast no-change path**: If no source files have changed since the last compilation, the compiler should do essentially nothing. This must be fast — just filesystem `stat` calls, no file reads, no deserialization, no computation.
+1. **Fast no-change path**: If no source files have changed since the last compilation, the compiler should do essentially nothing. This must be fast — just filesystem `stat` calls, no file reads, no computation.
 2. **Minimal recomputation on change**: When source files change, only facts that are actually affected should be recomputed. The system should detect when a recomputed intermediate fact produces the same result as before, and stop propagation at that point.
 3. **Completely generic**: The mechanism must be confined to the `eliotc` module. No processor implementation should need to know about or deal with incremental compilation. The mechanism relies solely on the property that **all processors are stateless pure functions**.
-4. **Configurable persistence**: Not all facts need to be serialized to disk. "Intermediate" facts that are cheap to recompute (tokenization, parsing) can be excluded from persistence. A generic, plugin-configurable mechanism controls which fact types are persisted.
+4. **All facts cached**: Every computed fact is stored in the persistent cache. Each fact's value is needed for equality-based cutoff comparison during incremental validation. There is no ephemeral/persistent distinction.
 
 ### Key Property Exploited
 
@@ -76,175 +76,130 @@ Initial (always changes)
           ← ... entire downstream pipeline
 ```
 
-If the file's mtime is unchanged, `FileStat` produces the same hash as cached → `FileContent` doesn't need to re-run → nothing downstream runs.
+If the file's mtime is unchanged, `FileStat` produces the same value as cached → `FileContent` doesn't need to re-run → nothing downstream runs.
 
 **Note:** `SourceContentReader` handles both `file://` URIs (via `FileContent`) and resource URIs (via `ResourceContent`). Resource content is read from the classpath and is effectively immutable at compile time, so it does not need `Initial`-based invalidation.
 
-## 3. Recursive Dependency Validation
+## 3. Leaf-Based Forward Validation
 
-### How Validation Works
+### Cache Entry Structure
 
-The incremental engine has no knowledge of which facts are "special." It only knows three things about each cached fact: what its direct dependencies were, what their hashes were, and what its own content hash was.
+Each cached fact stores three things: its **leaf dependencies** (the transitive sources of external input), its **forward keys** (what directly depends on it), and the **fact value** itself.
 
 ```scala
 case class CacheEntry(
-    directDependencies: Set[CompilerFactKey[?]],
-    directDependencyHashes: Map[CompilerFactKey[?], Long],
-    contentHash: Long,
-    serializedFact: Option[Array[Byte]]
+    leafDependencies: Set[CompilerFactKey[?]],
+    forwardKeys: Set[CompilerFactKey[?]],
+    fact: CompilerFact
 )
 ```
 
-To validate a cached fact, the engine recursively validates its direct dependencies first (each of which validates its own dependencies, and so on). Once all dependencies are validated or recomputed, their current hashes are compared against the stored `directDependencyHashes`. If all match, the fact is still valid.
+| Field | Purpose |
+|-------|---------|
+| `leafDependencies` | Transitive leaf facts — the boundary between external world and deterministic computation. These are facts whose only dependency is `Initial` (e.g., `FileStat` keys, `OutputFileStat` keys). |
+| `forwardKeys` | Facts that directly depend on THIS fact (reverse/forward edges). If A depends on B, then B's `forwardKeys` contains A. Used for forward propagation walk. |
+| `fact` | The actual cached `CompilerFact` value. Compared by structural equality (`==`) for cutoff detection. |
 
-```scala
-def validate(
-    key: CompilerFactKey[?],
-    cache: FactCacheData,
-    currentHashes: mutable.Map[CompilerFactKey[?], Long]
-): Boolean = {
-  if (currentHashes.contains(key)) return true  // already validated this run
+### How Validation Works
 
-  cache.entries.get(key) match {
-    case None => false  // not in cache, must generate
-    case Some(entry) =>
-      // First, recursively validate all dependencies
-      entry.directDependencies.foreach(dep => validate(dep, cache, currentHashes))
+To validate a cached fact, the engine checks its leaf dependencies first. If all leaves are unchanged, the fact is valid. If a leaf changed, the engine walks forward from the changed leaf, recomputing facts along the way and checking for equality-based cutoff.
 
-      // Then check if dependency hashes still match
-      val depsUnchanged = entry.directDependencyHashes.forall {
-        case (depKey, expectedHash) =>
-          currentHashes.get(depKey).contains(expectedHash)
-      }
-      if (depsUnchanged) {
-        currentHashes(key) = entry.contentHash
-        true
-      } else {
-        false  // must recompute
-      }
-  }
-}
-```
+**Step 1**: Request fact F. Look up its `CacheEntry`. Get its `leafDependencies`.
 
-### Why This Is Not Expensive
+**Step 2**: Recompute each leaf fact (e.g., `FileStat` runs a `stat` call). Compare the recomputed value with the stored `entry.fact` using Scala case class `==`.
 
-The recursion bottoms out naturally at facts with no dependencies in the cache — either because they were freshly registered at startup (like `Initial`), or because they have no cached entry. Each fact is visited at most once thanks to the `currentHashes` memoization map. The total work is proportional to the number of dependency edges, traversed once.
+**Step 3**: If all leaves are equal to their cached values → **F is valid**. Return the cached fact. No further work needed.
 
-In the common case (nothing changed), `Initial` is already in memory with a fresh value → `FileStat` facts are recomputed (cheap `stat` calls) → their hashes match → validation propagates up instantly, each fact confirmed in O(number of direct dependencies).
+**Step 4**: If a leaf is not equal → walk forward from that leaf using `forwardKeys`. At each step, recompute the fact by running its processor. Compare the result with the cached `entry.fact` by equality.
 
-### Example
+**Step 5**: If equal at any point → **cutoff**. Stop propagation on this path. The fact is unchanged despite its inputs changing.
+
+**Step 6**: If not equal → update the cached value and continue forward until either cutoff occurs or the originally requested fact is reached and recomputed.
+
+### Why This Is Efficient
+
+In the no-change case, only leaf facts are recomputed (cheap `stat` calls). All equality checks pass at the leaf level, so no forward walking happens at all. The work is O(number of leaves) — typically one per source file — rather than O(number of facts in the dependency subtree).
+
+When a leaf does change, the forward walk only touches facts in the "dirty cone" emanating from that leaf. Each fact is visited at most once (memoized by a visited set). Cutoff stops propagation as soon as a recomputed fact equals its cached value.
+
+### Example: Nothing Changed
 
 For `MonomorphicValue(Foo.bar)` which transitively depends on `Foo.els` and `String.els`:
 
 ```
-validate(MonomorphicValue(Foo.bar))
-  → validate(OperatorResolvedValue(Foo.bar))
-    → validate(MatchDesugaredValue(Foo.bar))
-      → validate(ResolvedValue(Foo.bar))
-        → validate(UnifiedModuleValue(Foo.bar))
-          → validate(ModuleValue(Foo.els, Foo.bar))
-            → validate(SourceContent(Foo.els))
-              → validate(FileContent(Foo.els))
-                → validate(FileStat(Foo.els))
-                  → validate(Initial)
-                     Initial is in memory (fresh) → hash differs from cached → return false
-                  → FileStat must recompute → stat file → same mtime → same hash ✓
-                → FileContent deps unchanged → valid ✓
-              → SourceContent deps unchanged → valid ✓
-            → ModuleValue deps unchanged → valid ✓
-          → UnifiedModuleValue deps unchanged → valid ✓
-        → ResolvedValue deps unchanged → valid ✓
-      → MatchDesugaredValue deps unchanged → valid ✓
-    → OperatorResolvedValue deps unchanged → valid ✓
-  → also validates String.els chain (similar)
-  → MonomorphicValue deps unchanged → valid ✓
+Request: MonomorphicValue(Foo.bar)
+  leafDependencies = {FileStat(Foo.els), FileStat(String.els)}
+
+Step 1: Recompute FileStat(Foo.els) → stat call → same mtime → equals cached → CUTOFF
+Step 2: Recompute FileStat(String.els) → stat call → same mtime → equals cached → CUTOFF
+All leaves unchanged → MonomorphicValue(Foo.bar) is valid → return cached fact
 ```
 
-Each node is visited once. Second time `Initial` is reached (via `String.els` chain), it's already in `currentHashes` — instant return.
+Only 2 stat calls. No intermediate facts visited. No forward walking.
 
-## 4. Hash-Based Propagation Cutoff on Recomputation
+### Example: File Changed
 
-When a dependency hash changes (e.g., a file was modified), facts depending on it need recomputation. But not necessarily ALL of them — hash-based cutoff minimizes work.
+```
+Request: MonomorphicValue(Foo.bar)
+  leafDependencies = {FileStat(Foo.els), FileStat(String.els)}
+
+Step 1: Recompute FileStat(Foo.els) → stat call → different mtime → NOT equal
+  Forward-walk from FileStat(Foo.els):
+    forwardKeys = {FileContent(Foo.els)}
+    Recompute FileContent(Foo.els) → re-read file → NOT equal → continue
+      forwardKeys = {SourceContent(Foo.els)}
+      Recompute SourceContent(Foo.els) → NOT equal → continue
+        → ... forward through pipeline ...
+          → Recompute ResolvedValue(Foo.bar) → EQUAL → CUTOFF
+            (body changed but this fact didn't — propagation stops)
+
+Step 2: Recompute FileStat(String.els) → stat call → same mtime → CUTOFF
+
+MonomorphicValue(Foo.bar) was never reached by forward walk
+  → all paths cut off → still valid → return cached fact
+```
+
+## 4. Equality-Based Propagation Cutoff
+
+When a leaf changes, facts depending on it need recomputation. But not necessarily ALL of them — equality-based cutoff minimizes work.
 
 ### The Mechanism
 
-Each cache entry stores `directDependencyHashes` — the content hashes of its immediate dependencies at the time it was computed. When a fact's validation fails (some dependency hash differs):
+During the forward walk from a changed leaf, each recomputed fact is compared with its cached value using structural equality (`==` on Scala case classes). Since all processors are pure functions, if a recomputed fact equals the cached value, all of its dependents are guaranteed to produce the same results too — so propagation stops.
 
-1. **Recompute the fact** using its processor
-2. **Hash the result** and compare with the cached `contentHash`:
-   - If the hash matches → content is unchanged despite input change → **cutoff**: dependents are still valid
-   - If the hash differs → fact truly changed → dependents must be revalidated
-
-This is integrated directly into the recursive validation from Section 3. When validation finds a dependency mismatch, it recomputes the fact, and if the new content hash matches the cached one, it records the same hash — making the fact appear unchanged to its dependents.
+This is the key insight: **a change in a source file may not change every derived fact**. For example, changing a function body doesn't change its type signature. Facts that depend only on the signature will be equal to their cached values, cutting off propagation.
 
 ### Example: Signature Unchanged
 
 File `Foo.els` changes, but `Foo.bar`'s type signature stays the same (only body changes):
 
 ```
-1.  FileStat(Foo.els) → CHANGED (new mtime)
-2.  FileContent(Foo.els) → dirty → recompute (re-read file) → hash CHANGED
-3.  SourceContent(Foo.els) → dirty → recompute → hash CHANGED
-4.  SourceTokens(Foo.els) → dirty → recompute → hash CHANGED
-5.  SourceAST(Foo.els) → dirty → recompute → hash CHANGED
-6.  CoreAST(Foo.els) → dirty → recompute → hash CHANGED
-7.  ModuleValue(Foo.els, Foo.bar) → dirty → recompute → hash CHANGED (body differs)
-8.  UnifiedModuleValue(Foo.bar) → dirty → recompute → hash CHANGED
-9.  ResolvedValue(Foo.bar) → dirty → recompute → hash CHANGED
-10. MatchDesugaredValue(Foo.bar) → dirty → recompute → hash CHANGED
-11. OperatorResolvedValue(Foo.bar) → dirty → recompute → hash CHANGED
-12. MonomorphicValue(Foo.bar) → dirty → recompute → hash CHANGED (body differs)
+1.  FileStat(Foo.els) → recompute → NOT equal (new mtime)
+2.  FileContent(Foo.els) → recompute (re-read file) → NOT equal
+3.  SourceContent(Foo.els) → recompute → NOT equal
+4.  SourceTokens(Foo.els) → recompute → NOT equal
+5.  SourceAST(Foo.els) → recompute → NOT equal
+6.  CoreAST(Foo.els) → recompute → NOT equal
+7.  ModuleValue(Foo.els, Foo.bar) → recompute → NOT equal (body differs)
+8.  UnifiedModuleValue(Foo.bar) → recompute → NOT equal
+9.  ResolvedValue(Foo.bar) → recompute → NOT equal
+10. MatchDesugaredValue(Foo.bar) → recompute → NOT equal
+11. OperatorResolvedValue(Foo.bar) → recompute → NOT equal
+12. MonomorphicValue(Foo.bar) → recompute → NOT equal (body differs)
 13. MonomorphicValue(Other.baz) calls Foo.bar:
-    - Check directDependencyHashes:
-      MonomorphicValue(Foo.bar) hash CHANGED
-    - Must recompute → result is SAME (only uses Foo.bar's signature)
-    → contentHash MATCHES cached → CUTOFF: propagation stops
+    Recompute → result EQUALS cached (only uses Foo.bar's signature)
+    → CUTOFF: propagation stops
 14. Everything downstream of Other.baz → untouched ✓
 ```
 
-### Integration with Recursive Validation
+### Why Equality Instead of Hashing
 
-Propagation cutoff is part of the validation logic from Section 3. When a fact fails the dependency hash check, instead of immediately declaring it invalid, the engine recomputes it and checks the content hash:
+Using structural equality on the actual fact values (rather than comparing hashes of serialized bytes) has several advantages:
 
-```scala
-def validateOrRecompute(
-    key: CompilerFactKey[?],
-    cache: FactCacheData,
-    currentHashes: mutable.Map[CompilerFactKey[?], Long]
-): Unit = {
-  if (currentHashes.contains(key)) return  // already handled
-
-  cache.entries.get(key) match {
-    case None =>
-      // Not in cache — generate fresh, record hash
-      val fact = generate(key)
-      currentHashes(key) = computeHash(fact)
-
-    case Some(entry) =>
-      // Recursively validate dependencies first
-      entry.directDependencies.foreach(dep =>
-        validateOrRecompute(dep, cache, currentHashes)
-      )
-
-      val depsUnchanged = entry.directDependencyHashes.forall {
-        case (depKey, expectedHash) =>
-          currentHashes.get(depKey).contains(expectedHash)
-      }
-
-      if (depsUnchanged) {
-        // All inputs unchanged → fact is clean
-        currentHashes(key) = entry.contentHash
-      } else {
-        // Some input changed → recompute
-        val newFact = generate(key)
-        val newHash = computeHash(newFact)
-        currentHashes(key) = newHash
-        // If newHash == entry.contentHash, dependents will see
-        // unchanged hashes → cutoff propagates naturally
-      }
-  }
-}
-```
+- **Simpler**: No hash computation, no hash storage, no hash collisions to worry about.
+- **Exact**: Equality is precise — no false positives from hash collisions.
+- **Natural**: Scala case classes provide structural equality out of the box.
+- **Unified storage**: Every cache entry stores the fact itself, serving both as the cached result and the comparison value. No separate `serializedFact: Option[Array[Byte]]` with `None` for some facts.
 
 ## 5. Architecture Overview
 
@@ -264,24 +219,24 @@ def validateOrRecompute(
 │  On getFact(key):                                            │
 │   1. In-memory cache hit? → return                           │
 │   2. Persistent cache entry exists?                          │
-│      → recursively validate dependencies                     │
-│      → all dep hashes match? → return from cache             │
-│      → some differ? → recompute → check content hash cutoff  │
+│      → check leaf dependencies (recompute leaves)            │
+│      → all leaves equal? → return cached fact                │
+│      → some leaf changed? → forward-walk with cutoff         │
 │   3. Not in cache → generate with DependencyTrackingProcess  │
 │                                                              │
-│  ┌───────────────────┐  ┌────────────────────────┐           │
-│  │ DependencyTracking │  │   CacheValidator       │           │
-│  │ Process            │  │   (recursive dep check  │           │
-│  │ (records getFact   │  │    + propagation cutoff)│           │
-│  │  calls per fact)   │  │                        │           │
-│  └───────────────────┘  └────────────────────────┘           │
+│  ┌───────────────────┐                                       │
+│  │ DependencyTracking │                                       │
+│  │ Process            │                                       │
+│  │ (records getFact   │                                       │
+│  │  calls per fact)   │                                       │
+│  └───────────────────┘                                       │
 │                                                              │
 │  ┌───────────────────────────────────────────────┐           │
 │  │              FactCache                         │           │
 │  │  (persistent storage on disk)                  │           │
-│  │  - direct dependency hashes                    │           │
-│  │  - content hashes                              │           │
-│  │  - serialized facts (persistent only)          │           │
+│  │  - leaf dependencies per fact                  │           │
+│  │  - forward keys per fact                       │           │
+│  │  - cached fact values                          │           │
 │  └───────────────────────────────────────────────┘           │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -294,7 +249,6 @@ def validateOrRecompute(
 | `OutputFileStat.scala` | `compiler.cache` | `OutputFileStat` fact, key, and processor |
 | `CacheEntry.scala` | `compiler.cache` | Cache entry data structure |
 | `FactCache.scala` | `compiler.cache` | Cache persistence (load/save) |
-| `CacheValidator.scala` | `compiler.cache` | Recursive validation + propagation cutoff |
 | `DependencyTrackingProcess.scala` | `compiler.cache` | Records fact dependencies |
 | `IncrementalFactGenerator.scala` | `compiler` | Cache-aware `CompilationProcess` |
 
@@ -303,10 +257,10 @@ def validateOrRecompute(
 | File | Change |
 |------|--------|
 | `Compiler.scala` (eliotc) | Register `Initial` processor, load/save cache, use `IncrementalFactGenerator` |
-| `CompilerPlugin.scala` (eliotc) | Add `ephemeralFactTypes()` method (default: empty set) |
 | `FileStatProcessor.scala` (lang) | Add `getFactOrAbort(Initial.Key)` before stat call |
 | `FileContentReader.scala` (lang) | Add `getFactOrAbort(FileStat.Key(key.file))` before reading file |
-| `LangPlugin.scala` (lang) | Override `ephemeralFactTypes()` to declare cheap fact types |
+| `JvmProgramGenerator.scala` (jvm) | Add `getFactOrAbort(OutputFileStat.Key(jarFile))` dependency before writing JAR |
+| `JvmPlugin.scala` (jvm) | Register `OutputFileStatProcessor` |
 
 ## 6. New Facts and Modified Processors
 
@@ -365,7 +319,7 @@ class OutputFileStatProcessor extends SingleFactProcessor[OutputFileStat.Key] wi
       result   = initial.cacheTimestamp match {
                    case None =>
                      // Cold start (no cache). Everything will be computed fresh anyway.
-                     // Return true so the hash is stable for future runs.
+                     // Return true so the value is stable for future runs.
                      OutputFileStat(key.file, upToDate = true)
                    case Some(cacheTime) =>
                      val fileExists    = key.file.exists()
@@ -378,10 +332,10 @@ class OutputFileStatProcessor extends SingleFactProcessor[OutputFileStat.Key] wi
 
 **How it works across runs:**
 
-- **Run 1 (cold start, no cache):** `cacheTimestamp` is `None` → returns `upToDate = true`. This value is stored in the cache. Since there's no prior cache, every fact is computed fresh anyway — the hash value only matters as a seed for future runs.
-- **Run 2 (nothing changed, JAR exists):** `cacheTimestamp` is `Some(t)`, JAR exists with mtime ≤ t → returns `upToDate = true`. Same hash as Run 1 → no invalidation → zero extra work.
-- **Run N (JAR deleted):** `cacheTimestamp` is `Some(t)`, JAR missing → returns `upToDate = false`. Hash differs → invalidates the downstream `GenerateExecutableJar` → JAR gets regenerated. All upstream facts (`GeneratedModule`, etc.) are still cached and unchanged.
-- **Run N+1 (JAR restored):** Returns `upToDate = true` again → same hash as before deletion → stable.
+- **Run 1 (cold start, no cache):** `cacheTimestamp` is `None` → returns `upToDate = true`. This value is stored in the cache. Since there's no prior cache, every fact is computed fresh anyway — the value only matters as a baseline for future runs.
+- **Run 2 (nothing changed, JAR exists):** `cacheTimestamp` is `Some(t)`, JAR exists with mtime ≤ t → returns `upToDate = true`. Same value as Run 1 → no invalidation → zero extra work.
+- **Run N (JAR deleted):** `cacheTimestamp` is `Some(t)`, JAR missing → returns `upToDate = false`. Value differs → invalidates the downstream `GenerateExecutableJar` → JAR gets regenerated. All upstream facts (`GeneratedModule`, etc.) are still cached and unchanged.
+- **Run N+1 (JAR restored):** Returns `upToDate = true` again → same value as before deletion → stable.
 
 **Dependency chain for JAR generation:**
 
@@ -441,8 +395,8 @@ class FileContentReader extends SingleFactProcessor[FileContent.Key] with Loggin
 
 - `Initial` changes every run → `FileStat` always re-runs (it depends on `Initial`)
 - `FileStat` is a cheap `stat` call → negligible cost even for many files
-- If file is unchanged → `FileStat` produces same `lastModified` → same hash → downstream is cached
-- If file changed → `FileStat` produces different `lastModified` → different hash → downstream recomputes
+- If file is unchanged → `FileStat` produces same value → equality check passes → downstream is cached
+- If file changed → `FileStat` produces different value → equality check fails → forward walk begins
 
 The beauty is that this integrates naturally with the existing fact system. No special external fingerprinting mechanism needed — it's all facts and dependencies, reusing the infrastructure already in place.
 
@@ -477,7 +431,10 @@ Each fact generation runs in its own fiber (via `.start` in `FactGenerator`), an
 
 ### What Gets Stored
 
-After compilation, each fact's recorded dependencies and content hash are saved to the cache. No transitive analysis is needed at save time — the recursive validation at load time handles transitivity naturally.
+After compilation, the recorded direct dependencies are used to compute two derived structures for each cache entry:
+
+- **`leafDependencies`**: Computed by walking the direct dependency graph transitively until reaching facts whose only dependency is `Initial` (i.e., leaf facts like `FileStat` and `OutputFileStat`). These are the external-world boundary for this fact.
+- **`forwardKeys`**: The inverse of direct dependencies. For each dependency edge A → B (A depends on B), B's `forwardKeys` includes A. This enables the forward walk from changed leaves.
 
 ## 8. Cache Storage Format
 
@@ -485,19 +442,17 @@ After compilation, each fact's recorded dependencies and content hash are saved 
 
 ```scala
 case class CacheEntry(
-    directDependencies: Set[CompilerFactKey[?]],
-    directDependencyHashes: Map[CompilerFactKey[?], Long],
-    contentHash: Long,
-    serializedFact: Option[Array[Byte]]  // None for ephemeral facts
+    leafDependencies: Set[CompilerFactKey[?]],
+    forwardKeys: Set[CompilerFactKey[?]],
+    fact: CompilerFact
 )
 ```
 
 | Field | Purpose |
 |-------|---------|
-| `directDependencies` | Set of immediate dependency keys. For recursive validation traversal. |
-| `directDependencyHashes` | Hashes of immediate dependencies. For propagation cutoff during recomputation. |
-| `contentHash` | Hash of this fact's serialized form. For cutoff: detect unchanged content. |
-| `serializedFact` | Serialized fact data. `None` for ephemeral facts. |
+| `leafDependencies` | Transitive leaf facts (boundary with external world). For quick leaf checking on validation. |
+| `forwardKeys` | Facts that directly depend on this fact. For forward propagation walk when a leaf changes. |
+| `fact` | The cached fact value. For equality comparison at every level and for returning to callers. |
 
 ### FactCacheData
 
@@ -551,9 +506,7 @@ Cache location: `target/.eliot-cache` (alongside other build artifacts).
 
 ### Serialization Strategy
 
-All ELIOT compiler facts are Scala 3 case classes, which automatically extend `Product with Serializable`. Java serialization works out of the box with zero changes to existing fact types.
-
-Content hashing uses `MurmurHash3.bytesHash` on the serialized bytes — fast and sufficient for change detection (not security-critical).
+All ELIOT compiler facts are Scala 3 case classes, which automatically extend `Product with Serializable`. Java serialization works out of the box with zero changes to existing fact types. Case classes also provide structural equality via `==`, which is used for cutoff detection.
 
 Cache version mismatches (e.g., after compiler changes) cause the entire cache to be discarded and rebuilt from scratch. This is safe — worst case is a single full recompilation.
 
@@ -570,19 +523,19 @@ getFact(key)
   │
   ├─ Persistent cache entry exists?
   │    │
-  │    ├─ Recursively validate all direct dependencies
-  │    │   (each dependency validates its own dependencies, etc.)
+  │    ├─ Recompute each leaf in leafDependencies
+  │    │   Compare with cached leaf value (equality)
   │    │
-  │    ├─ All dependency hashes match cached? ──Yes──► deserialize & return
-  │    │                                               (or regenerate if ephemeral)
+  │    ├─ All leaves equal? ──Yes──► return cached fact
   │    │
-  │    └─ Some dependency hash differs:
-  │         Recompute fact → hash result
+  │    └─ Some leaf not equal:
+  │         Forward-walk from changed leaf using forwardKeys
+  │         At each step: recompute → compare with cached (equality)
   │         │
-  │         ├─ Content hash matches cached → CUTOFF
-  │         │   (dependents see unchanged hash)
+  │         ├─ Equal → CUTOFF (stop this path)
   │         │
-  │         └─ Content hash differs → propagate
+  │         └─ Not equal → continue forward
+  │              Eventually reaches requested fact or all paths cut off
   │
   └─ Not in cache → generate fresh (with dependency tracking)
 ```
@@ -593,11 +546,10 @@ getFact(key)
 final class IncrementalFactGenerator(
     generator: CompilerProcessor,
     cache: Option[FactCacheData],
-    ephemeralTypes: Set[Class[?]],
     errors: Ref[IO, Chain[CompilerError]],
     facts: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]],
     directDependencies: Ref[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]],
-    currentHashes: Ref[IO, Map[CompilerFactKey[?], Long]]
+    validated: Ref[IO, Set[CompilerFactKey[?]]]
 ) extends CompilationProcess {
 
   override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](
@@ -624,43 +576,89 @@ final class IncrementalFactGenerator(
       entry: CacheEntry
   ): IO[Option[V]] =
     for {
-      // Recursively validate all direct dependencies first
-      _        <- entry.directDependencies.toList.traverse_(dep => getFact(dep))
-      hashes   <- currentHashes.get
-      depsMatch = entry.directDependencyHashes.forall { case (dk, dh) =>
-                    hashes.get(dk).contains(dh)
-                  }
-      result   <- if (depsMatch) loadFromCache(key, entry)
-                  else recomputeWithCutoff(key, entry)
+      // Recompute each leaf and check equality
+      changedLeaves <- entry.leafDependencies.toList.flatTraverse { leafKey =>
+                         recomputeLeaf(leafKey).map {
+                           case true  => List.empty   // leaf unchanged
+                           case false => List(leafKey) // leaf changed
+                         }
+                       }
+      result <- if (changedLeaves.isEmpty) returnCached(key, entry)
+                else forwardWalkAndReturn(key, changedLeaves)
     } yield result
 
-  /** Recompute fact, but check if content hash is unchanged (cutoff). */
-  private def recomputeWithCutoff[V <: CompilerFact, K <: CompilerFactKey[V]](
+  /** Recompute a leaf fact and compare with cached value.
+    * Returns true if unchanged, false if changed. */
+  private def recomputeLeaf(leafKey: CompilerFactKey[?]): IO[Boolean] =
+    for {
+      alreadyValid <- validated.get.map(_.contains(leafKey))
+      result       <- if (alreadyValid) IO.pure(true)
+                      else for {
+                        newFact   <- generateFresh(leafKey)
+                        cachedFact = cache.flatMap(_.entries.get(leafKey)).map(_.fact)
+                        unchanged  = newFact == cachedFact
+                        _         <- validated.update(_ + leafKey).whenA(unchanged)
+                      } yield unchanged
+    } yield result
+
+  /** Walk forward from changed leaves, recomputing facts along the way.
+    * At each step, check equality with cached value for cutoff. */
+  private def forwardWalkAndReturn[V <: CompilerFact, K <: CompilerFactKey[V]](
       key: K,
-      entry: CacheEntry
+      changedLeaves: List[CompilerFactKey[?]]
   ): IO[Option[V]] =
     for {
-      result  <- generateFresh(key)
-      hashes  <- currentHashes.get
-      // If the new content hash matches cached, dependents see no change
-      // (cutoff happens naturally — their dependency hashes will still match)
+      // Walk forward from each changed leaf
+      _ <- forwardWalkFrom(changedLeaves.toSet, targetKey = key)
+      // After walk, key is either recomputed (in memory) or untouched (still valid)
+      alreadyComputed <- checkInMemory(key)
+      result <- alreadyComputed match {
+                  case Some(deferred) => deferred.get.map(_.map(_.asInstanceOf[V]))
+                  case None           =>
+                    // Forward walk didn't reach this key — all paths cut off
+                    cache.flatMap(_.entries.get(key)) match {
+                      case Some(entry) => returnCached(key, entry)
+                      case None        => generateFresh(key)
+                    }
+                }
     } yield result
 
-  private def loadFromCache[V <: CompilerFact, K <: CompilerFactKey[V]](
+  /** Walk forward from a set of changed keys, recomputing and checking cutoff. */
+  private def forwardWalkFrom(
+      changed: Set[CompilerFactKey[?]],
+      targetKey: CompilerFactKey[?]
+  ): IO[Unit] = {
+    // Process changed keys, collecting newly changed forward keys
+    changed.toList.traverse_ { changedKey =>
+      cache.flatMap(_.entries.get(changedKey)) match {
+        case None => IO.unit  // no forward links
+        case Some(entry) =>
+          entry.forwardKeys.toList.traverse_ { fwdKey =>
+            for {
+              alreadyDone <- validated.get.map(_.contains(fwdKey))
+              _           <- (for {
+                               newFact    <- generateFresh(fwdKey)
+                               cachedFact  = cache.flatMap(_.entries.get(fwdKey)).map(_.fact)
+                               unchanged   = newFact == cachedFact
+                               _          <- if (unchanged) validated.update(_ + fwdKey)
+                                             else forwardWalkFrom(Set(fwdKey), targetKey)
+                             } yield ()).unlessA(alreadyDone)
+            } yield ()
+          }
+      }
+    }
+  }
+
+  private def returnCached[V <: CompilerFact, K <: CompilerFactKey[V]](
       key: K,
       entry: CacheEntry
-  ): IO[Option[V]] =
-    entry.serializedFact match {
-      case Some(bytes) =>
-        val fact = deserialize(bytes).asInstanceOf[V]
-        currentHashes.update(_.updated(key, entry.contentHash)) >>
-          registerInMemory(key, Some(fact)).as(Some(fact))
-      case None =>
-        // Ephemeral fact — not serialized, must regenerate
-        generateFresh(key)
-    }
+  ): IO[Option[V]] = {
+    val fact = entry.fact.asInstanceOf[V]
+    validated.update(_ + key) >>
+      registerInMemory(key, Some(fact)).as(Some(fact))
+  }
 
-  /** Generate with dependency tracking, record hash. */
+  /** Generate with dependency tracking. */
   private def generateFresh[V <: CompilerFact, K <: CompilerFactKey[V]](
       key: K
   ): IO[Option[V]] =
@@ -681,93 +679,17 @@ final class IncrementalFactGenerator(
                         .start
                         .whenA(modifyResult._2)
       result       <- modifyResult._1.get
-      // Record content hash for propagation cutoff
-      _            <- result.traverse_ { fact =>
-                        val hash = computeContentHash(fact)
-                        currentHashes.update(_.updated(key, hash))
-                      }
     } yield result.map(_.asInstanceOf[V])
 }
 ```
 
-The engine has no concept of "sentinel" or "special" facts. `Initial` happens to always be freshly registered at startup (so it's always in-memory with a new value), and `FileStat` depends on `Initial` (so it always recomputes). But the engine doesn't know or care — it just sees facts, dependencies, and hashes.
+**Relationship to existing `FactGenerator`**: `IncrementalFactGenerator` replaces `FactGenerator` entirely. It reuses the same `Deferred`-based in-memory caching pattern (see `FactGenerator.modifyAtomicallyFor`) but adds persistent cache lookups, leaf-based validation, and equality-based forward walk on top.
 
-**Relationship to existing `FactGenerator`**: `IncrementalFactGenerator` replaces `FactGenerator` entirely. It reuses the same `Deferred`-based in-memory caching pattern (see `FactGenerator.modifyAtomicallyFor`) but adds persistent cache lookups, dependency tracking, and hash-based validation on top.
+## 10. All Facts Cached
 
-## 10. Persistent vs Ephemeral Facts
+All facts are stored in the cache. Unlike a hash-based design where cheap intermediate facts could be excluded, equality-based cutoff requires the actual fact value at every level in the dependency graph. There is no ephemeral/persistent distinction, no plugin method to declare fact categories, and no `Option` wrapper around the stored fact.
 
-### Rationale
-
-Not all facts are worth serializing to disk. Below is the complete list of current fact types:
-
-| Fact Type | Category | Rationale |
-|-----------|----------|-----------|
-| `Initial` | **Never cached** | Always changes (compilation start time + cache timestamp) |
-| `FileStat` | Ephemeral | Always re-runs (stat call), cheap |
-| `OutputFileStat` | Ephemeral | Always re-runs (stat call), cheap |
-| `FileContent` | Ephemeral | Re-read from disk if needed |
-| `ResourceContent` | Ephemeral | Re-read from classpath if needed |
-| `SourceContent` | Ephemeral | Delegates to FileContent/ResourceContent |
-| `PathScan` | Ephemeral | Cheap filesystem scan |
-| `SourceTokens` | Ephemeral | Tokenization is fast |
-| `SourceAST` | Ephemeral | Parsing is fast |
-| `CoreAST` | Ephemeral | Pure transformation, fast |
-| `ModuleNames` | Ephemeral | Simple extraction from CoreAST |
-| `ModuleValue` | Ephemeral | Simple extraction from CoreAST |
-| `UnifiedModuleNames` | **Persistent** | Cross-file merge checkpoint |
-| `UnifiedModuleValue` | **Persistent** | Cross-file merge checkpoint |
-| `NamedEvaluable` | **Persistent** | Type evaluation of values and data types |
-| `ResolvedValue` | **Persistent** | Name resolution is cross-module |
-| `MatchDesugaredValue` | **Persistent** | Match exhaustiveness checking |
-| `OperatorResolvedValue` | **Persistent** | Operator precedence resolution |
-| `AbilityImplementation` | **Persistent** | Cross-module ability lookup |
-| `AbilityImplementationCheck` | **Persistent** | Implementation validation |
-| `MonomorphicValue` | **Persistent** | Monomorphization is expensive |
-| `UsedNames` | **Persistent** | Reachability analysis |
-| `UncurriedMonomorphicValue` | **Persistent** | Checkpoint before codegen |
-| `GeneratedModule` | **Persistent** | Bytecode generation is expensive |
-| `GenerateExecutableJar` | **Persistent** | Final JAR output |
-
-### How Ephemeral Facts Work
-
-For ephemeral facts, the cache stores the `directDependencies`, `directDependencyHashes`, and `contentHash` — but NOT the `serializedFact` (it's `None`).
-
-- **Nothing changed**: Dependency hashes match all the way down → the persistent facts downstream are loaded from cache. Ephemeral facts are never needed (they're intermediaries).
-- **Something changed**: Ephemeral facts in the dirty subtree are regenerated. This is fast (they're cheap computations). Their new hashes participate in propagation cutoff.
-
-### Plugin Registration
-
-Plugins declare ephemeral fact types via a new method on `CompilerPlugin`:
-
-```scala
-// Addition to CompilerPlugin trait:
-def ephemeralFactTypes(): Set[Class[? <: CompilerFactKey[?]]] = Set.empty
-```
-
-`LangPlugin` overrides (this is the plugin that registers all language processors):
-
-```scala
-override def ephemeralFactTypes(): Set[Class[? <: CompilerFactKey[?]]] = Set(
-  classOf[FileStat.Key],
-  classOf[FileContent.Key],
-  classOf[ResourceContent.Key],
-  classOf[SourceContent.Key],
-  classOf[PathScan.Key],
-  classOf[SourceTokens.Key],
-  classOf[SourceAST.Key],
-  classOf[CoreAST.Key],
-  classOf[ModuleNames.Key],
-  classOf[ModuleValue.Key]
-)
-```
-
-`JvmPlugin` declares `OutputFileStat` as ephemeral (it always re-runs to check file presence):
-
-```scala
-override def ephemeralFactTypes(): Set[Class[? <: CompilerFactKey[?]]] = Set(
-  classOf[OutputFileStat.Key]
-)
-```
+This simplifies the design: every `CacheEntry` has the same structure, and the `IncrementalFactGenerator` handles all facts uniformly.
 
 ## 11. Integration with Compiler.scala
 
@@ -795,9 +717,6 @@ private def runWithConfiguration(configuration: Configuration, plugins: Seq[Comp
         activatedPlugins  = collectActivatedPlugins(targetPlugin, configuration, plugins)
         newConfiguration <- activatedPlugins.traverse_(_.configure()).runS(configuration)
 
-        // Collect ephemeral fact types from all plugins
-        ephemeralTypes    = activatedPlugins.flatMap(_.ephemeralFactTypes()).toSet
-
         // Load persistent cache (moved before processor init, need timestamp)
         targetPath        = newConfiguration.get(targetPathKey).get
         cacheData        <- FactCache.load(targetPath)
@@ -814,9 +733,7 @@ private def runWithConfiguration(configuration: Configuration, plugins: Seq[Comp
         wrappedProcessors = processor.wrapWith(wrapProcessor(_, tracker))
 
         // Create incremental fact generator (replaces FactGenerator.create)
-        generator        <- IncrementalFactGenerator.create(
-                              wrappedProcessors, cacheData, ephemeralTypes
-                            )
+        generator        <- IncrementalFactGenerator.create(wrappedProcessors, cacheData)
 
         // Run compilation
         _                <- targetPlugin.run(newConfiguration, generator)
@@ -837,23 +754,21 @@ private def runWithConfiguration(configuration: Configuration, plugins: Seq[Comp
 ```
 
 **Key changes from current code:**
-- `NullProcessor()` replaced by `InitialProcessor(startTime)` as the initial processor
-- `FactGenerator.create(wrappedProcessors)` replaced by `IncrementalFactGenerator.create(...)`
+- `NullProcessor()` replaced by `InitialProcessor(startTime, cacheTimestamp)` as the initial processor
+- `FactGenerator.create(wrappedProcessors)` replaced by `IncrementalFactGenerator.create(wrappedProcessors, cacheData)`
 - Cache load/save added around compilation
-- Ephemeral types collected from plugins
 
 ### Fast Path
 
 The fast path emerges naturally from the fact system:
 
 1. Plugin calls `getFact(GenerateExecutableJar.Key(main))`
-2. `IncrementalFactGenerator` finds it in cache, recursively validates dependencies
-3. Validation walks down to `FileStat` facts → each re-runs (depends on `Initial` which changed) → stat source files
-4. Validation also walks to `OutputFileStat(target/Hello.jar)` → re-runs → JAR exists and older than cache → `upToDate = true` → same hash
-5. All source mtimes match, output file present → all hashes match → validation propagates back up → return cached fact
-6. **Zero file reads, zero deserialization of intermediate facts, zero computation, zero JAR writes**
+2. `IncrementalFactGenerator` finds it in cache, checks its `leafDependencies`
+3. Recomputes each leaf: `FileStat` facts (stat source files) and `OutputFileStat(target/Hello.jar)` (check JAR presence)
+4. All leaves equal to cached values → return cached fact immediately
+5. **Zero file reads, zero intermediate fact computation, zero JAR writes**
 
-The only work done is: load cache file + N source stat calls + 1 output stat call + recursive hash comparisons + deserialize the one requested fact.
+The only work done is: load cache file + N source stat calls + 1 output stat call + equality comparisons at the leaf level.
 
 ## 12. Building the Cache After Compilation
 
@@ -862,26 +777,49 @@ After compilation completes, the `IncrementalFactGenerator` builds a new `FactCa
 ```scala
 def buildCacheData(): IO[FactCacheData] =
   for {
-    allFacts  <- collectAllFacts()
-    deps      <- directDependencies.get
-    hashes    <- currentHashes.get
-    entries    = allFacts.map { case (key, fact) =>
-                   val serialized   = serialize(fact)
-                   val contentHash  = MurmurHash3.bytesHash(serialized).toLong
-                   val isPersistent = !ephemeralTypes.contains(key.getClass)
-                   val factDeps     = deps.getOrElse(key, Set.empty)
-                   val depHashes    = factDeps.flatMap(d => hashes.get(d).map(d -> _)).toMap
-                   key -> CacheEntry(
-                     directDependencies = factDeps,
-                     directDependencyHashes = depHashes,
-                     contentHash = contentHash,
-                     serializedFact = if (isPersistent) Some(serialized) else None
-                   )
-                 }
+    allFacts <- collectAllFacts()  // Map[CompilerFactKey[?], CompilerFact]
+    deps     <- directDependencies.get
+    entries   = {
+      // Compute leaf sets by walking direct dependencies transitively
+      val leafSets = allFacts.keys.map { key =>
+        key -> computeLeafSet(key, deps)
+      }.toMap
+
+      // Compute forward keys (inverse of direct dependencies)
+      val forwardMap = mutable.Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]()
+        .withDefaultValue(Set.empty)
+      deps.foreach { case (key, depKeys) =>
+        depKeys.foreach(dep => forwardMap(dep) = forwardMap(dep) + key)
+      }
+
+      allFacts.map { case (key, fact) =>
+        key -> CacheEntry(
+          leafDependencies = leafSets.getOrElse(key, Set.empty),
+          forwardKeys = forwardMap.getOrElse(key, Set.empty),
+          fact = fact
+        )
+      }
+    }
   } yield FactCacheData(
     version = FactCache.CACHE_VERSION,
     entries = entries.toMap
   )
+
+/** Walk the dependency graph to find leaf facts.
+  * A leaf is a fact whose only dependency is Initial (or has no dependencies). */
+private def computeLeafSet(
+    key: CompilerFactKey[?],
+    deps: Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]
+): Set[CompilerFactKey[?]] = {
+  val factDeps = deps.getOrElse(key, Set.empty)
+  if (factDeps.isEmpty || factDeps == Set(Initial.Key)) {
+    // This fact IS a leaf (depends only on Initial or nothing)
+    Set(key)
+  } else {
+    // Recurse: this fact's leaves are the union of its dependencies' leaves
+    factDeps.flatMap(dep => computeLeafSet(dep, deps))
+  }
+}
 ```
 
 ## 13. Edge Cases
@@ -892,7 +830,7 @@ Not in cache → `FileStat(file)` has no cached entry → generated fresh → `F
 
 ### Deleted Source Files
 
-`FileStat(file)` runs → file doesn't exist → `lastModified` returns `None` → hash differs from cached → downstream invalidated. `FileContentReader` reports a compiler error for missing files and aborts that fact chain. Facts that depended on the deleted file fail to generate (as today).
+`FileStat(file)` runs → file doesn't exist → `lastModified` returns `None` → value differs from cached → forward walk begins → downstream invalidated. `FileContentReader` reports a compiler error for missing files and aborts that fact chain. Facts that depended on the deleted file fail to generate (as today).
 
 ### Synthetic Sources (JvmProgramGenerator)
 
@@ -906,7 +844,7 @@ Not in cache → `FileStat(file)` has no cached entry → generated fresh → `F
 
 `JvmProgramGenerator` writes JAR files during fact generation and depends on `OutputFileStat` for its output path. This handles all cases:
 
-- **JAR exists, sources unchanged:** `OutputFileStat` returns `upToDate = true` (same as cached) → `GenerateExecutableJar` is valid → no rewrite.
+- **JAR exists, sources unchanged:** `OutputFileStat` returns `upToDate = true` (equals cached) → `GenerateExecutableJar` is valid → no rewrite.
 - **JAR deleted, sources unchanged:** `OutputFileStat` returns `upToDate = false` (differs from cached `true`) → `GenerateExecutableJar` invalidated → processor re-runs, rewrites JAR. All upstream `GeneratedModule` facts are still cached.
 - **JAR exists, sources changed:** Upstream invalidation propagates through `GeneratedModule` → `GenerateExecutableJar` re-runs regardless of `OutputFileStat`.
 
@@ -917,9 +855,9 @@ Not in cache → `FileStat(file)` has no cached entry → generated fresh → `F
 All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 
 1. **`compiler/cache/Initial.scala`** — `Initial` fact + `InitialProcessor`
-2. **`compiler/cache/CacheEntry.scala`** — `CacheEntry` and `FactCacheData`
-3. **`compiler/cache/FactCache.scala`** — Cache persistence (load/save)
-4. **`compiler/cache/CacheValidator.scala`** — Validation + propagation cutoff
+2. **`compiler/cache/OutputFileStat.scala`** — `OutputFileStat` fact + `OutputFileStatProcessor`
+3. **`compiler/cache/CacheEntry.scala`** — `CacheEntry` and `FactCacheData`
+4. **`compiler/cache/FactCache.scala`** — Cache persistence (load/save)
 5. **`compiler/cache/DependencyTrackingProcess.scala`** — Dependency recording
 6. **`compiler/IncrementalFactGenerator.scala`** — Cache-aware `CompilationProcess`
 
@@ -928,12 +866,10 @@ All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 | File | Change |
 |------|--------|
 | `eliotc/.../compiler/Compiler.scala` | Register `InitialProcessor`, load/save cache, use `IncrementalFactGenerator` instead of `FactGenerator` |
-| `eliotc/.../plugin/CompilerPlugin.scala` | Add `ephemeralFactTypes()` method (default: empty set) |
 | `lang/.../source/stat/FileStatProcessor.scala` | Add `getFactOrAbort(Initial.Key)` before stat call |
 | `lang/.../source/file/FileContentReader.scala` | Add `getFactOrAbort(FileStat.Key(key.file))` before reading file |
-| `lang/.../plugin/LangPlugin.scala` | Override `ephemeralFactTypes()` to declare cheap fact types |
 | `jvm/.../jargen/JvmProgramGenerator.scala` | Add `getFactOrAbort(OutputFileStat.Key(jarFile))` dependency before writing JAR |
-| `jvm/.../plugin/JvmPlugin.scala` | Register `OutputFileStatProcessor`, override `ephemeralFactTypes()` for `OutputFileStat` |
+| `jvm/.../plugin/JvmPlugin.scala` | Register `OutputFileStatProcessor` |
 
 ### No Changes Required
 
@@ -941,15 +877,17 @@ All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 - No fact types need modification (already `Serializable` via case class)
 - No changes to `CompilerIO` monad
 - No changes to `CompilerFactKey` or `CompilerFact` traits
+- No changes to `CompilerPlugin` trait
+- No changes to `LangPlugin` or any plugin's configuration
 - No changes to `SourceContentReader` (it already depends on `FileContent` which will depend on `FileStat`)
 
 ## 15. Performance Characteristics
 
 | Scenario | Work Done |
 |----------|-----------|
-| Nothing changed | Load cache + N `stat` calls (via `FileStat`) + deserialize requested facts. Microseconds to milliseconds. |
-| One file changed, no signature changes | Re-stat all files + re-read changed file + recompute its pipeline + hash comparisons at each level. Cutoff stops at first unchanged signature. |
-| One file changed, signature changed | Same as above but propagation continues further. Cutoff stops when downstream fact content matches. |
+| Nothing changed | Load cache + N `stat` calls (via `FileStat`) + equality checks at leaf level. No forward walking. Microseconds to milliseconds. |
+| One file changed, no signature changes | Re-stat all files + forward-walk from changed leaf + recompute facts along the path + equality cutoff stops at first unchanged fact. |
+| One file changed, signature changed | Same as above but forward walk continues further. Cutoff stops when a downstream fact equals its cached value. |
 | Everything changed | Full recompilation + cache save overhead. |
 | First compilation (no cache) | Full recompilation + dependency tracking + cache save. Slightly slower due to tracking overhead. |
 
@@ -957,6 +895,6 @@ All under `eliotc/src/com/vanillasource/eliot/eliotc/`:
 
 1. **Parallel `FileStat` computation**: Run `FileStat` facts concurrently for faster startup
 2. **Partial cache loading**: Deserialize only requested facts, not the entire cache file
-3. **Fine-grained fact hashing**: Hash "signature" and "body" parts of facts separately for better propagation cutoff
+3. **Fine-grained equality**: Implement custom equality on specific fact types to enable earlier cutoff (e.g., compare only the type signature portion of a value fact, ignoring body changes)
 4. **CompilerIO purity enforcement**: Restrict the `CompilerIO` monad to prevent processors from performing arbitrary IO, formally guaranteeing the pure function property that the cache relies on
 5. **File watching mode**: Use filesystem watchers for instant change detection in a long-running compiler daemon
