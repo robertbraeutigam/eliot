@@ -1,17 +1,18 @@
 package com.vanillasource.eliot.eliotc.eval.util
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{Qualifier as CoreQualifier}
+import com.vanillasource.eliot.eliotc.core.fact.Qualifier as CoreQualifier
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntType, functionDataTypeFQN, stringType, typeFQN}
 import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, NamedEvaluable, Value}
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
-object Evaluator {
+object Evaluator extends Logging {
 
   /** Evaluates an expression to an InitialExpressionValue.
     *
@@ -32,7 +33,8 @@ object Evaluator {
       reduced <- reduce(value, expression)
       result  <- reduced match {
                    case FunctionApplication(_, _)        =>
-                     compilerAbort(expression.as("Could not reduce function application."))
+                     warn[CompilerIO](s"Could not reduce function application: ${reduced.show}") >>
+                       compilerAbort(expression.as("Could not reduce function application."))
                    case expressionValue: ExpressionValue => expressionValue.pure[CompilerIO]
                  }
     } yield result
@@ -180,17 +182,17 @@ object Evaluator {
     applyTypeArgs(stripped, relevantArgs, source)
   }
 
-  /** Build a function type expression Function(paramVar, retVar) using the evaluated Function constructor. The parameter
-    * names are unification variables that remain as ParameterReferences in the result.
+  /** Build a function type expression Function(paramVar, retVar) using the evaluated Function constructor. The
+    * parameter names are unification variables that remain as ParameterReferences in the result.
     */
   def functionType(paramVarName: String, retVarName: String, source: Sourced[?]): CompilerIO[ExpressionValue] = {
-    def s[T](value: T): Sourced[T] = Sourced(source.uri, source.range, value)
-    val paramRef: OperatorResolvedExpression     = OperatorResolvedExpression.ParameterReference(s(paramVarName))
-    val retRef: OperatorResolvedExpression       = OperatorResolvedExpression.ParameterReference(s(retVarName))
-    val funcRef: OperatorResolvedExpression      = OperatorResolvedExpression.ValueReference(s(functionDataTypeFQN))
-    val inner: OperatorResolvedExpression        = OperatorResolvedExpression.FunctionApplication(s(funcRef), s(paramRef))
-    val ore: OperatorResolvedExpression          = OperatorResolvedExpression.FunctionApplication(s(inner), s(retRef))
-    val paramContext: Map[String, Value]         = Map(paramVarName -> Value.Type, retVarName -> Value.Type)
+    def s[T](value: T): Sourced[T]           = Sourced(source.uri, source.range, value)
+    val paramRef: OperatorResolvedExpression = OperatorResolvedExpression.ParameterReference(s(paramVarName))
+    val retRef: OperatorResolvedExpression   = OperatorResolvedExpression.ParameterReference(s(retVarName))
+    val funcRef: OperatorResolvedExpression  = OperatorResolvedExpression.ValueReference(s(functionDataTypeFQN))
+    val inner: OperatorResolvedExpression    = OperatorResolvedExpression.FunctionApplication(s(funcRef), s(paramRef))
+    val ore: OperatorResolvedExpression      = OperatorResolvedExpression.FunctionApplication(s(inner), s(retRef))
+    val paramContext: Map[String, Value]     = Map(paramVarName -> Value.Type, retVarName -> Value.Type)
     for {
       value   <- toExpressionValue(ore, Set.empty, paramContext, s(ore))
       reduced <- reduce(value, s(ore))
