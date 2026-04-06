@@ -54,7 +54,7 @@ class MonomorphicTypeCheckTest
 
   it should "not compile if call site has arguments, but definition doesn't" in {
     runForErrors("def f: String = b(1)\ndef b: String")
-      .asserting(_ shouldBe Seq("Type mismatch." at "b"))
+      .asserting(_ shouldBe Seq("Type mismatch." at "b(1)"))
   }
 
   it should "not compile if call site has no arguments, but definition has one" in {

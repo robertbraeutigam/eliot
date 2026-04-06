@@ -31,13 +31,14 @@ object Evaluator extends Logging {
     for {
       value   <- toExpressionValue(expression.value, evaluating, paramContext, expression)
       reduced <- reduce(value, expression)
+      /*
       result  <- reduced match {
                    case FunctionApplication(_, _)        =>
                      warn[CompilerIO](s"Could not reduce function application: ${reduced.show}") >>
                        compilerAbort(expression.as("Could not reduce function application."))
                    case expressionValue: ExpressionValue => expressionValue.pure[CompilerIO]
-                 }
-    } yield result
+                 }*/
+    } yield reduced
 
   private def toExpressionValue(
       expression: OperatorResolvedExpression,
