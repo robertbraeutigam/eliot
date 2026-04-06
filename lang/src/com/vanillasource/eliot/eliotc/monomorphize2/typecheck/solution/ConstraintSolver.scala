@@ -8,18 +8,22 @@ import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints.Constraint
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import SolverState.*
 
-/** Solves constraints by propagation and evaluation. Binds unification variables to concrete Values, substitutes
-  * bindings into expressions, evaluates via Evaluator.reduce, and iterates until all constraints are resolved.
+/** Solves ORE constraints in two phases: first structurally decomposes them by peeling off matching constructors,
+  * then evaluates each side via Evaluator.evaluate, applies current bindings, and reduces until reaching a
+  * ConcreteValue or ParameterReference for unification.
   */
 object ConstraintSolver extends Logging {
 
-  def solve(constraints: Constraints): CompilerIO[Solution] =
-    propagate.runA(SolverState(pending = constraints.constraints))
+  def solve(constraints: Constraints): CompilerIO[Solution] = {
+    val decomposed = StructuralDecomposition.decompose(constraints)
+    propagate.runA(SolverState(pending = decomposed))
+  }
 
   private def propagate: SolverIO[Solution] =
     for {
@@ -40,8 +44,8 @@ object ConstraintSolver extends Logging {
   /** Returns true if the constraint was resolved, false if deferred. */
   private def processConstraint(constraint: Constraint): SolverIO[Boolean] =
     for {
-      leftReduced  <- substituteAndReduce(constraint.left, constraint.right)
-      rightReduced <- substituteAndReduce(constraint.right.value, constraint.right)
+      leftReduced  <- evaluateAndSubstitute(constraint.right.as(constraint.left))
+      rightReduced <- evaluateAndSubstitute(constraint.right)
       _            <- debug[SolverIO](s"Checking ${leftReduced.show} vs. ${rightReduced.show}")
       resolved     <- (leftReduced, rightReduced) match {
                         case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
@@ -57,15 +61,15 @@ object ConstraintSolver extends Logging {
                       }
     } yield resolved
 
-  /** Substitute all known bindings into an expression and reduce it. */
-  // TODO: move this into ExpressionValue, there should not be non-reduced ExpressionValues
-  private def substituteAndReduce(expr: ExpressionValue, source: Sourced[?]): SolverIO[ExpressionValue] =
+  /** Convert an ORE expression to ExpressionValue via Evaluator.evaluate, substitute current bindings, and reduce. */
+  private def evaluateAndSubstitute(expr: Sourced[OperatorResolvedExpression]): SolverIO[ExpressionValue] =
     for {
       bindings   <- currentBindings
-      substituted = bindings.foldLeft(expr) { case (e, (name, value)) =>
+      evaluated  <- StateT.liftF(Evaluator.evaluate(expr))
+      substituted = bindings.foldLeft(evaluated) { case (e, (name, value)) =>
                       ExpressionValue.substitute(e, name, ConcreteValue(value))
                     }
-      reduced    <- StateT.liftF(Evaluator.reduce(substituted, source))
+      reduced    <- StateT.liftF(Evaluator.reduce(substituted, expr))
     } yield reduced
 
   private def issueError(

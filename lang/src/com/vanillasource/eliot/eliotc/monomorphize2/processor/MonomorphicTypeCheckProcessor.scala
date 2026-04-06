@@ -62,17 +62,23 @@ class MonomorphicTypeCheckProcessor
                          key.typeArguments,
                          resolvedValue.name
                        )
-      paramTypes     = resolveParameterTypes(endState, solution)
+      paramTypes    <- resolveParameterTypes(endState, solution)
       runtime       <- resolvedValue.runtime.traverse { body =>
                          buildMonomorphicExpression(body.value, paramTypes, body).map(body.as)
                        }
     } yield (signature, runtime.map(_.map(_.expression)))
 
-  private def resolveParameterTypes(endState: TypeCheckState, solution: Solution): Map[String, Value] =
-    endState.parameterTypes.flatMap { case (name, sourced) =>
-      val resolved = solution.resolveExpressionValue(sourced.value)
-      ExpressionValue.concreteValueOf(resolved).map(name -> _)
-    }
+  private def resolveParameterTypes(
+      endState: TypeCheckState,
+      solution: Solution
+  ): CompilerIO[Map[String, Value]] =
+    endState.parameterTypes.toList
+      .traverse { case (name, sourced) =>
+        Evaluator.evaluate(sourced).map { ev =>
+          ExpressionValue.concreteValueOf(solution.resolveExpressionValue(ev)).map(name -> _)
+        }
+      }
+      .map(_.flatten.toMap)
 
   private def buildMonomorphicExpression(
       expression: OperatorResolvedExpression,
