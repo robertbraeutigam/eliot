@@ -81,7 +81,13 @@ object ConstraintExtract extends Logging {
           _             <- resolvedMaybe match {
                              case Some(resolved) =>
                                // TODO: We don't supply type arguments here, so that's a problem, apply to signature!
-                               collectConstraints(assumedType, resolved.typeStack.map(_.signature))
+                               tellConstraint(
+                                 Constraints.constraint(
+                                   assumedType,
+                                   expression.as(resolved.typeStack.value.signature),
+                                   "Type mismatch."
+                                 )
+                               )
                              case None           => StateT.liftF(compilerAbort(vfqn.as(s"Value not defined.")))
                            }
         } yield expression.value
