@@ -30,8 +30,11 @@ class TypeMatchDesugarer(context: MatchDesugarContext) {
                             for {
                               handler      <- context.buildPatternHandler(scrutinee, subPatterns, ctorCase.body)
                               typeMatchFqn <- findAbilityMethodImpl(
-                                               ctor.value.moduleName, "TypeMatch", "typeMatch", Some(ctor.value.name.name)
-                                             )
+                                                ctor.value.moduleName,
+                                                "TypeMatch",
+                                                "typeMatch",
+                                                Some(ctor.value.name.name)
+                                              )
                             } yield (typeMatchFqn, handler)
                           }
         } yield chainTypeMatches(scrutinee, handlers, wildcardBody)

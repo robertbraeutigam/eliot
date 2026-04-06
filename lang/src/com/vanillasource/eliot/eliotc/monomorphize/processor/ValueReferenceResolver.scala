@@ -34,8 +34,8 @@ object ValueReferenceResolver {
   /** Resolve a value reference to its concrete type and monomorphic expression.
     *
     * @param inferTypeArgs
-    *   Callback to infer type arguments when not explicitly provided. Receives a [[TypeInfo]] containing the
-    *   evaluated type signature and body-visible type parameters of the referenced value.
+    *   Callback to infer type arguments when not explicitly provided. Receives a [[TypeInfo]] containing the evaluated
+    *   type signature and body-visible type parameters of the referenced value.
     */
   def resolve(
       vr: OperatorResolvedExpression.ValueReference,
@@ -49,13 +49,14 @@ object ValueReferenceResolver {
       typeArgs         <- if (vr.typeArgs.nonEmpty) {
                             for {
                               explicitArgs <- evaluateExplicitTypeArgs(vr.typeArgs, source)
-                              _            <- if (explicitArgs.length > analysis.allTypeParams.length)
-                                                compilerAbort(
-                                                  source.as(
-                                                    s"Too many type arguments: expected at most ${analysis.allTypeParams.length}, got ${explicitArgs.length}"
-                                                  )
-                                                )
-                                              else ().pure[CompilerIO]
+                              _            <-
+                                if (explicitArgs.length > analysis.allTypeParams.length)
+                                  compilerAbort(
+                                    source.as(
+                                      s"Too many type arguments: expected at most ${analysis.allTypeParams.length}, got ${explicitArgs.length}"
+                                    )
+                                  )
+                                else ().pure[CompilerIO]
                               result       <- if (explicitArgs.length == analysis.allTypeParams.length)
                                                 explicitArgs.pure[CompilerIO]
                                               else {

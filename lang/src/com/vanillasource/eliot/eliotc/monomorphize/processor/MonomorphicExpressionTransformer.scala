@@ -28,19 +28,19 @@ object MonomorphicExpressionTransformer {
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
     expr match {
-      case OperatorResolvedExpression.IntegerLiteral(v)      =>
+      case OperatorResolvedExpression.IntegerLiteral(v)       =>
         checkSynthesized(
           MonomorphicExpression(Types.bigIntType, MonomorphicExpression.IntegerLiteral(v)),
           expected,
           v
         )
-      case OperatorResolvedExpression.StringLiteral(v)       =>
+      case OperatorResolvedExpression.StringLiteral(v)        =>
         checkSynthesized(
           MonomorphicExpression(Types.stringType, MonomorphicExpression.StringLiteral(v)),
           expected,
           v
         )
-      case OperatorResolvedExpression.ParameterReference(n)  =>
+      case OperatorResolvedExpression.ParameterReference(n)   =>
         env.runtimeParams.get(n.value) match {
           case Some(paramType) =>
             checkSynthesized(
@@ -51,11 +51,11 @@ object MonomorphicExpressionTransformer {
           case None            =>
             compilerAbort(n.as(s"Unknown parameter: ${n.value}"))
         }
-      case vr: OperatorResolvedExpression.ValueReference     =>
+      case vr: OperatorResolvedExpression.ValueReference      =>
         transformValueReference(vr, expected, env, source)
       case fa: OperatorResolvedExpression.FunctionApplication =>
         transformFunctionApplication(fa, expected, env, source)
-      case fl: OperatorResolvedExpression.FunctionLiteral    =>
+      case fl: OperatorResolvedExpression.FunctionLiteral     =>
         transformFunctionLiteral(fl, expected, env, source)
     }
 
@@ -66,12 +66,14 @@ object MonomorphicExpressionTransformer {
       env: MonoEnv,
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
-    ValueReferenceResolver.resolve(
-      vr,
-      info =>
-        MonomorphicTypeInference.inferFromCallSite(info.fullType, info.bodyTypeParams, expected, env, source),
-      source
-    ).map(_._2).flatMap(checkSynthesized(_, expected, source))
+    ValueReferenceResolver
+      .resolve(
+        vr,
+        info => MonomorphicTypeInference.inferFromCallSite(info.fullType, info.bodyTypeParams, expected, env, source),
+        source
+      )
+      .map(_._2)
+      .flatMap(checkSynthesized(_, expected, source))
 
   /** Transform a function application. For value reference targets, type arguments are inferred from argument types.
     * For multi-argument application spines with explicit type arguments on the target, collects all arguments and
@@ -92,22 +94,22 @@ object MonomorphicExpressionTransformer {
             transformApplicationWithValueTarget(vr, fa, expected, env, source)
           case _                                             =>
             for {
-              transformedTarget      <- transformExpression(
-                                          fa.target.value,
-                                          propagateExpected(fa.target.value, expected),
-                                          env,
-                                          fa.target
-                                        )
+              transformedTarget       <- transformExpression(
+                                           fa.target.value,
+                                           propagateExpected(fa.target.value, expected),
+                                           env,
+                                           fa.target
+                                         )
               (paramType, returnType) <- ValueReferenceResolver.extractFunctionParamAndReturn(
-                                          transformedTarget.expressionType,
-                                          fa.target
-                                        )
-              transformedArg         <- transformExpression(
-                                          fa.argument.value,
-                                          Expected.Check(paramType),
-                                          env,
-                                          fa.argument
-                                        )
+                                           transformedTarget.expressionType,
+                                           fa.target
+                                         )
+              transformedArg          <- transformExpression(
+                                           fa.argument.value,
+                                           Expected.Check(paramType),
+                                           env,
+                                           fa.argument
+                                         )
             } yield MonomorphicExpression(
               returnType,
               MonomorphicExpression.FunctionApplication(
@@ -127,11 +129,11 @@ object MonomorphicExpressionTransformer {
     (OperatorResolvedExpression.ValueReference, Seq[OperatorResolvedExpression.FunctionApplication])
   ] =
     fa.target.value match {
-      case vr: OperatorResolvedExpression.ValueReference                     =>
+      case vr: OperatorResolvedExpression.ValueReference           =>
         Some((vr, Seq(fa)))
-      case innerFA: OperatorResolvedExpression.FunctionApplication           =>
+      case innerFA: OperatorResolvedExpression.FunctionApplication =>
         collectVRApplicationSpine(innerFA).map((vr, innerFAs) => (vr, innerFAs :+ fa))
-      case _                                                                 => None
+      case _                                                       => None
     }
 
   /** Transform a multi-argument application spine where the innermost target is a VR with explicit type args. Infers
@@ -224,7 +226,12 @@ object MonomorphicExpressionTransformer {
                                    vr,
                                    info =>
                                      inferTypeArgsFromArgument(
-                                       fa, info.bodyType, info.bodyTypeParams, expected, env, source
+                                       fa,
+                                       info.bodyType,
+                                       info.bodyTypeParams,
+                                       expected,
+                                       env,
+                                       source
                                      ),
                                    source
                                  )
@@ -260,7 +267,7 @@ object MonomorphicExpressionTransformer {
   ): CompilerIO[Seq[Value]] = {
     val argIsLambdaWithInferredType = fa.argument.value match {
       case OperatorResolvedExpression.FunctionLiteral(_, None, _) => true
-      case _                                                       => false
+      case _                                                      => false
     }
 
     expected match {
@@ -275,8 +282,12 @@ object MonomorphicExpressionTransformer {
                                 fa.argument
                               )
           args             <- MonomorphicTypeInference.inferFromArgumentAndReturn(
-                                bodyType, argTypeDiscovery.expressionType, expected,
-                                typeParams, env.typeParamSubst, source
+                                bodyType,
+                                argTypeDiscovery.expressionType,
+                                expected,
+                                typeParams,
+                                env.typeParamSubst,
+                                source
                               )
         } yield args
     }
@@ -309,8 +320,10 @@ object MonomorphicExpressionTransformer {
             fl.body.as(transformedBody)
           )
         )
-      case Expected.Synthesize         =>
-        ValueReferenceResolver.extractFunctionParamAndReturn(Value.Type, source).flatMap(_ => compilerAbort(source.as("unreachable")))
+      case Expected.Synthesize          =>
+        ValueReferenceResolver
+          .extractFunctionParamAndReturn(Value.Type, source)
+          .flatMap(_ => compilerAbort(source.as("unreachable")))
     }
 
   /** Propagate expected type through application spines. In a curried call chain `f(a)(b)`, the outermost expected type
@@ -319,7 +332,7 @@ object MonomorphicExpressionTransformer {
   private def propagateExpected(expr: OperatorResolvedExpression, expected: Expected): Expected =
     expr match {
       case _: OperatorResolvedExpression.FunctionApplication => expected
-      case _                                                  => Expected.Synthesize
+      case _                                                 => Expected.Synthesize
     }
 
   private def checkSynthesized(
@@ -328,12 +341,11 @@ object MonomorphicExpressionTransformer {
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
     expected match {
-      case Expected.Check(expectedType)
-          if expectedType != Value.Type && expectedType != result.expressionType =>
+      case Expected.Check(expectedType) if expectedType != Value.Type && expectedType != result.expressionType =>
         compilerAbort(
           source.as("Type mismatch."),
           Seq(s"Expected: ${expectedType.show}", s"Actual: ${result.expressionType.show}")
         )
-      case _ => result.pure[CompilerIO]
+      case _                                                                                                   => result.pure[CompilerIO]
     }
 }

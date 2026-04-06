@@ -13,10 +13,10 @@ object CommonPatterns {
   def valueType(v: Value): ValueFQN =
     v match {
       case _ if v.asFunctionType.isDefined => systemFunctionValue
-      case _ =>
+      case _                               =>
         v.typeFQN match {
           case Some(vfqn) if vfqn =!= Types.typeFQN => stripDataTypeSuffix(vfqn)
-          case _                                     => systemAnyValue
+          case _                                    => systemAnyValue
         }
     }
 

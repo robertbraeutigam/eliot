@@ -69,7 +69,7 @@ object ConstraintExtract extends Logging {
                            StateT.liftF(compilerAbort(name.as("Parameter not found.")))
                        }
           _         <- tellConstraint(Constraints.constraint(assumedType, expression.as(exprType), "Type mismatch."))
-        } yield expression.value
+        } yield exprType
       case ValueReference(vfqn, _) if vfqn.value === typeFQN =>
         ValueReference(expression.as(typeFQN)).pure[TypeGraphIO]
       case ValueReference(vfqn, typeArgs)                    =>
@@ -115,25 +115,22 @@ object ConstraintExtract extends Logging {
                               "Type mismatch."
                             )
                           )
-        } yield expression.value
+        } yield FunctionApplication(target.as(targetEvaled), arg.as(argEvaled))
       case FunctionLiteral(paramName, paramTypeOpt, body)    =>
         for {
           _            <- trace[TypeGraphIO](s"Collecting from function literal")
           paramTypeVar <- generateUnificationVar
           _            <- paramTypeOpt.traverse_ { paramType =>
                             // TODO: I think this ignores the rest of the stack, fix this!
-                            tellConstraint(
-                              Constraints.constraint(
-                                ParameterReference(paramType.as(paramTypeVar)),
-                                paramType.map(_.signature),
-                                "Type argument mismatch."
-                              )
+                            collectConstraints(
+                              ParameterReference(paramType.as(paramTypeVar)),
+                              paramType.map(_.signature)
                             )
                           }
           paramVar     <- generateUnificationVar
           _            <- bindParameter(paramName.value, paramName.as(ParameterReference(paramName.as(paramVar))))
           retTypeVar   <- generateUnificationVar
-          _            <- collectConstraints(ParameterReference(body.as(retTypeVar)), body)
+          bodyEvaled   <- collectConstraints(ParameterReference(body.as(retTypeVar)), body)
           funcType      = FunctionApplication(
                             expression.as(
                               FunctionApplication(
@@ -146,6 +143,6 @@ object ConstraintExtract extends Logging {
           _            <- tellConstraint(
                             Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
                           )
-        } yield body.value
+        } yield bodyEvaled
     }
 }

@@ -14,9 +14,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import SolverState.*
 
-/** Solves ORE constraints in two phases: first structurally decomposes them by peeling off matching constructors,
-  * then evaluates each side via Evaluator.evaluate, applies current bindings, and reduces until reaching a
-  * ConcreteValue or ParameterReference for unification.
+/** Solves ORE constraints in two phases: first structurally decomposes them by peeling off matching constructors, then
+  * evaluates each side via Evaluator.evaluate, applies current bindings, and reduces until reaching a ConcreteValue or
+  * ParameterReference for unification.
   */
 object ConstraintSolver extends Logging {
 

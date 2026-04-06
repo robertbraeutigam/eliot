@@ -32,8 +32,8 @@ case class TypeParameterAnalysis(
 
 object TypeParameterAnalysis {
 
-  /** Analyze an evaluated type expression, extracting all leading lambda parameters and identifying which ones appear in
-    * the body.
+  /** Analyze an evaluated type expression, extracting all leading lambda parameters and identifying which ones appear
+    * in the body.
     */
   def fromEvaluatedType(typeExprValue: ExpressionValue): TypeParameterAnalysis = {
     val allTypeParams  = ExpressionValue.extractLeadingLambdaParams(typeExprValue)

@@ -81,21 +81,21 @@ object FunctionDefinition {
     private val functionName: Parser[Sourced[Token], Sourced[Token]] =
       acceptIfAll(isIdentifier, isLowerCase)("function name") or acceptIf(isUserOperator, "function name")
 
-    private val functionPrefix
-        : Parser[Sourced[Token], (Boolean, Visibility, Fixity, Seq[PrecedenceDeclaration])] = (for {
-      isOpaque       <- identifierWith("opaque").as(true).optional().map(_.getOrElse(false))
-      vis            <- component[Visibility].optional().map(_.getOrElse(Visibility.Public))
-      (fixity, prec) <- fixityWithDef or plainDef
-    } yield (isOpaque, vis, fixity, prec)).atomic()
+    private val functionPrefix: Parser[Sourced[Token], (Boolean, Visibility, Fixity, Seq[PrecedenceDeclaration])] =
+      (for {
+        isOpaque       <- identifierWith("opaque").as(true).optional().map(_.getOrElse(false))
+        vis            <- component[Visibility].optional().map(_.getOrElse(Visibility.Public))
+        (fixity, prec) <- fixityWithDef or plainDef
+      } yield (isOpaque, vis, fixity, prec)).atomic()
 
     override val parser: Parser[Sourced[Token], FunctionDefinition] = for {
       (isOpaque, vis, fixity, prec) <- functionPrefix
-      name              <- functionName
-      genericParameters <- component[Seq[GenericParameter]]
-      args              <- optionalArgumentListOf(component[ArgumentDefinition])
-      _                 <- symbol(":")
-      typeExpression    <- sourced(Expression.typeParser)
-      functionBody      <- functionBody
+      name                          <- functionName
+      genericParameters             <- component[Seq[GenericParameter]]
+      args                          <- optionalArgumentListOf(component[ArgumentDefinition])
+      _                             <- symbol(":")
+      typeExpression                <- sourced(Expression.typeParser)
+      functionBody                  <- functionBody
     } yield FunctionDefinition(
       name.map(m => QualifiedName(m.content, Qualifier.Default)),
       genericParameters,

@@ -47,9 +47,7 @@ object MatchDesugarUtils {
       .find(qn =>
         qn.name == methodName && (qn.qualifier match {
           case Qualifier.AbilityImplementation(an, params) =>
-            an.value == abilityName && dataTypeName.forall(dtn =>
-              params.exists(findTypeName(_).contains(dtn))
-            )
+            an.value == abilityName && dataTypeName.forall(dtn => params.exists(findTypeName(_).contains(dtn)))
           case _                                           => false
         })
       )

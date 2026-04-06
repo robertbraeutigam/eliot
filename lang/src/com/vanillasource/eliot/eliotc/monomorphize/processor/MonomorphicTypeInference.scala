@@ -84,7 +84,7 @@ object MonomorphicTypeInference {
           case None                          => (rt, bindings)
         }
     }
-    val returnBindings = computeReturnBindings(remainingType, expected, typeParams, allBindings)
+    val returnBindings               = computeReturnBindings(remainingType, expected, typeParams, allBindings)
     resolveTypeParams(typeParams, allBindings, returnBindings, typeParamSubst, source)
   }
 
@@ -105,11 +105,11 @@ object MonomorphicTypeInference {
           else
             bindFromDeepReturns(bodyType, callSiteType, unresolvedParams)
         }
-      case Expected.Synthesize         => Map.empty
+      case Expected.Synthesize          => Map.empty
     }
 
-  /** Match unresolved params against the deepest shallow return type (the final return type ignoring
-    * NativeFunction wrappers). This is the fast path that works for most generic functions.
+  /** Match unresolved params against the deepest shallow return type (the final return type ignoring NativeFunction
+    * wrappers). This is the fast path that works for most generic functions.
     */
   private def bindFromShallowReturn(
       bodyType: ExpressionValue,
@@ -119,16 +119,17 @@ object MonomorphicTypeInference {
     ExpressionValue.matchTypes(returnTypes.last, ConcreteValue(callSiteType))
   }
 
-  /** Match unresolved params against all return types at every depth, including through NativeFunction wrappers
-    * (e.g. type constructor applications like `Box[A]`). When multiple depths produce matches, prefer the depth
-    * that resolves the most unresolved parameters.
+  /** Match unresolved params against all return types at every depth, including through NativeFunction wrappers (e.g.
+    * type constructor applications like `Box[A]`). When multiple depths produce matches, prefer the depth that resolves
+    * the most unresolved parameters.
     */
   private def bindFromDeepReturns(
       bodyType: ExpressionValue,
       callSiteType: Value,
       unresolvedParams: Set[String]
   ): Map[String, ExpressionValue] =
-    ExpressionValue.extractAllReturnTypesDeep(bodyType)
+    ExpressionValue
+      .extractAllReturnTypesDeep(bodyType)
       .foldLeft(Map.empty[String, ExpressionValue]) { (best, rt) =>
         val bindings     = ExpressionValue.matchTypes(rt, ConcreteValue(callSiteType))
         val resolved     = unresolvedParams.count(p => bindings.get(p).exists(_.isInstanceOf[ConcreteValue]))
@@ -150,9 +151,12 @@ object MonomorphicTypeInference {
           secondaryBindings.get(param) match {
             case Some(ConcreteValue(v)) => v.pure[CompilerIO]
             case _                      =>
-              typeParamSubst.get(param).map(_.pure[CompilerIO]).getOrElse(
-                compilerAbort(source.as(s"Cannot infer type argument for parameter: $param"))
-              )
+              typeParamSubst
+                .get(param)
+                .map(_.pure[CompilerIO])
+                .getOrElse(
+                  compilerAbort(source.as(s"Cannot infer type argument for parameter: $param"))
+                )
           }
       }
     }

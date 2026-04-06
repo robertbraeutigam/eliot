@@ -88,9 +88,9 @@ object ExpressionCodeGenerator {
       expectedResultType: Value
   ): CompilationTypesIO[Seq[ClassFile]] =
     typedTarget.expression match {
-      case IntegerLiteral(integerLiteral)                    => ???
-      case StringLiteral(stringLiteral)                      => ???
-      case ParameterReference(parameterName)                 =>
+      case IntegerLiteral(integerLiteral)                         => ???
+      case StringLiteral(stringLiteral)                           => ???
+      case ParameterReference(parameterName)                      =>
         // Function application on a parameter reference, so this needs to be a Function
         for {
           parameterIndex <- getParameterIndex(parameterName.value)
@@ -152,8 +152,8 @@ object ExpressionCodeGenerator {
               expectedResultType
             )
         }
-      case FunctionLiteral(parameters, body)                 => ??? // FIXME: applying lambda immediately
-      case FunctionApplication(target, arguments2)           => ??? // FIXME: applying on a result function?
+      case FunctionLiteral(parameters, body)                      => ??? // FIXME: applying lambda immediately
+      case FunctionApplication(target, arguments2)                => ??? // FIXME: applying on a result function?
     }
 
   private def generatePatternMatchCall(
@@ -219,7 +219,10 @@ object ExpressionCodeGenerator {
                             val parameterTypes = uncurriedValue.parameters.map(p => valueType(p.parameterType))
                             val returnType     = valueType(uncurriedValue.returnType)
                             val methodName     =
-                              if (DataClassGenerator.isConstructor(calledVfqn) || DataClassGenerator.isTypeConstructor(calledVfqn))
+                              if (
+                                DataClassGenerator
+                                  .isConstructor(calledVfqn) || DataClassGenerator.isTypeConstructor(calledVfqn)
+                              )
                                 calledVfqn.name.name
                               else
                                 calledVfqn.name.name + mangleSuffix(typeArgs)
@@ -298,8 +301,8 @@ object ExpressionCodeGenerator {
     def find(expr: CoreExpression): Option[String] =
       expr match {
         case CoreExpression.NamedValueReference(qn, _, _) if qn.value.qualifier == Qualifier.Type => Some(qn.value.name)
-        case CoreExpression.FunctionApplication(target, _) => find(target.value)
-        case _                                             => None
+        case CoreExpression.FunctionApplication(target, _)                                        => find(target.value)
+        case _                                                                                    => None
       }
     params.headOption.flatMap(find)
   }
