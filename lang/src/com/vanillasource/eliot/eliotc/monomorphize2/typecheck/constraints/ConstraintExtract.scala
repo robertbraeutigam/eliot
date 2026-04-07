@@ -97,6 +97,13 @@ object ConstraintExtract extends Logging {
                              case None           => StateT.liftF(compilerAbort(vfqn.as(s"Value not defined.")))
                            }
         } yield expression.value
+      case FunctionApplication(
+            targetSource @ Sourced(_, _, target @ FunctionLiteral(paramName, paramTypeOpt, body)),
+            arg
+          ) =>
+        // This is a special case to short-circuit applied type arguments for most cases
+        // TODO: if this does not apply, function literals can still "escape" into the solver
+        collectConstraints(assumedType, targetSource.as(substitute(target, paramName.value, body.value)))
       case FunctionApplication(target, arg)                  =>
         for {
           _            <- trace[TypeGraphIO](s"Collecting from function application")
