@@ -12,6 +12,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntFQN, functionDataTypeFQN, stringFQN, typeFQN}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import TypeCheckState.*
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 
 object ConstraintExtract extends Logging {
   def collectConstraints(key: MonomorphicValue.Key, resolvedValue: OperatorResolvedValue): TypeGraphIO[Unit] = {
@@ -148,6 +149,10 @@ object ConstraintExtract extends Logging {
           _            <- tellConstraint(
                             Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
                           )
-        } yield FunctionLiteral(paramName.as(paramVar), None, body.as(bodyEvaled))
+        } yield FunctionLiteral(
+          paramName.as(paramVar),
+          Some(paramName.as(TypeStack.of(ParameterReference(paramName.as(paramTypeVar))))),
+          body.as(bodyEvaled)
+        )
     }
 }
