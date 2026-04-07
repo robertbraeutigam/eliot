@@ -27,6 +27,51 @@ object OperatorResolvedExpression {
       body: Sourced[OperatorResolvedExpression]
   ) extends OperatorResolvedExpression
 
+  /** Replace every free occurrence of the parameter named `paramName` with `replacement`. Respects shadowing by
+    * `FunctionLiteral` parameters of the same name.
+    */
+  def substitute(
+      expr: OperatorResolvedExpression,
+      paramName: String,
+      replacement: OperatorResolvedExpression
+  ): OperatorResolvedExpression = expr match {
+    case ParameterReference(name) if name.value == paramName =>
+      replacement
+    case _: ParameterReference                               =>
+      expr
+    case FunctionApplication(target, argument)               =>
+      FunctionApplication(
+        target.map(substitute(_, paramName, replacement)),
+        argument.map(substitute(_, paramName, replacement))
+      )
+    case ValueReference(name, typeArgs)                      =>
+      ValueReference(name, typeArgs.map(_.map(substitute(_, paramName, replacement))))
+    case FunctionLiteral(pn, paramType, body)                =>
+      val newParamType = paramType.map(_.map(stack => TypeStack(stack.levels.map(substitute(_, paramName, replacement)))))
+      val newBody      =
+        if (pn.value == paramName) body
+        else body.map(substitute(_, paramName, replacement))
+      FunctionLiteral(pn, newParamType, newBody)
+    case _: IntegerLiteral | _: StringLiteral                =>
+      expr
+  }
+
+  /** Returns true if `expr` contains a free `ParameterReference` named `varName`. Used for occurs check during
+    * unification.
+    */
+  def containsVar(expr: OperatorResolvedExpression, varName: String): Boolean = expr match {
+    case ParameterReference(name)              => name.value == varName
+    case FunctionApplication(target, argument) =>
+      containsVar(target.value, varName) || containsVar(argument.value, varName)
+    case ValueReference(_, typeArgs)           =>
+      typeArgs.exists(ta => containsVar(ta.value, varName))
+    case FunctionLiteral(pn, paramType, body)  =>
+      val inParamType = paramType.exists(_.value.levels.exists(containsVar(_, varName)))
+      val inBody      = pn.value != varName && containsVar(body.value, varName)
+      inParamType || inBody
+    case _: IntegerLiteral | _: StringLiteral  => false
+  }
+
   def mapChildrenM[F[_]: Applicative](f: OperatorResolvedExpression => F[OperatorResolvedExpression])(
       expr: OperatorResolvedExpression
   ): F[OperatorResolvedExpression] = {

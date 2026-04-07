@@ -3,27 +3,27 @@ package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
+import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints.Constraint
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import SolverState.*
 
-/** Solves ORE constraints in two phases: first structurally decomposes them by peeling off matching constructors, then
-  * evaluates each side via Evaluator.evaluate, applies current bindings, and reduces until reaching a ConcreteValue or
-  * ParameterReference for unification.
+/** Solves ORE constraints by iteratively substituting current bindings, decomposing constraints with matching
+  * structural shape (function applications and value references), and binding unification variables to (possibly
+  * partial) ORE terms. Falls back to evaluation via [[Evaluator]] when neither decomposition nor binding applies.
   */
 object ConstraintSolver extends Logging {
 
-  def solve(constraints: Constraints): CompilerIO[Solution] = {
-    val decomposed = StructuralDecomposition.decompose(constraints)
-    propagate.runA(SolverState(pending = decomposed))
-  }
+  def solve(constraints: Constraints): CompilerIO[Solution] =
+    propagate.runA(SolverState(pending = constraints.constraints))
 
   private def propagate: SolverIO[Solution] =
     for {
@@ -34,49 +34,116 @@ object ConstraintSolver extends Logging {
                       }
       stillPending <- takePending
       solution     <- if (stillPending.isEmpty)
-                        currentBindings.map(Solution(_))
+                        extractSolution
                       else if (anyResolved)
                         stillPending.traverse_(defer) >> propagate
                       else
-                        StateT.liftF(reportUnresolved(stillPending)) >> currentBindings.map(Solution(_))
+                        StateT.liftF(reportUnresolved(stillPending)) >> extractSolution
     } yield solution
 
-  /** Returns true if the constraint was resolved, false if deferred. */
+  /** Returns true if the constraint made progress (resolved, decomposed, bound, or errored), false if deferred. */
   private def processConstraint(constraint: Constraint): SolverIO[Boolean] =
     for {
-      leftReduced  <- evaluateAndSubstitute(constraint.right.as(constraint.left))
-      rightReduced <- evaluateAndSubstitute(constraint.right)
-      _            <- debug[SolverIO](s"Checking ${leftReduced.show} vs. ${rightReduced.show}")
+      bindings <- currentBindings
+      leftSub   = substituteAll(constraint.left, bindings)
+      rightSub  = constraint.right.map(substituteAll(_, bindings))
+      _        <- debug[SolverIO](s"Checking ${leftSub.show} vs. ${rightSub.value.show}")
+      resolved <- tryResolve(Constraint(leftSub, rightSub, constraint.errorMessage))
+    } yield resolved
+
+  private def substituteAll(
+      expr: OperatorResolvedExpression,
+      bindings: Map[String, Sourced[OperatorResolvedExpression]]
+  ): OperatorResolvedExpression =
+    bindings.foldLeft(expr) { case (e, (name, term)) =>
+      OperatorResolvedExpression.substitute(e, name, term.value)
+    }
+
+  private def tryResolve(constraint: Constraint): SolverIO[Boolean] =
+    (constraint.left, constraint.right.value) match {
+      // Trivially satisfied: same unification variable on both sides
+      case (ParameterReference(ln), ParameterReference(rn)) if ln.value == rn.value =>
+        true.pure[SolverIO]
+
+      // Structural decomposition: both sides are function applications
+      case (FunctionApplication(lt, la), FunctionApplication(rt, ra))               =>
+        val subs = Seq(
+          Constraint(lt.value, rt, constraint.errorMessage),
+          Constraint(la.value, ra, constraint.errorMessage)
+        )
+        enqueue(subs).as(true)
+
+      // Structural decomposition: both sides are value references with the same name and arity
+      case (ValueReference(ln, largs), ValueReference(rn, rargs))
+          if ln.value == rn.value && largs.length == rargs.length =>
+        val subs = largs.zip(rargs).map { case (la, ra) =>
+          Constraint(la.value, ra, constraint.errorMessage)
+        }
+        enqueue(subs).as(true)
+
+      // Variable binding: left is a unification variable
+      case (ParameterReference(name), _)                                            =>
+        if (OperatorResolvedExpression.containsVar(constraint.right.value, name.value))
+          StateT.liftF(issueOreError(constraint, Some("Infinite type."))).as(true)
+        else
+          bind(name.value, constraint.right).as(true)
+
+      // Variable binding: right is a unification variable
+      case (_, ParameterReference(name))                                            =>
+        if (OperatorResolvedExpression.containsVar(constraint.left, name.value))
+          StateT.liftF(issueOreError(constraint, Some("Infinite type."))).as(true)
+        else
+          bind(name.value, constraint.right.as(constraint.left)).as(true)
+
+      // Fallback: evaluate both sides and compare as concrete values
+      case _                                                                        =>
+        evalAndCompare(constraint)
+    }
+
+  private def evalAndCompare(constraint: Constraint): SolverIO[Boolean] =
+    for {
+      leftReduced  <- StateT.liftF(Evaluator.evaluate(constraint.right.as(constraint.left)))
+      rightReduced <- StateT.liftF(Evaluator.evaluate(constraint.right))
+      _            <- debug[SolverIO](s"Reduced ${leftReduced.show} vs. ${rightReduced.show}")
       resolved     <- (leftReduced, rightReduced) match {
                         case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
                           true.pure[SolverIO]
                         case (ConcreteValue(_), ConcreteValue(_))               =>
-                          StateT.liftF(issueError(constraint, leftReduced, rightReduced)).as(true)
-                        case (ParameterReference(name), ConcreteValue(v))       =>
-                          bind(name, v).as(true)
-                        case (ConcreteValue(v), ParameterReference(name))       =>
-                          bind(name, v).as(true)
+                          StateT.liftF(issueValueError(constraint, leftReduced, rightReduced)).as(true)
                         case _                                                  =>
                           defer(constraint).as(false)
                       }
     } yield resolved
 
-  /** Convert an ORE expression to ExpressionValue via Evaluator.evaluate, substitute current bindings, and reduce. */
-  private def evaluateAndSubstitute(expr: Sourced[OperatorResolvedExpression]): SolverIO[ExpressionValue] =
+  private def extractSolution: SolverIO[Solution] =
     for {
-      bindings   <- currentBindings
-      evaluated  <- StateT.liftF(Evaluator.evaluate(expr))
-      substituted = bindings.foldLeft(evaluated) { case (e, (name, value)) =>
-                      ExpressionValue.substitute(e, name, ConcreteValue(value))
+      bindings <- currentBindings
+      resolved <- StateT.liftF(
+                    bindings.toList.traverse { case (name, term) =>
+                      Evaluator.evaluate(term).map { expr =>
+                        ExpressionValue.concreteValueOf(expr).map(name -> _)
+                      }
                     }
-      reduced    <- StateT.liftF(Evaluator.reduce(substituted, expr))
-    } yield reduced
+                  )
+    } yield Solution(resolved.flatten.toMap)
 
-  private def issueError(
+  private def issueOreError(constraint: Constraint, hint: Option[String]): CompilerIO[Unit] =
+    debug[CompilerIO](
+      s"Type error (${constraint.errorMessage}): ${constraint.left.show} vs. ${constraint.right.value.show}"
+    ) >>
+      compilerError(
+        constraint.right.as(constraint.errorMessage),
+        Seq(
+          s"Expected: ${constraint.left.show}",
+          s"Found:    ${constraint.right.value.show}"
+        ) ++ hint.toSeq
+      )
+
+  private def issueValueError(
       constraint: Constraint,
       leftReduced: ExpressionValue,
       rightReduced: ExpressionValue
-  ): CompilerIO[Unit] = {
+  ): CompilerIO[Unit] =
     debug[CompilerIO](s"Type error (${constraint.errorMessage}): ${leftReduced.show} vs. ${rightReduced.show}") >>
       compilerError(
         constraint.right.as(constraint.errorMessage),
@@ -85,7 +152,6 @@ object ConstraintSolver extends Logging {
           s"Found:    ${rightReduced.show}"
         )
       )
-  }
 
   private def reportUnresolved(constraints: Seq[Constraint]): CompilerIO[Unit] =
     constraints.traverse_ { constraint =>
