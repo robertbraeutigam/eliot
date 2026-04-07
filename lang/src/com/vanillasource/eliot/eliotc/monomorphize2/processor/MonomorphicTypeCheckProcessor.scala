@@ -58,12 +58,17 @@ class MonomorphicTypeCheckProcessor
       resolvedValue: OperatorResolvedValue
   ): CompilerIO[(Value, Option[Sourced[MonomorphicExpression.Expression]])] =
     for {
+      typeArgValues <- key.specifiedTypeArguments.toList.traverse { arg =>
+                         Evaluator.evaluate(arg).flatMap { ev =>
+                           ExpressionValue.concreteValueOf(ev) match {
+                             case Some(v) => v.pure[CompilerIO]
+                             case None    =>
+                               compilerAbort(arg.as("Type argument did not evaluate to concrete value."))
+                           }
+                         }
+                       }
       typeExprValue <- Evaluator.evaluate(resolvedValue.typeStack.map(_.signature))
-      signature     <- Evaluator.applyTypeArgs(
-                         ExpressionValue.stripLeadingLambdas(typeExprValue),
-                         Seq.empty, // TODO: why is all of this here?
-                         resolvedValue.name
-                       )
+      signature     <- Evaluator.applyTypeArgs(typeExprValue, typeArgValues, resolvedValue.name)
       paramTypes    <- resolveParameterTypes(endState, solution)
       runtime       <- resolvedValue.runtime.traverse { body =>
                          buildMonomorphicExpression(body.value, paramTypes, body).map(body.as)
