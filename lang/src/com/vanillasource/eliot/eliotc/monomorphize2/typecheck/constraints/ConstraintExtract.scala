@@ -148,6 +148,6 @@ object ConstraintExtract extends Logging {
           _            <- tellConstraint(
                             Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
                           )
-        } yield bodyEvaled
+        } yield FunctionLiteral(paramName.as(paramVar), None, body.as(bodyEvaled))
     }
 }
