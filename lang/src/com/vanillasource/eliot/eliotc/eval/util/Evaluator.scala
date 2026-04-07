@@ -150,7 +150,8 @@ object Evaluator extends Logging {
       typeExprValue match {
         case ConcreteValue(v) => v.pure[CompilerIO]
         case _                =>
-          compilerAbort(source.as("Non-generic type signature did not evaluate to concrete value."))
+          error[CompilerIO](s"Non-generic type signature did not evaluate to concrete value: ${typeExprValue.show}") >>
+            compilerAbort(source.as("Non-generic type signature did not evaluate to concrete value."))
       }
     } else {
       val applied = typeArgs.foldLeft[ExpressionValue](typeExprValue) { (fn, arg) =>
