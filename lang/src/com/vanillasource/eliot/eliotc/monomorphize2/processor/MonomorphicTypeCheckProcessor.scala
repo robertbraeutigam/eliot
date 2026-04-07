@@ -35,7 +35,7 @@ class MonomorphicTypeCheckProcessor
       _                    <- debug[CompilerIO](
                                 s"Type checking ${key.vfqn.show}, with type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
                               )
-      endState             <- collectConstraints(key, resolvedValue).runS(TypeCheckState())
+      endState             <- collectConstraints(resolvedValue).runS(TypeCheckState())
       _                    <- debug[CompilerIO](s"Constraints (of ${key.vfqn.show}): ${endState.constraints.show}")
       solution             <- solve(endState.constraints)
       _                    <- debug[CompilerIO](s"Solution (of ${key.vfqn.show}): ${solution.show}")
