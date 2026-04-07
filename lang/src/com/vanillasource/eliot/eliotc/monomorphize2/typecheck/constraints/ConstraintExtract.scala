@@ -103,7 +103,9 @@ object ConstraintExtract extends Logging {
           ) =>
         // This is a special case to short-circuit applied type arguments for most cases
         // TODO: if this does not apply, function literals can still "escape" into the solver
-        collectConstraints(assumedType, targetSource.as(substitute(target, paramName.value, body.value)))
+        for {
+          _ <- bindParameter(paramName.value, arg)
+        } yield substitute(body.value, paramName.value, arg.value)
       case FunctionApplication(target, arg)                  =>
         for {
           _            <- trace[TypeGraphIO](s"Collecting from function application")

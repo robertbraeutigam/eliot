@@ -3,9 +3,8 @@ package com.vanillasource.eliot.eliotc.monomorphize2.processor
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.Types
 import com.vanillasource.eliot.eliotc.eval.processor.{
   DataTypeEvaluator,
   ExistingNamedValueEvaluator,
@@ -16,7 +15,7 @@ import com.vanillasource.eliot.eliotc.implementation.processor.{
   AbilityImplementationProcessor
 }
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize2.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
