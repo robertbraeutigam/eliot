@@ -14,8 +14,13 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import TypeCheckState.*
 
 object ConstraintExtract extends Logging {
-  def collectConstraints(resolvedValue: OperatorResolvedValue): TypeGraphIO[Unit] = {
-    val typeExpressions = resolvedValue.typeStack.value.levels.map(resolvedValue.typeStack.as(_)).reverse
+  def collectConstraints(key: MonomorphicValue.Key, resolvedValue: OperatorResolvedValue): TypeGraphIO[Unit] = {
+    val rawTypeExpressions = resolvedValue.typeStack.value.levels.map(resolvedValue.typeStack.as(_)).reverse
+    // Apply the specified type arguments to the signature expression
+    val typeExpressions    = rawTypeExpressions.init :+
+      key.specifiedTypeArguments.foldLeft(rawTypeExpressions.last) { (acc, arg) =>
+        acc.as(FunctionApplication(acc, arg))
+      }
 
     for {
       // Iterate type levels, where each level computes the type of the underlying level. The last one is the signature.

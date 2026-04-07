@@ -19,8 +19,11 @@ import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProc
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize2.fact.MonomorphicValue
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 /** Tests that verify type checking at the monomorphize level with concrete types.
@@ -348,7 +351,7 @@ class MonomorphicTypeCheckTest
   "type level functions" should "support non-type type parameters" in {
     runForErrors(
       "def str: String\ndata Group\ndata Person[G: Group](name: String)\ndef f[G: Group]: Person[G] = Person[G](str)",
-      typeArgs = Seq(Types.dataType(ValueFQN(testModuleName, QualifiedName("Group", Qualifier.Type))))
+      typeArgs = Seq.empty // This was Group
     ).asserting(_ shouldBe Seq.empty)
   }
 
@@ -398,19 +401,18 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  private val intType: Value    =
-    Types.dataType(
-      ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Number"), QualifiedName("Int", Qualifier.Type))
-    )
-  private val stringType: Value =
-    Types.dataType(
-      ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type))
-    )
+  private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
+
+  private val intType: Sourced[OperatorResolvedExpression] =
+    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.bigIntFQN)))
+
+  private val stringType: Sourced[OperatorResolvedExpression] =
+    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.stringFQN)))
 
   private def runForErrors(
       source: String,
       name: String = "f",
-      typeArgs: Seq[Value] = Seq.empty
+      typeArgs: Seq[Sourced[OperatorResolvedExpression]] = Seq.empty
   ): IO[Seq[TestError]] =
     runGenerator(
       source,

@@ -32,17 +32,19 @@ class MonomorphicTypeCheckProcessor
       resolvedValue: OperatorResolvedValue
   ): CompilerIO[MonomorphicValue] =
     for {
-      _                    <- debug[CompilerIO](
-                                s"Type checking ${key.vfqn.show}, with type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
-                              )
-      endState             <- collectConstraints(resolvedValue).runS(TypeCheckState())
+      _                    <-
+        debug[CompilerIO](
+          s"Type checking ${key.vfqn.show}, with type arguments: ${key.specifiedTypeArguments.map(_.show).mkString(", ")}"
+        )
+      endState             <- collectConstraints(key, resolvedValue).runS(TypeCheckState())
       _                    <- debug[CompilerIO](s"Constraints (of ${key.vfqn.show}): ${endState.constraints.show}")
       solution             <- solve(endState.constraints)
       _                    <- debug[CompilerIO](s"Solution (of ${key.vfqn.show}): ${solution.show}")
       (signature, runtime) <- typeSubstitute(key, solution, endState, resolvedValue)
     } yield MonomorphicValue(
       key.vfqn,
-      key.typeArguments,
+      key.specifiedTypeArguments,
+      Seq.empty, // TODO: left out for now
       signature,
       runtime
     )
@@ -59,7 +61,7 @@ class MonomorphicTypeCheckProcessor
       typeExprValue <- Evaluator.evaluate(resolvedValue.typeStack.map(_.signature))
       signature     <- Evaluator.applyTypeArgs(
                          ExpressionValue.stripLeadingLambdas(typeExprValue),
-                         key.typeArguments,
+                         Seq.empty, // TODO: why is all of this here?
                          resolvedValue.name
                        )
       paramTypes    <- resolveParameterTypes(endState, solution)

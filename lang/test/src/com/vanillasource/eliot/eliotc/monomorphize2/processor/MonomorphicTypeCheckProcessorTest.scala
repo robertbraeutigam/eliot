@@ -19,8 +19,11 @@ import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProc
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize2.fact.{MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 class MonomorphicTypeCheckProcessorTest
@@ -58,18 +61,18 @@ class MonomorphicTypeCheckProcessorTest
     SystemImport("BigInteger", "opaque type BigInteger")
   )
 
-  private val intType: Value =
-    Types.dataType(ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Number"), QualifiedName("Int", Qualifier.Type)))
+  private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
-  private val stringType: Value =
-    Types.dataType(
-      ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type))
-    )
+  private val intType: Sourced[OperatorResolvedExpression] =
+    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.bigIntFQN)))
+
+  private val stringType: Sourced[OperatorResolvedExpression] =
+    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.stringFQN)))
 
   "MonomorphicTypeCheckProcessor" should "monomorphize non-generic value" in {
     runEngineForMonomorphicValue("def f: Int")
       .asserting { result =>
-        result.typeArguments shouldBe Seq.empty
+        result.calculatedTypeArguments shouldBe Seq.empty
         showType(result.signature) shouldBe "Int"
         result.runtime shouldBe None
       }
@@ -91,7 +94,7 @@ class MonomorphicTypeCheckProcessorTest
   it should "monomorphize value with phantom type parameter" in {
     runEngineForMonomorphicValue("def f[I: BigInteger]: String")
       .asserting { result =>
-        result.typeArguments shouldBe Seq.empty
+        result.calculatedTypeArguments shouldBe Seq.empty
         showType(result.signature) shouldBe "String"
       }
   }
@@ -176,34 +179,32 @@ class MonomorphicTypeCheckProcessorTest
               case other                                                           =>
                 fail(s"Expected MonomorphicValueReference, got $other")
             }
-          case other                                                 =>
+          case other                                                =>
             fail(s"Expected FunctionApplication, got $other")
         }
       }
   }
 
-  private def triggerKey(name: String, typeArgs: Seq[Value]): MonomorphicValue.Key =
-    MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs)
-
   private def runEngineForMonomorphicValue(
       source: String,
       name: String = "f",
-      typeArgs: Seq[Value] = Seq.empty
+      typeArgs: Seq[Sourced[OperatorResolvedExpression]] = Seq.empty
   ): IO[MonomorphicValue] =
-    runGenerator(source, triggerKey(name, typeArgs), systemImports).flatMap { case (errors, facts) =>
-      if (errors.nonEmpty)
-        IO.raiseError(new Exception(s"Compilation errors: ${errors.map(_.message).mkString(", ")}"))
-      else
-        facts.values.collectFirst { case v: MonomorphicValue if v.vfqn.name.name == name => v } match {
-          case Some(v) => IO.pure(v)
-          case None    => IO.raiseError(new Exception(s"No MonomorphicValue found for '$name'"))
-        }
-    }
+    runGenerator(source, MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs), systemImports)
+      .flatMap { case (errors, facts) =>
+        if (errors.nonEmpty)
+          IO.raiseError(new Exception(s"Compilation errors: ${errors.map(_.message).mkString(", ")}"))
+        else
+          facts.values.collectFirst { case v: MonomorphicValue if v.vfqn.name.name == name => v } match {
+            case Some(v) => IO.pure(v)
+            case None    => IO.raiseError(new Exception(s"No MonomorphicValue found for '$name'"))
+          }
+      }
 
   private def unwrapFunctionLiterals(expr: MonomorphicExpression.Expression): MonomorphicExpression.Expression =
     expr match {
       case MonomorphicExpression.FunctionLiteral(_, _, body) => unwrapFunctionLiterals(body.value.expression)
-      case other                                              => other
+      case other                                             => other
     }
 
   private def showType(value: Value): String = value match {
