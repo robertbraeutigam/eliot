@@ -38,7 +38,7 @@ class MonomorphicTypeCheckProcessor
         )
       endState             <- collectConstraints(key, resolvedValue).runS(TypeCheckState())
       _                    <- debug[CompilerIO](s"Constraints (of ${key.vfqn.show}): ${endState.constraints.show}")
-      solution             <- solve(endState.constraints)
+      solution             <- solve(endState.constraints, endState.shortIds)
       _                    <- debug[CompilerIO](s"Solution (of ${key.vfqn.show}): ${solution.show}")
       (signature, runtime) <- typeSubstitute(key, solution, endState, resolvedValue)
     } yield MonomorphicValue(
@@ -71,7 +71,7 @@ class MonomorphicTypeCheckProcessor
       signature     <- Evaluator.applyTypeArgs(typeExprValue, typeArgValues, resolvedValue.name)
       paramTypes    <- resolveParameterTypes(endState, solution)
       runtime       <- resolvedValue.runtime.traverse { body =>
-                         buildMonomorphicExpression(body.value, paramTypes, body).map(body.as)
+                         buildMonomorphicExpression(body.value, paramTypes, endState, solution, body).map(body.as)
                        }
     } yield (signature, runtime.map(_.map(_.expression)))
 
@@ -90,6 +90,8 @@ class MonomorphicTypeCheckProcessor
   private def buildMonomorphicExpression(
       expression: OperatorResolvedExpression,
       paramTypes: Map[String, Value],
+      endState: TypeCheckState,
+      solution: Solution,
       source: Sourced[?]
   ): CompilerIO[MonomorphicExpression] =
     expression match {
@@ -106,21 +108,24 @@ class MonomorphicTypeCheckProcessor
         }
       case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)                 =>
         for {
-          resolved     <- getFactOrAbort(OperatorResolvedValue.Key(vfqn.value))
-          rawValueType <- Evaluator.evaluate(resolved.typeStack.map(_.signature))
-          valueType    <- Evaluator.applyTypeArgs(
-                            ExpressionValue.stripLeadingLambdas(rawValueType),
-                            Seq.empty,
-                            vfqn
-                          )
+          resolved  <- getFactOrAbort(OperatorResolvedValue.Key(vfqn.value))
+          rawSig    <- Evaluator.evaluate(resolved.typeStack.map(_.signature))
+          // For a standalone reference (not inside an application) the signature must already evaluate to a concrete
+          // value. Generic uses are handled by the FunctionApplication case below, which feeds the argument's type
+          // back into the evaluator.
+          valueType <- ExpressionValue.concreteValueOf(rawSig) match {
+                         case Some(v) => v.pure[CompilerIO]
+                         case None    =>
+                           compilerAbort(vfqn.as("Could not determine concrete type for value reference."))
+                       }
         } yield MonomorphicExpression(
           valueType,
           MonomorphicExpression.MonomorphicValueReference(vfqn, Seq.empty)
         )
       case OperatorResolvedExpression.FunctionApplication(target, arg)               =>
         for {
-          targetExpr <- buildMonomorphicExpression(target.value, paramTypes, target)
-          argExpr    <- buildMonomorphicExpression(arg.value, paramTypes, arg)
+          argExpr    <- buildMonomorphicExpression(arg.value, paramTypes, endState, solution, arg)
+          targetExpr <- buildApplicationTarget(target, argExpr.expressionType, paramTypes, endState, solution)
           returnType  = targetExpr.expressionType.asFunctionType match {
                           case Some((_, ret)) => ret
                           case None           => Value.Type
@@ -132,7 +137,7 @@ class MonomorphicTypeCheckProcessor
       case OperatorResolvedExpression.FunctionLiteral(paramName, paramTypeOpt, body) =>
         val paramType = paramTypes.getOrElse(paramName.value, Value.Type)
         for {
-          bodyExpr <- buildMonomorphicExpression(body.value, paramTypes, body)
+          bodyExpr <- buildMonomorphicExpression(body.value, paramTypes, endState, solution, body)
           funcType  = Value.Structure(
                         Map(
                           "$typeName" -> Value.Direct(functionDataTypeFQN, fullyQualifiedNameType),
@@ -147,4 +152,36 @@ class MonomorphicTypeCheckProcessor
         )
     }
 
+  /** Build the target of a function application. If the target is a value reference whose evaluated signature is a
+    * function abstraction (a generic), feed the actual argument's type into [[Evaluator.applyTypeArgs]] so the
+    * abstraction is instantiated. We never pattern-match the ORE; we ask the evaluator to "run" the signature and act
+    * on what comes back.
+    */
+  private def buildApplicationTarget(
+      target: Sourced[OperatorResolvedExpression],
+      argType: Value,
+      paramTypes: Map[String, Value],
+      endState: TypeCheckState,
+      solution: Solution
+  ): CompilerIO[MonomorphicExpression] = target.value match {
+    case OperatorResolvedExpression.ValueReference(vfqn, _) =>
+      for {
+        resolved  <- getFactOrAbort(OperatorResolvedValue.Key(vfqn.value))
+        rawSig    <- Evaluator.evaluate(resolved.typeStack.map(_.signature))
+        valueType <- rawSig match {
+                       case _: ExpressionValue.FunctionLiteral =>
+                         // Generic: instantiate by applying the argument's type as a type argument.
+                         Evaluator.applyTypeArgs(rawSig, Seq(argType), vfqn)
+                       case ExpressionValue.ConcreteValue(v)   =>
+                         v.pure[CompilerIO]
+                       case other                              =>
+                         compilerAbort(vfqn.as(s"Could not determine target type from: ${other.show}"))
+                     }
+      } yield MonomorphicExpression(
+        valueType,
+        MonomorphicExpression.MonomorphicValueReference(vfqn, Seq.empty)
+      )
+    case _                                                  =>
+      buildMonomorphicExpression(target.value, paramTypes, endState, solution, target)
+  }
 }

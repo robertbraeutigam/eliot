@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution
 
 import cats.data.StateT
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.{Constraints, ShortUniqueIdentifiers}
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints.Constraint
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
@@ -9,7 +10,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 case class SolverState(
     pending: Seq[Constraint] = Seq.empty,
-    bindings: Map[String, Sourced[OperatorResolvedExpression]] = Map.empty
+    bindings: Map[String, Sourced[OperatorResolvedExpression]] = Map.empty,
+    shortIds: ShortUniqueIdentifiers = ShortUniqueIdentifiers()
 )
 
 object SolverState {
@@ -39,4 +41,13 @@ object SolverState {
 
   def takePending: SolverIO[Seq[Constraint]] =
     StateT(s => (s.copy(pending = Seq.empty), s.pending).pure[CompilerIO])
+
+  /** Generate a fresh unification variable name. Used by the solver when it needs to instantiate a generic on the fly
+    * (i.e. when the evaluator reveals that a side of a constraint is a function abstraction).
+    */
+  def generateFreshVar: SolverIO[String] =
+    StateT { s =>
+      val (id, newShortIds) = s.shortIds.generateNext()
+      (s.copy(shortIds = newShortIds), id).pure[CompilerIO]
+    }
 }

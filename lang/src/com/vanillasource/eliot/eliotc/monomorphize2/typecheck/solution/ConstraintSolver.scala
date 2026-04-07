@@ -2,12 +2,20 @@ package com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.{
+  ConcreteValue,
+  FunctionApplication as EVFunctionApplication,
+  FunctionLiteral as EVFunctionLiteral,
+  NativeFunction,
+  ParameterReference as EVParameterReference,
+  fromValue
+}
+import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.{Constraints, ShortUniqueIdentifiers}
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints.Constraint
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
@@ -16,14 +24,16 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import SolverState.*
 
-/** Solves ORE constraints by iteratively substituting current bindings, decomposing constraints with matching
-  * structural shape (function applications and value references), and binding unification variables to (possibly
-  * partial) ORE terms. Falls back to evaluation via [[Evaluator]] when neither decomposition nor binding applies.
+/** Solves ORE constraints by working through the [[Evaluator]]: every constraint side is evaluated, and the resulting
+  * [[ExpressionValue]] forms (which the evaluator has produced by actually running the code) drive unification. The
+  * solver makes no structural assumptions about the original ORE — only the evaluator can interpret it. When the
+  * evaluator reveals a function abstraction (a generic), the solver instantiates it on the fly with a fresh unification
+  * variable.
   */
 object ConstraintSolver extends Logging {
 
-  def solve(constraints: Constraints): CompilerIO[Solution] =
-    propagate.runA(SolverState(pending = constraints.constraints))
+  def solve(constraints: Constraints, initialShortIds: ShortUniqueIdentifiers): CompilerIO[Solution] =
+    propagate.runA(SolverState(pending = constraints.constraints, shortIds = initialShortIds))
 
   private def propagate: SolverIO[Solution] =
     for {
@@ -44,11 +54,15 @@ object ConstraintSolver extends Logging {
   /** Returns true if the constraint made progress (resolved, decomposed, bound, or errored), false if deferred. */
   private def processConstraint(constraint: Constraint): SolverIO[Boolean] =
     for {
-      bindings <- currentBindings
-      leftSub   = substituteAll(constraint.left, bindings)
-      rightSub  = constraint.right.map(substituteAll(_, bindings))
-      _        <- debug[SolverIO](s"Checking ${leftSub.show} vs. ${rightSub.value.show}")
-      resolved <- tryResolve(Constraint(leftSub, rightSub, constraint.errorMessage))
+      bindings  <- currentBindings
+      leftSub    = substituteAll(constraint.left, bindings)
+      rightSub   = constraint.right.map(substituteAll(_, bindings))
+      _         <- debug[SolverIO](s"Checking ${leftSub.show} vs. ${rightSub.value.show}")
+      // Hand the constraint over to the evaluator: only the evaluator can interpret what each side actually is.
+      leftEval  <- StateT.liftF(Evaluator.evaluate(rightSub.as(leftSub)))
+      rightEval <- StateT.liftF(Evaluator.evaluate(rightSub))
+      _         <- debug[SolverIO](s"Reduced ${leftEval.show} vs. ${rightEval.show}")
+      resolved  <- unify(leftEval, rightEval, Constraint(leftSub, rightSub, constraint.errorMessage))
     } yield resolved
 
   private def substituteAll(
@@ -59,61 +73,156 @@ object ConstraintSolver extends Logging {
       OperatorResolvedExpression.substitute(e, name, term.value)
     }
 
-  private def tryResolve(constraint: Constraint): SolverIO[Boolean] =
-    (constraint.left, constraint.right.value) match {
-      // Trivially satisfied: same unification variable on both sides
-      case (ParameterReference(ln), ParameterReference(rn)) if ln.value == rn.value =>
+  /** Unify two evaluated expressions. Pattern-matches on [[ExpressionValue]] (the evaluator's output, which has known
+    * shape regardless of the original ORE structure).
+    */
+  private def unify(
+      left: ExpressionValue,
+      right: ExpressionValue,
+      constraint: Constraint
+  ): SolverIO[Boolean] =
+    (left, right) match {
+      // Trivial: same parameter reference on both sides
+      case (EVParameterReference(ln), EVParameterReference(rn)) if ln == rn =>
         true.pure[SolverIO]
 
-      // Structural decomposition: both sides are function applications
-      case (FunctionApplication(lt, la), FunctionApplication(rt, ra))               =>
-        val subs = Seq(
-          Constraint(lt.value, rt, constraint.errorMessage),
-          Constraint(la.value, ra, constraint.errorMessage)
-        )
-        enqueue(subs).as(true)
+      // Open a function abstraction by applying a fresh unification variable through the evaluator. This relies on
+      // [[Evaluator.reduce]] — only it knows how to "run" the abstraction.
+      case (_: EVFunctionLiteral, _)                                        =>
+        for {
+          freshVar <- generateFreshVar
+          newLeft  <- StateT.liftF(applyFreshVar(left, freshVar, constraint.right))
+          result   <- unify(newLeft, right, constraint)
+        } yield result
+      case (_, _: EVFunctionLiteral)                                        =>
+        for {
+          freshVar <- generateFreshVar
+          newRight <- StateT.liftF(applyFreshVar(right, freshVar, constraint.right))
+          result   <- unify(left, newRight, constraint)
+        } yield result
 
-      // Structural decomposition: both sides are value references with the same name and arity
-      case (ValueReference(ln, largs), ValueReference(rn, rargs))
-          if ln.value == rn.value && largs.length == rargs.length =>
-        val subs = largs.zip(rargs).map { case (la, ra) =>
-          Constraint(la.value, ra, constraint.errorMessage)
-        }
-        enqueue(subs).as(true)
+      // A concrete data type structure on one side and an unreduced application chain on the other (still containing
+      // unification vars) — expand the structure into the same application form via [[fromValue]] so the two sides
+      // align.
+      case (ConcreteValue(v @ Value.Structure(fields, Value.Type)), _: EVFunctionApplication)
+          if fields.size > 1 && fields.contains("$typeName") =>
+        unify(fromValue(v, constraint.right), right, constraint)
+      case (_: EVFunctionApplication, ConcreteValue(v @ Value.Structure(fields, Value.Type)))
+          if fields.size > 1 && fields.contains("$typeName") =>
+        unify(left, fromValue(v, constraint.right), constraint)
 
-      // Variable binding: left is a unification variable
-      case (ParameterReference(name), _)                                            =>
-        if (OperatorResolvedExpression.containsVar(constraint.right.value, name.value))
-          StateT.liftF(issueOreError(constraint, Some("Infinite type."))).as(true)
-        else
-          bind(name.value, constraint.right).as(true)
+      // Variable binding: one side is a unification variable
+      case (EVParameterReference(name), _)                                  =>
+        bindEvalToOre(name, right, constraint)
+      case (_, EVParameterReference(name))                                  =>
+        bindEvalToOre(name, left, constraint)
 
-      // Variable binding: right is a unification variable
-      case (_, ParameterReference(name))                                            =>
-        if (OperatorResolvedExpression.containsVar(constraint.left, name.value))
-          StateT.liftF(issueOreError(constraint, Some("Infinite type."))).as(true)
-        else
-          bind(name.value, constraint.right.as(constraint.left)).as(true)
+      // Structural decomposition: both sides are application chains
+      case (EVFunctionApplication(lt, la), EVFunctionApplication(rt, ra))   =>
+        for {
+          r1 <- unify(lt.value, rt.value, constraint)
+          r2 <- unify(la.value, ra.value, constraint)
+        } yield r1 && r2
 
-      // Fallback: evaluate both sides and compare as concrete values
-      case _                                                                        =>
-        evalAndCompare(constraint)
+      // Both sides are the same native function (cached, so reference-equal). Trivially satisfied.
+      case (NativeFunction(_, _), NativeFunction(_, _)) if left == right    =>
+        true.pure[SolverIO]
+
+      // Both sides reduce to identical concrete values
+      case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2               =>
+        true.pure[SolverIO]
+
+      // Concrete-vs-concrete mismatch — actual type error
+      case (ConcreteValue(_), ConcreteValue(_))                             =>
+        StateT.liftF(issueValueError(constraint, left, right)).as(true)
+
+      // Anything else (e.g. one side still has free variables that aren't bindable as ORE) — defer for later cycles
+      case _                                                                =>
+        defer(constraint).as(false)
     }
 
-  private def evalAndCompare(constraint: Constraint): SolverIO[Boolean] =
-    for {
-      leftReduced  <- StateT.liftF(Evaluator.evaluate(constraint.right.as(constraint.left)))
-      rightReduced <- StateT.liftF(Evaluator.evaluate(constraint.right))
-      _            <- debug[SolverIO](s"Reduced ${leftReduced.show} vs. ${rightReduced.show}")
-      resolved     <- (leftReduced, rightReduced) match {
-                        case (ConcreteValue(v1), ConcreteValue(v2)) if v1 == v2 =>
-                          true.pure[SolverIO]
-                        case (ConcreteValue(_), ConcreteValue(_))               =>
-                          StateT.liftF(issueValueError(constraint, leftReduced, rightReduced)).as(true)
-                        case _                                                  =>
-                          defer(constraint).as(false)
-                      }
-    } yield resolved
+  /** Apply a fresh unification variable to an ExpressionValue function abstraction by going through
+    * [[Evaluator.reduce]]. The Evaluator handles the beta reduction; we don't pattern-match on the abstraction's body.
+    */
+  private def applyFreshVar(
+      eval: ExpressionValue,
+      freshVar: String,
+      source: Sourced[?]
+  ): CompilerIO[ExpressionValue] = {
+    val applied = EVFunctionApplication(
+      source.as(eval),
+      source.as(EVParameterReference(freshVar))
+    )
+    Evaluator.reduce(applied, source)
+  }
+
+  /** Bind an ORE-level unification variable to an evaluated expression value. Converts the [[ExpressionValue]] back to
+    * an ORE term so the existing ORE-level binding store can carry it.
+    */
+  private def bindEvalToOre(
+      name: String,
+      ev: ExpressionValue,
+      constraint: Constraint
+  ): SolverIO[Boolean] =
+    expressionValueToOre(ev, constraint.right) match {
+      case Some(ore) =>
+        if (OperatorResolvedExpression.containsVar(ore, name))
+          StateT.liftF(issueOreError(constraint, Some("Infinite type."))).as(true)
+        else
+          bind(name, constraint.right.as(ore)).as(true)
+      case None      =>
+        // Can't represent the value as ORE (e.g. NativeFunction or unreduced FL); defer and try again later.
+        defer(constraint).as(false)
+    }
+
+  /** Best-effort conversion from [[ExpressionValue]] to [[OperatorResolvedExpression]] for use as a binding RHS. */
+  private def expressionValueToOre(
+      ev: ExpressionValue,
+      source: Sourced[?]
+  ): Option[OperatorResolvedExpression] =
+    ev match {
+      case EVParameterReference(name)               =>
+        Some(OperatorResolvedExpression.ParameterReference(source.as(name)))
+      case EVFunctionApplication(t, a)              =>
+        for {
+          tOre <- expressionValueToOre(t.value, source)
+          aOre <- expressionValueToOre(a.value, source)
+        } yield OperatorResolvedExpression.FunctionApplication(source.as(tOre), source.as(aOre))
+      case ConcreteValue(v)                         =>
+        valueToOre(v, source)
+      case _: NativeFunction | _: EVFunctionLiteral =>
+        // Cannot represent at ORE level; caller should defer the constraint.
+        None
+    }
+
+  /** Convert a fully-evaluated [[Value]] back into an [[OperatorResolvedExpression]] form, expanding type structures
+    * into application chains so they can participate in further structural unification.
+    */
+  private def valueToOre(
+      v: Value,
+      source: Sourced[?]
+  ): Option[OperatorResolvedExpression] =
+    v match {
+      case Value.Type                      =>
+        Some(OperatorResolvedExpression.ValueReference(source.as(typeFQN)))
+      case Value.Direct(vfqn: ValueFQN, _) =>
+        Some(OperatorResolvedExpression.ValueReference(source.as(vfqn)))
+      case Value.Structure(fields, _)      =>
+        fields.get("$typeName") match {
+          case Some(Value.Direct(typeFqn: ValueFQN, _)) =>
+            val typeArgs = fields.removed("$typeName").toSeq.sortBy(_._1).map(_._2)
+            typeArgs.foldLeft[Option[OperatorResolvedExpression]](
+              Some(OperatorResolvedExpression.ValueReference(source.as(typeFqn)))
+            ) { case (accOpt, arg) =>
+              for {
+                acc    <- accOpt
+                argOre <- valueToOre(arg, source)
+              } yield OperatorResolvedExpression.FunctionApplication(source.as(acc), source.as(argOre))
+            }
+          case _                                        => None
+        }
+      case _                               => None
+    }
 
   private def extractSolution: SolverIO[Solution] =
     for {
