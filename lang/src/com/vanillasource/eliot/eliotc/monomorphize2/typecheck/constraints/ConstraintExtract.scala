@@ -78,10 +78,14 @@ object ConstraintExtract extends Logging {
         } yield exprType
       case ValueReference(vfqn, _) if vfqn.value === typeFQN             =>
         // This is to prevent infinite checks, since Type's type is Type
-        ValueReference(expression.as(typeFQN)).pure[TypeGraphIO]
+        for {
+          _ <- tellConstraint(Constraints.constraint(assumedType, expression, "Type mismatch."))
+        } yield ValueReference(expression.as(typeFQN))
       case ValueReference(vfqn, _) if vfqn.value === functionDataTypeFQN =>
         // This is to prevent infinite checks, since Function[A, B]'s signature is a Function
-        ValueReference(expression.as(functionDataTypeFQN)).pure[TypeGraphIO]
+        for {
+          _ <- tellConstraint(Constraints.constraint(assumedType, expression, "Type mismatch."))
+        } yield ValueReference(expression.as(functionDataTypeFQN))
       case ValueReference(vfqn, typeArgs)                                =>
         for {
           _               <- trace[TypeGraphIO](s"Collecting from value reference '${vfqn.show}'")
