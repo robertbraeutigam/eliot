@@ -98,7 +98,7 @@ object ConstraintExtract extends Logging {
                                  collectConstraints(assumedType, resolved.typeStack.map(_.signature))
                                case None           => StateT.liftF(compilerAbort(vfqn.as(s"Value not defined.")))
                              }
-        } yield signatureEvaled
+        } yield expression.value
       case FunctionApplication(
             targetSource @ Sourced(_, _, target @ FunctionLiteral(paramName, paramTypeOpt, body)),
             arg
