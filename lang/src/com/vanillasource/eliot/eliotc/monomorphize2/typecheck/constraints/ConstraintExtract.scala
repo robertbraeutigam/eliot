@@ -88,16 +88,18 @@ object ConstraintExtract extends Logging {
         } yield ValueReference(expression.as(functionDataTypeFQN))
       case ValueReference(vfqn, typeArgs)                                =>
         for {
-          _               <- trace[TypeGraphIO](s"Collecting from value reference '${vfqn.show}'")
+          _             <- trace[TypeGraphIO](s"Collecting from value reference '${vfqn.show}'")
           // Bind the assumed type to the type of the resolved value's signature.
           // We don't check the signature here, but it will be checked when it is monomorphized
-          resolvedMaybe   <- StateT.liftF(getFact(OperatorResolvedValue.Key(vfqn.value)))
-          signatureEvaled <- resolvedMaybe match {
-                               case Some(resolved) =>
-                                 // TODO: We don't supply type arguments here, so that's a problem, apply to signature!
-                                 collectConstraints(assumedType, resolved.typeStack.map(_.signature))
-                               case None           => StateT.liftF(compilerAbort(vfqn.as(s"Value not defined.")))
-                             }
+          resolvedMaybe <- StateT.liftF(getFact(OperatorResolvedValue.Key(vfqn.value)))
+          _             <- resolvedMaybe match {
+                             case Some(resolved) =>
+                               // TODO: We don't supply type arguments here, so that's a problem, apply to signature!
+                               tellConstraint(
+                                 Constraints.constraint(assumedType, resolved.typeStack.map(_.signature), "Type mismatch.")
+                               )
+                             case None           => StateT.liftF(compilerAbort(vfqn.as(s"Value not defined.")))
+                           }
         } yield expression.value
       case FunctionApplication(
             targetSource @ Sourced(_, _, target @ FunctionLiteral(paramName, paramTypeOpt, body)),
