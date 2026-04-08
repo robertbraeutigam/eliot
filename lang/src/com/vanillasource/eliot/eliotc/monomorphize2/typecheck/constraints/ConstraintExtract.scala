@@ -47,7 +47,7 @@ object ConstraintExtract extends Logging {
       expression: Sourced[OperatorResolvedExpression]
   ): TypeGraphIO[OperatorResolvedExpression] =
     expression.value match {
-      case IntegerLiteral(integerLiteral)                    =>
+      case IntegerLiteral(integerLiteral)                                =>
         tellConstraint(
           Constraints.constraint(
             assumedType,
@@ -56,7 +56,7 @@ object ConstraintExtract extends Logging {
           )
         )
           .as(expression.value)
-      case StringLiteral(stringLiteral)                      =>
+      case StringLiteral(stringLiteral)                                  =>
         tellConstraint(
           Constraints.constraint(
             assumedType,
@@ -65,7 +65,7 @@ object ConstraintExtract extends Logging {
           )
         )
           .as(expression.value)
-      case ParameterReference(name)                          =>
+      case ParameterReference(name)                                      =>
         for {
           _         <- trace[TypeGraphIO](s"Collecting from parameter reference '${name.value}'")
           maybeType <- lookupParameter(name.value)
@@ -76,27 +76,25 @@ object ConstraintExtract extends Logging {
                        }
           _         <- tellConstraint(Constraints.constraint(assumedType, expression.as(exprType), "Type mismatch."))
         } yield exprType
-      case ValueReference(vfqn, _) if vfqn.value === typeFQN =>
+      case ValueReference(vfqn, _) if vfqn.value === typeFQN             =>
+        // This is to prevent infinite checks, since Type's type is Type
         ValueReference(expression.as(typeFQN)).pure[TypeGraphIO]
-      case ValueReference(vfqn, typeArgs)                    =>
+      case ValueReference(vfqn, _) if vfqn.value === functionDataTypeFQN =>
+        // This is to prevent infinite checks, since Function[A, B]'s signature is a Function
+        ValueReference(expression.as(functionDataTypeFQN)).pure[TypeGraphIO]
+      case ValueReference(vfqn, typeArgs)                                =>
         for {
-          _             <- trace[TypeGraphIO](s"Collecting from value reference '${vfqn.show}'")
+          _               <- trace[TypeGraphIO](s"Collecting from value reference '${vfqn.show}'")
           // Bind the assumed type to the type of the resolved value's signature.
           // We don't check the signature here, but it will be checked when it is monomorphized
-          resolvedMaybe <- StateT.liftF(getFact(OperatorResolvedValue.Key(vfqn.value)))
-          _             <- resolvedMaybe match {
-                             case Some(resolved) =>
-                               // TODO: We don't supply type arguments here, so that's a problem, apply to signature!
-                               tellConstraint(
-                                 Constraints.constraint(
-                                   assumedType,
-                                   expression.as(resolved.typeStack.value.signature),
-                                   "Type mismatch."
-                                 )
-                               )
-                             case None           => StateT.liftF(compilerAbort(vfqn.as(s"Value not defined.")))
-                           }
-        } yield expression.value
+          resolvedMaybe   <- StateT.liftF(getFact(OperatorResolvedValue.Key(vfqn.value)))
+          signatureEvaled <- resolvedMaybe match {
+                               case Some(resolved) =>
+                                 // TODO: We don't supply type arguments here, so that's a problem, apply to signature!
+                                 collectConstraints(assumedType, resolved.typeStack.map(_.signature))
+                               case None           => StateT.liftF(compilerAbort(vfqn.as(s"Value not defined.")))
+                             }
+        } yield signatureEvaled
       case FunctionApplication(
             targetSource @ Sourced(_, _, target @ FunctionLiteral(paramName, paramTypeOpt, body)),
             arg
@@ -106,9 +104,9 @@ object ConstraintExtract extends Logging {
         for {
           _ <- bindParameter(paramName.value, arg)
         } yield substitute(body.value, paramName.value, arg.value)
-      case FunctionApplication(target, arg)                  =>
+      case FunctionApplication(target, arg)                              =>
         for {
-          _            <- trace[TypeGraphIO](s"Collecting from function application")
+          _            <- trace[TypeGraphIO](s"Collecting from function application ${target.value.show}(${arg.value.show})")
           argTypeVar   <- generateUnificationVar
           retTypeVar   <- generateUnificationVar
           funcType      =
@@ -131,7 +129,7 @@ object ConstraintExtract extends Logging {
                             )
                           )
         } yield FunctionApplication(target.as(targetEvaled), arg.as(argEvaled))
-      case FunctionLiteral(paramName, paramTypeOpt, body)    =>
+      case FunctionLiteral(paramName, paramTypeOpt, body)                =>
         for {
           _            <- trace[TypeGraphIO](s"Collecting from function literal")
           paramTypeVar <- generateUnificationVar
