@@ -4,12 +4,14 @@ import cats.Show
 import cats.kernel.Monoid
 import cats.syntax.all.*
 import Constraints.Constraint
+import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 case class Constraints(constraints: Seq[Constraint])
 
-object Constraints {
+object Constraints extends Logging {
   case class Constraint(
       left: OperatorResolvedExpression,
       right: Sourced[OperatorResolvedExpression],
@@ -32,8 +34,11 @@ object Constraints {
       Constraints(x.constraints ++ y.constraints)
   }
 
-  given Show[Constraints] = (unification: Constraints) =>
-    unification.constraints
-      .map(c => s"${c.left.show} := ${c.right.value.show}")
-      .mkString(" ∧ ")
+  def debugConstraints(constraints: Constraints): CompilerIO[Unit] =
+    constraints.constraints.traverse_ { c =>
+      for {
+        debugString <- Sourced.displaySnippet(c.right)
+        _           <- debug[CompilerIO](s"Constraint: ${c.left.show} := ${c.right.value.show}, at: $debugString")
+      } yield ()
+    }
 }
