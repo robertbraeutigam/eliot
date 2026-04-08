@@ -81,12 +81,12 @@ object ConstraintExtract extends Logging {
       case ValueReference(vfqn, typeArgs)                    =>
         for {
           _             <- trace[TypeGraphIO](s"Collecting from value reference '${vfqn.show}'")
-          // Bind the assumed type to the resolved value's signature. The signature may be a generic (a function
-          // abstraction or any other code that produces one); the solver, working with the evaluator, will instantiate
-          // it as needed.
+          // Bind the assumed type to the type of the resolved value's signature.
+          // We don't check the signature here, but it will be checked when it is monomorphized
           resolvedMaybe <- StateT.liftF(getFact(OperatorResolvedValue.Key(vfqn.value)))
           _             <- resolvedMaybe match {
                              case Some(resolved) =>
+                               // TODO: We don't supply type arguments here, so that's a problem, apply to signature!
                                tellConstraint(
                                  Constraints.constraint(
                                    assumedType,
@@ -136,22 +136,14 @@ object ConstraintExtract extends Logging {
           _            <- trace[TypeGraphIO](s"Collecting from function literal")
           paramTypeVar <- generateUnificationVar
           _            <- paramTypeOpt.traverse_ { paramType =>
-                            // The parameter type annotation IS the type expression we want to bind. Emit the constraint
-                            // directly: recursing through collectConstraints would compute the *kind* of the annotation
-                            // (e.g. Type for String) instead of the annotation itself.
-                            // TODO: ignores higher levels of the type stack
-                            tellConstraint(
-                              Constraints.constraint(
-                                ParameterReference(paramType.as(paramTypeVar)),
-                                paramType.map(_.signature),
-                                "Type mismatch."
-                              )
+                            // TODO: I think this ignores the rest of the stack, fix this!
+                            collectConstraints(
+                              ParameterReference(paramType.as(paramTypeVar)),
+                              paramType.map(_.signature)
                             )
                           }
           paramVar     <- generateUnificationVar
-          // Bind the parameter name to its TYPE variable. Otherwise lookupParameter would return an unconstrained
-          // fresh var and the body's type cannot be checked against the actual parameter type.
-          _            <- bindParameter(paramName.value, paramName.as(ParameterReference(paramName.as(paramTypeVar))))
+          _            <- bindParameter(paramName.value, paramName.as(ParameterReference(paramName.as(paramVar))))
           retTypeVar   <- generateUnificationVar
           bodyEvaled   <- collectConstraints(ParameterReference(body.as(retTypeVar)), body)
           funcType      = FunctionApplication(
