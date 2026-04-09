@@ -54,7 +54,7 @@ These are invariants of the `monomorphize2` design. Breaking any of them is a bu
    - Do **not** assume that a type expression starts with leading `FunctionLiteral`s.
    - Do **not** assume that the number of leading lambdas corresponds to the number of type parameters.
    - Do **not** unwrap lambdas yourself to "get at the body".
-   - If you need to work with leading lambdas, you are almost certainly working with an `ExpressionValue`, not an ORE — and the helper you want is `ExpressionValue.stripLeadingLambdas` (in the `eval` package), called after evaluation.
+   - Do **not** try to add a new ORE node, just because it would be convenient in `monomorphize2`
 3. **Evaluation — and partial evaluation — happens in the `eval` package only.** `monomorphize2` is allowed to *call* `Evaluator.evaluate`, `Evaluator.applyTypeArgs`, and the `ExpressionValue` helpers. It is not allowed to *reimplement* any part of them. If you find yourself writing something that looks like a mini-evaluator, stop and move it to `eval`.
 4. **No duplication of responsibility.** Every piece of logic has exactly one home:
    - Parse → `token`, `ast`, `core`
@@ -108,17 +108,6 @@ Invariants to preserve when editing the solver:
 - `typeSubstitute` evaluates the signature (via `Evaluator.evaluate` + `Evaluator.applyTypeArgs`), resolves parameter types using the `Solution`, and then walks the runtime body to produce a `MonomorphicExpression`.
 - `buildMonomorphicExpression` converts an ORE body into a `MonomorphicExpression` (`fact/MonomorphicExpression.scala`). Every `MonomorphicExpression` carries a `Value` as its `expressionType` — this is the point where you leave "ORE world" and enter "Value world", via the `paramTypes` map and `Evaluator.evaluate`.
 - When adding a new ORE case, add a matching branch here too, and make sure the branch derives its `Value` type from already-evaluated sources (`paramTypes` / `Evaluator.evaluate` result) — never by recursing into the ORE to "compute" a type.
-
-## Adding a new ORE case — checklist
-
-If a new case is added to `OperatorResolvedExpression` in the `operator` package, every one of the following must be updated in `monomorphize2`, or the compiler will silently miscompile:
-
-1. `ConstraintExtract.collectConstraints` — add a branch that emits constraints for the new node.
-2. `ConstraintSolver.tryResolve` — add a structural-decomposition branch if the new node can appear on both sides, or leave it to the `evalAndCompare` fallback if it is inherently "opaque" to the solver.
-3. `MonomorphicTypeCheckProcessor.buildMonomorphicExpression` — add a branch that produces the corresponding `MonomorphicExpression` node (you will usually also need a new `MonomorphicExpression.Expression` case in `fact/MonomorphicExpression.scala`).
-4. Tests — add a case to `MonomorphicTypeCheckProcessorTest` covering both signature-side and runtime-side occurrences of the new node.
-
-Note the ripple rule from the project CLAUDE.md: if the new case adds an optional field on `resolve.fact.Expression`, the `eval`, legacy `monomorphize`, and existing test files also need updating — that is outside this skill's scope but worth checking before you start.
 
 ## Diagnosing a type-checker failure
 
