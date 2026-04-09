@@ -65,6 +65,18 @@ object ConstraintSolver extends Logging {
       case (ParameterReference(ln), ParameterReference(rn)) if ln.value == rn.value =>
         true.pure[SolverIO]
 
+      // Beta-reduction: left side is a beta-redex (function literal applied to an argument).
+      // Reduce before any structural decomposition, otherwise we'd decompose pieces of a redex
+      // against pieces of an unrelated function application.
+      case (FunctionApplication(Sourced(_, _, FunctionLiteral(paramName, _, body)), arg), _) =>
+        val reduced = OperatorResolvedExpression.substitute(body.value, paramName.value, arg.value)
+        enqueue(Seq(Constraint(reduced, constraint.right, constraint.errorMessage))).as(true)
+
+      // Beta-reduction: right side is a beta-redex.
+      case (_, FunctionApplication(Sourced(_, _, FunctionLiteral(paramName, _, body)), arg)) =>
+        val reduced = OperatorResolvedExpression.substitute(body.value, paramName.value, arg.value)
+        enqueue(Seq(Constraint(constraint.left, constraint.right.as(reduced), constraint.errorMessage))).as(true)
+
       // Structural decomposition: both sides are function applications
       case (FunctionApplication(lt, la), FunctionApplication(rt, ra))               =>
         val subs = Seq(

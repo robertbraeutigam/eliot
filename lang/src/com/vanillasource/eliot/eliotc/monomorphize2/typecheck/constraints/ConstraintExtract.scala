@@ -15,16 +15,11 @@ import TypeCheckState.*
 
 object ConstraintExtract extends Logging {
   def collectConstraints(key: MonomorphicValue.Key, resolvedValue: OperatorResolvedValue): TypeGraphIO[Unit] = {
-    val rawTypeExpressions = resolvedValue.typeStack.value.levels.map(resolvedValue.typeStack.as(_)).reverse
-    // Apply the specified type arguments to the signature expression
-    val typeExpressions    = rawTypeExpressions.init :+
-      key.specifiedTypeArguments.foldLeft(rawTypeExpressions.last) { (acc, arg) =>
-        acc.as(FunctionApplication(acc, arg))
-      }
+    val typeExpressions = resolvedValue.typeStack.value.levels.map(resolvedValue.typeStack.as(_)).reverse
 
     for {
       // Iterate type levels, where each level computes the type of the underlying level. The last one is the signature.
-      signature <-
+      signature             <-
         typeExpressions.foldLeftM[TypeGraphIO, OperatorResolvedExpression](
           ValueReference(resolvedValue.name.as(typeFQN))
         ) { (assumedType, level) =>
@@ -32,9 +27,16 @@ object ConstraintExtract extends Logging {
             s"Collecting constraints from type levels, kind: ${assumedType.show}, type expression: ${level.value.show}"
           ) >> collectConstraints(assumedType, level)
         }
-      // Create constraints from runtime level against the signature, if runtime is available
-      _         <- debug[TypeGraphIO](s"Collecting constraints from runtime, signature: ${signature.show}")
-      _         <- resolvedValue.runtime.traverse_(collectConstraints(signature, _))
+      // Apply the specified type arguments to the signature to obtain the monomorphized signature.
+      // We don't apply them inside the typeExpressions fold, because that would break the level
+      // above (the kind of the substituted signature is no longer the original kind).
+      monomorphizedSignature = key.specifiedTypeArguments
+                                 .foldLeft(resolvedValue.typeStack.as(signature)) { (acc, arg) =>
+                                   acc.as(FunctionApplication(acc, arg))
+                                 }
+      // Create constraints from runtime level against the monomorphized signature, if runtime is available
+      _                     <- debug[TypeGraphIO](s"Collecting constraints from runtime, signature: ${monomorphizedSignature.value.show}")
+      _                     <- resolvedValue.runtime.traverse_(collectConstraints(monomorphizedSignature.value, _))
     } yield ()
   }
 
