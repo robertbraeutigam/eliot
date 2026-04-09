@@ -100,36 +100,91 @@ monomorphizedSignature = key.specifiedTypeArguments
 
 Then check the runtime body against `monomorphizedSignature.value`. The solver beta-reduces the resulting `FA(FL, typeArg)` redex when unifying against the runtime body's type.
 
+**Explicit type arguments at value reference call sites** (`vr.typeArgs`) must be applied the same way inside the `ValueReference` case — fold them over the resolved value's signature with `FunctionApplication` wrappers before emitting the constraint:
+
+```scala
+case ValueReference(vfqn, typeArgs) =>
+  for {
+    resolvedMaybe <- StateT.liftF(getFact(OperatorResolvedValue.Key(vfqn.value)))
+    _             <- resolvedMaybe match {
+                       case Some(resolved) =>
+                         val appliedSig =
+                           typeArgs.foldLeft(resolved.typeStack.map(_.signature)) { (acc, arg) =>
+                             acc.as(FunctionApplication(acc, arg))
+                           }
+                         tellConstraint(
+                           Constraints.constraint(assumedType, appliedSig, "Type mismatch.")
+                         )
+                       case None => StateT.liftF(compilerAbort(vfqn.as("Value not defined.")))
+                     }
+  } yield expression.value
+```
+
+If you skip the fold and emit `assumedType := resolved.typeStack.map(_.signature)` directly, then call sites like `Box[two]` and `Box[one]` look identical to the solver and explicit type-argument mismatches go undetected. The solver's beta-reduction rules consume the wrapping the same way they consume the top-level `key.specifiedTypeArguments` wrapping.
+
 ### Phase 2 — Solving (`ConstraintSolver.solve`)
 
 File: `lang/src/com/vanillasource/eliot/eliotc/monomorphize2/typecheck/solution/ConstraintSolver.scala`.
+
+`solve` takes both the constraints and the post-extraction `endState.shortIds`, seeded into `SolverState` so the solver can generate fresh unification variables that don't collide with the ones the extractor introduced. `SolverState` therefore carries `pending`, `bindings`, **and** `shortIds`; use `generateUnificationVar: SolverIO[String]` to allocate.
 
 Iterative worklist over ORE constraints. `tryResolve` handles, in order:
 
 1. **Trivial**: `ParameterReference(x) ≡ ParameterReference(x)` — done.
 2. **Beta-reduction (left)**: left side is `FunctionApplication(FunctionLiteral(p, _, body), arg)` — substitute `p := arg.value` in `body` and re-enqueue `body[p := arg] := right`.
 3. **Beta-reduction (right)**: right side is `FunctionApplication(FunctionLiteral(p, _, body), arg)` — substitute `p := arg.value` in `body` and re-enqueue `left := body[p := arg]`.
-4. **Structural decomposition** on matching shapes: both `FunctionApplication`, or both `ValueReference` with the same name and arity — enqueue children as sub-constraints.
-5. **Variable binding**: one side is a `ParameterReference` — bind it, with occurs-check via `OperatorResolvedExpression.containsVar` (not `ExpressionValue.containsVar`).
-6. **Fallback — `evalAndCompare`**: only when none of the above apply, reduce both sides via `Evaluator.evaluate` and compare the resulting `ExpressionValue`s as concrete values. If neither is concrete yet, `defer`.
+4. **Polytype instantiation (left)**: left side is a top-level `FunctionLiteral(p, _, body)` (an *unapplied* polytype, e.g. the unmonomorphized signature of a referenced generic value). Generate a fresh unification variable `?V`, substitute `p := ParameterReference(?V)` in `body` purely syntactically (`OperatorResolvedExpression.substitute`), and re-enqueue `body[p := ?V] := right`. This is HM-style polytype instantiation: the solver specializes the polytype to a fresh monotype before unification.
+5. **Polytype instantiation (right)**: same as above, mirrored.
+6. **Structural decomposition** on matching shapes: both `FunctionApplication`, or both `ValueReference` with the same name and arity — enqueue children as sub-constraints.
+7. **Variable binding**: one side is a `ParameterReference` — bind it, with occurs-check via `OperatorResolvedExpression.containsVar` (not `ExpressionValue.containsVar`).
+8. **Fallback — `evalAndCompare`**: only when none of the above apply, reduce both sides via `Evaluator.evaluate` and compare the resulting `ExpressionValue`s as concrete values. If neither is concrete yet, `defer`.
 
-**The order matters.** Beta-reduction must precede structural FA decomposition. If `FA(FL, arg) := FA(g, y)` were structurally decomposed first, the solver would try to unify `FL := g` and `arg := y` independently — but a beta-redex must reduce as a whole. The lambda body has to be substituted with its actual argument before the result can be compared to anything else.
+**The order matters in two distinct ways:**
+
+- **Beta-reduction must precede structural FA decomposition.** If `FA(FL, arg) := FA(g, y)` were structurally decomposed first, the solver would try to unify `FL := g` and `arg := y` independently — but a beta-redex must reduce as a whole. The lambda body has to be substituted with its actual argument before the result can be compared to anything else.
+- **Beta-reduction must precede polytype instantiation, and instantiation must precede variable binding.** A real beta-redex `FA(FL, arg)` must reduce with the user's actual argument, not with a fresh unification variable. And `?V := polytype` must instantiate the polytype *before* binding `?V`, otherwise `?V` ends up bound to the un-instantiated polytype itself and downstream uses re-encounter the same problem.
+
+The new instantiation cases are what allow constraints like `Function(F$)(G$) := (A: Type) -> Function(A)(A)` (which appear whenever a generic value reference like `id` is used at a call site without explicit type arguments) to make progress. Without them, the constraint is structurally stuck — neither side is decomposable, neither is a `ParameterReference`, the fallback reaches a non-concrete `ExpressionValue` and defers forever, and the test reports `Could not resolve type`.
 
 The worklist loop (`propagate`) keeps retrying until either everything resolves, nothing new resolves (→ report unresolved), or a compile error is issued.
 
 Invariants to preserve when editing the solver:
 
 - Bindings are stored fully substituted. `SolverState.bind` rewrites existing bindings' RHS to preserve this. Do not introduce a new path that writes to `bindings` without going through `bind`.
-- Never add a branch that evaluates ORE by hand — extend `evalAndCompare` or add a new structural case, do not "peek through" lambdas. The beta-reduction cases above are the only allowed exception, and they only call `OperatorResolvedExpression.substitute`, which is purely syntactic.
+- Never add a branch that evaluates ORE by hand — extend `evalAndCompare` or add a new structural case, do not "peek through" lambdas. The beta-reduction and instantiation cases above are the only allowed exceptions, and they only call `OperatorResolvedExpression.substitute`, which is purely syntactic.
 - `issueOreError` vs `issueValueError`: the former for structural-shape mismatches (before evaluation), the latter only for concrete-value mismatches discovered in the fallback.
+- The instantiation cases must use `generateUnificationVar` from `SolverState`, not invent ad-hoc names. Names must be guaranteed unique against the extractor's existing names — that's why `SolverState` is seeded with `endState.shortIds`.
 
 ### Phase 3 — Type substitution and MonomorphicExpression building
 
-`typeSubstitute` and `buildMonomorphicExpression` at `MonomorphicTypeCheckProcessor.scala:54` and `:90`.
+`typeSubstitute`, `walkBody`, `advanceForExpression`, and `buildExpression` in `MonomorphicTypeCheckProcessor.scala`.
 
-- `typeSubstitute` evaluates the signature (via `Evaluator.evaluate` + `Evaluator.applyTypeArgs`), resolves parameter types using the `Solution`, and then walks the runtime body to produce a `MonomorphicExpression`.
-- `buildMonomorphicExpression` converts an ORE body into a `MonomorphicExpression` (`fact/MonomorphicExpression.scala`). Every `MonomorphicExpression` carries a `Value` as its `expressionType` — this is the point where you leave "ORE world" and enter "Value world", via the `paramTypes` map and `Evaluator.evaluate`.
-- When adding a new ORE case, add a matching branch here too, and make sure the branch derives its `Value` type from already-evaluated sources (`paramTypes` / `Evaluator.evaluate` result) — never by recursing into the ORE to "compute" a type.
+- `typeSubstitute` evaluates the signature (via `Evaluator.evaluate` + `Evaluator.applyTypeArgs`), resolves parameter types using the `Solution`, and then calls `walkBody` to produce a `MonomorphicExpression` for the runtime.
+- `walkBody` runs a `WalkIO = StateT[CompilerIO, ShortUniqueIdentifiers, _]` action: first `advanceForExpression` over the type-stack levels (in reversed order, matching the extractor), then `buildExpression` over the runtime body. The whole walk starts from a fresh `ShortUniqueIdentifiers()` so its fresh-var indices line up with the extractor's.
+- `buildExpression` converts an ORE body into a `MonomorphicExpression` (`fact/MonomorphicExpression.scala`). Every `MonomorphicExpression` carries a `Value` as its `expressionType` — this is the point where you leave "ORE world" and enter "Value world".
+
+**The walk is a `ShortUniqueIdentifiers` replay, not a re-extraction.** The constraint extractor's traversal is fully deterministic in its use of `generateNext`: at every `FunctionApplication` it generates `argTypeVar` then `retTypeVar` (in that order, before recursing into target then arg), and at every `FunctionLiteral` it generates one var for the param (only when the param is unannotated) then `retTypeVar`. The `Solution` map is keyed by these names. The processor walks the same ORE in the same order with the same generator and therefore produces the same names — which means it can look any of them up in the `Solution` even though the extractor never explicitly recorded the position-to-name mapping anywhere.
+
+To make the body's first generated name match the extractor's, the processor must first call `advanceForExpression` on every type-stack level in the same reversed order the extractor uses (`resolvedValue.typeStack.value.levels.reverse`). This pass produces no output — its only purpose is to advance `ShortUniqueIdentifiers` past the type-level vars before the body walk begins. If you skip it, every `argTypeVar` lookup will read from the wrong solution slot.
+
+**`buildExpression` carries an `assumedType: Value` parameter top-down**, which is the *resolved concrete type at this position* as inferred by the solver. The top-level invocation passes `signature` (the result of `Evaluator.applyTypeArgs(typeExprValue, typeArgValues, ...)`). At each node:
+
+- **`ValueReference(vfqn, _)`**: returns `assumedType` directly. Do **not** evaluate the resolved value's signature, do **not** call `applyTypeArgs(_, Seq.empty, _)`, do **not** strip leading lambdas. The assumed type *is* the inferred concrete type for this call site — the constraint extractor emitted `assumedType := id's polytype signature`, the solver instantiated the polytype and propagated the bindings, and the parent FA's lookup of `argTypeVar` already produced the correct `targetType = Function(argType, assumedType)`. Trust it.
+- **`FunctionApplication(target, arg)`**: generate `argTypeVar` and `retTypeVar` (matching the extractor's order — both *before* recursing). Look up only `argTypeVar` in the `Solution` to get the argument's concrete `Value`. Compute `targetType = functionTypeValue(argType, assumedType)`. Recurse into `target` with that `targetType`, then into `arg` with `argType`. The result type of the FA *is* `assumedType` — no second lookup needed.
+- **`FunctionLiteral(paramName, paramTypeOpt, body)`**: generate the same vars the extractor would (one for unannotated param, then `retTypeVar`). Take `paramType` from `paramTypes` (which `resolveParameterTypes` already computed by evaluating each `endState.parameterTypes` entry through `Solution.resolveExpressionValue`). Compute the body's expected type as `assumedType.asFunctionType._2`. Recurse.
+- **`ParameterReference(name)`**: take the type from `paramTypes`, falling back to `assumedType`.
+- **Literals**: return `bigIntType` / `stringType`.
+
+**The shortcut that makes this cheap.** The extractor emits `assumedType := retTypeVar` at every `FA` and `FL`. After solving, those two are equivalent. So at every `FA`/`FL`, the parent's `assumedType` *is* the result type after solving, and the processor only needs to look up `argTypeVar` (at FA) — `retTypeVar` is generated only to keep the index counter in sync, the name itself is discarded. Same for `FL`: the body's expected type is `assumedType.asFunctionType._2`, no lookup.
+
+**Invariants for any change to the processor walk:**
+
+- The walk must call `generateNext` at exactly the same positions and in exactly the same order as the extractor. Mismatched generation reorders names and the solution lookups read garbage.
+- The type-level `advanceForExpression` pass must run first, walking levels in `levels.reverse` order.
+- `assumedType` flows strictly top-down. Never compute it from below.
+- Do not look up `retTypeVar`. The extractor's `assumedType := retTypeVar` invariant guarantees the parent already has that information.
+- `walkBody` calls `walk.runA(ShortUniqueIdentifiers())` — start fresh. The walk does not use `endState.shortIds`; that field is only for the solver.
+- When adding a new ORE case, mirror it in **both** `advanceForExpression` and `buildExpression`. The advance pass needs to know how many `generateNext` calls each case makes; the build pass needs to derive the resulting `Value` from `assumedType` / `paramTypes` / leaf types — never by recursing into the ORE to "compute" a type.
 
 ## Diagnosing a type-checker failure
 
@@ -137,13 +192,23 @@ When a test or example produces a wrong type or a bogus "Could not resolve type"
 
 1. Run the test with debug logging and grep for the trace. `Constraints.debugConstraints` prints every emitted constraint before solving, and the solver prints `Checking L vs. R` for every iteration.
 2. If the **extracted constraints are wrong**, the bug is in `ConstraintExtract`. Walk the offending ORE case by hand against the code.
-3. If the constraints are right but the solver **fails to bind / decompose**, the bug is in `ConstraintSolver.tryResolve` — probably a missing structural case or a beta-redex that isn't being reduced.
+3. If the constraints are right but the solver **fails to bind / decompose**, the bug is in `ConstraintSolver.tryResolve` — probably a missing structural case, a beta-redex that isn't being reduced, or a top-level `FunctionLiteral` polytype that isn't being instantiated.
 4. If the solver reaches `evalAndCompare` and it returns a wrong answer, the bug is probably in the `eval` package (not here). Check `Evaluator.evaluate` against the ORE being passed in. Do not "fix" it by adding compensation logic in the solver.
 5. If the solver binds a unification var to an expression that still contains free unification vars, make sure `SolverState.bind` is being used (not a direct map update) so that existing bindings get re-substituted.
 
 **Conflation diagnostic — read the Solution map.** If a unification variable that conceptually represents a parameter's *identity* (e.g., a fresh var introduced when binding a type parameter) ends up resolved to a kind expression like `Type`, the constraint extractor is conflating identity with kind. The chain to look for: the var appears in a slot (e.g., a `Function(_)(_)` argument position) that is independently constrained to a specific kind, and unification pins the var to that kind. Fix: don't bind parameters to fresh identity vars in the first place — bind them to their declared annotation expression.
 
 **Stuck FA(FL, _) on one side of an unresolved constraint.** If the unresolved constraint shows a `FunctionApplication` with a `FunctionLiteral` head against an unrelated structure (most often after the runtime check), the solver is missing the beta-reduction case for that side, or the beta-reduction case isn't firing because the cases above it consumed the constraint first. The beta-reduction cases must come *before* structural FA decomposition.
+
+**Stuck `Function(?_)(?_) := (A: Type) -> …` (an unapplied polytype on one side).** This means a generic value reference was used and the polytype never got instantiated. The solver's polytype instantiation rules (cases 4 and 5 of `tryResolve`) must be present and must fire — check that they sit between beta-reduction and structural FA decomposition, and that `SolverState` is seeded with `endState.shortIds` so `generateUnificationVar` produces names that don't collide with the extractor's.
+
+**`Could not resolve type` paired with a stuck polytype constraint** is the same diagnosis: missing or misordered instantiation rule. Check the debug trace for `Checking Function(_)(_) vs. (Type :: A) -> …` lines that never make progress.
+
+**`Non-generic type signature did not evaluate to concrete value` pointing inside a body.** This is the symptom of the *old* `buildMonomorphicExpression.ValueReference` case calling `Evaluator.applyTypeArgs(stripLeadingLambdas(rawValueType), Seq.empty, vfqn)` on a polytype value reference. In the current design, `buildExpression.ValueReference` must just return `assumedType` directly. If you see this error, somebody re-introduced a per-value signature evaluation in the processor walk. Delete it and trust the assumed type.
+
+**Wrong concrete type on a `MonomorphicExpression.MonomorphicValueReference`.** Almost always means the processor walk's `generateNext` order has drifted out of sync with the extractor's. The `argTypeVar` lookup is reading the wrong solution slot. Check: did you add a new ORE case in `ConstraintExtract` that calls `generateUnificationVar` without mirroring the same calls in `advanceForExpression` and `buildExpression`? Did you change the order of `generateNext` calls in `FA` (must be `argTypeVar` then `retTypeVar`, both *before* recursion) or `FL` (param-var-if-unannotated, then `retTypeVar`, then recursion)? Did you forget to add the corresponding case to `advanceForExpression` so that type-level walks no longer consume the same number of vars?
+
+**Explicit `vr.typeArgs` mismatches go undetected** (e.g., `Box[two]` where `Box[one]` is expected, but no error is reported). The `ConstraintExtract.ValueReference` case is silently dropping `vr.typeArgs` instead of folding them as `FunctionApplication` wrappers around the resolved signature. See the `ValueReference` snippet in Phase 1 above.
 
 ## Testing
 
@@ -162,16 +227,23 @@ Follow the project testing conventions: single-line asserts where possible, asse
 
 ## Anti-patterns (reject in review)
 
-- Pattern-matching on a `FunctionLiteral` at the head of an ORE type expression to "strip off" type parameters.
+- Pattern-matching on a `FunctionLiteral` at the head of an ORE type expression *inside `ConstraintExtract` or the processor walk* to "strip off" type parameters. (The solver's polytype instantiation cases do pattern-match on a top-level `FunctionLiteral`, but they only peel one level at a time via `OperatorResolvedExpression.substitute` with a fresh unification variable, and they do so as part of unification, not as bulk lambda stripping. That is the *only* place where pattern-matching on a top-level `FunctionLiteral` is allowed.)
 - Calling `ExpressionValue.stripLeadingLambdas` or `extractLeadingLambdaParams` on the result of something that is still an ORE. (`stripLeadingLambdas` takes an `ExpressionValue` — if you are tempted to call it on an ORE, you are in the wrong world.)
-- A new helper inside `monomorphize2` that takes an ORE and returns a "reduced" ORE. That is an evaluator. Put it in `eval`, or — more likely — do not write it at all because the constraint solver is the reducer here. The solver's beta-reduction cases use `OperatorResolvedExpression.substitute` only, which is purely syntactic substitution, not evaluation.
+- A new helper inside `monomorphize2` that takes an ORE and returns a "reduced" ORE. That is an evaluator. Put it in `eval`, or — more likely — do not write it at all because the constraint solver is the reducer here. The solver's beta-reduction and instantiation cases use `OperatorResolvedExpression.substitute` only, which is purely syntactic substitution, not evaluation.
 - Adding a `Value` or `ExpressionValue` field to `Constraints.Constraint`. Constraints are ORE ≡ ORE.
 - Wiring `monomorphize2.processor.MonomorphicTypeCheckProcessor` into `LangPlugin` without an explicit instruction to do so — the old `monomorphize` processor is still the production path.
 - Catching or silently ignoring `compilerAbort` from `Evaluator.evaluate` inside the solver. If evaluation fails, that is a compile error, not a reason to guess.
 - **In `ConstraintExtract.FunctionLiteral`**: introducing a fresh `paramVar` (separate from `paramTypeVar`) to bind the parameter name to. This creates an "identity" variable with no constraints connecting it to the actual parameter type, and structural unification will pin it to whatever kind appears at the parameter's first use. Bind to the declared annotation expression directly (or to a fresh var only when there is no annotation).
 - **In `ConstraintExtract.ParameterReference` / `FunctionLiteral`**: returning the lookup result, or a synthesized `funcType`, instead of `expression.value`. The recursive return chain has to preserve the original ORE so the solver receives the unevaluated body and can beta-reduce it.
 - **In `ConstraintExtract.collectConstraints` (top-level)**: applying `key.specifiedTypeArguments` by replacing the bottom element of `typeExpressions` before the fold. The level above `typeExpressions` then no longer matches the substituted level's actual kind, and you get bogus `Kind1 := retTypeVar` constraints from the outer FA processing. Apply type arguments to the signature *returned* by the fold.
+- **In `ConstraintExtract.ValueReference`**: emitting `assumedType := resolved.typeStack.map(_.signature)` directly without folding `vr.typeArgs` over the signature. Without that fold, `Box[one]` and `Box[two]` look identical to the solver and explicit type-argument mismatches go undetected.
 - **In `ConstraintSolver.tryResolve`**: placing the structural `FunctionApplication` decomposition case before the beta-reduction cases. A beta-redex on either side must be reduced first; structural decomposition of `FA(FL, x) := FA(g, y)` into `FL := g` and `x := y` is wrong because the redex must reduce as a whole.
+- **In `ConstraintSolver.tryResolve`**: placing the polytype instantiation cases before the beta-reduction cases (a real beta-redex would then be specialized with a fresh var instead of reducing with the user's actual argument), or after the variable-binding cases (`?V := polytype` would bind `?V` to the un-instantiated polytype itself, losing the instantiation point and propagating the same problem downstream). The correct order is: trivial → beta-reduction → polytype instantiation → structural decomposition → variable binding → `evalAndCompare`.
+- **In `ConstraintSolver`**: inventing fresh-variable names ad-hoc instead of going through `SolverState.generateUnificationVar`, or dropping the `endState.shortIds` seed when constructing `SolverState`. Both lead to name collisions with the extractor's vars.
+- **In the processor `buildExpression.ValueReference` case**: calling `Evaluator.applyTypeArgs(stripLeadingLambdas(rawValueType), Seq.empty, vfqn)` (or any variant that tries to compute the value's type from its signature). This crashes on every polytype value reference and produces the misleading `Non-generic type signature did not evaluate to concrete value` error. The case must just return `assumedType` directly.
+- **In the processor walk**: changing the `generateNext` order in `FA` or `FL` cases out of sync with `ConstraintExtract`, or skipping `advanceForExpression` over the type-stack levels. Either silently makes every `argTypeVar` lookup read the wrong slot of the `Solution`.
+- **In the processor walk**: trying to derive a node's type by recursing into the ORE bottom-up (the way the old `buildMonomorphicExpression` did via `targetExpr.expressionType.asFunctionType`). The walk is top-down via `assumedType`; bottom-up reconstruction can't handle generic arguments because their concrete types are only knowable from context.
+- **In the processor walk**: walking the body without first running `advanceForExpression` over the type-stack levels in `levels.reverse` order. Skipping it leaves `ShortUniqueIdentifiers` at index 0 when the body walk starts, but the extractor was at the post-type-level index when *its* body walk started, so the names won't match.
 
 ## Facts and keys (quick reference)
 
