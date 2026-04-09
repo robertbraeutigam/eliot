@@ -12,7 +12,6 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.eval.fact.Types.{bigIntFQN, functionDataTypeFQN, stringFQN, typeFQN}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import TypeCheckState.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 
 object ConstraintExtract extends Logging {
   def collectConstraints(key: MonomorphicValue.Key, resolvedValue: OperatorResolvedValue): TypeGraphIO[Unit] = {
@@ -75,7 +74,7 @@ object ConstraintExtract extends Logging {
                            StateT.liftF(compilerAbort(name.as("Parameter not found.")))
                        }
           _         <- tellConstraint(Constraints.constraint(assumedType, expression.as(exprType), "Type mismatch."))
-        } yield exprType
+        } yield expression.value
       case ValueReference(vfqn, _) if vfqn.value === typeFQN =>
         // This is to prevent infinite checks, since Type's type is Type
         for {
@@ -123,35 +122,34 @@ object ConstraintExtract extends Logging {
         } yield FunctionApplication(target.as(targetEvaled), arg.as(argEvaled))
       case FunctionLiteral(paramName, paramTypeOpt, body)    =>
         for {
-          _            <- trace[TypeGraphIO](s"Collecting from function literal")
-          paramTypeVar <- generateUnificationVar
-          _            <- paramTypeOpt.traverse_ { paramType =>
+          _          <- trace[TypeGraphIO](s"Collecting from function literal")
+          // The parameter's declared type is the annotation expression itself, not a fresh
+          // unification variable. This avoids conflating the parameter's identity with its kind.
+          // If there's no annotation, fall back to a fresh variable as a placeholder.
+          paramType  <- paramTypeOpt match {
+                          case Some(pt) =>
                             // TODO: I think this ignores the rest of the stack, fix this!
-                            collectConstraints(
-                              ParameterReference(paramType.as(paramTypeVar)),
-                              paramType.map(_.signature)
+                            pt.map(_.signature).pure[TypeGraphIO]
+                          case None     =>
+                            generateUnificationVar.map(v =>
+                              paramName.as(ParameterReference(paramName.as(v))): Sourced[OperatorResolvedExpression]
                             )
-                          }
-          paramVar     <- generateUnificationVar
-          _            <- bindParameter(paramName.value, paramName.as(ParameterReference(paramName.as(paramVar))))
-          retTypeVar   <- generateUnificationVar
-          bodyEvaled   <- collectConstraints(ParameterReference(body.as(retTypeVar)), body)
-          funcType      = FunctionApplication(
-                            expression.as(
-                              FunctionApplication(
-                                expression.as(ValueReference(expression.as(functionDataTypeFQN))),
-                                paramName.as(ParameterReference(paramName.as(paramTypeVar)))
-                              )
-                            ),
-                            body.as(ParameterReference(body.as(retTypeVar)))
-                          )
-          _            <- tellConstraint(
-                            Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
-                          )
-        } yield FunctionLiteral(
-          paramName.as(paramVar),
-          Some(paramName.as(TypeStack.of(ParameterReference(paramName.as(paramTypeVar))))),
-          body.as(bodyEvaled)
-        )
+                        }
+          _          <- bindParameter(paramName.value, paramType)
+          retTypeVar <- generateUnificationVar
+          _          <- collectConstraints(ParameterReference(body.as(retTypeVar)), body)
+          funcType    = FunctionApplication(
+                          expression.as(
+                            FunctionApplication(
+                              expression.as(ValueReference(expression.as(functionDataTypeFQN))),
+                              paramType
+                            )
+                          ),
+                          body.as(ParameterReference(body.as(retTypeVar)))
+                        )
+          _          <- tellConstraint(
+                          Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
+                        )
+        } yield expression.value
     }
 }
