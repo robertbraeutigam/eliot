@@ -47,7 +47,7 @@ object ConstraintExtract extends Logging {
       expression: Sourced[OperatorResolvedExpression]
   ): TypeGraphIO[OperatorResolvedExpression] =
     expression.value match {
-      case IntegerLiteral(integerLiteral)                                =>
+      case IntegerLiteral(integerLiteral)                    =>
         tellConstraint(
           Constraints.constraint(
             assumedType,
@@ -56,7 +56,7 @@ object ConstraintExtract extends Logging {
           )
         )
           .as(expression.value)
-      case StringLiteral(stringLiteral)                                  =>
+      case StringLiteral(stringLiteral)                      =>
         tellConstraint(
           Constraints.constraint(
             assumedType,
@@ -65,7 +65,7 @@ object ConstraintExtract extends Logging {
           )
         )
           .as(expression.value)
-      case ParameterReference(name)                                      =>
+      case ParameterReference(name)                          =>
         for {
           _         <- trace[TypeGraphIO](s"Collecting from parameter reference '${name.value}'")
           maybeType <- lookupParameter(name.value)
@@ -76,17 +76,12 @@ object ConstraintExtract extends Logging {
                        }
           _         <- tellConstraint(Constraints.constraint(assumedType, expression.as(exprType), "Type mismatch."))
         } yield exprType
-      case ValueReference(vfqn, _) if vfqn.value === typeFQN             =>
+      case ValueReference(vfqn, _) if vfqn.value === typeFQN =>
         // This is to prevent infinite checks, since Type's type is Type
         for {
           _ <- tellConstraint(Constraints.constraint(assumedType, expression, "Type mismatch."))
         } yield ValueReference(expression.as(typeFQN))
-      case ValueReference(vfqn, _) if vfqn.value === functionDataTypeFQN =>
-        // This is to prevent infinite checks, since Function[A, B]'s signature is a Function
-        for {
-          _ <- tellConstraint(Constraints.constraint(assumedType, expression, "Type mismatch."))
-        } yield ValueReference(expression.as(functionDataTypeFQN))
-      case ValueReference(vfqn, typeArgs)                                =>
+      case ValueReference(vfqn, typeArgs)                    =>
         for {
           _             <- trace[TypeGraphIO](s"Collecting from value reference '${vfqn.show}'")
           // Bind the assumed type to the type of the resolved value's signature.
@@ -101,16 +96,7 @@ object ConstraintExtract extends Logging {
                              case None           => StateT.liftF(compilerAbort(vfqn.as(s"Value not defined.")))
                            }
         } yield expression.value
-      case FunctionApplication(
-            targetSource @ Sourced(_, _, target @ FunctionLiteral(paramName, paramTypeOpt, body)),
-            arg
-          ) =>
-        // This is a special case to short-circuit applied type arguments for most cases
-        // TODO: if this does not apply, function literals can still "escape" into the solver
-        for {
-          _ <- bindParameter(paramName.value, arg)
-        } yield substitute(body.value, paramName.value, arg.value)
-      case FunctionApplication(target, arg)                              =>
+      case FunctionApplication(target, arg)                  =>
         for {
           _            <- trace[TypeGraphIO](s"Collecting from function application ${target.value.show}(${arg.value.show})")
           argTypeVar   <- generateUnificationVar
@@ -135,7 +121,7 @@ object ConstraintExtract extends Logging {
                             )
                           )
         } yield FunctionApplication(target.as(targetEvaled), arg.as(argEvaled))
-      case FunctionLiteral(paramName, paramTypeOpt, body)                =>
+      case FunctionLiteral(paramName, paramTypeOpt, body)    =>
         for {
           _            <- trace[TypeGraphIO](s"Collecting from function literal")
           paramTypeVar <- generateUnificationVar
