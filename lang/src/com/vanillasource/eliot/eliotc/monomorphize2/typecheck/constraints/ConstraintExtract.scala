@@ -42,12 +42,16 @@ object ConstraintExtract extends Logging {
 
   /** Collects constraints and returns the evaluated expression, which should be the type of the next expression one
     * level below. It strips all lambda expressions and returns expressions that include only unification vars.
+    *
+    * Side effect: records the assumed (expected-from-parent) ORE type at this node into
+    * `TypeCheckState.nodeAssumedTypes`. The processor walk later reads from that side-table by
+    * node identity, instead of replaying the extractor's fresh-variable generator.
     */
   private def collectConstraints(
       assumedType: OperatorResolvedExpression,
       expression: Sourced[OperatorResolvedExpression]
   ): TypeGraphIO[OperatorResolvedExpression] =
-    expression.value match {
+    recordAssumedType(expression, assumedType) >> (expression.value match {
       case IntegerLiteral(integerLiteral)                    =>
         tellConstraint(
           Constraints.constraint(
@@ -158,5 +162,5 @@ object ConstraintExtract extends Logging {
                           Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
                         )
         } yield expression.value
-    }
+    })
 }

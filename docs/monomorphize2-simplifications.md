@@ -13,7 +13,7 @@ The closest textbook label is "HM constraint generation + first-order unificatio
 
 ## Simplifications, ranked by leverage / risk
 
-### 1. Replace the `ShortUniqueIdentifiers` replay with an annotated body — high leverage, low risk
+### 1. Replace the `ShortUniqueIdentifiers` replay with an annotated body — high leverage, low risk — **DONE**
 
 This is the biggest tidy-up available. The processor's `walkBody` exists *only* to recover the per-position fresh-var names the extractor allocated, by replaying the same `generateNext` calls in the same order. That's fragile (silently breaks on extractor walk-order changes), it requires `advanceForExpression` to mirror extraction exactly, and it forces the processor to know intimate details of extraction.
 
