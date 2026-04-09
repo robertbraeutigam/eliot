@@ -8,7 +8,6 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize2.fact.*
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.ConstraintExtract.collectConstraints
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.{Constraints, TypeCheckState}
-import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.TypeCheckState.nodeIdOf
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution.ConstraintSolver.solve
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.solution.Solution
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -151,7 +150,7 @@ class MonomorphicTypeCheckProcessor
       endState: TypeCheckState,
       solution: Solution
   ): CompilerIO[Value] =
-    endState.nodeAssumedTypes.get(nodeIdOf(source)) match {
+    endState.nodeAssumedTypes.get(source) match {
       case Some(assumedOre) =>
         for {
           ev      <- Evaluator.evaluate(source.as(assumedOre))
