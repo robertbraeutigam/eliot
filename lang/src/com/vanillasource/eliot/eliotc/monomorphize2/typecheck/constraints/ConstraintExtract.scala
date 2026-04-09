@@ -85,14 +85,19 @@ object ConstraintExtract extends Logging {
       case ValueReference(vfqn, typeArgs)                    =>
         for {
           _             <- trace[TypeGraphIO](s"Collecting from value reference '${vfqn.show}'")
-          // Bind the assumed type to the type of the resolved value's signature.
-          // We don't check the signature here, but it will be checked when it is monomorphized
+          // Bind the assumed type to the type of the resolved value's signature, with the
+          // explicit type arguments applied as FunctionApplication wrappers. The solver's
+          // beta-reduction rules consume the wrapping by reducing against the polytype
+          // signature, the same way the top-level fold handles `key.specifiedTypeArguments`.
           resolvedMaybe <- StateT.liftF(getFact(OperatorResolvedValue.Key(vfqn.value)))
           _             <- resolvedMaybe match {
                              case Some(resolved) =>
-                               // TODO: We don't supply type arguments here, so that's a problem, apply to signature!
+                               val appliedSig =
+                                 typeArgs.foldLeft(resolved.typeStack.map(_.signature)) { (acc, arg) =>
+                                   acc.as(FunctionApplication(acc, arg))
+                                 }
                                tellConstraint(
-                                 Constraints.constraint(assumedType, resolved.typeStack.map(_.signature), "Type mismatch.")
+                                 Constraints.constraint(assumedType, appliedSig, "Type mismatch.")
                                )
                              case None           => StateT.liftF(compilerAbort(vfqn.as(s"Value not defined.")))
                            }
