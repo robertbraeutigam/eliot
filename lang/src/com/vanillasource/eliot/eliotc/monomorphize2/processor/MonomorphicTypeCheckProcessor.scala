@@ -38,7 +38,7 @@ class MonomorphicTypeCheckProcessor
         )
       endState             <- collectConstraints(key, resolvedValue).runS(TypeCheckState())
       _                    <- Constraints.debugConstraints(endState.constraints)
-      solution             <- solve(endState.constraints)
+      solution             <- solve(endState.constraints, endState.shortIds)
       _                    <- debug[CompilerIO](s"Solution (of ${key.vfqn.show}): ${solution.show}")
       (signature, runtime) <- typeSubstitute(key, solution, endState, resolvedValue)
     } yield MonomorphicValue(

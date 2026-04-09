@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.ConcreteValue
 import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints
+import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.{Constraints, ShortUniqueIdentifiers}
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints.Constraint
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
@@ -22,8 +22,8 @@ import SolverState.*
   */
 object ConstraintSolver extends Logging {
 
-  def solve(constraints: Constraints): CompilerIO[Solution] =
-    propagate.runA(SolverState(pending = constraints.constraints))
+  def solve(constraints: Constraints, shortIds: ShortUniqueIdentifiers): CompilerIO[Solution] =
+    propagate.runA(SolverState(pending = constraints.constraints, shortIds = shortIds))
 
   private def propagate: SolverIO[Solution] =
     for {
@@ -76,6 +76,27 @@ object ConstraintSolver extends Logging {
       case (_, FunctionApplication(Sourced(_, _, FunctionLiteral(paramName, _, body)), arg)) =>
         val reduced = OperatorResolvedExpression.substitute(body.value, paramName.value, arg.value)
         enqueue(Seq(Constraint(constraint.left, constraint.right.as(reduced), constraint.errorMessage))).as(true)
+
+      // Instantiation: top-level FunctionLiteral on the left (an unapplied polytype, e.g. the
+      // signature of a referenced generic value). Specialize it by substituting the bound
+      // parameter with a fresh unification variable. This is HM-style polytype instantiation
+      // and lets the resulting structure unify with whatever is on the right.
+      case (FunctionLiteral(paramName, _, body), _)                                 =>
+        for {
+          fresh   <- generateUnificationVar
+          freshRef = ParameterReference(paramName.as(fresh))
+          reduced  = OperatorResolvedExpression.substitute(body.value, paramName.value, freshRef)
+          _       <- enqueue(Seq(Constraint(reduced, constraint.right, constraint.errorMessage)))
+        } yield true
+
+      // Instantiation: top-level FunctionLiteral on the right.
+      case (_, FunctionLiteral(paramName, _, body))                                 =>
+        for {
+          fresh   <- generateUnificationVar
+          freshRef = ParameterReference(paramName.as(fresh))
+          reduced  = OperatorResolvedExpression.substitute(body.value, paramName.value, freshRef)
+          _       <- enqueue(Seq(Constraint(constraint.left, constraint.right.as(reduced), constraint.errorMessage)))
+        } yield true
 
       // Structural decomposition: both sides are function applications
       case (FunctionApplication(lt, la), FunctionApplication(rt, ra))               =>
