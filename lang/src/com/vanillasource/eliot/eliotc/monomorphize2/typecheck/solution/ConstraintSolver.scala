@@ -62,7 +62,7 @@ object ConstraintSolver extends Logging {
   private def tryResolve(constraint: Constraint): SolverIO[Boolean] =
     (constraint.left, constraint.right.value) match {
       // Trivially satisfied: same unification variable on both sides
-      case (ParameterReference(ln), ParameterReference(rn)) if ln.value == rn.value =>
+      case (ParameterReference(ln), ParameterReference(rn)) if ln.value == rn.value          =>
         true.pure[SolverIO]
 
       // Beta-reduction: left side is a beta-redex (function literal applied to an argument).
@@ -81,7 +81,7 @@ object ConstraintSolver extends Logging {
       // signature of a referenced generic value). Specialize it by substituting the bound
       // parameter with a fresh unification variable. This is HM-style polytype instantiation
       // and lets the resulting structure unify with whatever is on the right.
-      case (FunctionLiteral(paramName, _, body), _)                                 =>
+      case (FunctionLiteral(paramName, _, body), _)                                          =>
         for {
           fresh   <- generateUnificationVar
           freshRef = ParameterReference(paramName.as(fresh))
@@ -90,7 +90,7 @@ object ConstraintSolver extends Logging {
         } yield true
 
       // Instantiation: top-level FunctionLiteral on the right.
-      case (_, FunctionLiteral(paramName, _, body))                                 =>
+      case (_, FunctionLiteral(paramName, _, body))                                          =>
         for {
           fresh   <- generateUnificationVar
           freshRef = ParameterReference(paramName.as(fresh))
@@ -99,7 +99,7 @@ object ConstraintSolver extends Logging {
         } yield true
 
       // Structural decomposition: both sides are function applications
-      case (FunctionApplication(lt, la), FunctionApplication(rt, ra))               =>
+      case (FunctionApplication(lt, la), FunctionApplication(rt, ra))                        =>
         val subs = Seq(
           Constraint(lt.value, rt, constraint.errorMessage),
           Constraint(la.value, ra, constraint.errorMessage)
@@ -115,21 +115,21 @@ object ConstraintSolver extends Logging {
         enqueue(subs).as(true)
 
       // Variable binding: left is a unification variable
-      case (ParameterReference(name), _)                                            =>
+      case (ParameterReference(name), _)                                                     =>
         if (OperatorResolvedExpression.containsVar(constraint.right.value, name.value))
           StateT.liftF(issueOreError(constraint, Some("Infinite type."))).as(true)
         else
           bind(name.value, constraint.right).as(true)
 
       // Variable binding: right is a unification variable
-      case (_, ParameterReference(name))                                            =>
+      case (_, ParameterReference(name))                                                     =>
         if (OperatorResolvedExpression.containsVar(constraint.left, name.value))
           StateT.liftF(issueOreError(constraint, Some("Infinite type."))).as(true)
         else
           bind(name.value, constraint.right.as(constraint.left)).as(true)
 
       // Fallback: evaluate both sides and compare as concrete values
-      case _                                                                        =>
+      case _                                                                                 =>
         evalAndCompare(constraint)
     }
 
