@@ -452,6 +452,7 @@ Downstream consumers (`uncurry.processor.MonomorphicUncurryingProcessor`, `used.
 
 ### Rewritten
 - `monomorphize2/processor/MonomorphicTypeCheckProcessor.scala` — becomes ~30 lines, just calls `Elaborator.elaborate`.
+- All the test cases of `monomorphize2`. Some tests may need tweaking, but none of them should be disabled or deleted.
 
 ### Estimated size delta
 Roughly:
