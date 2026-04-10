@@ -47,9 +47,9 @@ object ConstraintSolver extends Logging {
   private def processConstraint(constraint: Constraint): SolverIO[Boolean] =
     for {
       bindings <- currentBindings
-      leftSub   = OreNormalizer.normalize(substituteAll(constraint.left, bindings))
+      leftSub   = constraint.left.map(l => OreNormalizer.normalize(substituteAll(l, bindings)))
       rightSub  = constraint.right.map(r => OreNormalizer.normalize(substituteAll(r, bindings)))
-      _        <- debug[SolverIO](s"Checking ${leftSub.show} vs. ${rightSub.value.show}")
+      _        <- debug[SolverIO](s"Checking ${leftSub.value.show} vs. ${rightSub.value.show}")
       resolved <- tryResolve(Constraint(leftSub, rightSub, constraint.errorMessage))
     } yield resolved
 
@@ -62,7 +62,7 @@ object ConstraintSolver extends Logging {
     }
 
   private def tryResolve(constraint: Constraint): SolverIO[Boolean] =
-    (constraint.left, constraint.right.value) match {
+    (constraint.left.value, constraint.right.value) match {
       // Trivially satisfied: same unification variable on both sides
       case (ParameterReference(ln), ParameterReference(rn)) if ln.value == rn.value =>
         true.pure[SolverIO]
@@ -76,7 +76,7 @@ object ConstraintSolver extends Logging {
           fresh   <- generateUnificationVar
           freshRef = ParameterReference(paramName.as(fresh))
           reduced  = OperatorResolvedExpression.substitute(body.value, paramName.value, freshRef)
-          _       <- enqueue(Seq(Constraint(reduced, constraint.right, constraint.errorMessage)))
+          _       <- enqueue(Seq(Constraint(constraint.left.as(reduced), constraint.right, constraint.errorMessage)))
         } yield true
 
       // Instantiation: top-level FunctionLiteral on the right.
@@ -95,16 +95,14 @@ object ConstraintSolver extends Logging {
         } yield true
 
       // Structural decomposition: both sides are function applications.
-      // The target sub-constraint is re-sourced to the parent's position to prevent
+      // Target sub-constraints are re-sourced to the parent's position to prevent
       // definition-site positions from leaking through signature tree nodes.
-      // The argument sub-constraint preserves the inner position (ra) so that errors
-      // point to the specific body expression or call-site argument rather than the
-      // enclosing node. This works because right-side instantiation (above) re-sources
-      // definition-site bodies to the call-site position.
+      // Argument sub-constraints preserve inner positions so that errors point to
+      // the specific body expression or call-site argument.
       case (FunctionApplication(lt, la), FunctionApplication(rt, ra))               =>
         val subs = Seq(
-          Constraint(lt.value, constraint.right.as(rt.value), constraint.errorMessage),
-          Constraint(la.value, ra, constraint.errorMessage)
+          Constraint(constraint.left.as(lt.value), constraint.right.as(rt.value), constraint.errorMessage),
+          Constraint(la, ra, constraint.errorMessage)
         )
         enqueue(subs).as(true)
 
@@ -112,7 +110,7 @@ object ConstraintSolver extends Logging {
       case (ValueReference(ln, largs), ValueReference(rn, rargs))
           if ln.value == rn.value && largs.length == rargs.length =>
         val subs = largs.zip(rargs).map { case (la, ra) =>
-          Constraint(la.value, constraint.right.as(ra.value), constraint.errorMessage)
+          Constraint(constraint.left.as(la.value), constraint.right.as(ra.value), constraint.errorMessage)
         }
         enqueue(subs).as(true)
 
@@ -125,10 +123,10 @@ object ConstraintSolver extends Logging {
 
       // Variable binding: right is a unification variable
       case (_, ParameterReference(name))                                            =>
-        if (OperatorResolvedExpression.containsVar(constraint.left, name.value))
+        if (OperatorResolvedExpression.containsVar(constraint.left.value, name.value))
           StateT.liftF(issueOreError(constraint, Some("Infinite type."))).as(true)
         else
-          bind(name.value, constraint.right.as(constraint.left)).as(true)
+          bind(name.value, constraint.right.as(constraint.left.value)).as(true)
 
       // Fallback: evaluate both sides and compare as concrete values
       case _                                                                        =>
@@ -137,7 +135,7 @@ object ConstraintSolver extends Logging {
 
   private def evalAndCompare(constraint: Constraint): SolverIO[Boolean] =
     for {
-      leftReduced  <- StateT.liftF(Evaluator.evaluate(constraint.right.as(constraint.left)))
+      leftReduced  <- StateT.liftF(Evaluator.evaluate(constraint.left))
       rightReduced <- StateT.liftF(Evaluator.evaluate(constraint.right))
       _            <- debug[SolverIO](s"Reduced ${leftReduced.show} vs. ${rightReduced.show}")
       resolved     <- (leftReduced, rightReduced) match {
@@ -164,12 +162,12 @@ object ConstraintSolver extends Logging {
 
   private def issueOreError(constraint: Constraint, hint: Option[String]): CompilerIO[Unit] =
     debug[CompilerIO](
-      s"Type error (${constraint.errorMessage}): ${constraint.left.show} vs. ${constraint.right.value.show}"
+      s"Type error (${constraint.errorMessage}): ${constraint.left.value.show} vs. ${constraint.right.value.show}"
     ) >>
       compilerError(
         constraint.right.as(constraint.errorMessage),
         Seq(
-          s"Expected: ${constraint.left.show}",
+          s"Expected: ${constraint.left.value.show}",
           s"Found:    ${constraint.right.value.show}"
         ) ++ hint.toSeq
       )
@@ -191,12 +189,12 @@ object ConstraintSolver extends Logging {
   private def reportUnresolved(constraints: Seq[Constraint]): CompilerIO[Unit] =
     constraints.traverse_ { constraint =>
       debug[CompilerIO](
-        s"Constraint unresolved: ${constraint.left.show} vs ${constraint.right.value.show} (${constraint.errorMessage})"
+        s"Constraint unresolved: ${constraint.left.value.show} vs ${constraint.right.value.show} (${constraint.errorMessage})"
       ) >>
         compilerError(
           constraint.right.as("Could not resolve type."),
           Seq(
-            s"Left:  ${constraint.left.show}",
+            s"Left:  ${constraint.left.value.show}",
             s"Right: ${constraint.right.value.show}"
           )
         )

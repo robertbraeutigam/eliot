@@ -20,23 +20,23 @@ object ConstraintExtract extends Logging {
     for {
       // Iterate type levels, where each level computes the type of the underlying level. The last one is the signature.
       signature             <-
-        typeExpressions.foldLeftM[TypeGraphIO, OperatorResolvedExpression](
-          ValueReference(resolvedValue.name.as(typeFQN))
+        typeExpressions.foldLeftM[TypeGraphIO, Sourced[OperatorResolvedExpression]](
+          resolvedValue.name.as(ValueReference(resolvedValue.name.as(typeFQN)))
         ) { (assumedType, level) =>
           debug[TypeGraphIO](
-            s"Collecting constraints from type levels, kind: ${assumedType.show}, type expression: ${level.value.show}"
-          ) >> collectConstraints(assumedType, level)
+            s"Collecting constraints from type levels, kind: ${assumedType.value.show}, type expression: ${level.value.show}"
+          ) >> collectConstraints(assumedType, level).map(level.as(_))
         }
       // Apply the specified type arguments to the signature to obtain the monomorphized signature.
       // We don't apply them inside the typeExpressions fold, because that would break the level
       // above (the kind of the substituted signature is no longer the original kind).
       monomorphizedSignature = key.specifiedTypeArguments
-                                 .foldLeft(resolvedValue.typeStack.as(signature)) { (acc, arg) =>
+                                 .foldLeft(resolvedValue.typeStack.as(signature.value)) { (acc, arg) =>
                                    acc.as(FunctionApplication(acc, arg))
                                  }
       // Create constraints from runtime level against the monomorphized signature, if runtime is available
       _                     <- debug[TypeGraphIO](s"Collecting constraints from runtime, signature: ${monomorphizedSignature.value.show}")
-      _                     <- resolvedValue.runtime.traverse_(collectConstraints(monomorphizedSignature.value, _))
+      _                     <- resolvedValue.runtime.traverse_(collectConstraints(monomorphizedSignature, _))
     } yield ()
   }
 
@@ -48,10 +48,10 @@ object ConstraintExtract extends Logging {
     * node identity, instead of replaying the extractor's fresh-variable generator.
     */
   private def collectConstraints(
-      assumedType: OperatorResolvedExpression,
+      assumedType: Sourced[OperatorResolvedExpression],
       expression: Sourced[OperatorResolvedExpression]
   ): TypeGraphIO[OperatorResolvedExpression] =
-    recordAssumedType(expression, assumedType) >> (expression.value match {
+    recordAssumedType(expression, assumedType.value) >> (expression.value match {
       case IntegerLiteral(integerLiteral)                    =>
         tellConstraint(
           Constraints.constraint(
@@ -121,8 +121,8 @@ object ConstraintExtract extends Logging {
               ),
               arg.as(ParameterReference(target.as(retTypeVar)))
             )
-          targetEvaled <- collectConstraints(funcType, target)
-          argEvaled    <- collectConstraints(ParameterReference(arg.as(argTypeVar)), arg)
+          targetEvaled <- collectConstraints(expression.as(funcType), target)
+          argEvaled    <- collectConstraints(expression.as(ParameterReference(arg.as(argTypeVar))), arg)
           _            <- tellConstraint(
                             Constraints.constraint(
                               assumedType,
@@ -148,7 +148,7 @@ object ConstraintExtract extends Logging {
                         }
           _          <- bindParameter(paramName.value, paramType)
           retTypeVar <- generateUnificationVar
-          _          <- collectConstraints(ParameterReference(body.as(retTypeVar)), body)
+          _          <- collectConstraints(expression.as(ParameterReference(body.as(retTypeVar))), body)
           funcType    = FunctionApplication(
                           expression.as(
                             FunctionApplication(

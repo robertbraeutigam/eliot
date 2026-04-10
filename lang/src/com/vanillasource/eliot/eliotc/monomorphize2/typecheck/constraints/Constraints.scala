@@ -13,7 +13,7 @@ case class Constraints(constraints: Seq[Constraint])
 
 object Constraints extends Logging {
   case class Constraint(
-      left: OperatorResolvedExpression,
+      left: Sourced[OperatorResolvedExpression],
       right: Sourced[OperatorResolvedExpression],
       errorMessage: String
   )
@@ -21,7 +21,7 @@ object Constraints extends Logging {
   def empty: Constraints = Constraints(Seq.empty)
 
   def constraint(
-      left: OperatorResolvedExpression,
+      left: Sourced[OperatorResolvedExpression],
       right: Sourced[OperatorResolvedExpression],
       errorMessage: String
   ): Constraints =
@@ -38,7 +38,7 @@ object Constraints extends Logging {
     constraints.constraints.traverse_ { c =>
       for {
         debugString <- Sourced.displaySnippet(c.right)
-        _           <- debug[CompilerIO](s"Constraint: ${c.left.show} := ${c.right.value.show}, at: $debugString")
+        _           <- debug[CompilerIO](s"Constraint: ${c.left.value.show} := ${c.right.value.show}, at: $debugString")
       } yield ()
     }
 }
