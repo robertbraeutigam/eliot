@@ -374,10 +374,10 @@ class MonomorphicTypeCheckTest
 
   // --- Type level functions ---
 
-  "type level functions" should "support non-type type parameters" in {
+  "type level functions" should "support non-type (value) type parameters" in {
     runForErrors(
-      "def str: String\ndata Group\ndata Person[G: Group](name: String)\ndef f[G: Group]: Person[G] = Person[G](str)",
-      typeArgs = Seq.empty // This was Group
+      "data Person[S: String](name: String)\ndef f[S: String]: Person[S] = Person[S](\"\")",
+      typeArgs = Seq(dummySourced(OperatorResolvedExpression.StringLiteral(dummySourced("STR"))))
     ).asserting(_ shouldBe Seq.empty)
   }
 

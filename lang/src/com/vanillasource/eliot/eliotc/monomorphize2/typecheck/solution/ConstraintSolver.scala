@@ -95,16 +95,19 @@ object ConstraintSolver extends Logging {
         } yield true
 
       // Structural decomposition: both sides are function applications.
-      // Target sub-constraints are re-sourced to the parent's position to prevent
-      // definition-site positions from leaking through signature tree nodes.
-      // Argument sub-constraints preserve inner positions so that errors point to
-      // the specific body expression or call-site argument.
+      // First try evaluation — this catches structural errors like applying a non-function
+      // (e.g. too many type arguments). If evaluation can't fully resolve, fall back to
+      // decomposition where target and argument sub-constraints are handled separately.
       case (FunctionApplication(lt, la), FunctionApplication(rt, ra))               =>
-        val subs = Seq(
-          Constraint(constraint.left.as(lt.value), constraint.right.as(rt.value), constraint.errorMessage),
-          Constraint(la, ra, constraint.errorMessage)
-        )
-        enqueue(subs).as(true)
+        tryEvalAndCompare(constraint).flatMap {
+          case true  => true.pure[SolverIO]
+          case false =>
+            val subs = Seq(
+              Constraint(constraint.left.as(lt.value), constraint.right.as(rt.value), constraint.errorMessage),
+              Constraint(la, ra, constraint.errorMessage)
+            )
+            enqueue(subs).as(true)
+        }
 
       // Structural decomposition: both sides are value references with the same name and arity
       case (ValueReference(ln, largs), ValueReference(rn, rargs))
