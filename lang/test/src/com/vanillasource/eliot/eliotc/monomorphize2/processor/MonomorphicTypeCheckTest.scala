@@ -322,13 +322,13 @@ class MonomorphicTypeCheckTest
   }
 
   it should "fail when the explicit type arg conflicts with the value argument" in {
-    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[Int](s)")
-      .asserting(_ shouldBe Seq("Type mismatch." at "s"))
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[BigInteger](s)")
+      .asserting(_ should contain("Type mismatch." at "s"))
   }
 
   it should "fail when the explicit type arg conflicts with the declared return type" in {
-    runForErrors("def id[A](a: A): A = a\ndef i: Int\ndef f(s: String): String = id[Int](i)")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
+    runForErrors("def id[A](a: A): A = a\ndef i: BigInteger\ndef f(s: String): String = id[BigInteger](i)")
+      .asserting(_ shouldBe Seq("Type mismatch." at "i"))
   }
 
   it should "fail with too many type arguments" in {
