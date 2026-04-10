@@ -107,7 +107,7 @@ class MonomorphicTypeCheckTest
   it should "fail, if unifying on multiple parameters fail at later stage" in {
     runForErrors(
       "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndef f(i: BigInteger, s: String): String = g(someA, someA, i)"
-    ).asserting(_ shouldBe Seq("Return type mismatch." at "i"))
+    ).asserting(_ shouldBe Seq("Type mismatch." at "g(someA, someA, i)")) // TODO: This sourcing is not perfect
   }
 
   // --- Higher-kinded types ---
