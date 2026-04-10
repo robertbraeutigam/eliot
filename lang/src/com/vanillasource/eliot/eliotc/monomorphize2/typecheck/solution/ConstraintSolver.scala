@@ -136,6 +136,26 @@ object ConstraintSolver extends Logging {
         evalAndCompare(constraint)
     }
 
+  /** Try to evaluate both sides of a constraint to concrete values. Returns true if the constraint was resolved
+    * (matched, mismatched with error, or evaluation aborted with error). Returns false if evaluation could not fully
+    * reduce both sides, indicating the caller should fall back to structural decomposition.
+    */
+  private def tryEvalAndCompare(constraint: Constraint): SolverIO[Boolean] =
+    for {
+      leftMaybe  <- StateT.liftF(recover(Evaluator.evaluate(constraint.left).map(Some(_)))(None))
+      rightMaybe <- StateT.liftF(recover(Evaluator.evaluate(constraint.right).map(Some(_)))(None))
+      resolved   <- (leftMaybe, rightMaybe) match {
+                      case (None, _) | (_, None)                                      =>
+                        true.pure[SolverIO]
+                      case (Some(ConcreteValue(v1)), Some(ConcreteValue(v2))) if v1 == v2 =>
+                        true.pure[SolverIO]
+                      case (Some(_: ConcreteValue), Some(_: ConcreteValue))            =>
+                        StateT.liftF(issueValueError(constraint, leftMaybe.get, rightMaybe.get)).as(true)
+                      case _                                                          =>
+                        false.pure[SolverIO]
+                    }
+    } yield resolved
+
   private def evalAndCompare(constraint: Constraint): SolverIO[Boolean] =
     for {
       leftReduced  <- StateT.liftF(Evaluator.evaluate(constraint.left))
