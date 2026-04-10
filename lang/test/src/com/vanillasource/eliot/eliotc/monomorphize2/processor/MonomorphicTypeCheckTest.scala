@@ -188,6 +188,13 @@ class MonomorphicTypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  it should "type check with higher-kinded type that invokes its parameter" in {
+    runForErrors(
+      "type Identity[A] = A\ntype Apply[F[_]] = F[BigInteger]\ndef f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x",
+      typeArgs = Seq(testType("Identity"), testType("Apply"))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   // --- Functions without body ---
 
   "functions without body" should "be monomorphized with simple return type" in {
