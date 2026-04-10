@@ -167,7 +167,10 @@ class MonomorphicTypeCheckTest
   }
 
   it should "type check with explicit Function restriction like arity syntax" in {
-    runForErrors("def f[F: Function[Type, Type]](x: F[Int]): F[Int] = x", typeArgs = Seq(intType))
+    runForErrors(
+      "data Box[A]\ndef f[F: Function[Type, Type]](x: F[BigInteger]): F[BigInteger] = x",
+      typeArgs = Seq(boxType)
+    )
       .asserting(_ shouldBe Seq.empty)
   }
 
