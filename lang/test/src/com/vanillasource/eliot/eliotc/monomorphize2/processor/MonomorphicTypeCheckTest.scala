@@ -150,11 +150,11 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("Type mismatch." at "BigInteger")) // TODO: Sourcing not 100%
   }
 
-"D"  // TODO: This is a valid case, but I don't know how to support this
+  // TODO: This is a valid case, but I don't know how to support this
   it should "type check nested higher-kinded parameter" ignore {
     runForErrors(
       "data Box[A]\ndata HyperBox[A[_]]\ndef f[G[_], F[_[_]]](x: F[G]): F[G] = x",
-      typeArgs = Seq(boxType, hyperBoxType)
+      typeArgs = Seq(boxType, testType("HyperBox"))
     )
       .asserting(_ shouldBe Seq.empty)
   }
@@ -173,15 +173,15 @@ class MonomorphicTypeCheckTest
 
   it should "type check with explicit two-arg Function restriction" in {
     runForErrors(
-      "def f[F: Function[Type, Function[Type, Type]]](x: F[Int, String]): F[Int, String] = x",
-      typeArgs = Seq(intType)
+      "type AlwaysString[A, B] = String\ndef f[F: Function[Type, Function[Type, Type]]](x: F[BigInteger, String]): F[BigInteger, String] = x",
+      typeArgs = Seq(testType("AlwaysString"))
     ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "type check with explicit nested higher-kinded restriction" in {
     runForErrors(
-      "def f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x",
-      typeArgs = Seq(intType, stringType)
+      "type AlwaysString[A, B] = String\ntype HyperAlwaysString[F[_], T] = String\ndef f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x",
+      typeArgs = Seq(testType("AlwaysString"), testType("HyperAlwaysString"))
     ).asserting(_ shouldBe Seq.empty)
   }
 
@@ -413,17 +413,12 @@ class MonomorphicTypeCheckTest
 
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
-  private val boxType: Sourced[OperatorResolvedExpression] =
-    dummySourced(
-      OperatorResolvedExpression.ValueReference(
-        dummySourced(ValueFQN(testModuleName, QualifiedName("Box", Qualifier.Type)))
-      )
-    )
+  private val boxType: Sourced[OperatorResolvedExpression] = testType("Box")
 
-  private val hyperBoxType: Sourced[OperatorResolvedExpression] =
+  private def testType(name: String): Sourced[OperatorResolvedExpression] =
     dummySourced(
       OperatorResolvedExpression.ValueReference(
-        dummySourced(ValueFQN(testModuleName, QualifiedName("HyperBox", Qualifier.Type)))
+        dummySourced(ValueFQN(testModuleName, QualifiedName(name, Qualifier.Type)))
       )
     )
 

@@ -173,10 +173,13 @@ object Evaluator extends Logging {
       reduce(applied, source).flatMap {
         case ConcreteValue(v) => v.pure[CompilerIO]
         case other            =>
-          compilerAbort(
-            source.as("Type signature did not evaluate to concrete value after applying type arguments."),
-            Seq(s"Result: ${other.show}")
-          )
+          error[CompilerIO](
+            s"Type signature did not evaluate to concrete value after applying type arguments, result: ${other.show}"
+          ) >>
+            compilerAbort(
+              source.as("Type signature did not evaluate to concrete value after applying type arguments."),
+              Seq(s"Result: ${other.show}")
+            )
       }
     }
 
