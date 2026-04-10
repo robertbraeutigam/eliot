@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize2.processor
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.eval.fact.Types
 import com.vanillasource.eliot.eliotc.eval.processor.{
@@ -15,7 +16,7 @@ import com.vanillasource.eliot.eliotc.implementation.processor.{
   AbilityImplementationProcessor
 }
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize2.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
@@ -120,8 +121,11 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  it should "reject different arities of generic parameters" in {
-    runForErrors("def id[B, A[_]](a: A[B]): A[B]\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)")
+  it should "accept lower arities of generic parameters" in {
+    runForErrors(
+      "def id[B, A[_]](a: A[B]): A[B]\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)",
+      typeArgs = Seq(intType, stringType, funcType)
+    )
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -132,7 +136,7 @@ class MonomorphicTypeCheckTest
   }
 
   it should "type check higher-kinded parameter returning identity" in {
-    runForErrors("def f[F[_]](x: F[Int]): F[Int] = x", typeArgs = Seq(intType))
+    runForErrors("data Box[A]\ndef f[F[_]](x: F[BigInteger]): F[BigInteger] = x", typeArgs = Seq(boxType))
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -404,6 +408,13 @@ class MonomorphicTypeCheckTest
   }
 
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
+
+  private val boxType: Sourced[OperatorResolvedExpression] =
+    dummySourced(
+      OperatorResolvedExpression.ValueReference(
+        dummySourced(ValueFQN(testModuleName, QualifiedName("Box", Qualifier.Type)))
+      )
+    )
 
   private val funcType: Sourced[OperatorResolvedExpression] =
     dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.functionDataTypeFQN)))
