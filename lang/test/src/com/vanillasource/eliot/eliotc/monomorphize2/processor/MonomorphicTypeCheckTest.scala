@@ -180,7 +180,7 @@ class MonomorphicTypeCheckTest
 
   it should "type check with explicit nested higher-kinded restriction" in {
     runForErrors(
-      "type AlwaysString[A, B] = String\ntype HyperAlwaysString[F[_], T] = String\ndef f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x",
+      "type AlwaysString[A, B] = String\ntype HyperAlwaysString[F[_]] = String\ndef f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x",
       typeArgs = Seq(testType("AlwaysString"), testType("HyperAlwaysString"))
     ).asserting(_ shouldBe Seq.empty)
   }
