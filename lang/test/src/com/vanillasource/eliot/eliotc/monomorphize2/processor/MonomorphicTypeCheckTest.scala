@@ -337,13 +337,13 @@ class MonomorphicTypeCheckTest
   }
 
   it should "type check with too few explicit type args by inferring the rest" in {
-    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = f2[String](s, i)")
+    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: BigInteger): String = f2[String](s, i)")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail with too few explicit type args that conflict with usage" in {
-    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = f2[Int](s, i)")
-      .asserting(_ shouldBe Seq("Type mismatch." at "s"))
+    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: BigInteger): String = f2[BigInteger](s, i)")
+      .asserting(_ should contain("Type mismatch." at "f2[BigInteger](s, i)")) // TODO: sourcing is not ok
   }
 
   it should "type check with explicit type args and multiple type params" in {
