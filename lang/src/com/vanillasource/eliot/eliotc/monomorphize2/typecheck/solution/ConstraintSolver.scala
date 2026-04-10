@@ -93,16 +93,19 @@ object ConstraintSolver extends Logging {
       case (_, FunctionLiteral(paramName, _, body))                                 =>
         for {
           fresh   <- generateUnificationVar
-          freshRef = ParameterReference(paramName.as(fresh))
+          freshRef = ParameterReference(constraint.right.as(fresh))
           reduced  = OperatorResolvedExpression.substitute(body.value, paramName.value, freshRef)
           _       <- enqueue(Seq(Constraint(constraint.left, constraint.right.as(reduced), constraint.errorMessage)))
         } yield true
 
-      // Structural decomposition: both sides are function applications
+      // Structural decomposition: both sides are function applications.
+      // Re-source sub-constraint right sides to preserve the parent constraint's
+      // call-site position, preventing definition-site positions from leaking
+      // through inner expression tree nodes.
       case (FunctionApplication(lt, la), FunctionApplication(rt, ra))               =>
         val subs = Seq(
-          Constraint(lt.value, rt, constraint.errorMessage),
-          Constraint(la.value, ra, constraint.errorMessage)
+          Constraint(lt.value, constraint.right.as(rt.value), constraint.errorMessage),
+          Constraint(la.value, constraint.right.as(ra.value), constraint.errorMessage)
         )
         enqueue(subs).as(true)
 
@@ -110,7 +113,7 @@ object ConstraintSolver extends Logging {
       case (ValueReference(ln, largs), ValueReference(rn, rargs))
           if ln.value == rn.value && largs.length == rargs.length =>
         val subs = largs.zip(rargs).map { case (la, ra) =>
-          Constraint(la.value, ra, constraint.errorMessage)
+          Constraint(la.value, constraint.right.as(ra.value), constraint.errorMessage)
         }
         enqueue(subs).as(true)
 

@@ -97,7 +97,7 @@ object ConstraintExtract extends Logging {
           _             <- resolvedMaybe match {
                              case Some(resolved) =>
                                val appliedSig =
-                                 typeArgs.foldLeft(resolved.typeStack.map(_.signature)) { (acc, arg) =>
+                                 typeArgs.foldLeft(expression.as(resolved.typeStack.value.signature)) { (acc, arg) =>
                                    acc.as(FunctionApplication(acc, arg))
                                  }
                                tellConstraint(
@@ -159,7 +159,7 @@ object ConstraintExtract extends Logging {
                           body.as(ParameterReference(body.as(retTypeVar)))
                         )
           _          <- tellConstraint(
-                          Constraints.constraint(assumedType, body.as(funcType), "Type mismatch.")
+                          Constraints.constraint(assumedType, expression.as(funcType), "Type mismatch.")
                         )
         } yield expression.value
     })

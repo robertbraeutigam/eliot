@@ -56,7 +56,7 @@ class MonomorphicTypeCheckTest
 
   it should "not compile if call site has arguments, but definition doesn't" in {
     runForErrors("def f: String = b(1)\ndef b: String")
-      .asserting(_ shouldBe Seq("Type mismatch." at "b"))
+      .asserting(_ shouldBe Seq("Type mismatch." at "b(1)"))
   }
 
   it should "not compile if call site has no arguments, but definition has one" in {
@@ -83,12 +83,12 @@ class MonomorphicTypeCheckTest
 
   it should "fail if forward unification to concrete types produces conflict" in {
     runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(i)")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
+      .asserting(_ shouldBe Seq("Type mismatch." at "id(i)"))
   }
 
   it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
     runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(id(id(i)))")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "id(id(i))"))
+      .asserting(_ shouldBe Seq("Type mismatch." at "id(i)"))
   }
 
   it should "fail when returning different, but non-constrained generic" in {
