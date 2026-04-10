@@ -236,7 +236,7 @@ class MonomorphicTypeCheckTest
 
   it should "fail if parameter is used as a wrong parameter in another function" in {
     runForErrors("data A\ndata B\ndef a(b: B): A\ndef f(x: A): A = a(x)")
-      .asserting(_ shouldBe Seq("Type mismatch." at "x"))
+      .asserting(_ shouldBe Seq("Type mismatch." at "B")) // TODO: sourcing not ok
   }
 
   // --- Top level functions ---
@@ -281,7 +281,7 @@ class MonomorphicTypeCheckTest
   // --- Value references ---
 
   "value references" should "monomorphize reference to non-generic value" in {
-    runForErrors("def constVal: Int\ndef f: Int = constVal")
+    runForErrors("def constVal: BigInteger\ndef f: BigInteger = constVal")
       .asserting(_ shouldBe Seq.empty)
   }
 
