@@ -333,7 +333,7 @@ class MonomorphicTypeCheckTest
 
   it should "fail with too many type arguments" in {
     runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[String, String](s)")
-      .asserting(_ shouldBe Seq("Too many type arguments: expected at most 1, got 2" at "s"))
+      .asserting(_ shouldBe Seq("Not a function." at "id[String, String](s)"))
   }
 
   it should "type check with too few explicit type args by inferring the rest" in {
