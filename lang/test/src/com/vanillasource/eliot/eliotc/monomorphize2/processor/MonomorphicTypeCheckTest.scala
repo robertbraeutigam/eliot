@@ -364,7 +364,7 @@ class MonomorphicTypeCheckTest
     runForErrors(
       "data Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[BigInteger](g)"
     )
-      .asserting(_ shouldBe Seq("Type mismatch." at "A")) // TODO: sourcing wrong
+      .asserting(_ shouldBe Seq("Type mismatch." at "g"))
   }
 
   it should "type check with an applied generic type as a type argument" in {
