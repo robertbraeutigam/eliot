@@ -113,7 +113,10 @@ class MonomorphicTypeCheckTest
   // --- Higher-kinded types ---
 
   "higher-kinded types" should "type check through single generic placeholder" in {
-    runForErrors("def id[A](a: A): A\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)")
+    runForErrors(
+      "def id[A](a: A): A\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)",
+      typeArgs = Seq(intType, stringType, funcType)
+    )
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -401,6 +404,9 @@ class MonomorphicTypeCheckTest
   }
 
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
+
+  private val funcType: Sourced[OperatorResolvedExpression] =
+    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.functionDataTypeFQN)))
 
   private val intType: Sourced[OperatorResolvedExpression] =
     dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.bigIntFQN)))

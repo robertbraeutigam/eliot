@@ -146,6 +146,16 @@ object Evaluator extends Logging {
       typeArgs: Seq[Value],
       source: Sourced[?]
   ): CompilerIO[Value] =
+    applyExpressionTypeArgs(typeExprValue, typeArgs.map(ConcreteValue(_)), source)
+
+  /** Apply type arguments as ExpressionValues to a type ExpressionValue. This supports higher-kinded type arguments
+    * (type constructors like Function) that evaluate to NativeFunction rather than ConcreteValue.
+    */
+  def applyExpressionTypeArgs(
+      typeExprValue: ExpressionValue,
+      typeArgs: Seq[ExpressionValue],
+      source: Sourced[?]
+  ): CompilerIO[Value] =
     if (typeArgs.isEmpty) {
       typeExprValue match {
         case ConcreteValue(v) => v.pure[CompilerIO]
@@ -157,7 +167,7 @@ object Evaluator extends Logging {
       val applied = typeArgs.foldLeft[ExpressionValue](typeExprValue) { (fn, arg) =>
         FunctionApplication(
           source.as(fn),
-          source.as(ConcreteValue(arg))
+          source.as(arg)
         )
       }
       reduce(applied, source).flatMap {
