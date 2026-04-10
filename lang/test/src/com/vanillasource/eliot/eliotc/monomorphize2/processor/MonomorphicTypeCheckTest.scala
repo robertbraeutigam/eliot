@@ -141,13 +141,13 @@ class MonomorphicTypeCheckTest
   }
 
   it should "type check higher-kinded parameter with two type args" in {
-    runForErrors("def f[F[_, _]](x: F[Int, String]): F[Int, String] = x", typeArgs = Seq(intType))
+    runForErrors("def f[F[_, _]](x: F[BigInteger, String]): F[BigInteger, String] = x", typeArgs = Seq(funcType))
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "fail when higher-kinded parameters mismatch" in {
-    runForErrors("def f[F[_]](x: F[Int]): F[String] = x", typeArgs = Seq(intType))
-      .asserting(_.nonEmpty shouldBe true)
+    runForErrors("data Box[A]\ndef f[F[_]](x: F[BigInteger]): F[String] = x", typeArgs = Seq(boxType))
+      .asserting(_ shouldBe Seq("Type mismatch." at "BigInteger")) // TODO: Sourcing not 100%
   }
 
   it should "type check nested higher-kinded parameter" in {
