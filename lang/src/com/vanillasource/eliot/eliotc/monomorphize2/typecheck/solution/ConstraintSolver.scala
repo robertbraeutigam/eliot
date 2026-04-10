@@ -80,22 +80,31 @@ object ConstraintSolver extends Logging {
         } yield true
 
       // Instantiation: top-level FunctionLiteral on the right.
+      // Re-source the reduced body so that all inner Sourced positions point to the call site
+      // (constraint.right) rather than the definition site. This ensures that structural
+      // decomposition preserves call-site positions for error reporting.
       case (_, FunctionLiteral(paramName, _, body))                                 =>
         for {
           fresh   <- generateUnificationVar
           freshRef = ParameterReference(constraint.right.as(fresh))
-          reduced  = OperatorResolvedExpression.substitute(body.value, paramName.value, freshRef)
+          reduced  = OreNormalizer.reSource(
+                       OperatorResolvedExpression.substitute(body.value, paramName.value, freshRef),
+                       constraint.right
+                     )
           _       <- enqueue(Seq(Constraint(constraint.left, constraint.right.as(reduced), constraint.errorMessage)))
         } yield true
 
       // Structural decomposition: both sides are function applications.
-      // Re-source sub-constraint right sides to preserve the parent constraint's
-      // call-site position, preventing definition-site positions from leaking
-      // through inner expression tree nodes.
+      // The target sub-constraint is re-sourced to the parent's position to prevent
+      // definition-site positions from leaking through signature tree nodes.
+      // The argument sub-constraint preserves the inner position (ra) so that errors
+      // point to the specific body expression or call-site argument rather than the
+      // enclosing node. This works because right-side instantiation (above) re-sources
+      // definition-site bodies to the call-site position.
       case (FunctionApplication(lt, la), FunctionApplication(rt, ra))               =>
         val subs = Seq(
           Constraint(lt.value, constraint.right.as(rt.value), constraint.errorMessage),
-          Constraint(la.value, constraint.right.as(ra.value), constraint.errorMessage)
+          Constraint(la.value, ra, constraint.errorMessage)
         )
         enqueue(subs).as(true)
 
