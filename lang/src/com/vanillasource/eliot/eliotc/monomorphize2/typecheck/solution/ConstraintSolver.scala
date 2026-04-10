@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.eval.util.Evaluator
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.{Constraints, ShortUniqueIdentifiers}
+import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.normalize.OreNormalizer
 import com.vanillasource.eliot.eliotc.monomorphize2.typecheck.constraints.Constraints.Constraint
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
@@ -16,9 +17,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 import SolverState.*
 
-/** Solves ORE constraints by iteratively substituting current bindings, decomposing constraints with matching
-  * structural shape (function applications and value references), and binding unification variables to (possibly
-  * partial) ORE terms. Falls back to evaluation via [[Evaluator]] when neither decomposition nor binding applies.
+/** Solves ORE constraints by iteratively substituting current bindings, normalizing both sides to WHNF via
+  * [[OreNormalizer]], decomposing constraints with matching structural shape (function applications and value
+  * references), and binding unification variables to (possibly partial) ORE terms. Falls back to evaluation via
+  * [[Evaluator]] when neither decomposition nor binding applies.
   */
 object ConstraintSolver extends Logging {
 
@@ -45,8 +47,8 @@ object ConstraintSolver extends Logging {
   private def processConstraint(constraint: Constraint): SolverIO[Boolean] =
     for {
       bindings <- currentBindings
-      leftSub   = substituteAll(constraint.left, bindings)
-      rightSub  = constraint.right.map(substituteAll(_, bindings))
+      leftSub   = OreNormalizer.normalize(substituteAll(constraint.left, bindings))
+      rightSub  = constraint.right.map(r => OreNormalizer.normalize(substituteAll(r, bindings)))
       _        <- debug[SolverIO](s"Checking ${leftSub.show} vs. ${rightSub.value.show}")
       resolved <- tryResolve(Constraint(leftSub, rightSub, constraint.errorMessage))
     } yield resolved
@@ -64,18 +66,6 @@ object ConstraintSolver extends Logging {
       // Trivially satisfied: same unification variable on both sides
       case (ParameterReference(ln), ParameterReference(rn)) if ln.value == rn.value =>
         true.pure[SolverIO]
-
-      // Beta-reduction: left side is a beta-redex (function literal applied to an argument).
-      // Reduce before any structural decomposition, otherwise we'd decompose pieces of a redex
-      // against pieces of an unrelated function application.
-      case (FunctionApplication(Sourced(_, _, FunctionLiteral(paramName, _, body)), arg), _) =>
-        val reduced = OperatorResolvedExpression.substitute(body.value, paramName.value, arg.value)
-        enqueue(Seq(Constraint(reduced, constraint.right, constraint.errorMessage))).as(true)
-
-      // Beta-reduction: right side is a beta-redex.
-      case (_, FunctionApplication(Sourced(_, _, FunctionLiteral(paramName, _, body)), arg)) =>
-        val reduced = OperatorResolvedExpression.substitute(body.value, paramName.value, arg.value)
-        enqueue(Seq(Constraint(constraint.left, constraint.right.as(reduced), constraint.errorMessage))).as(true)
 
       // Instantiation: top-level FunctionLiteral on the left (an unapplied polytype, e.g. the
       // signature of a referenced generic value). Specialize it by substituting the bound
