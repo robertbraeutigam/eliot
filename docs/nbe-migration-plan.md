@@ -102,16 +102,57 @@ At each ORE node, the checker either knows the expected type (from a parent chec
 
 This means the checker never asks "how many type parameters does this value have?" — it applies what's given and lets unification figure out the rest.
 
+**ANTI-PATTERN: Do NOT extract "generic parameters" from ORE.** Monomorphize v1 uses `TypeParameterAnalysis` to walk leading FunctionLiterals in the evaluated type, count them, and classify them as "type parameters." Monomorphize v2 identifies FunctionLiteral levels in the type stack as "type parameter bindings." **Monomorphize3 does neither.** There is no concept of "generic parameters" as a separate extracted structure. The type stack levels are just ORE expressions — each one is uniformly checked against the type from the level above, evaluated, and the result becomes the expected type for the level below. When a level happens to be a FunctionLiteral and the expected type is VType, the Checker naturally produces VPi. When a level is a plain type expression, the Checker evaluates it normally. The TypeStackLoop doesn't know or care which levels are "generic" — it treats all levels identically. Never analyze ORE to determine "how many type parameters" or "which parameters are generic" — that information does not exist in monomorphize3.
+
 ### The type stack
 
-Each value has a `TypeStack` of ORE levels. The checker walks them top-down:
-1. Start at the topmost level; check against `VType` (implicit).
-2. Evaluate the level to a `SemValue` — this becomes the expected type of the next level.
-3. Continue until the signature level is reached.
-4. Apply specified type arguments via `apply(sig, eval(typeArg))`.
-5. Check the runtime body against the monomorphized signature.
+Each value has a `TypeStack` of ORE levels. The checker walks them top-down via a uniform fold — every level is processed identically, regardless of whether it represents a "type parameter" or the "signature."
 
-This is "consume the stack, running each level against the level above, to get the type of the level below" — no assumptions about ORE shape, no lambda stripping, no structural pattern-matching on the levels.
+**Pseudocode for TypeStackLoop:**
+```
+def processTypeStack(typeStack, specifiedTypeArgs, runtime):
+  levels = typeStack.levels.toList.reverse   // top-down order
+  expectedType = VType                       // implicit top
+
+  // Walk all levels uniformly
+  for each level in levels:
+    checkedExpr = checker.check(level, expectedType)
+    expectedType = evaluator.eval(env, level)   // becomes the expected type for the NEXT level
+
+  // expectedType is now the fully evaluated signature type
+  signature = expectedType
+
+  // Apply explicit type args (Step 5+): just call apply, no counting
+  for each typeArg in specifiedTypeArgs:
+    signature = apply(signature, eval(env, typeArg))
+
+  // Check runtime body against the monomorphized signature
+  if runtime exists:
+    bodyExpr = checker.check(runtime, signature)
+
+  // Drain unifier, quote signature to GroundValue, produce output fact
+```
+
+**Concrete example — non-generic `one: BigInteger = 1`:**
+- TypeStack has 1 level: `[ValueReference(bigIntFQN)]`
+- Reversed: `[ValueReference(bigIntFQN)]`
+- Iteration 1: check `ValueReference(bigIntFQN)` against VType → OK (it's a type). Evaluate → `VConst(bigIntType)`.
+- expectedType is now `VConst(bigIntType)`. No type args. Check body `1` against `VConst(bigIntType)`.
+
+**Concrete example — generic `id (A: Type) (a: A): A = a`:**
+
+The `curriedFunctionType` in `CoreExpressionConverter` builds this: first runtime args are folded into `Function(A)(A)`, then generic params are folded as FunctionLiterals wrapping that: `(A: Type) -> Function(A)(A)`. The kind expression `buildKindExpression` produces `Function(Type)(Type)`.
+
+- TypeStack has 2 levels: `[(A: Type) -> Function(A)(A), Function(Type)(Type)]`
+  - `levels[0]` (signature) = `(A: Type) -> Function(A)(A)` — a FunctionLiteral with leading lambda binding A, followed by the runtime function type
+  - `levels[1]` (kind) = `Function(Type)(Type)` — a FunctionApplication (NOT a FunctionLiteral), describing the kind: Type → Type
+- Reversed: `[Function(Type)(Type), (A: Type) -> Function(A)(A)]`
+- Iteration 1: check `Function(Type)(Type)` against VType → it's a type constructor application that evaluates to `VPi(VType, _ => VType)`. expectedType = `VPi(VType, _ => VType)`.
+- Iteration 2: check `(A: Type) -> Function(A)(A)` against `VPi(VType, _ => VType)` → Checker sees a FunctionLiteral checked against VPi. It uses VPi's domain (VType) as A's type, binds A, checks body `Function(A)(A)` against codomain (VType) — succeeds since it's a type. Evaluate the level → `VLam("A", closure)` (the evaluator produces VLam for FunctionLiteral).
+- expectedType is now `VLam("A", closure)`. Apply `specifiedTypeArgs = [BigInteger]` via `apply(VLam(...), eval(BigInteger))` → closure fires with A=bigIntType → `VPi(VConst(bigIntType), _ => VConst(bigIntType))`.
+- Check runtime body against this concrete function type.
+
+**The key insight:** the loop body is the same for both examples. There is no branch for "is this level a type parameter?" — every level is just checked and evaluated. Generics emerge from the FunctionLiteral in the SIGNATURE (levels[0]) being checked against the VPi kind from above — NOT from analyzing ORE to extract "type parameters."
 
 ---
 
@@ -259,7 +300,17 @@ This is "consume the stack, running each level against the level above, to get t
   - `infer(tm) -> CheckIO[(Monomorphic3Expression, SemValue)]`
   - Non-generic cases: literals, ParameterReference, ValueReference (no typeArgs), FunctionApplication, FunctionLiteral with annotation.
 
-- `check/TypeStackLoop.scala` — walks `typeStack.levels.reverse` top-down. Each level is checked against the level above, evaluated to SemValue, becomes the expected type for the next level. Applies specifiedTypeArguments. Checks runtime body. Drains unifier. Quotes signature.
+- `check/TypeStackLoop.scala` — implements the uniform top-down fold described in the architecture section. The algorithm is:
+  1. Reverse the type stack levels and fold with `expectedType = VType`.
+  2. For each level: `checker.check(level, expectedType)`, then `expectedType = eval(level)`.
+  3. After the fold, `expectedType` is the fully evaluated signature.
+  4. Apply `specifiedTypeArguments` via `apply(sig, eval(typeArg))` for each (empty in Step 4).
+  5. If runtime body exists, `checker.check(body, signature)`.
+  6. Drain unifier, quote signature to GroundValue, produce Monomorphic3Value.
+
+  **In Step 4, all tested values are non-generic** — their type stacks have exactly 1 level. The fold runs once, producing a direct type like `VConst(bigIntType)` or `VPi(...)` for function types. The multi-level case (generics) is exercised in Step 5. But the TypeStackLoop code is the same — no conditional logic is added in Step 5, only more test coverage.
+
+  **Do NOT inspect ORE levels to classify them as "type parameters" vs "signature."** The fold is uniform. Do NOT extract leading FunctionLiterals. Do NOT count type parameters. The TypeStackLoop has no knowledge of generics.
 
 - `processor/Monomorphic3Processor.scala` — replace stub with real call to TypeStackLoop.
 
@@ -287,6 +338,8 @@ Into `Monomorphic3TypeCheckTest`:
 ## Step 5 — Generics and polytype instantiation
 
 **Goal.** Generic values, implicit/explicit type arguments, usage-driven polytype instantiation.
+
+**TypeStackLoop does NOT change.** The uniform fold from Step 4 already handles multi-level type stacks correctly — a generic value's FunctionLiteral levels produce VPi binders naturally when checked against VType. Step 5 only changes the **Checker** (handling type args in `infer(ValueReference)` and implicit instantiation in `infer(FunctionApplication)`) and adds test coverage for generic values.
 
 **Changes:**
 
