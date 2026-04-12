@@ -145,13 +145,13 @@ object ConstraintSolver extends Logging {
       leftMaybe  <- StateT.liftF(recover(Evaluator.evaluate(constraint.left).map(Some(_)))(None))
       rightMaybe <- StateT.liftF(recover(Evaluator.evaluate(constraint.right).map(Some(_)))(None))
       resolved   <- (leftMaybe, rightMaybe) match {
-                      case (None, _) | (_, None)                                      =>
+                      case (None, _) | (_, None)                                          =>
                         true.pure[SolverIO]
                       case (Some(ConcreteValue(v1)), Some(ConcreteValue(v2))) if v1 == v2 =>
                         true.pure[SolverIO]
-                      case (Some(_: ConcreteValue), Some(_: ConcreteValue))            =>
+                      case (Some(_: ConcreteValue), Some(_: ConcreteValue))               =>
                         StateT.liftF(issueValueError(constraint, leftMaybe.get, rightMaybe.get)).as(true)
-                      case _                                                          =>
+                      case _                                                              =>
                         false.pure[SolverIO]
                     }
     } yield resolved

@@ -29,9 +29,9 @@ object TypeCheckState {
   def lookupParameter(name: String): TypeGraphIO[Option[Sourced[OperatorResolvedExpression]]] =
     StateT.inspect(_.parameterTypes.get(name))
 
-  /** Record the assumed (expected-from-parent) type expression at a given ORE node. The processor
-    * walk reads from this map by the same `Sourced` wrapper to discover each node's expected
-    * type, instead of replaying the extractor's fresh-variable generator.
+  /** Record the assumed (expected-from-parent) type expression at a given ORE node. The processor walk reads from this
+    * map by the same `Sourced` wrapper to discover each node's expected type, instead of replaying the extractor's
+    * fresh-variable generator.
     */
   def recordAssumedType(
       node: Sourced[OperatorResolvedExpression],

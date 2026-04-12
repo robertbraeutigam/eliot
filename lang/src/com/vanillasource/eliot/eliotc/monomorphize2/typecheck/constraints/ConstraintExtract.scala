@@ -44,8 +44,8 @@ object ConstraintExtract extends Logging {
     * level below. It strips all lambda expressions and returns expressions that include only unification vars.
     *
     * Side effect: records the assumed (expected-from-parent) ORE type at this node into
-    * `TypeCheckState.nodeAssumedTypes`. The processor walk later reads from that side-table by
-    * node identity, instead of replaying the extractor's fresh-variable generator.
+    * `TypeCheckState.nodeAssumedTypes`. The processor walk later reads from that side-table by node identity, instead
+    * of replaying the extractor's fresh-variable generator.
     */
   private def collectConstraints(
       assumedType: Sourced[OperatorResolvedExpression],

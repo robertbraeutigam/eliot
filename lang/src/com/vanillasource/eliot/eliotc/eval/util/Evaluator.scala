@@ -111,9 +111,9 @@ object Evaluator extends Logging {
                                case _                =>
                                  FunctionApplication(target.as(reducedTarget), arg.as(reducedArg)).pure[CompilerIO]
                              }
-                           case _: ConcreteValue                              =>
+                           case _: ConcreteValue                            =>
                              compilerAbort(target.as("Not a function."))
-                           case _                                              =>
+                           case _                                           =>
                              FunctionApplication(target.as(reducedTarget), arg.as(reducedArg)).pure[CompilerIO]
                          }
       } yield result
