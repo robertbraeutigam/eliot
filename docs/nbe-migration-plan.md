@@ -1,545 +1,430 @@
-# Plan: NbE-based monomorphize2
+# Plan: Build `monomorphize3` — a standalone NbE type checker
 
-A migration plan to replace `monomorphize2`'s constraint-extract / solve / processor pipeline with a single-pass bidirectional elaborator backed by **Normalization by Evaluation** (NbE). New `eval2` package provides the semantic domain, evaluator, and unifier with metavariables. The existing `eval` package and `ORE` are not touched. Output (`MonomorphicValue` / `MonomorphicExpression`) keeps its current shape, with the bonus that `calculatedTypeArguments` finally gets populated.
+## Strategy
 
-This document is a **plan / outline**, not a spec. The intent is enough detail that someone with the existing codebase in front of them can sit down and start implementing, not a finished design.
+Build NbE as a **completely independent** `monomorphize3` package alongside the existing `monomorphize` and `monomorphize2` packages. Neither is touched, deleted, or compared against at runtime. `monomorphize3` has its own semantic domain, evaluator, native-value processors, ground value type, and output fact shapes. The only dependency on existing code is consuming `OperatorResolvedExpression` / `OperatorResolvedValue` / `TypeStack` as read-only input.
 
-## 0. Goals
+Each step compiles clean, leaves all existing test suites green, and adds its own tests for the new code it introduces. There is no "swap" step — `monomorphize3` lives alongside the others indefinitely.
 
-- Eliminate `ConstraintExtract`, `ConstraintSolver`, `Constraints`, `Solution`, `SolverState`, `TypeCheckState`, `ShortUniqueIdentifiers`, and the `WalkIO` replay in the processor.
-- Replace them with a bidirectional NbE-based elaborator that walks the ORE once and produces `MonomorphicExpression` directly.
-- Type-level computation is handled by the evaluator instead of by an `evalAndCompare` fallback.
-- Polytype instantiation becomes function application at the semantic level — no separate "instantiation rule" needed.
-- ORE, the existing `eval` package, and downstream consumers (`uncurry`, `used`) are untouched.
-- `MonomorphicExpression` shape stays the same; `MonomorphicValue.calculatedTypeArguments` finally gets populated with the inferred type arguments per call site.
+## Key design decisions
 
-## 1. Why NbE
+1. **No dependency on `eval/` at runtime.** `monomorphize3` has its own semantic domain, evaluator, native-value fact and processors, ground `Value` type, and output fact shapes. The only things copied from `eval/` are the *patterns* of how native system values are injected via `CompilerFact` processors, and the well-known `ValueFQN`s for built-ins like `Function`, `Type`, `BigInteger`, `String`.
 
-A constraint-based unification engine over a syntactic representation is fine for HM. It strains as soon as types can compute (type-level functions, applied data type constructors, etc.) — that's why `monomorphize2` already needed an `evalAndCompare` fallback. The fallback is a hint that the underlying model wants reduction baked in, not bolted on.
+2. **The output fact shape is free to change.** Since no downstream consumer (`uncurry`, `used`, JVM backend) depends on `monomorphize3`, the result type can be shaped for clarity and NbE fidelity.
 
-NbE-based elaborators (Lean 4, Idris 2, Agda, [smalltt](https://github.com/AndrasKovacs/smalltt)) handle this by making the evaluator the canonical normalizer. Type equality is structural equality of normal forms. Polytype instantiation is just function application at the value level. Unification is local: when two values meet during elaboration, they unify on the spot (with metavariables for unknowns). There is no constraint set, no worklist, no separate solving phase, no replay.
+3. **The evaluator is designed for NbE from day one.** De Bruijn levels in the env, Scala-closure closures, lazy top-def thunks, `IntMap` meta store, spine-based neutrals. No ORE rewriting ever — ORE is read once into `SemValue` and then forgotten.
 
-The architecture is also a much better fit for where Eliot is heading: dependent types and compile-time guarantees about resource usage. Both of those *require* type-level reduction as a first-class operation.
+## Target file layout
 
-## 2. The new `eval2` package
+```
+lang/src/com/vanillasource/eliot/eliotc/monomorphize3/
+├── fact/
+│   ├── GroundValue.scala              (own Value replacement: Direct, Structure, Type)
+│   ├── Monomorphic3Value.scala        (output fact)
+│   ├── Monomorphic3Expression.scala   (output expression ADT)
+│   └── NativeBinding.scala            (CompilerFact: vfqn → SemValue for natives)
+├── domain/
+│   ├── SemValue.scala                 (VType, VConst, VLam, VPi, VNative,
+│   │                                    VNeutral, VTopDef, VMeta, Spine, Closure)
+│   ├── Env.scala                      (Vector[SemValue] + level; de Bruijn levels)
+│   └── MetaStore.scala                (IntMap[MetaEntry]; fresh/solve/lookup)
+├── eval/
+│   ├── Evaluator.scala                (eval, apply, force, quote)
+│   └── Quoter.scala                   (SemValue → GroundValue projection)
+├── processor/
+│   ├── SystemNativesProcessor.scala   (built-in Function/Type/etc. → NativeBinding)
+│   ├── DataTypeNativesProcessor.scala (data declarations → NativeBinding)
+│   ├── UserValueNativesProcessor.scala (user def → NativeBinding, cached via fact system)
+│   └── Monomorphic3Processor.scala    (the monomorphize3 entry point)
+├── unify/
+│   └── Unifier.scala                  (pattern unification + postponement)
+└── check/
+    ├── Checker.scala                  (bidirectional check / infer)
+    ├── CheckState.scala               (env, meta store, pending, errors)
+    └── TypeStackLoop.scala            (top-down walk over OperatorResolvedValue.typeStack)
 
-`lang/src/com/vanillasource/eliot/eliotc/eval2/` — parallel to the existing `eval`. Different in two essential ways:
-
-1. The semantic domain (`Sem`) carries metavariables as first-class neutral heads.
-2. The evaluator is the canonical normalizer; eval2 always evaluates, eagerly, and only stops at neutral terms (free parameters, unsolved metas, blocked top-level definitions).
-
-### 2.1 The semantic domain (`eval2/fact/Sem.scala`)
-
-```scala
-sealed trait Sem
-
-object Sem {
-  /** A literal value: BigInt, String, etc. Wraps the existing eval `Value.Direct`. */
-  case class Lit(direct: Value.Direct) extends Sem
-
-  /** The universe of types. */
-  case object TypeUniv extends Sem
-
-  /** A fully-evaluated structure (data type instance, function type, etc). */
-  case class Struct(typeFqn: ValueFQN, fields: Map[String, Sem]) extends Sem
-
-  /** A closure: a lambda value waiting to be applied. The body is ORE — the closure
-    * captures the env at construction time and re-evaluates the body when applied. */
-  case class Lam(paramName: String, dom: Sem, body: Closure) extends Sem
-
-  /** A neutral term: a head (variable, meta, or stuck top-level reference) followed
-    * by a spine of arguments. Cannot be reduced further until something fills in the head. */
-  case class Neut(head: Head, spine: Seq[Sem]) extends Sem
-}
-
-sealed trait Head
-object Head {
-  /** A bound parameter that escaped its binder (free in the current scope). */
-  case class Param(name: String) extends Head
-
-  /** A unification metavariable. */
-  case class Meta(id: MetaId) extends Head
-
-  /** A top-level value reference whose body is currently blocked from reducing
-    * (e.g. recursive definition, opaque definition). */
-  case class Ref(vfqn: ValueFQN) extends Head
-}
-
-case class Closure(env: Env, body: OperatorResolvedExpression)
-
-case class Env(params: Map[String, Sem]) {
-  def extend(name: String, sem: Sem): Env = copy(params + (name -> sem))
-}
-object Env { def empty: Env = Env(Map.empty) }
-
-opaque type MetaId = Int
+lang/test/src/com/vanillasource/eliot/eliotc/monomorphize3/
+├── eval/        NbeEvaluatorTest, NbeQuoterTest
+├── unify/       NbeUnifierTest
+├── check/       NbeCheckerTest
+└── processor/   Monomorphic3ProcessorTest, Monomorphic3TypeCheckTest
 ```
 
-Key relationships:
-- `Value` (existing) is essentially the **fully-ground** subset of `Sem` — everything except `Lam` (which needs more work) and `Neut` (which needs more bindings to reduce).
-- `quote: Sem => Option[Value]` (see §2.4) is the projection back to `Value` for output, used after all metas are solved.
+## How NbE works in this design
 
-### 2.2 The evaluator (`eval2/util/Evaluator2.scala`)
+### The semantic domain
 
-```scala
-object Evaluator2 {
-  def eval(env: Env, expr: OperatorResolvedExpression): EvalIO[Sem]
-  def apply(f: Sem, arg: Sem): EvalIO[Sem]
-}
-```
+The core idea: ORE (syntax) is evaluated into `SemValue` (semantics) via closures. Type equality becomes structural equality of normal forms. Polytype instantiation becomes function application at the value level. There is no constraint set, no worklist, no separate solving phase — unification happens locally as the checker walks the ORE.
 
-`EvalIO[A] = StateT[CompilerIO, MetaState, A]` — the evaluator threads the metacontext so that reductions across metavariables produce the right thing.
+**SemValue variants:**
+- `VType` — the type of all types.
+- `VConst(ground: GroundValue)` — non-function ground values: concrete types like `BigInteger`, `String`, `Person`, and concrete runtime values like `42`, `"hello"`.
+- `VLam(name: String, closure: SemValue => SemValue)` — a runtime lambda closure. Produced by the Checker when checking a `FunctionLiteral` against a function type (`VPi`).
+- `VPi(domain: SemValue, codomain: SemValue => SemValue)` — a function type (dependent or non-dependent). ALL function types are `VPi`, including `Function[Int, String]`.
+- `VNative(paramType: SemValue, fire: GroundValue => SemValue)` — primitive that fires on concrete arguments.
+- `VTopDef(fqn: ValueFQN, cached: Lazy[SemValue], spine: Spine)` — lazy top-level definition.
+- `VMeta(id: MetaId, spine: Spine, expected: SemValue)` — unsolved metavariable.
+- `VNeutral(head: NeutralHead, spine: Spine, tpe: SemValue)` — stuck application with a variable head.
 
-`eval` cases:
+**VLam vs VPi — no mode flag needed.** Both are closures internally (`SemValue => SemValue`), but they serve different roles. The distinction falls out naturally from position — the evaluator never decides:
 
-| ORE | Sem result |
-|---|---|
-| `IntegerLiteral(v)` | `Lit(Direct(v, bigIntType))` |
-| `StringLiteral(v)` | `Lit(Direct(v, stringType))` |
-| `ParameterReference(name)` | `env.params(name)` if bound, else `Neut(Param(name), [])` |
-| `ValueReference(vfqn, typeArgs)` | look up the resolved value; eval its **runtime** in `Env.empty` to get a Sem (or `Neut(Ref(vfqn), [])` if blocked); then `apply` it to each evaluated `typeArg` |
-| `FunctionApplication(target, arg)` | `apply(eval(env, target), eval(env, arg))` |
-| `FunctionLiteral(paramName, paramTypeOpt, body)` | `Lam(paramName, eval(env, paramTypeOpt), Closure(env, body))` (fresh meta if `paramTypeOpt` is `None`) |
+- **The Checker decides.** When the Checker encounters `FunctionLiteral` being checked against `VType` (a type expression), it constructs `VPi(domain, codomainClosure)`. When it encounters `FunctionLiteral` being checked against a `VPi(domain, codomain)` (a runtime lambda), it constructs `VLam`. The expected type tells the Checker which to produce.
+- **The native `Function` constructor decides.** `Function[A, B]` is evaluated via `apply(apply(nativeFunction, A), B)`. The native fires and directly produces `VPi(A, _ => B)`, not `VConst(Structure(...))`. This makes all function types — dependent and non-dependent — uniformly `VPi`.
+- **The evaluator doesn't handle `FunctionLiteral` at all.** All ORE walks go through the Checker's `check`/`infer`, which handles `FunctionLiteral` directly based on the expected type. The evaluator only handles literals, parameter refs, value refs, and application — cases where the VLam/VPi question doesn't arise.
 
-`apply(f, arg)`:
+This means `VConst` never represents function types. Function types are always `VPi`. `VConst` is exclusively for non-function ground values (concrete data types, literals, structures).
 
-| Shape of `f` | Result |
-|---|---|
-| `Lam(name, _, Closure(closureEnv, body))` | `eval(closureEnv.extend(name, arg), body)` — the only place reduction actually happens |
-| `Neut(head, spine)` | `Neut(head, spine :+ arg)` — deferred application; will fire when `head` becomes known |
-| `Struct(...)` representing a function *type* | compile error: applying a type to a value |
-| anything else | compile error |
+**Env** is `Vector[SemValue]` indexed by de Bruijn level. Variable lookup is by level, not by name — no `Map[String, SemValue]` in the hot path.
 
-**Top-level definition reduction.** When eval'ing `ValueReference(vfqn, _)`, the evaluator looks up the resolved value's runtime body and re-evaluates it in `Env.empty`. To avoid loops on recursive defs, the evaluator tracks a "currently evaluating" set in `MetaState` (or carries it as an extra reader). On re-entry, it returns `Neut(Ref(vfqn), spine)` instead of recursing — the reference becomes blocked (neutral), which is exactly the behaviour you want for `def f: T = f`-style definitions: the type-checker still sees `f` as having the right type via its signature, but the runtime body doesn't get inlined into itself.
+**Closures** are native Scala functions. When the Checker produces a `VLam`, it captures the current env and body ORE in a Scala closure: `VLam(pn.value, arg => ...)`. Same for `VPi`. No ORE substitution ever happens — variable resolution is by env lookup at evaluation time.
 
-Same applies to mutually recursive defs.
+**Spine** is a reversed cons list for O(1) append: `sealed trait Spine; case object SNil; case class SApp(tail: Spine, head: SemValue)`.
 
-This is the eval2 equivalent of the existing `evaluateValueType` in the OLD monomorphize package, but generalized to all reduction.
+### How computation runs
 
-### 2.3 The metacontext (`eval2/util/MetaState.scala`)
+Type-level computation (like `1+1` in a type position) runs via `apply`. When `eval` encounters `FunctionApplication(target, arg)`, it calls `apply(eval(target), eval(arg))`. For primitives, `apply(VNative(_, fire), VConst(ground))` invokes the Scala function `fire(ground)` — that's real JVM code executing `BigInt.+` or `String.substring`. For user-defined functions, `apply(VLam(_, closure), arg)` invokes the closure, which re-enters `eval` with the extended env.
 
-```scala
-case class MetaInfo(
-    name: String,           // for error messages and debug printing
-    expectedType: Sem,      // for occurs check and zonking
-    solution: Option[Sem]   // None until solved
-)
+When an argument is still symbolic (a meta or neutral), the application stays stuck as a `VNeutral`/`VMeta` with the argument appended to the spine. When unification later solves the meta, `force` re-triggers the application.
 
-case class MetaState(
-    metas: Map[MetaId, MetaInfo] = Map.empty,
-    nextId: Int = 0,
-    inProgress: Set[ValueFQN] = Set.empty  // for top-level recursion guard
-)
+### Bidirectional checking
 
-object MetaState {
-  def freshMeta(name: String, expectedType: Sem): EvalIO[MetaId]
-  def lookupMeta(id: MetaId): EvalIO[MetaInfo]
-  def solveMeta(id: MetaId, sem: Sem): EvalIO[Unit]
-  def withInProgress[A](vfqn: ValueFQN)(action: EvalIO[A]): EvalIO[A]
-}
-```
+The checker has two modes:
+- `check(tm: ORE, expected: SemValue) -> Monomorphic3Expression` — checks a term against a known type.
+- `infer(tm: ORE) -> (Monomorphic3Expression, SemValue)` — infers a term's type.
 
-Solving a meta is destructive (after the occurs check passes). The cost is that any cached `Sem` containing that meta is now stale; the way to deal with it is **never cache forced Sems** — always re-force when reading. `force` walks meta solutions.
+At each ORE node, the checker either knows the expected type (from a parent check) or infers it, producing the `Monomorphic3Expression` as it descends. No side-table, no replay pass — the typed tree is built in one walk.
 
-```scala
-def force(s: Sem): EvalIO[Sem] = s match {
-  case Sem.Neut(Head.Meta(id), spine) =>
-    lookupMeta(id).flatMap {
-      case MetaInfo(_, _, Some(solution)) =>
-        spine.foldLeftM(solution)(Evaluator2.apply).flatMap(force)
-      case _ => s.pure
-    }
-  case other => other.pure
-}
-```
+**No shape assumptions on SemValue.** The checker never peeks at a SemValue to count leading VPi binders, walk leading VLam closures, or otherwise assume a specific structure. Instead:
+- **Explicit type args** at a `ValueReference` are applied via `apply(sig, eval(typeArg))` one by one. If `sig` is a VLam, `apply` beta-reduces. If it's a VTopDef or VNeutral, `apply` appends to the spine. No shape assumption needed.
+- **Implicit type args** are NOT eagerly allocated at the `ValueReference` site. Instead, instantiation is driven lazily by `FunctionApplication`: when the checker infers `id(42)`, it infers `id`'s type (whatever SemValue shape it happens to be), then `infer(FunctionApplication)` forces the target type and unifies it against a fresh `VPi(?domain, ?codomain)`. The meta is created at the point of *use*, not by peeking at the referenced value's structure.
 
-### 2.4 The quoter (`eval2/util/Quoter.scala`)
+This means the checker never asks "how many type parameters does this value have?" — it applies what's given and lets unification figure out the rest.
 
-```scala
-object Quoter {
-  /** Convert a fully-solved Sem to a Value. Returns None if any meta is unsolved
-    * or any free parameter remains. The output Value is what gets stored in
-    * MonomorphicExpression.expressionType. */
-  def quote(sem: Sem): EvalIO[Option[Value]]
-}
-```
+### The type stack
 
-Walks the Sem, forcing each metavariable, and projects each `Sem` constructor to its `Value` counterpart:
+Each value has a `TypeStack` of ORE levels. The checker walks them top-down:
+1. Start at the topmost level; check against `VType` (implicit).
+2. Evaluate the level to a `SemValue` — this becomes the expected type of the next level.
+3. Continue until the signature level is reached.
+4. Apply specified type arguments via `apply(sig, eval(typeArg))`.
+5. Check the runtime body against the monomorphized signature.
 
-| Sem | Value |
-|---|---|
-| `Lit(direct)` | `direct` |
-| `TypeUniv` | `Value.Type` |
-| `Struct(fqn, fields)` | `Value.Structure(fields.mapValues(quote), …)` (recursively quote each field) |
-| `Lam(_, _, _)` | error if encountered after zonking — runtime functions aren't supposed to appear in monomorphized types. (If they're needed for some reason, we'd extend `Value` separately, but Eliot's `Value` model is "no lambdas in types after monomorphization", so this should never happen.) |
-| `Neut(_, _)` | `None` — there's an unresolved meta or free param, that's a "couldn't fully infer" error |
+This is "consume the stack, running each level against the level above, to get the type of the level below" — no assumptions about ORE shape, no lambda stripping, no structural pattern-matching on the levels.
 
-### 2.5 The unifier (`eval2/util/Unifier.scala`)
+---
 
-```scala
-object Unifier {
-  def unify(s1: Sem, s2: Sem): EvalIO[Unit]
-}
-```
+## Step 0 — Baseline
 
-After **forcing both sides** (chasing meta solutions to head normal form), case-split:
+**Goal.** Confirm the current tree compiles clean and all existing tests pass.
 
-| Left | Right | Action |
-|---|---|---|
-| `Lit(v1)` | `Lit(v2)` | succeed iff `v1 == v2`, else error |
-| `TypeUniv` | `TypeUniv` | succeed |
-| `Struct(t1, f1)` | `Struct(t2, f2)` | check `t1 == t2` and key sets match; recursively unify fields |
-| `Lam(_, dom1, c1)` | `Lam(_, dom2, c2)` | unify domains; pick a fresh free `Param`; apply both closures to it; recursively unify results |
-| `Neut(h1, sp1)` | `Neut(h2, sp2)` (`h1 == h2`) | unify spines pointwise |
-| `Neut(Meta(id), spine)` | other | **pattern unification**: if `spine` is a list of distinct `Neut(Param(_), [])`s, abstract `other` over those params and `solveMeta(id, λ params. other)`. Otherwise defer or fail (we don't support full higher-order unification). |
-| other | `Neut(Meta(id), spine)` | symmetric |
-| any | any (mismatched) | type error |
+**Actions.**
+- `./mill lang.compile` — clean.
+- `./mill lang.test` — all pass.
+- Record the current pass/fail state of `MonomorphicTypeCheckProcessorTest` + `MonomorphicTypeCheckTest` as the contract monomorphize3 must eventually match.
 
-**Pattern unification** is the standard restricted form of higher-order unification (Miller). It's decidable, simple to implement, and covers ~95% of real-world cases. The rest fail with "couldn't infer" — which is the same outcome the current solver reaches in hard cases (it just defers forever).
+---
 
-**Occurs check** is part of `solveMeta`: walking `λ params. other` to ensure `id` doesn't appear in it. If it does, we have a recursive type, which is an error.
+## Step 1 — Package skeleton and data shapes
 
-### 2.6 Why a separate package, not extending `eval`
+**Goal.** Create the `monomorphize3` package tree with fact types, ground value type, and a stub processor that aborts. Must compile with no effect on existing tests.
 
-Two reasons:
+**New files:**
 
-1. **Metavariables.** `ExpressionValue` doesn't have a meta constructor and shouldn't grow one — it would force every existing user of `eval` to handle a case that only the type checker cares about. eval2's `Sem` is a fresh hierarchy that bakes in metas from the start.
-2. **Reduction posture.** The existing `Evaluator` is cautious — it doesn't always reduce, and it has special cases for what to evaluate eagerly vs. lazily (`Evaluator.applyTypeArgs` vs. `applyTypeArgsStripped`, etc). eval2 is the opposite: always reduce, always force, only stop at neutrals. The two postures don't compose well; better to have separate codepaths.
-
-eval2 will share infrastructure with `eval` where convenient (the `Value.Direct` type, the `Types.bigIntType` constants, etc.) — those are stable types that both packages can depend on. What's *not* shared is the recursive evaluation logic.
-
-## 3. The new monomorphize2 elaborator
-
-### 3.1 Top-level structure
-
-```scala
-class MonomorphicTypeCheckProcessor extends ... {
-  override protected def generateFromKeyAndFact(
-      key: MonomorphicValue.Key,
-      resolvedValue: OperatorResolvedValue
-  ): CompilerIO[MonomorphicValue] =
-    Elaborator.elaborate(key, resolvedValue).map { case (signature, calculatedArgs, runtime) =>
-      MonomorphicValue(
-        key.vfqn,
-        key.specifiedTypeArguments,
-        calculatedArgs,
-        signature,
-        runtime
-      )
-    }
-}
-```
-
-All the work is in `Elaborator`. The processor file becomes ~30 lines.
-
-### 3.2 Elaborator interface (`monomorphize2/typecheck/elab/Elaborator.scala`)
-
-```scala
-object Elaborator {
-  type ElabIO[A] = StateT[CompilerIO, MetaState, A]
-
-  /** Top-level entry point. Evaluates the signature, elaborates the runtime body
-    * (if present) against it, zonks everything, and returns the final monomorphized
-    * shape plus the calculated type arguments for `key.vfqn` itself. */
-  def elaborate(
-      key: MonomorphicValue.Key,
-      resolvedValue: OperatorResolvedValue
-  ): CompilerIO[(Value, Seq[Value], Option[Sourced[MonomorphicExpression.Expression]])]
-
-  /** Bidirectional checking: ORE in scope must produce a value of the given expected type. */
-  def check(env: Env, ore: Sourced[OperatorResolvedExpression], expected: Sem): ElabIO[ElabExpr]
-
-  /** Bidirectional inference: synthesize the type from the ORE. */
-  def infer(env: Env, ore: Sourced[OperatorResolvedExpression]): ElabIO[(ElabExpr, Sem)]
-}
-```
-
-`ElabExpr` is an internal mirror of `MonomorphicExpression` whose type field is `Sem` instead of `Value`:
-
-```scala
-case class ElabExpr(expressionType: Sem, expression: ElabExpr.Expression)
-object ElabExpr {
-  sealed trait Expression
-  case class IntegerLiteral(value: Sourced[BigInt]) extends Expression
-  case class StringLiteral(value: Sourced[String]) extends Expression
-  case class ParameterReference(name: Sourced[String]) extends Expression
-  case class MonomorphicValueReference(vfqn: Sourced[ValueFQN], typeArgs: Seq[Sem]) extends Expression
-  case class FunctionApplication(target: Sourced[ElabExpr], argument: Sourced[ElabExpr]) extends Expression
-  case class FunctionLiteral(paramName: Sourced[String], paramType: Sem, body: Sourced[ElabExpr]) extends Expression
-}
-```
-
-The structure mirrors `MonomorphicExpression` exactly. After elaboration, **zonking** walks the `ElabExpr`, forces every `Sem`, quotes to `Value`, and produces a real `MonomorphicExpression`.
-
-### 3.3 Per-ORE-case rules
-
-**Literals** (`infer` produces concrete types; `check` defers to infer + unify):
-
-```scala
-infer IntegerLiteral(v)  → (IntegerLiteral(v), Lit(Direct(0, bigIntType)))   // type is BigInteger
-infer StringLiteral(v)   → (StringLiteral(v),  Lit(Direct("", stringType)))  // type is String
-
-check x against expected → (e, t) = infer x; unify(t, expected); return e
-```
-
-(For literals where the expected type is something like `Int` instead of `BigInteger`, unify reports the mismatch.)
-
-**`ParameterReference(name)`** is always inferred:
-
-```scala
-infer ParameterReference(name) →
-  let t = env.params(name) (or error)
-  (ParameterReference(name), t)
-```
-
-**`ValueReference(vfqn, explicitTypeArgs)`** — the polytype instantiation site:
-
-```scala
-infer ValueReference(vfqn, explicitTypeArgs) →
-  let resolved   = getFactOrAbort(OperatorResolvedValue.Key(vfqn))
-  let sigSem     = Evaluator2.eval(Env.empty, resolved.typeStack.signature)
-
-  // Apply explicit type arguments first.
-  let (afterExplicit, usedExplicitArgs) = foldM (sigSem, []) (explicitTypeArgs) { (acc, ta) =>
-    let taSem = Evaluator2.eval(env, ta)
-    let next  = Evaluator2.apply(acc, taSem)   // this peels one Lam from the polytype
-    return (next, usedExplicitArgs :+ taSem)
+- `fact/GroundValue.scala` — conceptual copy of `eval.fact.Value` renamed for independence:
+  ```scala
+  sealed trait GroundValue { def valueType: GroundValue }
+  object GroundValue {
+    case class Direct(value: Any, override val valueType: GroundValue) extends GroundValue
+    case class Structure(fields: Map[String, GroundValue],
+                         override val valueType: GroundValue) extends GroundValue
+    case object Type extends GroundValue { override def valueType = this }
   }
+  ```
 
-  // Any remaining leading Lams in the polytype are inferred via fresh metas.
-  let mut current = afterExplicit
-  let mut metaArgs = []
-  while (force(current) is Lam(_, dom, _)) {
-    let m = freshMeta("typeArg", dom)
-    metaArgs :+= Neut(Meta(m), [])
-    current = Evaluator2.apply(current, Neut(Meta(m), []))
-  }
+- `fact/Monomorphic3Value.scala` — output fact. Drops `calculatedTypeArguments` (NbE folds concrete type args into the signature directly):
+  ```scala
+  case class Monomorphic3Value(
+    vfqn: ValueFQN,
+    specifiedTypeArguments: Seq[Sourced[OperatorResolvedExpression]],
+    signature: GroundValue,
+    runtime: Option[Sourced[Monomorphic3Expression.Expression]]
+  ) extends CompilerFact
+  ```
 
-  let allArgs = usedExplicitArgs ++ metaArgs
-  return (MonomorphicValueReference(vfqn, allArgs), current)
-```
+- `fact/Monomorphic3Expression.scala` — same shape as `monomorphize2.fact.MonomorphicExpression` but over `GroundValue`.
 
-This is the *only* place polytype instantiation happens. There is no separate "instantiation rule" in the unifier — by the time the unifier sees a value reference's type, it's already been fully instantiated.
+- `fact/NativeBinding.scala` — `CompilerFact: vfqn -> SemValue` for native built-in values.
 
-The `metaArgs` here are what eventually become `MonomorphicValue.calculatedTypeArguments` for *referenced* values, after zonking. The current `Seq.empty` TODO finally gets filled.
+- `domain/SemValue.scala` — empty `sealed trait SemValue` placeholder (real ADT in Step 2).
 
-Explicit type-arg arity check: if `explicitTypeArgs.length` exceeds the number of leading Lams in the signature, report `Too many type arguments`. The current TODO + manual count goes away — eval2 tells you naturally when you've run out of Lams.
+- `processor/Monomorphic3Processor.scala` — stub `TransformationProcessor` that aborts.
 
-**`FunctionApplication(target, arg)`** is inferred (synthesizes its own type):
+- Empty `Monomorphic3ProcessorTest.scala` scaffold with the `ProcessorTest` harness but no real assertions.
 
-```scala
-infer FunctionApplication(target, arg) →
-  let (targetExpr, targetType) = infer target
-  let funType = forceUntilFunction(targetType)
-    where forceUntilFunction repeatedly forces and instantiates leading Lams of the
-    polytype until the result is `Sem.Struct(functionDataTypeFQN, ...)` (or fails)
-  let (paramType, returnType) = (funType.fields("A"), funType.fields("B"))
-  let argExpr = check(env, arg, paramType)
-  return (FA(targetExpr, argExpr), returnType)
-```
+**Verification.** `./mill lang.compile` passes. Existing tests untouched.
 
-The call to `forceUntilFunction` is the eval2 way of "instantiate any leftover polytype layers before unifying". In practice it's almost always a no-op because `infer ValueReference` already instantiated everything.
+---
 
-**`FunctionLiteral(paramName, paramTypeOpt, body)`** is bidirectional — *check* is the natural mode (parameter type comes from the expected type), *infer* needs an annotation:
+## Step 2 — Semantic domain, evaluator, and native processors
 
-```scala
-check FunctionLiteral(paramName, paramTypeOpt, body) against expected →
-  let funType = forceUntilFunction(expected)
-  let expectedParamType = funType.fields("A")
-  let expectedReturnType = funType.fields("B")
-  let paramType = match paramTypeOpt {
-    case Some(pt) => let p = Evaluator2.eval(env, pt.signature); unify(p, expectedParamType); p
-    case None     => expectedParamType
-  }
-  let env'  = env.extend(paramName, paramType)
-  let bodyExpr = check(env', body, expectedReturnType)
-  return (FunctionLiteral(paramName, paramType, bodyExpr), expected)
+**Goal.** Replace the `SemValue` placeholder with the full NbE domain, implement `eval`/`apply`/`force`/`quote`, and wire up the native-binding processors. At the end, `NativeBinding` facts exist for every well-known FQN and for user-defined values, and the evaluator can reduce closed ORE expressions to `SemValue`s.
 
-infer FunctionLiteral(paramName, Some(pt), body) →
-  let paramType = Evaluator2.eval(env, pt.signature)
-  let env'  = env.extend(paramName, paramType)
-  let (bodyExpr, bodyType) = infer(env', body)
-  let funType = Sem.Struct(functionDataTypeFQN, Map("A" -> paramType, "B" -> bodyType, "$typeName" -> ...))
-  return (FunctionLiteral(paramName, paramType, bodyExpr), funType)
+**New files:**
 
-infer FunctionLiteral(_, None, _) →
-  error "Cannot infer type of unannotated lambda; provide a type annotation or use it in a checked context"
-```
+- `domain/SemValue.scala` — the full ADT (VType, VConst, VLam, VPi, VNative, VTopDef, VMeta, VNeutral, NeutralHead, Spine).
 
-Note that the *check* mode is exactly what handles the failing-test scenario `def f(s: String): String = id(s)` cleanly: the body's expected type is the function's signature, the FL's parameter type comes from there, and so on down the tree.
+- `domain/Env.scala` — `Env(bindings: Vector[SemValue], names: Vector[String])`. Lookup by de Bruijn level (index into `bindings`). Name-to-level resolution happens at Checker time, not inside Evaluator.
 
-### 3.4 Elaboration top level
+- `domain/MetaStore.scala` — `IntMap[Option[SemValue]]` backed. Allocation via next-free-int counter.
 
-```scala
-def elaborate(key, resolvedValue) = StateT.run(MetaState.empty) {
-  for {
-    // 1. Eval the signature in empty env.
-    sigSem      <- Evaluator2.eval(Env.empty, resolvedValue.typeStack.signature)
+- `eval/Evaluator.scala`:
+  - `eval(env, tm: ORE) -> SemValue` — synchronous, pure. Does NOT handle `FunctionLiteral` — that is the Checker's job (the Checker decides VLam vs VPi based on expected type). Cases: IntegerLiteral -> VConst, StringLiteral -> VConst, ParameterReference -> env.lookupByLevel, ValueReference -> fetched VTopDef, FunctionApplication -> apply(eval(t), eval(a)). If `FunctionLiteral` is encountered, it is an error (the Checker should have handled it).
+  - `apply(f, x) -> SemValue` — VLam -> invoke closure, VPi -> error (applying a value to a type), VNative -> fire if VConst else stuck, VNeutral -> append to spine, VTopDef -> append to spine (unfolds only when forced), VMeta -> append to spine.
+  - `force(v) -> SemValue` — walks solved metas and unfolds VTopDef when spine is fully concrete.
 
-    // 2. Apply the explicit type arguments from the key (these instantiate the
-    //    OUTER value's polytype, the same way `key.specifiedTypeArguments` does today).
-    appliedSig  <- key.specifiedTypeArguments.foldLeftM(sigSem) { (acc, arg) =>
-                     Evaluator2.eval(Env.empty, arg).flatMap(Evaluator2.apply(acc, _))
-                   }
+- `eval/Quoter.scala` — `quote(depth, SemValue) -> GroundValue`. Fails on VNeutral/VMeta/VLam (those should be resolved before quoting).
 
-    // 3. Elaborate the runtime body against the applied signature, if present.
-    elabRuntime <- resolvedValue.runtime.traverse { body =>
-                     Elaborator.check(Env.empty, body, appliedSig)
-                   }
+- `processor/SystemNativesProcessor.scala` — emits `NativeBinding` for `functionDataTypeFQN`, `typeFQN`, etc. Copies the shape of `eval.processor.SystemValueEvaluator`.
 
-    // 4. Compute the calculatedTypeArguments — this is whatever fresh metas were
-    //    introduced for the OUTER value's own type parameters that weren't covered
-    //    by key.specifiedTypeArguments. (Often empty unless we're elaborating a
-    //    generic def with no explicit type args, e.g. for testing.)
-    calcArgs    <- collectOuterCalculatedArgs(sigSem, key.specifiedTypeArguments.length)
+- `processor/DataTypeNativesProcessor.scala` — emits `NativeBinding` for data type/constructor FQNs. Copies shape of `eval.processor.DataTypeEvaluator`.
 
-    // 5. Assert all metas have been solved.
-    _           <- assertAllMetasSolved
+- `processor/UserValueNativesProcessor.scala` — `TransformationProcessor[OperatorResolvedValue.Key, NativeBinding.Key]`. Compiles each user-defined value's runtime body and type signature into a `SemValue` via the new evaluator. Simple `Set[ValueFQN]` recursion guard for now (replaced in Step 9).
 
-    // 6. Zonk: walk ElabExpr → MonomorphicExpression, quote each Sem to Value.
-    finalSig    <- zonkValue(appliedSig)
-    finalCalc   <- calcArgs.traverse(zonkValue)
-    finalBody   <- elabRuntime.traverse(zonkExpr)
-  } yield (finalSig, finalCalc, finalBody)
-}
-```
+**New tests:**
 
-### 3.5 Zonking
+- `eval/NbeEvaluatorTest.scala`:
+  - eval of IntegerLiteral(42) -> VConst(Direct(42, bigIntType))
+  - eval of ValueReference(functionDataTypeFQN) applied to Int and String -> VPi(VConst(intType), _ => VConst(stringType))
+  - De Bruijn level lookup with shadowing
+  - Native partial application: Function(Int) produces a VNative waiting for second arg
+  - eval of FunctionLiteral -> error (Checker handles FunctionLiteral, not evaluator)
 
-```scala
-object Zonk {
-  def zonkValue(sem: Sem): EvalIO[Value]
-  def zonkExpr(elab: ElabExpr): EvalIO[MonomorphicExpression]
-}
-```
+- `eval/NbeQuoterTest.scala`:
+  - quote(VConst(bigIntType)) === bigIntType as GroundValue
+  - quote(Function[Int, String]) produces expected GroundValue.Structure
+  - quote(VNeutral) fails with clear error
 
-`zonkValue` is just `Quoter.quote` with a `compilerAbort` if the result is `None`.
+**Verification.** `./mill lang.compile`, new unit tests pass, existing tests untouched.
 
-`zonkExpr` walks `ElabExpr` and converts each level:
-- `expressionType: Sem` → `Value` via `zonkValue`.
-- `MonomorphicValueReference.typeArgs: Seq[Sem]` → `Seq[Value]` via `zonkValue` per element.
-- Children recursively zonked.
+---
 
-**Unsolved metas at zonk time** are a hard error (`compilerAbort`). They mean elaboration finished without enough information to pin down a type. The error should print which meta is unsolved and where it was introduced (its `name`).
+## Step 3 — Unifier
 
-## 4. Output
+**Goal.** Add pattern unification on `SemValue`s with a postponement queue.
 
-`MonomorphicValue` and `MonomorphicExpression` keep their current shape, but with two improvements:
+**New files:**
 
-- **`MonomorphicValue.calculatedTypeArguments`** is no longer `Seq.empty` — it's the inferred type arguments for `key.vfqn`'s own type parameters, computed as the solutions to the metas introduced when we eval'd its signature without enough explicit type args.
-- **`MonomorphicExpression.MonomorphicValueReference.typeArgs`** is no longer `Seq.empty` — it's the full set of type arguments (explicit + inferred) for the referenced value at this call site. This matches the original design intent and makes the downstream `uncurry` and `used` phases more useful.
+- `unify/Unifier.scala`:
+  1. `force(l)`, `force(r)`.
+  2. `VType` vs `VType` -> success.
+  3. `VConst(g1)` vs `VConst(g2)` -> structural `GroundValue` equality.
+  4. `VPi(d1, c1)` vs `VPi(d2, c2)` -> unify domains, extend env with fresh VVar at current depth, unify codomains applied to it.
+  5. `VLam(_, c1)` vs `VLam(_, c2)` -> same trick as pi.
+  6. Eta: `VLam(_, c)` vs other -> unify `c(fresh var)` against `apply(other, fresh var)`.
+  7. `VNeutral(h1, sp1)` vs `VNeutral(h2, sp2)` with matching heads and spine lengths -> zip and unify.
+  8. Pattern rule: `VMeta(?m, sp)` vs rhs where sp is distinct VVars, rhs doesn't mention ?m -> solve.
+  9. Non-pattern fallback: postpone.
+  10. Otherwise -> mismatch error with source position.
+  - `drain()` — worklist loop until stable.
 
-Downstream consumers (`uncurry.processor.MonomorphicUncurryingProcessor`, `used.UsedNamesProcessor`) will see the same `MonomorphicValue` shape they see today, plus type-args fields that are actually populated. That should be a strict improvement, not a regression.
+**New tests:**
 
-## 5. What stays vs. what changes
+- `unify/NbeUnifierTest.scala`:
+  - VType vs VType
+  - VConst(bigIntType) vs VConst(stringType) -> mismatch
+  - VMeta(?a) vs VConst(bigIntType) -> solves
+  - VPi with metas -> solves
+  - Occurs check -> error
+  - Eta: VLam wrapping apply equals the function itself
+  - Late firing after meta solve
 
-### Stays untouched
-- `OperatorResolvedExpression` and the entire `operator` package.
-- `OperatorResolvedValue` and earlier phases (`token`, `ast`, `core`, `module`, `resolve`, `matchdesugar`, `operator`, `implementation`).
-- The existing `eval` package — `Value`, `ExpressionValue`, `Evaluator`, etc. eval2 is parallel.
-- `MonomorphicValue` and `MonomorphicExpression` shapes (only `calculatedTypeArguments` semantics improve).
-- Downstream consumers (`uncurry`, `used`).
-- `LangPlugin` wiring — the production path is still `monomorphize` (the old package), which is unchanged.
-- `monomorphize2/fact/` — `MonomorphicValue.scala`, `MonomorphicExpression.scala` are unchanged.
+**Verification.** All NbE unit tests pass, existing tests untouched.
 
-### Deleted
-- `monomorphize2/typecheck/constraints/` — entire directory: `Constraints.scala`, `ConstraintExtract.scala`, `ShortUniqueIdentifiers.scala`, `TypeCheckState.scala`.
-- `monomorphize2/typecheck/solution/` — entire directory: `ConstraintSolver.scala`, `Solution.scala`, `SolverState.scala`.
+---
 
-### New
-- `eval2/fact/Sem.scala`, `eval2/util/Evaluator2.scala`, `eval2/util/Quoter.scala`, `eval2/util/Unifier.scala`, `eval2/util/MetaState.scala`.
-- `monomorphize2/typecheck/elab/Elaborator.scala`, `monomorphize2/typecheck/elab/ElabExpr.scala`, `monomorphize2/typecheck/elab/Zonk.scala`.
+## Step 4 — Bidirectional checker and first end-to-end tests
 
-### Rewritten
-- `monomorphize2/processor/MonomorphicTypeCheckProcessor.scala` — becomes ~30 lines, just calls `Elaborator.elaborate`.
-- All the test cases of `monomorphize2`. Some tests may need tweaking, but none of them should be disabled or deleted.
+**Goal.** Add `check`/`infer`, `TypeStackLoop`, and plug into `Monomorphic3Processor`. Port the non-generic subset of monomorphize2 tests.
 
-### Estimated size delta
-Roughly:
-- ~700 lines new in `eval2/`.
-- ~500 lines new in `monomorphize2/typecheck/elab/`.
-- ~30 lines in the rewritten processor.
-- ~900 lines deleted (constraint extract, solver, processor walk, supporting state).
+**New files:**
 
-Net: similar total size, dramatically simpler architecture. The new code has zero replay coupling and one well-defined responsibility per file.
+- `check/CheckState.scala` — `CheckState(env, metaStore, pending, errors, nameLevels: Map[String, Int])`, `CheckIO[T] = StateT[CompilerIO, CheckState, T]`.
 
-## 6. Migration strategy
+- `check/Checker.scala`:
+  - `check(tm, expected) -> CheckIO[Monomorphic3Expression]`
+  - `infer(tm) -> CheckIO[(Monomorphic3Expression, SemValue)]`
+  - Non-generic cases: literals, ParameterReference, ValueReference (no typeArgs), FunctionApplication, FunctionLiteral with annotation.
 
-### Phase 1 — eval2 in isolation
-- Implement `Sem`, `Evaluator2`, `Quoter`, `MetaState` (no unifier yet, no metavariables yet).
-- Write unit tests against simple ORE expressions: literals, parameter refs, FAs, FLs, top-level value lookups.
-- Verify the evaluator handles recursive defs without looping (via the in-progress set).
-- Verify `quote` round-trips simple `Value`s correctly.
+- `check/TypeStackLoop.scala` — walks `typeStack.levels.reverse` top-down. Each level is checked against the level above, evaluated to SemValue, becomes the expected type for the next level. Applies specifiedTypeArguments. Checks runtime body. Drains unifier. Quotes signature.
 
-### Phase 2 — metavariables and unifier
-- Add `Head.Meta` to `Sem`.
-- Implement `freshMeta`, `solveMeta`, `force`.
-- Implement `Unifier.unify` with pattern unification for the meta-vs-other case.
-- Unit tests: unify `Lit == Lit`, `Struct == Struct`, `Lam == Lam`, `?m == concrete`, `?m(x, y) == f(x, y)` (pattern), `?m == Lit` (trivial), occurs check, etc.
+- `processor/Monomorphic3Processor.scala` — replace stub with real call to TypeStackLoop.
 
-### Phase 3 — elaborator
-- Create `monomorphize2/typecheck/elab/`. Implement `ElabExpr`, `Elaborator.check` / `Elaborator.infer` per the rules in §3.3, `Zonk`.
-- **Don't wire it in yet.** Add a separate test class that bypasses the existing constraint pipeline and goes through the elaborator directly. Iterate against the existing test suite; expect surprises with abilities, recursive types, edge cases.
+**Tests ported (from monomorphize2):**
 
-### Phase 4 — switch over
-- Replace `MonomorphicTypeCheckProcessor`'s body with `Elaborator.elaborate`.
-- Run the full test suite. Some tests will surface NbE-vs-constraint differences (e.g., NbE catches some errors earlier, with different messages). Update test expectations accordingly.
-- Delete the old constraint code.
+Into `Monomorphic3ProcessorTest`:
+- monomorphize non-generic value
+- monomorphize function literal in body
+- monomorphize integer/string literal in body
+- monomorphize value reference to non-generic value
 
-### Phase 5 — cleanup
-- Delete the now-unused `monomorphize2/typecheck/constraints/` and `monomorphize2/typecheck/solution/` directories.
-- Update `SKILL.md` from the constraint-based model to the NbE model. Probably half its current content disappears.
-- Decide whether `eval2` should eventually replace `eval` (likely yes, but not part of this migration).
+Into `Monomorphic3TypeCheckTest`:
+- function call (3 cases)
+- functions without body (non-generic: simple return, one param, multi params)
+- parameter usage (3 cases)
+- top level functions
+- literals (2)
+- value references (non-generic)
+- error reporting (undefined function, fail only once, wrong parameter type)
 
-## 7. Risks and open questions
+**Verification.** `./mill lang.test 2>&1 | grep Monomorphic3` — all ported tests pass. Original monomorphize2 tests untouched.
 
-### 7.1 Recursive top-level definitions
-The evaluator needs to handle `def f: T = f` and mutual recursion without looping. Mitigation: the `inProgress: Set[ValueFQN]` guard in `MetaState`. On re-entry, return `Neut(Ref(vfqn), [])` — the reference becomes blocked, the type checker still sees `f` as having type `T` (from its signature), and the runtime body doesn't get inlined into itself.
+---
 
-This is the same trick the existing `monomorphize` package uses; just spelled out at a different layer.
+## Step 5 — Generics and polytype instantiation
 
-### 7.2 Phantom type parameters
-If a value's signature has type parameters that don't appear in either the runtime type or any explicit type argument, the metas for them won't be touched by anything and will be unsolved at zonk time. Options:
-- Error: "Cannot infer type argument for phantom parameter X" — same behaviour as the existing solver.
-- Default: leave unsolved, fill with `Value.Type` or some sentinel and warn.
+**Goal.** Generic values, implicit/explicit type arguments, usage-driven polytype instantiation.
 
-The existing tests have one such case (`def f[I: BigInteger]: String` where `I` is phantom). Match the existing behaviour: explicit type args required for phantom params, error otherwise.
+**Changes:**
 
-### 7.3 Pattern unification limits
-Pattern unification only handles `?m(x, y, …) == other` when the spine consists of distinct bound parameters. Real programs occasionally need more (`?m(f(x)) == g(x)` style). Practical experience from smalltt / Lean / Idris: pattern unification covers ~95% of cases naturally, the rest can be deferred to a later "post-pass" attempt or reported as "couldn't infer".
+- `infer(ValueReference(fqn, typeArgs))`: Fetch the referenced value's signature SemValue (by evaluating its type stack signature ORE in TypeLevel mode). Apply each explicit typeArg via `apply(sig, eval(typeArg))` — this beta-reduces through VPi closures naturally, without inspecting the SemValue's shape. Do NOT eagerly allocate metas for type parameters not covered by explicit typeArgs — let FunctionApplication drive that. If explicit typeArgs outnumber the VPi binders that `apply` can consume (i.e., `apply` hits a non-VPi, non-VLam value), report `"Too many type arguments"`.
+- `infer(FunctionApplication(target, arg))`: infer the target's type, force it. If it's a VPi, extract domain/codomain directly. If it's a VLam (a polytype encountered at term level — e.g., a reference to a generic value being applied), `apply(VLam, freshMeta)` to instantiate it, then re-force and expect a VPi. If it's neither, unify against a fresh `VPi(?domain, ?codomain)` to let metas drive the inference. This is where implicit type parameters get instantiated — lazily, at the point of use.
+- `check(FunctionLiteral, VPi)` without annotation: use the VPi's domain directly as the parameter type, extend env, recurse on body with codomain.
 
-For initial migration, fail fast on non-pattern cases; revisit if real programs need it.
+**Tests ported:**
 
-### 7.4 Ability resolution timing
-Today, ability resolution happens in a separate phase (`implementation`). With NbE, we *could* resolve abilities during elaboration (since we know the concrete types when an ability function is referenced). But that's a bigger change and orthogonal to this migration. Initial migration: produce `MonomorphicValueReference` for ability calls with the inferred types and let the existing implementation phase deal with them later.
+From ProcessorTest:
+- identity function with Int/String
+- phantom type parameter
+- multiple type parameters
+- type argument count mismatch
+- function application (generic id)
 
-### 7.5 Performance of always-on reduction
-NbE evaluates aggressively. For a deeply nested or recursive type, that could be slow. Mitigations available later if needed:
-- Memoize closure applications.
-- Mark some defs as `opaque` (don't reduce).
-- Lazy `Sem` constructors where useful.
+From TypeCheckTest:
+- generic types (5)
+- multi-parameter unification (2)
+- apply
+- function application
+- explicit type arguments (9)
+- functions without body (generic variants)
+- parameter usage (wrong parameter in another function)
 
-For initial migration, just do the eager thing and measure.
+---
 
-### 7.6 Source positions for error messages
-ORE nodes carry `Sourced` positions. The elaborator should plumb these through to the `Sem` level (or at least keep them in `ElabExpr` for the build phase). Errors should report positions matching the existing tests' expectations (e.g., `"Type mismatch." at "id"`).
+## Step 6 — Higher-kinded types and explicit kind restrictions
 
-This is mostly a matter of being disciplined: pass `Sourced[ORE]` to `check` / `infer`, not bare ORE, and use the source position when reporting unification failures.
+**Goal.** Type constructors, type-constructor parameters (`F[_]`, `C[_, _]`), explicit kind annotations (`F: Function[Type, Type]`).
 
-### 7.7 The `compilerAbort` vs. `compileError` distinction
-The existing pipeline uses both (abort = die now, error = collect and continue). The elaborator should follow the same convention: `compileError` for type mismatches that downstream nodes can still be checked around, `compilerAbort` for situations where there's no point continuing (couldn't find a referenced value, couldn't quote a fully-unsolved type, etc.).
+**Changes.** No domain changes — `VPi` is fully general. Main work is ensuring `Quoter.quote` produces correct `GroundValue.Structure` for partially applied native type constructors, and that native wiring works at higher arities.
 
-### 7.8 Interaction with `MonomorphicValue.Key` and the fact cache
-The fact cache distinguishes specializations by `(vfqn, specifiedTypeArguments)`. Two calls to `id` with different inferred type arguments produce different `MonomorphicValueReference`s, but they *look up* the same `MonomorphicValue.Key(id, [])` since neither specifies type args explicitly.
+**Tests ported:**
+- higher-kinded types (6 cases, including the ignored nested HK case)
+- explicit type restrictions (5 cases)
 
-This is fine — the cached `MonomorphicValue` for `id` represents `id`'s polytype itself, and each call site holds its own instantiated `typeArgs` in the `MonomorphicValueReference`. The downstream `uncurry` / `used` phases consume the call-site type args, not the polytype's. This matches the current intent.
+---
 
-If the downstream phases actually want monomorphized specializations (one `MonomorphicValue` per concrete instantiation), that's a separate change to the keying scheme — not something this migration needs to do.
+## Step 7 — Type-level computation
 
-## 8. Why this is the right move
+**Goal.** `Box[one]` and `Box[oneDifferently]` unify when both reduce to `Box[1]`. Reject when they differ.
 
-This migration removes the most fragile coupling in the current code (the `ShortUniqueIdentifiers` replay), eliminates the constraint-extract / solve / replay-substitute pipeline entirely, and replaces it with a single bidirectional walk. The same code handles polytype instantiation (it's just function application now), type-level computation (it's just evaluation now), and elaboration (the walk produces the output directly).
+**Changes.** `force` unfolds `VTopDef` when spine is fully VConst. `unify` on `VConst(g1)` vs `VConst(g2)` does structural GroundValue equality. Postponement handles metas that aren't yet solved.
 
-It also positions Eliot for the dependent-type direction the language is heading toward. Lean, Idris 2, Agda, and smalltt all use NbE-based elaborators because that's the only known approach that handles type-level computation cleanly. The current hybrid is fine for HM-level programs but will get harder and harder to extend as the type system grows.
+**Tests ported:**
+- type level functions: non-type type parameters, concrete literal values, reject differing literals, concrete data values, reject differing data, type-level function calls
 
-The cost is roughly proportional to the win: one new package, one rewritten elaborator, ~900 lines deleted, ~1200 lines added, ~5 phases of careful work. For a type-checker rewrite at this scale, that's cheap.
+---
+
+## Step 8 — Lambda inference and ability implementation resolution
+
+**Goal.** Unannotated lambdas infer parameter type from context. Ability method references resolve to concrete implementations.
+
+**Changes.**
+- `check(FunctionLiteral(pn, None, body), VPi(d, c))` — use `d` directly as parameter type.
+- `infer(ValueReference(fqn))` checks if the resolved value is an ability method dispatched to a concrete implementation during the `implementation` phase. Emits `MonomorphicValueReference(implementationFqn, ...)`.
+
+**Tests ported:**
+- lambda type inference (2)
+- resolve ability ref to concrete implementation
+
+---
+
+## Step 9 — Recursion via lazy `VTopDef`
+
+**Goal.** Direct and mutual recursion terminate during type checking.
+
+**Changes.**
+- `UserValueNativesProcessor` represents each value as `VTopDef(fqn, lazy thunk, SNil)`. Thunk evaluates body on demand, memoized at fact level.
+- `force(VTopDef)` unfolds only when spine is fully VConst or unification demands structural comparison.
+- `apply(VTopDef, x)` appends to spine without unfolding.
+- Two `VTopDef`s with same FQN unify by FQN equality + spine unification — `def f = f` terminates because the inner `f` has the same cached type without unfolding.
+
+**Tests ported:**
+- direct recursion without infinite loop (both files)
+- mutual recursion without infinite loop (both files)
+
+---
+
+## Step 10 — Final parity audit and cleanup
+
+**Goal.** Confirm monomorphize3 handles everything monomorphize2's tests handle.
+
+**Actions:**
+- Walk through both original test files. For each test, verify a corresponding Monomorphic3 test exists and passes.
+- Write `.claude/skills/eliot-monomorphize3/SKILL.md` describing the NbE architecture.
+- `./mill mill.scalalib.scalafmt.ScalafmtModule/reformatAll __`
+- `./mill __.compile && ./mill __.test`
+
+**Verification.** All monomorphize3 tests green. All monomorphize/monomorphize2/eval tests still green and untouched.
+
+---
+
+## Test-porting cross-reference
+
+| Source test (in monomorphize2) | Ported in step |
+|---|---|
+| monomorphize non-generic value | 4 |
+| monomorphize identity function with Int / with String | 5 |
+| monomorphize value with phantom type parameter | 5 |
+| monomorphize function with multiple type parameters | 5 |
+| fail on type argument count mismatch | 5 |
+| monomorphize function literal in body | 4 |
+| monomorphize integer literal in body / string literal in body | 4 |
+| monomorphize value reference to non-generic value | 4 |
+| monomorphize function application | 5 |
+| handle direct / mutual recursion (both files) | 9 |
+| resolve ability ref to concrete implementation | 8 |
+| function call (3 cases) | 4 |
+| generic types (5) | 5 |
+| multi-parameter unification (2) | 5 |
+| higher-kinded types (6) | 6 |
+| explicit type restrictions (5) | 6 |
+| functions without body (5, split by genericity) | 4 / 5 |
+| parameter usage (3) | 4 / 5 |
+| top level functions | 4 |
+| apply | 5 |
+| lambda type inference (2) | 8 |
+| literals (2) | 4 |
+| value references | 4 |
+| function application | 5 |
+| error reporting (4) | 4 / 5 |
+| explicit type arguments (9) | 5 |
+| type level functions (6) | 7 |
+| recursion (2) | 9 |
+
+---
+
+## Risk ledger
+
+- **Native binding parity.** The three native processors must together cover every ValueFQN that the checker will encounter. Step 2 should include a smoke test enumerating all FQNs from the module pipeline.
+- **De Bruijn level bookkeeping.** A helper `withBinder(name, sem)(body: CheckIO[T])` that extends env and nameLevels at the next free level and restores on exit makes this safe.
+- **Error position threading.** Preserving exact `"Type mismatch." at "<expr>"` positions (which monomorphize2 tests assert verbatim) requires threading `Sourced[ORE]` through the unifier's context. Pick the threading strategy in Step 4 and commit — changing it later is expensive.
+- **Closure allocation cost.** Every FunctionLiteral becomes a Scala closure allocation. For monomorphize3's workloads (one value at a time) this is negligible.
+- **Eta at the unifier boundary.** Enabling eta from day one buys extensional function equality but adds a subtle recursion — increase depth before recursing to guarantee termination.
+- **GroundValue drift vs Value.** Since `GroundValue` is a snapshot of `Value`, changes to `Value` in `eval` do not propagate. For monomorphize3 as a standalone experiment this is fine.
+- **FunctionLiteral must never reach eval.** The evaluator does not handle `FunctionLiteral` — the Checker must always intercept it via `check`/`infer` and decide VLam vs VPi based on the expected type. If a FunctionLiteral leaks through to `eval`, it's a bug in the Checker's coverage. The evaluator should fail loudly if it encounters one.
+- **Function native produces VPi, not VConst.** The `SystemNativesProcessor` must wire `Function` to produce `VPi(domain, _ => codomain)`. This is a departure from the existing `eval` package where `Function` produces `VConst(Structure($typeName=Function, A=..., B=...))`. The Quoter must handle `VPi` → `GroundValue` conversion for the final output, reconstructing the `Structure` form that downstream consumers expect.
+
+## What does NOT change
+
+- `monomorphize/`, `monomorphize2/`, `eval/`, `uncurry/`, `used/`, `jvm/`, plugin wiring, and all existing test files. All existing tests keep running against their original implementations.
+- `OperatorResolvedExpression` / `OperatorResolvedValue` / `TypeStack` fact shapes — consumed read-only.
+- The `CompilerIO` / `CompilerFact` / processor infrastructure — monomorphize3 just registers new processors alongside existing ones.
