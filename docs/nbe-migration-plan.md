@@ -66,17 +66,19 @@ The core idea: ORE (syntax) is evaluated into `SemValue` (semantics) via closure
 - `VMeta(id: MetaId, spine: Spine, expected: SemValue)` — unsolved metavariable.
 - `VNeutral(head: NeutralHead, spine: Spine, tpe: SemValue)` — stuck application with a variable head.
 
-**VLam vs VPi — no mode flag needed.** Both are closures internally (`SemValue => SemValue`), but they serve different roles. The distinction falls out naturally from position — the evaluator never decides:
+**VLam vs VPi — no mode flag needed.** Both are closures internally (`SemValue => SemValue`), and both are applicable via `apply`. The distinction falls out naturally from who produces them:
 
-- **The Checker decides.** When the Checker encounters `FunctionLiteral` being checked against `VType` (a type expression), it constructs `VPi(domain, codomainClosure)`. When it encounters `FunctionLiteral` being checked against a `VPi(domain, codomain)` (a runtime lambda), it constructs `VLam`. The expected type tells the Checker which to produce.
-- **The native `Function` constructor decides.** `Function[A, B]` is evaluated via `apply(apply(nativeFunction, A), B)`. The native fires and directly produces `VPi(A, _ => B)`, not `VConst(Structure(...))`. This makes all function types — dependent and non-dependent — uniformly `VPi`.
-- **The evaluator doesn't handle `FunctionLiteral` at all.** All ORE walks go through the Checker's `check`/`infer`, which handles `FunctionLiteral` directly based on the expected type. The evaluator only handles literals, parameter refs, value refs, and application — cases where the VLam/VPi question doesn't arise.
+- **The evaluator always produces `VLam` for `FunctionLiteral`.** Type expressions are normal code — lambdas appear anywhere (as sub-expressions of applications, nested in type arguments, etc.) and the evaluator handles them uniformly. `eval(env, FunctionLiteral(pn, _, body))` → `VLam(pn, arg => eval(env.bind(pn, arg), body))`. Example: in `Box[((A: Type) -> A)(String)]`, the inner `(A: Type) -> A` is evaluated to `VLam`, then applied to `String`.
+- **The Checker produces `VPi` when checking a `FunctionLiteral` against `VType`.** In this context, the expression IS a function type (a dependent product). The Checker knows the domain from the annotation and constructs `VPi(domain, codomainClosure)`. Example: the type stack signature `(A: Type) -> Function[A, A]` is checked against `VType`, producing `VPi(VType, A => VPi(A, _ => A))`.
+- **The Checker produces `VLam` when checking a `FunctionLiteral` against `VPi(d, c)`.** In this context, the expression is a runtime lambda being checked against a known function type.
+- **The native `Function` constructor produces `VPi`.** `Function[A, B]` is evaluated via `apply(apply(nativeFunction, A), B)`. The native fires and produces `VPi(A, _ => B)`. This makes non-dependent function types uniformly `VPi`.
+- **Both are applicable.** `apply(VLam(_, c), x)` invokes the closure (beta-reduction). `apply(VPi(_, c), x)` returns `c(x)` (type-level computation). The difference: VPi also carries the domain type, which the Checker reads when decomposing function types at `FunctionApplication` nodes.
 
 This means `VConst` never represents function types. Function types are always `VPi`. `VConst` is exclusively for non-function ground values (concrete data types, literals, structures).
 
 **Env** is `Vector[SemValue]` indexed by de Bruijn level. Variable lookup is by level, not by name — no `Map[String, SemValue]` in the hot path.
 
-**Closures** are native Scala functions. When the Checker produces a `VLam`, it captures the current env and body ORE in a Scala closure: `VLam(pn.value, arg => ...)`. Same for `VPi`. No ORE substitution ever happens — variable resolution is by env lookup at evaluation time.
+**Closures** are native Scala functions. When `eval` encounters `FunctionLiteral(pn, _, body)`, it produces `VLam(pn.value, arg => eval(env.bind(pn.value, arg), body.value))` — capturing the current env and body ORE in a Scala closure. When the Checker checks a `FunctionLiteral` against `VType`, it constructs `VPi(domain, arg => ...)` similarly. No ORE substitution ever happens — variable resolution is by env lookup at evaluation time.
 
 **Spine** is a reversed cons list for O(1) append: `sealed trait Spine; case object SNil; case class SApp(tail: Spine, head: SemValue)`.
 
@@ -178,8 +180,8 @@ This is "consume the stack, running each level against the level above, to get t
 - `domain/MetaStore.scala` — `IntMap[Option[SemValue]]` backed. Allocation via next-free-int counter.
 
 - `eval/Evaluator.scala`:
-  - `eval(env, tm: ORE) -> SemValue` — synchronous, pure. Does NOT handle `FunctionLiteral` — that is the Checker's job (the Checker decides VLam vs VPi based on expected type). Cases: IntegerLiteral -> VConst, StringLiteral -> VConst, ParameterReference -> env.lookupByLevel, ValueReference -> fetched VTopDef, FunctionApplication -> apply(eval(t), eval(a)). If `FunctionLiteral` is encountered, it is an error (the Checker should have handled it).
-  - `apply(f, x) -> SemValue` — VLam -> invoke closure, VPi -> error (applying a value to a type), VNative -> fire if VConst else stuck, VNeutral -> append to spine, VTopDef -> append to spine (unfolds only when forced), VMeta -> append to spine.
+  - `eval(env, tm: ORE) -> SemValue` — synchronous, pure. Cases: IntegerLiteral -> VConst, StringLiteral -> VConst, ParameterReference -> env.lookupByLevel, ValueReference -> fetched VTopDef, FunctionApplication -> apply(eval(t), eval(a)), FunctionLiteral -> VLam(closure). The evaluator always produces VLam for FunctionLiteral — it's a callable closure. The Checker is the only place that produces VPi (when checking a FunctionLiteral against VType).
+  - `apply(f, x) -> SemValue` — VLam -> invoke closure, VPi -> invoke codomain closure (type-level computation), VNative -> fire if VConst else stuck, VNeutral -> append to spine, VTopDef -> append to spine (unfolds only when forced), VMeta -> append to spine.
   - `force(v) -> SemValue` — walks solved metas and unfolds VTopDef when spine is fully concrete.
 
 - `eval/Quoter.scala` — `quote(depth, SemValue) -> GroundValue`. Fails on VNeutral/VMeta/VLam (those should be resolved before quoting).
@@ -194,10 +196,12 @@ This is "consume the stack, running each level against the level above, to get t
 
 - `eval/NbeEvaluatorTest.scala`:
   - eval of IntegerLiteral(42) -> VConst(Direct(42, bigIntType))
+  - eval of FunctionLiteral `(x: Int) -> x` -> VLam; applied to 42 -> VConst(Direct(42, bigIntType))
+  - eval of type-level lambda `(A: Type) -> A` -> VLam; applied to String -> VConst(stringType) (lambdas are normal code everywhere)
   - eval of ValueReference(functionDataTypeFQN) applied to Int and String -> VPi(VConst(intType), _ => VConst(stringType))
+  - apply(VPi(domain, codomain), x) invokes codomain closure (type-level application works)
   - De Bruijn level lookup with shadowing
   - Native partial application: Function(Int) produces a VNative waiting for second arg
-  - eval of FunctionLiteral -> error (Checker handles FunctionLiteral, not evaluator)
 
 - `eval/NbeQuoterTest.scala`:
   - quote(VConst(bigIntType)) === bigIntType as GroundValue
@@ -420,7 +424,7 @@ From TypeCheckTest:
 - **Closure allocation cost.** Every FunctionLiteral becomes a Scala closure allocation. For monomorphize3's workloads (one value at a time) this is negligible.
 - **Eta at the unifier boundary.** Enabling eta from day one buys extensional function equality but adds a subtle recursion — increase depth before recursing to guarantee termination.
 - **GroundValue drift vs Value.** Since `GroundValue` is a snapshot of `Value`, changes to `Value` in `eval` do not propagate. For monomorphize3 as a standalone experiment this is fine.
-- **FunctionLiteral must never reach eval.** The evaluator does not handle `FunctionLiteral` — the Checker must always intercept it via `check`/`infer` and decide VLam vs VPi based on the expected type. If a FunctionLiteral leaks through to `eval`, it's a bug in the Checker's coverage. The evaluator should fail loudly if it encounters one.
+- **eval produces VLam, Checker produces VPi.** The evaluator always produces VLam for FunctionLiteral (a callable closure). The Checker produces VPi only when checking a FunctionLiteral against VType (a type expression). Both are applicable — `apply` works on both. The risk is confusing which one to expect: the TypeStackLoop uses the Checker (which returns VPi for type levels), while sub-expression evaluation uses eval (which returns VLam). Test that `Box[((A: Type) -> A)(String)]` type-checks correctly — it exercises the evaluator handling a FunctionLiteral inside a type-level computation.
 - **Function native produces VPi, not VConst.** The `SystemNativesProcessor` must wire `Function` to produce `VPi(domain, _ => codomain)`. This is a departure from the existing `eval` package where `Function` produces `VConst(Structure($typeName=Function, A=..., B=...))`. The Quoter must handle `VPi` → `GroundValue` conversion for the final output, reconstructing the `Structure` form that downstream consumers expect.
 
 ## What does NOT change
