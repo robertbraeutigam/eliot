@@ -317,8 +317,7 @@ class Monomorphic3TypeCheckTest
       .asserting(_.nonEmpty shouldBe true)
   }
 
-  // TODO: This is a valid case, but not yet supported
-  it should "type check nested higher-kinded parameter" ignore {
+  it should "type check nested higher-kinded parameter" in {
     runForErrors(
       "data Box[A]\ndata HyperBox[A[_]]\ndef f[G[_], F[_[_]]](x: F[G]): F[G] = x",
       typeArgs = Seq(boxType, testType("HyperBox"))
