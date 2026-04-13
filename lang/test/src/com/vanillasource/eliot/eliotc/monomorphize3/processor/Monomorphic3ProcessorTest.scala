@@ -121,6 +121,11 @@ class Monomorphic3ProcessorTest
       .asserting(_.runtime.get.value shouldBe a[Monomorphic3Expression.FunctionApplication])
   }
 
+  it should "monomorphize value with phantom type parameter" in {
+    runEngineForMonomorphicValue("def f[I: BigInteger]: String")
+      .asserting(result => showType(result.signature) shouldBe "String")
+  }
+
   it should "fail on type argument count mismatch" in {
     runGenerator(
       "def id[A](a: A): A = a",

@@ -1,70 +1,44 @@
 # monomorphize3 NbE Implementation - Task Notes
 
-## Current State: Step 5 fully ported
+## Current State: Step 6 fully ported
 
-Steps 1-5 are complete with all tests green. Step 5 now includes all test cases from monomorphize2 that the plan assigns to this step.
+Steps 1-6 are complete with all tests green. Step 6 adds higher-kinded types and explicit kind restrictions.
 
 ## What Works
 
 - `./mill lang.compile` passes
-- All 50 monomorphize3 tests pass (10 ProcessorTest + 40 TypeCheckTest)
-- No regressions to existing tests (29 pre-existing failures, same count)
-- Non-generic: values, functions, literals, value references, parameter usage, error reporting
-- Generic: explicit type args, implicit type arg inference via meta instantiation, multi-parameter generics
-- Forward unification to concrete types (including recursive setups)
-- Multi-parameter unification with polymorphic arguments (someA[A]: A pattern)
-- Apply (g: Function[A,B], a: A): B pattern
-- Explicit type arg conflict detection, too many/few type args, wrong order
-- Data type type arguments (Box[BigInteger] etc.)
+- All 62 monomorphize3 tests pass (11 ProcessorTest + 51 TypeCheckTest + 1 ignored nested HK)
+- No regressions to existing tests (~30 pre-existing failures in other packages, unchanged)
+- Everything from Steps 1-5 plus:
+- Higher-kinded types: single generic placeholder, lower arities, parameter returning identity, two type args, mismatch detection
+- Explicit type restrictions: explicit Type restriction, Function[Type,Type] restriction, two-arg Function restriction, nested HK restriction, HK type invoking its parameter
+- Phantom type parameters (VLam with no type args → fresh meta instantiation)
 
 ## Key Design Decisions Made
 
-### VNative.fire takes SemValue (not GroundValue)
-Changed from plan's `GroundValue => SemValue` to `SemValue => SemValue`. This allows Function native to handle VPi and VMeta inputs, which is essential for:
-- Evaluating kind expressions like `Function(Type)(Function(Type)(Type))` where inner evaluation produces VPi
-- Implicit type arg instantiation where fresh metas flow through the Function native
+### All decisions from Steps 1-5 still apply (see git history)
 
-### VMeta passes through VNative (not stuck)
-Only VNeutral blocks VNative application. VMeta is allowed to fire, enabling meta-based polytype instantiation. The Function native correctly propagates metas through VPi construction.
+### Unifier postpones non-pattern meta spines (new in Step 6)
+When `solveMeta` encounters an unsolved meta with a non-empty spine (e.g., `?A[?B]`), it postpones instead of solving directly. This prevents incorrect solutions where the spine is ignored (e.g., solving `?A = BigInteger` when the constraint is actually `?A(?B) = BigInteger`). The drain loop was also fixed to recognize re-postponed constraints as "no progress" to avoid infinite loops.
 
-### Evaluator resolves ParameterReference from Env names
-Added `Env.lookupByName` as primary resolution for ParameterReference (before nameLevels). This allows VLam closures created during fetchEvaluatedSignature (with empty nameLevels) to correctly resolve their captured parameters.
+### TypeStackLoop.instantiateRemaining peels off unapplied VLam (new in Step 6)
+After applying explicit type args, any remaining VLam closures (unapplied type parameters) are instantiated with fresh metas. This handles:
+- Phantom type parameters: `def f[I: BigInteger]: String` → VLam peeled off, signature = String
+- Ensures the signature is always quotable to GroundValue
 
-### TypeStackLoop.applyTypeArgs binds type params in Checker state
-When applying explicit type args to a VLam signature, the corresponding type parameter names are also bound in the Checker's state. This ensures the runtime body check resolves type parameters to their monomorphized concrete types.
+### Higher-kinded types work through NbE naturally
+No domain changes were needed. VPi is fully general. Higher-kinded type constructors (Box[_], Function[_,_]) are VNative chains that fire when applied. When passed as type args, they are bound as SemValues and applied normally. The postponement mechanism in the unifier handles cases where higher-kinded metas can't be directly solved (e.g., `?A[?B] = VPi(BigInteger, _ => String)` is postponed, and the lack of errors means the program type-checks).
 
-### Unifier errors carry source positions
-Changed from `List[String]` to `List[Sourced[String]]` so errors point to the actual expression, not just the value name.
+## Next Steps (Step 7)
 
-### VLam in applyInferred: meta-based polytype instantiation
-When FunctionApplication encounters VLam as target type, creates fresh meta and instantiates. Recursive applyInferred then handles the resulting VPi. This naturally handles both single and multiple leading type parameters.
-
-### instantiatePolymorphic in Checker.check fallback (new in this iteration)
-When a term is checked against an expected type and inference returns VLam (polymorphic type), all leading VLam closures are peeled off by instantiating them with fresh metas before unifying with the expected type. This handles implicit type arg instantiation when polymorphic values like `someA[A]: A` are used as arguments to other functions (not just as function application targets).
-
-### Too many type arguments detection in applyTypeArgs (new in this iteration)
-When TypeStackLoop.applyTypeArgs encounters a non-VLam signature with remaining type args to apply, it records a "Too many type arguments." error on the unifier instead of silently applying through the type. This prevents over-application that would collapse the runtime function type.
-
-## Error sourcing differences from monomorphize2
-
-Some error source positions differ from monomorphize2. These are acceptable differences due to the NbE approach:
-- "fail if parameter is used as a wrong parameter in another function": points to "x" (the argument) instead of "B" (the expected type)
-- "fail if forward unification produces conflict": points to "i" (the argument) instead of "id(i)" (the full call)
-- "fail with too few explicit type args that conflict": produces multiple individual errors instead of one composite error
-
-## Next Steps (Step 6)
-
-1. Step 6: Higher-kinded types and explicit kind restrictions
-   - Port tests: higher-kinded types (6 cases including ignored nested HK case)
-   - Port tests: explicit type restrictions (5 cases)
-   - May need changes to Quoter for partially applied native type constructors
-   - May need native wiring changes at higher arities
-2. Step 7: Type-level computation (Box[one] unifying with Box[oneDifferently])
-3. Step 8: Lambda inference, ability implementation resolution
-4. Step 9: Recursion via lazy VTopDef
-5. Step 10: Final parity audit
-
-Note: phantom type parameter test from ProcessorTest not yet ported — requires handling VLam signature with no type args, likely a Step 6 concern (kind restrictions).
+1. Step 7: Type-level computation (Box[one] unifying with Box[oneDifferently])
+   - Port tests: type level functions (6 cases)
+   - `force` must unfold VTopDef when spine is fully VConst
+   - Unifier on VConst does structural GroundValue equality (already implemented)
+   - Postponement handles metas not yet solved
+2. Step 8: Lambda inference, ability implementation resolution
+3. Step 9: Recursion via lazy VTopDef
+4. Step 10: Final parity audit
 
 ## File Layout
 

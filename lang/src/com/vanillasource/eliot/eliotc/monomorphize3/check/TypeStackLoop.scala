@@ -33,7 +33,7 @@ object TypeStackLoop {
 
       // Step 4: Apply explicit type args (pre-fetch their bindings too)
       _         <- key.specifiedTypeArguments.traverse_(ta => checker.prefetchBindings(ta.value))
-      appliedSig = applyTypeArgs(checker, signature, key.specifiedTypeArguments)
+      appliedSig = instantiateRemaining(checker, applyTypeArgs(checker, signature, key.specifiedTypeArguments))
 
       // Step 5: Check runtime body if present
       runtime <- resolvedValue.runtime.traverse { body =>
@@ -78,6 +78,22 @@ object TypeStackLoop {
         _        <- checker.check(resolvedValue.typeStack.as(level), expected)
         evaluated = checker.evalExpr(checker.state.env, level)
       } yield evaluated
+    }
+  }
+
+  /** Instantiate any remaining VLam closures (unapplied type parameters) with fresh metas. This handles phantom type
+    * parameters and cases where fewer explicit type args were provided than type parameters exist.
+    */
+  private def instantiateRemaining(checker: Checker, sig: SemValue): SemValue = {
+    val forced = Evaluator.force(sig, checker.state.unifier.metaStore)
+    forced match {
+      case VLam(name, closure) =>
+        val (metaId, freshStore) = checker.state.unifier.metaStore.fresh
+        checker.state.unifier.metaStore = freshStore
+        val freshMeta            = VMeta(metaId, Spine.SNil, VType)
+        checker.state = checker.state.bind(name, freshMeta)
+        instantiateRemaining(checker, closure(freshMeta))
+      case other               => other
     }
   }
 

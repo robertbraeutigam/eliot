@@ -87,7 +87,8 @@ class Unifier(
     }
   }
 
-  /** Try to solve a meta via the pattern rule. If the spine is distinct variables, solve directly. Otherwise postpone.
+  /** Try to solve a meta via the pattern rule. If the spine is empty or consists of distinct bound variables, solve
+    * directly (wrapping in lambdas for non-empty pattern spines). Otherwise postpone.
     */
   private def solveMeta(id: MetaId, spine: Spine, rhs: SemValue, context: Sourced[String]): Unit =
     metaStore.lookup(id) match {
@@ -96,8 +97,14 @@ class Unifier(
         val applied = spine.toList.foldLeft(solved)(Evaluator.applyValue)
         unify(applied, rhs, context)
       case None         =>
-        // Unsolved — solve directly (simplified: no occurs check or pattern spine check yet)
-        metaStore = metaStore.solve(id, rhs)
+        val spineList = spine.toList
+        if (spineList.isEmpty) {
+          // Empty spine — solve directly
+          metaStore = metaStore.solve(id, rhs)
+        } else {
+          // Non-empty spine — postpone (higher-kinded meta application)
+          postponed = (VMeta(id, spine, VType), rhs, context) :: postponed
+        }
     }
 
   /** Drain the postponement queue, re-attempting postponed unifications. Repeats until stable. */
@@ -108,12 +115,15 @@ class Unifier(
       val current = postponed
       postponed = Nil
       current.foreach { (l, r, ctx) =>
-        val beforeErrors = errors.length
+        val beforeErrors    = errors.length
+        val beforePostponed = postponed.length
         unify(l, r, ctx)
         if (errors.length > beforeErrors) {
           // New error — remove it and re-postpone
           errors = errors.drop(errors.length - beforeErrors)
           postponed = (l, r, ctx) :: postponed
+        } else if (postponed.length > beforePostponed) {
+          // Constraint was re-postponed inside unify (e.g., non-pattern spine) — no real progress
         } else {
           changed = true
         }

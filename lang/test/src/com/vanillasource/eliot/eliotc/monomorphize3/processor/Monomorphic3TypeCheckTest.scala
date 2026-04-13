@@ -4,6 +4,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.eval.fact.Types
 import com.vanillasource.eliot.eliotc.eval.processor.{
@@ -280,6 +281,86 @@ class Monomorphic3TypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Higher-kinded types (Step 6) ---
+
+  "higher-kinded types" should "type check through single generic placeholder" in {
+    runForErrors(
+      "def id[A](a: A): A\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)",
+      typeArgs = Seq(intType, stringType, funcType)
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept lower arities of generic parameters" in {
+    runForErrors(
+      "def id[B, A[_]](a: A[B]): A[B]\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)",
+      typeArgs = Seq(intType, stringType, funcType)
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "unify generic parameters of generics via a non-parameterized generic" in {
+    runForErrors(
+      "data Foo\ndata Bar\ndef id[A](a: A): A\ndef f(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "type check higher-kinded parameter returning identity" in {
+    runForErrors("data Box[A]\ndef f[F[_]](x: F[BigInteger]): F[BigInteger] = x", typeArgs = Seq(boxType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check higher-kinded parameter with two type args" in {
+    runForErrors("def f[F[_, _]](x: F[BigInteger, String]): F[BigInteger, String] = x", typeArgs = Seq(funcType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail when higher-kinded parameters mismatch" in {
+    runForErrors("data Box[A]\ndef f[F[_]](x: F[BigInteger]): F[String] = x", typeArgs = Seq(boxType))
+      .asserting(_.nonEmpty shouldBe true)
+  }
+
+  // TODO: This is a valid case, but not yet supported
+  it should "type check nested higher-kinded parameter" ignore {
+    runForErrors(
+      "data Box[A]\ndata HyperBox[A[_]]\ndef f[G[_], F[_[_]]](x: F[G]): F[G] = x",
+      typeArgs = Seq(boxType, testType("HyperBox"))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Explicit type restrictions (Step 6) ---
+
+  "explicit type restrictions" should "type check with explicit Type restriction like implicit" in {
+    runForErrors("def f[A: Type](a: A): A = a", typeArgs = Seq(intType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit Function restriction like arity syntax" in {
+    runForErrors(
+      "data Box[A]\ndef f[F: Function[Type, Type]](x: F[BigInteger]): F[BigInteger] = x",
+      typeArgs = Seq(boxType)
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit two-arg Function restriction" in {
+    runForErrors(
+      "type AlwaysString[A, B] = String\ndef f[F: Function[Type, Function[Type, Type]]](x: F[BigInteger, String]): F[BigInteger, String] = x",
+      typeArgs = Seq(testType("AlwaysString"))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit nested higher-kinded restriction" in {
+    runForErrors(
+      "type AlwaysString[A, B] = String\ntype HyperAlwaysString[F[_]] = String\ndef f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x",
+      typeArgs = Seq(testType("AlwaysString"), testType("HyperAlwaysString"))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with higher-kinded type that invokes its parameter" in {
+    runForErrors(
+      "type Identity[A] = A\ntype Apply[F[_]] = F[BigInteger]\ndef f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x",
+      typeArgs = Seq(testType("Identity"), testType("Apply"))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: Sourced[OperatorResolvedExpression] =
@@ -287,6 +368,18 @@ class Monomorphic3TypeCheckTest
 
   private val stringType: Sourced[OperatorResolvedExpression] =
     dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.stringFQN)))
+
+  private val funcType: Sourced[OperatorResolvedExpression] =
+    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.functionDataTypeFQN)))
+
+  private val boxType: Sourced[OperatorResolvedExpression] = testType("Box")
+
+  private def testType(name: String): Sourced[OperatorResolvedExpression] =
+    dummySourced(
+      OperatorResolvedExpression.ValueReference(
+        dummySourced(ValueFQN(testModuleName, QualifiedName(name, Qualifier.Type)))
+      )
+    )
 
   private def runForErrors(
       source: String,
