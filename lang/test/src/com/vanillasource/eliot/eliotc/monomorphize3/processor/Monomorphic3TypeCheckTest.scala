@@ -95,6 +95,11 @@ class Monomorphic3TypeCheckTest
       .asserting(_ shouldBe Seq("Type mismatch." at "x"))
   }
 
+  it should "fail if parameter is used as a wrong parameter in another function" in {
+    runForErrors("data A\ndata B\ndef a(b: B): A\ndef f(x: A): A = a(x)")
+      .asserting(_ shouldBe Seq("Type mismatch." at "x"))
+  }
+
   // --- Top level functions ---
 
   "top level functions" should "be assignable to function types" in {
@@ -133,6 +138,11 @@ class Monomorphic3TypeCheckTest
       .asserting(_ shouldBe Seq("Type mismatch." at "a"))
   }
 
+  it should "not produce type checked results if arities mismatch" in {
+    runForErrors("data A\ndef f: A = b(3)\ndef b: A")
+      .asserting(_.nonEmpty shouldBe true)
+  }
+
   it should "fail if parameter is of wrong type" in {
     runForErrors("data A\ndata B\ndef f(b: B): A = b")
       .asserting(_ shouldBe Seq("Type mismatch." at "b"))
@@ -148,6 +158,26 @@ class Monomorphic3TypeCheckTest
   it should "type check with multiple type parameters" in {
     runForErrors("def f[A, B](a: A, b: B): A = a", typeArgs = Seq(intType, stringType))
       .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "forward unification to concrete types" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id(s)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "forward unification to concrete types in recursive setup" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id(id(id(s)))")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail if forward unification to concrete types produces conflict" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(i)")
+      .asserting(_ shouldBe Seq("Type mismatch." at "i"))
+  }
+
+  it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(id(id(i)))")
+      .asserting(_.nonEmpty shouldBe true)
   }
 
   it should "fail with wrong return type on generic function" in {
@@ -183,6 +213,64 @@ class Monomorphic3TypeCheckTest
     runForErrors(
       "def g[A, B](a: A, b: B): A = a\ndef f(s: String, i: BigInteger): String = g[String, BigInteger](s, i)"
     ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail when the explicit type arg conflicts with the value argument" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[BigInteger](s)")
+      .asserting(_ should contain("Type mismatch." at "s"))
+  }
+
+  it should "fail when the explicit type arg conflicts with the declared return type" in {
+    runForErrors("def id[A](a: A): A = a\ndef i: BigInteger\ndef f(s: String): String = id[BigInteger](i)")
+      .asserting(_ shouldBe Seq("Type mismatch." at "i"))
+  }
+
+  it should "fail with too many type arguments" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[String, String](s)")
+      .asserting(_ shouldBe Seq("Not a function." at "id[String, String](s)"))
+  }
+
+  it should "fail with too few explicit type args that conflict with usage" in {
+    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: BigInteger): String = f2[BigInteger](s, i)")
+      .asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "fail when explicit type args are in the wrong order" in {
+    runForErrors(
+      "def g[A, B](a: A, b: B): A = a\ndef f(s: String, i: BigInteger): String = g[BigInteger, String](s, i)"
+    ).asserting(_ should contain("Type mismatch." at "i"))
+  }
+
+  it should "point type argument mismatch to the explicit type argument" in {
+    runForErrors(
+      "data Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[BigInteger](g)"
+    ).asserting(_ shouldBe Seq("Type mismatch." at "g"))
+  }
+
+  it should "type check with an applied generic type as a type argument" in {
+    runForErrors("def id[A](a: A): A = a\ndata Box(s: String)\ndef f(b: Box): Box = id[Box](b)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Multi-parameter unification (Step 5) ---
+
+  "multi-parameter unification" should "unify on multiple parameters" in {
+    runForErrors(
+      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndef f(s: String): String = g(someA, someA, s)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail, if unifying on multiple parameters fail at later stage" in {
+    runForErrors(
+      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndef f(i: BigInteger, s: String): String = g(someA, someA, i)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
+  // --- Apply (Step 5) ---
+
+  "apply" should "type check and return B" in {
+    runForErrors("def f[A, B](g: Function[A, B], a: A): B = g(a)", typeArgs = Seq(intType, stringType))
+      .asserting(_ shouldBe Seq.empty)
   }
 
   // --- Function application with generics (Step 5) ---

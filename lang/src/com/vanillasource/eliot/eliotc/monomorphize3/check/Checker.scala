@@ -98,8 +98,24 @@ class Checker(
       case _ =>
         for {
           (expr, inferred) <- infer(tm)
-          _                 = unifyWithContext(inferred, expected, tm)
+          instantiated      = instantiatePolymorphic(inferred)
+          _                 = unifyWithContext(instantiated, expected, tm)
         } yield expr
+    }
+  }
+
+  /** Peel off leading VLam closures by instantiating them with fresh metas. This handles implicit type arg
+    * instantiation when a polymorphic value is checked against a concrete/meta expected type.
+    */
+  private def instantiatePolymorphic(sem: SemValue): SemValue = {
+    val forced = Evaluator.force(sem, state.unifier.metaStore)
+    forced match {
+      case VLam(_, closure) =>
+        val (metaId, freshStore) = state.unifier.metaStore.fresh
+        state.unifier.metaStore = freshStore
+        val freshMeta            = VMeta(metaId, Spine.SNil, VType)
+        instantiatePolymorphic(closure(freshMeta))
+      case other            => other
     }
   }
 

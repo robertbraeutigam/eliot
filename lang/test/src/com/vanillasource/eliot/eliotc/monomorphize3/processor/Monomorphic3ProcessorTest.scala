@@ -121,6 +121,19 @@ class Monomorphic3ProcessorTest
       .asserting(_.runtime.get.value shouldBe a[Monomorphic3Expression.FunctionApplication])
   }
 
+  it should "fail on type argument count mismatch" in {
+    runGenerator(
+      "def id[A](a: A): A = a",
+      Monomorphic3Value.Key(
+        ValueFQN(testModuleName, default("id")),
+        Seq(intType, intType) // 2 args for 1-param function
+      ),
+      systemImports
+    ).asserting { case (errors, _) =>
+      errors.map(_.message) should contain("Too many type arguments.")
+    }
+  }
+
   private val intType: Sourced[OperatorResolvedExpression] =
     Sourced[OperatorResolvedExpression](file, com.vanillasource.eliot.eliotc.pos.PositionRange.zero,
       OperatorResolvedExpression.ValueReference(

@@ -96,7 +96,9 @@ object TypeStackLoop {
           checker.state = checker.state.bind(name, argVal)
           closure(argVal)
         case _                   =>
-          Evaluator.applyValue(sig, argVal)
+          // Too many type arguments — signature is no longer polymorphic (VLam)
+          checker.state.unifier.errors = typeArg.as("Too many type arguments.") :: checker.state.unifier.errors
+          sig
       }
     }
 }
