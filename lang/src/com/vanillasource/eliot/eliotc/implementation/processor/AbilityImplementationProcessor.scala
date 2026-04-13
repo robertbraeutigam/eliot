@@ -3,12 +3,13 @@ package com.vanillasource.eliot.eliotc.implementation.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.implementation.fact.{AbilityImplementation, AbilityImplementationCheck}
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
+import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression
+import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.implementation.util.TypeExpressionEvaluator
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
@@ -128,8 +129,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
   private def verifyImplementation(
       vfqn: ValueFQN,
       expectedAbilityFQN: AbilityFQN,
-      expectedTypeArgs: Seq[Value]
-  ): CompilerIO[Seq[(ValueFQN, Seq[Value])]] =
+      expectedTypeArgs: Seq[GroundValue]
+  ): CompilerIO[Seq[(ValueFQN, Seq[GroundValue])]] =
     getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
       case None           => Seq.empty.pure[CompilerIO]
       case Some(resolved) =>
@@ -140,15 +141,17 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
               signatureType <- TypeExpressionEvaluator.evaluate(
                                  resolved.typeStack.as(resolved.typeStack.value.signature)
                                )
-              typeParams     = ExpressionValue.extractLeadingLambdaParams(signatureType).map(_._1)
+              typeParams     = TypeExpression.extractLeadingLambdaParams(signatureType).map(_._1)
               freeVarNames   = typeParams.toSet
               evalParams    <- resolveQualifierParams(resolved.name, paramExprs, freeVarNames)
-              exprArgs       = expectedTypeArgs.map(ExpressionValue.fromValue(_, resolved.name))
+              exprArgs       = expectedTypeArgs.map(TypeExpression.fromGroundValue(_, resolved.name))
               matchResult    = implMatchesQueryWithBindings(evalParams, freeVarNames, exprArgs)
             } yield matchResult match {
               case Some(bindings) =>
                 val implTypeArgs =
-                  typeParams.map(p => bindings.get(p).flatMap(ExpressionValue.concreteValueOf).getOrElse(Value.Type))
+                  typeParams.map(p =>
+                    bindings.get(p).flatMap(TypeExpression.concreteValueOf).getOrElse(GroundValue.Type)
+                  )
                 Seq((vfqn, implTypeArgs))
               case None           => Seq.empty
             }
@@ -160,7 +163,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       name: Sourced[?],
       expressions: Seq[com.vanillasource.eliot.eliotc.resolve.fact.Expression],
       freeVarNames: Set[String]
-  ): CompilerIO[Seq[ExpressionValue]] =
+  ): CompilerIO[Seq[TypeExpression]] =
     expressions.traverse { expression =>
       TypeExpressionEvaluator.evaluate(
         name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(expression))),
@@ -169,29 +172,29 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     }
 
   private def implMatchesQueryWithBindings(
-      implParams: Seq[ExpressionValue],
+      implParams: Seq[TypeExpression],
       freeVarNames: Set[String],
-      queryArgs: Seq[ExpressionValue]
-  ): Option[Map[String, ExpressionValue]] = {
+      queryArgs: Seq[TypeExpression]
+  ): Option[Map[String, TypeExpression]] = {
     if (implParams.size != queryArgs.size) None
     else {
-      val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, ExpressionValue]) { (acc, pair) =>
-        acc ++ ExpressionValue.matchTypes(pair._1, pair._2, freeVarNames.contains)
+      val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, TypeExpression]) { (acc, pair) =>
+        acc ++ TypeExpression.matchTypes(pair._1, pair._2, freeVarNames.contains)
       }
       val matches  = implParams.zip(queryArgs).forall { (implParam, queryArg) =>
         freeVarNames.foldLeft(implParam) { case (acc, name) =>
-          ExpressionValue.substitute(acc, name, bindings.getOrElse(name, ParameterReference(name)))
+          TypeExpression.substitute(acc, name, bindings.getOrElse(name, ParameterReference(name)))
         } == queryArg
       }
       if (matches) Some(bindings) else None
     }
   }
 
-  private def collectModuleNames(v: Value): Seq[ModuleName] =
+  private def collectModuleNames(v: GroundValue): Seq[ModuleName] =
     v match {
-      case Value.Structure(fields, _) =>
+      case GroundValue.Structure(fields, _) =>
         fields.values.toSeq.flatMap(collectModuleNames) ++
-          fields.get("$typeName").toSeq.collect { case Value.Direct(vfqn: ValueFQN, _) => vfqn.moduleName }
-      case _                          => Seq.empty
+          fields.get("$typeName").toSeq.collect { case GroundValue.Direct(vfqn: ValueFQN, _) => vfqn.moduleName }
+      case _                                => Seq.empty
     }
 }

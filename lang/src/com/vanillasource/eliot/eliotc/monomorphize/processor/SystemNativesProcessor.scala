@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.Types.{functionDataTypeFQN, typeFQN, fullyQualifiedNameType}
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{functionDataTypeFQN, typeFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}

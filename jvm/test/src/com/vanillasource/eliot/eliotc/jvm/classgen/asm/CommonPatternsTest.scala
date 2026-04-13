@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.Types
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.*
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemAnyValue, systemFunctionValue, systemUnitValue}
@@ -26,14 +26,14 @@ class CommonPatternsTest extends BytecodeTest {
 
   private def stringValue: GroundValue =
     GroundValue.Structure(
-      Map("$typeName" -> GroundValue.Direct(Types.stringFQN, GroundValue.Type)),
+      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.stringFQN, GroundValue.Type)),
       GroundValue.Type
     )
 
   private def functionValue: GroundValue =
     GroundValue.Structure(
       Map(
-        "$typeName" -> GroundValue.Direct(Types.functionDataTypeFQN, GroundValue.Type),
+        "$typeName" -> GroundValue.Direct(WellKnownTypes.functionDataTypeFQN, GroundValue.Type),
         "A" -> stringValue,
         "B" -> stringValue
       ),

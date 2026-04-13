@@ -1,19 +1,19 @@
 package com.vanillasource.eliot.eliotc.implementation.fact
 
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 case class AbilityImplementation(
     abilityValueFQN: ValueFQN,
-    typeArguments: Seq[Value],
+    typeArguments: Seq[GroundValue],
     implementationFQN: ValueFQN,
-    implementationTypeArgs: Seq[Value] = Seq.empty
+    implementationTypeArgs: Seq[GroundValue] = Seq.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[AbilityImplementation] =
     AbilityImplementation.Key(abilityValueFQN, typeArguments)
 }
 
 object AbilityImplementation {
-  case class Key(abilityValueFQN: ValueFQN, typeArguments: Seq[Value]) extends CompilerFactKey[AbilityImplementation]
+  case class Key(abilityValueFQN: ValueFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[AbilityImplementation]
 }

@@ -7,7 +7,6 @@ import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.eval.processor.{DataTypeEvaluator, ExistingNamedValueEvaluator, SystemValueEvaluator}
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.implementation.processor.{AbilityImplementationCheckProcessor, AbilityImplementationProcessor}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule
@@ -48,9 +47,6 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       Tokenizer(),
       ASTParser(),
       CoreProcessor(),
-      SystemValueEvaluator(),
-      ExistingNamedValueEvaluator(),
-      DataTypeEvaluator(),
       ModuleNamesProcessor(),
       ModuleValueProcessor(Seq(ModuleName.systemFunctionModuleName, ModuleName(ModuleName.defaultSystemPackage, "Unit"), ModuleName(ModuleName.defaultSystemPackage, "PatternMatch"), ModuleName(ModuleName.defaultSystemPackage, "TypeMatch"))),
       UnifiedModuleNamesProcessor(),

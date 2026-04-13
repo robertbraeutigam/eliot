@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.Sync
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.Types
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition
@@ -16,7 +16,7 @@ object CommonPatterns {
       case _ if v.asFunctionType.isDefined => systemFunctionValue
       case _                               =>
         v.typeFQN match {
-          case Some(vfqn) if vfqn =!= Types.typeFQN => stripDataTypeSuffix(vfqn)
+          case Some(vfqn) if vfqn =!= WellKnownTypes.typeFQN => stripDataTypeSuffix(vfqn)
           case _                                    => systemAnyValue
         }
     }

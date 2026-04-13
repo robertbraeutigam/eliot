@@ -29,7 +29,7 @@ object Quoter {
         } yield GroundValue.Structure(
           Map(
             "$typeName" -> GroundValue.Direct(
-              com.vanillasource.eliot.eliotc.eval.fact.Types.functionDataTypeFQN,
+              com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.functionDataTypeFQN,
               GroundValue.Type
             ),
             "A"         -> domGround,

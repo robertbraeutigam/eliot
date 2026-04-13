@@ -5,12 +5,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.eval.fact.Types
-import com.vanillasource.eliot.eliotc.eval.processor.{
-  DataTypeEvaluator,
-  ExistingNamedValueEvaluator,
-  SystemValueEvaluator
-}
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.implementation.processor.{
   AbilityImplementationCheckProcessor,
   AbilityImplementationProcessor
@@ -31,9 +26,6 @@ class MonomorphicTypeCheckProcessorTest
       Tokenizer(),
       ASTParser(),
       CoreProcessor(),
-      SystemValueEvaluator(),
-      ExistingNamedValueEvaluator(),
-      DataTypeEvaluator(),
       ModuleNamesProcessor(),
       UnifiedModuleNamesProcessor(),
       ModuleValueProcessor(
@@ -186,13 +178,13 @@ class MonomorphicTypeCheckProcessorTest
 
   private val intType: GroundValue =
     GroundValue.Structure(
-      Map("$typeName" -> GroundValue.Direct(Types.bigIntFQN, GroundValue.Type)),
+      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.bigIntFQN, GroundValue.Type)),
       GroundValue.Type
     )
 
   private val stringType: GroundValue =
     GroundValue.Structure(
-      Map("$typeName" -> GroundValue.Direct(Types.stringFQN, GroundValue.Type)),
+      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.stringFQN, GroundValue.Type)),
       GroundValue.Type
     )
 

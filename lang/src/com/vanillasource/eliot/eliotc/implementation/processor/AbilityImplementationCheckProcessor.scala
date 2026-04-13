@@ -2,12 +2,13 @@ package com.vanillasource.eliot.eliotc.implementation.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
+import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression
+import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression.*
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementationCheck
 import com.vanillasource.eliot.eliotc.implementation.util.TypeExpressionEvaluator
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
@@ -48,7 +49,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       vfqn: ValueFQN,
       name: Sourced[com.vanillasource.eliot.eliotc.resolve.fact.QualifiedName],
       typeParams: Seq[String],
-      body: ExpressionValue,
+      body: TypeExpression,
       hasRuntime: Boolean
   )
 
@@ -65,7 +66,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
   private def collectImplMethods(
       moduleName: ModuleName,
       abilityFQN: AbilityFQN,
-      typeArguments: Seq[Value]
+      typeArguments: Seq[GroundValue]
   ): CompilerIO[Seq[ResolvedMethod]] =
     getFactOrAbort(UnifiedModuleNames.Key(moduleName)).flatMap { names =>
       names.names.keys.toSeq
@@ -81,7 +82,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
               for {
                 evalParams  <- resolveQualifierParams(method.name, paramExprs, method.typeParams.toSet)
                 freeVarNames = method.typeParams.toSet
-                exprArgs     = typeArguments.map(ExpressionValue.fromValue(_, method.name))
+                exprArgs     = typeArguments.map(TypeExpression.fromGroundValue(_, method.name))
               } yield if (implMatchesQuery(evalParams, freeVarNames, exprArgs)) Some(method) else None
             case _ => None.pure[CompilerIO]
           }
@@ -94,8 +95,8 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       signatureType <- TypeExpressionEvaluator.evaluate(
                          resolved.typeStack.as(resolved.typeStack.value.signature)
                        )
-      typeParams     = ExpressionValue.extractLeadingLambdaParams(signatureType).map(_._1)
-      body           = ExpressionValue.stripLeadingLambdas(signatureType)
+      typeParams     = TypeExpression.extractLeadingLambdaParams(signatureType).map(_._1)
+      body           = TypeExpression.stripLeadingLambdas(signatureType)
     } yield ResolvedMethod(vfqn, resolved.name, typeParams, body, resolved.runtime.isDefined)
 
   private def checkCompleteness(
@@ -148,13 +149,13 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
           evaluatedImplParams <- resolveQualifierParams(implMethod.name, implParams, implMethod.typeParams.toSet)
           patternBindings      = abilityTypeParamNames.zip(evaluatedImplParams).toMap
           expectedImplSig      = patternBindings.foldLeft(abstractMethod.body) { case (acc, (name, param)) =>
-                                   ExpressionValue.substitute(acc, name, param)
+                                   TypeExpression.substitute(acc, name, param)
                                  }
           actualImplSig        = implMethod.body
           unificationVarBindings =
-            ExpressionValue.matchTypes(expectedImplSig, actualImplSig, isUnificationVarName)
+            TypeExpression.matchTypes(expectedImplSig, actualImplSig, isUnificationVarName)
           resolvedExpectedSig    = unificationVarBindings.foldLeft(expectedImplSig) { case (acc, (name, value)) =>
-                                     ExpressionValue.substitute(acc, name, value)
+                                     TypeExpression.substitute(acc, name, value)
                                    }
           _                     <- if (resolvedExpectedSig != actualImplSig)
                                      compilerError(
@@ -171,7 +172,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       name: Sourced[?],
       expressions: Seq[com.vanillasource.eliot.eliotc.resolve.fact.Expression],
       freeVarNames: Set[String]
-  ): CompilerIO[Seq[ExpressionValue]] =
+  ): CompilerIO[Seq[TypeExpression]] =
     expressions.traverse { expression =>
       TypeExpressionEvaluator.evaluate(
         name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(expression))),
@@ -180,28 +181,28 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
     }
 
   private def implMatchesQuery(
-      implParams: Seq[ExpressionValue],
+      implParams: Seq[TypeExpression],
       freeVarNames: Set[String],
-      queryArgs: Seq[ExpressionValue]
+      queryArgs: Seq[TypeExpression]
   ): Boolean = {
     if (implParams.size != queryArgs.size) false
     else {
-      val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, ExpressionValue]) { (acc, pair) =>
-        acc ++ ExpressionValue.matchTypes(pair._1, pair._2, freeVarNames.contains)
+      val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, TypeExpression]) { (acc, pair) =>
+        acc ++ TypeExpression.matchTypes(pair._1, pair._2, freeVarNames.contains)
       }
       implParams.zip(queryArgs).forall { (implParam, queryArg) =>
         freeVarNames.foldLeft(implParam) { case (acc, name) =>
-          ExpressionValue.substitute(acc, name, bindings.getOrElse(name, ParameterReference(name)))
+          TypeExpression.substitute(acc, name, bindings.getOrElse(name, ParameterReference(name)))
         } == queryArg
       }
     }
   }
 
-  private def collectModuleNames(v: Value): Seq[ModuleName] =
+  private def collectModuleNames(v: GroundValue): Seq[ModuleName] =
     v match {
-      case Value.Structure(fields, _) =>
+      case GroundValue.Structure(fields, _) =>
         fields.values.toSeq.flatMap(collectModuleNames) ++
-          fields.get("$typeName").toSeq.collect { case Value.Direct(vfqn: ValueFQN, _) => vfqn.moduleName }
-      case _                          => Seq.empty
+          fields.get("$typeName").toSeq.collect { case GroundValue.Direct(vfqn: ValueFQN, _) => vfqn.moduleName }
+      case _                                => Seq.empty
     }
 }

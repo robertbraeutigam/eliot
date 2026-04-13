@@ -5,7 +5,6 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.eval.processor.{DataTypeEvaluator, ExistingNamedValueEvaluator, SystemValueEvaluator}
 import com.vanillasource.eliot.eliotc.implementation.processor.{
   AbilityImplementationCheckProcessor,
   AbilityImplementationProcessor
@@ -34,9 +33,6 @@ class AbilityImplementationCheckProcessorTest
       Tokenizer(),
       ASTParser(),
       CoreProcessor(),
-      SystemValueEvaluator(),
-      ExistingNamedValueEvaluator(),
-      DataTypeEvaluator(),
       ModuleNamesProcessor(),
       UnifiedModuleNamesProcessor(),
       ModuleValueProcessor(Seq(ModuleName.systemFunctionModuleName)),

@@ -5,7 +5,6 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
-import com.vanillasource.eliot.eliotc.stdlib.eval.StdlibValueEvaluator
 
 class StdlibPlugin extends CompilerPlugin {
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
@@ -13,8 +12,7 @@ class StdlibPlugin extends CompilerPlugin {
       .modify(superProcessor =>
         SequentialCompilerProcessors(
           Seq(
-            superProcessor,
-            StdlibValueEvaluator()
+            superProcessor
           )
         )
       )

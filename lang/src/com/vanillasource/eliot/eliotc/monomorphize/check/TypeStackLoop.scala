@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
@@ -22,7 +21,7 @@ object TypeStackLoop {
       resolvedValue: OperatorResolvedValue,
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
       fetchValueType: ValueFQN => CompilerIO[Option[SemValue]],
-      resolveAbility: (ValueFQN, Seq[Value]) => CompilerIO[Option[ValueFQN]] = (_, _) => None.pure[CompilerIO]
+      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[ValueFQN]] = (_, _) => None.pure[CompilerIO]
   ): CompilerIO[MonomorphicValue] = {
     val checker = new Checker(
       fetchBinding,

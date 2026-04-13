@@ -103,32 +103,42 @@ object Evaluator {
     case _                               => v
   }
 
-  import com.vanillasource.eliot.eliotc.eval.fact.Types
+  import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 
   /** Convert a SemValue to a GroundValue. Used by native fire functions that need to store type arguments in
     * GroundValue structures.
     */
   def semToGround(v: SemValue): GroundValue = v match {
-    case VConst(g)             => g
-    case VType                 => GroundValue.Type
-    case VPi(domain, codomain) =>
+    case VConst(g)                          => g
+    case VType                              => GroundValue.Type
+    case VPi(domain, codomain)              =>
       val domGround = semToGround(domain)
       val codGround = semToGround(codomain(VNeutral(NeutralHead.VVar(0, "$quote"), Spine.SNil, VType)))
       GroundValue.Structure(
         Map(
-          "$typeName" -> GroundValue.Direct(Types.functionDataTypeFQN, GroundValue.Type),
+          "$typeName" -> GroundValue.Direct(WellKnownTypes.functionDataTypeFQN, GroundValue.Type),
           "A"         -> domGround,
           "B"         -> codGround
         ),
         GroundValue.Type
       )
-    case _                     => GroundValue.Type
+    case VTopDef(fqn, None, spine)          =>
+      val fields = spine.toList.zipWithIndex.map { (arg, i) => s"$$$i" -> semToGround(arg) }.toMap
+      GroundValue.Structure(
+        Map("$typeName" -> GroundValue.Direct(fqn, GroundValue.Type)) ++ fields,
+        GroundValue.Type
+      )
+    case VTopDef(_, Some(cached), spine)    =>
+      val base   = cached.value
+      val result = spine.toList.foldLeft(base)(applyValue)
+      semToGround(result)
+    case _                                  => GroundValue.Type
   }
 
   /** Ground type for BigInteger values (used by eval for IntegerLiteral). */
   val bigIntGroundType: GroundValue = GroundValue.Structure(
     Map(
-      "$typeName" -> GroundValue.Direct(Types.bigIntFQN, GroundValue.Type)
+      "$typeName" -> GroundValue.Direct(WellKnownTypes.bigIntFQN, GroundValue.Type)
     ),
     GroundValue.Type
   )
@@ -136,7 +146,7 @@ object Evaluator {
   /** Ground type for String values (used by eval for StringLiteral). */
   val stringGroundType: GroundValue = GroundValue.Structure(
     Map(
-      "$typeName" -> GroundValue.Direct(Types.stringFQN, GroundValue.Type)
+      "$typeName" -> GroundValue.Direct(WellKnownTypes.stringFQN, GroundValue.Type)
     ),
     GroundValue.Type
   )

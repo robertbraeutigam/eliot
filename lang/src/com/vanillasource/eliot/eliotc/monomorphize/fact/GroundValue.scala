@@ -2,8 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.fact
 
 import cats.{Eq, Show}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 
 /** Ground values represent fully evaluated, concrete values with no free variables or unsolved metas. These are the
   * output of quoting NbE semantic values back to a first-order representation.
@@ -27,23 +26,13 @@ object GroundValue {
     override def valueType: GroundValue = this
   }
 
-  /** Convert a GroundValue to the eval package's Value type. Used for looking up AbilityImplementation facts which are
-    * keyed by eval.fact.Value.
-    */
-  def toEvalValue(gv: GroundValue): Value = gv match {
-    case Direct(value: ValueFQN, _)        => Value.Direct(value, Types.fullyQualifiedNameType)
-    case Direct(value, valueType)          => Value.Direct(value, toEvalValue(valueType))
-    case Structure(fields, valueType)      => Value.Structure(fields.map((k, v) => (k, toEvalValue(v))), toEvalValue(valueType))
-    case Type                              => Value.Type
-  }
-
   extension (gv: GroundValue) {
 
     def typeFQN: Option[ValueFQN] =
       gv match {
         case Structure(fields, _) =>
           fields.get("$typeName").collect { case Direct(vfqn: ValueFQN, _) => vfqn }
-        case Type                 => Some(Types.typeFQN)
+        case Type                 => Some(WellKnownTypes.typeFQN)
         case _                    => None
       }
 
@@ -51,7 +40,7 @@ object GroundValue {
       gv match {
         case Structure(fields, Type) =>
           fields.get("$typeName").collect {
-            case Direct(vfqn: ValueFQN, _) if vfqn === Types.functionDataTypeFQN =>
+            case Direct(vfqn: ValueFQN, _) if vfqn === WellKnownTypes.functionDataTypeFQN =>
               (fields("A"), fields("B"))
           }
         case _                       => None

@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{Qualifier => CoreQualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
@@ -23,7 +23,7 @@ class Checker(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
     fetchValueType: ValueFQN => CompilerIO[Option[SemValue]],
     paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
-    resolveAbility: (ValueFQN, Seq[Value]) => CompilerIO[Option[ValueFQN]] = (_, _) => None.pure[CompilerIO]
+    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[ValueFQN]] = (_, _) => None.pure[CompilerIO]
 ) {
 
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed. */
@@ -302,7 +302,7 @@ class Checker(
                                    for {
                                      sem    <- evalExpr(arg)
                                      ground <- forceAndConst(sem)
-                                   } yield GroundValue.toEvalValue(ground)
+                                   } yield ground
                                  }
               resolved        <- liftF(resolveAbility(vfqn.value, abilityTypeArgs))
             } yield resolved match {
@@ -353,7 +353,7 @@ class Checker(
         case VPi(domain, codomain) =>
           GroundValue.Structure(
             Map(
-              "$typeName" -> GroundValue.Direct(Types.functionDataTypeFQN, GroundValue.Type),
+              "$typeName" -> GroundValue.Direct(WellKnownTypes.functionDataTypeFQN, GroundValue.Type),
               "A"         -> go(domain),
               "B"         -> go(codomain(VNeutral(NeutralHead.VVar(state.env.level, "$quote"), Spine.SNil, VType)))
             ),

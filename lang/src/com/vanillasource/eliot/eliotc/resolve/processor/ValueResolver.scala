@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.core.fact.{
   QualifiedName as CoreQualifiedName,
   Qualifier as CoreQualifier
 }
-import com.vanillasource.eliot.eliotc.eval.fact.Types.typeFQN
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.typeFQN
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*

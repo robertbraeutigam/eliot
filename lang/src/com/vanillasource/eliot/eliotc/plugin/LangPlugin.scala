@@ -6,11 +6,6 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.implementation.processor.{AbilityImplementationCheckProcessor, AbilityImplementationProcessor}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.eval.processor.{
-  DataTypeEvaluator,
-  ExistingNamedValueEvaluator,
-  SystemValueEvaluator
-}
 import com.vanillasource.eliot.eliotc.module.processor.{
   ModuleNamesProcessor,
   ModuleValueProcessor,
@@ -70,9 +65,6 @@ class LangPlugin extends CompilerPlugin {
             Tokenizer(),
             ASTParser(),
             CoreProcessor(),
-            SystemValueEvaluator(),
-            ExistingNamedValueEvaluator(),
-            DataTypeEvaluator(),
             ModuleNamesProcessor(),
             ModuleValueProcessor(),
             UnifiedModuleNamesProcessor(),
