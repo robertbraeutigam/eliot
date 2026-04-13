@@ -6,11 +6,11 @@ import com.vanillasource.eliot.eliotc.monomorphize3.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize3.fact.GroundValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Pattern unification on SemValues with a postponement queue. Handles structural unification, meta solving, and
-  * eta-expansion.
+/** Pattern unification on SemValues with a postponement queue. All operations return a new Unifier instance — no
+  * mutation occurs.
   *
   * @param metaStore
-  *   The current meta store (mutable state passed through)
+  *   The current meta store
   * @param depth
   *   The current binding depth (for fresh variable generation)
   * @param postponed
@@ -18,51 +18,49 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param errors
   *   Accumulated error messages with source positions
   */
-class Unifier(
-    var metaStore: MetaStore,
-    var depth: Int,
-    var postponed: List[(SemValue, SemValue, Sourced[String])],
-    var errors: List[Sourced[String]]
+case class Unifier(
+    metaStore: MetaStore,
+    depth: Int,
+    postponed: List[(SemValue, SemValue, Sourced[String])],
+    errors: List[Sourced[String]]
 ) {
 
   /** Unify two semantic values, reporting errors with the given context message and source position. */
-  def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unit = {
+  def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = {
     val fl = Evaluator.force(l, metaStore)
     val fr = Evaluator.force(r, metaStore)
     (fl, fr) match {
-      case (VType, VType) => ()
+      case (VType, VType) => this
 
       case (VConst(g1), VConst(g2)) =>
-        if (!groundEquals(g1, g2)) {
-          errors = context :: errors
-        }
+        if (!groundEquals(g1, g2)) addError(context)
+        else this
 
       case (VPi(d1, c1), VPi(d2, c2)) =>
-        unify(d1, d2, context)
-        val fresh = freshVar()
-        unify(c1(fresh), c2(fresh), context)
+        val (fresh, u1) = freshVar()
+        u1.unify(d1, d2, context).unify(c1(fresh), c2(fresh), context)
 
       case (VLam(_, c1), VLam(_, c2)) =>
-        val fresh = freshVar()
-        unify(c1(fresh), c2(fresh), context)
+        val (fresh, u1) = freshVar()
+        u1.unify(c1(fresh), c2(fresh), context)
 
       // Eta: VLam vs non-lambda
       case (VLam(_, c), other)        =>
-        val fresh = freshVar()
-        unify(c(fresh), Evaluator.applyValue(other, fresh), context)
+        val (fresh, u1) = freshVar()
+        u1.unify(c(fresh), Evaluator.applyValue(other, fresh), context)
 
       case (other, VLam(_, c))                                      =>
-        val fresh = freshVar()
-        unify(Evaluator.applyValue(other, fresh), c(fresh), context)
+        val (fresh, u1) = freshVar()
+        u1.unify(Evaluator.applyValue(other, fresh), c(fresh), context)
 
       // Neutral-neutral: same head, same spine length
       case (VNeutral(h1, sp1, _), VNeutral(h2, sp2, _)) if h1 == h2 =>
         val l1 = sp1.toList
         val l2 = sp2.toList
         if (l1.length == l2.length) {
-          l1.zip(l2).foreach { (a, b) => unify(a, b, context) }
+          l1.zip(l2).foldLeft(this) { case (u, (a, b)) => u.unify(a, b, context) }
         } else {
-          errors = context :: errors
+          addError(context)
         }
 
       // Meta solving (pattern rule)
@@ -77,20 +75,20 @@ class Unifier(
         val l1 = sp1.toList
         val l2 = sp2.toList
         if (l1.length == l2.length) {
-          l1.zip(l2).foreach { (a, b) => unify(a, b, context) }
+          l1.zip(l2).foldLeft(this) { case (u, (a, b)) => u.unify(a, b, context) }
         } else {
-          errors = context :: errors
+          addError(context)
         }
 
       case _ =>
-        errors = context :: errors
+        addError(context)
     }
   }
 
   /** Try to solve a meta via the pattern rule. If the spine is empty or consists of distinct bound variables, solve
     * directly (wrapping in lambdas for non-empty pattern spines). Otherwise postpone.
     */
-  private def solveMeta(id: MetaId, spine: Spine, rhs: SemValue, context: Sourced[String]): Unit =
+  private def solveMeta(id: MetaId, spine: Spine, rhs: SemValue, context: Sourced[String]): Unifier =
     metaStore.lookup(id) match {
       case Some(solved) =>
         // Already solved — unify the solution (with spine applied) against rhs
@@ -99,48 +97,60 @@ class Unifier(
       case None         =>
         rhs match {
           case VMeta(rhsId, _, _) if rhsId.value == id.value =>
-            () // Same unsolved meta — trivially equal, no solve needed
+            this // Same unsolved meta — trivially equal, no solve needed
           case _                                             =>
             val spineList = spine.toList
             if (spineList.isEmpty) {
               // Empty spine — solve directly
-              metaStore = metaStore.solve(id, rhs)
+              copy(metaStore = metaStore.solve(id, rhs))
             } else {
               // Non-empty spine — postpone (higher-kinded meta application)
-              postponed = (VMeta(id, spine, VType), rhs, context) :: postponed
+              copy(postponed = (VMeta(id, spine, VType), rhs, context) :: postponed)
             }
         }
     }
 
   /** Drain the postponement queue, re-attempting postponed unifications. Repeats until stable. */
-  def drain(): Unit = {
-    var changed = true
-    while (changed) {
-      changed = false
-      val current = postponed
-      postponed = Nil
-      current.foreach { (l, r, ctx) =>
-        val beforeErrors    = errors.length
-        val beforePostponed = postponed.length
-        unify(l, r, ctx)
-        if (errors.length > beforeErrors) {
-          // New error — remove it and re-postpone
-          errors = errors.drop(errors.length - beforeErrors)
-          postponed = (l, r, ctx) :: postponed
-        } else if (postponed.length > beforePostponed) {
-          // Constraint was re-postponed inside unify (e.g., non-pattern spine) — no real progress
-        } else {
-          changed = true
+  def drain(): Unifier = {
+    @scala.annotation.tailrec
+    def loop(u: Unifier): Unifier = {
+      val current = u.postponed
+      if (current.isEmpty) u
+      else {
+        val (result, changed) = current.foldLeft((u.copy(postponed = Nil), false)) {
+          case ((acc, anyChanged), (l, r, ctx)) =>
+            val beforeErrors    = acc.errors.length
+            val beforePostponed = acc.postponed.length
+            val after           = acc.unify(l, r, ctx)
+            if (after.errors.length > beforeErrors) {
+              // New error — remove it and re-postpone
+              (
+                after.copy(
+                  errors = after.errors.drop(after.errors.length - beforeErrors),
+                  postponed = (l, r, ctx) :: after.postponed
+                ),
+                anyChanged
+              )
+            } else if (after.postponed.length > beforePostponed) {
+              // Constraint was re-postponed inside unify (e.g., non-pattern spine) — no real progress
+              (after, anyChanged)
+            } else {
+              (after, true)
+            }
         }
+        if (changed) loop(result) else result
       }
     }
+    loop(this)
   }
 
-  private def freshVar(): SemValue = {
+  private def freshVar(): (SemValue, Unifier) = {
     val v = VNeutral(NeutralHead.VVar(depth, s"$$unify$depth"), Spine.SNil, VType)
-    depth += 1
-    v
+    (v, copy(depth = depth + 1))
   }
+
+  private def addError(context: Sourced[String]): Unifier =
+    copy(errors = context :: errors)
 
   /** Structural equality for ground values. */
   private def groundEquals(g1: GroundValue, g2: GroundValue): Boolean = (g1, g2) match {
@@ -156,5 +166,5 @@ class Unifier(
 
 object Unifier {
   def create(metaStore: MetaStore, depth: Int): Unifier =
-    new Unifier(metaStore, depth, Nil, Nil)
+    Unifier(metaStore, depth, Nil, Nil)
 }
