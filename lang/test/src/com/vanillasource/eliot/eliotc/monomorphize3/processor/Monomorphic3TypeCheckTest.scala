@@ -402,8 +402,8 @@ class Monomorphic3TypeCheckTest
 
   it should "reject calculated differing data values" in {
     runForErrors(
-      "data Person(age: BigInteger)\ndef one: Person = Person(1)\ndef oneDifferently: Person = Person(2)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
-    ).asserting(_.nonEmpty shouldBe true)
+      "data Person(age: BigInteger)\ndef one: Person = Person(1)\ndef two: Person = Person(2)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[two](str)"
+    ).asserting(_ shouldBe Seq("Type mismatch." at "str")) // TODO: attribution wrong!
   }
 
   it should "accept type-level function calls that are not Type types" in {
