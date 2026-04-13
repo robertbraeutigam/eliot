@@ -29,20 +29,8 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
   private def createFunctionBinding(): NativeBinding = {
     val nativeFunction = VNative(
       VType,
-      domainGround => {
-        val domainSem = groundToSem(domainGround)
-        VNative(
-          VType,
-          codomainGround => VPi(domainSem, _ => groundToSem(codomainGround))
-        )
-      }
+      domain => VNative(VType, codomain => VPi(domain, _ => codomain))
     )
     NativeBinding(functionDataTypeFQN, nativeFunction)
-  }
-
-  /** Convert a GroundValue to a SemValue, handling GroundValue.Type → VType conversion. */
-  private def groundToSem(ground: GroundValue): SemValue = ground match {
-    case GroundValue.Type => VType
-    case other            => VConst(other)
   }
 }

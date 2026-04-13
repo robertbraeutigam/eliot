@@ -43,9 +43,9 @@ object TypeStackLoop {
       // Step 6: Drain unifier and produce output
       _        = checker.state.unifier.drain()
 
-      // Report any unification errors
-      _        <- checker.state.unifier.errors.reverse.foldLeft(().pure[CompilerIO]) { (acc, msg) =>
-                    acc >> compilerError(resolvedValue.name.as(msg))
+      // Report any unification errors (each error carries its own source position)
+      _        <- checker.state.unifier.errors.reverse.foldLeft(().pure[CompilerIO]) { (acc, sourcedMsg) =>
+                    acc >> compilerError(sourcedMsg)
                   }
 
       // Quote the signature to GroundValue
@@ -87,6 +87,16 @@ object TypeStackLoop {
       typeArgs: Seq[Sourced[OperatorResolvedExpression]]
   ): SemValue =
     typeArgs.foldLeft(signature) { (sig, typeArg) =>
-      Evaluator.applyValue(sig, checker.evalExpr(checker.state.env, typeArg.value))
+      val argVal = checker.evalExpr(checker.state.env, typeArg.value)
+      val forced = Evaluator.force(sig, checker.state.unifier.metaStore)
+      forced match {
+        case VLam(name, closure) =>
+          // Bind the type parameter to its concrete value so the runtime body check
+          // resolves type parameters to their monomorphized types
+          checker.state = checker.state.bind(name, argVal)
+          closure(argVal)
+        case _                   =>
+          Evaluator.applyValue(sig, argVal)
+      }
     }
 }

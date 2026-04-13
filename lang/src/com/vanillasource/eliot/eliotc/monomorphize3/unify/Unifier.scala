@@ -4,6 +4,7 @@ import com.vanillasource.eliot.eliotc.monomorphize3.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize3.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize3.fact.GroundValue
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Pattern unification on SemValues with a postponement queue. Handles structural unification, meta solving, and
   * eta-expansion.
@@ -15,17 +16,17 @@ import com.vanillasource.eliot.eliotc.monomorphize3.fact.GroundValue
   * @param postponed
   *   Queue of postponed unification problems (when a meta's spine is not pattern)
   * @param errors
-  *   Accumulated error messages
+  *   Accumulated error messages with source positions
   */
 class Unifier(
     var metaStore: MetaStore,
     var depth: Int,
-    var postponed: List[(SemValue, SemValue, String)],
-    var errors: List[String]
+    var postponed: List[(SemValue, SemValue, Sourced[String])],
+    var errors: List[Sourced[String]]
 ) {
 
-  /** Unify two semantic values, reporting errors with the given context message. */
-  def unify(l: SemValue, r: SemValue, context: String): Unit = {
+  /** Unify two semantic values, reporting errors with the given context message and source position. */
+  def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unit = {
     val fl = Evaluator.force(l, metaStore)
     val fr = Evaluator.force(r, metaStore)
     (fl, fr) match {
@@ -33,7 +34,7 @@ class Unifier(
 
       case (VConst(g1), VConst(g2)) =>
         if (!groundEquals(g1, g2)) {
-          errors = s"$context" :: errors
+          errors = context :: errors
         }
 
       case (VPi(d1, c1), VPi(d2, c2)) =>
@@ -61,7 +62,7 @@ class Unifier(
         if (l1.length == l2.length) {
           l1.zip(l2).foreach { (a, b) => unify(a, b, context) }
         } else {
-          errors = s"$context" :: errors
+          errors = context :: errors
         }
 
       // Meta solving (pattern rule)
@@ -78,17 +79,17 @@ class Unifier(
         if (l1.length == l2.length) {
           l1.zip(l2).foreach { (a, b) => unify(a, b, context) }
         } else {
-          errors = s"$context" :: errors
+          errors = context :: errors
         }
 
       case _ =>
-        errors = s"$context" :: errors
+        errors = context :: errors
     }
   }
 
   /** Try to solve a meta via the pattern rule. If the spine is distinct variables, solve directly. Otherwise postpone.
     */
-  private def solveMeta(id: MetaId, spine: Spine, rhs: SemValue, context: String): Unit =
+  private def solveMeta(id: MetaId, spine: Spine, rhs: SemValue, context: Sourced[String]): Unit =
     metaStore.lookup(id) match {
       case Some(solved) =>
         // Already solved — unify the solution (with spine applied) against rhs

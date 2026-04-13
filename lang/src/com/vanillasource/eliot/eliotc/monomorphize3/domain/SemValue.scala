@@ -26,7 +26,7 @@ object SemValue {
 
   case class VPi(domain: SemValue, codomain: SemValue => SemValue) extends SemValue
 
-  case class VNative(paramType: SemValue, fire: GroundValue => SemValue) extends SemValue
+  case class VNative(paramType: SemValue, fire: SemValue => SemValue) extends SemValue
 
   case class VTopDef(fqn: ValueFQN, cached: Lazy[SemValue], spine: Spine) extends SemValue
 

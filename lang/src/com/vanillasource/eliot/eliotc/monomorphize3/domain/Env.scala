@@ -19,6 +19,14 @@ case class Env(bindings: Vector[SemValue], names: Vector[String]) {
 
   /** Look up a value by its de Bruijn level. */
   def lookupByLevel(lvl: Int): SemValue = bindings(lvl)
+
+  /** Look up a value by name, returning the most recently bound value with that name. Used by the evaluator to resolve
+    * parameters bound by FunctionLiteral closures.
+    */
+  def lookupByName(name: String): Option[SemValue] = {
+    val idx = names.lastIndexOf(name)
+    if (idx >= 0) Some(bindings(idx)) else None
+  }
 }
 
 object Env {

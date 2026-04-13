@@ -29,10 +29,14 @@ class Evaluator(
       VConst(GroundValue.Direct(value.value, Evaluator.stringGroundType))
 
     case OperatorResolvedExpression.ParameterReference(name) =>
-      nameLevels.get(name.value) match {
-        case Some(level) => env.lookupByLevel(level)
-        case None        => VNeutral(NeutralHead.VVar(env.level, name.value), Spine.SNil, VType)
-      }
+      env
+        .lookupByName(name.value)
+        .orElse(
+          nameLevels.get(name.value).map(env.lookupByLevel)
+        )
+        .getOrElse(
+          VNeutral(NeutralHead.VVar(env.level, name.value), Spine.SNil, VType)
+        )
 
     case OperatorResolvedExpression.ValueReference(vfqn, _) =>
       lookupTopDef(vfqn.value) match {
@@ -58,9 +62,8 @@ object Evaluator {
 
     case VNative(_, fire) =>
       x match {
-        case VConst(ground) => fire(ground)
-        case VType          => fire(GroundValue.Type)
-        case _              => VNeutral(NeutralHead.VVar(0, "native"), Spine.SNil :+ x, VType)
+        case _: VNeutral => VNeutral(NeutralHead.VVar(0, "native"), Spine.SNil :+ x, VType)
+        case _           => fire(x)
       }
 
     case VNeutral(head, spine, tpe) => VNeutral(head, spine :+ x, tpe)
@@ -85,6 +88,26 @@ object Evaluator {
   }
 
   import com.vanillasource.eliot.eliotc.eval.fact.Types
+
+  /** Convert a SemValue to a GroundValue. Used by native fire functions that need to store type arguments in
+    * GroundValue structures.
+    */
+  def semToGround(v: SemValue): GroundValue = v match {
+    case VConst(g)             => g
+    case VType                 => GroundValue.Type
+    case VPi(domain, codomain) =>
+      val domGround = semToGround(domain)
+      val codGround = semToGround(codomain(VNeutral(NeutralHead.VVar(0, "$quote"), Spine.SNil, VType)))
+      GroundValue.Structure(
+        Map(
+          "$typeName" -> GroundValue.Direct(Types.functionDataTypeFQN, GroundValue.Type),
+          "A"         -> domGround,
+          "B"         -> codGround
+        ),
+        GroundValue.Type
+      )
+    case _                     => GroundValue.Type
+  }
 
   /** Ground type for BigInteger values (used by eval for IntegerLiteral). */
   val bigIntGroundType: GroundValue = GroundValue.Structure(

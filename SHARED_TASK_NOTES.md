@@ -1,33 +1,48 @@
 # monomorphize3 NbE Implementation - Task Notes
 
-## Current State: Steps 1-4 partially complete
+## Current State: Steps 1-5 implemented
 
-Steps 1-3 (skeleton, domain, evaluator, unifier) are fully implemented and compile.
-Step 4 (checker, TypeStackLoop, processor wiring) is structurally complete but has a key bug.
+Steps 1-4 (skeleton, domain, evaluator, unifier, checker, TypeStackLoop) are complete with all tests green.
+Step 5 (generics, polytype instantiation, explicit type args) is implemented with core tests passing.
 
 ## What Works
 
 - `./mill lang.compile` passes
-- Simple non-generic tests pass: `def f: BigInteger`, `def f: BigInteger = 42`, `def f: String = "hello"`, `def f: BigInteger = constVal`
+- All 33 monomorphize3 tests pass (9 ProcessorTest + 24 TypeCheckTest)
 - No regressions to existing tests (29 pre-existing failures, same count)
+- Non-generic: values, functions, literals, value references, parameter usage, error reporting
+- Generic: explicit type args, implicit type arg inference via meta instantiation, multi-parameter generics
 
-## The Key Bug: Function type resolution in fetchEvaluatedSignature
+## Key Design Decisions Made
 
-**Symptom**: Any test involving `Function[A, B]` types fails with "Not a function." error.
+### VNative.fire takes SemValue (not GroundValue)
+Changed from plan's `GroundValue => SemValue` to `SemValue => SemValue`. This allows Function native to handle VPi and VMeta inputs, which is essential for:
+- Evaluating kind expressions like `Function(Type)(Function(Type)(Type))` where inner evaluation produces VPi
+- Implicit type arg instantiation where fresh metas flow through the Function native
 
-**Root cause**: `Monomorphic3Processor.fetchEvaluatedSignature(vfqn)` evaluates a value's type stack to get its TYPE (kind). For `Function^Type` (defined as `opaque type Function[A, B]`), the type stack has 2 levels:
-- level 0 (signature): `(A: Type) -> (B: Type) -> Type` (a FunctionLiteral ORE)
-- level 1 (kind): `Function(Type)(Function(Type)(Type))` (the kind expression)
+### VMeta passes through VNative (not stuck)
+Only VNeutral blocks VNative application. VMeta is allowed to fire, enabling meta-based polytype instantiation. The Function native correctly propagates metas through VPi construction.
 
-The function currently evaluates the LAST level (level 0 = signature) which gives `VLam("A", a => VLam("B", b => VType))`. But this is the VALUE of Function, not its TYPE. The checker's `infer(ValueReference)` needs the TYPE.
+### Evaluator resolves ParameterReference from Env names
+Added `Env.lookupByName` as primary resolution for ParameterReference (before nameLevels). This allows VLam closures created during fetchEvaluatedSignature (with empty nameLevels) to correctly resolve their captured parameters.
 
-**The confusion**: `fetchEvaluatedSignature` folds ALL levels and returns the last result. For single-level stacks (like `BigInteger^Type`), this is correct (evaluating `ValueReference(Type^Type)` gives VType). For multi-level stacks, it should return the kind (last-but-one evaluation used as expected type), not the signature evaluation.
+### TypeStackLoop.applyTypeArgs binds type params in Checker state
+When applying explicit type args to a VLam signature, the corresponding type parameter names are also bound in the Checker's state. This ensures the runtime body check resolves type parameters to their monomorphized concrete types.
 
-**Possible fixes**:
-1. Change `fetchEvaluatedSignature` to evaluate the KIND level (the second level from the bottom, or VType for single-level stacks) instead of the signature level. The type/kind of a value IS the evaluation of the levels ABOVE its signature.
-2. Or, evaluate the type stack correctly: for N levels, the TYPE of the value is determined by levels[1..N-1], not levels[0].
+### Unifier errors carry source positions
+Changed from `List[String]` to `List[Sourced[String]]` so errors point to the actual expression, not just the value name.
 
-**How to verify the fix**: The test `"be monomorphized with one parameter"` (`data A\ndata B\ndef f(a: A): B`) in `Monomorphic3TypeCheckTest` should pass - it currently fails with "Not a function." because `Function(A)(B)` can't be evaluated.
+### VLam in applyInferred: meta-based polytype instantiation
+When FunctionApplication encounters VLam as target type, creates fresh meta and instantiates. Recursive applyInferred then handles the resulting VPi. This naturally handles both single and multiple leading type parameters.
+
+## Next Steps (Step 6+)
+
+1. Port remaining Step 5 tests from monomorphize2: multi-parameter unification, more explicit type arg edge cases, error reporting for generic type mismatches
+2. Step 6: Higher-kinded types and explicit kind restrictions
+3. Step 7: Type-level computation (Box[one] unifying with Box[oneDifferently])
+4. Step 8: Lambda inference, ability implementation resolution
+5. Step 9: Recursion via lazy VTopDef
+6. Step 10: Final parity audit
 
 ## File Layout
 
@@ -43,9 +58,3 @@ lang/src/.../monomorphize3/
 lang/test/.../monomorphize3/processor/
   Monomorphic3ProcessorTest.scala, Monomorphic3TypeCheckTest.scala
 ```
-
-## Next Steps
-
-1. Fix `fetchEvaluatedSignature` to return the correct TYPE (kind) of values
-2. Get all non-generic Step 4 tests passing
-3. Move to Step 5 (generics) - see `docs/nbe-migration-plan.md`

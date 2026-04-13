@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.eval.util.Evaluator as EvalEvaluator
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.SemValue.*
+import com.vanillasource.eliot.eliotc.monomorphize3.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize3.fact.{GroundValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -68,7 +69,7 @@ class DataTypeNativesProcessor
       case (name, _) +: tail =>
         VNative(
           VType,
-          argGround => createDataTypeNative(vfqn, tail, collectedArgs + (name -> argGround))
+          argSem => createDataTypeNative(vfqn, tail, collectedArgs + (name -> Evaluator.semToGround(argSem)))
         )
       case _                 =>
         VConst(

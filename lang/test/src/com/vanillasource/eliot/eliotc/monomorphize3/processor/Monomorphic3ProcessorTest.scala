@@ -4,6 +4,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
+import com.vanillasource.eliot.eliotc.eval.fact.Types
 import com.vanillasource.eliot.eliotc.eval.processor.{
   DataTypeEvaluator,
   ExistingNamedValueEvaluator,
@@ -91,6 +92,44 @@ class Monomorphic3ProcessorTest
     runEngineForMonomorphicValue("def constVal: BigInteger\ndef f: BigInteger = constVal")
       .asserting(_.runtime.get.value shouldBe a[Monomorphic3Expression.MonomorphicValueReference])
   }
+
+  // --- Generic tests (Step 5) ---
+
+  it should "monomorphize identity function with Int" in {
+    runEngineForMonomorphicValue("def id[A](a: A): A = a", "id", Seq(intType))
+      .asserting { result =>
+        showType(result.signature) shouldBe "Function[BigInteger, BigInteger]"
+        result.runtime.get.value shouldBe a[Monomorphic3Expression.FunctionLiteral]
+      }
+  }
+
+  it should "monomorphize identity function with String" in {
+    runEngineForMonomorphicValue("def id[A](a: A): A = a", "id", Seq(stringType))
+      .asserting(result => showType(result.signature) shouldBe "Function[String, String]")
+  }
+
+  it should "monomorphize function with multiple type parameters" in {
+    runEngineForMonomorphicValue(
+      "def f[A, B](a: A, b: B): A = a",
+      "f",
+      Seq(intType, stringType)
+    ).asserting(result => showType(result.signature) shouldBe "Function[BigInteger, Function[String, BigInteger]]")
+  }
+
+  it should "monomorphize function application" in {
+    runEngineForMonomorphicValue("def id[A](a: A): A = a\ndef f: BigInteger = id(42)")
+      .asserting(_.runtime.get.value shouldBe a[Monomorphic3Expression.FunctionApplication])
+  }
+
+  private val intType: Sourced[OperatorResolvedExpression] =
+    Sourced[OperatorResolvedExpression](file, com.vanillasource.eliot.eliotc.pos.PositionRange.zero,
+      OperatorResolvedExpression.ValueReference(
+        Sourced(file, com.vanillasource.eliot.eliotc.pos.PositionRange.zero, Types.bigIntFQN)))
+
+  private val stringType: Sourced[OperatorResolvedExpression] =
+    Sourced[OperatorResolvedExpression](file, com.vanillasource.eliot.eliotc.pos.PositionRange.zero,
+      OperatorResolvedExpression.ValueReference(
+        Sourced(file, com.vanillasource.eliot.eliotc.pos.PositionRange.zero, Types.stringFQN)))
 
   private def runEngineForMonomorphicValue(
       source: String,

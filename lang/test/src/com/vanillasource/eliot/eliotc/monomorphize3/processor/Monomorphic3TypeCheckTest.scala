@@ -58,7 +58,7 @@ class Monomorphic3TypeCheckTest
 
   it should "not compile if call site has arguments, but definition doesn't" in {
     runForErrors("def f: String = b(1)\ndef b: String")
-      .asserting(_ shouldBe Seq("Type mismatch." at "b(1)"))
+      .asserting(_ shouldBe Seq("Not a function." at "b(1)"))
   }
 
   it should "not compile if call site has no arguments, but definition has one" in {
@@ -136,6 +136,60 @@ class Monomorphic3TypeCheckTest
   it should "fail if parameter is of wrong type" in {
     runForErrors("data A\ndata B\ndef f(b: B): A = b")
       .asserting(_ shouldBe Seq("Type mismatch." at "b"))
+  }
+
+  // --- Generic types (Step 5) ---
+
+  "generic types" should "type check when returning itself from a parameter" in {
+    runForErrors("def f[A](a: A): A = a", typeArgs = Seq(intType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with multiple type parameters" in {
+    runForErrors("def f[A, B](a: A, b: B): A = a", typeArgs = Seq(intType, stringType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail with wrong return type on generic function" in {
+    runForErrors("def f[A, B](a: A, b: B): A = b", typeArgs = Seq(intType, stringType))
+      .asserting(_ should have size 1)
+  }
+
+  // --- Functions without body (generic variants, Step 5) ---
+
+  it should "be monomorphized with generic parameters" in {
+    runForErrors("def f[A](a: A): A", typeArgs = Seq(intType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "be monomorphized with generic parameters and multiple arguments" in {
+    runForErrors("def f[A, B](a: A, b: B): A", typeArgs = Seq(intType, stringType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Explicit type arguments (Step 5) ---
+
+  "explicit type arguments" should "type check when the explicit arg matches usage" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[String](s)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with too few explicit type args by inferring the rest" in {
+    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: BigInteger): String = f2[String](s, i)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit type args and multiple type params" in {
+    runForErrors(
+      "def g[A, B](a: A, b: B): A = a\ndef f(s: String, i: BigInteger): String = g[String, BigInteger](s, i)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Function application with generics (Step 5) ---
+
+  "function application" should "type check generic function application" in {
+    runForErrors("def id[A](a: A): A = a\ndef f: BigInteger = id(42)")
+      .asserting(_ shouldBe Seq.empty)
   }
 
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)

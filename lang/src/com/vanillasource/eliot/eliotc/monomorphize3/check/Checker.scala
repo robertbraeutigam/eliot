@@ -91,7 +91,7 @@ class Checker(
           case _                     =>
             for {
               (expr, inferred) <- infer(tm)
-              _                 = state.unifier.unify(inferred, expected, "Type mismatch.")
+              _                 = state.unifier.unify(inferred, expected, tm.as("Type mismatch."))
             } yield expr
         }
 
@@ -207,18 +207,13 @@ class Checker(
         }
 
       case VLam(_, closure) =>
-        // Type-level function application — evaluate argument and apply closure to get result type
-        for {
-          (argExpr, _) <- infer(arg)
-          argSem        = evalExpr(state.env, arg.value)
-          retType       = closure(argSem)
-        } yield {
-          val expr = Monomorphic3Expression(
-            forceAndConst(retType),
-            Monomorphic3Expression.FunctionApplication(target.as(targetExpr), arg.as(argExpr))
-          )
-          (expr, retType)
-        }
+        // Polytype at term level: instantiate with fresh meta, then recurse.
+        // This handles implicit type arg instantiation for generic values like `id(42)`.
+        val (metaId, freshStore) = state.unifier.metaStore.fresh
+        state.unifier.metaStore = freshStore
+        val freshMeta            = VMeta(metaId, Spine.SNil, VType)
+        val instantiated         = closure(freshMeta)
+        applyInferred(target, targetExpr, instantiated, arg, whole)
 
       case _ =>
         // Try to unify with a fresh function type
@@ -228,7 +223,7 @@ class Checker(
         state.unifier.metaStore = store2
         val domain          = VMeta(domId, Spine.SNil, VType)
         val codomain        = VMeta(codId, Spine.SNil, VType)
-        state.unifier.unify(forced, VPi(domain, _ => codomain), "Not a function.")
+        state.unifier.unify(forced, VPi(domain, _ => codomain), target.as("Not a function."))
         val forcedDomain    = Evaluator.force(domain, state.unifier.metaStore)
         for {
           argExpr <- check(arg, forcedDomain)
@@ -261,7 +256,7 @@ class Checker(
       expected: SemValue,
       tm: Sourced[OperatorResolvedExpression]
   ): Unit =
-    state.unifier.unify(inferred, expected, "Type mismatch.")
+    state.unifier.unify(inferred, expected, tm.as("Type mismatch."))
 
   private def getReturnType(funcType: SemValue): SemValue = funcType match {
     case VPi(_, codomain) => codomain(VNeutral(NeutralHead.VVar(state.env.level, "$ret"), Spine.SNil, VType))
