@@ -361,6 +361,19 @@ class Monomorphic3TypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Lambda type inference (Step 8) ---
+
+  "lambda type inference" should "infer parameter type for unannotated lambda from context" in {
+    runForErrors("data Foo(l: Function[Unit, String])\ndef g: String\ndef f: Foo = Foo(unit -> g)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept unannotated lambda with function application in body" in {
+    runForErrors(
+      "data Foo(l: Function[Unit, String])\ndef g(u: Unit): String\ndef f: Foo = Foo(unit -> g(unit))"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   // --- Type level functions (Step 7) ---
 
   "type level functions" should "support non-type (value) type parameters" in {

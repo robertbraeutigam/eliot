@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize3.fact
 
+import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 
 /** Ground values represent fully evaluated, concrete values with no free variables or unsolved metas. These are the
@@ -22,5 +23,15 @@ object GroundValue {
     */
   object Type extends GroundValue {
     override def valueType: GroundValue = this
+  }
+
+  /** Convert a GroundValue to the eval package's Value type. Used for looking up AbilityImplementation facts which are
+    * keyed by eval.fact.Value.
+    */
+  def toEvalValue(gv: GroundValue): Value = gv match {
+    case Direct(value: ValueFQN, _)        => Value.Direct(value, Types.fullyQualifiedNameType)
+    case Direct(value, valueType)          => Value.Direct(value, toEvalValue(valueType))
+    case Structure(fields, valueType)      => Value.Structure(fields.map((k, v) => (k, toEvalValue(v))), toEvalValue(valueType))
+    case Type                              => Value.Type
   }
 }

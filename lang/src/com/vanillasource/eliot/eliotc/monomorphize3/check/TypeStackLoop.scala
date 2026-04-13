@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize3.check
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.SemValue.*
@@ -20,9 +21,16 @@ object TypeStackLoop {
       key: Monomorphic3Value.Key,
       resolvedValue: OperatorResolvedValue,
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-      fetchValueType: ValueFQN => CompilerIO[Option[SemValue]]
+      fetchValueType: ValueFQN => CompilerIO[Option[SemValue]],
+      resolveAbility: (ValueFQN, Seq[Value]) => CompilerIO[Option[ValueFQN]] = (_, _) => None.pure[CompilerIO]
   ): CompilerIO[Monomorphic3Value] = {
-    val checker = new Checker(CheckState.initial, fetchBinding, fetchValueType)
+    val checker = new Checker(
+      CheckState.initial,
+      fetchBinding,
+      fetchValueType,
+      resolvedValue.paramConstraints,
+      resolveAbility
+    )
 
     for {
       // Pre-fetch all bindings referenced in the type stack and runtime body
@@ -64,7 +72,10 @@ object TypeStackLoop {
   ): CompilerIO[Unit] = {
     val levels = resolvedValue.typeStack.value.levels.toSeq
     levels.traverse_(level => checker.prefetchBindings(level)) >>
-      resolvedValue.runtime.traverse_(body => checker.prefetchBindings(body.value))
+      resolvedValue.runtime.traverse_(body => checker.prefetchBindings(body.value)) >>
+      resolvedValue.paramConstraints.values.toSeq.flatten.traverse_ { constraint =>
+        constraint.typeArgs.traverse_(arg => checker.prefetchBindings(arg))
+      }
   }
 
   private def walkTypeStack(

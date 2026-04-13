@@ -1,6 +1,8 @@
 package com.vanillasource.eliot.eliotc.monomorphize3.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize3.check.TypeStackLoop
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.{Env, SemValue}
@@ -29,8 +31,12 @@ class Monomorphic3Processor
       key,
       resolvedValue,
       fetchBinding = fetchBinding,
-      fetchValueType = vfqn => fetchEvaluatedSignature(vfqn)
+      fetchValueType = vfqn => fetchEvaluatedSignature(vfqn),
+      resolveAbility = resolveAbilityImpl
     )
+
+  private def resolveAbilityImpl(vfqn: ValueFQN, typeArgs: Seq[Value]): CompilerIO[Option[ValueFQN]] =
+    getFact(AbilityImplementation.Key(vfqn, typeArgs)).map(_.map(_.implementationFQN))
 
   /** Fetch a value's type stack signature, evaluate it to a SemValue. Uses NativeBinding lookups for proper resolution.
     */

@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize3.processor
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.eval.fact.Types
 import com.vanillasource.eliot.eliotc.eval.processor.{
@@ -126,6 +127,34 @@ class Monomorphic3ProcessorTest
       .asserting(result => showType(result.signature) shouldBe "String")
   }
 
+  // --- Ability implementation resolution (Step 8) ---
+
+  it should "resolve ability ref to concrete implementation when monomorphizing with concrete type" in {
+    val source =
+      """ability Show[A] {
+        |  def show(x: A): A
+        |}
+        |implement Show[BigInteger] {
+        |  def show(x: BigInteger): BigInteger = x
+        |}
+        |def f[A ~ Show](x: A): A = show(x)""".stripMargin
+    runEngineForMonomorphicValue(source, "f", Seq(intType))
+      .asserting { result =>
+        unwrapFunctionLiterals(result.runtime.get.value) match {
+          case Monomorphic3Expression.FunctionApplication(target, _) =>
+            target.value.expression match {
+              case Monomorphic3Expression.MonomorphicValueReference(name, typeArgs) =>
+                name.value.name.qualifier shouldBe a[Qualifier.AbilityImplementation]
+                typeArgs shouldBe Seq.empty
+              case other                                                            =>
+                fail(s"Expected MonomorphicValueReference, got $other")
+            }
+          case other                                                 =>
+            fail(s"Expected FunctionApplication, got $other")
+        }
+      }
+  }
+
   it should "fail on type argument count mismatch" in {
     runGenerator(
       "def id[A](a: A): A = a",
@@ -166,6 +195,12 @@ class Monomorphic3ProcessorTest
           case Some(v) => IO.pure(v)
           case None    => IO.raiseError(new Exception(s"No Monomorphic3Value found for '$name'"))
         }
+    }
+
+  private def unwrapFunctionLiterals(expr: Monomorphic3Expression.Expression): Monomorphic3Expression.Expression =
+    expr match {
+      case Monomorphic3Expression.FunctionLiteral(_, _, body) => unwrapFunctionLiterals(body.value.expression)
+      case other                                              => other
     }
 
   private def showType(value: GroundValue): String = value match {

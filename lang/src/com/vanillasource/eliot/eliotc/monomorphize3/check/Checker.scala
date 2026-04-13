@@ -1,13 +1,14 @@
 package com.vanillasource.eliot.eliotc.monomorphize3.check
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.Types
+import com.vanillasource.eliot.eliotc.core.fact.{Qualifier => CoreQualifier}
+import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize3.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize3.fact.*
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerError, compilerAbort}
@@ -25,7 +26,9 @@ import scala.collection.mutable
 class Checker(
     var state: CheckState,
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-    fetchValueType: ValueFQN => CompilerIO[Option[SemValue]]
+    fetchValueType: ValueFQN => CompilerIO[Option[SemValue]],
+    paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
+    resolveAbility: (ValueFQN, Seq[Value]) => CompilerIO[Option[ValueFQN]] = (_, _) => None.pure[CompilerIO]
 ) {
   // Cache of already-fetched NativeBinding SemValues, keyed by ValueFQN
   private val bindingCache: mutable.Map[ValueFQN, Option[SemValue]] = mutable.Map.empty
@@ -152,9 +155,9 @@ class Checker(
         sigOpt <- fetchValueType(vfqn.value)
         result <- sigOpt match {
                     case Some(sig) =>
-                      // Also pre-fetch bindings for type arg OREs
                       for {
-                        _ <- typeArgs.traverse_(ta => prefetchBindings(ta.value))
+                        _            <- typeArgs.traverse_(ta => prefetchBindings(ta.value))
+                        resolvedVfqn <- tryResolveAbility(vfqn)
                       } yield {
                         // Apply explicit type args
                         val appliedSig = typeArgs.foldLeft(sig) { (s, typeArg) =>
@@ -162,7 +165,7 @@ class Checker(
                         }
                         val expr       = Monomorphic3Expression(
                           forceAndConst(appliedSig),
-                          Monomorphic3Expression.MonomorphicValueReference(vfqn, Seq.empty)
+                          Monomorphic3Expression.MonomorphicValueReference(resolvedVfqn, Seq.empty)
                         )
                         (expr, appliedSig)
                       }
@@ -253,6 +256,35 @@ class Checker(
         }
     }
   }
+
+  /** Resolve an ability method reference to its concrete implementation using constraint information. When a
+    * ValueReference has an Ability qualifier, the constraint parameter's current binding provides the type arguments
+    * for looking up the AbilityImplementation fact.
+    */
+  private def tryResolveAbility(vfqn: Sourced[ValueFQN]): CompilerIO[Sourced[ValueFQN]] =
+    vfqn.value.name.qualifier match {
+      case CoreQualifier.Ability(abilityName) =>
+        findConstraintParam(abilityName) match {
+          case Some((_, constraintTypeArgs)) =>
+            // The constraint's typeArgs already include the constrained parameter
+            // (e.g., `A ~ Show` has typeArgs=[ParameterReference("A")])
+            val abilityTypeArgs =
+              constraintTypeArgs.map(arg => GroundValue.toEvalValue(forceAndConst(evalExpr(state.env, arg))))
+            resolveAbility(vfqn.value, abilityTypeArgs).map {
+              case Some(implFqn) => vfqn.as(implFqn)
+              case None          => vfqn
+            }
+          case None                          => vfqn.pure[CompilerIO]
+        }
+      case _                                  => vfqn.pure[CompilerIO]
+    }
+
+  private def findConstraintParam(abilityName: String): Option[(String, Seq[OperatorResolvedExpression])] =
+    paramConstraints.collectFirst {
+      case (paramName, constraints) if constraints.exists(_.abilityFQN.abilityName == abilityName) =>
+        val constraint = constraints.find(_.abilityFQN.abilityName == abilityName).get
+        (paramName, constraint.typeArgs)
+    }
 
   /** Pre-fetch all NativeBindings referenced by ValueReferences in an ORE. */
   private[check] def prefetchBindings(ore: OperatorResolvedExpression): CompilerIO[Unit] = ore match {
