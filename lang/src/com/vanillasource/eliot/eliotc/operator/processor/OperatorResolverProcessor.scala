@@ -28,8 +28,7 @@ class OperatorResolverProcessor
       desugaredValue.name,
       resolvedRuntime,
       resolvedTypeStack,
-      resolvedConstraints,
-      desugaredValue.opaque
+      resolvedConstraints
     )
 
   private def resolveInExpression(expr: MatchDesugaredExpression): CompilerIO[OperatorResolvedExpression] =

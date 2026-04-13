@@ -44,8 +44,7 @@ object ImplementBlock {
               f.args,
               f.typeDefinition,
               f.body,
-              visibility = Visibility.Public,
-              opaque = f.opaque
+              visibility = Visibility.Public
             )
           ) :+
             // We add the implementation to the default method as a marker, that this type implements the marker.

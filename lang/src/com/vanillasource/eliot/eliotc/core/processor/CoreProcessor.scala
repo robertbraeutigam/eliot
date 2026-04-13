@@ -86,8 +86,7 @@ class CoreProcessor
       constraints,
       function.fixity,
       function.precedence.map(convertPrecedenceDeclaration),
-      function.visibility,
-      function.opaque
+      function.visibility
     )
   }
 }

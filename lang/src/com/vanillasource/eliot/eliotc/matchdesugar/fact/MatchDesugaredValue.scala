@@ -14,8 +14,7 @@ case class MatchDesugaredValue(
     typeStack: Sourced[TypeStack[MatchDesugaredExpression]],
     paramConstraints: Map[String, Seq[MatchDesugaredValue.ResolvedAbilityConstraint]] = Map.empty,
     fixity: Fixity = Fixity.Application,
-    precedence: Seq[PrecedenceDeclaration] = Seq.empty,
-    opaque: Boolean = false
+    precedence: Seq[PrecedenceDeclaration] = Seq.empty
 ) extends CompilerFact {
   override def key(): CompilerFactKey[MatchDesugaredValue] = MatchDesugaredValue.Key(vfqn)
 }

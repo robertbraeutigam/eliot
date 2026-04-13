@@ -27,12 +27,12 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
   val testModuleName = ModuleName(Seq.empty, "Test")
   val sourceContent  = SourceContent(file, Sourced(file, PositionRange.zero, "test source"))
   val systemImports  = Seq(
-    SystemImport("Function", "opaque type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
-    SystemImport("Type", "opaque type Type"),
-    SystemImport("BigInteger", "opaque type BigInteger"),
-    SystemImport("Unit", "opaque type Unit"),
-    SystemImport("String", "opaque type String"),
-    SystemImport("IO", "opaque type IO"),
+    SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
+    SystemImport("Type", "type Type"),
+    SystemImport("BigInteger", "type BigInteger"),
+    SystemImport("Unit", "type Unit"),
+    SystemImport("String", "type String"),
+    SystemImport("IO", "type IO"),
     SystemImport("PatternMatch", ""),
     SystemImport("TypeMatch", "")
   )

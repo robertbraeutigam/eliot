@@ -1,4 +1,4 @@
-opaque type Function[A, B]
+type Function[A, B]
 
 def apply[A, B](f: Function[A, B], a: A): B
 

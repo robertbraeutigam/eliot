@@ -3,4 +3,4 @@
  * Note: Type has itself as Type.
  * Reason for being in lang: Type checking must refer to this type.
  */
-opaque type Type
+type Type

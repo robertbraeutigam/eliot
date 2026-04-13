@@ -1,7 +1,7 @@
 /**
  * All integers are represented by this type.
  */
-opaque type Int[MIN: BigInteger, MAX: BigInteger]
+type Int[MIN: BigInteger, MAX: BigInteger]
 
 // Below some common aliases
 type Byte            = Int[-128, 127]

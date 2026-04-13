@@ -2,4 +2,4 @@
  * Data that has exactly one value.
  * Reason for being in lang: handleWith refers to it in empty handlers.
  */
-opaque type Unit
+type Unit

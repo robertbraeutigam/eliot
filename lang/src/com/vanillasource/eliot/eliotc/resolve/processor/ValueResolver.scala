@@ -59,8 +59,7 @@ class ValueResolver
       resolvedStack,
       resolvedConstraints,
       namedValue.fixity,
-      resolvedPrecedence,
-      namedValue.opaque
+      resolvedPrecedence
     )
 
     resolveProgram.runA(scope)

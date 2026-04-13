@@ -1,4 +1,4 @@
-opaque type Unit
+type Unit
 
 def unit: Unit
 

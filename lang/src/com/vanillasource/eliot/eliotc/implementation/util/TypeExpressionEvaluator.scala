@@ -12,7 +12,6 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 /** Evaluates type expressions to ExpressionValue for structural type matching. Unlike the full Evaluator, this
   * evaluator:
-  *   - Produces ConcreteValue base type structures for opaque types (consistent with ExpressionValue.fromValue)
   *   - Preserves unbound parameters as ParameterReference nodes
   *   - Uses structural beta-reduction only (no type checking)
   *   - Reads OperatorResolvedValue directly instead of NamedEvaluable
@@ -71,19 +70,7 @@ object TypeExpressionEvaluator {
       ConcreteValue(Value.Type).pure[CompilerIO]
     } else {
       getFact(OperatorResolvedValue.Key(rawVfqn)).flatMap {
-        case Some(fact) if fact.opaque =>
-          val typeFqn = toTypeFqn(rawVfqn)
-          fact.runtime match {
-            case None =>
-              rawVfqn.name.qualifier match {
-                case _: Qualifier.Ability | _: Qualifier.AbilityImplementation =>
-                  ParameterReference(rawVfqn.show + "$").pure[CompilerIO]
-                case _                                                         =>
-                  ConcreteValue(Types.dataType(typeFqn)).pure[CompilerIO]
-              }
-            case _    => ConcreteValue(Types.dataType(typeFqn)).pure[CompilerIO]
-          }
-        case Some(fact)                =>
+        case Some(fact) =>
           fact.runtime match {
             case Some(body) =>
               evaluate(body, evaluating + rawVfqn, freeVarNames)
@@ -95,16 +82,12 @@ object TypeExpressionEvaluator {
                   ConcreteValue(Types.dataType(rawVfqn)).pure[CompilerIO]
               }
           }
-        case None                      =>
+        case None       =>
           if (rawVfqn.name.qualifier === Qualifier.Type)
             ConcreteValue(Types.dataType(rawVfqn)).pure[CompilerIO]
           else compilerAbort(sourced.as("Can not evaluate referenced value."))
       }
     }
-
-  private def toTypeFqn(vfqn: ValueFQN): ValueFQN =
-    if (vfqn.name.qualifier === Qualifier.Type) vfqn
-    else ValueFQN(vfqn.moduleName, QualifiedName(vfqn.name.name, Qualifier.Type))
 
   private val bigIntType: Value =
     Types.dataType(
