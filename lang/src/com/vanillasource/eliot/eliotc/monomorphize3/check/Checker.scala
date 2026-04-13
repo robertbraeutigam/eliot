@@ -55,7 +55,7 @@ class Checker(
     } yield makeEvaluator(s).eval(s.env, tm)
 
   /** Force a SemValue through the current meta store. */
-  private def force(v: SemValue): CheckIO[SemValue] =
+  private[check] def force(v: SemValue): CheckIO[SemValue] =
     inspect(s => Evaluator.force(v, s.unifier.metaStore))
 
   /** Unify two semantic values, updating the unifier in the state. */
@@ -294,9 +294,9 @@ class Checker(
 
   private def findConstraintParam(abilityName: String): Option[(String, Seq[OperatorResolvedExpression])] =
     paramConstraints.collectFirst {
-      case (paramName, constraints) if constraints.exists(_.abilityFQN.abilityName == abilityName) =>
-        val constraint = constraints.find(_.abilityFQN.abilityName == abilityName).get
-        (paramName, constraint.typeArgs)
+      Function.unlift { (paramName, constraints) =>
+        constraints.find(_.abilityFQN.abilityName == abilityName).map(c => (paramName, c.typeArgs))
+      }
     }
 
   /** Fetch all NativeBindings referenced by ValueReferences in an ORE into the cache. Called automatically by

@@ -6,7 +6,6 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize3.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize3.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize3.fact.*
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -81,7 +80,7 @@ object TypeStackLoop {
     */
   private def instantiateRemaining(checker: Checker, sig: SemValue): CheckIO[SemValue] =
     for {
-      forced <- inspect(s => Evaluator.force(sig, s.unifier.metaStore))
+      forced <- checker.force(sig)
       result <- forced match {
                   case VLam(name, closure) =>
                     for {
@@ -101,15 +100,13 @@ object TypeStackLoop {
     typeArgs.foldLeftM(signature) { (sig, typeArg) =>
       for {
         argVal <- checker.evalExpr(typeArg.value)
-        forced <- inspect(s => Evaluator.force(sig, s.unifier.metaStore))
+        forced <- checker.force(sig)
         result <- forced match {
                     case VLam(name, closure) =>
                       modify(_.bind(name, argVal)).as(closure(argVal))
                     case _                   =>
                       modify(s =>
-                        s.withUnifier(
-                          s.unifier.copy(errors = typeArg.as("Too many type arguments.") :: s.unifier.errors)
-                        )
+                        s.withUnifier(s.unifier.addError(typeArg.as("Too many type arguments.")))
                       ).as(sig)
                   }
       } yield result

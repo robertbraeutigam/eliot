@@ -55,13 +55,7 @@ case class Unifier(
 
       // Neutral-neutral: same head, same spine length
       case (VNeutral(h1, sp1, _), VNeutral(h2, sp2, _)) if h1 == h2 =>
-        val l1 = sp1.toList
-        val l2 = sp2.toList
-        if (l1.length == l2.length) {
-          l1.zip(l2).foldLeft(this) { case (u, (a, b)) => u.unify(a, b, context) }
-        } else {
-          addError(context)
-        }
+        unifySpines(sp1, sp2, context)
 
       // Meta solving (pattern rule)
       case (VMeta(id, spine, _), rhs)                               =>
@@ -72,13 +66,7 @@ case class Unifier(
 
       // VTopDef equality by FQN
       case (VTopDef(fqn1, _, sp1), VTopDef(fqn2, _, sp2)) if fqn1 == fqn2 =>
-        val l1 = sp1.toList
-        val l2 = sp2.toList
-        if (l1.length == l2.length) {
-          l1.zip(l2).foldLeft(this) { case (u, (a, b)) => u.unify(a, b, context) }
-        } else {
-          addError(context)
-        }
+        unifySpines(sp1, sp2, context)
 
       case _ =>
         addError(context)
@@ -144,12 +132,19 @@ case class Unifier(
     loop(this)
   }
 
+  private def unifySpines(sp1: Spine, sp2: Spine, context: Sourced[String]): Unifier = {
+    val l1 = sp1.toList
+    val l2 = sp2.toList
+    if (l1.length == l2.length) l1.zip(l2).foldLeft(this) { case (u, (a, b)) => u.unify(a, b, context) }
+    else addError(context)
+  }
+
   private def freshVar(): (SemValue, Unifier) = {
     val v = VNeutral(NeutralHead.VVar(depth, s"$$unify$depth"), Spine.SNil, VType)
     (v, copy(depth = depth + 1))
   }
 
-  private def addError(context: Sourced[String]): Unifier =
+  private[monomorphize3] def addError(context: Sourced[String]): Unifier =
     copy(errors = context :: errors)
 
   /** Structural equality for ground values. */
