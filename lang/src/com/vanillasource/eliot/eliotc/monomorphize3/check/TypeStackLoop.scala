@@ -41,14 +41,10 @@ object TypeStackLoop {
       resolvedValue: OperatorResolvedValue
   ): CheckIO[Monomorphic3Value] =
     for {
-      // Pre-fetch all bindings referenced in the type stack and runtime body
-      _ <- prefetchAllBindings(checker, resolvedValue)
-
       // Walk type stack levels top-down
       signature <- walkTypeStack(checker, resolvedValue)
 
-      // Apply explicit type args (pre-fetch their bindings too)
-      _            <- key.specifiedTypeArguments.traverse_(ta => checker.prefetchBindings(ta.value))
+      // Apply explicit type args
       appliedSig   <- applyTypeArgs(checker, signature, key.specifiedTypeArguments)
       instantiated <- instantiateRemaining(checker, appliedSig)
 
@@ -68,18 +64,6 @@ object TypeStackLoop {
       groundSig,
       runtime
     )
-
-  private def prefetchAllBindings(
-      checker: Checker,
-      resolvedValue: OperatorResolvedValue
-  ): CheckIO[Unit] = {
-    val levels = resolvedValue.typeStack.value.levels.toSeq
-    levels.traverse_(checker.prefetchBindings) >>
-      resolvedValue.runtime.traverse_(body => checker.prefetchBindings(body.value)) >>
-      resolvedValue.paramConstraints.values.toSeq.flatten.traverse_ { constraint =>
-        constraint.typeArgs.traverse_(checker.prefetchBindings)
-      }
-  }
 
   private def walkTypeStack(
       checker: Checker,

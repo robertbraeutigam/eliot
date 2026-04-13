@@ -47,9 +47,12 @@ class Checker(
       state.nameLevels
     )
 
-  /** Evaluate an ORE expression using the current state. */
+  /** Evaluate an ORE expression. Fetches any referenced bindings on demand before evaluating. */
   def evalExpr(tm: OperatorResolvedExpression): CheckIO[SemValue] =
-    inspect(s => makeEvaluator(s).eval(s.env, tm))
+    for {
+      _ <- fetchBindings(tm)
+      s <- get
+    } yield makeEvaluator(s).eval(s.env, tm)
 
   /** Force a SemValue through the current meta store. */
   private def force(v: SemValue): CheckIO[SemValue] =
@@ -78,7 +81,6 @@ class Checker(
                           // FunctionLiteral with annotation checked against expected type
                           case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
                             for {
-                              _           <- prefetchBindings(paramTypeStack.value.signature)
                               paramType   <- evalExpr(paramTypeStack.value.signature)
                               _           <- modify(_.bind(paramName.value, paramType))
                               retType     <- getReturnType(forcedExpected)
@@ -168,7 +170,6 @@ class Checker(
         result <- sigOpt match {
                     case Some(sig) =>
                       for {
-                        _            <- typeArgs.traverse_(ta => prefetchBindings(ta.value))
                         resolvedVfqn <- tryResolveAbility(vfqn)
                         appliedSig   <- typeArgs.foldLeftM(sig) { (s, typeArg) =>
                                           evalExpr(typeArg.value).map(Evaluator.applyValue(s, _))
@@ -194,7 +195,6 @@ class Checker(
 
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
       for {
-        _                    <- prefetchBindings(paramTypeStack.value.signature)
         paramType            <- evalExpr(paramTypeStack.value.signature)
         _                    <- modify(_.bind(paramName.value, paramType))
         (bodyExpr, bodyType) <- infer(body)
@@ -276,12 +276,13 @@ class Checker(
         findConstraintParam(abilityName) match {
           case Some((_, constraintTypeArgs)) =>
             for {
-              state <- get
-              abilityTypeArgs = constraintTypeArgs.map { arg =>
-                val sem = makeEvaluator(state).eval(state.env, arg)
-                GroundValue.toEvalValue(forceAndConstPure(state, sem))
-              }
-              resolved <- liftF(resolveAbility(vfqn.value, abilityTypeArgs))
+              abilityTypeArgs <- constraintTypeArgs.traverse { arg =>
+                                   for {
+                                     sem    <- evalExpr(arg)
+                                     ground <- forceAndConst(sem)
+                                   } yield GroundValue.toEvalValue(ground)
+                                 }
+              resolved        <- liftF(resolveAbility(vfqn.value, abilityTypeArgs))
             } yield resolved match {
               case Some(implFqn) => vfqn.as(implFqn)
               case None          => vfqn
@@ -298,16 +299,18 @@ class Checker(
         (paramName, constraint.typeArgs)
     }
 
-  /** Pre-fetch all NativeBindings referenced by ValueReferences in an ORE. */
-  private[check] def prefetchBindings(ore: OperatorResolvedExpression): CheckIO[Unit] = ore match {
+  /** Fetch all NativeBindings referenced by ValueReferences in an ORE into the cache. Called automatically by
+    * evalExpr before evaluation.
+    */
+  private def fetchBindings(ore: OperatorResolvedExpression): CheckIO[Unit] = ore match {
     case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)      =>
       ensureBinding(vfqn.value).void >>
-        typeArgs.traverse_(ta => prefetchBindings(ta.value))
+        typeArgs.traverse_(ta => fetchBindings(ta.value))
     case OperatorResolvedExpression.FunctionApplication(target, arg)    =>
-      prefetchBindings(target.value) >> prefetchBindings(arg.value)
+      fetchBindings(target.value) >> fetchBindings(arg.value)
     case OperatorResolvedExpression.FunctionLiteral(_, paramType, body) =>
-      paramType.traverse_(pt => pt.value.levels.toSeq.traverse_(prefetchBindings)) >>
-        prefetchBindings(body.value)
+      paramType.traverse_(pt => pt.value.levels.toSeq.traverse_(fetchBindings)) >>
+        fetchBindings(body.value)
     case _                                                              => pure(())
   }
 
@@ -319,28 +322,24 @@ class Checker(
       }
     }
 
-  /** Pure implementation of forceAndConst, used where CheckIO is not available. */
-  private def forceAndConstPure(state: CheckState, v: SemValue): GroundValue = {
-    val forced = Evaluator.force(v, state.unifier.metaStore)
-    forced match {
-      case VConst(g)             => g
-      case VType                 => GroundValue.Type
-      case VPi(domain, codomain) =>
-        GroundValue.Structure(
-          Map(
-            "$typeName" -> GroundValue.Direct(Types.functionDataTypeFQN, GroundValue.Type),
-            "A"         -> forceAndConstPure(state, domain),
-            "B"         -> forceAndConstPure(
-              state,
-              codomain(VNeutral(NeutralHead.VVar(state.env.level, "$quote"), Spine.SNil, VType))
-            )
-          ),
-          GroundValue.Type
-        )
-      case _                     => GroundValue.Type // fallback
+  private[check] def forceAndConst(v: SemValue): CheckIO[GroundValue] = inspect { state =>
+    def go(v: SemValue): GroundValue = {
+      val forced = Evaluator.force(v, state.unifier.metaStore)
+      forced match {
+        case VConst(g)             => g
+        case VType                 => GroundValue.Type
+        case VPi(domain, codomain) =>
+          GroundValue.Structure(
+            Map(
+              "$typeName" -> GroundValue.Direct(Types.functionDataTypeFQN, GroundValue.Type),
+              "A"         -> go(domain),
+              "B"         -> go(codomain(VNeutral(NeutralHead.VVar(state.env.level, "$quote"), Spine.SNil, VType)))
+            ),
+            GroundValue.Type
+          )
+        case _                     => GroundValue.Type // fallback
+      }
     }
+    go(v)
   }
-
-  private[check] def forceAndConst(v: SemValue): CheckIO[GroundValue] =
-    inspect(forceAndConstPure(_, v))
 }
