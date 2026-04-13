@@ -168,6 +168,22 @@ class Monomorphic3ProcessorTest
     }
   }
 
+  // --- Recursion (Step 9) ---
+
+  it should "handle direct recursion without infinite loop" in {
+    import scala.concurrent.duration.*
+    runEngineForMonomorphicValue("def f: Function[BigInteger, BigInteger] = f")
+      .timeout(1.seconds)
+      .asserting(_.runtime shouldBe defined)
+  }
+
+  it should "handle mutual recursion without infinite loop" in {
+    import scala.concurrent.duration.*
+    runEngineForMonomorphicValue("def f: Function[BigInteger, BigInteger] = g\ndef g: Function[BigInteger, BigInteger] = f")
+      .timeout(1.seconds)
+      .asserting(_.runtime shouldBe defined)
+  }
+
   private val intType: Sourced[OperatorResolvedExpression] =
     Sourced[OperatorResolvedExpression](file, com.vanillasource.eliot.eliotc.pos.PositionRange.zero,
       OperatorResolvedExpression.ValueReference(

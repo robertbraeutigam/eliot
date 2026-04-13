@@ -15,19 +15,29 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
   *
   * Pre-fetches NativeBindings for all ValueReferences in the body so the thunk evaluator can resolve them during
   * type-level computation (e.g., `def one: Person = Person(1)` needs Person's native binding).
+  *
+  * Uses a concurrent generation guard to prevent fact system deadlocks from mutual recursion: when generating
+  * NativeBinding(f), if f's body references g and g's body references f, the second collectBindings skips f (already
+  * generating) instead of deadlocking.
   */
 class UserValueNativesProcessor
     extends TransformationProcessor[OperatorResolvedValue.Key, NativeBinding.Key](key =>
       OperatorResolvedValue.Key(key.vfqn)
     ) {
 
-  override protected def generateFromKeyAndFact(key: NativeBinding.Key, fact: InputFact): CompilerIO[OutputFact] =
+  /** Thread-safe set of FQNs currently being generated. Prevents mutual recursion deadlocks in collectBindings. */
+  private val generating: java.util.Set[ValueFQN] =
+    java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap())
+
+  override protected def generateFromKeyAndFact(key: NativeBinding.Key, fact: InputFact): CompilerIO[OutputFact] = {
+    generating.add(key.vfqn)
     for {
       bodyBindings <- fact.runtime match {
                         case Some(body) => collectBindings(body.value, Set(key.vfqn))
                         case None       => Map.empty[ValueFQN, SemValue].pure[CompilerIO]
                       }
     } yield {
+      generating.remove(key.vfqn)
       val semValue = VTopDef(
         key.vfqn,
         fact.runtime.map { body =>
@@ -40,14 +50,18 @@ class UserValueNativesProcessor
       )
       NativeBinding(key.vfqn, semValue)
     }
+  }
 
-  /** Recursively collect NativeBindings for all ValueReferences in an ORE expression. */
+  /** Recursively collect NativeBindings for all ValueReferences in an ORE expression. Skips FQNs that are currently
+    * being generated (in the `generating` set) to prevent mutual recursion deadlocks.
+    */
   private def collectBindings(
       ore: OperatorResolvedExpression,
       seen: Set[ValueFQN]
   ): CompilerIO[Map[ValueFQN, SemValue]] = ore match {
     case OperatorResolvedExpression.ValueReference(vfqn, typeArgs) =>
-      if (seen.contains(vfqn.value)) Map.empty[ValueFQN, SemValue].pure[CompilerIO]
+      if (seen.contains(vfqn.value) || generating.contains(vfqn.value))
+        Map.empty[ValueFQN, SemValue].pure[CompilerIO]
       else
         getFact(NativeBinding.Key(vfqn.value)).flatMap {
           case Some(binding) =>

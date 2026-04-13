@@ -413,6 +413,22 @@ class Monomorphic3TypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Recursion (Step 9) ---
+
+  "recursion" should "handle direct recursion without infinite loop" in {
+    import scala.concurrent.duration.*
+    runForErrors("def f: Function[BigInteger, BigInteger] = f")
+      .timeout(1.seconds)
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "handle mutual recursion without infinite loop" in {
+    import scala.concurrent.duration.*
+    runForErrors("def f: Function[BigInteger, BigInteger] = g\ndef g: Function[BigInteger, BigInteger] = f")
+      .timeout(1.seconds)
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: Sourced[OperatorResolvedExpression] =
