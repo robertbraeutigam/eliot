@@ -1,9 +1,10 @@
 package com.vanillasource.eliot.eliotc.uncurry.fact
 
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.resolve.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** A monomorphic value that has been uncurried to a specific arity.
@@ -11,7 +12,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param vfqn
   *   The fully qualified value name
   * @param typeArguments
-  *   The concrete type arguments for this monomorphic instance
+  *   The source-level type arguments for this monomorphic instance
   * @param arity
   *   The arity this value has been uncurried to
   * @param name
@@ -27,12 +28,12 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 case class UncurriedMonomorphicValue(
     vfqn: ValueFQN,
-    typeArguments: Seq[Value],
+    typeArguments: Seq[Sourced[OperatorResolvedExpression]],
     arity: Int,
     name: Sourced[QualifiedName],
-    signature: Value,
+    signature: GroundValue,
     parameters: Seq[MonomorphicParameterDefinition],
-    returnType: Value,
+    returnType: GroundValue,
     body: Option[Sourced[UncurriedMonomorphicExpression.Expression]]
 ) extends CompilerFact {
   override def key(): CompilerFactKey[UncurriedMonomorphicValue] =
@@ -40,6 +41,6 @@ case class UncurriedMonomorphicValue(
 }
 
 object UncurriedMonomorphicValue {
-  case class Key(vfqn: ValueFQN, typeArguments: Seq[Value], arity: Int)
+  case class Key(vfqn: ValueFQN, typeArguments: Seq[Sourced[OperatorResolvedExpression]], arity: Int)
       extends CompilerFactKey[UncurriedMonomorphicValue]
 }

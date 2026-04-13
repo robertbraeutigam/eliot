@@ -2,10 +2,10 @@ package com.vanillasource.eliot.eliotc.used
 
 import cats.Monad
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -27,7 +27,7 @@ class UsedNamesProcessor extends SingleKeyTypeProcessor[UsedNames.Key] with Logg
       _     <- registerFactIfClear(getUsedNames(key.rootFQN, state)).whenA(!state.failed)
     } yield ()
 
-  private def processValue(vfqn: ValueFQN, typeArgs: Seq[Value]): UsedNamesIO[Unit] =
+  private def processValue(vfqn: ValueFQN, typeArgs: Seq[Sourced[OperatorResolvedExpression]]): UsedNamesIO[Unit] =
     isVisited(vfqn, typeArgs).ifM(
       Monad[CompilerIO].unit.liftToUsedNames,
       for {
@@ -100,7 +100,7 @@ class UsedNamesProcessor extends SingleKeyTypeProcessor[UsedNames.Key] with Logg
 
   private def processValueReference(
       vfqn: ValueFQN,
-      typeArgs: Seq[Value],
+      typeArgs: Seq[Sourced[OperatorResolvedExpression]],
       applicationCount: Int
   ): UsedNamesIO[Unit] =
     for {

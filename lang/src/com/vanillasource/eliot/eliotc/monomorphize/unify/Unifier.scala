@@ -1,0 +1,165 @@
+package com.vanillasource.eliot.eliotc.monomorphize.unify
+
+import com.vanillasource.eliot.eliotc.monomorphize.domain.*
+import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
+import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.source.content.Sourced
+
+/** Pattern unification on SemValues with a postponement queue. All operations return a new Unifier instance — no
+  * mutation occurs.
+  *
+  * @param metaStore
+  *   The current meta store
+  * @param depth
+  *   The current binding depth (for fresh variable generation)
+  * @param postponed
+  *   Queue of postponed unification problems (when a meta's spine is not pattern)
+  * @param errors
+  *   Accumulated error messages with source positions
+  */
+case class Unifier(
+    metaStore: MetaStore,
+    depth: Int,
+    postponed: List[(SemValue, SemValue, Sourced[String])],
+    errors: List[Sourced[String]]
+) {
+
+  /** Unify two semantic values, reporting errors with the given context message and source position. */
+  def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = {
+    val fl = Evaluator.force(l, metaStore)
+    val fr = Evaluator.force(r, metaStore)
+    (fl, fr) match {
+      case (VType, VType) => this
+
+      case (VConst(g1), VConst(g2)) =>
+        if (!groundEquals(g1, g2)) addError(context)
+        else this
+
+      case (VPi(d1, c1), VPi(d2, c2)) =>
+        val (fresh, u1) = freshVar()
+        u1.unify(d1, d2, context).unify(c1(fresh), c2(fresh), context)
+
+      case (VLam(_, c1), VLam(_, c2)) =>
+        val (fresh, u1) = freshVar()
+        u1.unify(c1(fresh), c2(fresh), context)
+
+      // Eta: VLam vs non-lambda
+      case (VLam(_, c), other)        =>
+        val (fresh, u1) = freshVar()
+        u1.unify(c(fresh), Evaluator.applyValue(other, fresh), context)
+
+      case (other, VLam(_, c))                                      =>
+        val (fresh, u1) = freshVar()
+        u1.unify(Evaluator.applyValue(other, fresh), c(fresh), context)
+
+      // Neutral-neutral: same head, same spine length
+      case (VNeutral(h1, sp1, _), VNeutral(h2, sp2, _)) if h1 == h2 =>
+        unifySpines(sp1, sp2, context)
+
+      // Meta solving (pattern rule)
+      case (VMeta(id, spine, _), rhs)                               =>
+        solveMeta(id, spine, rhs, context)
+
+      case (lhs, VMeta(id, spine, _))                                     =>
+        solveMeta(id, spine, lhs, context)
+
+      // VTopDef equality by FQN
+      case (VTopDef(fqn1, _, sp1), VTopDef(fqn2, _, sp2)) if fqn1 == fqn2 =>
+        unifySpines(sp1, sp2, context)
+
+      case _ =>
+        addError(context)
+    }
+  }
+
+  /** Try to solve a meta via the pattern rule. If the spine is empty or consists of distinct bound variables, solve
+    * directly (wrapping in lambdas for non-empty pattern spines). Otherwise postpone.
+    */
+  private def solveMeta(id: MetaId, spine: Spine, rhs: SemValue, context: Sourced[String]): Unifier =
+    metaStore.lookup(id) match {
+      case Some(solved) =>
+        // Already solved — unify the solution (with spine applied) against rhs
+        val applied = spine.toList.foldLeft(solved)(Evaluator.applyValue)
+        unify(applied, rhs, context)
+      case None         =>
+        rhs match {
+          case VMeta(rhsId, _, _) if rhsId.value == id.value =>
+            this // Same unsolved meta — trivially equal, no solve needed
+          case _                                             =>
+            val spineList = spine.toList
+            if (spineList.isEmpty) {
+              // Empty spine — solve directly
+              copy(metaStore = metaStore.solve(id, rhs))
+            } else {
+              // Non-empty spine — postpone (higher-kinded meta application)
+              copy(postponed = (VMeta(id, spine, VType), rhs, context) :: postponed)
+            }
+        }
+    }
+
+  /** Drain the postponement queue, re-attempting postponed unifications. Repeats until stable. */
+  def drain(): Unifier = {
+    @scala.annotation.tailrec
+    def loop(u: Unifier): Unifier = {
+      val current = u.postponed
+      if (current.isEmpty) u
+      else {
+        val (result, changed) = current.foldLeft((u.copy(postponed = Nil), false)) {
+          case ((acc, anyChanged), (l, r, ctx)) =>
+            val beforeErrors    = acc.errors.length
+            val beforePostponed = acc.postponed.length
+            val after           = acc.unify(l, r, ctx)
+            if (after.errors.length > beforeErrors) {
+              // New error — remove it and re-postpone
+              (
+                after.copy(
+                  errors = after.errors.drop(after.errors.length - beforeErrors),
+                  postponed = (l, r, ctx) :: after.postponed
+                ),
+                anyChanged
+              )
+            } else if (after.postponed.length > beforePostponed) {
+              // Constraint was re-postponed inside unify (e.g., non-pattern spine) — no real progress
+              (after, anyChanged)
+            } else {
+              (after, true)
+            }
+        }
+        if (changed) loop(result) else result
+      }
+    }
+    loop(this)
+  }
+
+  private def unifySpines(sp1: Spine, sp2: Spine, context: Sourced[String]): Unifier = {
+    val l1 = sp1.toList
+    val l2 = sp2.toList
+    if (l1.length == l2.length) l1.zip(l2).foldLeft(this) { case (u, (a, b)) => u.unify(a, b, context) }
+    else addError(context)
+  }
+
+  private def freshVar(): (SemValue, Unifier) = {
+    val v = VNeutral(NeutralHead.VVar(depth, s"$$unify$depth"), Spine.SNil, VType)
+    (v, copy(depth = depth + 1))
+  }
+
+  private[monomorphize] def addError(context: Sourced[String]): Unifier =
+    copy(errors = context :: errors)
+
+  /** Structural equality for ground values. */
+  private def groundEquals(g1: GroundValue, g2: GroundValue): Boolean = (g1, g2) match {
+    case (GroundValue.Type, GroundValue.Type)                           => true
+    case (GroundValue.Direct(v1, t1), GroundValue.Direct(v2, t2))       => v1 == v2 && groundEquals(t1, t2)
+    case (GroundValue.Structure(f1, t1), GroundValue.Structure(f2, t2)) =>
+      f1.keySet == f2.keySet &&
+      groundEquals(t1, t2) &&
+      f1.keys.forall(k => groundEquals(f1(k), f2(k)))
+    case _                                                              => false
+  }
+}
+
+object Unifier {
+  def create(metaStore: MetaStore, depth: Int): Unifier =
+    Unifier(metaStore, depth, Nil, Nil)
+}

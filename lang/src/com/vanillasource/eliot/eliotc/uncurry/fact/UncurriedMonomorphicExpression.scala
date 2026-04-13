@@ -2,13 +2,14 @@ package com.vanillasource.eliot.eliotc.uncurry.fact
 
 import cats.Show
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Expression tree after uncurrying, with concrete (monomorphic) types. */
 case class UncurriedMonomorphicExpression(
-    expressionType: Value,
+    expressionType: GroundValue,
     expression: UncurriedMonomorphicExpression.Expression
 )
 
@@ -36,7 +37,7 @@ object UncurriedMonomorphicExpression {
   /** Reference to a monomorphic value instance. */
   case class MonomorphicValueReference(
       valueName: Sourced[ValueFQN],
-      typeArguments: Seq[Value]
+      typeArguments: Seq[Sourced[OperatorResolvedExpression]]
   ) extends Expression
 
   given Show[Expression] = {

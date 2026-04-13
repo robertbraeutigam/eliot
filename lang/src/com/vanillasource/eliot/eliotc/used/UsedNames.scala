@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.used
 
-import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
@@ -15,7 +15,7 @@ object UsedNames {
 
   case class UsageStats(
       // A list of monomorphic type parameters this value is used with
-      monomorphicTypeParameters: Seq[Seq[Value]],
+      monomorphicTypeParameters: Seq[Seq[Sourced[OperatorResolvedExpression]]],
       // Statistics about how many arguments are applied directly to the value,
       // with how many times this happened. Constants would always have 0 -> n, where
       // n is the number of times it occurs in the source.

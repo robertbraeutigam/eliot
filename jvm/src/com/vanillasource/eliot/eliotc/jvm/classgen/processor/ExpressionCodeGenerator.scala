@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{mangleSuffix, valueType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.convertToNestedClassName
@@ -11,6 +10,8 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdent
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
@@ -85,7 +86,7 @@ object ExpressionCodeGenerator {
       methodGenerator: MethodGenerator,
       typedTarget: UncurriedMonomorphicExpression,
       arguments: Seq[UncurriedMonomorphicExpression],
-      expectedResultType: Value
+      expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] =
     typedTarget.expression match {
       case IntegerLiteral(integerLiteral)                         => ???
@@ -162,9 +163,9 @@ object ExpressionCodeGenerator {
       methodGenerator: MethodGenerator,
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
-      typeArgs: Seq[Value],
+      typeArgs: Seq[Sourced[OperatorResolvedExpression]],
       arguments: Seq[UncurriedMonomorphicExpression],
-      expectedResultType: Value
+      expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] = {
     val dataTypeVfqn          = calledVfqn.name.qualifier match {
       case Qualifier.AbilityImplementation(_, params) =>
@@ -208,9 +209,9 @@ object ExpressionCodeGenerator {
       methodGenerator: MethodGenerator,
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
-      typeArgs: Seq[Value],
+      typeArgs: Seq[Sourced[OperatorResolvedExpression]],
       arguments: Seq[UncurriedMonomorphicExpression],
-      expectedResultType: Value
+      expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] =
     for {
       uncurriedMaybe <- getFact(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, arguments.length)).liftToTypes
@@ -247,7 +248,7 @@ object ExpressionCodeGenerator {
                             compilerError(
                               sourcedCalledVfqn.as("Could not find uncurried function."),
                               Seq(
-                                s"Looking for function: ${calledVfqn.show} with type args ${typeArgs.map(_.show).mkString(",")}"
+                                s"Looking for function: ${calledVfqn.show} with type args (${typeArgs.size} args)"
                               )
                             ).liftToTypes.as(Seq.empty)
     } yield resultClasses
@@ -259,9 +260,9 @@ object ExpressionCodeGenerator {
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
       qualifierParams: Seq[com.vanillasource.eliot.eliotc.core.fact.Expression],
-      typeArgs: Seq[Value],
+      typeArgs: Seq[Sourced[OperatorResolvedExpression]],
       arguments: Seq[UncurriedMonomorphicExpression],
-      expectedResultType: Value
+      expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] = {
     val constructorName = findTypeName(qualifierParams)
     for {

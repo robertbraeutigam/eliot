@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{Expression => CoreExpression, QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
@@ -21,9 +20,11 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.processor.ExpressionCodeGener
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression.*
@@ -251,7 +252,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   private def createModuleMethod(
       classGenerator: ClassGenerator,
       uncurriedValue: UncurriedMonomorphicValue,
-      typeArgs: Seq[Value],
+      typeArgs: Seq[Sourced[OperatorResolvedExpression]],
       initialLambdaCount: Int = 0
   ): CompilerIO[(Seq[ClassFile], Int)] = {
     uncurriedValue.body match {
@@ -296,7 +297,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     }
 
   private def isMain(uncurriedValue: UncurriedMonomorphicValue): Boolean =
-    uncurriedValue.name.value.name === "main" && uncurriedValue.parameters.isEmpty
+    uncurriedValue.vfqn.name.name === "main" && uncurriedValue.parameters.isEmpty
 
   private def generatePatternMatchSingleton(
       mainClassGenerator: ClassGenerator,

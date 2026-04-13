@@ -1,9 +1,8 @@
 package com.vanillasource.eliot.eliotc.uncurry.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.Value
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -28,7 +27,7 @@ class MonomorphicUncurryingProcessor
       monomorphicValue: MonomorphicValue
   ): CompilerIO[UncurriedMonomorphicValue] =
     for {
-      _                               <- debug[CompilerIO](s"Uncurrying ${key.vfqn} (${key.typeArguments.map(_.show).mkString(",")}) to ${key.arity}")
+      _                               <- debug[CompilerIO](s"Uncurrying ${key.vfqn} (${key.typeArguments.size} type args) to ${key.arity}")
       (parameterTypes, returnType)    <- extractParameters(monomorphicValue.name, monomorphicValue.signature, key.arity)
       (parameterNames, convertedBody) <- monomorphicValue.runtime match {
                                            case Some(body) =>
@@ -52,12 +51,12 @@ class MonomorphicUncurryingProcessor
       body = convertedBody.map(_.map(_.expression))
     )
 
-  /** Extract parameter types from a function type Value up to the specified arity. */
+  /** Extract parameter types from a function type GroundValue up to the specified arity. */
   private def extractParameters(
       name: Sourced[?],
-      signature: Value,
+      signature: GroundValue,
       arity: Int
-  ): CompilerIO[(Seq[Value], Value)] =
+  ): CompilerIO[(Seq[GroundValue], GroundValue)] =
     if (arity === 0) {
       (Seq.empty, signature).pure[CompilerIO]
     } else {
@@ -90,14 +89,14 @@ class MonomorphicUncurryingProcessor
   ): CompilerIO[(Seq[Sourced[String]], MonomorphicExpression)] =
     if (arity === 0) {
       // Use a dummy type for the remaining expression — it's re-computed during conversion
-      (Seq.empty, MonomorphicExpression(Value.Type, expression)).pure[CompilerIO]
+      (Seq.empty, MonomorphicExpression(GroundValue.Type, expression)).pure[CompilerIO]
     } else {
       expression match {
         case MonomorphicExpression.FunctionLiteral(parameterName, parameterType, body) =>
           for {
             (restParameters, restExpression) <- stripLambdas(body.value.expression, arity - 1, sourced)
           } yield (parameterName +: restParameters, restExpression)
-        case _                                                                         =>
+        case _                                                                          =>
           compilerAbort(sourced.as("Could not strip enough parameters from expression."))
       }
     }
@@ -142,14 +141,14 @@ class MonomorphicUncurryingProcessor
     target.value.expression match {
       case MonomorphicExpression.FunctionApplication(innerTarget, innerArg) =>
         flattenApplication(innerTarget, innerArg +: arguments)
-      case _                                                                =>
+      case _                                                                  =>
         (target, arguments)
     }
 
   /** Convert a function literal, flattening nested lambdas. */
   private def convertLambda(
       paramName: Sourced[String],
-      paramType: Value,
+      paramType: GroundValue,
       body: Sourced[MonomorphicExpression]
   ): UncurriedMonomorphicExpression.Expression = {
     val firstParam          = MonomorphicParameterDefinition(paramName, paramType)
@@ -166,7 +165,7 @@ class MonomorphicUncurryingProcessor
     body.value.expression match {
       case MonomorphicExpression.FunctionLiteral(paramName, paramType, innerBody) =>
         flattenLambda(parameters :+ MonomorphicParameterDefinition(paramName, paramType), innerBody)
-      case _                                                                      =>
+      case _                                                                       =>
         (parameters, body)
     }
 }

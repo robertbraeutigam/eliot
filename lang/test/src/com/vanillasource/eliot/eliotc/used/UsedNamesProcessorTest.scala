@@ -5,17 +5,20 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.Types
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerFact
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
   private val intVfqn = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Default))
-  private val intType = Types.dataType(intVfqn)
+  private val intType = GroundValue.Structure(
+    Map("$typeName" -> GroundValue.Direct(intVfqn, GroundValue.Type)),
+    GroundValue.Type
+  )
 
   "UsedNamesProcessor" should "include root name in used names for value with no body" in {
     val valueVfqn = ValueFQN(testModuleName, default("value"))
-    val mv        = MonomorphicValue(valueVfqn, Seq.empty, sourced(toResolve(default("value"))), intType, None)
+    val mv        = MonomorphicValue(valueVfqn, Seq.empty, sourced(default("value")), intType, None)
 
     runProcessor(UsedNames.Key(valueVfqn), Seq(mv))
       .asserting(_.usedNames should contain key valueVfqn)
@@ -25,8 +28,8 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
     val fVfqn = ValueFQN(testModuleName, default("f"))
     val gVfqn = ValueFQN(testModuleName, default("g"))
 
-    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced(toResolve(default("g"))), intType, None)
-    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced(toResolve(default("f"))), intType, runtime(valueRef(gVfqn)))
+    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, None)
+    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(valueRef(gVfqn)))
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv))
       .asserting(_.usedNames should contain key fVfqn)
@@ -36,8 +39,8 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
     val fVfqn = ValueFQN(testModuleName, default("f"))
     val gVfqn = ValueFQN(testModuleName, default("g"))
 
-    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced(toResolve(default("g"))), intType, None)
-    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced(toResolve(default("f"))), intType, runtime(valueRef(gVfqn)))
+    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, None)
+    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(valueRef(gVfqn)))
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv))
       .asserting(_.usedNames should contain key gVfqn)
@@ -47,11 +50,11 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
     val fVfqn = ValueFQN(testModuleName, default("f"))
     val gVfqn = ValueFQN(testModuleName, default("g"))
 
-    val gMv  = MonomorphicValue(gVfqn, Seq.empty, sourced(toResolve(default("g"))), intType, None)
+    val gMv  = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, None)
     val gRef = MonomorphicExpression(intType, valueRef(gVfqn))
     val arg  = MonomorphicExpression(intType, MonomorphicExpression.IntegerLiteral(sourced(BigInt(42))))
     val app  = MonomorphicExpression.FunctionApplication(sourced(gRef), sourced(arg))
-    val fMv  = MonomorphicValue(fVfqn, Seq.empty, sourced(toResolve(default("f"))), intType, runtime(app))
+    val fMv  = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(app))
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv))
       .asserting(_.usedNames(gVfqn).directCallApplications shouldBe Map(1 -> 1))
@@ -61,10 +64,10 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
     val fVfqn = ValueFQN(testModuleName, default("f"))
     val gVfqn = ValueFQN(testModuleName, default("g"))
 
-    val gMv      = MonomorphicValue(gVfqn, Seq.empty, sourced(toResolve(default("g"))), intType, None)
+    val gMv      = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, None)
     val innerRef = MonomorphicExpression(intType, valueRef(gVfqn))
     val lambda   = MonomorphicExpression.FunctionLiteral(sourced("x"), intType, sourced(innerRef))
-    val fMv      = MonomorphicValue(fVfqn, Seq.empty, sourced(toResolve(default("f"))), intType, runtime(lambda))
+    val fMv      = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(lambda))
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv))
       .asserting(_.usedNames should contain key gVfqn)
@@ -74,7 +77,7 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
     import scala.concurrent.duration.*
 
     val fVfqn = ValueFQN(testModuleName, default("f"))
-    val fMv   = MonomorphicValue(fVfqn, Seq.empty, sourced(toResolve(default("f"))), intType, runtime(valueRef(fVfqn)))
+    val fMv   = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(valueRef(fVfqn)))
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv))
       .timeout(1.seconds)
@@ -87,8 +90,8 @@ class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
     val fVfqn = ValueFQN(testModuleName, default("f"))
     val gVfqn = ValueFQN(testModuleName, default("g"))
 
-    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced(toResolve(default("f"))), intType, runtime(valueRef(gVfqn)))
-    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced(toResolve(default("g"))), intType, runtime(valueRef(fVfqn)))
+    val fMv = MonomorphicValue(fVfqn, Seq.empty, sourced(default("f")), intType, runtime(valueRef(gVfqn)))
+    val gMv = MonomorphicValue(gVfqn, Seq.empty, sourced(default("g")), intType, runtime(valueRef(fVfqn)))
 
     runProcessor(UsedNames.Key(fVfqn), Seq(fMv, gMv))
       .timeout(1.seconds)

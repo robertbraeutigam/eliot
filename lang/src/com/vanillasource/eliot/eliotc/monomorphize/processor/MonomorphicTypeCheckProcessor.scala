@@ -1,208 +1,86 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
-import com.vanillasource.eliot.eliotc.eval.fact.ExpressionValue.*
-import com.vanillasource.eliot.eliotc.eval.fact.{ExpressionValue, Value}
-import com.vanillasource.eliot.eliotc.eval.util.Evaluator
-import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.monomorphize.fact.*
-import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementation
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.monomorphize.check.TypeStackLoop
+import com.vanillasource.eliot.eliotc.monomorphize.domain.{Env, SemValue}
+import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{MonomorphicValue, NativeBinding}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
-/** Processor that monomorphizes (specializes) generic functions.
-  *
-  * Given a MonomorphicValue.Key(vfqn, typeArgs), it:
-  *   1. Fetches the OperatorResolvedValue for vfqn 2. Evaluates the type signature with concrete type args using the
-  *      eval package 3. Walks the runtime expression body, computing concrete types and resolving abilities 4. Produces
-  *      a MonomorphicValue with fully concrete types
+/** Entry point for NbE-based type checking (monomorphize). Delegates to TypeStackLoop for the actual type checking
+  * work.
   */
 class MonomorphicTypeCheckProcessor
     extends TransformationProcessor[OperatorResolvedValue.Key, MonomorphicValue.Key](key =>
       OperatorResolvedValue.Key(key.vfqn)
-    )
-    with Logging {
+    ) {
+
+  private def fetchBinding(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
+    getFact(NativeBinding.Key(vfqn)).map(_.map(_.semValue))
 
   override protected def generateFromKeyAndFact(
       key: MonomorphicValue.Key,
       resolvedValue: OperatorResolvedValue
   ): CompilerIO[MonomorphicValue] =
-    for {
-      _             <- debug[CompilerIO](
-                         s"Monomorphizing ${key.vfqn.show}, type arguments: ${key.typeArguments.map(_.show).mkString(", ")}"
-                       )
-      typeExprValue <- evaluateTypeStack(resolvedValue.typeStack)
-      analysis       = TypeParameterAnalysis.fromEvaluatedType(typeExprValue)
-      _             <-
-        if (
-          key.typeArguments.length != analysis.allTypeParams.length &&
-          key.typeArguments.length != analysis.bodyTypeParams.length
-        )
-          compilerAbort(
-            resolvedValue.name.as(
-              s"Type argument count mismatch: expected ${analysis.bodyTypeParams.length}, got ${key.typeArguments.length}"
-            )
-          )
-        else ().pure[CompilerIO]
-      typeParamSubst = analysis.buildSubstitution(
-                         key.typeArguments,
-                         key.typeArguments.length == analysis.allTypeParams.length
-                       )
-      signature     <-
-        Evaluator.applyTypeArgsStripped(typeExprValue, analysis.allTypeParams, typeParamSubst, resolvedValue.name)
-      _             <- debug[CompilerIO](s"Monomorphized ${key.vfqn.show} to: ${signature.show}")
-      runtime       <- resolvedValue.runtime.traverse { body =>
-                         MonomorphicExpressionTransformer
-                           .transformExpression(
-                             body.value,
-                             Expected.Check(signature),
-                             MonoEnv(typeParamSubst, Map.empty),
-                             body
-                           )
-                           .map(body.as)
-                       }
-      _             <- runtime match {
-                         case Some(body) => checkReturnType(body.value.expression, signature, body)
-                         case None       => ().pure[CompilerIO]
-                       }
-    } yield MonomorphicValue(
-      key.vfqn,
-      key.typeArguments,
-      resolvedValue.name,
-      signature,
-      runtime.map(_.map(_.expression))
+    TypeStackLoop.process(
+      key,
+      resolvedValue,
+      fetchBinding = fetchBinding,
+      fetchValueType = vfqn => fetchEvaluatedSignature(vfqn),
+      resolveAbility = resolveAbilityImpl
     )
 
-  /** Post-hoc verification that the body's innermost return type matches the signature's return type at the same depth.
-    * This complements the transformer's per-node type checking by catching mismatches in the outermost lambda chain
-    * that bidirectional checking alone may not flag (e.g., when the body is a value reference whose type was resolved
-    * independently of the enclosing signature).
-    */
-  private def checkReturnType(
-      bodyExpr: MonomorphicExpression.Expression,
-      signature: Value,
-      source: Sourced[?]
-  ): CompilerIO[Unit] =
-    extractMonomorphicReturnType(bodyExpr) match {
-      case Some((bodyReturnType, bodySource, depth)) =>
-        val signatureReturnType = extractSignatureReturnType(signature, depth)
-        if (bodyReturnType != signatureReturnType)
-          compilerAbort(
-            bodySource.as("Return type mismatch."),
-            Seq(
-              s"Expected: ${signatureReturnType.show}",
-              s"Actual:   ${bodyReturnType.show}"
-            )
-          )
-        else ().pure[CompilerIO]
-      case None                                      => ().pure[CompilerIO]
-    }
+  private def resolveAbilityImpl(vfqn: ValueFQN, typeArgs: Seq[Value]): CompilerIO[Option[ValueFQN]] =
+    getFact(AbilityImplementation.Key(vfqn, typeArgs)).map(_.map(_.implementationFQN))
 
-  /** Walk the outermost chain of FunctionLiterals in the body, returning the innermost return type, its source
-    * position, and the nesting depth. Returns None if the body is not a lambda (no return type to check).
+  /** Fetch a value's type stack signature, evaluate it to a SemValue. Uses NativeBinding lookups for proper resolution.
     */
-  private def extractMonomorphicReturnType(
-      expr: MonomorphicExpression.Expression
-  ): Option[(Value, Sourced[?], Int)] =
-    expr match {
-      case MonomorphicExpression.FunctionLiteral(_, _, body) =>
-        extractMonomorphicReturnType(body.value.expression) match {
-          case Some((v, s, d)) => Some((v, s, d + 1))
-          case None            => Some((body.value.expressionType, body, 1))
+  private def fetchEvaluatedSignature(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
+    getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
+      case Some(orv) =>
+        val levels = orv.typeStack.value.levels.toSeq
+        for {
+          bindings <- collectBindings(levels)
+        } yield {
+          val evaluator = new Evaluator(v => bindings.get(v), Map.empty)
+          val reversed  = levels.reverse
+          val result    = reversed.foldLeft(SemValue.VType.asInstanceOf[SemValue]) { (_, level) =>
+            evaluator.eval(Env.empty, level)
+          }
+          Some(result)
         }
-      case _                                                 => None
+      case None      => None.pure[CompilerIO]
     }
 
-  /** Extract the return type from the signature at the same lambda nesting depth, so the two sides can be compared. */
-  private def extractSignatureReturnType(value: Value, depth: Int): Value =
-    if (depth <= 0) value
-    else
-      value.asFunctionType match {
-        case Some((_, returnType)) => extractSignatureReturnType(returnType, depth - 1)
-        case None                  => value
-      }
-
-  /** Evaluate the full type stack from top to bottom. Starts with an implicit top-level type of `Type` and walks each
-    * level, checking that its evaluated type matches the expected type from the level above. Returns the evaluated
-    * signature (bottom level) for downstream use.
-    */
-  private def evaluateTypeStack(
-      typeStack: Sourced[TypeStack[OperatorResolvedExpression]]
-  ): CompilerIO[ExpressionValue] = {
-    val levels = typeStack.value.levels.toSeq.reverse
-    for {
-      expectedTypeForSignature <- levels.init.foldLeftM(Value.Type: Value) { (expectedType, level) =>
-                                    for {
-                                      evaluated <- Evaluator.evaluate(typeStack.as(level))
-                                      _         <- checkExpressionHasType(evaluated, expectedType, typeStack)
-                                      value     <- ExpressionValue.concreteValueOf(evaluated) match {
-                                                     case Some(v) => v.pure[CompilerIO]
-                                                     case None    =>
-                                                       compilerAbort(
-                                                         typeStack.as(
-                                                           "Type level expression did not evaluate to a concrete value."
-                                                         )
-                                                       )
-                                                   }
-                                    } yield value
-                                  }
-      signature                <- Evaluator.evaluate(typeStack.as(levels.last))
-      _                        <- checkExpressionHasType(signature, expectedTypeForSignature, typeStack)
-    } yield signature
+  /** Recursively collect all NativeBindings referenced in ORE expressions. */
+  private def collectBindings(
+      levels: Seq[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression]
+  ): CompilerIO[Map[ValueFQN, SemValue]] = {
+    import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression as ORE
+    def collect(ore: ORE, acc: Map[ValueFQN, SemValue]): CompilerIO[Map[ValueFQN, SemValue]] = ore match {
+      case ORE.ValueReference(vfqn, typeArgs) =>
+        if (acc.contains(vfqn.value)) typeArgs.foldLeft(acc.pure[CompilerIO])((a, ta) => a.flatMap(collect(ta.value, _)))
+        else
+          fetchBinding(vfqn.value).flatMap {
+            case Some(sem) =>
+              val newAcc = acc + (vfqn.value -> sem)
+              typeArgs.foldLeft(newAcc.pure[CompilerIO])((a, ta) => a.flatMap(collect(ta.value, _)))
+            case None      => acc.pure[CompilerIO]
+          }
+      case ORE.FunctionApplication(target, arg) =>
+        collect(target.value, acc).flatMap(collect(arg.value, _))
+      case ORE.FunctionLiteral(_, paramType, body) =>
+        val withParamType = paramType.foldLeft(acc.pure[CompilerIO]) { (a, pt) =>
+          pt.value.levels.toSeq.foldLeft(a)((a2, level) => a2.flatMap(collect(level, _)))
+        }
+        withParamType.flatMap(collect(body.value, _))
+      case _ => acc.pure[CompilerIO]
+    }
+    levels.foldLeft(Map.empty[ValueFQN, SemValue].pure[CompilerIO])((a, level) => a.flatMap(collect(level, _)))
   }
-
-  /** Check that an evaluated expression has the given expected type. Recursively decomposes function types to verify
-    * parameter types match at each level.
-    */
-  private def checkExpressionHasType(
-      evaluated: ExpressionValue,
-      expectedType: Value,
-      source: Sourced[?]
-  ): CompilerIO[Unit] =
-    evaluated match {
-      case ConcreteValue(v)                    =>
-        if (v.valueType =!= expectedType)
-          compilerAbort(
-            source.as("Type mismatch in type stack."),
-            Seq(s"Expected: ${expectedType.show}", s"Actual:   ${v.valueType.show}")
-          )
-        else ().pure[CompilerIO]
-      case FunctionLiteral(_, paramType, body) =>
-        expectedType.asFunctionType match {
-          case Some((expectedParam, expectedReturn)) =>
-            if (paramType =!= expectedParam)
-              compilerAbort(
-                source.as("Type parameter kind mismatch."),
-                Seq(s"Expected: ${expectedParam.show}", s"Actual:   ${paramType.show}")
-              )
-            else checkExpressionHasType(body.value, expectedReturn, source)
-          case None                                  =>
-            compilerAbort(
-              source.as("Expected non-function type but found function."),
-              Seq(s"Expected: ${expectedType.show}")
-            )
-        }
-      case NativeFunction(paramType, _)        =>
-        expectedType.asFunctionType match {
-          case Some((expectedParam, _)) =>
-            if (paramType =!= expectedParam)
-              compilerAbort(
-                source.as("Type parameter kind mismatch."),
-                Seq(s"Expected: ${expectedParam.show}", s"Actual:   ${paramType.show}")
-              )
-            else ().pure[CompilerIO]
-          case None                     =>
-            compilerAbort(
-              source.as("Expected non-function type but found native function."),
-              Seq(s"Expected: ${expectedType.show}")
-            )
-        }
-      case ParameterReference(_)               =>
-        ().pure[CompilerIO]
-      case FunctionApplication(_, _)           =>
-        ().pure[CompilerIO]
-    }
 }

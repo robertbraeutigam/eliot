@@ -18,7 +18,12 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleValueProcessor
 }
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
-import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
+import com.vanillasource.eliot.eliotc.monomorphize.processor.{
+  DataTypeNativesProcessor,
+  MonomorphicTypeCheckProcessor,
+  SystemNativesProcessor,
+  UserValueNativesProcessor
+}
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
@@ -41,6 +46,9 @@ class AbilityImplementationCheckProcessorTest
       OperatorResolverProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
+      SystemNativesProcessor(),
+      DataTypeNativesProcessor(),
+      UserValueNativesProcessor(),
       MonomorphicTypeCheckProcessor()
     ) {
   "ability implementation check" should "pass when all methods are provided with correct signatures" in {

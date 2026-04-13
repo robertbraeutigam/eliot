@@ -2,15 +2,18 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.Sync
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.Types
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition
 import NativeType.{systemAnyValue, systemFunctionValue}
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 
 object CommonPatterns {
 
-  def valueType(v: Value): ValueFQN =
+  def valueType(v: GroundValue): ValueFQN =
     v match {
       case _ if v.asFunctionType.isDefined => systemFunctionValue
       case _                               =>
@@ -20,18 +23,25 @@ object CommonPatterns {
         }
     }
 
-  def extractValueSignatureTypes(signature: Value): (Seq[Value], Value) =
+  def extractValueSignatureTypes(signature: GroundValue): (Seq[GroundValue], GroundValue) =
     signature.extractParamAndReturnTypes
 
-  def constructorDataTypeValue(returnType: Value): Value =
+  def constructorDataTypeValue(returnType: GroundValue): GroundValue =
     returnType.deepReturnType
 
-  def constructorArityValue(returnType: Value): Int =
+  def constructorArityValue(returnType: GroundValue): Int =
     returnType.functionArity
 
-  def mangleSuffix(typeArgs: Seq[Value]): String =
+  def mangleSuffix(typeArgs: Seq[Sourced[OperatorResolvedExpression]]): String =
     if (typeArgs.isEmpty) ""
-    else "$" + typeArgs.map(v => valueType(v).name.name).mkString("$")
+    else "$" + typeArgs.map(ta => oreTypeName(ta.value)).mkString("$")
+
+  private def oreTypeName(ore: OperatorResolvedExpression): String =
+    ore match {
+      case OperatorResolvedExpression.ValueReference(vfqn, _) => vfqn.value.name.name
+      case OperatorResolvedExpression.FunctionApplication(target, _) => oreTypeName(target.value)
+      case _ => "unknown"
+    }
 
   def stripDataTypeSuffix(valueFQN: ValueFQN): ValueFQN =
     ValueFQN(valueFQN.moduleName, QualifiedName(valueFQN.name.name, Qualifier.Default))

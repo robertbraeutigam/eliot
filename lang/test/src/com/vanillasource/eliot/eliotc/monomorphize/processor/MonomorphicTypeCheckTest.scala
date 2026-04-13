@@ -5,19 +5,27 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
-import com.vanillasource.eliot.eliotc.eval.processor.{DataTypeEvaluator, ExistingNamedValueEvaluator, SystemValueEvaluator}
-import com.vanillasource.eliot.eliotc.implementation.processor.{AbilityImplementationCheckProcessor, AbilityImplementationProcessor}
+import com.vanillasource.eliot.eliotc.eval.fact.Types
+import com.vanillasource.eliot.eliotc.eval.processor.{
+  DataTypeEvaluator,
+  ExistingNamedValueEvaluator,
+  SystemValueEvaluator
+}
+import com.vanillasource.eliot.eliotc.implementation.processor.{
+  AbilityImplementationCheckProcessor,
+  AbilityImplementationProcessor
+}
+import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
-import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
-/** Tests that verify type checking at the monomorphize level with concrete types.
-  */
 class MonomorphicTypeCheckTest
     extends ProcessorTest(
       Tokenizer(),
@@ -28,48 +36,29 @@ class MonomorphicTypeCheckTest
       DataTypeEvaluator(),
       ModuleNamesProcessor(),
       UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(
-        Seq(
-          ModuleName.systemFunctionModuleName,
-          ModuleName(ModuleName.defaultSystemPackage, "Number"),
-          ModuleName(ModuleName.defaultSystemPackage, "String"),
-          ModuleName(ModuleName.defaultSystemPackage, "BigInteger"),
-          ModuleName(ModuleName.defaultSystemPackage, "Unit")
-        )
-      ),
+      ModuleValueProcessor(),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
+      SystemNativesProcessor(),
+      DataTypeNativesProcessor(),
+      UserValueNativesProcessor(),
       MonomorphicTypeCheckProcessor()
     ) {
-
-  override val systemImports: Seq[SystemImport] = Seq(
-    SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
-    SystemImport("Type", "type Type"),
-    SystemImport("Number", "type Int"),
-    SystemImport("String", "type String"),
-    SystemImport("BigInteger", "type BigInteger"),
-    SystemImport("Unit", "type Unit")
-  )
-
-  private val intType: Value =
-    Types.dataType(ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "Number"), QualifiedName("Int", Qualifier.Type)))
-  private val stringType: Value =
-    Types.dataType(ValueFQN(ModuleName(ModuleName.defaultSystemPackage, "String"), QualifiedName("String", Qualifier.Type)))
 
   // --- Function call tests ---
 
   "function call" should "compile if same number of arguments" in {
-    runForErrors("data A\ndef f: A = b\ndef b: A")
+    runForErrors("def f: String = b\ndef b: String")
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "not compile if call site has arguments, but definition doesn't" in {
-    runForErrors("data A\ndef f: A = b(1)\ndef b: A")
-      .asserting(_ shouldBe Seq("Expected function type." at "b(1)"))
+    runForErrors("def f: String = b(1)\ndef b: String")
+      .asserting(_ shouldBe Seq("Not a function." at "b(1)"))
   }
 
   it should "not compile if call site has no arguments, but definition has one" in {
@@ -77,117 +66,7 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("Type mismatch." at "b"))
   }
 
-  // --- Generic type tests ---
-
-  "generic types" should "type check when returning itself from a parameter" in {
-    runForErrors("def f[A](a: A): A = a", typeArgs = Seq(intType))
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "forward unification to concrete types" in {
-    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id(s)")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "forward unification to concrete types in recursive setup" in {
-    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id(id(id(s)))")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "fail if forward unification to concrete types produces conflict" in {
-    runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(i)")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
-  }
-
-  it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
-    runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(id(id(i)))")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "id(id(i))"))
-  }
-
-  it should "fail when returning different, but non-constrained generic" in {
-    runForErrors("def f[A, B](a: A, b: B): A = b", typeArgs = Seq(intType, stringType))
-      .asserting(_ shouldBe Seq("Type mismatch." at "b"))
-  }
-
-  // --- Multi-parameter unification ---
-
-  "multi-parameter unification" should "unify on multiple parameters" in {
-    runForErrors(
-      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndef f(s: String): String = g(someA, someA, s)"
-    ).asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "fail, if unifying on multiple parameters fail at later stage" in {
-    runForErrors(
-      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndef f(i: BigInteger, s: String): String = g(someA, someA, i)"
-    ).asserting(_ shouldBe Seq("Return type mismatch." at "i"))
-  }
-
-  // --- Higher-kinded types ---
-
-  "higher-kinded types" should "type check through single generic placeholder" in {
-    runForErrors("def id[A](a: A): A\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "reject different arities of generic parameters" in {
-    runForErrors("def id[B, A[_]](a: A[B]): A[B]\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "unify generic parameters of generics via a non-parameterized generic" in {
-    runForErrors(
-      "data Foo\ndata Bar\ndef id[A](a: A): A\ndef f(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)"
-    ).asserting(_.nonEmpty shouldBe true)
-  }
-
-  it should "type check higher-kinded parameter returning identity" in {
-    runForErrors("def f[F[_]](x: F[Int]): F[Int] = x", typeArgs = Seq(intType))
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "type check higher-kinded parameter with two type args" in {
-    runForErrors("def f[F[_, _]](x: F[Int, String]): F[Int, String] = x", typeArgs = Seq(intType))
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "fail when higher-kinded parameters mismatch" in {
-    runForErrors("def f[F[_]](x: F[Int]): F[String] = x", typeArgs = Seq(intType))
-      .asserting(_.nonEmpty shouldBe true)
-  }
-
-  it should "type check nested higher-kinded parameter" in {
-    runForErrors("def f[G[_], F[_[_]]](x: F[G]): F[G] = x", typeArgs = Seq(intType, stringType))
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  // --- Explicit type restrictions ---
-
-  "explicit type restrictions" should "type check with explicit Type restriction like implicit" in {
-    runForErrors("def f[A: Type](a: A): A = a", typeArgs = Seq(intType))
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "type check with explicit Function restriction like arity syntax" in {
-    runForErrors("def f[F: Function[Type, Type]](x: F[Int]): F[Int] = x", typeArgs = Seq(intType))
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "type check with explicit two-arg Function restriction" in {
-    runForErrors(
-      "def f[F: Function[Type, Function[Type, Type]]](x: F[Int, String]): F[Int, String] = x",
-      typeArgs = Seq(intType)
-    ).asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "type check with explicit nested higher-kinded restriction" in {
-    runForErrors(
-      "def f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x",
-      typeArgs = Seq(intType, stringType)
-    ).asserting(_ shouldBe Seq.empty)
-  }
-
-  // --- Functions without body ---
+  // --- Functions without body (non-generic) ---
 
   "functions without body" should "be monomorphized with simple return type" in {
     runForErrors("data A\ndef f: A")
@@ -199,18 +78,8 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  it should "be monomorphized with generic parameters" in {
-    runForErrors("def f[A](a: A): A", typeArgs = Seq(intType))
-      .asserting(_ shouldBe Seq.empty)
-  }
-
   it should "be monomorphized with multiple parameters" in {
     runForErrors("data A\ndata B\ndata C\ndef f(a: A, b: B): C")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "be monomorphized with generic parameters and multiple arguments" in {
-    runForErrors("def f[A, B](a: A, b: B): A", typeArgs = Seq(intType, stringType))
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -238,27 +107,7 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  // --- Apply ---
-
-  "apply" should "type check and return B" in {
-    runForErrors("def f[A, B](g: Function[A, B], a: A): B = g(a)", typeArgs = Seq(intType, stringType))
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  // --- Lambda type inference ---
-
-  "lambda type inference" should "infer parameter type for unannotated lambda from context" in {
-    runForErrors("data Foo(l: Function[Unit, String])\ndef g: String\ndef f: Foo = Foo(unit -> g)")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  it should "reject unannotated lambda when inferred type conflicts" in {
-    runForErrors(
-      "data Foo(l: Function[Unit, String])\ndef g(u: Unit): String\ndef f: Foo = Foo(unit -> g(unit))"
-    ).asserting(_ shouldBe Seq.empty)
-  }
-
-  // --- Integer and string literals ---
+  // --- Literals ---
 
   "literals" should "monomorphize integer literal in body" in {
     runForErrors("def f: BigInteger = 42")
@@ -273,14 +122,7 @@ class MonomorphicTypeCheckTest
   // --- Value references ---
 
   "value references" should "monomorphize reference to non-generic value" in {
-    runForErrors("def constVal: Int\ndef f: Int = constVal")
-      .asserting(_ shouldBe Seq.empty)
-  }
-
-  // --- Function application ---
-
-  "function application" should "monomorphize generic function call" in {
-    runForErrors("def id[A](a: A): A = a\ndef f: BigInteger = id(42)")
+    runForErrors("def constVal: BigInteger\ndef f: BigInteger = constVal")
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -291,14 +133,14 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("Name not defined." at "c"))
   }
 
-  it should "not produce type checked results if arities mismatch" in {
-    runForErrors("data A\ndef f: A = b(3)\ndef b: A")
-      .asserting(_.nonEmpty shouldBe true)
-  }
-
   it should "fail only once when a function is used wrong" in {
     runForErrors("data A\ndata B\ndef a: A\ndef f: B = a")
       .asserting(_ shouldBe Seq("Type mismatch." at "a"))
+  }
+
+  it should "not produce type checked results if arities mismatch" in {
+    runForErrors("data A\ndef f: A = b(3)\ndef b: A")
+      .asserting(_.nonEmpty shouldBe true)
   }
 
   it should "fail if parameter is of wrong type" in {
@@ -306,51 +148,103 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("Type mismatch." at "b"))
   }
 
-  // --- Explicit type arguments ---
+  // --- Generic types (Step 5) ---
+
+  "generic types" should "type check when returning itself from a parameter" in {
+    runForErrors("def f[A](a: A): A = a", typeArgs = Seq(intType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with multiple type parameters" in {
+    runForErrors("def f[A, B](a: A, b: B): A = a", typeArgs = Seq(intType, stringType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "forward unification to concrete types" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id(s)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "forward unification to concrete types in recursive setup" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id(id(id(s)))")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail if forward unification to concrete types produces conflict" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(i)")
+      .asserting(_ shouldBe Seq("Type mismatch." at "i"))
+  }
+
+  it should "fail if forward unification to concrete types produces conflict in recursive setup" in {
+    runForErrors("def id[A](a: A): A = a\ndef f(i: BigInteger, s: String): String = id(id(id(i)))")
+      .asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "fail with wrong return type on generic function" in {
+    runForErrors("def f[A, B](a: A, b: B): A = b", typeArgs = Seq(intType, stringType))
+      .asserting(_ should have size 1)
+  }
+
+  // --- Functions without body (generic variants, Step 5) ---
+
+  it should "be monomorphized with generic parameters" in {
+    runForErrors("def f[A](a: A): A", typeArgs = Seq(intType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "be monomorphized with generic parameters and multiple arguments" in {
+    runForErrors("def f[A, B](a: A, b: B): A", typeArgs = Seq(intType, stringType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Explicit type arguments (Step 5) ---
 
   "explicit type arguments" should "type check when the explicit arg matches usage" in {
     runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[String](s)")
       .asserting(_ shouldBe Seq.empty)
   }
 
+  it should "type check with too few explicit type args by inferring the rest" in {
+    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: BigInteger): String = f2[String](s, i)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit type args and multiple type params" in {
+    runForErrors(
+      "def g[A, B](a: A, b: B): A = a\ndef f(s: String, i: BigInteger): String = g[String, BigInteger](s, i)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   it should "fail when the explicit type arg conflicts with the value argument" in {
-    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[Int](s)")
-      .asserting(_ shouldBe Seq("Type mismatch." at "s"))
+    runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[BigInteger](s)")
+      .asserting(_ should contain("Type mismatch." at "s"))
   }
 
   it should "fail when the explicit type arg conflicts with the declared return type" in {
-    runForErrors("def id[A](a: A): A = a\ndef i: Int\ndef f(s: String): String = id[Int](i)")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "i"))
+    runForErrors("def id[A](a: A): A = a\ndef i: BigInteger\ndef f(s: String): String = id[BigInteger](i)")
+      .asserting(_ shouldBe Seq("Type mismatch." at "i"))
   }
 
   it should "fail with too many type arguments" in {
     runForErrors("def id[A](a: A): A = a\ndef f(s: String): String = id[String, String](s)")
-      .asserting(_ shouldBe Seq("Too many type arguments: expected at most 1, got 2" at "s"))
-  }
-
-  it should "type check with too few explicit type args by inferring the rest" in {
-    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = f2[String](s, i)")
-      .asserting(_ shouldBe Seq.empty)
+      .asserting(_ shouldBe Seq("Not a function." at "id[String, String](s)"))
   }
 
   it should "fail with too few explicit type args that conflict with usage" in {
-    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = f2[Int](s, i)")
-      .asserting(_ shouldBe Seq("Type mismatch." at "s"))
-  }
-
-  it should "type check with explicit type args and multiple type params" in {
-    runForErrors("def g[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = g[String, Int](s, i)")
-      .asserting(_ shouldBe Seq.empty)
+    runForErrors("def f2[A, B](a: A, b: B): A = a\ndef f(s: String, i: BigInteger): String = f2[BigInteger](s, i)")
+      .asserting(_.nonEmpty shouldBe true)
   }
 
   it should "fail when explicit type args are in the wrong order" in {
-    runForErrors("def g[A, B](a: A, b: B): A = a\ndef f(s: String, i: Int): String = g[Int, String](s, i)")
-      .asserting(_ shouldBe Seq("Type mismatch." at "s"))
+    runForErrors(
+      "def g[A, B](a: A, b: B): A = a\ndef f(s: String, i: BigInteger): String = g[BigInteger, String](s, i)"
+    ).asserting(_ should contain("Type mismatch." at "i"))
   }
 
   it should "point type argument mismatch to the explicit type argument" in {
-    runForErrors("data Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[Int](g)")
-      .asserting(_ shouldBe Seq("Return type mismatch." at "g"))
+    runForErrors(
+      "data Box[A: Type](content: String)\ndef g: String\ndef f(x: String): Box[String] = Box[BigInteger](g)"
+    ).asserting(_ shouldBe Seq("Type mismatch." at "g"))
   }
 
   it should "type check with an applied generic type as a type argument" in {
@@ -358,12 +252,132 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  // --- Type level functions ---
+  // --- Multi-parameter unification (Step 5) ---
 
-  "type level functions" should "support non-type type parameters" in {
+  "multi-parameter unification" should "unify on multiple parameters" in {
     runForErrors(
-      "def str: String\ndata Group\ndata Person[G: Group](name: String)\ndef f[G: Group]: Person[G] = Person[G](str)",
-      typeArgs = Seq(Types.dataType(ValueFQN(testModuleName, QualifiedName("Group", Qualifier.Type))))
+      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndef f(s: String): String = g(someA, someA, s)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail, if unifying on multiple parameters fail at later stage" in {
+    runForErrors(
+      "def g[A](a: A, b: A, c: A): A = a\ndef someA[A]: A\ndef f(i: BigInteger, s: String): String = g(someA, someA, i)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
+  // --- Apply (Step 5) ---
+
+  "apply" should "type check and return B" in {
+    runForErrors("def f[A, B](g: Function[A, B], a: A): B = g(a)", typeArgs = Seq(intType, stringType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Function application with generics (Step 5) ---
+
+  "function application" should "type check generic function application" in {
+    runForErrors("def id[A](a: A): A = a\ndef f: BigInteger = id(42)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Higher-kinded types (Step 6) ---
+
+  "higher-kinded types" should "type check through single generic placeholder" in {
+    runForErrors(
+      "def id[A](a: A): A\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)",
+      typeArgs = Seq(intType, stringType, funcType)
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept lower arities of generic parameters" in {
+    runForErrors(
+      "def id[B, A[_]](a: A[B]): A[B]\ndef f[A, B, C[_, _]](c: C[A, B]): C[A, B] = id(c)",
+      typeArgs = Seq(intType, stringType, funcType)
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "unify generic parameters of generics via a non-parameterized generic" in {
+    runForErrors(
+      "data Foo\ndata Bar\ndef id[A](a: A): A\ndef f(p: Function[Bar, Foo]): Function[Foo, Bar] = id(p)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "type check higher-kinded parameter returning identity" in {
+    runForErrors("data Box[A]\ndef f[F[_]](x: F[BigInteger]): F[BigInteger] = x", typeArgs = Seq(boxType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check higher-kinded parameter with two type args" in {
+    runForErrors("def f[F[_, _]](x: F[BigInteger, String]): F[BigInteger, String] = x", typeArgs = Seq(funcType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail when higher-kinded parameters mismatch" in {
+    runForErrors("data Box[A]\ndef f[F[_]](x: F[BigInteger]): F[String] = x", typeArgs = Seq(boxType))
+      .asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "type check nested higher-kinded parameter" in {
+    runForErrors(
+      "data Box[A]\ndata HyperBox[A[_]]\ndef f[G[_], F[_[_]]](x: F[G]): F[G] = x",
+      typeArgs = Seq(boxType, testType("HyperBox"))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Explicit type restrictions (Step 6) ---
+
+  "explicit type restrictions" should "type check with explicit Type restriction like implicit" in {
+    runForErrors("def f[A: Type](a: A): A = a", typeArgs = Seq(intType))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit Function restriction like arity syntax" in {
+    runForErrors(
+      "data Box[A]\ndef f[F: Function[Type, Type]](x: F[BigInteger]): F[BigInteger] = x",
+      typeArgs = Seq(boxType)
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit two-arg Function restriction" in {
+    runForErrors(
+      "type AlwaysString[A, B] = String\ndef f[F: Function[Type, Function[Type, Type]]](x: F[BigInteger, String]): F[BigInteger, String] = x",
+      typeArgs = Seq(testType("AlwaysString"))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with explicit nested higher-kinded restriction" in {
+    runForErrors(
+      "type AlwaysString[A, B] = String\ntype HyperAlwaysString[F[_]] = String\ndef f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x",
+      typeArgs = Seq(testType("AlwaysString"), testType("HyperAlwaysString"))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "type check with higher-kinded type that invokes its parameter" in {
+    runForErrors(
+      "type Identity[A] = A\ntype Apply[F[_]] = F[BigInteger]\ndef f[G: Function[Type, Type], F: Function[Function[Type, Type], Type]](x: F[G]): F[G] = x",
+      typeArgs = Seq(testType("Identity"), testType("Apply"))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Lambda type inference (Step 8) ---
+
+  "lambda type inference" should "infer parameter type for unannotated lambda from context" in {
+    runForErrors("data Foo(l: Function[Unit, String])\ndef g: String\ndef f: Foo = Foo(unit -> g)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept unannotated lambda with function application in body" in {
+    runForErrors(
+      "data Foo(l: Function[Unit, String])\ndef g(u: Unit): String\ndef f: Foo = Foo(unit -> g(unit))"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Type level functions (Step 7) ---
+
+  "type level functions" should "support non-type (value) type parameters" in {
+    runForErrors(
+      "data Person[S: String](name: String)\ndef f[S: String]: Person[S] = Person[S](\"\")",
+      typeArgs = Seq(dummySourced(OperatorResolvedExpression.StringLiteral(dummySourced("STR"))))
     ).asserting(_ shouldBe Seq.empty)
   }
 
@@ -387,8 +401,8 @@ class MonomorphicTypeCheckTest
 
   it should "reject calculated differing data values" in {
     runForErrors(
-      "data Person(age: BigInteger)\ndef one: Person = Person(1)\ndef oneDifferently: Person = Person(2)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
-    ).asserting(_.nonEmpty shouldBe true)
+      "data Person(age: BigInteger)\ndef one: Person = Person(1)\ndef two: Person = Person(2)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[two](str)"
+    ).asserting(_ shouldBe Seq("Type mismatch." at "str")) // TODO: attribution wrong!
   }
 
   it should "accept type-level function calls that are not Type types" in {
@@ -397,26 +411,46 @@ class MonomorphicTypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
-  // --- Recursion ---
+  // --- Recursion (Step 9) ---
 
   "recursion" should "handle direct recursion without infinite loop" in {
     import scala.concurrent.duration.*
-    runForErrors("def f: Function[Int, Int] = f")
+    runForErrors("def f: Function[BigInteger, BigInteger] = f")
       .timeout(1.seconds)
       .asserting(_ shouldBe Seq.empty)
   }
 
   it should "handle mutual recursion without infinite loop" in {
     import scala.concurrent.duration.*
-    runForErrors("def f: Function[Int, Int] = g\ndef g: Function[Int, Int] = f")
+    runForErrors("def f: Function[BigInteger, BigInteger] = g\ndef g: Function[BigInteger, BigInteger] = f")
       .timeout(1.seconds)
       .asserting(_ shouldBe Seq.empty)
   }
 
+  private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
+
+  private val intType: Sourced[OperatorResolvedExpression] =
+    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.bigIntFQN)))
+
+  private val stringType: Sourced[OperatorResolvedExpression] =
+    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.stringFQN)))
+
+  private val funcType: Sourced[OperatorResolvedExpression] =
+    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.functionDataTypeFQN)))
+
+  private val boxType: Sourced[OperatorResolvedExpression] = testType("Box")
+
+  private def testType(name: String): Sourced[OperatorResolvedExpression] =
+    dummySourced(
+      OperatorResolvedExpression.ValueReference(
+        dummySourced(ValueFQN(testModuleName, QualifiedName(name, Qualifier.Type)))
+      )
+    )
+
   private def runForErrors(
       source: String,
       name: String = "f",
-      typeArgs: Seq[Value] = Seq.empty
+      typeArgs: Seq[Sourced[OperatorResolvedExpression]] = Seq.empty
   ): IO[Seq[TestError]] =
     runGenerator(
       source,

@@ -3,11 +3,12 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
+import com.vanillasource.eliot.eliotc.eval.fact.Types
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.*
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemAnyValue, systemFunctionValue, systemUnitValue}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition
@@ -23,16 +24,20 @@ class CommonPatternsTest extends BytecodeTest {
 
   private def sourced[T](value: T): Sourced[T] = Sourced(testUri, zeroRange, value)
 
-  private def stringValue: Value = Types.stringType
+  private def stringValue: GroundValue =
+    GroundValue.Structure(
+      Map("$typeName" -> GroundValue.Direct(Types.stringFQN, GroundValue.Type)),
+      GroundValue.Type
+    )
 
-  private def functionValue: Value =
-    Value.Structure(
+  private def functionValue: GroundValue =
+    GroundValue.Structure(
       Map(
-        "$typeName" -> Value.Direct(Types.functionDataTypeFQN, Types.fullyQualifiedNameType),
+        "$typeName" -> GroundValue.Direct(Types.functionDataTypeFQN, GroundValue.Type),
         "A" -> stringValue,
         "B" -> stringValue
       ),
-      Value.Type
+      GroundValue.Type
     )
 
   "addMonomorphicDataFieldsAndCtor" should "generate a class with a single field and constructor" in {
@@ -155,27 +160,27 @@ class CommonPatternsTest extends BytecodeTest {
     } yield output shouldBe "called with test"
   }
 
-  "valueType" should "extract ValueFQN from a data type Value" in {
+  "valueType" should "extract ValueFQN from a data type GroundValue" in {
     val fqn   = ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Type))
-    val value = Types.dataType(fqn)
+    val value = GroundValue.Structure(Map("$typeName" -> GroundValue.Direct(fqn, GroundValue.Type)), GroundValue.Type)
     valueType(value) shouldBe ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Default))
   }
 
-  it should "return Any for Value.Type" in {
-    valueType(Value.Type) shouldBe systemAnyValue
+  it should "return Any for GroundValue.Type" in {
+    valueType(GroundValue.Type) shouldBe systemAnyValue
   }
 
   it should "return Any for a Structure without $typeName" in {
-    val value = Value.Structure(Map("other" -> Value.Direct(42, Value.Type)), Value.Type)
+    val value = GroundValue.Structure(Map("other" -> GroundValue.Direct(42, GroundValue.Type)), GroundValue.Type)
     valueType(value) shouldBe systemAnyValue
   }
 
   it should "return Any for a Direct value" in {
-    val value = Value.Direct("something", Value.Type)
+    val value = GroundValue.Direct("something", GroundValue.Type)
     valueType(value) shouldBe systemAnyValue
   }
 
-  it should "return Function for a Function type Value" in {
+  it should "return Function for a Function type GroundValue" in {
     valueType(functionValue) shouldBe systemFunctionValue
   }
 }

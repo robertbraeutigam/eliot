@@ -13,7 +13,12 @@ import com.vanillasource.eliot.eliotc.implementation.processor.{AbilityImplement
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.{ModuleNamesProcessor, ModuleValueProcessor, UnifiedModuleNamesProcessor, UnifiedModuleValueProcessor}
-import com.vanillasource.eliot.eliotc.monomorphize.processor.MonomorphicTypeCheckProcessor
+import com.vanillasource.eliot.eliotc.monomorphize.processor.{
+  DataTypeNativesProcessor,
+  MonomorphicTypeCheckProcessor,
+  SystemNativesProcessor,
+  UserValueNativesProcessor
+}
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -55,6 +60,9 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       OperatorResolverProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
+      SystemNativesProcessor(),
+      DataTypeNativesProcessor(),
+      UserValueNativesProcessor(),
       MonomorphicTypeCheckProcessor(),
       UsedNamesProcessor(),
       MonomorphicUncurryingProcessor(),

@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.effect.Sync
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.eval.fact.Value
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addMonomorphicDataFieldsAndCtor, valueType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createInterfaceGenerator
@@ -367,7 +367,7 @@ object DataClassGenerator {
   def generateTypeMatch[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
       typeMatchParameters: Seq[MonomorphicParameterDefinition],
-      typeMatchReturnType: Value,
+      typeMatchReturnType: GroundValue,
       constructorVfqn: ValueFQN,
       constructorFields: Seq[MonomorphicParameterDefinition]
   ): F[Unit] = {
