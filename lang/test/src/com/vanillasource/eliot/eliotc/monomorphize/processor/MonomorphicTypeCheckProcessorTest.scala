@@ -184,20 +184,22 @@ class MonomorphicTypeCheckProcessorTest
       .asserting(_.runtime shouldBe defined)
   }
 
-  private val intType: Sourced[OperatorResolvedExpression] =
-    Sourced[OperatorResolvedExpression](file, com.vanillasource.eliot.eliotc.pos.PositionRange.zero,
-      OperatorResolvedExpression.ValueReference(
-        Sourced(file, com.vanillasource.eliot.eliotc.pos.PositionRange.zero, Types.bigIntFQN)))
+  private val intType: GroundValue =
+    GroundValue.Structure(
+      Map("$typeName" -> GroundValue.Direct(Types.bigIntFQN, GroundValue.Type)),
+      GroundValue.Type
+    )
 
-  private val stringType: Sourced[OperatorResolvedExpression] =
-    Sourced[OperatorResolvedExpression](file, com.vanillasource.eliot.eliotc.pos.PositionRange.zero,
-      OperatorResolvedExpression.ValueReference(
-        Sourced(file, com.vanillasource.eliot.eliotc.pos.PositionRange.zero, Types.stringFQN)))
+  private val stringType: GroundValue =
+    GroundValue.Structure(
+      Map("$typeName" -> GroundValue.Direct(Types.stringFQN, GroundValue.Type)),
+      GroundValue.Type
+    )
 
   private def runEngineForMonomorphicValue(
       source: String,
       name: String = "f",
-      typeArgs: Seq[Sourced[OperatorResolvedExpression]] = Seq.empty
+      typeArgs: Seq[GroundValue] = Seq.empty
   ): IO[MonomorphicValue] =
     runGenerator(
       source,

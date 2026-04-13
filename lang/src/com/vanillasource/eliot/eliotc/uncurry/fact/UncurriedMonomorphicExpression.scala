@@ -4,7 +4,6 @@ import cats.Show
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Expression tree after uncurrying, with concrete (monomorphic) types. */
@@ -37,7 +36,7 @@ object UncurriedMonomorphicExpression {
   /** Reference to a monomorphic value instance. */
   case class MonomorphicValueReference(
       valueName: Sourced[ValueFQN],
-      typeArguments: Seq[Sourced[OperatorResolvedExpression]]
+      typeArguments: Seq[GroundValue]
   ) extends Expression
 
   given Show[Expression] = {

@@ -3,14 +3,13 @@ package com.vanillasource.eliot.eliotc.used
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
 
 case class UsedNamesState(
     usedNames: Map[ValueFQN, UsedNamesState.UsageStatsBuilder] = Map.empty,
-    visited: Set[(ValueFQN, Seq[Sourced[OperatorResolvedExpression]])] = Set.empty,
+    visited: Set[(ValueFQN, Seq[GroundValue])] = Set.empty,
     failed: Boolean = false
 )
 
@@ -18,10 +17,10 @@ object UsedNamesState {
   type UsedNamesIO[T] = StateT[CompilerIO, UsedNamesState, T]
 
   case class UsageStatsBuilder(
-      monomorphicTypeParameters: Seq[Seq[Sourced[OperatorResolvedExpression]]] = Seq.empty,
+      monomorphicTypeParameters: Seq[Seq[GroundValue]] = Seq.empty,
       directCallApplications: Map[Int, Int] = Map.empty
   ) {
-    def addTypeParameters(typeParams: Seq[Sourced[OperatorResolvedExpression]]): UsageStatsBuilder =
+    def addTypeParameters(typeParams: Seq[GroundValue]): UsageStatsBuilder =
       copy(monomorphicTypeParameters = monomorphicTypeParameters :+ typeParams)
 
     def addDirectCallApplication(argCount: Int): UsageStatsBuilder =
@@ -44,15 +43,15 @@ object UsedNamesState {
       usedNames = state.usedNames.map((vfqn, builder) => vfqn -> builder.toUsageStats)
     )
 
-  def isVisited(vfqn: ValueFQN, typeArgs: Seq[Sourced[OperatorResolvedExpression]]): UsedNamesIO[Boolean] =
+  def isVisited(vfqn: ValueFQN, typeArgs: Seq[GroundValue]): UsedNamesIO[Boolean] =
     StateT.get[CompilerIO, UsedNamesState].map(_.visited.contains((vfqn, typeArgs)))
 
-  def markVisited(vfqn: ValueFQN, typeArgs: Seq[Sourced[OperatorResolvedExpression]]): UsedNamesIO[Unit] =
+  def markVisited(vfqn: ValueFQN, typeArgs: Seq[GroundValue]): UsedNamesIO[Unit] =
     StateT.modify[CompilerIO, UsedNamesState] { state =>
       state.copy(visited = state.visited + ((vfqn, typeArgs)))
     }
 
-  def recordUsage(vfqn: ValueFQN, typeArgs: Seq[Sourced[OperatorResolvedExpression]], applicationCount: Int): UsedNamesIO[Unit] =
+  def recordUsage(vfqn: ValueFQN, typeArgs: Seq[GroundValue], applicationCount: Int): UsedNamesIO[Unit] =
     StateT.modify[CompilerIO, UsedNamesState] { state =>
       val builder = state.usedNames.getOrElse(vfqn, UsageStatsBuilder())
       val updated = builder.addTypeParameters(typeArgs).addDirectCallApplication(applicationCount)

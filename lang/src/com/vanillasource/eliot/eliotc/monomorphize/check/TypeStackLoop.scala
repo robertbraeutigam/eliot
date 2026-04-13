@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
-import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -44,7 +44,7 @@ object TypeStackLoop {
       signature <- walkTypeStack(checker, resolvedValue)
 
       // Apply explicit type args
-      appliedSig   <- applyTypeArgs(checker, signature, key.specifiedTypeArguments)
+      appliedSig   <- applyTypeArgs(checker, signature, key.typeArguments, resolvedValue.typeStack)
       instantiated <- instantiateRemaining(checker, appliedSig)
 
       // Check runtime body if present
@@ -59,7 +59,7 @@ object TypeStackLoop {
       groundSig <- checker.forceAndConst(instantiated)
     } yield MonomorphicValue(
       key.vfqn,
-      key.specifiedTypeArguments,
+      key.typeArguments,
       resolvedValue.typeStack.as(key.vfqn.name),
       groundSig,
       runtime
@@ -93,21 +93,25 @@ object TypeStackLoop {
                 }
     } yield result
 
+  /** Apply concrete GroundValue type arguments to the signature by wrapping each in VConst and applying to VLam
+    * closures.
+    */
   private def applyTypeArgs(
       checker: Checker,
       signature: SemValue,
-      typeArgs: Seq[Sourced[OperatorResolvedExpression]]
+      typeArgs: Seq[GroundValue],
+      errorSource: Sourced[?]
   ): CheckIO[SemValue] =
     typeArgs.foldLeftM(signature) { (sig, typeArg) =>
+      val argVal = VConst(typeArg)
       for {
-        argVal <- checker.evalExpr(typeArg.value)
         forced <- checker.force(sig)
         result <- forced match {
                     case VLam(name, closure) =>
                       modify(_.bind(name, argVal)).as(closure(argVal))
                     case _                   =>
                       modify(s =>
-                        s.withUnifier(s.unifier.addError(typeArg.as("Too many type arguments.")))
+                        s.withUnifier(s.unifier.addError(errorSource.as("Too many type arguments.")))
                       ).as(sig)
                   }
       } yield result

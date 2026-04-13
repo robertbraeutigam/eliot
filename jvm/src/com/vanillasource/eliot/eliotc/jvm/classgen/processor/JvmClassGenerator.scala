@@ -252,7 +252,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   private def createModuleMethod(
       classGenerator: ClassGenerator,
       uncurriedValue: UncurriedMonomorphicValue,
-      typeArgs: Seq[Sourced[OperatorResolvedExpression]],
+      typeArgs: Seq[GroundValue],
       initialLambdaCount: Int = 0
   ): CompilerIO[(Seq[ClassFile], Int)] = {
     uncurriedValue.body match {

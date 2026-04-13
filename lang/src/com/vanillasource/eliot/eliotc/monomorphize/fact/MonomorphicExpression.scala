@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** A runtime expression annotated with concrete ground types. All types are fully evaluated GroundValues with no free
@@ -34,6 +33,6 @@ object MonomorphicExpression {
 
   case class MonomorphicValueReference(
       valueName: Sourced[ValueFQN],
-      typeArguments: Seq[Sourced[OperatorResolvedExpression]]
+      typeArguments: Seq[GroundValue]
   ) extends Expression
 }

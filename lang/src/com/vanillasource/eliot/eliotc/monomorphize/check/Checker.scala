@@ -114,26 +114,30 @@ class Checker(
 
                           case _ =>
                             for {
-                              (expr, inferred) <- infer(tm)
-                              instantiated     <- instantiatePolymorphic(inferred)
-                              _                <- doUnify(instantiated, expected, tm.as("Type mismatch."))
-                            } yield expr
+                              (expr, inferred)              <- infer(tm)
+                              (instantiated, implicitMetas) <- instantiateCollecting(inferred)
+                              _                             <- doUnify(instantiated, expected, tm.as("Type mismatch."))
+                              resolvedImplicits             <- implicitMetas.traverse(forceAndConst)
+                              updatedExpr                    = addImplicitTypeArgs(expr, resolvedImplicits)
+                            } yield updatedExpr
                         }
     } yield result
 
-  /** Peel off leading VLam closures by instantiating them with fresh metas. This handles implicit type arg
-    * instantiation when a polymorphic value is checked against a concrete/meta expected type.
+  /** Peel off leading VLam closures by instantiating them with fresh metas, collecting the metas for later resolution.
     */
-  private def instantiatePolymorphic(sem: SemValue): CheckIO[SemValue] =
+  private def instantiateCollecting(
+      sem: SemValue,
+      metas: Seq[SemValue] = Seq.empty
+  ): CheckIO[(SemValue, Seq[SemValue])] =
     for {
       forced <- force(sem)
       result <- forced match {
                   case VLam(_, closure) =>
                     for {
-                      meta         <- freshMeta
-                      instantiated <- instantiatePolymorphic(closure(meta))
-                    } yield instantiated
-                  case other            => pure(other)
+                      meta   <- freshMeta
+                      result <- instantiateCollecting(closure(meta), metas :+ meta)
+                    } yield result
+                  case other            => pure((other, metas))
                 }
     } yield result
 
@@ -170,15 +174,19 @@ class Checker(
         result <- sigOpt match {
                     case Some(sig) =>
                       for {
-                        resolvedVfqn <- tryResolveAbility(vfqn)
-                        appliedSig   <- typeArgs.foldLeftM(sig) { (s, typeArg) =>
-                                          evalExpr(typeArg.value).map(Evaluator.applyValue(s, _))
-                                        }
-                        ground       <- forceAndConst(appliedSig)
+                        resolvedVfqn                    <- tryResolveAbility(vfqn)
+                        (appliedSig, explicitGroundArgs) <- typeArgs.foldLeftM((sig, Seq.empty[GroundValue])) {
+                                                              case ((s, grounds), typeArg) =>
+                                                                for {
+                                                                  argVal <- evalExpr(typeArg.value)
+                                                                  ground <- forceAndConst(argVal)
+                                                                } yield (Evaluator.applyValue(s, argVal), grounds :+ ground)
+                                                            }
+                        ground                           <- forceAndConst(appliedSig)
                       } yield (
                         MonomorphicExpression(
                           ground,
-                          MonomorphicExpression.MonomorphicValueReference(resolvedVfqn, typeArgs)
+                          MonomorphicExpression.MonomorphicValueReference(resolvedVfqn, explicitGroundArgs)
                         ),
                         appliedSig
                       )
@@ -213,27 +221,31 @@ class Checker(
       liftF(compilerError(tm.as("Cannot infer type of unannotated lambda.")) >> abort)
   }
 
-  /** Handle function application: infer target, then apply argument. */
+  /** Handle function application: infer target, then apply argument. Tracks implicit type args from VLam instantiation.
+    */
   private def applyInferred(
       target: Sourced[OperatorResolvedExpression],
       targetExpr: MonomorphicExpression,
       targetType: SemValue,
       arg: Sourced[OperatorResolvedExpression],
-      whole: Sourced[OperatorResolvedExpression]
+      whole: Sourced[OperatorResolvedExpression],
+      implicitTypeArgs: Seq[SemValue] = Seq.empty
   ): CheckIO[(MonomorphicExpression, SemValue)] =
     for {
       forced <- force(targetType)
       result <- forced match {
                   case VPi(domain, codomain) =>
                     for {
-                      argExpr <- check(arg, domain)
-                      argSem  <- evalExpr(arg.value)
-                      retType  = codomain(argSem)
-                      ground  <- forceAndConst(retType)
+                      argExpr           <- check(arg, domain)
+                      argSem            <- evalExpr(arg.value)
+                      retType            = codomain(argSem)
+                      ground            <- forceAndConst(retType)
+                      resolvedImplicits <- implicitTypeArgs.traverse(forceAndConst)
+                      updatedTarget      = addImplicitTypeArgs(targetExpr, resolvedImplicits)
                     } yield (
                       MonomorphicExpression(
                         ground,
-                        MonomorphicExpression.FunctionApplication(target.as(targetExpr), arg.as(argExpr))
+                        MonomorphicExpression.FunctionApplication(target.as(updatedTarget), arg.as(argExpr))
                       ),
                       retType
                     )
@@ -243,7 +255,7 @@ class Checker(
                     // This handles implicit type arg instantiation for generic values like `id(42)`.
                     for {
                       meta   <- freshMeta
-                      result <- applyInferred(target, targetExpr, closure(meta), arg, whole)
+                      result <- applyInferred(target, targetExpr, closure(meta), arg, whole, implicitTypeArgs :+ meta)
                     } yield result
 
                   case _ =>
@@ -265,6 +277,16 @@ class Checker(
                     )
                 }
     } yield result
+
+  /** Add resolved implicit type args to a MonomorphicValueReference expression. */
+  private def addImplicitTypeArgs(expr: MonomorphicExpression, extraArgs: Seq[GroundValue]): MonomorphicExpression =
+    if (extraArgs.isEmpty) expr
+    else
+      expr.expression match {
+        case ref: MonomorphicExpression.MonomorphicValueReference =>
+          expr.copy(expression = ref.copy(typeArguments = ref.typeArguments ++ extraArgs))
+        case _                                                    => expr
+      }
 
   /** Resolve an ability method reference to its concrete implementation using constraint information. When a
     * ValueReference has an Ability qualifier, the constraint parameter's current binding provides the type arguments

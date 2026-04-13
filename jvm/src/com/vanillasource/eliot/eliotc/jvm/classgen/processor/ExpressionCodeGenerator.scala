@@ -11,7 +11,6 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
@@ -163,7 +162,7 @@ object ExpressionCodeGenerator {
       methodGenerator: MethodGenerator,
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
-      typeArgs: Seq[Sourced[OperatorResolvedExpression]],
+      typeArgs: Seq[GroundValue],
       arguments: Seq[UncurriedMonomorphicExpression],
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] = {
@@ -209,7 +208,7 @@ object ExpressionCodeGenerator {
       methodGenerator: MethodGenerator,
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
-      typeArgs: Seq[Sourced[OperatorResolvedExpression]],
+      typeArgs: Seq[GroundValue],
       arguments: Seq[UncurriedMonomorphicExpression],
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] =
@@ -260,7 +259,7 @@ object ExpressionCodeGenerator {
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
       qualifierParams: Seq[com.vanillasource.eliot.eliotc.core.fact.Expression],
-      typeArgs: Seq[Sourced[OperatorResolvedExpression]],
+      typeArgs: Seq[GroundValue],
       arguments: Seq[UncurriedMonomorphicExpression],
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] = {

@@ -5,8 +5,6 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.eval.fact.Types
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
-import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition
 import NativeType.{systemAnyValue, systemFunctionValue}
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
@@ -32,16 +30,9 @@ object CommonPatterns {
   def constructorArityValue(returnType: GroundValue): Int =
     returnType.functionArity
 
-  def mangleSuffix(typeArgs: Seq[Sourced[OperatorResolvedExpression]]): String =
+  def mangleSuffix(typeArgs: Seq[GroundValue]): String =
     if (typeArgs.isEmpty) ""
-    else "$" + typeArgs.map(ta => oreTypeName(ta.value)).mkString("$")
-
-  private def oreTypeName(ore: OperatorResolvedExpression): String =
-    ore match {
-      case OperatorResolvedExpression.ValueReference(vfqn, _) => vfqn.value.name.name
-      case OperatorResolvedExpression.FunctionApplication(target, _) => oreTypeName(target.value)
-      case _ => "unknown"
-    }
+    else "$" + typeArgs.map(v => valueType(v).name.name).mkString("$")
 
   def stripDataTypeSuffix(valueFQN: ValueFQN): ValueFQN =
     ValueFQN(valueFQN.moduleName, QualifiedName(valueFQN.name.name, Qualifier.Default))

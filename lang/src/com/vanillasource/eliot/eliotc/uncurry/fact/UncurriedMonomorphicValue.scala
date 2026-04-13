@@ -3,7 +3,6 @@ package com.vanillasource.eliot.eliotc.uncurry.fact
 import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -28,7 +27,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 case class UncurriedMonomorphicValue(
     vfqn: ValueFQN,
-    typeArguments: Seq[Sourced[OperatorResolvedExpression]],
+    typeArguments: Seq[GroundValue],
     arity: Int,
     name: Sourced[QualifiedName],
     signature: GroundValue,
@@ -41,6 +40,6 @@ case class UncurriedMonomorphicValue(
 }
 
 object UncurriedMonomorphicValue {
-  case class Key(vfqn: ValueFQN, typeArguments: Seq[Sourced[OperatorResolvedExpression]], arity: Int)
+  case class Key(vfqn: ValueFQN, typeArguments: Seq[GroundValue], arity: Int)
       extends CompilerFactKey[UncurriedMonomorphicValue]
 }

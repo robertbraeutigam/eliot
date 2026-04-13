@@ -18,8 +18,7 @@ import com.vanillasource.eliot.eliotc.implementation.processor.{
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
-import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
@@ -377,7 +376,7 @@ class MonomorphicTypeCheckTest
   "type level functions" should "support non-type (value) type parameters" in {
     runForErrors(
       "data Person[S: String](name: String)\ndef f[S: String]: Person[S] = Person[S](\"\")",
-      typeArgs = Seq(dummySourced(OperatorResolvedExpression.StringLiteral(dummySourced("STR"))))
+      typeArgs = Seq(GroundValue.Direct("STR", stringType))
     ).asserting(_ shouldBe Seq.empty)
   }
 
@@ -429,28 +428,27 @@ class MonomorphicTypeCheckTest
 
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
-  private val intType: Sourced[OperatorResolvedExpression] =
-    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.bigIntFQN)))
+  private val intType: GroundValue =
+    GroundValue.Structure(Map("$typeName" -> GroundValue.Direct(Types.bigIntFQN, GroundValue.Type)), GroundValue.Type)
 
-  private val stringType: Sourced[OperatorResolvedExpression] =
-    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.stringFQN)))
+  private val stringType: GroundValue =
+    GroundValue.Structure(Map("$typeName" -> GroundValue.Direct(Types.stringFQN, GroundValue.Type)), GroundValue.Type)
 
-  private val funcType: Sourced[OperatorResolvedExpression] =
-    dummySourced(OperatorResolvedExpression.ValueReference(dummySourced(Types.functionDataTypeFQN)))
+  private val funcType: GroundValue =
+    GroundValue.Structure(Map("$typeName" -> GroundValue.Direct(Types.functionDataTypeFQN, GroundValue.Type)), GroundValue.Type)
 
-  private val boxType: Sourced[OperatorResolvedExpression] = testType("Box")
+  private val boxType: GroundValue = testType("Box")
 
-  private def testType(name: String): Sourced[OperatorResolvedExpression] =
-    dummySourced(
-      OperatorResolvedExpression.ValueReference(
-        dummySourced(ValueFQN(testModuleName, QualifiedName(name, Qualifier.Type)))
-      )
+  private def testType(name: String): GroundValue =
+    GroundValue.Structure(
+      Map("$typeName" -> GroundValue.Direct(ValueFQN(testModuleName, QualifiedName(name, Qualifier.Type)), GroundValue.Type)),
+      GroundValue.Type
     )
 
   private def runForErrors(
       source: String,
       name: String = "f",
-      typeArgs: Seq[Sourced[OperatorResolvedExpression]] = Seq.empty
+      typeArgs: Seq[GroundValue] = Seq.empty
   ): IO[Seq[TestError]] =
     runGenerator(
       source,
