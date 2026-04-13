@@ -23,7 +23,8 @@ class Checker(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
     fetchValueType: ValueFQN => CompilerIO[Option[SemValue]],
     paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
-    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[ValueFQN]] = (_, _) => None.pure[CompilerIO]
+    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] =
+      (_, _) => None.pure[CompilerIO]
 ) {
 
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed. */
@@ -119,7 +120,8 @@ class Checker(
                               _                             <- doUnify(instantiated, expected, tm.as("Type mismatch."))
                               resolvedImplicits             <- implicitMetas.traverse(forceAndConst)
                               updatedExpr                    = addImplicitTypeArgs(expr, resolvedImplicits)
-                            } yield updatedExpr
+                              finalExpr                     <- resolveAbilityForExpr(updatedExpr, implicitMetas)
+                            } yield finalExpr
                         }
     } yield result
 
@@ -174,7 +176,6 @@ class Checker(
         result <- sigOpt match {
                     case Some(sig) =>
                       for {
-                        resolvedVfqn                    <- tryResolveAbility(vfqn)
                         (appliedSig, explicitGroundArgs) <- typeArgs.foldLeftM((sig, Seq.empty[GroundValue])) {
                                                               case ((s, grounds), typeArg) =>
                                                                 for {
@@ -186,7 +187,7 @@ class Checker(
                       } yield (
                         MonomorphicExpression(
                           ground,
-                          MonomorphicExpression.MonomorphicValueReference(resolvedVfqn, explicitGroundArgs)
+                          MonomorphicExpression.MonomorphicValueReference(vfqn, explicitGroundArgs)
                         ),
                         appliedSig
                       )
@@ -242,10 +243,11 @@ class Checker(
                       ground            <- forceAndConst(retType)
                       resolvedImplicits <- implicitTypeArgs.traverse(forceAndConst)
                       updatedTarget      = addImplicitTypeArgs(targetExpr, resolvedImplicits)
+                      finalTarget       <- resolveAbilityForExpr(updatedTarget, implicitTypeArgs)
                     } yield (
                       MonomorphicExpression(
                         ground,
-                        MonomorphicExpression.FunctionApplication(target.as(updatedTarget), arg.as(argExpr))
+                        MonomorphicExpression.FunctionApplication(target.as(finalTarget), arg.as(argExpr))
                       ),
                       retType
                     )
@@ -288,30 +290,33 @@ class Checker(
         case _                                                    => expr
       }
 
-  /** Resolve an ability method reference to its concrete implementation using constraint information. When a
-    * ValueReference has an Ability qualifier, the constraint parameter's current binding provides the type arguments
-    * for looking up the AbilityImplementation fact.
+  /** Resolve ability references in a MonomorphicExpression after implicit type args are resolved. Uses constraint type
+    * args when a constraint is available, otherwise uses the implicit type args from VLam instantiation.
     */
-  private def tryResolveAbility(vfqn: Sourced[ValueFQN]): CheckIO[Sourced[ValueFQN]] =
-    vfqn.value.name.qualifier match {
-      case CoreQualifier.Ability(abilityName) =>
-        findConstraintParam(abilityName) match {
-          case Some((_, constraintTypeArgs)) =>
+  private def resolveAbilityForExpr(
+      expr: MonomorphicExpression,
+      implicitTypeArgs: Seq[SemValue]
+  ): CheckIO[MonomorphicExpression] =
+    expr.expression match {
+      case ref @ MonomorphicExpression.MonomorphicValueReference(vfqn, _) =>
+        vfqn.value.name.qualifier match {
+          case CoreQualifier.Ability(abilityName) =>
             for {
-              abilityTypeArgs <- constraintTypeArgs.traverse { arg =>
-                                   for {
-                                     sem    <- evalExpr(arg)
-                                     ground <- forceAndConst(sem)
-                                   } yield ground
+              abilityTypeArgs <- findConstraintParam(abilityName) match {
+                                   case Some((_, constraintTypeArgs)) =>
+                                     constraintTypeArgs.traverse(arg => evalExpr(arg).flatMap(forceAndConst))
+                                   case None                          =>
+                                     implicitTypeArgs.traverse(forceAndConst)
                                  }
               resolved        <- liftF(resolveAbility(vfqn.value, abilityTypeArgs))
             } yield resolved match {
-              case Some(implFqn) => vfqn.as(implFqn)
-              case None          => vfqn
+              case Some((implFqn, implTypeArgs)) =>
+                expr.copy(expression = ref.copy(valueName = vfqn.as(implFqn), typeArguments = implTypeArgs))
+              case None => expr
             }
-          case None                          => pure(vfqn)
+          case _ => pure(expr)
         }
-      case _                                  => pure(vfqn)
+      case _ => pure(expr)
     }
 
   private def findConstraintParam(abilityName: String): Option[(String, Seq[OperatorResolvedExpression])] =

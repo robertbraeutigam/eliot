@@ -21,7 +21,8 @@ object TypeStackLoop {
       resolvedValue: OperatorResolvedValue,
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
       fetchValueType: ValueFQN => CompilerIO[Option[SemValue]],
-      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[ValueFQN]] = (_, _) => None.pure[CompilerIO]
+      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] =
+        (_, _) => None.pure[CompilerIO]
   ): CompilerIO[MonomorphicValue] = {
     val checker = new Checker(
       fetchBinding,

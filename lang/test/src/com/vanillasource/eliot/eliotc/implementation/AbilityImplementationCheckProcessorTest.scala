@@ -16,7 +16,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleNamesProcessor,
   UnifiedModuleValueProcessor
 }
-import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   DataTypeNativesProcessor,
   MonomorphicTypeCheckProcessor,
@@ -109,13 +109,15 @@ class AbilityImplementationCheckProcessorTest
 
   "ability calls" should "succeed when calling ability with generic type parameter covered by constraint" in {
     runEngineForErrors(
-      "ability Show[A] { def show(x: A): A }\ndef f[A ~ Show[A]](x: A): A = show(x)"
+      "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f[A ~ Show[A]](x: A): A = show(x)",
+      Seq(intType)
     ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "succeed when calling ability with default generic type parameter covered by constraint" in {
     runEngineForErrors(
-      "ability Show[A] { def show(x: A): A }\ndef f[A ~ Show](x: A): A = show(x)"
+      "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f[A ~ Show](x: A): A = show(x)",
+      Seq(intType)
     ).asserting(_ shouldBe Seq.empty)
   }
 
@@ -131,14 +133,11 @@ class AbilityImplementationCheckProcessorTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
-  it should "fail when calling ability with abstract type parameter not covered by constraint" in {
+  it should "fail when calling ability without constraint and no implementation exists" in {
     runEngineForErrors(
-      "ability Show[A] { def show(x: A): A }\ndef f[A](x: A): A = show(x)"
-    ).asserting(
-      _ shouldBe Seq(
-        "Cannot prove ability 'Show' is available for given type." at "show"
-      )
-    )
+      "ability Show[A] { def show(x: A): A }\ndata Int\ndef f[A](x: A): A = show(x)",
+      Seq(intType)
+    ).asserting(_ shouldBe Seq("The type parameter 'Int' does not implement ability 'Show'." at "Show"))
   }
 
   it should "fail when no implementation exists for the concrete type" in {
@@ -170,10 +169,24 @@ class AbilityImplementationCheckProcessorTest
     """).asserting(_ shouldBe Seq.empty)
   }
 
-  private def runEngineForErrors(source: String): IO[Seq[TestError]] =
+  private val intType: GroundValue =
+    GroundValue.Structure(
+      Map(
+        "$typeName" -> GroundValue.Direct(
+          ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type)),
+          GroundValue.Type
+        )
+      ),
+      GroundValue.Type
+    )
+
+  private def runEngineForErrors(
+      source: String,
+      typeArgs: Seq[GroundValue] = Seq.empty
+  ): IO[Seq[TestError]] =
     runGenerator(
       source,
-      MonomorphicValue.Key(ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default)), Seq.empty),
+      MonomorphicValue.Key(ValueFQN(testModuleName, QualifiedName("f", Qualifier.Default)), typeArgs),
       systemImports
     ).map(result => toTestErrors(result._1))
 }

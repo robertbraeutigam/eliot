@@ -34,8 +34,13 @@ class MonomorphicTypeCheckProcessor
       resolveAbility = resolveAbilityImpl
     )
 
-  private def resolveAbilityImpl(vfqn: ValueFQN, typeArgs: Seq[GroundValue]): CompilerIO[Option[ValueFQN]] =
-    getFact(AbilityImplementation.Key(vfqn, typeArgs)).map(_.map(_.implementationFQN))
+  private def resolveAbilityImpl(
+      vfqn: ValueFQN,
+      typeArgs: Seq[GroundValue]
+  ): CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] =
+    getFact(AbilityImplementation.Key(vfqn, typeArgs)).map(
+      _.map(impl => (impl.implementationFQN, impl.implementationTypeArgs))
+    )
 
   /** Fetch a value's type stack signature, evaluate it to a SemValue. Uses NativeBinding lookups for proper resolution.
     */
