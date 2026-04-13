@@ -398,7 +398,8 @@ class MonomorphicTypeCheckTest
 
   it should "accept type-level function calls that are not Type types" in {
     runForErrors(
-      "def g(x: String): String = x\ndata Box[X: String](value: String)\ndef f[G: String](value: String): Box(g(G)) = Box[G](value)"
+      "def g(x: String): String = x\ndata Box[X: String](value: String)\ndef f[G: String](value: String): Box(g(G)) = Box[G](value)",
+      typeArgs = Seq(GroundValue.Direct("STR", stringType))
     ).asserting(_ shouldBe Seq.empty)
   }
 
@@ -421,19 +422,31 @@ class MonomorphicTypeCheckTest
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: GroundValue =
-    GroundValue.Structure(Map("$typeName" -> GroundValue.Direct(WellKnownTypes.bigIntFQN, GroundValue.Type)), GroundValue.Type)
+    GroundValue.Structure(
+      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.bigIntFQN, GroundValue.Type)),
+      GroundValue.Type
+    )
 
   private val stringType: GroundValue =
-    GroundValue.Structure(Map("$typeName" -> GroundValue.Direct(WellKnownTypes.stringFQN, GroundValue.Type)), GroundValue.Type)
+    GroundValue.Structure(
+      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.stringFQN, GroundValue.Type)),
+      GroundValue.Type
+    )
 
   private val funcType: GroundValue =
-    GroundValue.Structure(Map("$typeName" -> GroundValue.Direct(WellKnownTypes.functionDataTypeFQN, GroundValue.Type)), GroundValue.Type)
+    GroundValue.Structure(
+      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.functionDataTypeFQN, GroundValue.Type)),
+      GroundValue.Type
+    )
 
   private val boxType: GroundValue = testType("Box")
 
   private def testType(name: String): GroundValue =
     GroundValue.Structure(
-      Map("$typeName" -> GroundValue.Direct(ValueFQN(testModuleName, QualifiedName(name, Qualifier.Type)), GroundValue.Type)),
+      Map(
+        "$typeName" -> GroundValue
+          .Direct(ValueFQN(testModuleName, QualifiedName(name, Qualifier.Type)), GroundValue.Type)
+      ),
       GroundValue.Type
     )
 
