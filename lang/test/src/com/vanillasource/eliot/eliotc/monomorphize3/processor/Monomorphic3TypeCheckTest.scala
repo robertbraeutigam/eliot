@@ -361,6 +361,45 @@ class Monomorphic3TypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Type level functions (Step 7) ---
+
+  "type level functions" should "support non-type (value) type parameters" in {
+    runForErrors(
+      "data Person[S: String](name: String)\ndef f[S: String]: Person[S] = Person[S](\"\")",
+      typeArgs = Seq(dummySourced(OperatorResolvedExpression.StringLiteral(dummySourced("STR"))))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "calculate concrete literal values" in {
+    runForErrors(
+      "def one: BigInteger = 1\ndef oneDifferently: BigInteger = 1\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject calculated differing concrete literal values" in {
+    runForErrors(
+      "def one: BigInteger = 1\ndef two: BigInteger = 2\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[two](str)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "calculate concrete data values" in {
+    runForErrors(
+      "data Person(age: BigInteger)\ndef one: Person = Person(1)\ndef oneDifferently: Person = Person(1)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject calculated differing data values" in {
+    runForErrors(
+      "data Person(age: BigInteger)\ndef one: Person = Person(1)\ndef oneDifferently: Person = Person(2)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "accept type-level function calls that are not Type types" in {
+    runForErrors(
+      "def g(x: String): String = x\ndata Box[X: String](value: String)\ndef f[G: String](value: String): Box(g(G)) = Box[G](value)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: Sourced[OperatorResolvedExpression] =

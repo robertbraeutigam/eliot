@@ -61,9 +61,10 @@ object Evaluator {
     case VPi(_, codomain) => codomain(x)
 
     case VNative(_, fire) =>
-      x match {
-        case _: VNeutral => VNeutral(NeutralHead.VVar(0, "native"), Spine.SNil :+ x, VType)
-        case _           => fire(x)
+      val resolved = unfoldTopDef(x)
+      resolved match {
+        case _: VNeutral => VNeutral(NeutralHead.VVar(0, "native"), Spine.SNil :+ resolved, VType)
+        case _           => fire(resolved)
       }
 
     case VNeutral(head, spine, tpe) => VNeutral(head, spine :+ x, tpe)
@@ -75,16 +76,31 @@ object Evaluator {
     case _ => x // fallback — should not happen in well-typed programs
   }
 
-  /** Force a semantic value by walking solved metas and unfolding VTopDef when appropriate. */
+  /** Unfold a VTopDef by evaluating its cached body and applying the spine. Does not require MetaStore — used at
+    * evaluation time before metas exist.
+    */
+  private def unfoldTopDef(v: SemValue): SemValue = v match {
+    case VTopDef(_, Some(cached), spine) =>
+      val base   = cached.value
+      val result = spine.toList.foldLeft(base)(applyValue)
+      unfoldTopDef(result)
+    case _                               => v
+  }
+
+  /** Force a semantic value by walking solved metas and unfolding VTopDef. */
   def force(v: SemValue, metaStore: MetaStore): SemValue = v match {
-    case VMeta(id, spine, _) =>
+    case VMeta(id, spine, _)             =>
       metaStore.lookup(id) match {
         case Some(solved) =>
           val base = force(solved, metaStore)
           spine.toList.foldLeft(base)(applyValue)
         case None         => v
       }
-    case _                   => v
+    case VTopDef(_, Some(cached), spine) =>
+      val base   = force(cached.value, metaStore)
+      val result = spine.toList.foldLeft(base)(applyValue)
+      force(result, metaStore)
+    case _                               => v
   }
 
   import com.vanillasource.eliot.eliotc.eval.fact.Types

@@ -28,7 +28,7 @@ object SemValue {
 
   case class VNative(paramType: SemValue, fire: SemValue => SemValue) extends SemValue
 
-  case class VTopDef(fqn: ValueFQN, cached: Lazy[SemValue], spine: Spine) extends SemValue
+  case class VTopDef(fqn: ValueFQN, cached: Option[Lazy[SemValue]], spine: Spine) extends SemValue
 
   case class VMeta(id: MetaId, spine: Spine, expected: SemValue) extends SemValue
 

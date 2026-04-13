@@ -97,13 +97,18 @@ class Unifier(
         val applied = spine.toList.foldLeft(solved)(Evaluator.applyValue)
         unify(applied, rhs, context)
       case None         =>
-        val spineList = spine.toList
-        if (spineList.isEmpty) {
-          // Empty spine — solve directly
-          metaStore = metaStore.solve(id, rhs)
-        } else {
-          // Non-empty spine — postpone (higher-kinded meta application)
-          postponed = (VMeta(id, spine, VType), rhs, context) :: postponed
+        rhs match {
+          case VMeta(rhsId, _, _) if rhsId.value == id.value =>
+            () // Same unsolved meta — trivially equal, no solve needed
+          case _                                             =>
+            val spineList = spine.toList
+            if (spineList.isEmpty) {
+              // Empty spine — solve directly
+              metaStore = metaStore.solve(id, rhs)
+            } else {
+              // Non-empty spine — postpone (higher-kinded meta application)
+              postponed = (VMeta(id, spine, VType), rhs, context) :: postponed
+            }
         }
     }
 
