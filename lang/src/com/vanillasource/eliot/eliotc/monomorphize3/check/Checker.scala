@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{Qualifier => CoreQualifier}
 import com.vanillasource.eliot.eliotc.eval.fact.{Types, Value}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.monomorphize3.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize3.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize3.eval.Evaluator
@@ -13,11 +14,10 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerError, compilerAbort}
 
-/** Bidirectional type checker for the NbE pipeline. All state is threaded explicitly through CheckState — no mutable
-  * fields.
+/** Bidirectional type checker for the NbE pipeline. All state is threaded via the CheckIO state monad.
   *
-  *   - `check(state, tm, expected)` checks a term against a known type, returning updated state.
-  *   - `infer(state, tm)` infers a term's type, returning updated state.
+  *   - `check(tm, expected)` checks a term against a known type.
+  *   - `infer(tm)` infers a term's type.
   */
 class Checker(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
@@ -27,259 +27,268 @@ class Checker(
 ) {
 
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed. */
-  private def ensureBinding(state: CheckState, vfqn: ValueFQN): CompilerIO[(Option[SemValue], CheckState)] =
-    state.bindingCache.get(vfqn) match {
-      case Some(cached) => (cached, state).pure[CompilerIO]
-      case None         =>
-        fetchBinding(vfqn).map { opt =>
-          (opt, state.cacheBinding(vfqn, opt))
-        }
-    }
+  private def ensureBinding(vfqn: ValueFQN): CheckIO[Option[SemValue]] =
+    for {
+      cached <- inspect(_.bindingCache.get(vfqn))
+      result <- cached match {
+                  case Some(value) => pure(value)
+                  case None        =>
+                    for {
+                      opt <- liftF(fetchBinding(vfqn))
+                      _   <- modify(_.cacheBinding(vfqn, opt))
+                    } yield opt
+                }
+    } yield result
 
-  /** Create an evaluator that can resolve ValueReferences from the binding cache. */
+  /** Create an evaluator from the current state. Pure — only reads cache and nameLevels. */
   private def makeEvaluator(state: CheckState): Evaluator =
     new Evaluator(
       vfqn => state.bindingCache.getOrElse(vfqn, None),
       state.nameLevels
     )
 
-  /** Evaluate an ORE expression using the given state. */
-  def evalExpr(state: CheckState, tm: OperatorResolvedExpression): SemValue =
-    makeEvaluator(state).eval(state.env, tm)
+  /** Evaluate an ORE expression using the current state. */
+  def evalExpr(tm: OperatorResolvedExpression): CheckIO[SemValue] =
+    inspect(s => makeEvaluator(s).eval(s.env, tm))
 
-  /** Check a term against a known expected type. Returns the checked expression and updated state. */
+  /** Force a SemValue through the current meta store. */
+  private def force(v: SemValue): CheckIO[SemValue] =
+    inspect(s => Evaluator.force(v, s.unifier.metaStore))
+
+  /** Unify two semantic values, updating the unifier in the state. */
+  private def doUnify(l: SemValue, r: SemValue, context: Sourced[String]): CheckIO[Unit] =
+    modify(s => s.withUnifier(s.unifier.unify(l, r, context)))
+
+  /** Allocate a fresh metavariable. */
+  private[check] def freshMeta: CheckIO[VMeta] =
+    for {
+      s                    <- get
+      (metaId, freshStore)  = s.unifier.metaStore.fresh
+      _                    <- modify(_.withUnifier(s.unifier.copy(metaStore = freshStore)))
+    } yield VMeta(metaId, Spine.SNil, VType)
+
+  /** Check a term against a known expected type. */
   def check(
-      state: CheckState,
       tm: Sourced[OperatorResolvedExpression],
       expected: SemValue
-  ): CompilerIO[(Monomorphic3Expression, CheckState)] = {
-    val forcedExpected = Evaluator.force(expected, state.unifier.metaStore)
-    tm.value match {
-      // FunctionLiteral with annotation checked against expected type
-      case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
-        for {
-          state1             <- prefetchBindings(state, paramTypeStack.value.signature)
-          paramType           = evalExpr(state1, paramTypeStack.value.signature)
-          state2              = state1.bind(paramName.value, paramType)
-          (bodyExpr, state3) <- check(state2, body, getReturnType(state2, forcedExpected))
-          paramGround         = forceAndConst(state3, paramType)
-        } yield (
-          Monomorphic3Expression(
-            forceAndConst(state3, forcedExpected),
-            Monomorphic3Expression.FunctionLiteral(paramName, paramGround, body.as(bodyExpr))
-          ),
-          state3
-        )
+  ): CheckIO[Monomorphic3Expression] =
+    for {
+      forcedExpected <- force(expected)
+      result         <- tm.value match {
+                          // FunctionLiteral with annotation checked against expected type
+                          case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
+                            for {
+                              _           <- prefetchBindings(paramTypeStack.value.signature)
+                              paramType   <- evalExpr(paramTypeStack.value.signature)
+                              _           <- modify(_.bind(paramName.value, paramType))
+                              retType     <- getReturnType(forcedExpected)
+                              bodyExpr    <- check(body, retType)
+                              paramGround <- forceAndConst(paramType)
+                              exprType    <- forceAndConst(forcedExpected)
+                            } yield Monomorphic3Expression(
+                              exprType,
+                              Monomorphic3Expression.FunctionLiteral(paramName, paramGround, body.as(bodyExpr))
+                            )
 
-      // FunctionLiteral without annotation checked against VPi — use domain from VPi
-      case OperatorResolvedExpression.FunctionLiteral(paramName, None, body)                 =>
-        forcedExpected match {
-          case VPi(domain, codomain) =>
-            val state1 = state.bind(paramName.value, domain)
-            for {
-              (bodyExpr, state2) <- check(state1, body, codomain(domain))
-              paramGround         = forceAndConst(state2, domain)
-            } yield (
-              Monomorphic3Expression(
-                forceAndConst(state2, forcedExpected),
-                Monomorphic3Expression.FunctionLiteral(paramName, paramGround, body.as(bodyExpr))
-              ),
-              state2
-            )
-          case _                     =>
-            for {
-              ((expr, inferred), state1) <- infer(state, tm)
-              state2 = state1.withUnifier(state1.unifier.unify(inferred, expected, tm.as("Type mismatch.")))
-            } yield (expr, state2)
-        }
+                          // FunctionLiteral without annotation checked against VPi — use domain from VPi
+                          case OperatorResolvedExpression.FunctionLiteral(paramName, None, body)                 =>
+                            forcedExpected match {
+                              case VPi(domain, codomain) =>
+                                for {
+                                  _           <- modify(_.bind(paramName.value, domain))
+                                  bodyExpr    <- check(body, codomain(domain))
+                                  paramGround <- forceAndConst(domain)
+                                  exprType    <- forceAndConst(forcedExpected)
+                                } yield Monomorphic3Expression(
+                                  exprType,
+                                  Monomorphic3Expression.FunctionLiteral(paramName, paramGround, body.as(bodyExpr))
+                                )
+                              case _                     =>
+                                for {
+                                  (expr, inferred) <- infer(tm)
+                                  _                <- doUnify(inferred, expected, tm.as("Type mismatch."))
+                                } yield expr
+                            }
 
-      case _ =>
-        for {
-          ((expr, inferred), state1) <- infer(state, tm)
-          (instantiated, state2)      = instantiatePolymorphic(state1, inferred)
-          state3                      = unifyWithContext(state2, instantiated, expected, tm)
-        } yield (expr, state3)
-    }
-  }
+                          case _ =>
+                            for {
+                              (expr, inferred) <- infer(tm)
+                              instantiated     <- instantiatePolymorphic(inferred)
+                              _                <- doUnify(instantiated, expected, tm.as("Type mismatch."))
+                            } yield expr
+                        }
+    } yield result
 
   /** Peel off leading VLam closures by instantiating them with fresh metas. This handles implicit type arg
     * instantiation when a polymorphic value is checked against a concrete/meta expected type.
     */
-  private def instantiatePolymorphic(state: CheckState, sem: SemValue): (SemValue, CheckState) = {
-    val forced = Evaluator.force(sem, state.unifier.metaStore)
-    forced match {
-      case VLam(_, closure) =>
-        val (metaId, freshStore) = state.unifier.metaStore.fresh
-        val freshMeta            = VMeta(metaId, Spine.SNil, VType)
-        instantiatePolymorphic(state.withUnifier(state.unifier.copy(metaStore = freshStore)), closure(freshMeta))
-      case other            => (other, state)
-    }
-  }
+  private def instantiatePolymorphic(sem: SemValue): CheckIO[SemValue] =
+    for {
+      forced <- force(sem)
+      result <- forced match {
+                  case VLam(_, closure) =>
+                    for {
+                      meta         <- freshMeta
+                      instantiated <- instantiatePolymorphic(closure(meta))
+                    } yield instantiated
+                  case other            => pure(other)
+                }
+    } yield result
 
-  /** Infer the type of a term. Returns the expression, its type, and updated state. */
+  /** Infer the type of a term. */
   def infer(
-      state: CheckState,
       tm: Sourced[OperatorResolvedExpression]
-  ): CompilerIO[((Monomorphic3Expression, SemValue), CheckState)] = tm.value match {
+  ): CheckIO[(Monomorphic3Expression, SemValue)] = tm.value match {
     case OperatorResolvedExpression.IntegerLiteral(value) =>
       val tpe = VConst(Evaluator.bigIntGroundType)
-      (
-        (Monomorphic3Expression(Evaluator.bigIntGroundType, Monomorphic3Expression.IntegerLiteral(value)), tpe),
-        state
-      ).pure[CompilerIO]
+      pure((Monomorphic3Expression(Evaluator.bigIntGroundType, Monomorphic3Expression.IntegerLiteral(value)), tpe))
 
     case OperatorResolvedExpression.StringLiteral(value) =>
       val tpe = VConst(Evaluator.stringGroundType)
-      (
-        (Monomorphic3Expression(Evaluator.stringGroundType, Monomorphic3Expression.StringLiteral(value)), tpe),
-        state
-      ).pure[CompilerIO]
+      pure((Monomorphic3Expression(Evaluator.stringGroundType, Monomorphic3Expression.StringLiteral(value)), tpe))
 
     case OperatorResolvedExpression.ParameterReference(name) =>
-      state.nameLevels.get(name.value) match {
-        case Some(level) =>
-          val sem  = state.env.lookupByLevel(level)
-          val expr = Monomorphic3Expression(
-            forceAndConst(state, sem),
-            Monomorphic3Expression.ParameterReference(name)
-          )
-          ((expr, sem), state).pure[CompilerIO]
-        case None        =>
-          compilerError(tm.as("Name not defined.")) >> abort
-      }
+      for {
+        state  <- get
+        result <- state.nameLevels.get(name.value) match {
+                    case Some(level) =>
+                      val sem = state.env.lookupByLevel(level)
+                      for {
+                        ground <- forceAndConst(sem)
+                      } yield (Monomorphic3Expression(ground, Monomorphic3Expression.ParameterReference(name)), sem)
+                    case None        =>
+                      liftF(compilerError(tm.as("Name not defined.")) >> abort)
+                  }
+      } yield result
 
     case OperatorResolvedExpression.ValueReference(vfqn, typeArgs) =>
       for {
-        (_, state1) <- ensureBinding(state, vfqn.value)
-        sigOpt      <- fetchValueType(vfqn.value)
-        result      <- sigOpt match {
-                         case Some(sig) =>
-                           for {
-                             state2       <- typeArgs.foldLeftM(state1) { (s, ta) =>
-                                               prefetchBindings(s, ta.value)
-                                             }
-                             resolvedVfqn <- tryResolveAbility(state2, vfqn)
-                           } yield {
-                             // Apply explicit type args
-                             val appliedSig = typeArgs.foldLeft(sig) { (s, typeArg) =>
-                               Evaluator.applyValue(s, evalExpr(state2, typeArg.value))
-                             }
-                             val expr       = Monomorphic3Expression(
-                               forceAndConst(state2, appliedSig),
-                               Monomorphic3Expression.MonomorphicValueReference(resolvedVfqn, Seq.empty)
-                             )
-                             ((expr, appliedSig), state2)
-                           }
-                         case None      =>
-                           compilerError(tm.as("Name not defined.")) >> abort
-                       }
+        _      <- ensureBinding(vfqn.value)
+        sigOpt <- liftF(fetchValueType(vfqn.value))
+        result <- sigOpt match {
+                    case Some(sig) =>
+                      for {
+                        _            <- typeArgs.traverse_(ta => prefetchBindings(ta.value))
+                        resolvedVfqn <- tryResolveAbility(vfqn)
+                        appliedSig   <- typeArgs.foldLeftM(sig) { (s, typeArg) =>
+                                          evalExpr(typeArg.value).map(Evaluator.applyValue(s, _))
+                                        }
+                        ground       <- forceAndConst(appliedSig)
+                      } yield (
+                        Monomorphic3Expression(
+                          ground,
+                          Monomorphic3Expression.MonomorphicValueReference(resolvedVfqn, Seq.empty)
+                        ),
+                        appliedSig
+                      )
+                    case None      =>
+                      liftF(compilerError(tm.as("Name not defined.")) >> abort)
+                  }
       } yield result
 
     case OperatorResolvedExpression.FunctionApplication(target, arg) =>
       for {
-        ((targetExpr, targetType), state1) <- infer(state, target)
-        result                             <- applyInferred(state1, target, targetExpr, targetType, arg, tm)
+        (targetExpr, targetType) <- infer(target)
+        result                   <- applyInferred(target, targetExpr, targetType, arg, tm)
       } yield result
 
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
       for {
-        state1                        <- prefetchBindings(state, paramTypeStack.value.signature)
-        paramType                      = evalExpr(state1, paramTypeStack.value.signature)
-        state2                         = state1.bind(paramName.value, paramType)
-        ((bodyExpr, bodyType), state3) <- infer(state2, body)
-      } yield {
-        val tpe = VPi(paramType, _ => bodyType)
-        (
-          (
-            Monomorphic3Expression(
-              forceAndConst(state3, tpe),
-              Monomorphic3Expression.FunctionLiteral(paramName, forceAndConst(state3, paramType), body.as(bodyExpr))
-            ),
-            tpe
-          ),
-          state3
-        )
-      }
+        _                    <- prefetchBindings(paramTypeStack.value.signature)
+        paramType            <- evalExpr(paramTypeStack.value.signature)
+        _                    <- modify(_.bind(paramName.value, paramType))
+        (bodyExpr, bodyType) <- infer(body)
+        tpe                   = VPi(paramType, _ => bodyType)
+        typeGround           <- forceAndConst(tpe)
+        paramGround          <- forceAndConst(paramType)
+      } yield (
+        Monomorphic3Expression(
+          typeGround,
+          Monomorphic3Expression.FunctionLiteral(paramName, paramGround, body.as(bodyExpr))
+        ),
+        tpe
+      )
 
     case OperatorResolvedExpression.FunctionLiteral(_, None, _) =>
-      compilerError(tm.as("Cannot infer type of unannotated lambda.")) >> abort
+      liftF(compilerError(tm.as("Cannot infer type of unannotated lambda.")) >> abort)
   }
 
   /** Handle function application: infer target, then apply argument. */
   private def applyInferred(
-      state: CheckState,
       target: Sourced[OperatorResolvedExpression],
       targetExpr: Monomorphic3Expression,
       targetType: SemValue,
       arg: Sourced[OperatorResolvedExpression],
       whole: Sourced[OperatorResolvedExpression]
-  ): CompilerIO[((Monomorphic3Expression, SemValue), CheckState)] = {
-    val forced = Evaluator.force(targetType, state.unifier.metaStore)
-    forced match {
-      case VPi(domain, codomain) =>
-        for {
-          (argExpr, state1) <- check(state, arg, domain)
-          argSem              = evalExpr(state1, arg.value)
-          retType             = codomain(argSem)
-        } yield {
-          val expr = Monomorphic3Expression(
-            forceAndConst(state1, retType),
-            Monomorphic3Expression.FunctionApplication(target.as(targetExpr), arg.as(argExpr))
-          )
-          ((expr, retType), state1)
-        }
+  ): CheckIO[(Monomorphic3Expression, SemValue)] =
+    for {
+      forced <- force(targetType)
+      result <- forced match {
+                  case VPi(domain, codomain) =>
+                    for {
+                      argExpr <- check(arg, domain)
+                      argSem  <- evalExpr(arg.value)
+                      retType  = codomain(argSem)
+                      ground  <- forceAndConst(retType)
+                    } yield (
+                      Monomorphic3Expression(
+                        ground,
+                        Monomorphic3Expression.FunctionApplication(target.as(targetExpr), arg.as(argExpr))
+                      ),
+                      retType
+                    )
 
-      case VLam(_, closure) =>
-        // Polytype at term level: instantiate with fresh meta, then recurse.
-        // This handles implicit type arg instantiation for generic values like `id(42)`.
-        val (metaId, freshStore) = state.unifier.metaStore.fresh
-        val freshMeta            = VMeta(metaId, Spine.SNil, VType)
-        val state1               = state.withUnifier(state.unifier.copy(metaStore = freshStore))
-        applyInferred(state1, target, targetExpr, closure(freshMeta), arg, whole)
+                  case VLam(_, closure) =>
+                    // Polytype at term level: instantiate with fresh meta, then recurse.
+                    // This handles implicit type arg instantiation for generic values like `id(42)`.
+                    for {
+                      meta   <- freshMeta
+                      result <- applyInferred(target, targetExpr, closure(meta), arg, whole)
+                    } yield result
 
-      case _ =>
-        // Try to unify with a fresh function type
-        val (domId, store1) = state.unifier.metaStore.fresh
-        val (codId, store2) = store1.fresh
-        val domain          = VMeta(domId, Spine.SNil, VType)
-        val codomain        = VMeta(codId, Spine.SNil, VType)
-        val unifier1        = state.unifier.copy(metaStore = store2)
-          .unify(forced, VPi(domain, _ => codomain), target.as("Not a function."))
-        val state1          = state.withUnifier(unifier1)
-        val forcedDomain    = Evaluator.force(domain, state1.unifier.metaStore)
-        for {
-          (argExpr, state2) <- check(state1, arg, forcedDomain)
-          retType            = Evaluator.force(codomain, state2.unifier.metaStore)
-        } yield {
-          val expr = Monomorphic3Expression(
-            forceAndConst(state2, retType),
-            Monomorphic3Expression.FunctionApplication(target.as(targetExpr), arg.as(argExpr))
-          )
-          ((expr, retType), state2)
-        }
-    }
-  }
+                  case _ =>
+                    // Try to unify with a fresh function type
+                    for {
+                      domMeta <- freshMeta
+                      codMeta <- freshMeta
+                      _       <- doUnify(forced, VPi(domMeta, _ => codMeta), target.as("Not a function."))
+                      domain  <- force(domMeta)
+                      argExpr <- check(arg, domain)
+                      retType <- force(codMeta)
+                      ground  <- forceAndConst(retType)
+                    } yield (
+                      Monomorphic3Expression(
+                        ground,
+                        Monomorphic3Expression.FunctionApplication(target.as(targetExpr), arg.as(argExpr))
+                      ),
+                      retType
+                    )
+                }
+    } yield result
 
   /** Resolve an ability method reference to its concrete implementation using constraint information. When a
     * ValueReference has an Ability qualifier, the constraint parameter's current binding provides the type arguments
     * for looking up the AbilityImplementation fact.
     */
-  private def tryResolveAbility(state: CheckState, vfqn: Sourced[ValueFQN]): CompilerIO[Sourced[ValueFQN]] =
+  private def tryResolveAbility(vfqn: Sourced[ValueFQN]): CheckIO[Sourced[ValueFQN]] =
     vfqn.value.name.qualifier match {
       case CoreQualifier.Ability(abilityName) =>
         findConstraintParam(abilityName) match {
           case Some((_, constraintTypeArgs)) =>
-            // The constraint's typeArgs already include the constrained parameter
-            // (e.g., `A ~ Show` has typeArgs=[ParameterReference("A")])
-            val abilityTypeArgs =
-              constraintTypeArgs.map(arg => GroundValue.toEvalValue(forceAndConst(state, evalExpr(state, arg))))
-            resolveAbility(vfqn.value, abilityTypeArgs).map {
+            for {
+              state <- get
+              abilityTypeArgs = constraintTypeArgs.map { arg =>
+                val sem = makeEvaluator(state).eval(state.env, arg)
+                GroundValue.toEvalValue(forceAndConstPure(state, sem))
+              }
+              resolved <- liftF(resolveAbility(vfqn.value, abilityTypeArgs))
+            } yield resolved match {
               case Some(implFqn) => vfqn.as(implFqn)
               case None          => vfqn
             }
-          case None                          => vfqn.pure[CompilerIO]
+          case None                          => pure(vfqn)
         }
-      case _                                  => vfqn.pure[CompilerIO]
+      case _                                  => pure(vfqn)
     }
 
   private def findConstraintParam(abilityName: String): Option[(String, Seq[OperatorResolvedExpression])] =
@@ -289,66 +298,49 @@ class Checker(
         (paramName, constraint.typeArgs)
     }
 
-  /** Pre-fetch all NativeBindings referenced by ValueReferences in an ORE. Returns updated state with populated
-    * cache.
-    */
-  private[check] def prefetchBindings(state: CheckState, ore: OperatorResolvedExpression): CompilerIO[CheckState] =
-    ore match {
-      case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)      =>
-        for {
-          (_, state1) <- ensureBinding(state, vfqn.value)
-          state2      <- typeArgs.foldLeftM(state1) { (s, ta) => prefetchBindings(s, ta.value) }
-        } yield state2
-      case OperatorResolvedExpression.FunctionApplication(target, arg)    =>
-        for {
-          state1 <- prefetchBindings(state, target.value)
-          state2 <- prefetchBindings(state1, arg.value)
-        } yield state2
-      case OperatorResolvedExpression.FunctionLiteral(_, paramType, body) =>
-        for {
-          state1 <- paramType match {
-                      case Some(pt) =>
-                        pt.value.levels.toSeq.foldLeftM(state) { (s, level) => prefetchBindings(s, level) }
-                      case None     => state.pure[CompilerIO]
-                    }
-          state2 <- prefetchBindings(state1, body.value)
-        } yield state2
-      case _                                                              => state.pure[CompilerIO]
-    }
-
-  private def unifyWithContext(
-      state: CheckState,
-      inferred: SemValue,
-      expected: SemValue,
-      tm: Sourced[OperatorResolvedExpression]
-  ): CheckState =
-    state.withUnifier(state.unifier.unify(inferred, expected, tm.as("Type mismatch.")))
-
-  private def getReturnType(state: CheckState, funcType: SemValue): SemValue = funcType match {
-    case VPi(_, codomain) => codomain(VNeutral(NeutralHead.VVar(state.env.level, "$ret"), Spine.SNil, VType))
-    case other            => other
+  /** Pre-fetch all NativeBindings referenced by ValueReferences in an ORE. */
+  private[check] def prefetchBindings(ore: OperatorResolvedExpression): CheckIO[Unit] = ore match {
+    case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)      =>
+      ensureBinding(vfqn.value).void >>
+        typeArgs.traverse_(ta => prefetchBindings(ta.value))
+    case OperatorResolvedExpression.FunctionApplication(target, arg)    =>
+      prefetchBindings(target.value) >> prefetchBindings(arg.value)
+    case OperatorResolvedExpression.FunctionLiteral(_, paramType, body) =>
+      paramType.traverse_(pt => pt.value.levels.toSeq.traverse_(prefetchBindings)) >>
+        prefetchBindings(body.value)
+    case _                                                              => pure(())
   }
 
-  private[check] def forceAndConst(state: CheckState, v: SemValue): GroundValue = {
+  private def getReturnType(funcType: SemValue): CheckIO[SemValue] =
+    inspect { s =>
+      funcType match {
+        case VPi(_, codomain) => codomain(VNeutral(NeutralHead.VVar(s.env.level, "$ret"), Spine.SNil, VType))
+        case other            => other
+      }
+    }
+
+  /** Pure implementation of forceAndConst, used where CheckIO is not available. */
+  private def forceAndConstPure(state: CheckState, v: SemValue): GroundValue = {
     val forced = Evaluator.force(v, state.unifier.metaStore)
     forced match {
       case VConst(g)             => g
       case VType                 => GroundValue.Type
       case VPi(domain, codomain) =>
-        val domGround = forceAndConst(state, domain)
-        val codGround = forceAndConst(
-          state,
-          codomain(VNeutral(NeutralHead.VVar(state.env.level, "$quote"), Spine.SNil, VType))
-        )
         GroundValue.Structure(
           Map(
             "$typeName" -> GroundValue.Direct(Types.functionDataTypeFQN, GroundValue.Type),
-            "A"         -> domGround,
-            "B"         -> codGround
+            "A"         -> forceAndConstPure(state, domain),
+            "B"         -> forceAndConstPure(
+              state,
+              codomain(VNeutral(NeutralHead.VVar(state.env.level, "$quote"), Spine.SNil, VType))
+            )
           ),
           GroundValue.Type
         )
       case _                     => GroundValue.Type // fallback
     }
   }
+
+  private[check] def forceAndConst(v: SemValue): CheckIO[GroundValue] =
+    inspect(forceAndConstPure(_, v))
 }
