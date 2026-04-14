@@ -9,10 +9,9 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   GenericParameter,
   Visibility,
   Expression as SourceExpression,
-  QualifiedName as AstQualifiedName,
-  Qualifier as AstQualifier,
   Pattern as SourcePattern
 }
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Desugars data definitions into synthetic FunctionDefinitions. Works entirely in the source AST domain.
@@ -43,7 +42,7 @@ object DataDefinitionDesugarer {
   private def createTypeFunction(definition: DataDefinition): Seq[FunctionDefinition] =
     Seq(
       FunctionDefinition(
-        definition.name.map(n => AstQualifiedName(n, AstQualifier.Type)),
+        definition.name.map(n => QualifiedName(n, Qualifier.Type)),
         Seq.empty,
         definition.genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction)),
         typeExpr(definition.name.as("Type")),
@@ -58,7 +57,7 @@ object DataDefinitionDesugarer {
 
   private def createConstructor(definition: DataDefinition, ctor: DataConstructor): FunctionDefinition =
     FunctionDefinition(
-      ctor.name.map(n => AstQualifiedName(n, AstQualifier.Default)),
+      ctor.name.map(n => QualifiedName(n, Qualifier.Default)),
       definition.genericParameters,
       ctor.fields,
       typeExpr(
@@ -103,7 +102,7 @@ object DataDefinitionDesugarer {
       )
     )
     FunctionDefinition(
-      field.name.map(n => AstQualifiedName(n, AstQualifier.Default)),
+      field.name.map(n => QualifiedName(n, Qualifier.Default)),
       definition.genericParameters,
       Seq(
         ArgumentDefinition(
@@ -154,9 +153,9 @@ object DataDefinitionDesugarer {
 
         val implMarker = FunctionDefinition(
           s.as(
-            AstQualifiedName(
+            QualifiedName(
               "PatternMatch",
-              AstQualifier.AbilityImplementation(s.as("PatternMatch"), index)
+              Qualifier.AbilityImplementation(s.as("PatternMatch"), index)
             )
           ),
           definition.genericParameters,
@@ -167,9 +166,9 @@ object DataDefinitionDesugarer {
 
         val casesTypeDef = FunctionDefinition(
           s.as(
-            AstQualifiedName(
+            QualifiedName(
               "Cases",
-              AstQualifier.AbilityImplementation(s.as("PatternMatch"), index)
+              Qualifier.AbilityImplementation(s.as("PatternMatch"), index)
             )
           ),
           definition.genericParameters,
@@ -181,9 +180,9 @@ object DataDefinitionDesugarer {
 
         val handleCasesDef = FunctionDefinition(
           s.as(
-            AstQualifiedName(
+            QualifiedName(
               "handleCases",
-              AstQualifier.AbilityImplementation(s.as("PatternMatch"), index)
+              Qualifier.AbilityImplementation(s.as("PatternMatch"), index)
             )
           ),
           definition.genericParameters :+ resultParam,
@@ -223,7 +222,7 @@ object DataDefinitionDesugarer {
       definition.genericParameters.map(gp => typeExpr(gp.name))
     )
 
-    val abilityQualifier = AstQualifier.AbilityImplementation(s.as("TypeMatch"), index)
+    val abilityQualifier = Qualifier.AbilityImplementation(s.as("TypeMatch"), index)
 
     val matchCaseType = typeMatchHandlerType(definition, resultParamName)
     val elseCaseType  = typeExpr(
@@ -232,7 +231,7 @@ object DataDefinitionDesugarer {
     )
 
     val implMarker = FunctionDefinition(
-      s.as(AstQualifiedName("TypeMatch", abilityQualifier)),
+      s.as(QualifiedName("TypeMatch", abilityQualifier)),
       definition.genericParameters,
       Seq(ArgumentDefinition(s.as("arg"), dataTypeRef)),
       dataTypeRef,
@@ -240,7 +239,7 @@ object DataDefinitionDesugarer {
     )
 
     val fieldsTypeDef = FunctionDefinition(
-      s.as(AstQualifiedName("Fields", abilityQualifier)),
+      s.as(QualifiedName("Fields", abilityQualifier)),
       definition.genericParameters,
       Seq(ArgumentDefinition(s.as(resultParamName), typeExpr(s.as("Type")))),
       typeExpr(s.as("Type")),
@@ -249,7 +248,7 @@ object DataDefinitionDesugarer {
     )
 
     val typeMatchDef = FunctionDefinition(
-      s.as(AstQualifiedName("typeMatch", abilityQualifier)),
+      s.as(QualifiedName("typeMatch", abilityQualifier)),
       definition.genericParameters :+ resultParam,
       Seq(
         ArgumentDefinition(s.as("obj"), typeExpr(s.as("Type"))),

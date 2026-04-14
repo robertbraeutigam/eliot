@@ -5,7 +5,6 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.{
   Expression as SourceExpression,
   FunctionDefinition,
-  Qualifier as AstQualifier,
   SourceAST
 }
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, Expression as CoreExpression, *}
@@ -36,9 +35,9 @@ class CoreProcessor
     val counters      = scala.collection.mutable.Map.empty[String, Int]
     sourceAstData.functionDefinitions.foreach { f =>
       f.name.value.qualifier match {
-        case AstQualifier.AbilityImplementation(name, idx) =>
+        case Qualifier.AbilityImplementation(name, idx) =>
           counters.update(name.value, math.max(counters.getOrElse(name.value, -1), idx) + 1)
-        case _                                             => ()
+        case _                                          => ()
       }
     }
     val desugaredFromData = sourceAstData.typeDefinitions.flatMap { definition =>
@@ -102,7 +101,7 @@ class CoreProcessor
       .filter(_._2.nonEmpty)
       .toMap
     NamedValue(
-      convertQualifiedName(function.name),
+      function.name,
       curriedValue,
       typeStack,
       constraints,

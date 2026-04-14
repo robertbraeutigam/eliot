@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIfAll, optional}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 

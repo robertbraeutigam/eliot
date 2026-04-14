@@ -7,8 +7,6 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   Expression as SourceExpression,
   LambdaParameterDefinition as SourceLambdaParameter,
   PrecedenceDeclaration as AstPrecedenceDeclaration,
-  QualifiedName as AstQualifiedName,
-  Qualifier as AstQualifier,
   Pattern as SourcePattern
 }
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
@@ -134,18 +132,6 @@ object CoreExpressionConverter {
         Pattern.VariablePattern(name)
       case SourcePattern.WildcardPattern(source)                                                     =>
         Pattern.WildcardPattern(source)
-    }
-
-  def convertQualifiedName(name: Sourced[AstQualifiedName]): Sourced[QualifiedName] =
-    name.map(n => QualifiedName(n.name, convertQualifier(n.qualifier)))
-
-  def convertQualifier(qualifier: AstQualifier): Qualifier =
-    qualifier match {
-      case AstQualifier.Default                         => Qualifier.Default
-      case AstQualifier.Type                            => Qualifier.Type
-      case AstQualifier.Ability(n)                      => Qualifier.Ability(n)
-      case AstQualifier.AbilityImplementation(n, index) =>
-        Qualifier.AbilityImplementation(n, index)
     }
 
   def convertPrecedenceDeclaration(pd: AstPrecedenceDeclaration): PrecedenceDeclaration =

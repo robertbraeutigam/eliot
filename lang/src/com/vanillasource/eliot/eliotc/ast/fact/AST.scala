@@ -6,6 +6,7 @@ import ASTComponent.component
 import Primitives.*
 import com.vanillasource.eliot.eliotc.ast.*
 import com.vanillasource.eliot.eliotc.ast.parser.{Parser, ParserError}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import Parser.*
