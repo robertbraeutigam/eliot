@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.monomorphize.processor
+package com.vanillasource.eliot.eliotc.stdlib.plugin
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}

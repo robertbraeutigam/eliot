@@ -3,7 +3,10 @@ package com.vanillasource.eliot.eliotc.plugin
 import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.implementation.processor.{AbilityImplementationCheckProcessor, AbilityImplementationProcessor}
+import com.vanillasource.eliot.eliotc.implementation.processor.{
+  AbilityImplementationCheckProcessor,
+  AbilityImplementationProcessor
+}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.module.processor.{
@@ -16,7 +19,6 @@ import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProc
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   DataTypeNativesProcessor,
   MonomorphicTypeCheckProcessor,
-  StdlibNativesProcessor,
   SystemNativesProcessor,
   UserValueNativesProcessor
 }
@@ -77,7 +79,6 @@ class LangPlugin extends CompilerPlugin {
             AbilityImplementationCheckProcessor(),
             SystemNativesProcessor(),
             DataTypeNativesProcessor(),
-            StdlibNativesProcessor(),
             UserValueNativesProcessor(),
             MonomorphicTypeCheckProcessor(),
             UsedNamesProcessor(),

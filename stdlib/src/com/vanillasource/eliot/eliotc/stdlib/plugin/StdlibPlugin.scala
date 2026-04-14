@@ -12,6 +12,7 @@ class StdlibPlugin extends CompilerPlugin {
       .modify(superProcessor =>
         SequentialCompilerProcessors(
           Seq(
+            StdlibNativesProcessor(),
             superProcessor
           )
         )
