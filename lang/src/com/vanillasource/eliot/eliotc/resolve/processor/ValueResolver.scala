@@ -75,11 +75,8 @@ class ValueResolver
       case CoreQualifier.Default                             => (Qualifier.Default: Qualifier).pure[ScopedIO]
       case CoreQualifier.Type                                => (Qualifier.Type: Qualifier).pure[ScopedIO]
       case CoreQualifier.Ability(n)                          => (Qualifier.Ability(n): Qualifier).pure[ScopedIO]
-      case CoreQualifier.AbilityImplementation(name, params) =>
-        for {
-          resolvedName  <- resolveAbilityName(name)
-          resolvedTypes <- params.traverse(resolveExpression(_, false))
-        } yield Qualifier.AbilityImplementation(resolvedName, resolvedTypes)
+      case CoreQualifier.AbilityImplementation(name, index) =>
+        resolveAbilityName(name).map(resolvedName => Qualifier.AbilityImplementation(resolvedName, index))
     }
 
   private def resolveAbilityName(name: Sourced[String]): ScopedIO[AbilityFQN] =

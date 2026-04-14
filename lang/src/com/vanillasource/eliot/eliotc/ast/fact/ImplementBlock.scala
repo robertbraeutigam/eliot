@@ -39,7 +39,7 @@ object ImplementBlock {
             // Note: the implement qualifier has to include the instantiation type parameters
             // Visibility is always public for implementation functions.
             FunctionDefinition(
-              f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.map(_.content), pattern))),
+              f.name.map(n => QualifiedName(n.name, Qualifier.AbilityImplementation(name.map(_.content), -1))),
               genericParameters ++ f.genericParameters,
               f.args,
               f.typeDefinition,
@@ -48,14 +48,16 @@ object ImplementBlock {
             )
           ) :+
             // We add the implementation to the default method as a marker, that this type implements the marker.
+            // The marker takes one argument per pattern element so its signature fully encodes the pattern,
+            // which is what drives implementation selection during dispatch.
             FunctionDefinition(
               name.as(
-                QualifiedName(name.value.content, Qualifier.AbilityImplementation(name.map(_.content), pattern))
+                QualifiedName(name.value.content, Qualifier.AbilityImplementation(name.map(_.content), -1))
               ),
               genericParameters,
-              Seq(ArgumentDefinition(name.as("arg"), pattern.head)),
+              pattern.zipWithIndex.map { case (p, i) => ArgumentDefinition(name.as(s"arg$i"), p) },
               pattern.head,
-              Some(name.as(FunctionApplication(None, name.as("arg"), Seq.empty, Seq.empty)))
+              Some(name.as(FunctionApplication(None, name.as("arg0"), Seq.empty, Seq.empty)))
             )
         )
     }

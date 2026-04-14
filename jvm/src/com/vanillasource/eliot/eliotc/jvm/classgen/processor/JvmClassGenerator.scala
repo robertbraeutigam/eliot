@@ -19,6 +19,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.processor.DataClassGenerator.
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.ExpressionCodeGenerator.{createExpressionCode, patternMatchSingletonName}
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
+import com.vanillasource.eliot.eliotc.implementation.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -53,18 +54,18 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       // Find PatternMatch handleCases impls and map to their data types
       handleCasesByDataType  <- usedValues.toSeq.traverseFilter { (vfqn, stats) =>
                                   vfqn.name.qualifier match {
-                                    case Qualifier.AbilityImplementation(abilityName, params)
+                                    case Qualifier.AbilityImplementation(abilityName, _)
                                         if abilityName.value === "PatternMatch" && vfqn.name.name === "handleCases" =>
-                                      extractTypeConstructorName(params) match {
-                                        case Some(typeName) =>
-                                          // Find the data type VFQN from the constructor groups
-                                          val dataTypeVfqn = allCtorGroups.keys
-                                            .find(_.name.name === typeName)
-                                            .getOrElse(ValueFQN(key.moduleName, QualifiedName(typeName, Qualifier.Default)))
-                                          Some((dataTypeVfqn, (vfqn, stats))).pure[CompilerIO]
-                                        case None           =>
-                                          Option.empty.pure[CompilerIO]
-                                      }
+                                      ImplementationMarkerUtils
+                                        .firstPatternTypeConstructorName(vfqn, "PatternMatch")
+                                        .map {
+                                          case Some(typeName) =>
+                                            val dataTypeVfqn = allCtorGroups.keys
+                                              .find(_.name.name === typeName)
+                                              .getOrElse(ValueFQN(key.moduleName, QualifiedName(typeName, Qualifier.Default)))
+                                            Some((dataTypeVfqn, (vfqn, stats)))
+                                          case None           => Option.empty
+                                        }
                                     case _ =>
                                       Option.empty.pure[CompilerIO]
                                   }
@@ -85,17 +86,16 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                     case _                                        => false
                                   }
                                 }.toSet
-      // Map each typeMatch method VFQN to its corresponding type constructor name
-      typeMatchByConstructor  = allTypeMatchVfqns
+      // Map each typeMatch method VFQN to its corresponding type constructor name (via the marker signature)
+      typeMatchByConstructor <- allTypeMatchVfqns
                                   .filter(_.name.name === "typeMatch")
-                                  .flatMap { tmVfqn =>
-                                    tmVfqn.name.qualifier match {
-                                      case Qualifier.AbilityImplementation(_, params) =>
-                                        extractTypeConstructorName(params).map(_ -> tmVfqn)
-                                      case _                                          => None
-                                    }
+                                  .toSeq
+                                  .traverseFilter { tmVfqn =>
+                                    ImplementationMarkerUtils
+                                      .firstPatternTypeConstructorName(tmVfqn, "TypeMatch")
+                                      .map(_.map(_ -> tmVfqn))
                                   }
-                                  .toMap
+                                  .map(_.toMap)
       // Process each data type: check handleCases usage, merge constructors, generate classes
       dataResults            <- allCtorGroups.toSeq.traverse { (typeVFQ, allTypeCtors) =>
                                   val handleCasesUsed = handleCasesMap.contains(typeVFQ)
@@ -401,13 +401,4 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       case _                                                              => false
     }
 
-  private def extractTypeConstructorName(params: Seq[CoreExpression]): Option[String] =
-    params.headOption.flatMap(findTypeName)
-
-  private def findTypeName(expr: CoreExpression): Option[String] =
-    expr match {
-      case CoreExpression.NamedValueReference(qn, _, _) if qn.value.qualifier === Qualifier.Type => Some(qn.value.name)
-      case CoreExpression.FunctionApplication(target, _) => findTypeName(target.value)
-      case _                                             => None
-    }
 }

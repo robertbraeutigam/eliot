@@ -141,14 +141,11 @@ object CoreExpressionConverter {
 
   def convertQualifier(qualifier: AstQualifier): Qualifier =
     qualifier match {
-      case AstQualifier.Default                           => Qualifier.Default
-      case AstQualifier.Type                              => Qualifier.Type
-      case AstQualifier.Ability(n)                        => Qualifier.Ability(n)
-      case AstQualifier.AbilityImplementation(n, pattern) =>
-        Qualifier.AbilityImplementation(
-          n,
-          pattern.map(convertExpression(_, typeContext = true).value)
-        )
+      case AstQualifier.Default                         => Qualifier.Default
+      case AstQualifier.Type                            => Qualifier.Type
+      case AstQualifier.Ability(n)                      => Qualifier.Ability(n)
+      case AstQualifier.AbilityImplementation(n, index) =>
+        Qualifier.AbilityImplementation(n, index)
     }
 
   def convertPrecedenceDeclaration(pd: AstPrecedenceDeclaration): PrecedenceDeclaration =

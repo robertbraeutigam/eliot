@@ -381,7 +381,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
           "show",
           Qualifier.AbilityImplementation(
             Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
-            Seq(typePattern(PositionRange(Position(1, 16), Position(1, 17)), "A"))
+            0
           )
         )
     )
@@ -394,14 +394,14 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
           "show",
           Qualifier.AbilityImplementation(
             Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
-            Seq(typePattern(PositionRange(Position(1, 16), Position(1, 17)), "A"))
+            0
           )
         ),
         (
           "display",
           Qualifier.AbilityImplementation(
             Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
-            Seq(typePattern(PositionRange(Position(1, 16), Position(1, 17)), "A"))
+            0
           )
         )
       )
@@ -422,7 +422,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
           "show",
           Qualifier.AbilityImplementation(
             Sourced(file, PositionRange(Position(2, 11), Position(2, 15)), "Show"),
-            Seq(typePattern(PositionRange(Position(2, 16), Position(2, 17)), "A"))
+            0
           )
         )
       )
@@ -439,6 +439,18 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
+  it should "generate a marker function with one argument per pattern element for multi-parameter impl" in {
+    runEngineForFunctionArgCounts("implement Convertible[Int, String] { def convert: String = a }").asserting(
+      _ shouldBe Seq(("convert", 0), ("Convertible", 2))
+    )
+  }
+
+  it should "generate a marker function with a single argument for single-pattern impl" in {
+    runEngineForFunctionArgCounts("implement Show[A] { def show: String = a }").asserting(
+      _ shouldBe Seq(("show", 0), ("Show", 1))
+    )
+  }
+
   it should "qualify implement type declarations with AbilityImplementation qualifier" in {
     runEngineForFunctions("implement Show[A] { type Element = String }").asserting(
       _.head shouldBe
@@ -446,10 +458,22 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
           "Element",
           Qualifier.AbilityImplementation(
             Sourced(file, PositionRange(Position(1, 11), Position(1, 15)), "Show"),
-            Seq(typePattern(PositionRange(Position(1, 16), Position(1, 17)), "A"))
+            0
           )
         )
     )
+  }
+
+  it should "assign increasing indices to successive impl blocks of the same ability" in {
+    runEngineForFunctions("implement Show[A] { def show: String = a }\nimplement Show[B] { def show: String = b }")
+      .asserting(
+        _.take(4).map { case (name, q) =>
+          name -> (q match {
+            case Qualifier.AbilityImplementation(_, idx) => idx
+            case _                                       => -1
+          })
+        } shouldBe Seq(("show", 0), ("Show", 0), ("show", 1), ("Show", 1))
+      )
   }
 
   it should "accept a single ability constraint with no parameter" in {
@@ -626,6 +650,16 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
         .flatten
     }
 
-  private def typePattern(pos: PositionRange, name: String): Sourced[Expression] =
-    Sourced(file, pos, Expression.FunctionApplication(None, Sourced(file, pos, name), Seq.empty, Seq.empty))
+  private def runEngineForFunctionArgCounts(source: String): IO[Seq[(String, Int)]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.args.size))
+        }
+        .toSeq
+        .flatten
+    }
+
 }

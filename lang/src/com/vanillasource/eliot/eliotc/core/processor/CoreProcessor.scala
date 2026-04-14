@@ -2,7 +2,12 @@ package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.data.NonEmptySeq
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{Expression as SourceExpression, FunctionDefinition, SourceAST}
+import com.vanillasource.eliot.eliotc.ast.fact.{
+  Expression as SourceExpression,
+  FunctionDefinition,
+  Qualifier as AstQualifier,
+  SourceAST
+}
 import com.vanillasource.eliot.eliotc.core.fact.{AST as CoreASTData, Expression as CoreExpression, *}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.feedback.Logging
@@ -25,8 +30,25 @@ class CoreProcessor
       sourceAst: SourceAST
   ): CompilerIO[CoreAST] = {
     val sourceAstData = sourceAst.ast.value
-    val allFunctions  = sourceAstData.functionDefinitions ++
-      sourceAstData.typeDefinitions.flatMap(DataDefinitionDesugarer.desugar)
+    // Track per-ability implementation-index counters. User-written impls have already been
+    // assigned indices at AST assembly time; we continue numbering from the max used per ability
+    // so synthetic PatternMatch/TypeMatch impls don't collide with any user-defined ones.
+    val counters      = scala.collection.mutable.Map.empty[String, Int]
+    sourceAstData.functionDefinitions.foreach { f =>
+      f.name.value.qualifier match {
+        case AstQualifier.AbilityImplementation(name, idx) =>
+          counters.update(name.value, math.max(counters.getOrElse(name.value, -1), idx) + 1)
+        case _                                             => ()
+      }
+    }
+    val desugaredFromData = sourceAstData.typeDefinitions.flatMap { definition =>
+      val pmIdx = counters.getOrElse("PatternMatch", 0)
+      counters.update("PatternMatch", pmIdx + 1)
+      val tmIdx = counters.getOrElse("TypeMatch", 0)
+      counters.update("TypeMatch", tmIdx + 1)
+      DataDefinitionDesugarer.desugar(definition, pmIdx, tmIdx)
+    }
+    val allFunctions  = sourceAstData.functionDefinitions ++ desugaredFromData
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
       allFunctions.map(transformFunction)

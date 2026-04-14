@@ -135,17 +135,14 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       case None           => Seq.empty.pure[CompilerIO]
       case Some(resolved) =>
         resolved.name.value.qualifier match {
-          case ResolveQualifier.AbilityImplementation(resolvedAbilityFQN, paramExprs)
+          case ResolveQualifier.AbilityImplementation(resolvedAbilityFQN, _)
               if resolvedAbilityFQN == expectedAbilityFQN =>
             for {
-              signatureType <- TypeExpressionEvaluator.evaluate(
-                                 resolved.typeStack.as(resolved.typeStack.value.signature)
-                               )
-              typeParams     = TypeExpression.extractLeadingLambdaParams(signatureType).map(_._1)
-              freeVarNames   = typeParams.toSet
-              evalParams    <- resolveQualifierParams(resolved.name, paramExprs, freeVarNames)
-              exprArgs       = expectedTypeArgs.map(TypeExpression.fromGroundValue(_, resolved.name))
-              matchResult    = implMatchesQueryWithBindings(evalParams, freeVarNames, exprArgs)
+              markerPattern <- getMarkerPattern(vfqn, expectedAbilityFQN.abilityName)
+              (typeParams, evalParams) = markerPattern
+              freeVarNames = typeParams.toSet
+              exprArgs     = expectedTypeArgs.map(TypeExpression.fromGroundValue(_, resolved.name))
+              matchResult  = implMatchesQueryWithBindings(evalParams, freeVarNames, exprArgs)
             } yield matchResult match {
               case Some(bindings) =>
                 val implTypeArgs =
@@ -159,17 +156,28 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
         }
     }
 
-  private def resolveQualifierParams(
-      name: Sourced[?],
-      expressions: Seq[com.vanillasource.eliot.eliotc.resolve.fact.Expression],
-      freeVarNames: Set[String]
-  ): CompilerIO[Seq[TypeExpression]] =
-    expressions.traverse { expression =>
-      TypeExpressionEvaluator.evaluate(
-        name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(expression))),
-        freeVarNames = freeVarNames
-      )
-    }
+  /** Load the implementation's marker function and extract its pattern type arguments.
+    * For `implement Show[Seq[A]]`, returns ([A], [Seq[A]]) — the impl's generic parameter names
+    * and the pattern argument types (extracted from the marker signature's curried arg chain).
+    */
+  private def getMarkerPattern(
+      implVfqn: ValueFQN,
+      abilityName: String
+  ): CompilerIO[(Seq[String], Seq[TypeExpression])] = {
+    val markerVfqn = ValueFQN(
+      implVfqn.moduleName,
+      QualifiedName(abilityName, implVfqn.name.qualifier)
+    )
+    for {
+      markerResolved <- getFactOrAbort(OperatorResolvedValue.Key(markerVfqn))
+      signatureType  <- TypeExpressionEvaluator.evaluate(
+                          markerResolved.typeStack.as(markerResolved.typeStack.value.signature)
+                        )
+      typeParams      = TypeExpression.extractLeadingLambdaParams(signatureType).map(_._1)
+      body            = TypeExpression.stripLeadingLambdas(signatureType)
+      argTypes        = TypeExpression.extractFunctionArgTypes(body)
+    } yield (typeParams, argTypes)
+  }
 
   private def implMatchesQueryWithBindings(
       implParams: Seq[TypeExpression],

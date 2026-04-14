@@ -128,6 +128,15 @@ class AbilityImplementationCheckProcessorTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  it should "dispatch to the right impl when two impls of the same ability coexist in one module" in {
+    // Two implementations of the same ability are stored under distinct per-ability indices in the
+    // qualifier. Selection walks the synthetic marker function of each candidate impl to decide
+    // which one matches the concrete call-site type.
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndata Int\ndata Bool\nimplement Show[Int] { def show(x: Int): Int = x }\nimplement Show[Bool] { def show(x: Bool): Bool = x }\ndef f(x: Int): Int = show(x)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   it should "support empty ability implementations" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"

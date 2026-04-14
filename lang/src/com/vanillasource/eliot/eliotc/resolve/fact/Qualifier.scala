@@ -8,7 +8,7 @@ object Qualifier {
   case object Default                                                              extends Qualifier
   case object Type                                                                 extends Qualifier
   case class Ability(name: String)                                                 extends Qualifier
-  case class AbilityImplementation(name: AbilityFQN, parameters: Seq[Expression]) extends Qualifier
+  case class AbilityImplementation(name: AbilityFQN, index: Int) extends Qualifier
 
   given Eq[Qualifier] = Eq.fromUniversalEquals
 }

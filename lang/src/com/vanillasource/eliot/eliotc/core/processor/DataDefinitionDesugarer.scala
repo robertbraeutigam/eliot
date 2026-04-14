@@ -26,11 +26,18 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 object DataDefinitionDesugarer {
 
-  def desugar(definition: DataDefinition): Seq[FunctionDefinition] = {
+  def desugar(
+      definition: DataDefinition,
+      patternMatchIndex: Int,
+      typeMatchIndex: Int
+  ): Seq[FunctionDefinition] = {
     val mainFunctions =
       (createTypeFunction(definition) ++ createConstructors(definition) ++ createAccessors(definition))
         .map(_.copy(visibility = definition.visibility))
-    mainFunctions ++ createPatternMatchImpl(definition) ++ createTypeMatch(definition)
+    mainFunctions ++ createPatternMatchImpl(definition, patternMatchIndex) ++ createTypeMatch(
+      definition,
+      typeMatchIndex
+    )
   }
 
   private def createTypeFunction(definition: DataDefinition): Seq[FunctionDefinition] =
@@ -116,7 +123,7 @@ object DataDefinitionDesugarer {
     *   1. Implementation marker function (signals this type implements PatternMatch) 2. Cases[R] associated type alias
     *      (Church encoding wrapper type) 3. handleCases[R] method (abstract - JVM backend generates implementation)
     */
-  private def createPatternMatchImpl(definition: DataDefinition): Seq[FunctionDefinition] =
+  private def createPatternMatchImpl(definition: DataDefinition, index: Int): Seq[FunctionDefinition] =
     definition.constructors
       .filter(_.nonEmpty)
       .toSeq
@@ -149,7 +156,7 @@ object DataDefinitionDesugarer {
           s.as(
             AstQualifiedName(
               "PatternMatch",
-              AstQualifier.AbilityImplementation(s.as("PatternMatch"), Seq(dataTypeRef))
+              AstQualifier.AbilityImplementation(s.as("PatternMatch"), index)
             )
           ),
           definition.genericParameters,
@@ -162,7 +169,7 @@ object DataDefinitionDesugarer {
           s.as(
             AstQualifiedName(
               "Cases",
-              AstQualifier.AbilityImplementation(s.as("PatternMatch"), Seq(dataTypeRef))
+              AstQualifier.AbilityImplementation(s.as("PatternMatch"), index)
             )
           ),
           definition.genericParameters,
@@ -176,7 +183,7 @@ object DataDefinitionDesugarer {
           s.as(
             AstQualifiedName(
               "handleCases",
-              AstQualifier.AbilityImplementation(s.as("PatternMatch"), Seq(dataTypeRef))
+              AstQualifier.AbilityImplementation(s.as("PatternMatch"), index)
             )
           ),
           definition.genericParameters :+ resultParam,
@@ -202,7 +209,7 @@ object DataDefinitionDesugarer {
     * \= Function[String, R] def typeMatch[R](obj: Type, matchCase: Function[String, R], elseCase: Function[Unit, R]): R
     * }
     */
-  private def createTypeMatch(definition: DataDefinition): Seq[FunctionDefinition] = {
+  private def createTypeMatch(definition: DataDefinition, index: Int): Seq[FunctionDefinition] = {
     val s               = definition.name
     val existingNames   = definition.genericParameters.map(_.name.value).toSet
     val resultParamName = freshName("R", existingNames)
@@ -216,7 +223,7 @@ object DataDefinitionDesugarer {
       definition.genericParameters.map(gp => typeExpr(gp.name))
     )
 
-    val abilityQualifier = AstQualifier.AbilityImplementation(s.as("TypeMatch"), Seq(dataTypeRef))
+    val abilityQualifier = AstQualifier.AbilityImplementation(s.as("TypeMatch"), index)
 
     val matchCaseType = typeMatchHandlerType(definition, resultParamName)
     val elseCaseType  = typeExpr(

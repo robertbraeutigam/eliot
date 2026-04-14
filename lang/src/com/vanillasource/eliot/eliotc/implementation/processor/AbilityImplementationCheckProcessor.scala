@@ -29,7 +29,12 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       implMethods    <- candidateModules.toSeq.flatTraverse(collectImplMethods(_, abilityFQN, typeArguments))
       _              <- implMethods match {
                           case Nil =>
-                            abilityMethods.headOption.traverse_(m =>
+                            // Point the error at the ability marker (the synthetic method whose local name
+                            // equals the ability name) when available, otherwise at any ability method.
+                            val errorSource =
+                              abilityMethods.find(_.vfqn.name.name == abilityFQN.abilityName)
+                                .orElse(abilityMethods.headOption)
+                            errorSource.traverse_(m =>
                               compilerError(
                                 m.name.as(
                                   s"The type parameter '${typeArguments.map(_.show).mkString(", ")}' does not implement ability '${abilityFQN.abilityName}'."
@@ -39,7 +44,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
                           case _   =>
                             checkCompleteness(abilityMethods, implMethods) >>
                               checkNoExtras(abilityMethods, implMethods) >>
-                              checkSignatures(abilityMethods, implMethods)
+                              checkSignatures(abilityFQN, abilityMethods, implMethods)
                         }
       _              <- registerFactIfClear(AbilityImplementationCheck(abilityFQN, typeArguments))
     } yield ()
@@ -78,9 +83,9 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
         .traverse(vfqn => toResolvedMethod(vfqn))
         .flatMap(_.traverseFilter { method =>
           method.name.value.qualifier match {
-            case ResolveQualifier.AbilityImplementation(resolvedFQN, paramExprs) if resolvedFQN == abilityFQN =>
+            case ResolveQualifier.AbilityImplementation(resolvedFQN, _) if resolvedFQN == abilityFQN =>
               for {
-                evalParams  <- resolveQualifierParams(method.name, paramExprs, method.typeParams.toSet)
+                evalParams  <- getMarkerPatternArgs(method.vfqn, abilityFQN.abilityName, method.typeParams.toSet)
                 freeVarNames = method.typeParams.toSet
                 exprArgs     = typeArguments.map(TypeExpression.fromGroundValue(_, method.name))
               } yield if (implMatchesQuery(evalParams, freeVarNames, exprArgs)) Some(method) else None
@@ -133,6 +138,7 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
   }
 
   private def checkSignatures(
+      abilityFQN: AbilityFQN,
       abilityMethods: Seq[ResolvedMethod],
       implMethods: Seq[ResolvedMethod]
   ): CompilerIO[Unit] = {
@@ -141,12 +147,8 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       .flatMap(abstractMethod => implByName.get(abstractMethod.vfqn.name.name).map(abstractMethod -> _))
       .traverse_ { case (abstractMethod, implMethod) =>
         val abilityTypeParamNames = abstractMethod.typeParams
-        val implParams            = implMethod.name.value.qualifier match {
-          case ResolveQualifier.AbilityImplementation(_, params) => params
-          case _                                                  => Seq.empty
-        }
         for {
-          evaluatedImplParams <- resolveQualifierParams(implMethod.name, implParams, implMethod.typeParams.toSet)
+          evaluatedImplParams <- getMarkerPatternArgs(implMethod.vfqn, abilityFQN.abilityName, implMethod.typeParams.toSet)
           patternBindings      = abilityTypeParamNames.zip(evaluatedImplParams).toMap
           expectedImplSig      = patternBindings.foldLeft(abstractMethod.body) { case (acc, (name, param)) =>
                                    TypeExpression.substitute(acc, name, param)
@@ -168,17 +170,29 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
 
   private def isUnificationVarName(name: String): Boolean = name.endsWith("$")
 
-  private def resolveQualifierParams(
-      name: Sourced[?],
-      expressions: Seq[com.vanillasource.eliot.eliotc.resolve.fact.Expression],
+  /** Load the implementation's marker function (its synthetic value whose local name equals the ability name)
+    * and extract the pattern argument TypeExpressions from its curried signature. Returns the arg types in
+    * declaration order, with the impl's type parameters treated as free variables.
+    */
+  private def getMarkerPatternArgs(
+      methodVfqn: ValueFQN,
+      abilityName: String,
       freeVarNames: Set[String]
-  ): CompilerIO[Seq[TypeExpression]] =
-    expressions.traverse { expression =>
-      TypeExpressionEvaluator.evaluate(
-        name.as(OperatorResolvedExpression.fromExpression(MatchDesugaredExpression.fromExpression(expression))),
-        freeVarNames = freeVarNames
-      )
-    }
+  ): CompilerIO[Seq[TypeExpression]] = {
+    val markerVfqn = ValueFQN(
+      methodVfqn.moduleName,
+      QualifiedName(abilityName, methodVfqn.name.qualifier)
+    )
+    for {
+      markerResolved <- getFactOrAbort(OperatorResolvedValue.Key(markerVfqn))
+      signatureType  <- TypeExpressionEvaluator.evaluate(
+                          markerResolved.typeStack.as(markerResolved.typeStack.value.signature),
+                          freeVarNames = freeVarNames
+                        )
+      body            = TypeExpression.stripLeadingLambdas(signatureType)
+      argTypes        = TypeExpression.extractFunctionArgTypes(body)
+    } yield argTypes
+  }
 
   private def implMatchesQuery(
       implParams: Seq[TypeExpression],

@@ -1,7 +1,8 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{Expression => CoreExpression, Qualifier, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
+import com.vanillasource.eliot.eliotc.implementation.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
@@ -43,21 +44,21 @@ object MatchDesugarUtils {
   ): CompilerIO[ValueFQN] =
     for {
       moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
-    } yield moduleNames.names.keys
-      .find(qn =>
-        qn.name == methodName && (qn.qualifier match {
-          case Qualifier.AbilityImplementation(an, params) =>
-            an.value == abilityName && dataTypeName.forall(dtn => params.exists(findTypeName(_).contains(dtn)))
-          case _                                           => false
-        })
-      )
+      candidates   = moduleNames.names.keys.toSeq.collect {
+                       case qn @ QualifiedName(n, Qualifier.AbilityImplementation(an, _))
+                           if n == methodName && an.value == abilityName =>
+                         qn
+                     }
+      selected    <- dataTypeName match {
+                       case None      => candidates.headOption.pure[CompilerIO]
+                       case Some(dtn) =>
+                         candidates.findM(qn =>
+                           ImplementationMarkerUtils
+                             .firstPatternTypeConstructorName(moduleName, abilityName, qn.qualifier)
+                             .map(_.contains(dtn))
+                         )
+                     }
+    } yield selected
       .map(qn => ValueFQN(moduleName, qn))
       .getOrElse(throw RuntimeException(s"No $abilityName $methodName implementation in module $moduleName"))
-
-  private def findTypeName(expr: CoreExpression): Option[String] =
-    expr match {
-      case CoreExpression.NamedValueReference(qn, _, _) if qn.value.qualifier == Qualifier.Type => Some(qn.value.name)
-      case CoreExpression.FunctionApplication(target, _)                                        => findTypeName(target.value)
-      case _                                                                                    => None
-    }
 }

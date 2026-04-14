@@ -55,6 +55,16 @@ object TypeExpression {
       case _                                      => Seq.empty
     }
 
+  /** Walk a curried function type (`A -> B -> ... -> R`) and collect the argument types (`A`, `B`, ...),
+    * dropping the final return type. Used to extract pattern argument types from an ability implementation's
+    * marker function signature.
+    */
+  def extractFunctionArgTypes(expr: TypeExpression): Seq[TypeExpression] =
+    expr match {
+      case FunctionType(paramType, returnType) => paramType +: extractFunctionArgTypes(returnType)
+      case _                                   => Seq.empty
+    }
+
   def concreteValueOf(expr: TypeExpression): Option[GroundValue] =
     expr match {
       case ConcreteValue(value) => Some(value)

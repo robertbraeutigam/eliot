@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.implementation.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{mangleSuffix, valueType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.convertToNestedClassName
@@ -127,7 +128,7 @@ object ExpressionCodeGenerator {
               arguments,
               expectedResultType
             )
-          case Qualifier.AbilityImplementation(abilityName, params)
+          case Qualifier.AbilityImplementation(abilityName, _)
               if abilityName.value === "TypeMatch" && calledVfqn.name.name === "typeMatch" =>
             generateTypeMatchCall(
               moduleName,
@@ -135,7 +136,6 @@ object ExpressionCodeGenerator {
               methodGenerator,
               sourcedCalledVfqn,
               calledVfqn,
-              params,
               typeArgs,
               arguments,
               expectedResultType
@@ -165,39 +165,37 @@ object ExpressionCodeGenerator {
       typeArgs: Seq[GroundValue],
       arguments: Seq[UncurriedMonomorphicExpression],
       expectedResultType: GroundValue
-  ): CompilationTypesIO[Seq[ClassFile]] = {
-    val dataTypeVfqn          = calledVfqn.name.qualifier match {
-      case Qualifier.AbilityImplementation(_, params) =>
-        findTypeName(params)
-          .map(name => ValueFQN(calledVfqn.moduleName, QualifiedName(name, Qualifier.Default)))
-          .getOrElse(NativeType.systemAnyValue)
-      case _                                          => NativeType.systemAnyValue
-    }
-    val singletonName         = patternMatchSingletonName(dataTypeVfqn)
-    val singletonVfqn         = ValueFQN(calledVfqn.moduleName, QualifiedName(singletonName, Qualifier.Default))
-    val singletonInternalName = convertToNestedClassName(singletonVfqn)
+  ): CompilationTypesIO[Seq[ClassFile]] =
     for {
-      _       <- methodGenerator.addGetStaticInstance[CompilationTypesIO](
-                   singletonInternalName,
-                   "L" + singletonInternalName + ";"
-                 )
-      classes <- arguments.flatTraverse(expression =>
-                   createExpressionCode(
-                     moduleName,
-                     outerClassGenerator,
-                     methodGenerator,
-                     expression
-                   )
-                 )
-      _       <- methodGenerator.addCallToVirtualMethod[CompilationTypesIO](
-                   singletonInternalName,
-                   JvmIdentifier.encode("handleCases"),
-                   Seq(NativeType.systemAnyValue, NativeType.systemFunctionValue),
-                   NativeType.systemAnyValue
-                 )
-      _       <- methodGenerator.addCastTo[CompilationTypesIO](valueType(expectedResultType))
+      typeName             <- ImplementationMarkerUtils
+                                .firstPatternTypeConstructorName(calledVfqn, "PatternMatch")
+                                .liftToTypes
+      dataTypeVfqn          = typeName
+                                .map(n => ValueFQN(calledVfqn.moduleName, QualifiedName(n, Qualifier.Default)))
+                                .getOrElse(NativeType.systemAnyValue)
+      singletonName         = patternMatchSingletonName(dataTypeVfqn)
+      singletonVfqn         = ValueFQN(calledVfqn.moduleName, QualifiedName(singletonName, Qualifier.Default))
+      singletonInternalName = convertToNestedClassName(singletonVfqn)
+      _                    <- methodGenerator.addGetStaticInstance[CompilationTypesIO](
+                                singletonInternalName,
+                                "L" + singletonInternalName + ";"
+                              )
+      classes              <- arguments.flatTraverse(expression =>
+                                createExpressionCode(
+                                  moduleName,
+                                  outerClassGenerator,
+                                  methodGenerator,
+                                  expression
+                                )
+                              )
+      _                    <- methodGenerator.addCallToVirtualMethod[CompilationTypesIO](
+                                singletonInternalName,
+                                JvmIdentifier.encode("handleCases"),
+                                Seq(NativeType.systemAnyValue, NativeType.systemFunctionValue),
+                                NativeType.systemAnyValue
+                              )
+      _                    <- methodGenerator.addCastTo[CompilationTypesIO](valueType(expectedResultType))
     } yield classes
-  }
 
   def patternMatchSingletonName(dataTypeVfqn: ValueFQN): String =
     "PatternMatch$" + dataTypeVfqn.name.name + "$impl"
@@ -258,52 +256,41 @@ object ExpressionCodeGenerator {
       methodGenerator: MethodGenerator,
       sourcedCalledVfqn: Sourced[ValueFQN],
       calledVfqn: ValueFQN,
-      qualifierParams: Seq[com.vanillasource.eliot.eliotc.core.fact.Expression],
       typeArgs: Seq[GroundValue],
       arguments: Seq[UncurriedMonomorphicExpression],
       expectedResultType: GroundValue
-  ): CompilationTypesIO[Seq[ClassFile]] = {
-    val constructorName = findTypeName(qualifierParams)
+  ): CompilationTypesIO[Seq[ClassFile]] =
     for {
-      _              <- compilerAbort(
-                          sourcedCalledVfqn.as("Could not determine type constructor name for typeMatch.")
-                        ).liftToTypes.whenA(constructorName.isEmpty)
-      uncurriedMaybe <- getFact(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, arguments.length)).liftToTypes
-      classes        <- uncurriedMaybe match {
-                          case Some(uncurriedValue) =>
-                            val parameterTypes = uncurriedValue.parameters.map(p => valueType(p.parameterType))
-                            val returnType     = valueType(uncurriedValue.returnType)
-                            for {
-                              classes <- arguments.flatTraverse(expression =>
-                                           createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
-                                         )
-                              _       <- methodGenerator.addCallTo[CompilationTypesIO](
-                                           calledVfqn,
-                                           parameterTypes,
-                                           returnType,
-                                           Some("typeMatch$" + constructorName.get)
-                                         )
-                              _       <- methodGenerator
-                                           .addCastTo[CompilationTypesIO](valueType(expectedResultType))
-                                           .whenA(valueType(expectedResultType) =!= returnType)
-                            } yield classes
-                          case None                 =>
-                            compilerError(
-                              sourcedCalledVfqn.as("Could not find uncurried typeMatch function."),
-                              Seq(s"Looking for function: ${calledVfqn.show}")
-                            ).liftToTypes.as(Seq.empty)
-                        }
+      constructorName <- ImplementationMarkerUtils
+                           .firstPatternTypeConstructorName(calledVfqn, "TypeMatch")
+                           .liftToTypes
+      _               <- compilerAbort(
+                           sourcedCalledVfqn.as("Could not determine type constructor name for typeMatch.")
+                         ).liftToTypes.whenA(constructorName.isEmpty)
+      uncurriedMaybe  <- getFact(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, arguments.length)).liftToTypes
+      classes         <- uncurriedMaybe match {
+                           case Some(uncurriedValue) =>
+                             val parameterTypes = uncurriedValue.parameters.map(p => valueType(p.parameterType))
+                             val returnType     = valueType(uncurriedValue.returnType)
+                             for {
+                               classes <- arguments.flatTraverse(expression =>
+                                            createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                                          )
+                               _       <- methodGenerator.addCallTo[CompilationTypesIO](
+                                            calledVfqn,
+                                            parameterTypes,
+                                            returnType,
+                                            Some("typeMatch$" + constructorName.get)
+                                          )
+                               _       <- methodGenerator
+                                            .addCastTo[CompilationTypesIO](valueType(expectedResultType))
+                                            .whenA(valueType(expectedResultType) =!= returnType)
+                             } yield classes
+                           case None                 =>
+                             compilerError(
+                               sourcedCalledVfqn.as("Could not find uncurried typeMatch function."),
+                               Seq(s"Looking for function: ${calledVfqn.show}")
+                             ).liftToTypes.as(Seq.empty)
+                         }
     } yield classes
-  }
-
-  private def findTypeName(params: Seq[com.vanillasource.eliot.eliotc.core.fact.Expression]): Option[String] = {
-    import com.vanillasource.eliot.eliotc.core.fact.{Expression => CoreExpression}
-    def find(expr: CoreExpression): Option[String] =
-      expr match {
-        case CoreExpression.NamedValueReference(qn, _, _) if qn.value.qualifier == Qualifier.Type => Some(qn.value.name)
-        case CoreExpression.FunctionApplication(target, _)                                        => find(target.value)
-        case _                                                                                    => None
-      }
-    params.headOption.flatMap(find)
-  }
 }
