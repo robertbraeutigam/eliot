@@ -16,13 +16,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param postponed
   *   Queue of postponed unification problems (when a meta's spine is not pattern)
   * @param errors
-  *   Accumulated error messages with source positions
+  *   Accumulated errors with source positions and (when available) the expected and actual semantic values.
   */
 case class Unifier(
     metaStore: MetaStore,
     depth: Int,
     postponed: List[(SemValue, SemValue, Sourced[String])],
-    errors: List[Sourced[String]]
+    errors: List[UnifyError]
 ) {
 
   /** Unify two semantic values, reporting errors with the given context message and source position. */
@@ -33,7 +33,7 @@ case class Unifier(
       case (VType, VType) => this
 
       case (VConst(g1), VConst(g2)) =>
-        if (!groundEquals(g1, g2)) addError(context)
+        if (!groundEquals(g1, g2)) addMismatch(fl, fr, context)
         else this
 
       case (VPi(d1, c1), VPi(d2, c2)) =>
@@ -55,7 +55,7 @@ case class Unifier(
 
       // Neutral-neutral: same head, same spine length
       case (VNeutral(h1, sp1, _), VNeutral(h2, sp2, _)) if h1 == h2 =>
-        unifySpines(sp1, sp2, context)
+        unifySpines(fl, fr, sp1, sp2, context)
 
       // Meta solving (pattern rule)
       case (VMeta(id, spine, _), rhs)                               =>
@@ -66,10 +66,10 @@ case class Unifier(
 
       // VTopDef equality by FQN
       case (VTopDef(fqn1, _, sp1), VTopDef(fqn2, _, sp2)) if fqn1 == fqn2 =>
-        unifySpines(sp1, sp2, context)
+        unifySpines(fl, fr, sp1, sp2, context)
 
       case _ =>
-        addError(context)
+        addMismatch(fl, fr, context)
     }
   }
 
@@ -132,11 +132,11 @@ case class Unifier(
     loop(this)
   }
 
-  private def unifySpines(sp1: Spine, sp2: Spine, context: Sourced[String]): Unifier = {
+  private def unifySpines(l: SemValue, r: SemValue, sp1: Spine, sp2: Spine, context: Sourced[String]): Unifier = {
     val l1 = sp1.toList
     val l2 = sp2.toList
     if (l1.length == l2.length) l1.zip(l2).foldLeft(this) { case (u, (a, b)) => u.unify(a, b, context) }
-    else addError(context)
+    else addMismatch(l, r, context)
   }
 
   private def freshVar(): (SemValue, Unifier) = {
@@ -144,8 +144,14 @@ case class Unifier(
     (v, copy(depth = depth + 1))
   }
 
+  /** Record a type-mismatch error. By convention the left value is the actual (inferred) type and the right is the
+    * expected type, matching the argument order of [[unify]] as called by the checker.
+    */
+  private[monomorphize] def addMismatch(actual: SemValue, expected: SemValue, context: Sourced[String]): Unifier =
+    copy(errors = UnifyError(context, Some(expected), Some(actual)) :: errors)
+
   private[monomorphize] def addError(context: Sourced[String]): Unifier =
-    copy(errors = context :: errors)
+    copy(errors = UnifyError(context, None, None) :: errors)
 
   /** Structural equality for ground values. */
   private def groundEquals(g1: GroundValue, g2: GroundValue): Boolean = (g1, g2) match {

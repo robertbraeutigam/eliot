@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
+import com.vanillasource.eliot.eliotc.monomorphize.unify.{SemValuePrinter, UnifyError}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -55,7 +56,7 @@ object TypeStackLoop {
       // Drain unifier and produce output
       _         <- modify(s => s.withUnifier(s.unifier.drain()))
       state     <- get
-      _         <- state.unifier.errors.reverse.traverse_(msg => liftF(compilerError(msg)))
+      _         <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
       groundSig <- checker.forceAndConst(instantiated)
     } yield MonomorphicValue(
       key.vfqn,
@@ -64,6 +65,23 @@ object TypeStackLoop {
       groundSig,
       runtime
     )
+
+  /** Emit a [[UnifyError]] as a compiler error, including `Expected` / `Actual` hints when the error carries both sides.
+    * The semantic values are re-forced through the final metastore so any metas that were solved after the error was
+    * raised display their resolution.
+    */
+  private def reportUnifyError(err: UnifyError, state: CheckState): CompilerIO[Unit] =
+    compilerError(err.context, describe(err, state))
+
+  private def describe(err: UnifyError, state: CheckState): Seq[String] =
+    (err.expected, err.actual) match {
+      case (Some(expected), Some(actual)) =>
+        Seq(
+          s"Expected: ${SemValuePrinter.show(expected, state.unifier.metaStore)}",
+          s"Actual:   ${SemValuePrinter.show(actual, state.unifier.metaStore)}"
+        )
+      case _                              => Seq.empty
+    }
 
   private def walkTypeStack(
       checker: Checker,

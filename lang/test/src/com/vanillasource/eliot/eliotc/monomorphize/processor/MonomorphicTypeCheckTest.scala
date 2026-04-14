@@ -86,6 +86,26 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("Type mismatch." at "x"))
   }
 
+  it should "include Expected and Actual types in description on type mismatch" in {
+    runGenerator(
+      "data TypeA(fieldA: TypeA)\ndata TypeB\ndef f(x: TypeA): TypeB = x",
+      MonomorphicValue.Key(ValueFQN(testModuleName, default("f")), Seq.empty),
+      systemImports
+    ).asserting(result =>
+      result._1.map(_.description) shouldBe Seq(Seq("Expected: TypeB", "Actual:   TypeA"))
+    )
+  }
+
+  it should "render Expected and Actual function types with arrow notation" in {
+    runGenerator(
+      "data A\ndata B\ndef f: A = g\ndef g(a: A): B",
+      MonomorphicValue.Key(ValueFQN(testModuleName, default("f")), Seq.empty),
+      systemImports
+    ).asserting(result =>
+      result._1.map(_.description) shouldBe Seq(Seq("Expected: A", "Actual:   A -> B"))
+    )
+  }
+
   it should "fail if parameter is used as a wrong parameter in another function" in {
     runForErrors("data A\ndata B\ndef a(b: B): A\ndef f(x: A): A = a(x)")
       .asserting(_ shouldBe Seq("Type mismatch." at "x"))
