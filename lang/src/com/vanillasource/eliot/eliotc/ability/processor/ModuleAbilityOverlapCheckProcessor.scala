@@ -1,12 +1,13 @@
 package com.vanillasource.eliot.eliotc.ability.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ability.fact.{ModuleAbilityOverlapCheck, TypeExpression}
-import com.vanillasource.eliot.eliotc.ability.util.TypeExpressionEvaluator
+import com.vanillasource.eliot.eliotc.ability.fact.ModuleAbilityOverlapCheck
+import com.vanillasource.eliot.eliotc.ability.util.AbilityMatcher
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 /** Checks, for a given `(module, abilityName)` pair, that no two implementations of that ability in that module have
@@ -36,57 +37,50 @@ class ModuleAbilityOverlapCheckProcessor
         ValueFQN(key.moduleName, qn)
     }
     for {
-      patterns <- markers.traverse(loadMarkerPattern)
-      resolved  = markers.zip(patterns).collect { case (vfqn, Some(p)) => (vfqn, p) }
-      _        <- reportOverlaps(resolved)
+      signatures <- markers.traverse(loadMarkerSignature)
+      resolved    = markers.zip(signatures).collect { case (vfqn, Some(sig)) => (vfqn, sig) }
+      _          <- reportOverlaps(resolved)
     } yield ModuleAbilityOverlapCheck(key.moduleName, key.abilityName)
   }
 
-  /** Returns `(typeVars, argTypes)` for the marker function, or `None` if its signature can't be evaluated (e.g.
-    * because it transitively refers to an abstract or erroring value).
-    */
-  private def loadMarkerPattern(markerVfqn: ValueFQN): CompilerIO[Option[(Seq[String], Seq[TypeExpression])]] =
-    getFact(OperatorResolvedValue.Key(markerVfqn)).flatMap {
-      case None           => None.pure[CompilerIO]
-      case Some(resolved) =>
-        recover(
-          TypeExpressionEvaluator
-            .evaluate(resolved.typeStack.as(resolved.typeStack.value.signature))
-            .map { signatureType =>
-              val typeParams = TypeExpression.extractLeadingLambdaParams(signatureType).map(_._1)
-              val body       = TypeExpression.stripLeadingLambdas(signatureType)
-              val argTypes   = TypeExpression.extractFunctionArgTypes(body)
-              Option((typeParams, argTypes))
-            }
-        )(None)
-    }
+  /** Returns the marker function's ORE signature, or `None` if the marker has no resolved value fact. */
+  private def loadMarkerSignature(
+      markerVfqn: ValueFQN
+  ): CompilerIO[Option[Sourced[OperatorResolvedExpression]]] =
+    getFact(OperatorResolvedValue.Key(markerVfqn)).map(
+      _.map(resolved => resolved.typeStack.as(resolved.typeStack.value.signature))
+    )
 
   private def reportOverlaps(
-      withPatterns: Seq[(ValueFQN, (Seq[String], Seq[TypeExpression]))]
+      withSignatures: Seq[(ValueFQN, Sourced[OperatorResolvedExpression])]
   ): CompilerIO[Unit] =
     (for {
-      i                   <- withPatterns.indices
-      j                   <- (i + 1) until withPatterns.size
-      (v1, (vars1, args1)) = withPatterns(i)
-      (v2, (vars2, args2)) = withPatterns(j)
-      if TypeExpression.patternsUnify(args1, vars1.toSet, args2, vars2.toSet)
-    } yield (v1, v2)).toList.traverse_ { case (v1, v2) =>
-      // Surface the error at both impls' marker source positions so the user sees both sites.
-      for {
-        r1 <- getFactOrAbort(OperatorResolvedValue.Key(v1))
-        r2 <- getFactOrAbort(OperatorResolvedValue.Key(v2))
-        _  <- compilerError(
-                r1.name.map(qn =>
-                  s"Overlapping ability implementation: '${qn.name}' overlaps with another implementation" +
-                    s" of the same ability in the same module."
-                )
-              )
-        _  <- compilerError(
-                r2.name.map(qn =>
-                  s"Overlapping ability implementation: '${qn.name}' overlaps with another implementation" +
-                    s" of the same ability in the same module."
-                )
-              )
-      } yield ()
+      i <- withSignatures.indices
+      j <- (i + 1) until withSignatures.size
+    } yield (withSignatures(i), withSignatures(j))).toList.traverse_ {
+      case ((v1, sig1), (v2, sig2)) =>
+        for {
+          overlaps <- recover(AbilityMatcher.patternsOverlap(sig1, sig2))(false)
+          _        <- if (overlaps) reportOverlapError(v1, v2) else ().pure[CompilerIO]
+        } yield ()
     }
+
+  private def reportOverlapError(v1: ValueFQN, v2: ValueFQN): CompilerIO[Unit] =
+    // Surface the error at both impls' marker source positions so the user sees both sites.
+    for {
+      r1 <- getFactOrAbort(OperatorResolvedValue.Key(v1))
+      r2 <- getFactOrAbort(OperatorResolvedValue.Key(v2))
+      _  <- compilerError(
+              r1.name.map(qn =>
+                s"Overlapping ability implementation: '${qn.name}' overlaps with another implementation" +
+                  s" of the same ability in the same module."
+              )
+            )
+      _  <- compilerError(
+              r2.name.map(qn =>
+                s"Overlapping ability implementation: '${qn.name}' overlaps with another implementation" +
+                  s" of the same ability in the same module."
+              )
+            )
+    } yield ()
 }

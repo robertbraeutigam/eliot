@@ -135,6 +135,26 @@ object Evaluator {
     case _                               => GroundValue.Type
   }
 
+  /** Convert a GroundValue to a SemValue. Inverse of [[semToGround]] for type-constructor [[GroundValue.Structure]]s
+    * (those carrying a `$typeName` field): the head FQN becomes a [[VTopDef]] and the remaining fields (sorted
+    * alphabetically by name) become a spine in that order. `GroundValue.Type` maps to [[VType]]. All other ground
+    * values wrap as [[VConst]].
+    *
+    * Used by ability pattern matching so that concrete query-side ground arguments participate in structural
+    * unification against pattern-side [[SemValue]]s produced by evaluating marker-function ORE signatures.
+    */
+  def groundToSem(g: GroundValue): SemValue = g match {
+    case GroundValue.Type                 => VType
+    case GroundValue.Structure(fields, _) =>
+      fields.get("$typeName") match {
+        case Some(GroundValue.Direct(fqn: ValueFQN, _)) =>
+          val tail = (fields - "$typeName").toSeq.sortBy(_._1).map { case (_, v) => groundToSem(v) }
+          tail.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
+        case _                                          => VConst(g)
+      }
+    case _                                => VConst(g)
+  }
+
   /** Ground type for BigInteger values (used by eval for IntegerLiteral). */
   val bigIntGroundType: GroundValue = GroundValue.Structure(
     Map(

@@ -2,19 +2,14 @@ package com.vanillasource.eliot.eliotc.ability.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.{AbilityImplementation, AbilityImplementationCheck}
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.ability.fact.TypeExpression
-import com.vanillasource.eliot.eliotc.ability.fact.TypeExpression.*
+import com.vanillasource.eliot.eliotc.ability.util.AbilityMatcher
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.ability.util.TypeExpressionEvaluator
-import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
-import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Qualifier as ResolveQualifier}
-import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImplementation.Key] with Logging {
@@ -138,65 +133,20 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
           case ResolveQualifier.AbilityImplementation(resolvedAbilityFQN, _)
               if resolvedAbilityFQN == expectedAbilityFQN =>
             for {
-              markerPattern <- getMarkerPattern(vfqn, expectedAbilityFQN.abilityName)
-              (typeParams, evalParams) = markerPattern
-              freeVarNames = typeParams.toSet
-              exprArgs     = expectedTypeArgs.map(TypeExpression.fromGroundValue(_, resolved.name))
-              matchResult  = implMatchesQueryWithBindings(evalParams, freeVarNames, exprArgs)
-            } yield matchResult match {
-              case Some(bindings) =>
-                val implTypeArgs =
-                  typeParams.map(p =>
-                    bindings.get(p).flatMap(TypeExpression.concreteValueOf).getOrElse(GroundValue.Type)
-                  )
-                Seq((vfqn, implTypeArgs))
-              case None           => Seq.empty
+              markerVfqn <- markerVfqnFor(vfqn, expectedAbilityFQN.abilityName).pure[CompilerIO]
+              marker     <- getFactOrAbort(OperatorResolvedValue.Key(markerVfqn))
+              markerSig   = marker.typeStack.as(marker.typeStack.value.signature)
+              result     <- AbilityMatcher.matchImpl(markerSig, expectedTypeArgs)
+            } yield result match {
+              case Some(implTypeArgs) => Seq((vfqn, implTypeArgs))
+              case None               => Seq.empty
             }
           case _ => Seq.empty.pure[CompilerIO]
         }
     }
 
-  /** Load the implementation's marker function and extract its pattern type arguments.
-    * For `implement Show[Seq[A]]`, returns ([A], [Seq[A]]) — the impl's generic parameter names
-    * and the pattern argument types (extracted from the marker signature's curried arg chain).
-    */
-  private def getMarkerPattern(
-      implVfqn: ValueFQN,
-      abilityName: String
-  ): CompilerIO[(Seq[String], Seq[TypeExpression])] = {
-    val markerVfqn = ValueFQN(
-      implVfqn.moduleName,
-      QualifiedName(abilityName, implVfqn.name.qualifier)
-    )
-    for {
-      markerResolved <- getFactOrAbort(OperatorResolvedValue.Key(markerVfqn))
-      signatureType  <- TypeExpressionEvaluator.evaluate(
-                          markerResolved.typeStack.as(markerResolved.typeStack.value.signature)
-                        )
-      typeParams      = TypeExpression.extractLeadingLambdaParams(signatureType).map(_._1)
-      body            = TypeExpression.stripLeadingLambdas(signatureType)
-      argTypes        = TypeExpression.extractFunctionArgTypes(body)
-    } yield (typeParams, argTypes)
-  }
-
-  private def implMatchesQueryWithBindings(
-      implParams: Seq[TypeExpression],
-      freeVarNames: Set[String],
-      queryArgs: Seq[TypeExpression]
-  ): Option[Map[String, TypeExpression]] = {
-    if (implParams.size != queryArgs.size) None
-    else {
-      val bindings = implParams.zip(queryArgs).foldLeft(Map.empty[String, TypeExpression]) { (acc, pair) =>
-        acc ++ TypeExpression.matchTypes(pair._1, pair._2, freeVarNames.contains)
-      }
-      val matches  = implParams.zip(queryArgs).forall { (implParam, queryArg) =>
-        freeVarNames.foldLeft(implParam) { case (acc, name) =>
-          TypeExpression.substitute(acc, name, bindings.getOrElse(name, ParameterReference(name)))
-        } == queryArg
-      }
-      if (matches) Some(bindings) else None
-    }
-  }
+  private def markerVfqnFor(implVfqn: ValueFQN, abilityName: String): ValueFQN =
+    ValueFQN(implVfqn.moduleName, QualifiedName(abilityName, implVfqn.name.qualifier))
 
   private def collectModuleNames(v: GroundValue): Seq[ModuleName] =
     v match {
