@@ -209,6 +209,98 @@ class AbilityImplementationCheckProcessorTest
     """).asserting(_ shouldBe Seq.empty)
   }
 
+  // --- AbilityMatcher-focused regression tests ---
+
+  it should "dispatch multi-parameter abilities by position" in {
+    // Two ability-level type params — the impl's marker pattern zips `[A, B]` with `[Int, String]` in the
+    // correct order, so the dispatch only succeeds if the matcher respects declaration order.
+    runEngineForErrors("""
+        data String
+        data Int
+        def someString: String
+
+        ability Convert[A, B] {
+          def convert(x: A): B
+        }
+
+        implement Convert[Int, String] {
+          def convert(x: Int): String = someString
+        }
+
+        def f(x: Int): String = convert(x)
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail a multi-parameter ability dispatch when argument order does not match" in {
+    // `Convert[String, Int]` has no impl; matching must not collapse `[Int, String]` to `[String, Int]`.
+    runEngineForErrors("""
+        data String
+        data Int
+        def someString: String
+
+        ability Convert[A, B] {
+          def convert(x: A): B
+        }
+
+        implement Convert[Int, String] {
+          def convert(x: Int): String = someString
+        }
+
+        def f(x: String): Int = convert(x)
+    """).asserting(errors =>
+      errors.exists(_.message.contains("does not implement ability 'Convert'")) shouldBe true
+    )
+  }
+
+  it should "preserve parameterised type arguments through a generic impl's binding" in {
+    // A derived impl binds its type parameter to a *parameterised* type (`Pair[String, String]`). The inner
+    // `show(content(box))` can only type-check if the matcher propagates the exact `Pair[String, String]`
+    // GroundValue — not a `Type` fallback that would make `Show[A]` lookup fail.
+    runEngineForErrors("""
+        data String
+        def someString: String
+
+        ability Show[A] {
+          def show(a: A): String
+        }
+
+        data Pair[F, S](first: F, second: S)
+        data Box[A](content: A)
+
+        implement Show[Pair[String, String]] {
+          def show(p: Pair[String, String]): String = someString
+        }
+
+        implement[A ~ Show] Show[Box[A]] {
+          def show(box: Box[A]): String = show(content(box))
+        }
+
+        def f: String = show(Box(Pair(someString, someString)))
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "check signature with a generic impl that binds a type param to a parameterised type" in {
+    // Signature compatibility walks the unifier with the impl marker's pattern args bound to the abstract
+    // method's ability-level type param. When the pattern arg is parameterised (`Box[A]` here), the abstract
+    // `show: Show[A].A -> String` must unify against the impl `show: Box[A] -> String` via structural unification.
+    runEngineForErrors("""
+        data String
+        def someString: String
+
+        ability Show[A] {
+          def show(a: A): String
+        }
+
+        data Box[A](content: A)
+
+        implement[A] Show[Box[A]] {
+          def show(box: Box[A]): String = someString
+        }
+
+        def f(x: Box[String]): String = show(x)
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
   private val intType: GroundValue =
     GroundValue.Structure(
       Map(

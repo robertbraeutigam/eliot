@@ -64,27 +64,14 @@ class MonomorphicTypeCheckProcessor
   /** Recursively collect all NativeBindings referenced in ORE expressions. */
   private def collectBindings(
       levels: Seq[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression]
-  ): CompilerIO[Map[ValueFQN, SemValue]] = {
-    import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression as ORE
-    def collect(ore: ORE, acc: Map[ValueFQN, SemValue]): CompilerIO[Map[ValueFQN, SemValue]] = ore match {
-      case ORE.ValueReference(vfqn, typeArgs) =>
-        if (acc.contains(vfqn.value)) typeArgs.foldLeft(acc.pure[CompilerIO])((a, ta) => a.flatMap(collect(ta.value, _)))
-        else
-          fetchBinding(vfqn.value).flatMap {
-            case Some(sem) =>
-              val newAcc = acc + (vfqn.value -> sem)
-              typeArgs.foldLeft(newAcc.pure[CompilerIO])((a, ta) => a.flatMap(collect(ta.value, _)))
-            case None      => acc.pure[CompilerIO]
+  ): CompilerIO[Map[ValueFQN, SemValue]] =
+    levels.foldLeft(Map.empty[ValueFQN, SemValue].pure[CompilerIO]) { (acc, level) =>
+      acc.flatMap(m =>
+        com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+          .foldValueReferences(level, m) { (map, name) =>
+            if (map.contains(name.value)) map.pure[CompilerIO]
+            else fetchBinding(name.value).map(_.fold(map)(sem => map + (name.value -> sem)))
           }
-      case ORE.FunctionApplication(target, arg) =>
-        collect(target.value, acc).flatMap(collect(arg.value, _))
-      case ORE.FunctionLiteral(_, paramType, body) =>
-        val withParamType = paramType.foldLeft(acc.pure[CompilerIO]) { (a, pt) =>
-          pt.value.levels.toSeq.foldLeft(a)((a2, level) => a2.flatMap(collect(level, _)))
-        }
-        withParamType.flatMap(collect(body.value, _))
-      case _ => acc.pure[CompilerIO]
+      )
     }
-    levels.foldLeft(Map.empty[ValueFQN, SemValue].pure[CompilerIO])((a, level) => a.flatMap(collect(level, _)))
-  }
 }

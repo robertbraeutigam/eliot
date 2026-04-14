@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.operator.fact
 
-import cats.{Applicative, Show}
+import cats.{Applicative, Monad, Show}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
@@ -70,6 +70,36 @@ object OperatorResolvedExpression {
       val inBody      = pn.value != varName && containsVar(body.value, varName)
       inParamType || inBody
     case _: IntegerLiteral | _: StringLiteral  => false
+  }
+
+  /** Monadically fold over every [[ValueReference]] in the expression, including references nested in
+    * type-argument lists and in `FunctionLiteral` parameter type annotations.
+    *
+    * The callback receives the running state plus each [[Sourced]] reference as it is visited; the walk itself
+    * does not deduplicate — callers that want to avoid visiting the same vfqn twice should short-circuit inside
+    * the callback by inspecting the state they thread.
+    */
+  def foldValueReferences[F[_]: Monad, S](
+      expr: OperatorResolvedExpression,
+      initial: S
+  )(
+      onVfqn: (S, Sourced[ValueFQN]) => F[S]
+  ): F[S] = {
+    def go(e: OperatorResolvedExpression, s: S): F[S] = e match {
+      case ValueReference(name, typeArgs)      =>
+        onVfqn(s, name).flatMap(s1 => typeArgs.foldLeft(s1.pure[F])((a, ta) => a.flatMap(go(ta.value, _))))
+      case FunctionApplication(t, a)           =>
+        go(t.value, s).flatMap(go(a.value, _))
+      case FunctionLiteral(_, paramType, body) =>
+        val withParam: F[S] = paramType match {
+          case Some(pt) => pt.value.levels.toSeq.foldLeft(s.pure[F])((acc, l) => acc.flatMap(go(l, _)))
+          case None     => s.pure[F]
+        }
+        withParam.flatMap(go(body.value, _))
+      case _: IntegerLiteral | _: StringLiteral | _: ParameterReference =>
+        s.pure[F]
+    }
+    go(expr, initial)
   }
 
   def mapChildrenM[F[_]: Applicative](f: OperatorResolvedExpression => F[OperatorResolvedExpression])(

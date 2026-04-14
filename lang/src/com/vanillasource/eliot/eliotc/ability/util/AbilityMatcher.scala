@@ -82,17 +82,11 @@ object AbilityMatcher {
   private def collectBindings(
       expr: OperatorResolvedExpression,
       acc: Map[ValueFQN, Binding]
-  ): CompilerIO[Map[ValueFQN, Binding]] = expr match {
-    case OperatorResolvedExpression.ValueReference(s, _)        =>
-      val vfqn = s.value
-      if (acc.contains(vfqn) || vfqn == WellKnownTypes.typeFQN) acc.pure[CompilerIO]
-      else classifyValueRef(vfqn, s, acc)
-    case OperatorResolvedExpression.FunctionApplication(t, a)   =>
-      collectBindings(t.value, acc).flatMap(collectBindings(a.value, _))
-    case OperatorResolvedExpression.FunctionLiteral(_, _, body) =>
-      collectBindings(body.value, acc)
-    case _                                                      => acc.pure[CompilerIO]
-  }
+  ): CompilerIO[Map[ValueFQN, Binding]] =
+    OperatorResolvedExpression.foldValueReferences(expr, acc) { (map, name) =>
+      if (map.contains(name.value) || name.value == WellKnownTypes.typeFQN) map.pure[CompilerIO]
+      else classifyValueRef(name.value, name, map)
+    }
 
   private def classifyValueRef(
       vfqn: ValueFQN,
@@ -108,6 +102,8 @@ object AbilityMatcher {
       case Some(fact) =>
         fact.runtime match {
           case Some(body) =>
+            // Recurse into the fetched body to discover further references; the already-in-map check in
+            // `collectBindings` guards against cycles because we add the Body entry before recursing.
             collectBindings(body.value, acc + (vfqn -> Binding.Body(body)))
           case None       =>
             vfqn.name.qualifier match {
@@ -220,8 +216,45 @@ object AbilityMatcher {
         case (u, (pat, q)) => u.unify(pat, q, context)
       }.drain()
       if (unified.errors.nonEmpty) None
-      else Some(peeled.paramMetas.map { case (_, id) => metaToGround(id, unified.metaStore) })
+      else {
+        // For each impl type parameter meta, prefer its original query slot (walked structurally from the pattern
+        // tree alongside the raw GroundValue) so that data-type field naming is preserved verbatim. Fall back to
+        // quoting the metastore for cases we can't structurally trace (runtime-bodied aliases, etc.).
+        val traced: Map[MetaId, GroundValue] =
+          peeled.args.zip(queryArgs).flatMap { case (p, q) => tracePatternMetas(p, q) }.toMap
+        Some(peeled.paramMetas.map { case (_, id) =>
+          traced.getOrElse(id, metaToGround(id, unified.metaStore))
+        })
+      }
     }
+
+  /** Walk a pattern [[SemValue]] alongside the original query [[GroundValue]] that it was unified against, and
+    * record every [[MetaId]] → [[GroundValue]] pairing that appears at a structurally-aligned position.
+    *
+    * This preserves exact field naming on complex bindings: when an impl type parameter binds to a parameterised
+    * type (e.g. `A ↦ Pair[Int, String]`), reading the meta's solution back through the metastore would produce a
+    * positional `{$typeName, $0, $1}` structure instead of the original `{$typeName, first, second}`. Walking the
+    * query side in parallel lets us return the GroundValue that was already present on the call site.
+    */
+  private def tracePatternMetas(
+      pattern: SemValue,
+      query: GroundValue
+  ): Seq[(MetaId, GroundValue)] = pattern match {
+    case VMeta(id, Spine.SNil, _) =>
+      Seq(id -> query)
+    case VTopDef(fqn, _, spine)   =>
+      query match {
+        case GroundValue.Structure(fields, _) =>
+          fields.get("$typeName") match {
+            case Some(GroundValue.Direct(queryFqn: ValueFQN, _)) if queryFqn == fqn =>
+              val sortedArgFields = (fields - "$typeName").toSeq.sortBy(_._1).map(_._2)
+              spine.toList.zip(sortedArgFields).flatMap { case (s, g) => tracePatternMetas(s, g) }
+            case _                                                                  => Seq.empty
+          }
+        case _                                => Seq.empty
+      }
+    case _                        => Seq.empty
+  }
 
   private def attemptSigCompat(
       setup: Setup,
