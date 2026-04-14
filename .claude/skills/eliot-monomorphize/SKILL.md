@@ -1,20 +1,20 @@
 ---
-name: eliot-monomorphize3
-description: Use when editing, debugging, or reasoning about code under `lang/src/com/vanillasource/eliot/eliotc/monomorphize3/` — the NbE (Normalisation by Evaluation) type checker for Eliot. Covers the semantic domain (SemValue), the bidirectional checker, the evaluator, pattern unification, and the TypeStackLoop that processes type stacks uniformly without any concept of "generic parameters."
+name: eliot-monomorphize
+description: Use when editing, debugging, or reasoning about code under `lang/src/com/vanillasource/eliot/eliotc/monomorphize/` — the NbE (Normalisation by Evaluation) type checker for Eliot. Covers the semantic domain (SemValue), the bidirectional checker, the evaluator, pattern unification, and the TypeStackLoop that processes type stacks uniformly without any concept of "generic parameters."
 ---
 
-# monomorphize3: NbE type checker
+# monomorphize: NbE type checker
 
 ## Scope of this skill
 
 This skill governs all code under:
 
 ```
-lang/src/com/vanillasource/eliot/eliotc/monomorphize3/
+lang/src/com/vanillasource/eliot/eliotc/monomorphize/
 ├── fact/
 │   ├── GroundValue.scala              (output: Direct, Structure, Type)
-│   ├── Monomorphic3Value.scala        (output fact: signature + runtime)
-│   ├── Monomorphic3Expression.scala   (output expression ADT)
+│   ├── MonomorphicValue.scala         (output fact: signature + runtime)
+│   ├── MonomorphicExpression.scala    (output expression ADT)
 │   └── NativeBinding.scala            (CompilerFact: vfqn → SemValue)
 ├── domain/
 │   ├── SemValue.scala                 (VType, VConst, VLam, VPi, VNative,
@@ -28,18 +28,19 @@ lang/src/com/vanillasource/eliot/eliotc/monomorphize3/
 │   ├── SystemNativesProcessor.scala   (Function → VPi, Type → VType)
 │   ├── DataTypeNativesProcessor.scala (data decls → VNative chains → VConst)
 │   ├── UserValueNativesProcessor.scala(user defs → VTopDef with lazy thunk)
-│   └── Monomorphic3Processor.scala    (entry point, delegates to TypeStackLoop)
+│   └── MonomorphicTypeCheckProcessor.scala (entry point, delegates to TypeStackLoop)
 ├── unify/
 │   └── Unifier.scala                  (pattern unification + postponement)
 └── check/
     ├── Checker.scala                  (bidirectional check/infer)
+    ├── CheckIO.scala
     ├── CheckState.scala               (env, nameLevels, unifier)
     └── TypeStackLoop.scala            (uniform top-down fold over type stack)
 ```
 
-and its sibling tests under `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize3/`.
+and its sibling tests under `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/`.
 
-`monomorphize3` is **independent** of `monomorphize` and `monomorphize2`. Do not touch those packages when the task is about `monomorphize3`, and do not try to unify them.
+`monomorphize` is the sole monomorphic type-checker package. The prior experimental siblings (`monomorphize2`, `monomorphize3`) have been deleted; this package was promoted from `monomorphize3`.
 
 ## How NbE works
 
@@ -90,7 +91,7 @@ Both are applicable: `apply(VLam(_, c), x)` invokes the closure; `apply(VPi(_, c
 
 ### Entry point
 
-`Monomorphic3Processor.generateFromKeyAndFact` delegates to `TypeStackLoop.process`.
+`MonomorphicTypeCheckProcessor.generateFromKeyAndFact` delegates to `TypeStackLoop.process`.
 
 ### NativeBinding injection
 
@@ -156,7 +157,7 @@ Two quoting paths exist:
 
 2. **The evaluator produces VLam; the Checker produces VPi.** Do not produce VPi in the evaluator. Do not produce VLam in the Checker when checking against VType (that should be VPi). The `Function` native is a VNative that fires to produce VPi.
 
-3. **No ORE rewriting.** ORE is read once into `SemValue` and then forgotten. There is no `substitute(ore, name, replacement)` anywhere in monomorphize3. All substitution happens via closure application.
+3. **No ORE rewriting.** ORE is read once into `SemValue` and then forgotten. There is no `substitute(ore, name, replacement)` anywhere in monomorphize. All substitution happens via closure application.
 
 4. **No constraint set.** There is no list of `Constraint(left, right)` objects. Unification happens immediately and locally when the checker encounters a type mismatch between inferred and expected.
 
@@ -172,7 +173,7 @@ Two quoting paths exist:
 
 **"Cannot quote lambda"** from `Quoter`. A `VLam` survived to quoting time. This means a polymorphic value wasn't fully instantiated. Check that `TypeStackLoop.instantiateRemaining` peels all `VLam` closures after applying explicit type args.
 
-**Wrong type for a generic value.** Check `fetchEvaluatedSignature` in `Monomorphic3Processor` — it evaluates only the last level of the type stack (via `foldLeft` that discards intermediate results). The signature `SemValue` should be a `VLam` for generic values. Then `applyTypeArgs` in `TypeStackLoop` applies explicit type args and `instantiateRemaining` handles the rest.
+**Wrong type for a generic value.** Check `fetchEvaluatedSignature` in `MonomorphicTypeCheckProcessor` — it evaluates only the last level of the type stack (via `foldLeft` that discards intermediate results). The signature `SemValue` should be a `VLam` for generic values. Then `applyTypeArgs` in `TypeStackLoop` applies explicit type args and `instantiateRemaining` handles the rest.
 
 **Meta not solved.** After `drain()`, unsolved metas fall back to `GroundValue.Type` via `forceAndConst`'s fallback case. If this produces wrong types, the unifier likely postponed a constraint that should have been solved. Check that `solveMeta` handles the empty-spine case correctly.
 
@@ -181,7 +182,7 @@ Two quoting paths exist:
 - **Inspecting ORE to count or classify type parameters.** No `extractLeadingLambdaParams`, no `TypeParameterAnalysis`, no "how many type parameters does this value have?" question. The type stack fold is uniform.
 - **Producing `VPi` in the evaluator.** The evaluator always produces `VLam` for `FunctionLiteral`. Only the Checker and the `Function` native produce `VPi`.
 - **Producing `VLam` in the Checker when the expected type is `VType`.** That should be `VPi`. A `FunctionLiteral` checked against `VType` is a type expression (dependent product), not a runtime lambda.
-- **ORE substitution inside monomorphize3.** There is no `OperatorResolvedExpression.substitute` call anywhere. All binding is via closure capture in Scala.
+- **ORE substitution inside monomorphize.** There is no `OperatorResolvedExpression.substitute` call anywhere. All binding is via closure capture in Scala.
 - **Calling `CompilerIO` from the evaluator.** The evaluator is synchronous and pure. All IO (fact fetching) must be done before evaluation via pre-fetching.
 - **Adding a constraint list or worklist.** Unification is immediate and local, not deferred. The only "deferred" mechanism is the unifier's `postponed` queue for non-pattern meta spines.
 - **Eagerly allocating metas for type parameters at `ValueReference`.** Implicit instantiation is driven lazily by `FunctionApplication` / `instantiatePolymorphic` / `instantiateRemaining`, not by peeking at the referenced value's structure.
@@ -194,20 +195,20 @@ Two quoting paths exist:
 
 Tests live at:
 
-- `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize3/processor/Monomorphic3ProcessorTest.scala`
-- `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize3/processor/Monomorphic3TypeCheckTest.scala`
+- `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/processor/MonomorphicTypeCheckProcessorTest.scala`
+- `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/processor/MonomorphicTypeCheckTest.scala`
 
 Run them:
 
 ```bash
-./mill lang.test 2>&1 | grep -v DEBUG | grep "Monomorphic3"
+./mill lang.test 2>&1 | grep -v DEBUG | grep "MonomorphicTypeCheck"
 ```
 
 Tests construct source text inline. Follow the project testing conventions: single-line asserts, assert the `Seq` itself, prefer `.asserting(_ ...)`.
 
 ## Facts and keys
 
-- `Monomorphic3Value.Key(vfqn, specifiedTypeArguments)` — composite key. Same `vfqn` + different type args → different specialization.
-- `Monomorphic3Value` fields: `vfqn`, `specifiedTypeArguments`, `signature: GroundValue`, `runtime: Option[Sourced[Monomorphic3Expression.Expression]]`. No `calculatedTypeArguments` — NbE folds them into the signature directly.
+- `MonomorphicValue.Key(vfqn, specifiedTypeArguments)` — composite key. Same `vfqn` + different type args → different specialization.
+- `MonomorphicValue` fields: `vfqn`, `specifiedTypeArguments`, `signature: GroundValue`, `runtime: Option[Sourced[MonomorphicExpression.Expression]]`. No `calculatedTypeArguments` — NbE folds them into the signature directly.
 - `NativeBinding.Key(vfqn)` — maps a value FQN to its `SemValue` for the NbE evaluator.
-- `Monomorphic3Expression.expressionType: GroundValue` — always fully ground, no free variables or unsolved metas.
+- `MonomorphicExpression.expressionType: GroundValue` — always fully ground, no free variables or unsolved metas.
