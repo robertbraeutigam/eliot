@@ -398,7 +398,7 @@ class MonomorphicTypeCheckTest
 
   it should "accept type-level function calls that are not Type types" in {
     runForErrors(
-      "def g(x: String): String = x\ndata Box[X: String](value: String)\ndef f[G: String](value: String): Box(g(G)) = Box[G](value)",
+      "def g(x: String): String = x\ndata Box[X: String](value: String)\ndef f[G: String](value: String): Box[g(G)] = Box[G](value)",
       typeArgs = Seq(GroundValue.Direct("STR", stringType))
     ).asserting(_ shouldBe Seq.empty)
   }
