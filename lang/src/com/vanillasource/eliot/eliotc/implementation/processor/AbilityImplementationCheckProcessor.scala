@@ -1,10 +1,11 @@
 package com.vanillasource.eliot.eliotc.implementation.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression
 import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression.*
 import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementationCheck
+import com.vanillasource.eliot.eliotc.implementation.fact.ModuleAbilityOverlapCheck
 import com.vanillasource.eliot.eliotc.implementation.util.TypeExpressionEvaluator
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
@@ -25,6 +26,14 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       Set(abilityFQN.moduleName) ++ typeArguments.flatMap(collectModuleNames)
 
     for {
+      // Trigger the per-module overlap check eagerly for every module that could contain an impl of
+      // this ability. The fact is cached per (module, abilityName), so the actual overlap scan runs
+      // at most once per pair across the whole compilation regardless of how many call sites hit it.
+      // `getFact` (not `getFactOrAbort`) — if no overlap processor is registered in the current
+      // pipeline (some unit tests exclude it), skip the check silently rather than abort.
+      _              <- candidateModules.toSeq.traverse_(m =>
+                          getFact(ModuleAbilityOverlapCheck.Key(m, abilityFQN.abilityName)).void
+                        )
       abilityMethods <- collectAbilityMethods(abilityFQN)
       implMethods    <- candidateModules.toSeq.flatTraverse(collectImplMethods(_, abilityFQN, typeArguments))
       _              <- implMethods match {

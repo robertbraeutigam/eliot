@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.module.fact
 
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 
 object WellKnownTypes {

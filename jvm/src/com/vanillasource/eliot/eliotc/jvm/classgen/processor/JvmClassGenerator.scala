@@ -2,7 +2,8 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{Expression => CoreExpression, QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{Expression => CoreExpression}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createClassGenerator

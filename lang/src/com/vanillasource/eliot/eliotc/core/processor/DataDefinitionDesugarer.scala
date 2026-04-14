@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   Expression as SourceExpression,
   Pattern as SourcePattern
 }
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Desugars data definitions into synthetic FunctionDefinitions. Works entirely in the source AST domain.

@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{Qualifier => CoreQualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier => CoreQualifier}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.{Env, MetaStore, SemValue}
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}

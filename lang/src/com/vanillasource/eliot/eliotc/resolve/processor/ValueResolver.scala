@@ -8,13 +8,17 @@ import com.vanillasource.eliot.eliotc.core.fact.{
   TypeStack,
   Expression as CoreExpression,
   Pattern as CorePattern,
-  PrecedenceDeclaration as CorePrecedenceDeclaration,
-  QualifiedName as CoreQualifiedName,
-  Qualifier as CoreQualifier
+  PrecedenceDeclaration as CorePrecedenceDeclaration
 }
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.typeFQN
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleValue, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{
+  ModuleName,
+  UnifiedModuleValue,
+  ValueFQN,
+  QualifiedName as CoreQualifiedName,
+  Qualifier as CoreQualifier
+}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.*

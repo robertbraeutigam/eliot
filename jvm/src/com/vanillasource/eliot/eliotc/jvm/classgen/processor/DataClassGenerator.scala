@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import cats.effect.Sync
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addMonomorphicDataFieldsAndCtor, valueType}

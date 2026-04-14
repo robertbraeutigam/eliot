@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.implementation.util
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression
 import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression.*
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}

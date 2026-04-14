@@ -5,10 +5,10 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.compiler.FactGenerator
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
-import com.vanillasource.eliot.eliotc.implementation.processor.{AbilityImplementationCheckProcessor, AbilityImplementationProcessor}
+import com.vanillasource.eliot.eliotc.implementation.processor.{AbilityImplementationCheckProcessor, AbilityImplementationProcessor, ModuleAbilityOverlapCheckProcessor}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.{ModuleNamesProcessor, ModuleValueProcessor, UnifiedModuleNamesProcessor, UnifiedModuleValueProcessor}
@@ -56,6 +56,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       OperatorResolverProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
+      ModuleAbilityOverlapCheckProcessor(),
       SystemNativesProcessor(),
       DataTypeNativesProcessor(),
       UserValueNativesProcessor(),

@@ -3,11 +3,12 @@ package com.vanillasource.eliot.eliotc.implementation
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.implementation.processor.{
   AbilityImplementationCheckProcessor,
-  AbilityImplementationProcessor
+  AbilityImplementationProcessor,
+  ModuleAbilityOverlapCheckProcessor
 }
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.{
@@ -42,6 +43,7 @@ class AbilityImplementationCheckProcessorTest
       OperatorResolverProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
+      ModuleAbilityOverlapCheckProcessor(),
       SystemNativesProcessor(),
       DataTypeNativesProcessor(),
       UserValueNativesProcessor(),
@@ -126,6 +128,34 @@ class AbilityImplementationCheckProcessorTest
       "ability Marker[A]\ndata Int\nimplement Marker[Int]\ndef f[A ~ Marker](x: A): A",
       Seq(intType)
     ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "report overlap at definition time when two impls of the same ability have unifiable patterns" in {
+    // Two impls of Show both for Int → their marker signatures unify → overlap.
+    // The error fires at the impls, not at the call site.
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
+    ).asserting(errors =>
+      errors.count(_.message.contains("Overlapping ability implementation")) shouldBe 2
+    )
+  }
+
+  it should "report overlap when one impl's pattern generalises another's" in {
+    // `Show[Box[A]]` and `Show[Box[Int]]` both match `Show[Box[Int]]` → overlap at definition time.
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndata Int\ndata Box[A]\nimplement[A] Show[Box[A]] { def show(x: Box[A]): Box[A] = x }\nimplement Show[Box[Int]] { def show(x: Box[Int]): Box[Int] = x }\ndef f(x: Box[Int]): Box[Int] = show(x)"
+    ).asserting(errors =>
+      errors.count(_.message.contains("Overlapping ability implementation")) shouldBe 2
+    )
+  }
+
+  it should "not report overlap for impls of the same ability on distinct type constructors" in {
+    // `Show[Int]` and `Show[Bool]` don't overlap structurally.
+    runEngineForErrors(
+      "ability Show[A] { def show(x: A): A }\ndata Int\ndata Bool\nimplement Show[Int] { def show(x: Int): Int = x }\nimplement Show[Bool] { def show(x: Bool): Bool = x }\ndef f(x: Int): Int = show(x)"
+    ).asserting(errors =>
+      errors.count(_.message.contains("Overlapping ability implementation")) shouldBe 0
+    )
   }
 
   it should "dispatch to the right impl when two impls of the same ability coexist in one module" in {

@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.fact.{Fixity, Visibility}
 import com.vanillasource.eliot.eliotc.core.fact
 import com.vanillasource.eliot.eliotc.core.fact.Expression.structuralEquality
+import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The core AST unifies data and functions into "names values". I.e. everything is a value, even types and functions.

@@ -1,7 +1,8 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier, TypeStack}
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.implementation.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*

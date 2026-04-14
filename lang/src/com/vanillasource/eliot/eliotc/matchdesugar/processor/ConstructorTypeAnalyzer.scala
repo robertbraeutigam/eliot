@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
-import com.vanillasource.eliot.eliotc.core.fact.{Expression => CoreExpression, QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.{Expression => CoreExpression}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleValue
 
 object ConstructorTypeAnalyzer {

@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition
 import NativeType.{systemAnyValue, systemFunctionValue}
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 
 object CommonPatterns {
 

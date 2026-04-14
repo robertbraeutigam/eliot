@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.core.fact.QualifiedName
+import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** A monomorphized (specialized) value with all type parameters instantiated to concrete types via NbE.

@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.stdlib.plugin
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*

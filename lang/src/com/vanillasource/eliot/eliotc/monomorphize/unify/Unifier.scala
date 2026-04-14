@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.unify
 
-import com.vanillasource.eliot.eliotc.core.fact.Qualifier
+import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator

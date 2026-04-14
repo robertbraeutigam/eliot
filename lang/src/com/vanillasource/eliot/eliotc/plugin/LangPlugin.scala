@@ -5,7 +5,8 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.implementation.processor.{
   AbilityImplementationCheckProcessor,
-  AbilityImplementationProcessor
+  AbilityImplementationProcessor,
+  ModuleAbilityOverlapCheckProcessor
 }
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
@@ -77,6 +78,7 @@ class LangPlugin extends CompilerPlugin {
             OperatorResolverProcessor(),
             AbilityImplementationProcessor(),
             AbilityImplementationCheckProcessor(),
+            ModuleAbilityOverlapCheckProcessor(),
             SystemNativesProcessor(),
             DataTypeNativesProcessor(),
             UserValueNativesProcessor(),

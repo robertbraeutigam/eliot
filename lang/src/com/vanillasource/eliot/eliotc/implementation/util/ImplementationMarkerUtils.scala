@@ -1,7 +1,8 @@
 package com.vanillasource.eliot.eliotc.implementation.util
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{Expression, QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.core.fact.Expression
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced

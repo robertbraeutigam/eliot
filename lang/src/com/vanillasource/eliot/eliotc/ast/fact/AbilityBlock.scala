@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.ast.parser.Parser.{
   recoveringAtLeastOnce
 }
 import com.vanillasource.eliot.eliotc.ast.parser.{Parser, ParserError}
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 
@@ -31,8 +31,8 @@ object AbilityBlock {
               .optional()
               .map(_.getOrElse(Seq.empty, Seq.empty))
         } yield {
-          val gpName     = commonGenericParameters.head.name
-          val gpTypeExpr = gpName.as(Expression.FunctionApplication(None, gpName, Seq.empty, Seq.empty))
+          def gpTypeExpr(gp: GenericParameter): Sourced[Expression] =
+            gp.name.as(Expression.FunctionApplication(None, gp.name, Seq.empty, Seq.empty))
           (
             errors,
             functions.map(f =>
@@ -47,13 +47,17 @@ object AbilityBlock {
                 visibility = Visibility.Public
               )
             ) :+
-              // We add a default/invisible function/value to just indicate that this ability exists, even if it is empty.
-              // It is named as the ability (upper case) and uses no additional type dependencies: Ability(a: A): A
+              // Synthetic marker that indicates the ability exists and encodes its generic parameters.
+              // For `ability Foo[A, B]` we emit `Foo(arg0: A, arg1: B): A` — one argument per common
+              // generic, mirroring the shape of implementation markers so marker-based dispatch stays
+              // consistent across ability and implementation namespaces.
               FunctionDefinition(
                 name.as(QualifiedName(name.value.content, Qualifier.Ability(name.value.content))),
                 commonGenericParameters,
-                Seq(ArgumentDefinition(name.as("arg"), gpTypeExpr)),
-                gpTypeExpr,
+                commonGenericParameters.zipWithIndex.map { case (gp, i) =>
+                  ArgumentDefinition(name.as(s"arg$i"), gpTypeExpr(gp))
+                },
+                gpTypeExpr(commonGenericParameters.head),
                 None
               )
           )

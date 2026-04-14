@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.operator.processor
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, ModuleName as ModuleName2}
 import com.vanillasource.eliot.eliotc.module.processor.*

@@ -11,6 +11,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
 }
 import com.vanillasource.eliot.eliotc.core.fact.Expression.*
 import com.vanillasource.eliot.eliotc.core.fact.*
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Converts source AST expressions, types, and patterns into core AST expressions. All methods are pure, stateless

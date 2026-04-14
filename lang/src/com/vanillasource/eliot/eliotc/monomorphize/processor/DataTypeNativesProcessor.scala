@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.Qualifier
+import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.functionDataTypeFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*

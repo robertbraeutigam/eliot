@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemLangType
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName

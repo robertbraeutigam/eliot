@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.jvm.plugin
 
 import cats.data.StateT
 import cats.effect.IO
-import com.vanillasource.eliot.eliotc.core.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
 import com.vanillasource.eliot.eliotc.jvm.jargen.{GenerateExecutableJar, JvmProgramGenerator}

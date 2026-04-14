@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.ast.processor
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.fact.{AST, Expression, Fixity, SourceAST}
-import com.vanillasource.eliot.eliotc.core.fact.Qualifier
+import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
