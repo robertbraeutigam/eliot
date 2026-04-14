@@ -17,7 +17,7 @@ object CommonPatterns {
       case _                               =>
         v.typeFQN match {
           case Some(vfqn) if vfqn =!= WellKnownTypes.typeFQN => stripDataTypeSuffix(vfqn)
-          case _                                    => systemAnyValue
+          case _                                             => systemAnyValue
         }
     }
 

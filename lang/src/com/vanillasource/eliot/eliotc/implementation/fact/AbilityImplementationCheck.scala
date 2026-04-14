@@ -10,5 +10,6 @@ case class AbilityImplementationCheck(abilityFQN: AbilityFQN, typeArguments: Seq
 }
 
 object AbilityImplementationCheck {
-  case class Key(abilityFQN: AbilityFQN, typeArguments: Seq[GroundValue]) extends CompilerFactKey[AbilityImplementationCheck]
+  case class Key(abilityFQN: AbilityFQN, typeArguments: Seq[GroundValue])
+      extends CompilerFactKey[AbilityImplementationCheck]
 }

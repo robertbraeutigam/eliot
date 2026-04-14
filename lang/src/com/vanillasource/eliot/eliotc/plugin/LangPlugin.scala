@@ -16,6 +16,7 @@ import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProc
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   DataTypeNativesProcessor,
   MonomorphicTypeCheckProcessor,
+  StdlibNativesProcessor,
   SystemNativesProcessor,
   UserValueNativesProcessor
 }
@@ -76,6 +77,7 @@ class LangPlugin extends CompilerPlugin {
             AbilityImplementationCheckProcessor(),
             SystemNativesProcessor(),
             DataTypeNativesProcessor(),
+            StdlibNativesProcessor(),
             UserValueNativesProcessor(),
             MonomorphicTypeCheckProcessor(),
             UsedNamesProcessor(),

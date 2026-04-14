@@ -109,9 +109,9 @@ object Evaluator {
     * GroundValue structures.
     */
   def semToGround(v: SemValue): GroundValue = v match {
-    case VConst(g)                          => g
-    case VType                              => GroundValue.Type
-    case VPi(domain, codomain)              =>
+    case VConst(g)                       => g
+    case VType                           => GroundValue.Type
+    case VPi(domain, codomain)           =>
       val domGround = semToGround(domain)
       val codGround = semToGround(codomain(VNeutral(NeutralHead.VVar(0, "$quote"), Spine.SNil, VType)))
       GroundValue.Structure(
@@ -122,17 +122,17 @@ object Evaluator {
         ),
         GroundValue.Type
       )
-    case VTopDef(fqn, None, spine)          =>
+    case VTopDef(fqn, None, spine)       =>
       val fields = spine.toList.zipWithIndex.map { (arg, i) => s"$$$i" -> semToGround(arg) }.toMap
       GroundValue.Structure(
         Map("$typeName" -> GroundValue.Direct(fqn, GroundValue.Type)) ++ fields,
         GroundValue.Type
       )
-    case VTopDef(_, Some(cached), spine)    =>
+    case VTopDef(_, Some(cached), spine) =>
       val base   = cached.value
       val result = spine.toList.foldLeft(base)(applyValue)
       semToGround(result)
-    case _                                  => GroundValue.Type
+    case _                               => GroundValue.Type
   }
 
   /** Ground type for BigInteger values (used by eval for IntegerLiteral). */

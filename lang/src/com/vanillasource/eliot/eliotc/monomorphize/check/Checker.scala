@@ -16,10 +16,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   *   - `check(tm, expected)` checks a term against a known type.
   *   - `infer(tm)` infers a term's type.
   *
-  * The checker produces [[SemExpression]]s with [[SemValue]] in every type slot. All ground-type conversion is
-  * deferred to a post-drain pass in [[TypeStackLoop]], using [[com.vanillasource.eliot.eliotc.monomorphize.eval.
-  * Quoter]]. This avoids any silent "default to Type" behaviour for unsolved metas — they surface as explicit errors
-  * at quoting time.
+  * The checker produces [[SemExpression]]s with [[SemValue]] in every type slot. All ground-type conversion is deferred
+  * to a post-drain pass in [[TypeStackLoop]], using [[com.vanillasource.eliot.eliotc.monomorphize.eval. Quoter]]. This
+  * avoids any silent "default to Type" behaviour for unsolved metas — they surface as explicit errors at quoting time.
   */
 class Checker(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
@@ -65,9 +64,9 @@ class Checker(
   /** Allocate a fresh metavariable. */
   private[check] def freshMeta: CheckIO[VMeta] =
     for {
-      s                    <- get
-      (metaId, freshStore)  = s.unifier.metaStore.fresh
-      _                    <- modify(_.withUnifier(s.unifier.copy(metaStore = freshStore)))
+      s                   <- get
+      (metaId, freshStore) = s.unifier.metaStore.fresh
+      _                   <- modify(_.withUnifier(s.unifier.copy(metaStore = freshStore)))
     } yield VMeta(metaId, Spine.SNil, VType)
 
   /** Check a term against a known expected type. */
@@ -247,10 +246,10 @@ class Checker(
                     // are accumulated in `implicitTypeArgs` and baked into the target ref once — at the VPi
                     // endpoint of the recursion.
                     for {
-                      meta       <- freshMeta
-                      nextType    = closure(meta)
-                      nextTarget  = targetExpr.copy(expressionType = nextType)
-                      result     <- applyInferred(target, nextTarget, nextType, arg, whole, implicitTypeArgs :+ meta)
+                      meta      <- freshMeta
+                      nextType   = closure(meta)
+                      nextTarget = targetExpr.copy(expressionType = nextType)
+                      result    <- applyInferred(target, nextTarget, nextType, arg, whole, implicitTypeArgs :+ meta)
                     } yield result
 
                   case _ =>
@@ -282,8 +281,8 @@ class Checker(
         case _                                 => expr
       }
 
-  /** Fetch all NativeBindings referenced by ValueReferences in an ORE into the cache. Called automatically by
-    * evalExpr before evaluation.
+  /** Fetch all NativeBindings referenced by ValueReferences in an ORE into the cache. Called automatically by evalExpr
+    * before evaluation.
     */
   private def fetchBindings(ore: OperatorResolvedExpression): CheckIO[Unit] = ore match {
     case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)      =>

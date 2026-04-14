@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.unify
 
+import com.vanillasource.eliot.eliotc.core.fact.Qualifier
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
@@ -67,6 +68,12 @@ case class Unifier(
       // VTopDef equality by FQN
       case (VTopDef(fqn1, _, sp1), VTopDef(fqn2, _, sp2)) if fqn1 == fqn2 =>
         unifySpines(fl, fr, sp1, sp2, context)
+
+      // Abstract ability type: a `type X` declaration inside an `ability` block has no body and is qualified with
+      // Qualifier.Ability. Its concrete value is provided by the ability implementation and is resolved post-drain.
+      // During check we treat such references as flexible so calls can type-check before the impl is chosen.
+      case (VTopDef(fqn, None, _), _) if isAbstractAbilityType(fqn)       => this
+      case (_, VTopDef(fqn, None, _)) if isAbstractAbilityType(fqn)       => this
 
       case _ =>
         addMismatch(fl, fr, context)
@@ -152,6 +159,15 @@ case class Unifier(
 
   private[monomorphize] def addError(context: Sourced[String]): Unifier =
     copy(errors = UnifyError(context, None, None) :: errors)
+
+  /** True when the FQN refers to a declaration inside an ability block whose name starts with an uppercase letter,
+    * indicating an associated type rather than an abstract method.
+    */
+  private def isAbstractAbilityType(fqn: com.vanillasource.eliot.eliotc.module.fact.ValueFQN): Boolean =
+    fqn.name.qualifier match {
+      case _: Qualifier.Ability => fqn.name.name.headOption.exists(_.isUpper)
+      case _                    => false
+    }
 
   /** Structural equality for ground values. */
   private def groundEquals(g1: GroundValue, g2: GroundValue): Boolean = (g1, g2) match {

@@ -75,9 +75,9 @@ class PostDrainQuoter(
 
     case SemExpression.ValueReference(vfqn, explicitArgs, implicitArgs) =>
       for {
-        explicit <- explicitArgs.traverse(a => quoteSem(a, vfqn))
+        explicit  <- explicitArgs.traverse(a => quoteSem(a, vfqn))
         implicits <- implicitArgs.traverse(a => quoteSem(a, vfqn))
-        resolved <- resolveIfAbility(vfqn, explicit, implicits)
+        resolved  <- resolveIfAbility(vfqn, explicit, implicits)
       } yield resolved
 
   }
@@ -110,8 +110,10 @@ class PostDrainQuoter(
             MonomorphicExpression.MonomorphicValueReference(vfqn, explicitArgs ++ implicitArgs)
         }
       case _                                  =>
-        (MonomorphicExpression.MonomorphicValueReference(vfqn, explicitArgs ++ implicitArgs)
-          : MonomorphicExpression.Expression).pure[CompilerIO]
+        (MonomorphicExpression.MonomorphicValueReference(
+          vfqn,
+          explicitArgs ++ implicitArgs
+        ): MonomorphicExpression.Expression).pure[CompilerIO]
     }
 
   private def findConstraintParam(abilityName: String): Option[(String, Seq[OperatorResolvedExpression])] =

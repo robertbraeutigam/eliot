@@ -22,8 +22,8 @@ object TypeStackLoop {
       resolvedValue: OperatorResolvedValue,
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
       fetchValueType: ValueFQN => CompilerIO[Option[SemValue]],
-      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] =
-        (_, _) => None.pure[CompilerIO]
+      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] = (_, _) =>
+        None.pure[CompilerIO]
   ): CompilerIO[MonomorphicValue] = {
     val checker = new Checker(fetchBinding, fetchValueType)
     processIO(checker, key, resolvedValue, resolveAbility).runA(CheckState.initial)
@@ -49,9 +49,13 @@ object TypeStackLoop {
                  }
 
       // Drain unifier and report any unification errors
-      _     <- modify(s => s.withUnifier(s.unifier.drain()))
-      state <- get
-      _     <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
+      _       <- modify(s => s.withUnifier(s.unifier.drain()))
+      // Default any unsolved metas to VType. These are "phantom" type parameters whose values never get constrained
+      // (e.g., a generic parameter that doesn't appear in the signature besides its declaration). Leaving them
+      // unsolved would fail strict quoting; defaulting to VType matches the pre-NbE behaviour for such params.
+      _       <- modify(s => s.withUnifier(defaultUnsolvedMetas(s.unifier)))
+      state   <- get
+      _       <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
 
       // If unification had errors, abort before quoting — no meaningful MonomorphicValue can be produced.
       _ <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
@@ -76,9 +80,9 @@ object TypeStackLoop {
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
 
-  /** Emit a [[UnifyError]] as a compiler error, including `Expected` / `Actual` hints when the error carries both sides.
-    * The semantic values are re-forced through the final metastore so any metas that were solved after the error was
-    * raised display their resolution.
+  /** Emit a [[UnifyError]] as a compiler error, including `Expected` / `Actual` hints when the error carries both
+    * sides. The semantic values are re-forced through the final metastore so any metas that were solved after the error
+    * was raised display their resolution.
     */
   private def reportUnifyError(err: UnifyError, state: CheckState): CompilerIO[Unit] =
     compilerError(err.context, describe(err, state))
@@ -92,6 +96,22 @@ object TypeStackLoop {
         )
       case _                              => Seq.empty
     }
+
+  /** After drain, solve any still-unsolved metavariables with [[VType]]. This handles phantom type parameters — metas
+    * introduced for type parameters that never get referenced or constrained (e.g. the `NAME` param of a generated
+    * `TypeMatch[Person[NAME]]` impl when matching `t match { case Person[n] -> ... }`). Leaving them unsolved would
+    * fail the strict post-drain quoter; they are semantically free to be any type.
+    */
+  private def defaultUnsolvedMetas(
+      unifier: com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier
+  ): com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier = {
+    val store          = unifier.metaStore
+    val defaultedStore = store.entries.foldLeft(store) {
+      case (acc, (id, None))   => acc.solve(SemValue.MetaId(id), VType)
+      case (acc, (_, Some(_))) => acc
+    }
+    unifier.copy(metaStore = defaultedStore)
+  }
 
   private def walkTypeStack(
       checker: Checker,
@@ -138,9 +158,7 @@ object TypeStackLoop {
                     case VLam(name, closure) =>
                       modify(_.bind(name, argVal)).as(closure(argVal))
                     case _                   =>
-                      modify(s =>
-                        s.withUnifier(s.unifier.addError(errorSource.as("Too many type arguments.")))
-                      ).as(sig)
+                      modify(s => s.withUnifier(s.unifier.addError(errorSource.as("Too many type arguments.")))).as(sig)
                   }
       } yield result
     }
