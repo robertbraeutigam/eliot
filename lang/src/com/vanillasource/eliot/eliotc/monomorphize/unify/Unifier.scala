@@ -69,12 +69,6 @@ case class Unifier(
       case (VTopDef(fqn1, _, sp1), VTopDef(fqn2, _, sp2)) if fqn1 == fqn2 =>
         unifySpines(fl, fr, sp1, sp2, context)
 
-      // Abstract ability type: a `type X` declaration inside an `ability` block has no body and is qualified with
-      // Qualifier.Ability. Its concrete value is provided by the ability implementation and is resolved post-drain.
-      // During check we treat such references as flexible so calls can type-check before the impl is chosen.
-      case (VTopDef(fqn, None, _), _) if isAbstractAbilityType(fqn)       => this
-      case (_, VTopDef(fqn, None, _)) if isAbstractAbilityType(fqn)       => this
-
       case _ =>
         addMismatch(fl, fr, context)
     }

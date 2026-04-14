@@ -1,12 +1,12 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -21,11 +21,15 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * avoids any silent "default to Type" behaviour for unsolved metas — they surface as explicit errors at quoting time.
   */
 class Checker(
-    fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-    fetchValueType: ValueFQN => CompilerIO[Option[SemValue]]
+    fetchBinding: ValueFQN => CompilerIO[Option[SemValue]]
 ) {
 
-  /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed. */
+  /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed.
+    *
+    * References to abstract associated ability types (`type X` inside `ability ...`, no body) are rewritten to a fresh
+    * [[VMeta]] on first access and cached in that form. The meta is solved post-drain by unifying against the concrete
+    * impl's corresponding associated-type value. One meta per (fqn, check-session).
+    */
   private def ensureBinding(vfqn: ValueFQN): CheckIO[Option[SemValue]] =
     for {
       cached <- inspect(_.bindingCache.get(vfqn))
@@ -33,10 +37,30 @@ class Checker(
                   case Some(value) => pure(value)
                   case None        =>
                     for {
-                      opt <- liftF(fetchBinding(vfqn))
-                      _   <- modify(_.cacheBinding(vfqn, opt))
-                    } yield opt
+                      opt      <- liftF(fetchBinding(vfqn))
+                      replaced <- opt match {
+                                    case Some(VTopDef(fqn, None, Spine.SNil)) if Checker.isAbstractAbilityType(fqn) =>
+                                      allocateAssociatedTypeMeta(fqn).map(Some(_))
+                                    case other                                                                      =>
+                                      pure(other)
+                                  }
+                      _        <- modify(_.cacheBinding(vfqn, replaced))
+                    } yield replaced
                 }
+    } yield result
+
+  /** Allocate or reuse the meta standing in for an abstract associated ability type. */
+  private def allocateAssociatedTypeMeta(fqn: ValueFQN): CheckIO[SemValue] =
+    for {
+      existing <- inspect(_.associatedTypeMetas.get(fqn))
+      result   <- existing match {
+                    case Some(id) => pure(VMeta(id, Spine.SNil, VType))
+                    case None     =>
+                      for {
+                        meta <- freshMeta
+                        _    <- modify(_.recordAssociatedTypeMeta(fqn, meta.id))
+                      } yield (meta: SemValue)
+                  }
     } yield result
 
   /** Create an evaluator from the current state. Pure — only reads cache and nameLevels. */
@@ -52,6 +76,25 @@ class Checker(
       _ <- fetchBindings(tm)
       s <- get
     } yield makeEvaluator(s).eval(s.env, tm)
+
+  /** Fetch a value's resolved form, pre-fetch all bindings referenced in its signature (so abstract associated ability
+    * types get intercepted into metas via [[ensureBinding]]), and evaluate the signature ORE against the Checker's own
+    * [[Evaluator]]. This path replaces the external `fetchValueType` callback so that the Checker's binding-intercept
+    * consistently covers signatures as well as runtime bodies.
+    */
+  private def fetchAndEvalSignature(vfqn: ValueFQN): CheckIO[Option[SemValue]] =
+    for {
+      orvOpt <- liftF(getFact(OperatorResolvedValue.Key(vfqn)))
+      result <- orvOpt match {
+                  case Some(orv) =>
+                    val sigOre = orv.typeStack.value.signature
+                    for {
+                      _ <- fetchBindings(sigOre)
+                      s <- get
+                    } yield Some(makeEvaluator(s).eval(Env.empty, sigOre))
+                  case None      => pure(None)
+                }
+    } yield result
 
   /** Force a SemValue through the current meta store. */
   private[check] def force(v: SemValue): CheckIO[SemValue] =
@@ -165,7 +208,7 @@ class Checker(
     case OperatorResolvedExpression.ValueReference(vfqn, typeArgs) =>
       for {
         _      <- ensureBinding(vfqn.value)
-        sigOpt <- liftF(fetchValueType(vfqn.value))
+        sigOpt <- fetchAndEvalSignature(vfqn.value)
         result <- sigOpt match {
                     case Some(sig) =>
                       for {
@@ -302,5 +345,18 @@ class Checker(
         case VPi(_, codomain) => codomain(VNeutral(NeutralHead.VVar(s.env.level, "$ret"), Spine.SNil, VType))
         case other            => other
       }
+    }
+}
+
+object Checker {
+
+  /** True when the FQN refers to a declaration inside an ability block whose name starts with an uppercase letter,
+    * indicating an associated type rather than an abstract method. Abstract associated types have no runtime body; the
+    * concrete value comes from the ability impl and is resolved post-drain.
+    */
+  def isAbstractAbilityType(fqn: ValueFQN): Boolean =
+    fqn.name.qualifier match {
+      case _: Qualifier.Ability => fqn.name.name.headOption.exists(_.isUpper)
+      case _                    => false
     }
 }

@@ -301,6 +301,60 @@ class AbilityImplementationCheckProcessorTest
     """).asserting(_ shouldBe Seq.empty)
   }
 
+  it should "resolve an abstract associated type to the impl's concrete value" in {
+    // An abstract `type X` inside an ability block is represented as a metavariable during check; the concrete
+    // type from the impl (`type X = String`) is unified into that meta via the associated-type-injection pass.
+    // If that pass were absent the meta would default to `Type` and the String literal argument would fail to
+    // type-check against it.
+    runEngineForErrors("""
+        data String
+        def someString: String
+
+        ability Assoc[T] {
+          type X
+          def handle(v: T, p: X): String
+        }
+
+        data Name(n: String)
+
+        implement Assoc[Name] {
+          type X = String
+          def handle(v: Name, p: X): String = someString
+        }
+
+        def f: String = handle(Name(someString), someString)
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject an argument whose type contradicts the impl's associated type" in {
+    // `Assoc[Name]`'s impl defines `X = String`. Calling `handle(Name(...), someInt)` supplies an Int where the
+    // impl says X must be String. Without the associated-type-injection pass (or with the old flex-accept
+    // escape hatch) this would silently type-check; with the pass, the meta is solved to Int by the call site
+    // and then to String by the impl — they conflict, producing a type error at the call.
+    runEngineForErrors("""
+        data String
+        data Int
+        def someString: String
+        def someInt: Int
+
+        ability Assoc[T] {
+          type X
+          def handle(v: T, p: X): String
+        }
+
+        data Name(n: String)
+
+        implement Assoc[Name] {
+          type X = String
+          def handle(v: Name, p: X): String = someString
+        }
+
+        def f: String = handle(Name(someString), someInt)
+    """).asserting(errors =>
+      errors.exists(e => e.message.contains("Associated type")) shouldBe true
+    )
+  }
+
   private val intType: GroundValue =
     GroundValue.Structure(
       Map(

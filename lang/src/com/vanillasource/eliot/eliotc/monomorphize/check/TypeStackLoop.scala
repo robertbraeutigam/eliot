@@ -1,10 +1,11 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
+import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
 import com.vanillasource.eliot.eliotc.monomorphize.unify.{SemValuePrinter, UnifyError}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
@@ -21,18 +22,18 @@ object TypeStackLoop {
       key: MonomorphicValue.Key,
       resolvedValue: OperatorResolvedValue,
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-      fetchValueType: ValueFQN => CompilerIO[Option[SemValue]],
       resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] = (_, _) =>
         None.pure[CompilerIO]
   ): CompilerIO[MonomorphicValue] = {
-    val checker = new Checker(fetchBinding, fetchValueType)
-    processIO(checker, key, resolvedValue, resolveAbility).runA(CheckState.initial)
+    val checker = new Checker(fetchBinding)
+    processIO(checker, key, resolvedValue, fetchBinding, resolveAbility).runA(CheckState.initial)
   }
 
   private def processIO(
       checker: Checker,
       key: MonomorphicValue.Key,
       resolvedValue: OperatorResolvedValue,
+      fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
       resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
   ): CheckIO[MonomorphicValue] =
     for {
@@ -49,6 +50,11 @@ object TypeStackLoop {
                  }
 
       // Drain unifier and report any unification errors
+      _       <- modify(s => s.withUnifier(s.unifier.drain()))
+      // Inject solutions for associated-type metas from resolved ability impls, then re-drain. This closes the
+      // soundness loop: an abstract `type X` inside an ability becomes a meta during check, and when an ability
+      // call resolves to a concrete impl, the impl's `type X = Concrete` value unifies into that meta.
+      _       <- runtime.traverse_(r => injectAssociatedTypeSolutions(r.value, resolveAbility, fetchBinding))
       _       <- modify(s => s.withUnifier(s.unifier.drain()))
       // Default any unsolved metas to VType. These are "phantom" type parameters whose values never get constrained
       // (e.g., a generic parameter that doesn't appear in the signature besides its declaration). Leaving them
@@ -79,6 +85,110 @@ object TypeStackLoop {
       groundSig,
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
+
+  /** Walk a [[SemExpression]] tree and unify each abstract associated-type meta against the concrete impl's
+    * corresponding associated-type value. For every ability-qualified value reference encountered, the method resolves
+    * the call to its impl and — for each associated-type meta registered in [[CheckState]] whose ability name matches
+    * the ref's qualifier — fetches the impl's concrete value (same local name, impl's module, impl's
+    * AbilityImplementation qualifier) and unifies it into the meta.
+    */
+  private def injectAssociatedTypeSolutions(
+      expr: SemExpression,
+      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+      fetchBinding: ValueFQN => CompilerIO[Option[SemValue]]
+  ): CheckIO[Unit] =
+    collectAbilityRefs(expr).traverse_ { case (vfqn, typeArgs, source) =>
+      resolveAndInject(vfqn, typeArgs, source, resolveAbility, fetchBinding)
+    }
+
+  /** Collect every ability-qualified [[SemExpression.ValueReference]] in the tree together with its explicit and
+    * implicit type arguments and its source position. Only references whose qualifier is [[Qualifier.Ability]] are
+    * candidates for resolution.
+    */
+  private def collectAbilityRefs(
+      expr: SemExpression
+  ): Seq[(Sourced[ValueFQN], Seq[SemValue], Sourced[?])] = {
+    val here     = expr.expression match {
+      case SemExpression.ValueReference(vfqn, explicit, implicits) =>
+        vfqn.value.name.qualifier match {
+          case _: Qualifier.Ability => Seq((vfqn, explicit ++ implicits, vfqn))
+          case _                    => Seq.empty
+        }
+      case _                                                       => Seq.empty
+    }
+    val children = expr.expression match {
+      case SemExpression.FunctionApplication(t, a)   =>
+        collectAbilityRefs(t.value) ++ collectAbilityRefs(a.value)
+      case SemExpression.FunctionLiteral(_, _, body) =>
+        collectAbilityRefs(body.value)
+      case _                                         => Seq.empty
+    }
+    here ++ children
+  }
+
+  private def resolveAndInject(
+      abilityVfqn: Sourced[ValueFQN],
+      typeArgs: Seq[SemValue],
+      source: Sourced[?],
+      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+      fetchBinding: ValueFQN => CompilerIO[Option[SemValue]]
+  ): CheckIO[Unit] =
+    abilityVfqn.value.name.qualifier match {
+      case Qualifier.Ability(abilityName) =>
+        for {
+          state      <- get
+          // Quote type args — skip injection if any can't be quoted yet (constraint-covered refs, for example).
+          groundArgsE = typeArgs.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore))
+          _          <- groundArgsE match {
+                          case Right(groundArgs) =>
+                            for {
+                              resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs))
+                              _        <- resolved match {
+                                            case Some((implFqn, _)) => injectForImpl(abilityName, implFqn, source, fetchBinding)
+                                            case None               => pure(())
+                                          }
+                            } yield ()
+                          case Left(_)           => pure(())
+                        }
+        } yield ()
+      case _                              => pure(())
+    }
+
+  private def injectForImpl(
+      abilityName: String,
+      implFqn: ValueFQN,
+      source: Sourced[?],
+      fetchBinding: ValueFQN => CompilerIO[Option[SemValue]]
+  ): CheckIO[Unit] =
+    for {
+      state <- get
+      _     <- state.associatedTypeMetas.toSeq.traverse_ { case (absFqn, metaId) =>
+                 absFqn.name.qualifier match {
+                   case Qualifier.Ability(aname) if aname == abilityName =>
+                     val implAssocFqn = ValueFQN(
+                       implFqn.moduleName,
+                       QualifiedName(absFqn.name.name, implFqn.name.qualifier)
+                     )
+                     for {
+                       binding <- liftF(fetchBinding(implAssocFqn))
+                       _       <- binding match {
+                                    case Some(sem) =>
+                                      modify(s =>
+                                        s.withUnifier(
+                                          s.unifier.unify(
+                                            VMeta(metaId, Spine.SNil, VType),
+                                            sem,
+                                            source.as(s"Associated type '${absFqn.name.name}' mismatch.")
+                                          )
+                                        )
+                                      )
+                                    case None      => pure(())
+                                  }
+                     } yield ()
+                   case _                                                => pure(())
+                 }
+               }
+    } yield ()
 
   /** Emit a [[UnifyError]] as a compiler error, including `Expected` / `Actual` hints when the error carries both
     * sides. The semantic values are re-forced through the final metastore so any metas that were solved after the error
