@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.unify
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
@@ -59,9 +60,25 @@ object SemValuePrinter {
   }
 
   private def showGround(g: GroundValue, topLevel: Boolean): String =
-    g.asFunctionType match {
-      case Some((a, b)) => parenIf(!topLevel, s"${showGround(a, topLevel = false)} -> ${showGround(b, topLevel = true)}")
-      case None         => g.show
+    g match {
+      case GroundValue.Type                 => "Type"
+      case GroundValue.Direct(value, _)     => value.toString
+      case GroundValue.Structure(fields, _) =>
+        g.asFunctionType match {
+          case Some((a, b)) =>
+            parenIf(!topLevel, s"${showGround(a, topLevel = false)} -> ${showGround(b, topLevel = true)}")
+          case None         =>
+            val name = fields.get("$typeName") match {
+              case Some(GroundValue.Direct(vfqn: ValueFQN, _)) => vfqn.name.name
+              case _                                           => g.show
+            }
+            val args = fields.toSeq
+              .filter { case (k, _) => k != "$typeName" }
+              .sortBy(_._1)
+              .map { case (_, v) => showGround(v, topLevel = true) }
+            if (args.isEmpty) name
+            else s"$name[${args.mkString(", ")}]"
+        }
     }
 
   private def parenIf(cond: Boolean, s: String): String =
