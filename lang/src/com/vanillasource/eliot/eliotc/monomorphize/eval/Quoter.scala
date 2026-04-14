@@ -50,6 +50,19 @@ object Quoter {
       case VNative(_, _) =>
         Left("Cannot quote partially applied native")
 
+      case VTopDef(fqn, None, spine) =>
+        // An unevaluated constructor-like application (cached body is absent, e.g. for data value constructors).
+        // Encode its spine entries as `$0`/`$1`/... fields, matching `Evaluator.semToGround`'s treatment so
+        // that data values like `Person(1)` quote to a consistent Structure.
+        for {
+          fields <- spine.toList.zipWithIndex.traverse { case (arg, i) =>
+                      quote(depth, arg, metaStore).map(g => s"$$$i" -> g)
+                    }
+        } yield GroundValue.Structure(
+          Map("$typeName" -> GroundValue.Direct(fqn, GroundValue.Type)) ++ fields.toMap,
+          GroundValue.Type
+        )
+
       case VTopDef(fqn, _, _) =>
         Left(s"Cannot quote unapplied top-level definition ${fqn.show}")
     }

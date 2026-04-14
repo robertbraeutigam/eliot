@@ -25,20 +25,15 @@ object TypeStackLoop {
       resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] =
         (_, _) => None.pure[CompilerIO]
   ): CompilerIO[MonomorphicValue] = {
-    val checker = new Checker(
-      fetchBinding,
-      fetchValueType,
-      resolvedValue.paramConstraints,
-      resolveAbility
-    )
-
-    processIO(checker, key, resolvedValue).runA(CheckState.initial)
+    val checker = new Checker(fetchBinding, fetchValueType)
+    processIO(checker, key, resolvedValue, resolveAbility).runA(CheckState.initial)
   }
 
   private def processIO(
       checker: Checker,
       key: MonomorphicValue.Key,
-      resolvedValue: OperatorResolvedValue
+      resolvedValue: OperatorResolvedValue,
+      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
   ): CheckIO[MonomorphicValue] =
     for {
       // Walk type stack levels top-down
@@ -48,22 +43,37 @@ object TypeStackLoop {
       appliedSig   <- applyTypeArgs(checker, signature, key.typeArguments, resolvedValue.typeStack)
       instantiated <- instantiateRemaining(checker, appliedSig)
 
-      // Check runtime body if present
+      // Check runtime body if present — produces SemExpression with SemValue slots
       runtime <- resolvedValue.runtime.traverse { body =>
-                   checker.check(body, instantiated).map(expr => body.as(expr.expression))
+                   checker.check(body, instantiated).map(expr => body.as(expr))
                  }
 
-      // Drain unifier and produce output
-      _         <- modify(s => s.withUnifier(s.unifier.drain()))
-      state     <- get
-      _         <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
-      groundSig <- checker.forceAndConst(instantiated)
+      // Drain unifier and report any unification errors
+      _     <- modify(s => s.withUnifier(s.unifier.drain()))
+      state <- get
+      _     <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
+
+      // If unification had errors, abort before quoting — no meaningful MonomorphicValue can be produced.
+      _ <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
+
+      // Post-drain: quote SemValues to GroundValues. This is the sole SemValue → GroundValue
+      // transition and has no silent fallback; Quoter reports unresolved metas as compiler errors.
+      quoter     = new PostDrainQuoter(
+                     state.unifier.metaStore,
+                     resolvedValue.paramConstraints,
+                     resolveAbility,
+                     state.bindingCache,
+                     state.env,
+                     state.nameLevels
+                   )
+      groundSig <- liftF(quoter.quoteSem(instantiated, resolvedValue.typeStack))
+      monoBody  <- runtime.traverse(srcSem => liftF(quoter.quoteSourced(srcSem)))
     } yield MonomorphicValue(
       key.vfqn,
       key.typeArguments,
       resolvedValue.typeStack.as(key.vfqn.name),
       groundSig,
-      runtime
+      monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
 
   /** Emit a [[UnifyError]] as a compiler error, including `Expected` / `Actual` hints when the error carries both sides.

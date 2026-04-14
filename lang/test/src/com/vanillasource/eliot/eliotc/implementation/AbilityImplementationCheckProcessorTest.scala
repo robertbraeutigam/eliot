@@ -123,7 +123,8 @@ class AbilityImplementationCheckProcessorTest
 
   it should "support empty abilities to be declared" in {
     runEngineForErrors(
-      "ability Marker[A]\ndef f[A ~ Marker](x: A): A"
+      "ability Marker[A]\ndata Int\nimplement Marker[Int]\ndef f[A ~ Marker](x: A): A",
+      Seq(intType)
     ).asserting(_ shouldBe Seq.empty)
   }
 

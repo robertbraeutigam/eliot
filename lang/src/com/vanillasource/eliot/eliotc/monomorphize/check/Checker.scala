@@ -1,30 +1,29 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.{Qualifier => CoreQualifier}
-import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
-import com.vanillasource.eliot.eliotc.monomorphize.fact.*
-import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerError, compilerAbort}
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
 /** Bidirectional type checker for the NbE pipeline. All state is threaded via the CheckIO state monad.
   *
   *   - `check(tm, expected)` checks a term against a known type.
   *   - `infer(tm)` infers a term's type.
+  *
+  * The checker produces [[SemExpression]]s with [[SemValue]] in every type slot. All ground-type conversion is
+  * deferred to a post-drain pass in [[TypeStackLoop]], using [[com.vanillasource.eliot.eliotc.monomorphize.eval.
+  * Quoter]]. This avoids any silent "default to Type" behaviour for unsolved metas — they surface as explicit errors
+  * at quoting time.
   */
 class Checker(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-    fetchValueType: ValueFQN => CompilerIO[Option[SemValue]],
-    paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
-    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] =
-      (_, _) => None.pure[CompilerIO]
+    fetchValueType: ValueFQN => CompilerIO[Option[SemValue]]
 ) {
 
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed. */
@@ -75,22 +74,20 @@ class Checker(
   def check(
       tm: Sourced[OperatorResolvedExpression],
       expected: SemValue
-  ): CheckIO[MonomorphicExpression] =
+  ): CheckIO[SemExpression] =
     for {
       forcedExpected <- force(expected)
       result         <- tm.value match {
                           // FunctionLiteral with annotation checked against expected type
                           case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
                             for {
-                              paramType   <- evalExpr(paramTypeStack.value.signature)
-                              _           <- modify(_.bind(paramName.value, paramType))
-                              retType     <- getReturnType(forcedExpected)
-                              bodyExpr    <- check(body, retType)
-                              paramGround <- forceAndConst(paramType)
-                              exprType    <- forceAndConst(forcedExpected)
-                            } yield MonomorphicExpression(
-                              exprType,
-                              MonomorphicExpression.FunctionLiteral(paramName, paramGround, body.as(bodyExpr))
+                              paramType <- evalExpr(paramTypeStack.value.signature)
+                              _         <- modify(_.bind(paramName.value, paramType))
+                              retType   <- getReturnType(forcedExpected)
+                              bodyExpr  <- check(body, retType)
+                            } yield SemExpression(
+                              forcedExpected,
+                              SemExpression.FunctionLiteral(paramName, paramType, body.as(bodyExpr))
                             )
 
                           // FunctionLiteral without annotation checked against VPi — use domain from VPi
@@ -98,13 +95,11 @@ class Checker(
                             forcedExpected match {
                               case VPi(domain, codomain) =>
                                 for {
-                                  _           <- modify(_.bind(paramName.value, domain))
-                                  bodyExpr    <- check(body, codomain(domain))
-                                  paramGround <- forceAndConst(domain)
-                                  exprType    <- forceAndConst(forcedExpected)
-                                } yield MonomorphicExpression(
-                                  exprType,
-                                  MonomorphicExpression.FunctionLiteral(paramName, paramGround, body.as(bodyExpr))
+                                  _        <- modify(_.bind(paramName.value, domain))
+                                  bodyExpr <- check(body, codomain(domain))
+                                } yield SemExpression(
+                                  forcedExpected,
+                                  SemExpression.FunctionLiteral(paramName, domain, body.as(bodyExpr))
                                 )
                               case _                     =>
                                 for {
@@ -118,10 +113,9 @@ class Checker(
                               (expr, inferred)              <- infer(tm)
                               (instantiated, implicitMetas) <- instantiateCollecting(inferred)
                               _                             <- doUnify(instantiated, expected, tm.as("Type mismatch."))
-                              resolvedImplicits             <- implicitMetas.traverse(forceAndConst)
-                              updatedExpr                    = addImplicitTypeArgs(expr, resolvedImplicits)
-                              finalExpr                     <- resolveAbilityForExpr(updatedExpr, implicitMetas)
-                            } yield finalExpr
+                              updatedExpr                    =
+                                addImplicitTypeArgs(expr, implicitMetas).copy(expressionType = instantiated)
+                            } yield updatedExpr
                         }
     } yield result
 
@@ -146,14 +140,16 @@ class Checker(
   /** Infer the type of a term. */
   def infer(
       tm: Sourced[OperatorResolvedExpression]
-  ): CheckIO[(MonomorphicExpression, SemValue)] = tm.value match {
+  ): CheckIO[(SemExpression, SemValue)] = tm.value match {
     case OperatorResolvedExpression.IntegerLiteral(value) =>
-      val tpe = VConst(Evaluator.bigIntGroundType)
-      pure((MonomorphicExpression(Evaluator.bigIntGroundType, MonomorphicExpression.IntegerLiteral(value)), tpe))
+      // Use the same VTopDef shape that DataTypeNativesProcessor binds for BigInteger, so the unifier sees a
+      // single canonical form for this type rather than a VConst(Structure) vs VTopDef mismatch.
+      val tpe = VTopDef(WellKnownTypes.bigIntFQN, None, Spine.SNil)
+      pure((SemExpression(tpe, SemExpression.IntegerLiteral(value)), tpe))
 
     case OperatorResolvedExpression.StringLiteral(value) =>
-      val tpe = VConst(Evaluator.stringGroundType)
-      pure((MonomorphicExpression(Evaluator.stringGroundType, MonomorphicExpression.StringLiteral(value)), tpe))
+      val tpe = VTopDef(WellKnownTypes.stringFQN, None, Spine.SNil)
+      pure((SemExpression(tpe, SemExpression.StringLiteral(value)), tpe))
 
     case OperatorResolvedExpression.ParameterReference(name) =>
       for {
@@ -161,9 +157,7 @@ class Checker(
         result <- state.nameLevels.get(name.value) match {
                     case Some(level) =>
                       val sem = state.env.lookupByLevel(level)
-                      for {
-                        ground <- forceAndConst(sem)
-                      } yield (MonomorphicExpression(ground, MonomorphicExpression.ParameterReference(name)), sem)
+                      pure((SemExpression(sem, SemExpression.ParameterReference(name)), sem))
                     case None        =>
                       liftF(compilerError(tm.as("Name not defined.")) >> abort)
                   }
@@ -176,18 +170,16 @@ class Checker(
         result <- sigOpt match {
                     case Some(sig) =>
                       for {
-                        (appliedSig, explicitGroundArgs) <- typeArgs.foldLeftM((sig, Seq.empty[GroundValue])) {
-                                                              case ((s, grounds), typeArg) =>
-                                                                for {
-                                                                  argVal <- evalExpr(typeArg.value)
-                                                                  ground <- forceAndConst(argVal)
-                                                                } yield (Evaluator.applyValue(s, argVal), grounds :+ ground)
-                                                            }
-                        ground                           <- forceAndConst(appliedSig)
+                        (appliedSig, explicitTypeArgs) <- typeArgs.foldLeftM((sig, Seq.empty[SemValue])) {
+                                                            case ((s, args), typeArg) =>
+                                                              for {
+                                                                argVal <- evalExpr(typeArg.value)
+                                                              } yield (Evaluator.applyValue(s, argVal), args :+ argVal)
+                                                          }
                       } yield (
-                        MonomorphicExpression(
-                          ground,
-                          MonomorphicExpression.MonomorphicValueReference(vfqn, explicitGroundArgs)
+                        SemExpression(
+                          appliedSig,
+                          SemExpression.ValueReference(vfqn, explicitTypeArgs, Seq.empty)
                         ),
                         appliedSig
                       )
@@ -208,12 +200,10 @@ class Checker(
         _                    <- modify(_.bind(paramName.value, paramType))
         (bodyExpr, bodyType) <- infer(body)
         tpe                   = VPi(paramType, _ => bodyType)
-        typeGround           <- forceAndConst(tpe)
-        paramGround          <- forceAndConst(paramType)
       } yield (
-        MonomorphicExpression(
-          typeGround,
-          MonomorphicExpression.FunctionLiteral(paramName, paramGround, body.as(bodyExpr))
+        SemExpression(
+          tpe,
+          SemExpression.FunctionLiteral(paramName, paramType, body.as(bodyExpr))
         ),
         tpe
       )
@@ -226,28 +216,25 @@ class Checker(
     */
   private def applyInferred(
       target: Sourced[OperatorResolvedExpression],
-      targetExpr: MonomorphicExpression,
+      targetExpr: SemExpression,
       targetType: SemValue,
       arg: Sourced[OperatorResolvedExpression],
       whole: Sourced[OperatorResolvedExpression],
       implicitTypeArgs: Seq[SemValue] = Seq.empty
-  ): CheckIO[(MonomorphicExpression, SemValue)] =
+  ): CheckIO[(SemExpression, SemValue)] =
     for {
       forced <- force(targetType)
       result <- forced match {
                   case VPi(domain, codomain) =>
                     for {
-                      argExpr           <- check(arg, domain)
-                      argSem            <- evalExpr(arg.value)
-                      retType            = codomain(argSem)
-                      ground            <- forceAndConst(retType)
-                      resolvedImplicits <- implicitTypeArgs.traverse(forceAndConst)
-                      updatedTarget      = addImplicitTypeArgs(targetExpr, resolvedImplicits)
-                      finalTarget       <- resolveAbilityForExpr(updatedTarget, implicitTypeArgs)
+                      argExpr      <- check(arg, domain)
+                      argSem       <- evalExpr(arg.value)
+                      retType       = codomain(argSem)
+                      updatedTarget = addImplicitTypeArgs(targetExpr, implicitTypeArgs)
                     } yield (
-                      MonomorphicExpression(
-                        ground,
-                        MonomorphicExpression.FunctionApplication(target.as(finalTarget), arg.as(argExpr))
+                      SemExpression(
+                        retType,
+                        SemExpression.FunctionApplication(target.as(updatedTarget), arg.as(argExpr))
                       ),
                       retType
                     )
@@ -255,9 +242,15 @@ class Checker(
                   case VLam(_, closure) =>
                     // Polytype at term level: instantiate with fresh meta, then recurse.
                     // This handles implicit type arg instantiation for generic values like `id(42)`.
+                    // Track the instantiated type on the target so its `expressionType` reflects the current
+                    // partially-applied shape rather than the untouched VLam polytype. Implicit type args
+                    // are accumulated in `implicitTypeArgs` and baked into the target ref once — at the VPi
+                    // endpoint of the recursion.
                     for {
-                      meta   <- freshMeta
-                      result <- applyInferred(target, targetExpr, closure(meta), arg, whole, implicitTypeArgs :+ meta)
+                      meta       <- freshMeta
+                      nextType    = closure(meta)
+                      nextTarget  = targetExpr.copy(expressionType = nextType)
+                      result     <- applyInferred(target, nextTarget, nextType, arg, whole, implicitTypeArgs :+ meta)
                     } yield result
 
                   case _ =>
@@ -269,62 +262,25 @@ class Checker(
                       domain  <- force(domMeta)
                       argExpr <- check(arg, domain)
                       retType <- force(codMeta)
-                      ground  <- forceAndConst(retType)
                     } yield (
-                      MonomorphicExpression(
-                        ground,
-                        MonomorphicExpression.FunctionApplication(target.as(targetExpr), arg.as(argExpr))
+                      SemExpression(
+                        retType,
+                        SemExpression.FunctionApplication(target.as(targetExpr), arg.as(argExpr))
                       ),
                       retType
                     )
                 }
     } yield result
 
-  /** Add resolved implicit type args to a MonomorphicValueReference expression. */
-  private def addImplicitTypeArgs(expr: MonomorphicExpression, extraArgs: Seq[GroundValue]): MonomorphicExpression =
+  /** Append implicit type args to a [[SemExpression.ValueReference]] expression. No-op for other shapes. */
+  private def addImplicitTypeArgs(expr: SemExpression, extraArgs: Seq[SemValue]): SemExpression =
     if (extraArgs.isEmpty) expr
     else
       expr.expression match {
-        case ref: MonomorphicExpression.MonomorphicValueReference =>
-          expr.copy(expression = ref.copy(typeArguments = ref.typeArguments ++ extraArgs))
-        case _                                                    => expr
+        case ref: SemExpression.ValueReference =>
+          expr.copy(expression = ref.copy(implicitTypeArguments = ref.implicitTypeArguments ++ extraArgs))
+        case _                                 => expr
       }
-
-  /** Resolve ability references in a MonomorphicExpression after implicit type args are resolved. Uses constraint type
-    * args when a constraint is available, otherwise uses the implicit type args from VLam instantiation.
-    */
-  private def resolveAbilityForExpr(
-      expr: MonomorphicExpression,
-      implicitTypeArgs: Seq[SemValue]
-  ): CheckIO[MonomorphicExpression] =
-    expr.expression match {
-      case ref @ MonomorphicExpression.MonomorphicValueReference(vfqn, _) =>
-        vfqn.value.name.qualifier match {
-          case CoreQualifier.Ability(abilityName) =>
-            for {
-              abilityTypeArgs <- findConstraintParam(abilityName) match {
-                                   case Some((_, constraintTypeArgs)) =>
-                                     constraintTypeArgs.traverse(arg => evalExpr(arg).flatMap(forceAndConst))
-                                   case None                          =>
-                                     implicitTypeArgs.traverse(forceAndConst)
-                                 }
-              resolved        <- liftF(resolveAbility(vfqn.value, abilityTypeArgs))
-            } yield resolved match {
-              case Some((implFqn, implTypeArgs)) =>
-                expr.copy(expression = ref.copy(valueName = vfqn.as(implFqn), typeArguments = implTypeArgs))
-              case None => expr
-            }
-          case _ => pure(expr)
-        }
-      case _ => pure(expr)
-    }
-
-  private def findConstraintParam(abilityName: String): Option[(String, Seq[OperatorResolvedExpression])] =
-    paramConstraints.collectFirst {
-      Function.unlift { (paramName, constraints) =>
-        constraints.find(_.abilityFQN.abilityName == abilityName).map(c => (paramName, c.typeArgs))
-      }
-    }
 
   /** Fetch all NativeBindings referenced by ValueReferences in an ORE into the cache. Called automatically by
     * evalExpr before evaluation.
@@ -348,25 +304,4 @@ class Checker(
         case other            => other
       }
     }
-
-  private[check] def forceAndConst(v: SemValue): CheckIO[GroundValue] = inspect { state =>
-    def go(v: SemValue): GroundValue = {
-      val forced = Evaluator.force(v, state.unifier.metaStore)
-      forced match {
-        case VConst(g)             => g
-        case VType                 => GroundValue.Type
-        case VPi(domain, codomain) =>
-          GroundValue.Structure(
-            Map(
-              "$typeName" -> GroundValue.Direct(WellKnownTypes.functionDataTypeFQN, GroundValue.Type),
-              "A"         -> go(domain),
-              "B"         -> go(codomain(VNeutral(NeutralHead.VVar(state.env.level, "$quote"), Spine.SNil, VType)))
-            ),
-            GroundValue.Type
-          )
-        case _                     => GroundValue.Type // fallback
-      }
-    }
-    go(v)
-  }
 }
