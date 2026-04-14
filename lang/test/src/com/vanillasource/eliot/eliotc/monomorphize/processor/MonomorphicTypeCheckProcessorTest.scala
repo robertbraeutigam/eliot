@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
-import com.vanillasource.eliot.eliotc.implementation.processor.{
+import com.vanillasource.eliot.eliotc.ability.processor.{
   AbilityImplementationCheckProcessor,
   ModuleAbilityOverlapCheckProcessor,
   AbilityImplementationProcessor

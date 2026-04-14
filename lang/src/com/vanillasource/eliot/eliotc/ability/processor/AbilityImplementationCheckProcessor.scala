@@ -1,12 +1,12 @@
-package com.vanillasource.eliot.eliotc.implementation.processor
+package com.vanillasource.eliot.eliotc.ability.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression
-import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression.*
-import com.vanillasource.eliot.eliotc.implementation.fact.AbilityImplementationCheck
-import com.vanillasource.eliot.eliotc.implementation.fact.ModuleAbilityOverlapCheck
-import com.vanillasource.eliot.eliotc.implementation.util.TypeExpressionEvaluator
+import com.vanillasource.eliot.eliotc.ability.fact.TypeExpression
+import com.vanillasource.eliot.eliotc.ability.fact.TypeExpression.*
+import com.vanillasource.eliot.eliotc.ability.fact.AbilityImplementationCheck
+import com.vanillasource.eliot.eliotc.ability.fact.ModuleAbilityOverlapCheck
+import com.vanillasource.eliot.eliotc.ability.util.TypeExpressionEvaluator
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue

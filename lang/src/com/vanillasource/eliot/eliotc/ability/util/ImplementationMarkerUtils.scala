@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.implementation.util
+package com.vanillasource.eliot.eliotc.ability.util
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.Expression

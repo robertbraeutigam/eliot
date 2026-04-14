@@ -1,11 +1,11 @@
-package com.vanillasource.eliot.eliotc.implementation
+package com.vanillasource.eliot.eliotc.ability
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.implementation.processor.{
+import com.vanillasource.eliot.eliotc.ability.processor.{
   AbilityImplementationCheckProcessor,
   AbilityImplementationProcessor,
   ModuleAbilityOverlapCheckProcessor

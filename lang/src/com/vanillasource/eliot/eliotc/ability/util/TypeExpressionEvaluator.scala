@@ -1,9 +1,9 @@
-package com.vanillasource.eliot.eliotc.implementation.util
+package com.vanillasource.eliot.eliotc.ability.util
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression
-import com.vanillasource.eliot.eliotc.implementation.fact.TypeExpression.*
+import com.vanillasource.eliot.eliotc.ability.fact.TypeExpression
+import com.vanillasource.eliot.eliotc.ability.fact.TypeExpression.*
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}

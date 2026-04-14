@@ -1,8 +1,8 @@
-package com.vanillasource.eliot.eliotc.implementation.processor
+package com.vanillasource.eliot.eliotc.ability.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.implementation.fact.{ModuleAbilityOverlapCheck, TypeExpression}
-import com.vanillasource.eliot.eliotc.implementation.util.TypeExpressionEvaluator
+import com.vanillasource.eliot.eliotc.ability.fact.{ModuleAbilityOverlapCheck, TypeExpression}
+import com.vanillasource.eliot.eliotc.ability.util.TypeExpressionEvaluator
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*

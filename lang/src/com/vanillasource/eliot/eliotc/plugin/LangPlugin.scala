@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.plugin
 import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.implementation.processor.{
+import com.vanillasource.eliot.eliotc.ability.processor.{
   AbilityImplementationCheckProcessor,
   AbilityImplementationProcessor,
   ModuleAbilityOverlapCheckProcessor
