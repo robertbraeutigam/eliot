@@ -91,9 +91,7 @@ class MonomorphicTypeCheckTest
       "data TypeA(fieldA: TypeA)\ndata TypeB\ndef f(x: TypeA): TypeB = x",
       MonomorphicValue.Key(ValueFQN(testModuleName, default("f")), Seq.empty),
       systemImports
-    ).asserting(result =>
-      result._1.map(_.description) shouldBe Seq(Seq("Expected: TypeB", "Actual:   TypeA"))
-    )
+    ).asserting(result => result._1.map(_.description) shouldBe Seq(Seq("Expected: TypeB", "Actual:   TypeA")))
   }
 
   it should "render Expected and Actual function types with arrow notation" in {
@@ -101,9 +99,7 @@ class MonomorphicTypeCheckTest
       "data A\ndata B\ndef f: A = g\ndef g(a: A): B",
       MonomorphicValue.Key(ValueFQN(testModuleName, default("f")), Seq.empty),
       systemImports
-    ).asserting(result =>
-      result._1.map(_.description) shouldBe Seq(Seq("Expected: A", "Actual:   A -> B"))
-    )
+    ).asserting(result => result._1.map(_.description) shouldBe Seq(Seq("Expected: A", "Actual:   A -> B")))
   }
 
   it should "fail if parameter is used as a wrong parameter in another function" in {
