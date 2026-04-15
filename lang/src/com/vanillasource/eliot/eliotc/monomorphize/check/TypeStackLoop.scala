@@ -49,33 +49,25 @@ object TypeStackLoop {
                    checker.check(body, instantiated).map(expr => body.as(expr))
                  }
 
-      // Drain unifier and report any unification errors
-      _       <- modify(s => s.withUnifier(s.unifier.drain()))
-      // Inject solutions for associated-type metas from resolved ability impls, then re-drain. This closes the
-      // soundness loop: an abstract `type X` inside an ability becomes a meta during check, and when an ability
-      // call resolves to a concrete impl, the impl's `type X = Concrete` value unifies into that meta.
-      _       <- runtime.traverse_(r => injectAssociatedTypeSolutions(r.value, resolveAbility, fetchBinding))
-      _       <- modify(s => s.withUnifier(s.unifier.drain()))
+      // Drain-and-resolve loop: repeatedly drain the unifier, then try to resolve each pending ability reference;
+      // on success, record the resolution and inject the impl's concrete associated-type values into their
+      // standing metas, which re-feeds the next drain. Iterates until no new ability resolves, bounded for safety.
+      _       <- drainAndResolveLoop(runtime, resolvedValue.paramConstraints, resolveAbility, fetchBinding)
+
       // Default any unsolved metas to VType. These are "phantom" type parameters whose values never get constrained
       // (e.g., a generic parameter that doesn't appear in the signature besides its declaration). Leaving them
       // unsolved would fail strict quoting; defaulting to VType matches the pre-NbE behaviour for such params.
-      _       <- modify(s => s.withUnifier(defaultUnsolvedMetas(s.unifier)))
-      state   <- get
-      _       <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
+      _     <- modify(s => s.withUnifier(defaultUnsolvedMetas(s.unifier)))
+      state <- get
+      _     <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
 
       // If unification had errors, abort before quoting — no meaningful MonomorphicValue can be produced.
       _ <- if (state.unifier.errors.nonEmpty) liftF(abort[Unit]) else pure(())
 
-      // Post-drain: quote SemValues to GroundValues. This is the sole SemValue → GroundValue
-      // transition and has no silent fallback; Quoter reports unresolved metas as compiler errors.
-      quoter     = new PostDrainQuoter(
-                     state.unifier.metaStore,
-                     resolvedValue.paramConstraints,
-                     resolveAbility,
-                     state.bindingCache,
-                     state.env,
-                     state.nameLevels
-                   )
+      // Post-drain: quote SemValues to GroundValues using the pre-computed ability resolutions. This is the sole
+      // SemValue → GroundValue transition and has no silent fallback; Quoter reports unresolved metas as compiler
+      // errors.
+      quoter     = new PostDrainQuoter(state.unifier.metaStore, state.abilityResolutions)
       groundSig <- liftF(quoter.quoteSem(instantiated, resolvedValue.typeStack))
       monoBody  <- runtime.traverse(srcSem => liftF(quoter.quoteSourced(srcSem)))
     } yield MonomorphicValue(
@@ -86,20 +78,107 @@ object TypeStackLoop {
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
 
-  /** Walk a [[SemExpression]] tree and unify each abstract associated-type meta against the concrete impl's
-    * corresponding associated-type value. For every ability-qualified value reference encountered, the method resolves
-    * the call to its impl and — for each associated-type meta registered in [[CheckState]] whose ability name matches
-    * the ref's qualifier — fetches the impl's concrete value (same local name, impl's module, impl's
-    * AbilityImplementation qualifier) and unifies it into the meta.
+  /** Outer drain loop. Each iteration drains the unifier to solve pending constraints, then tries to resolve any
+    * unresolved ability references. A resolution may inject associated-type solutions into the metastore, feeding the
+    * next drain. The loop stops as soon as an iteration produces no new ability resolution, so the total iterations are
+    * bounded by the number of ability references in the expression tree.
+    *
+    * An explicit iteration cap (twice the initial ref count) guards against pathological cases — hitting it would
+    * indicate a bug in the resolver rather than a user error.
     */
-  private def injectAssociatedTypeSolutions(
-      expr: SemExpression,
+  private def drainAndResolveLoop(
+      runtime: Option[Sourced[SemExpression]],
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]],
       resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]]
-  ): CheckIO[Unit] =
-    collectAbilityRefs(expr).traverse_ { case (vfqn, typeArgs, source) =>
-      resolveAndInject(vfqn, typeArgs, source, resolveAbility, fetchBinding)
+  ): CheckIO[Unit] = {
+    val allRefs                             = runtime.toSeq.flatMap(r => collectAbilityRefs(r.value))
+    val maxIter                             = (allRefs.size * 2) + 2
+    def loop(remaining: Int): CheckIO[Unit] =
+      if (remaining <= 0) pure(())
+      else
+        for {
+          _          <- modify(s => s.withUnifier(s.unifier.drain()))
+          progressed <- resolvePendingAbilities(allRefs, paramConstraints, resolveAbility, fetchBinding)
+          _          <- if (progressed) loop(remaining - 1) else pure(())
+        } yield ()
+    loop(maxIter)
+  }
+
+  /** Walk the set of ability references once, attempting to resolve each that isn't already resolved. Returns `true`
+    * iff at least one ref was newly resolved in this pass.
+    */
+  private def resolvePendingAbilities(
+      refs: Seq[(Sourced[ValueFQN], Seq[SemValue], Sourced[?])],
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]],
+      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+      fetchBinding: ValueFQN => CompilerIO[Option[SemValue]]
+  ): CheckIO[Boolean] =
+    refs.foldLeftM(false) { case (progressed, (vfqn, refTypeArgs, source)) =>
+      for {
+        state <- get
+        step  <- if (state.abilityResolutions.contains(vfqn)) pure(false)
+                 else
+                   tryResolveOne(vfqn, refTypeArgs, source, paramConstraints, resolveAbility, fetchBinding)
+      } yield progressed || step
     }
+
+  /** Try to resolve a single ability reference. Returns `true` iff the reference got newly resolved this call.
+    *
+    *   - If the ref is covered by an in-scope parameter constraint, the constraint's ORE type arguments are evaluated
+    *     (reproducing the behaviour the old [[PostDrainQuoter]].`findConstraintParam` path had).
+    *   - Otherwise the ref's own (explicit ++ implicit) type arguments are used.
+    *   - Quoting failure (still-unsolved metas) leaves the ref pending for the next iteration.
+    *   - `resolveAbility` returning `None` also leaves it pending — the ref will stay unresolved in the final
+    *     [[CheckState]] and [[PostDrainQuoter]] will emit it as an abstract reference.
+    */
+  private def tryResolveOne(
+      abilityVfqn: Sourced[ValueFQN],
+      refTypeArgs: Seq[SemValue],
+      source: Sourced[?],
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]],
+      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+      fetchBinding: ValueFQN => CompilerIO[Option[SemValue]]
+  ): CheckIO[Boolean] =
+    abilityVfqn.value.name.qualifier match {
+      case Qualifier.Ability(abilityName) =>
+        for {
+          state        <- get
+          effectiveArgs = findConstraintTypeArgs(paramConstraints, abilityName, state).getOrElse(refTypeArgs)
+          groundArgsE   = effectiveArgs.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore))
+          progressed   <- groundArgsE match {
+                            case Right(groundArgs) =>
+                              for {
+                                resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs))
+                                stepped  <- resolved match {
+                                              case Some(impl) =>
+                                                for {
+                                                  _ <- modify(_.recordAbilityResolution(abilityVfqn, impl))
+                                                  _ <- injectForImpl(abilityName, impl._1, source, fetchBinding)
+                                                } yield true
+                                              case None       => pure(false)
+                                            }
+                              } yield stepped
+                            case Left(_)           => pure(false)
+                          }
+        } yield progressed
+      case _                              => pure(false)
+    }
+
+  /** Look up the first in-scope parameter constraint that targets the given ability name and return its type arguments
+    * evaluated against the current check state. Mirrors the old [[PostDrainQuoter]] path.
+    */
+  private def findConstraintTypeArgs(
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]],
+      abilityName: String,
+      state: CheckState
+  ): Option[Seq[SemValue]] =
+    paramConstraints.collectFirst(Function.unlift { (_, constraints) =>
+      constraints.find(_.abilityFQN.abilityName == abilityName).map { c =>
+        val evaluator = new Evaluator(vfqn => state.bindingCache.getOrElse(vfqn, None), state.nameLevels)
+        c.typeArgs.map(arg => evaluator.eval(state.env, arg))
+      }
+    })
 
   /** Collect every ability-qualified [[SemExpression.ValueReference]] in the tree together with its explicit and
     * implicit type arguments and its source position. Only references whose qualifier is [[Qualifier.Ability]] are
@@ -125,34 +204,6 @@ object TypeStackLoop {
     }
     here ++ children
   }
-
-  private def resolveAndInject(
-      abilityVfqn: Sourced[ValueFQN],
-      typeArgs: Seq[SemValue],
-      source: Sourced[?],
-      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
-      fetchBinding: ValueFQN => CompilerIO[Option[SemValue]]
-  ): CheckIO[Unit] =
-    abilityVfqn.value.name.qualifier match {
-      case Qualifier.Ability(abilityName) =>
-        for {
-          state      <- get
-          // Quote type args — skip injection if any can't be quoted yet (constraint-covered refs, for example).
-          groundArgsE = typeArgs.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore))
-          _          <- groundArgsE match {
-                          case Right(groundArgs) =>
-                            for {
-                              resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs))
-                              _        <- resolved match {
-                                            case Some((implFqn, _)) => injectForImpl(abilityName, implFqn, source, fetchBinding)
-                                            case None               => pure(())
-                                          }
-                            } yield ()
-                          case Left(_)           => pure(())
-                        }
-        } yield ()
-      case _                              => pure(())
-    }
 
   private def injectForImpl(
       abilityName: String,

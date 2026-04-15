@@ -3,7 +3,9 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.MetaId
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Immutable state for the bidirectional type checker.
   *
@@ -19,13 +21,17 @@ import com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier
   *   Metavariables allocated for references to abstract associated ability types (e.g. `type MagicType` inside `ability
   *   Foo[T]`). Each unique vfqn gets one meta per check session; post-drain the meta is solved by unifying against the
   *   concrete impl's associated-type value.
+  * @param abilityResolutions
+  *   Map from each ability-qualified value reference (by its source-positioned FQN) to its resolved concrete impl.
+  *   Filled by the drain-resolution loop; absence means the ref stays abstract (constraint-covered) at quoting time.
   */
 case class CheckState(
     env: Env,
     nameLevels: Map[String, Int],
     unifier: Unifier,
     bindingCache: Map[ValueFQN, Option[SemValue]],
-    associatedTypeMetas: Map[ValueFQN, MetaId]
+    associatedTypeMetas: Map[ValueFQN, MetaId],
+    abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])]
 ) {
 
   /** Bind a parameter with the given name and type, extending both env and nameLevels. */
@@ -44,6 +50,12 @@ case class CheckState(
 
   def recordAssociatedTypeMeta(fqn: ValueFQN, id: MetaId): CheckState =
     copy(associatedTypeMetas = associatedTypeMetas + (fqn -> id))
+
+  def recordAbilityResolution(
+      ref: Sourced[ValueFQN],
+      impl: (ValueFQN, Seq[GroundValue])
+  ): CheckState =
+    copy(abilityResolutions = abilityResolutions + (ref -> impl))
 }
 
 object CheckState {
@@ -51,6 +63,7 @@ object CheckState {
     Env.empty,
     Map.empty,
     Unifier.create(MetaStore.empty, 0),
+    Map.empty,
     Map.empty,
     Map.empty
   )

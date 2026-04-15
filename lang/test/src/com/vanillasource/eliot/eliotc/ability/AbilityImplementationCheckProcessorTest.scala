@@ -326,6 +326,40 @@ class AbilityImplementationCheckProcessorTest
     """).asserting(_ shouldBe Seq.empty)
   }
 
+  it should "chain resolutions when one ability's return type feeds another's argument" in {
+    // `show(get(someName))` forces two resolution steps in the drain loop:
+    //   1. `get[Name]` resolves, injecting `X = String` into the associated-type meta.
+    //   2. The String now flows into `show`'s implicit type argument, letting `show[String]` resolve.
+    // Plan B's drain-and-resolve loop handles the dependency chain; a single-pass resolver would leave the
+    // outer `show` unresolved.
+    runEngineForErrors("""
+        data String
+        data Name(n: String)
+        def someString: String
+        def someName: Name
+
+        ability Produce[T] {
+          type X
+          def get(v: T): X
+        }
+
+        implement Produce[Name] {
+          type X = String
+          def get(v: Name): X = someString
+        }
+
+        ability Show[A] {
+          def show(a: A): String
+        }
+
+        implement Show[String] {
+          def show(s: String): String = s
+        }
+
+        def f: String = show(get(someName))
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
   it should "reject an argument whose type contradicts the impl's associated type" in {
     // `Assoc[Name]`'s impl defines `X = String`. Calling `handle(Name(...), someInt)` supplies an Int where the
     // impl says X must be String. Without the associated-type-injection pass (or with the old flex-accept

@@ -3,10 +3,9 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{Qualifier => CoreQualifier}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.monomorphize.domain.{Env, MetaStore, SemValue}
-import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
+import com.vanillasource.eliot.eliotc.monomorphize.domain.{MetaStore, SemValue}
+import com.vanillasource.eliot.eliotc.monomorphize.eval.Quoter
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression}
-import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
@@ -18,21 +17,15 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   * compiler errors (with source positions taken from the enclosing expression / name) — there is no silent
   * `GroundValue.Type` fallback.
   *
-  * Ability references (value refs whose qualifier is [[CoreQualifier.Ability]]) are also resolved here: the implicit
-  * type args (or the constraint-derived type args when a matching constraint exists on an outer type parameter) are
-  * quoted to ground values, then fed to `resolveAbility` to swap the ref's FQN and type arguments for the chosen
-  * implementation.
+  * Ability references (value refs whose qualifier is [[CoreQualifier.Ability]]) are rewritten using the pre-computed
+  * [[abilityResolutions]] map: refs resolved during the drain loop emit the chosen impl's FQN and type args; refs
+  * absent from the map (constraint-covered calls where the concrete impl lives at the caller's level) emit their
+  * original ability FQN so downstream dispatch stays abstract.
   */
 class PostDrainQuoter(
     metaStore: MetaStore,
-    paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]],
-    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
-    bindingCache: Map[ValueFQN, Option[SemValue]],
-    env: Env,
-    nameLevels: Map[String, Int]
+    abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])]
 ) {
-
-  private val evaluator: Evaluator = new Evaluator(vfqn => bindingCache.getOrElse(vfqn, None), nameLevels)
 
   /** Quote a [[SemValue]] to a [[GroundValue]]. Raises a sourced compiler error on failure. */
   def quoteSem(v: SemValue, at: Sourced[?]): CompilerIO[GroundValue] =
@@ -77,49 +70,23 @@ class PostDrainQuoter(
       for {
         explicit  <- explicitArgs.traverse(a => quoteSem(a, vfqn))
         implicits <- implicitArgs.traverse(a => quoteSem(a, vfqn))
-        resolved  <- resolveIfAbility(vfqn, explicit, implicits)
-      } yield resolved
-
+      } yield resolveIfAbility(vfqn, explicit, implicits)
   }
 
   private def resolveIfAbility(
       vfqn: Sourced[ValueFQN],
       explicitArgs: Seq[GroundValue],
       implicitArgs: Seq[GroundValue]
-  ): CompilerIO[MonomorphicExpression.Expression] =
+  ): MonomorphicExpression.Expression =
     vfqn.value.name.qualifier match {
-      case CoreQualifier.Ability(abilityName) =>
-        for {
-          abilityTypeArgs <- findConstraintParam(abilityName) match {
-                               case Some((_, constraintTypeArgs)) =>
-                                 // Evaluate constraint-provided type args (ORE expressions) through the
-                                 // monomorphized binding cache and the checker's final env/nameLevels, then quote
-                                 // each result.
-                                 constraintTypeArgs.traverse { arg =>
-                                   val sem = evaluator.eval(env, arg)
-                                   quoteSem(sem, vfqn)
-                                 }
-                               case None                          =>
-                                 implicitArgs.pure[CompilerIO]
-                             }
-          resolved        <- resolveAbility(vfqn.value, abilityTypeArgs)
-        } yield resolved match {
+      case _: CoreQualifier.Ability =>
+        abilityResolutions.get(vfqn) match {
           case Some((implFqn, implTypeArgs)) =>
             MonomorphicExpression.MonomorphicValueReference(vfqn.as(implFqn), implTypeArgs)
           case None                          =>
             MonomorphicExpression.MonomorphicValueReference(vfqn, explicitArgs ++ implicitArgs)
         }
-      case _                                  =>
-        (MonomorphicExpression.MonomorphicValueReference(
-          vfqn,
-          explicitArgs ++ implicitArgs
-        ): MonomorphicExpression.Expression).pure[CompilerIO]
-    }
-
-  private def findConstraintParam(abilityName: String): Option[(String, Seq[OperatorResolvedExpression])] =
-    paramConstraints.collectFirst {
-      Function.unlift { (paramName, constraints) =>
-        constraints.find(_.abilityFQN.abilityName == abilityName).map(c => (paramName, c.typeArgs))
-      }
+      case _                        =>
+        MonomorphicExpression.MonomorphicValueReference(vfqn, explicitArgs ++ implicitArgs)
     }
 }
