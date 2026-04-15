@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.ability.processor.{
   AbilityImplementationProcessor,
   ModuleAbilityOverlapCheckProcessor
 }
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.module.processor.{
   ModuleNamesProcessor,
   ModuleValueProcessor,
@@ -36,7 +36,7 @@ class AbilityImplementationCheckProcessorTest
       CoreProcessor(),
       ModuleNamesProcessor(),
       UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(Seq(ModuleName.systemFunctionModuleName)),
+      ModuleValueProcessor(),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
       MatchDesugaringProcessor(),
@@ -182,7 +182,6 @@ class AbilityImplementationCheckProcessorTest
 
   it should "check derived abilities" in {
     runEngineForErrors("""
-        data String
         def someString: String
 
         ability Show[A] {
@@ -209,7 +208,6 @@ class AbilityImplementationCheckProcessorTest
     // Two ability-level type params — the impl's marker pattern zips `[A, B]` with `[Int, String]` in the
     // correct order, so the dispatch only succeeds if the matcher respects declaration order.
     runEngineForErrors("""
-        data String
         data Int
         def someString: String
 
@@ -228,7 +226,6 @@ class AbilityImplementationCheckProcessorTest
   it should "fail a multi-parameter ability dispatch when argument order does not match" in {
     // `Convert[String, Int]` has no impl; matching must not collapse `[Int, String]` to `[String, Int]`.
     runEngineForErrors("""
-        data String
         data Int
         def someString: String
 
@@ -249,7 +246,6 @@ class AbilityImplementationCheckProcessorTest
     // `show(content(box))` can only type-check if the matcher propagates the exact `Pair[String, String]`
     // GroundValue — not a `Type` fallback that would make `Show[A]` lookup fail.
     runEngineForErrors("""
-        data String
         def someString: String
 
         ability Show[A] {
@@ -276,7 +272,6 @@ class AbilityImplementationCheckProcessorTest
     // method's ability-level type param. When the pattern arg is parameterised (`Box[A]` here), the abstract
     // `show: Show[A].A -> String` must unify against the impl `show: Box[A] -> String` via structural unification.
     runEngineForErrors("""
-        data String
         def someString: String
 
         ability Show[A] {
@@ -299,7 +294,6 @@ class AbilityImplementationCheckProcessorTest
     // If that pass were absent the meta would default to `Type` and the String literal argument would fail to
     // type-check against it.
     runEngineForErrors("""
-        data String
         def someString: String
 
         ability Assoc[T] {
@@ -325,7 +319,6 @@ class AbilityImplementationCheckProcessorTest
     // Plan B's drain-and-resolve loop handles the dependency chain; a single-pass resolver would leave the
     // outer `show` unresolved.
     runEngineForErrors("""
-        data String
         data Name(n: String)
         def someString: String
         def someName: Name
@@ -358,7 +351,6 @@ class AbilityImplementationCheckProcessorTest
     // escape hatch) this would silently type-check; with the pass, the meta is solved to Int by the call site
     // and then to String by the impl — they conflict, producing a type error at the call.
     runEngineForErrors("""
-        data String
         data Int
         def someString: String
         def someInt: Int
@@ -383,35 +375,31 @@ class AbilityImplementationCheckProcessorTest
 
   "higher-kinded abilities" should "resolve when implementing a higher-kinded ability for a concrete type" in {
     runEngineForErrors("""
-        data Elem
-
         ability Container[F[_]] {
-          def wrap(e: Elem): F[Elem]
+          def wrap(s: String): F[String]
         }
 
         data Box[A](content: A)
 
         implement Container[Box] {
-          def wrap(e: Elem): Box[Elem] = Box(e)
+          def wrap(s: String): Box[String] = Box(s)
         }
 
-        def someElem: Elem
-        def f: Box[Elem] = wrap(someElem)
+        def someString: String
+        def f: Box[String] = wrap(someString)
     """).asserting(_ shouldBe Seq.empty)
   }
 
   ignore should "fail when no implementation exists for the higher-kinded type" in {
     runEngineForErrors("""
-        data Elem
-
         ability Container[F[_]] {
-          def wrap(e: Elem): F[Elem]
+          def wrap(s: String): F[String]
         }
 
         data Box[A](content: A)
 
-        def someElem: Elem
-        def f: Box[Elem] = wrap(someElem)
+        def someString: String
+        def f: Box[String] = wrap(someString)
     """).asserting(_.nonEmpty shouldBe true)
   }
 
