@@ -2,9 +2,15 @@ package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.kernel.Order.catsKernelOrderingForOrder
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
-import com.vanillasource.eliot.eliotc.module.fact.Qualifier
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, UnifiedModuleValue, ValueFQN}
+import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
+import com.vanillasource.eliot.eliotc.module.fact.{
+  ModuleName,
+  QualifiedName,
+  Qualifier,
+  UnifiedModuleNames,
+  UnifiedModuleValue,
+  ValueFQN
+}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -18,31 +24,32 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       cases: Seq[Expression.MatchCase]
   ): CompilerIO[Expression] =
     for {
-      moduleAndType                    <- findConstructorModuleAndTypeName(cases)
-      (constructorModule, dataTypeName) = moduleAndType
-      allConstructors                  <- findAllConstructors(constructorModule, dataTypeName)
-      _                                <- checkExhaustiveness(cases, allConstructors)
-      handleCasesFqn                   <- findAbilityMethodImpl(constructorModule, "PatternMatch", "handleCases", Some(dataTypeName))
-      orderedHandlers                  <- buildOrderedHandlers(scrutinee, cases, allConstructors)
+      moduleAndType                <- findConstructorModuleAndType(cases)
+      (constructorModule, dataType) = moduleAndType
+      allConstructors              <- findAllConstructors(constructorModule, dataType)
+      _                            <- checkExhaustiveness(cases, allConstructors)
+      handleCasesFqn               <-
+        findAbilityMethodImpl(constructorModule, "PatternMatch", "handleCases", Some(dataType.name))
+      orderedHandlers              <- buildOrderedHandlers(scrutinee, cases, allConstructors)
     } yield buildHandleCasesCall(scrutinee, handleCasesFqn, orderedHandlers)
 
-  private def findConstructorModuleAndTypeName(
+  private def findConstructorModuleAndType(
       cases: Seq[Expression.MatchCase]
-  ): CompilerIO[(ModuleName, String)] =
+  ): CompilerIO[(ModuleName, QualifiedName)] =
     cases
       .flatMap(c => collectConstructorPatterns(c.pattern.value))
       .headOption match {
       case Some(vfqn) =>
         for {
-          umv          <- getFactOrAbort(UnifiedModuleValue.Key(vfqn))
-          dataTypeName <- ConstructorTypeAnalyzer.extractDataTypeName(umv.namedValue.typeStack.signature) match {
-                            case Some(name) => name.pure[CompilerIO]
-                            case None       =>
-                              compilerAbort(
-                                umv.namedValue.qualifiedName.as("Could not determine data type for constructor.")
-                              )
-                          }
-        } yield (vfqn.moduleName, dataTypeName)
+          umv      <- getFactOrAbort(UnifiedModuleValue.Key(vfqn))
+          dataType <- umv.namedValue.roleHint match {
+                        case RoleHint.ValueConstructor(dt, _) => dt.pure[CompilerIO]
+                        case _                                =>
+                          compilerAbort(
+                            umv.namedValue.qualifiedName.as("Pattern references non-constructor value.")
+                          )
+                      }
+        } yield (vfqn.moduleName, dataType)
       case None       =>
         cases.headOption match {
           case Some(c) => compilerAbort(c.pattern.as("Match expression must have at least one constructor pattern."))
@@ -52,7 +59,7 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
 
   private def findAllConstructors(
       moduleName: ModuleName,
-      dataTypeName: String
+      dataType: QualifiedName
   ): CompilerIO[Seq[ValueFQN]] =
     for {
       moduleNames     <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
@@ -62,8 +69,11 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       constructorVfqns = constructorNames.map(qn => ValueFQN(moduleName, qn))
       ordered         <- constructorVfqns.traverseFilter { vfqn =>
                            getFactOrAbort(UnifiedModuleValue.Key(vfqn)).map { umv =>
-                             val typeName = ConstructorTypeAnalyzer.extractDataTypeName(umv.namedValue.typeStack.signature)
-                             Option.when(typeName.contains(dataTypeName))(
+                             val matches = umv.namedValue.roleHint match {
+                               case RoleHint.ValueConstructor(dt, _) => dt == dataType
+                               case _                                => false
+                             }
+                             Option.when(matches)(
                                (vfqn, umv.namedValue.qualifiedName.range.from)
                              )
                            }
@@ -209,7 +219,13 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
   ): CompilerIO[Sourced[TypeStack[Expression]]] =
     for {
       umv           <- getFactOrAbort(UnifiedModuleValue.Key(ctorVfqn))
-      arity          = ConstructorTypeAnalyzer.countConstructorFields(umv)
+      arity         <- umv.namedValue.roleHint match {
+                         case RoleHint.ValueConstructor(_, fieldCount) => fieldCount.pure[CompilerIO]
+                         case _                                        =>
+                           compilerAbort(
+                             umv.namedValue.qualifiedName.as("Wildcard handler built for non-constructor value.")
+                           )
+                       }
       desugaredBody <- context.desugarInTypeStack(wildcardCase.body)
     } yield {
       val lambdaCount = math.max(1, arity)

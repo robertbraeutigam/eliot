@@ -23,8 +23,7 @@ namespace qualifier (`Qualifier.Default` vs `Qualifier.Type`).
 | eval | Three evaluators split by qualifier | No — implementation strategy split (native vs interpreted), not type/value |
 | operator | None — types flow through as expressions | No |
 | matchdesugar | Separate `TypeMatchDesugarer` and `DataMatchDesugarer` | No — types are open unions (`typeMatch*`), data uses closed `handleWith` |
-| matchdesugar | `ConstructorTypeAnalyzer` checks `Qualifier.Type` for data type name lookup | No — namespace-aware lookup |
-| matchdesugar | `ConstructorTypeAnalyzer` skips `FunctionLiteral` when counting fields | Cascading |
+| matchdesugar | Reads `RoleHint.ValueConstructor` on `NamedValue` for data type identity and field count | No — declared metadata, not signature inspection |
 | **uncurry** | **`stripLeadingLambdas` excludes type params from uncurried parameter list** | **Yes** |
 | implementation | `stripUniversalTypeIntros()` before substitution | Cascading |
 | monomorphize | `extractBodyTypeParams` filters by `Value.Type` | Cascading |
@@ -53,7 +52,6 @@ dance to get at two things:
 | monomorphize (line 105) | Type param names | Check if a referenced value is generic |
 | monomorphize (line 138) | Inner signature | Match against call-site type to infer type args |
 | uncurry (line 39) | Inner signature | Extract value-level parameters for uncurrying |
-| matchdesugar | Inner signature | Count constructor fields, extract data type name |
 
 Every single site wants either: (a) the type parameter names, (b) the inner function signature
 without type param wrappers, or (c) both.

@@ -90,7 +90,7 @@ Each of these is a package in the "lang" module, roughly in order of processing:
 7. eval: Evaluate data type and value definitions into typed structures.
 8. matchdesugar: Desugar pattern-match expressions into function applications. Checks exhaustiveness and handles nested patterns, multiple cases, constructor patterns, and wildcards.
 9. operator: Resolve infix operators with proper precedence and associativity. Transforms flat expressions into correctly structured function applications.
-10. implementation: Checks and returns a type-specific ability implementation.
+10. ability: Checks and returns a type-specific ability implementation.
 11. monomorphize: Monomorphic type checker. Checks all types at their usage with all instantiated values.
 12. used: Collects all the used value names starting at a given "main".
 13. uncurry: Uncurries function calls, so its easier to generate on the backend.

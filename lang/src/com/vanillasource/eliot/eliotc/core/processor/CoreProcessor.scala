@@ -41,17 +41,17 @@ class CoreProcessor
         case _                                          => ()
       }
     }
-    val desugaredFromData = sourceAstData.typeDefinitions.flatMap { definition =>
+    val desugaredFromData: Seq[(FunctionDefinition, RoleHint)] = sourceAstData.typeDefinitions.flatMap { definition =>
       val pmIdx = counters.getOrElse("PatternMatch", 0)
       counters.update("PatternMatch", pmIdx + 1)
       val tmIdx = counters.getOrElse("TypeMatch", 0)
       counters.update("TypeMatch", tmIdx + 1)
       DataDefinitionDesugarer.desugar(definition, pmIdx, tmIdx)
     }
-    val allFunctions  = sourceAstData.functionDefinitions ++ desugaredFromData
+    val allFunctions  = sourceAstData.functionDefinitions.map(_ -> RoleHint.NoHint) ++ desugaredFromData
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
-      allFunctions.map(transformFunction)
+      allFunctions.map { case (fd, hint) => transformFunction(fd, hint) }
     )
 
     debug[CompilerIO](
@@ -78,7 +78,7 @@ class CoreProcessor
       .value
   }
 
-  private def transformFunction(function: FunctionDefinition): NamedValue = {
+  private def transformFunction(function: FunctionDefinition, roleHint: RoleHint): NamedValue = {
     import CoreExpressionConverter.*
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
     val isTypeBody   = function.typeDefinition.value match {
@@ -108,7 +108,8 @@ class CoreProcessor
       constraints,
       function.fixity,
       function.precedence.map(convertPrecedenceDeclaration),
-      function.visibility
+      function.visibility,
+      roleHint
     )
   }
 }

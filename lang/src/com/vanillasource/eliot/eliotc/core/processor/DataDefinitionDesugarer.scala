@@ -11,6 +11,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   Expression as SourceExpression,
   Pattern as SourcePattern
 }
+import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -29,34 +30,39 @@ object DataDefinitionDesugarer {
       definition: DataDefinition,
       patternMatchIndex: Int,
       typeMatchIndex: Int
-  ): Seq[FunctionDefinition] = {
-    val mainFunctions =
+  ): Seq[(FunctionDefinition, RoleHint)] = {
+    val mainFunctions: Seq[(FunctionDefinition, RoleHint)] =
       (createTypeFunction(definition) ++ createConstructors(definition) ++ createAccessors(definition))
-        .map(_.copy(visibility = definition.visibility))
-    mainFunctions ++ createPatternMatchImpl(definition, patternMatchIndex) ++ createTypeMatch(
-      definition,
-      typeMatchIndex
-    )
+        .map { case (fd, hint) => (fd.copy(visibility = definition.visibility), hint) }
+    mainFunctions ++
+      createPatternMatchImpl(definition, patternMatchIndex).map(_ -> RoleHint.NoHint) ++
+      createTypeMatch(definition, typeMatchIndex).map(_ -> RoleHint.NoHint)
   }
 
-  private def createTypeFunction(definition: DataDefinition): Seq[FunctionDefinition] =
+  private def createTypeFunction(definition: DataDefinition): Seq[(FunctionDefinition, RoleHint)] =
     Seq(
-      FunctionDefinition(
-        definition.name.map(n => QualifiedName(n, Qualifier.Type)),
-        Seq.empty,
-        definition.genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction)),
-        typeExpr(definition.name.as("Type")),
-        None
+      (
+        FunctionDefinition(
+          definition.name.map(n => QualifiedName(n, Qualifier.Type)),
+          Seq.empty,
+          definition.genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction)),
+          typeExpr(definition.name.as("Type")),
+          None
+        ),
+        RoleHint.TypeConstructor(definition.genericParameters.size)
       )
     )
 
-  private def createConstructors(definition: DataDefinition): Seq[FunctionDefinition] =
+  private def createConstructors(definition: DataDefinition): Seq[(FunctionDefinition, RoleHint)] =
     definition.constructors
       .getOrElse(Seq.empty)
       .map(ctor => createConstructor(definition, ctor))
 
-  private def createConstructor(definition: DataDefinition, ctor: DataConstructor): FunctionDefinition =
-    FunctionDefinition(
+  private def createConstructor(
+      definition: DataDefinition,
+      ctor: DataConstructor
+  ): (FunctionDefinition, RoleHint) = {
+    val fd   = FunctionDefinition(
       ctor.name.map(n => QualifiedName(n, Qualifier.Default)),
       definition.genericParameters,
       ctor.fields,
@@ -66,15 +72,18 @@ object DataDefinitionDesugarer {
       ),
       None
     )
+    val hint = RoleHint.ValueConstructor(QualifiedName(definition.name.value, Qualifier.Type), ctor.fields.size)
+    (fd, hint)
+  }
 
   /** Accessors are only created when there is exactly one constructor. Each accessor is implemented as a match
     * expression that deconstructs the object and returns the target field.
     */
-  private def createAccessors(definition: DataDefinition): Seq[FunctionDefinition] =
+  private def createAccessors(definition: DataDefinition): Seq[(FunctionDefinition, RoleHint)] =
     definition.constructors
       .filter(_.size === 1)
       .getOrElse(Seq.empty)
-      .flatMap(ctor => ctor.fields.map(field => createAccessor(definition, ctor, field)))
+      .flatMap(ctor => ctor.fields.map(field => (createAccessor(definition, ctor, field), RoleHint.NoHint)))
 
   private def createAccessor(
       definition: DataDefinition,

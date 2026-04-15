@@ -19,6 +19,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   The type levels for this value. The signature is at index 0.
   * @param paramConstraints
   *   Ability constraints on generic type parameters, keyed by parameter name. Empty for non-generic values.
+  * @param roleHint
+  *   Advisory metadata about how this value was declared. Populated for compiler-synthesized values that need to be
+  *   recognized structurally later (e.g. data constructors). Defaults to [[RoleHint.NoHint]] for parsed user code.
+  *   Semantic phases must not read this; see [[RoleHint]].
   */
 case class NamedValue(
     qualifiedName: Sourced[QualifiedName],
@@ -27,7 +31,8 @@ case class NamedValue(
     paramConstraints: Map[String, Seq[NamedValue.CoreAbilityConstraint]] = Map.empty,
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
-    visibility: Visibility = Visibility.Public
+    visibility: Visibility = Visibility.Public,
+    roleHint: RoleHint = RoleHint.NoHint
 )
 
 object NamedValue {
