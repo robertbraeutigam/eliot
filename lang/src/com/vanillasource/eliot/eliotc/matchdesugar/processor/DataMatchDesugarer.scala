@@ -179,35 +179,32 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       case Some(colIdx) =>
         val fieldRef    = wrapExpr(scrutinee, Expression.ParameterReference(freshNames(colIdx)))
         val nestedCases = patternRows.zip(bodies).map { case (row, body) =>
-          Expression.MatchCase(row(colIdx), wrapWithBindings(scrutinee, freshNames, row, Some(colIdx), body))
+          val bindingPairs = freshNames.zip(row).zipWithIndex.collect { case (pair, i) if i != colIdx => pair }
+          Expression.MatchCase(row(colIdx), wrapWithBindings(scrutinee, bindingPairs, body))
         }
         context.desugarMatch(fieldRef, nestedCases).map(wrapExpr(scrutinee, _))
 
       case None =>
-        context.desugarInTypeStack(wrapWithBindings(scrutinee, freshNames, patternRows.head, None, bodies.head))
+        context.desugarInTypeStack(wrapWithBindings(scrutinee, freshNames.zip(patternRows.head), bodies.head))
     }
   }
 
   private def wrapWithBindings(
       scrutinee: Sourced[TypeStack[Expression]],
-      freshNames: Seq[Sourced[String]],
-      patterns: Seq[Sourced[Pattern]],
-      skipColumn: Option[Int],
+      bindingPairs: Seq[(Sourced[String], Sourced[Pattern])],
       body: Sourced[TypeStack[Expression]]
   ): Sourced[TypeStack[Expression]] =
-    patterns.zipWithIndex.foldRight(body) { case ((pat, idx), innerBody) =>
-      if (skipColumn.contains(idx)) innerBody
-      else
-        pat.value match {
-          case Pattern.VariablePattern(varName) if varName.value != freshNames(idx).value =>
-            val lambda = Expression.FunctionLiteral(varName, None, innerBody)
-            val app    = Expression.FunctionApplication(
-              scrutinee.as(lambda),
-              scrutinee.as(Expression.ParameterReference(freshNames(idx)))
-            )
-            wrapExpr(scrutinee, app)
-          case _                                                                          => innerBody
-        }
+    bindingPairs.foldRight(body) { case ((freshName, pat), innerBody) =>
+      pat.value match {
+        case Pattern.VariablePattern(varName) if varName.value != freshName.value =>
+          val lambda = Expression.FunctionLiteral(varName, None, innerBody)
+          val app    = Expression.FunctionApplication(
+            scrutinee.as(lambda),
+            scrutinee.as(Expression.ParameterReference(freshName))
+          )
+          wrapExpr(scrutinee, app)
+        case _ => innerBody
+      }
     }
 
   private def buildWildcardHandler(
@@ -216,21 +213,20 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       wildcardCase: Expression.MatchCase
   ): CompilerIO[Sourced[TypeStack[Expression]]] =
     for {
-      umv           <- getFactOrAbort(UnifiedModuleValue.Key(ctorVfqn))
-      arity         <- umv.namedValue.roleHint match {
-                         case RoleHint.ValueConstructor(_, fieldCount) => fieldCount.pure[CompilerIO]
-                         case _                                        =>
-                           compilerAbort(
-                             umv.namedValue.qualifiedName.as("Wildcard handler built for non-constructor value.")
-                           )
-                       }
-      desugaredBody <- context.desugarInTypeStack(wildcardCase.body)
-    } yield {
-      val lambdaCount = math.max(1, arity)
-      (0 until lambdaCount).foldRight(desugaredBody) { (_, body) =>
-        wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, body))
-      }
-    }
+      umv     <- getFactOrAbort(UnifiedModuleValue.Key(ctorVfqn))
+      arity   <- umv.namedValue.roleHint match {
+                   case RoleHint.ValueConstructor(_, fieldCount) => fieldCount.pure[CompilerIO]
+                   case _                                        =>
+                     compilerAbort(
+                       umv.namedValue.qualifiedName.as("Wildcard handler built for non-constructor value.")
+                     )
+                 }
+      handler <- context.buildPatternHandler(
+                   scrutinee,
+                   Seq.fill(arity)(scrutinee.as(Pattern.WildcardPattern(scrutinee.as("_")))),
+                   wildcardCase.body
+                 )
+    } yield handler
 
   private def buildHandleCasesCall(
       scrutinee: Sourced[TypeStack[Expression]],

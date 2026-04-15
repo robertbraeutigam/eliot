@@ -20,10 +20,11 @@ class MatchDesugarContext(
     for {
       desugaredBody <- desugarInTypeStack(body)
       handler       <-
-        if (subPatterns.isEmpty)
-          wrapExpr(scrutinee, Expression.FunctionLiteral(scrutinee.as("_"), None, desugaredBody)).pure[CompilerIO]
-        else
-          buildFieldLambdas(scrutinee, subPatterns, desugaredBody)
+        buildFieldLambdas(
+          scrutinee,
+          if subPatterns.isEmpty then Seq(scrutinee.as(Pattern.WildcardPattern(scrutinee.as("_")))) else subPatterns,
+          desugaredBody
+        )
     } yield handler
 
   def buildFieldLambdas(
