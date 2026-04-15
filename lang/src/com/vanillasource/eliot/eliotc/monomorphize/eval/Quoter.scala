@@ -38,10 +38,10 @@ object Quoter {
           GroundValue.Type
         )
 
-      case VNeutral(_, _, _) =>
+      case VNeutral(_, _) =>
         Left("Cannot quote neutral value — contains unresolved variable")
 
-      case VMeta(id, _, _) =>
+      case VMeta(id, _) =>
         Left(s"Cannot quote unsolved meta ?${id.value}")
 
       case VLam(_, _) =>
@@ -69,5 +69,5 @@ object Quoter {
   }
 
   private def freshVar(depth: Int): SemValue =
-    VNeutral(NeutralHead.VVar(depth, s"$$quote$depth"), Spine.SNil, VType)
+    VNeutral(NeutralHead.VVar(depth, s"$$quote$depth"), Spine.SNil)
 }

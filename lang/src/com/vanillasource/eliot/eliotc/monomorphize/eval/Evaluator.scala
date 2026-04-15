@@ -35,13 +35,13 @@ class Evaluator(
           nameLevels.get(name.value).map(env.lookupByLevel)
         )
         .getOrElse(
-          VNeutral(NeutralHead.VVar(env.level, name.value), Spine.SNil, VType)
+          VNeutral(NeutralHead.VVar(env.level, name.value), Spine.SNil)
         )
 
     case OperatorResolvedExpression.ValueReference(vfqn, _) =>
       lookupTopDef(vfqn.value) match {
         case Some(sem) => sem
-        case None      => VNeutral(NeutralHead.VVar(env.level, vfqn.value.name.name), Spine.SNil, VType)
+        case None      => VNeutral(NeutralHead.VVar(env.level, vfqn.value.name.name), Spine.SNil)
       }
 
     case OperatorResolvedExpression.FunctionApplication(target, arg) =>
@@ -63,15 +63,15 @@ object Evaluator {
     case VNative(_, fire) =>
       val resolved = unfoldTopDef(x)
       resolved match {
-        case _: VNeutral => VNeutral(NeutralHead.VVar(0, "native"), Spine.SNil :+ resolved, VType)
+        case _: VNeutral => VNeutral(NeutralHead.VVar(0, "native"), Spine.SNil :+ resolved)
         case _           => fire(resolved)
       }
 
-    case VNeutral(head, spine, tpe) => VNeutral(head, spine :+ x, tpe)
+    case VNeutral(head, spine) => VNeutral(head, spine :+ x)
 
     case VTopDef(fqn, cached, spine) => VTopDef(fqn, cached, spine :+ x)
 
-    case VMeta(id, spine, expected) => VMeta(id, spine :+ x, expected)
+    case VMeta(id, spine) => VMeta(id, spine :+ x)
 
     case _ => x // fallback — should not happen in well-typed programs
   }
@@ -89,7 +89,7 @@ object Evaluator {
 
   /** Force a semantic value by walking solved metas and unfolding VTopDef. */
   def force(v: SemValue, metaStore: MetaStore): SemValue = v match {
-    case VMeta(id, spine, _)             =>
+    case VMeta(id, spine)                =>
       metaStore.lookup(id) match {
         case Some(solved) =>
           val base = force(solved, metaStore)
@@ -113,7 +113,7 @@ object Evaluator {
     case VType                           => GroundValue.Type
     case VPi(domain, codomain)           =>
       val domGround = semToGround(domain)
-      val codGround = semToGround(codomain(VNeutral(NeutralHead.VVar(0, "$quote"), Spine.SNil, VType)))
+      val codGround = semToGround(codomain(VNeutral(NeutralHead.VVar(0, "$quote"), Spine.SNil)))
       GroundValue.Structure(
         Map(
           "$typeName" -> GroundValue.Direct(WellKnownTypes.functionDataTypeFQN, GroundValue.Type),

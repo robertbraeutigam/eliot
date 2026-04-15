@@ -28,23 +28,23 @@ object SemValuePrinter {
         showGround(g, topLevel)
 
       case VPi(domain, codomain) =>
-        val placeholder = VNeutral(NeutralHead.VVar(depth, s"$$p$depth"), Spine.SNil, VType)
+        val placeholder = VNeutral(NeutralHead.VVar(depth, s"$$p$depth"), Spine.SNil)
         val body        = codomain(placeholder)
         val domStr      = go(domain, metaStore, depth, topLevel = false)
         val codStr      = go(body, metaStore, depth + 1, topLevel = true)
         parenIf(!topLevel, s"$domStr -> $codStr")
 
       case VLam(name, closure) =>
-        val placeholder = VNeutral(NeutralHead.VVar(depth, name), Spine.SNil, VType)
+        val placeholder = VNeutral(NeutralHead.VVar(depth, name), Spine.SNil)
         val body        = closure(placeholder)
         parenIf(!topLevel, s"$name => ${go(body, metaStore, depth + 1, topLevel = true)}")
 
-      case VMeta(id, spine, _) =>
+      case VMeta(id, spine) =>
         val args = spine.toList.map(go(_, metaStore, depth, topLevel = false))
         if (args.isEmpty) s"?${id.value}"
         else s"?${id.value}(${args.mkString(", ")})"
 
-      case VNeutral(NeutralHead.VVar(_, name), spine, _) =>
+      case VNeutral(NeutralHead.VVar(_, name), spine) =>
         val args = spine.toList.map(go(_, metaStore, depth, topLevel = false))
         if (args.isEmpty) name
         else s"$name(${args.mkString(", ")})"

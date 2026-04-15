@@ -1,6 +1,5 @@
 package com.vanillasource.eliot.eliotc.monomorphize.unify
 
-import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
@@ -50,19 +49,19 @@ case class Unifier(
         val (fresh, u1) = freshVar()
         u1.unify(c(fresh), Evaluator.applyValue(other, fresh), context)
 
-      case (other, VLam(_, c))                                      =>
+      case (other, VLam(_, c))                                =>
         val (fresh, u1) = freshVar()
         u1.unify(Evaluator.applyValue(other, fresh), c(fresh), context)
 
       // Neutral-neutral: same head, same spine length
-      case (VNeutral(h1, sp1, _), VNeutral(h2, sp2, _)) if h1 == h2 =>
+      case (VNeutral(h1, sp1), VNeutral(h2, sp2)) if h1 == h2 =>
         unifySpines(fl, fr, sp1, sp2, context)
 
       // Meta solving (pattern rule)
-      case (VMeta(id, spine, _), rhs)                               =>
+      case (VMeta(id, spine), rhs)                            =>
         solveMeta(id, spine, rhs, context)
 
-      case (lhs, VMeta(id, spine, _))                                     =>
+      case (lhs, VMeta(id, spine))                                        =>
         solveMeta(id, spine, lhs, context)
 
       // VTopDef equality by FQN
@@ -85,16 +84,16 @@ case class Unifier(
         unify(applied, rhs, context)
       case None         =>
         rhs match {
-          case VMeta(rhsId, _, _) if rhsId.value == id.value =>
+          case VMeta(rhsId, _) if rhsId.value == id.value =>
             this // Same unsolved meta — trivially equal, no solve needed
-          case _                                             =>
+          case _                                          =>
             val spineList = spine.toList
             if (spineList.isEmpty) {
               // Empty spine — solve directly
               copy(metaStore = metaStore.solve(id, rhs))
             } else {
               // Non-empty spine — postpone (higher-kinded meta application)
-              copy(postponed = (VMeta(id, spine, VType), rhs, context) :: postponed)
+              copy(postponed = (VMeta(id, spine), rhs, context) :: postponed)
             }
         }
     }
@@ -141,7 +140,7 @@ case class Unifier(
   }
 
   private def freshVar(): (SemValue, Unifier) = {
-    val v = VNeutral(NeutralHead.VVar(depth, s"$$unify$depth"), Spine.SNil, VType)
+    val v = VNeutral(NeutralHead.VVar(depth, s"$$unify$depth"), Spine.SNil)
     (v, copy(depth = depth + 1))
   }
 
@@ -154,14 +153,17 @@ case class Unifier(
   private[monomorphize] def addError(context: Sourced[String]): Unifier =
     copy(errors = UnifyError(context, None, None) :: errors)
 
-  /** True when the FQN refers to a declaration inside an ability block whose name starts with an uppercase letter,
-    * indicating an associated type rather than an abstract method.
+  /** Solve any still-unsolved metavariables with the given value. Used to "default" unconstrained phantom type
+    * parameters after the main drain completes.
     */
-  private def isAbstractAbilityType(fqn: com.vanillasource.eliot.eliotc.module.fact.ValueFQN): Boolean =
-    fqn.name.qualifier match {
-      case _: Qualifier.Ability => fqn.name.name.headOption.exists(_.isUpper)
-      case _                    => false
+  def defaultUnsolvedTo(value: SemValue): Unifier = {
+    val store          = metaStore
+    val defaultedStore = store.entries.foldLeft(store) {
+      case (acc, (id, None))   => acc.solve(SemValue.MetaId(id), value)
+      case (acc, (_, Some(_))) => acc
     }
+    copy(metaStore = defaultedStore)
+  }
 
   /** Structural equality for ground values. */
   private def groundEquals(g1: GroundValue, g2: GroundValue): Boolean = (g1, g2) match {

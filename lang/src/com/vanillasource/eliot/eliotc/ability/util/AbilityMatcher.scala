@@ -138,7 +138,7 @@ object AbilityMatcher {
     // defers evaluation until the VTopDef is forced. Both vals resolve in any order at first access.
     lazy val bindings: Map[ValueFQN, SemValue]      = classifications.map {
       case (vfqn, Binding.Constructor)     => vfqn -> VTopDef(vfqn, None, Spine.SNil)
-      case (vfqn, Binding.AbstractAbility) => vfqn -> VMeta(abilityMetaIds(vfqn), Spine.SNil, VType)
+      case (vfqn, Binding.AbstractAbility) => vfqn -> VMeta(abilityMetaIds(vfqn), Spine.SNil)
       case (vfqn, Binding.Body(body))      =>
         vfqn -> VTopDef(vfqn, Some(Lazy(evaluator.eval(Env.empty, body.value))), Spine.SNil)
     } + (WellKnownTypes.typeFQN -> VType)
@@ -183,7 +183,7 @@ object AbilityMatcher {
     Evaluator.force(sv, metaStore) match {
       case VLam(name, closure) =>
         val (id, nextStore) = metaStore.fresh
-        val metaVal         = VMeta(id, Spine.SNil, VType)
+        val metaVal         = VMeta(id, Spine.SNil)
         peelLambdas(closure(metaVal), nextStore, acc :+ (name, id))
       case other               => (other, metaStore, acc)
     }
@@ -240,7 +240,7 @@ object AbilityMatcher {
       pattern: SemValue,
       query: GroundValue
   ): Seq[(MetaId, GroundValue)] = pattern match {
-    case VMeta(id, Spine.SNil, _) =>
+    case VMeta(id, Spine.SNil) =>
       Seq(id -> query)
     case VTopDef(fqn, _, spine)   =>
       query match {
@@ -270,7 +270,7 @@ object AbilityMatcher {
     // corresponding metas during body unification.
     val bound   = absParams.zip(markerArgs).foldLeft(Unifier.create(setup.metaStore, 0)) {
       case (u, ((_, absMetaId), patternArg)) =>
-        u.unify(VMeta(absMetaId, Spine.SNil, VType), patternArg, context)
+        u.unify(VMeta(absMetaId, Spine.SNil), patternArg, context)
     }
     bound.unify(absBody, implBody, context).drain().errors.isEmpty
   }

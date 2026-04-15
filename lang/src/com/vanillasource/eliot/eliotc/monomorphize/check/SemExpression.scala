@@ -34,14 +34,12 @@ object SemExpression {
 
   case class ParameterReference(parameterName: Sourced[String]) extends Expression
 
-  /** A value reference with its type arguments tracked in two groups. `explicitTypeArguments` correspond to the
-    * surface-syntax `[...]` brackets; `implicitTypeArguments` are the fresh metas introduced during VLam
-    * instantiation (polytype → monotype). Keeping them separate matters for post-drain ability resolution, which
-    * takes just the implicit ones (or the constraint-derived ones) as the ability's type-arg list.
+  /** A value reference with its type arguments. These include both the ones from the surface-syntax `[...]` brackets
+    * and the fresh metas introduced during VLam instantiation (polytype → monotype); they are concatenated in that
+    * order as they accumulate during inference.
     */
   case class ValueReference(
       valueName: Sourced[ValueFQN],
-      explicitTypeArguments: Seq[SemValue],
-      implicitTypeArguments: Seq[SemValue]
+      typeArguments: Seq[SemValue]
   ) extends Expression
 }

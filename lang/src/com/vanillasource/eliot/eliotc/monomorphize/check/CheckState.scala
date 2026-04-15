@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.check
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.MetaId
+import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -56,6 +57,10 @@ case class CheckState(
       impl: (ValueFQN, Seq[GroundValue])
   ): CheckState =
     copy(abilityResolutions = abilityResolutions + (ref -> impl))
+
+  /** Build an [[Evaluator]] from this state. Pure — only reads `bindingCache` and `nameLevels`. */
+  def makeEvaluator: Evaluator =
+    new Evaluator(vfqn => bindingCache.getOrElse(vfqn, None), nameLevels)
 }
 
 object CheckState {

@@ -30,9 +30,9 @@ object SemValue {
 
   case class VTopDef(fqn: ValueFQN, cached: Option[Lazy[SemValue]], spine: Spine) extends SemValue
 
-  case class VMeta(id: MetaId, spine: Spine, expected: SemValue) extends SemValue
+  case class VMeta(id: MetaId, spine: Spine) extends SemValue
 
-  case class VNeutral(head: NeutralHead, spine: Spine, tpe: SemValue) extends SemValue
+  case class VNeutral(head: NeutralHead, spine: Spine) extends SemValue
 
   /** Opaque wrapper for metavariable identifiers. */
   opaque type MetaId = Int

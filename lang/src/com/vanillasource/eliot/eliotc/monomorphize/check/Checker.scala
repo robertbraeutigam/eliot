@@ -54,7 +54,7 @@ class Checker(
     for {
       existing <- inspect(_.associatedTypeMetas.get(fqn))
       result   <- existing match {
-                    case Some(id) => pure(VMeta(id, Spine.SNil, VType))
+                    case Some(id) => pure(VMeta(id, Spine.SNil))
                     case None     =>
                       for {
                         meta <- freshMeta
@@ -63,38 +63,26 @@ class Checker(
                   }
     } yield result
 
-  /** Create an evaluator from the current state. Pure — only reads cache and nameLevels. */
-  private def makeEvaluator(state: CheckState): Evaluator =
-    new Evaluator(
-      vfqn => state.bindingCache.getOrElse(vfqn, None),
-      state.nameLevels
-    )
-
-  /** Evaluate an ORE expression. Fetches any referenced bindings on demand before evaluating. */
+  /** Evaluate an ORE expression under the current state's env. Pre-fetches every referenced binding (so
+    * [[ensureBinding]]'s intercept of abstract associated ability types fires before the pure [[Evaluator]] runs).
+    */
   def evalExpr(tm: OperatorResolvedExpression): CheckIO[SemValue] =
+    evalExprIn(tm, useCurrentEnv = true)
+
+  /** Fetch a value's signature ORE and evaluate it against an empty env (signatures have no local bindings in scope).
+    * Pre-fetches referenced bindings the same way [[evalExpr]] does.
+    */
+  private def fetchAndEvalSignature(vfqn: ValueFQN): CheckIO[Option[SemValue]] =
+    liftF(getFact(OperatorResolvedValue.Key(vfqn))).flatMap {
+      case Some(orv) => evalExprIn(orv.typeStack.value.signature, useCurrentEnv = false).map(Some(_))
+      case None      => pure(None)
+    }
+
+  private def evalExprIn(tm: OperatorResolvedExpression, useCurrentEnv: Boolean): CheckIO[SemValue] =
     for {
       _ <- fetchBindings(tm)
       s <- get
-    } yield makeEvaluator(s).eval(s.env, tm)
-
-  /** Fetch a value's resolved form, pre-fetch all bindings referenced in its signature (so abstract associated ability
-    * types get intercepted into metas via [[ensureBinding]]), and evaluate the signature ORE against the Checker's own
-    * [[Evaluator]]. This path replaces the external `fetchValueType` callback so that the Checker's binding-intercept
-    * consistently covers signatures as well as runtime bodies.
-    */
-  private def fetchAndEvalSignature(vfqn: ValueFQN): CheckIO[Option[SemValue]] =
-    for {
-      orvOpt <- liftF(getFact(OperatorResolvedValue.Key(vfqn)))
-      result <- orvOpt match {
-                  case Some(orv) =>
-                    val sigOre = orv.typeStack.value.signature
-                    for {
-                      _ <- fetchBindings(sigOre)
-                      s <- get
-                    } yield Some(makeEvaluator(s).eval(Env.empty, sigOre))
-                  case None      => pure(None)
-                }
-    } yield result
+    } yield s.makeEvaluator.eval(if (useCurrentEnv) s.env else Env.empty, tm)
 
   /** Force a SemValue through the current meta store. */
   private[check] def force(v: SemValue): CheckIO[SemValue] =
@@ -110,7 +98,7 @@ class Checker(
       s                   <- get
       (metaId, freshStore) = s.unifier.metaStore.fresh
       _                   <- modify(_.withUnifier(s.unifier.copy(metaStore = freshStore)))
-    } yield VMeta(metaId, Spine.SNil, VType)
+    } yield VMeta(metaId, Spine.SNil)
 
   /** Check a term against a known expected type. */
   def check(
@@ -153,31 +141,37 @@ class Checker(
                           case _ =>
                             for {
                               (expr, inferred)              <- infer(tm)
-                              (instantiated, implicitMetas) <- instantiateCollecting(inferred)
+                              (instantiated, implicitMetas) <- peelLams(inferred, (_, _) => pure(()))
                               _                             <- doUnify(instantiated, expected, tm.as("Type mismatch."))
                               updatedExpr                    =
-                                addImplicitTypeArgs(expr, implicitMetas).copy(expressionType = instantiated)
+                                addTypeArgs(expr, implicitMetas).copy(expressionType = instantiated)
                             } yield updatedExpr
                         }
     } yield result
 
-  /** Peel off leading VLam closures by instantiating them with fresh metas, collecting the metas for later resolution.
+  /** Peel off leading VLam closures by substituting fresh metas, and return the resulting non-VLam head together with
+    * the metas collected in order. `onPeel` runs for each VLam peeled, receiving the parameter name and the fresh meta
+    * — used by the top-level type-stack walk to bind param names in the env.
     */
-  private def instantiateCollecting(
+  private[check] def peelLams(
       sem: SemValue,
-      metas: Seq[SemValue] = Seq.empty
-  ): CheckIO[(SemValue, Seq[SemValue])] =
-    for {
-      forced <- force(sem)
-      result <- forced match {
-                  case VLam(_, closure) =>
-                    for {
-                      meta   <- freshMeta
-                      result <- instantiateCollecting(closure(meta), metas :+ meta)
-                    } yield result
-                  case other            => pure((other, metas))
-                }
-    } yield result
+      onPeel: (String, SemValue) => CheckIO[Unit]
+  ): CheckIO[(SemValue, Seq[SemValue])] = {
+    def loop(s: SemValue, acc: Seq[SemValue]): CheckIO[(SemValue, Seq[SemValue])] =
+      for {
+        forced <- force(s)
+        result <- forced match {
+                    case VLam(name, closure) =>
+                      for {
+                        meta <- freshMeta
+                        _    <- onPeel(name, meta)
+                        rest <- loop(closure(meta), acc :+ meta)
+                      } yield rest
+                    case other               => pure((other, acc))
+                  }
+      } yield result
+    loop(sem, Seq.empty)
+  }
 
   /** Infer the type of a term. */
   def infer(
@@ -211,20 +205,13 @@ class Checker(
         sigOpt <- fetchAndEvalSignature(vfqn.value)
         result <- sigOpt match {
                     case Some(sig) =>
-                      for {
-                        (appliedSig, explicitTypeArgs) <- typeArgs.foldLeftM((sig, Seq.empty[SemValue])) {
-                                                            case ((s, args), typeArg) =>
-                                                              for {
-                                                                argVal <- evalExpr(typeArg.value)
-                                                              } yield (Evaluator.applyValue(s, argVal), args :+ argVal)
-                                                          }
-                      } yield (
-                        SemExpression(
-                          appliedSig,
-                          SemExpression.ValueReference(vfqn, explicitTypeArgs, Seq.empty)
-                        ),
-                        appliedSig
-                      )
+                      typeArgs.traverse(ta => evalExpr(ta.value)).map { explicitTypeArgs =>
+                        val appliedSig = explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)
+                        (
+                          SemExpression(appliedSig, SemExpression.ValueReference(vfqn, explicitTypeArgs)),
+                          appliedSig
+                        )
+                      }
                     case None      =>
                       liftF(compilerError(tm.as("Name not defined.")) >> abort)
                   }
@@ -233,7 +220,7 @@ class Checker(
     case OperatorResolvedExpression.FunctionApplication(target, arg) =>
       for {
         (targetExpr, targetType) <- infer(target)
-        result                   <- applyInferred(target, targetExpr, targetType, arg, tm)
+        result                   <- applyInferred(target, targetExpr, targetType, arg)
       } yield result
 
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
@@ -254,73 +241,47 @@ class Checker(
       liftF(compilerError(tm.as("Cannot infer type of unannotated lambda.")) >> abort)
   }
 
-  /** Handle function application: infer target, then apply argument. Tracks implicit type args from VLam instantiation.
+  /** Handle function application: peel any polytype (`VLam`) layers with fresh metas, then apply one argument to the
+    * resulting monotype. If the monotype isn't already `VPi`, it gets unified against a fresh one. The implicit metas
+    * introduced by peeling are baked into the target reference.
     */
   private def applyInferred(
       target: Sourced[OperatorResolvedExpression],
       targetExpr: SemExpression,
       targetType: SemValue,
-      arg: Sourced[OperatorResolvedExpression],
-      whole: Sourced[OperatorResolvedExpression],
-      implicitTypeArgs: Seq[SemValue] = Seq.empty
+      arg: Sourced[OperatorResolvedExpression]
   ): CheckIO[(SemExpression, SemValue)] =
     for {
-      forced <- force(targetType)
-      result <- forced match {
-                  case VPi(domain, codomain) =>
-                    for {
-                      argExpr      <- check(arg, domain)
-                      argSem       <- evalExpr(arg.value)
-                      retType       = codomain(argSem)
-                      updatedTarget = addImplicitTypeArgs(targetExpr, implicitTypeArgs)
-                    } yield (
-                      SemExpression(
-                        retType,
-                        SemExpression.FunctionApplication(target.as(updatedTarget), arg.as(argExpr))
-                      ),
-                      retType
-                    )
+      (peeled, implicitMetas) <- peelLams(targetType, (_, _) => pure(()))
+      updatedTarget            = addTypeArgs(targetExpr, implicitMetas).copy(expressionType = peeled)
+      vpi                     <- peeled match {
+                                   case p: VPi => pure(p)
+                                   case _      =>
+                                     for {
+                                       domMeta <- freshMeta
+                                       codMeta <- freshMeta
+                                       p        = VPi(domMeta, _ => codMeta)
+                                       _       <- doUnify(peeled, p, target.as("Not a function."))
+                                     } yield p
+                                 }
+      argExpr                 <- check(arg, vpi.domain)
+      argSem                  <- evalExpr(arg.value)
+      retType                  = vpi.codomain(argSem)
+    } yield (
+      SemExpression(
+        retType,
+        SemExpression.FunctionApplication(target.as(updatedTarget), arg.as(argExpr))
+      ),
+      retType
+    )
 
-                  case VLam(_, closure) =>
-                    // Polytype at term level: instantiate with fresh meta, then recurse.
-                    // This handles implicit type arg instantiation for generic values like `id(42)`.
-                    // Track the instantiated type on the target so its `expressionType` reflects the current
-                    // partially-applied shape rather than the untouched VLam polytype. Implicit type args
-                    // are accumulated in `implicitTypeArgs` and baked into the target ref once — at the VPi
-                    // endpoint of the recursion.
-                    for {
-                      meta      <- freshMeta
-                      nextType   = closure(meta)
-                      nextTarget = targetExpr.copy(expressionType = nextType)
-                      result    <- applyInferred(target, nextTarget, nextType, arg, whole, implicitTypeArgs :+ meta)
-                    } yield result
-
-                  case _ =>
-                    // Try to unify with a fresh function type
-                    for {
-                      domMeta <- freshMeta
-                      codMeta <- freshMeta
-                      _       <- doUnify(forced, VPi(domMeta, _ => codMeta), target.as("Not a function."))
-                      domain  <- force(domMeta)
-                      argExpr <- check(arg, domain)
-                      retType <- force(codMeta)
-                    } yield (
-                      SemExpression(
-                        retType,
-                        SemExpression.FunctionApplication(target.as(targetExpr), arg.as(argExpr))
-                      ),
-                      retType
-                    )
-                }
-    } yield result
-
-  /** Append implicit type args to a [[SemExpression.ValueReference]] expression. No-op for other shapes. */
-  private def addImplicitTypeArgs(expr: SemExpression, extraArgs: Seq[SemValue]): SemExpression =
+  /** Append type args to a [[SemExpression.ValueReference]] expression. No-op for other shapes. */
+  private def addTypeArgs(expr: SemExpression, extraArgs: Seq[SemValue]): SemExpression =
     if (extraArgs.isEmpty) expr
     else
       expr.expression match {
         case ref: SemExpression.ValueReference =>
-          expr.copy(expression = ref.copy(implicitTypeArguments = ref.implicitTypeArguments ++ extraArgs))
+          expr.copy(expression = ref.copy(typeArguments = ref.typeArguments ++ extraArgs))
         case _                                 => expr
       }
 
@@ -342,7 +303,7 @@ class Checker(
   private def getReturnType(funcType: SemValue): CheckIO[SemValue] =
     inspect { s =>
       funcType match {
-        case VPi(_, codomain) => codomain(VNeutral(NeutralHead.VVar(s.env.level, "$ret"), Spine.SNil, VType))
+        case VPi(_, codomain) => codomain(VNeutral(NeutralHead.VVar(s.env.level, "$ret"), Spine.SNil))
         case other            => other
       }
     }

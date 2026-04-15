@@ -66,17 +66,15 @@ class PostDrainQuoter(
         b  <- quoteSourced(body)
       } yield MonomorphicExpression.FunctionLiteral(paramName, pt, b)
 
-    case SemExpression.ValueReference(vfqn, explicitArgs, implicitArgs) =>
+    case SemExpression.ValueReference(vfqn, typeArgs) =>
       for {
-        explicit  <- explicitArgs.traverse(a => quoteSem(a, vfqn))
-        implicits <- implicitArgs.traverse(a => quoteSem(a, vfqn))
-      } yield resolveIfAbility(vfqn, explicit, implicits)
+        args <- typeArgs.traverse(a => quoteSem(a, vfqn))
+      } yield resolveIfAbility(vfqn, args)
   }
 
   private def resolveIfAbility(
       vfqn: Sourced[ValueFQN],
-      explicitArgs: Seq[GroundValue],
-      implicitArgs: Seq[GroundValue]
+      typeArgs: Seq[GroundValue]
   ): MonomorphicExpression.Expression =
     vfqn.value.name.qualifier match {
       case _: CoreQualifier.Ability =>
@@ -84,9 +82,9 @@ class PostDrainQuoter(
           case Some((implFqn, implTypeArgs)) =>
             MonomorphicExpression.MonomorphicValueReference(vfqn.as(implFqn), implTypeArgs)
           case None                          =>
-            MonomorphicExpression.MonomorphicValueReference(vfqn, explicitArgs ++ implicitArgs)
+            MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)
         }
       case _                        =>
-        MonomorphicExpression.MonomorphicValueReference(vfqn, explicitArgs ++ implicitArgs)
+        MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs)
     }
 }
