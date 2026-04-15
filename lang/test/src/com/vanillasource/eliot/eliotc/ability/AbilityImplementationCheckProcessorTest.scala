@@ -135,27 +135,21 @@ class AbilityImplementationCheckProcessorTest
     // The error fires at the impls, not at the call site.
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"
-    ).asserting(errors =>
-      errors.count(_.message.contains("Overlapping ability implementation")) shouldBe 2
-    )
+    ).asserting(errors => errors.count(_.message.contains("Overlapping ability implementation")) shouldBe 2)
   }
 
   it should "report overlap when one impl's pattern generalises another's" in {
     // `Show[Box[A]]` and `Show[Box[Int]]` both match `Show[Box[Int]]` → overlap at definition time.
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\ndata Box[A]\nimplement[A] Show[Box[A]] { def show(x: Box[A]): Box[A] = x }\nimplement Show[Box[Int]] { def show(x: Box[Int]): Box[Int] = x }\ndef f(x: Box[Int]): Box[Int] = show(x)"
-    ).asserting(errors =>
-      errors.count(_.message.contains("Overlapping ability implementation")) shouldBe 2
-    )
+    ).asserting(errors => errors.count(_.message.contains("Overlapping ability implementation")) shouldBe 2)
   }
 
   it should "not report overlap for impls of the same ability on distinct type constructors" in {
     // `Show[Int]` and `Show[Bool]` don't overlap structurally.
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\ndata Bool\nimplement Show[Int] { def show(x: Int): Int = x }\nimplement Show[Bool] { def show(x: Bool): Bool = x }\ndef f(x: Int): Int = show(x)"
-    ).asserting(errors =>
-      errors.count(_.message.contains("Overlapping ability implementation")) shouldBe 0
-    )
+    ).asserting(errors => errors.count(_.message.contains("Overlapping ability implementation")) shouldBe 0)
   }
 
   it should "dispatch to the right impl when two impls of the same ability coexist in one module" in {
@@ -247,9 +241,7 @@ class AbilityImplementationCheckProcessorTest
         }
 
         def f(x: String): Int = convert(x)
-    """).asserting(errors =>
-      errors.exists(_.message.contains("does not implement ability 'Convert'")) shouldBe true
-    )
+    """).asserting(errors => errors.exists(_.message.contains("does not implement ability 'Convert'")) shouldBe true)
   }
 
   it should "preserve parameterised type arguments through a generic impl's binding" in {
@@ -384,9 +376,43 @@ class AbilityImplementationCheckProcessorTest
         }
 
         def f: String = handle(Name(someString), someInt)
-    """).asserting(errors =>
-      errors.exists(e => e.message.contains("Associated type")) shouldBe true
-    )
+    """).asserting(errors => errors.exists(e => e.message.contains("Associated type")) shouldBe true)
+  }
+
+  // --- Higher-kinded abilities ---
+
+  "higher-kinded abilities" should "resolve when implementing a higher-kinded ability for a concrete type" in {
+    runEngineForErrors("""
+        data Elem
+
+        ability Container[F[_]] {
+          def wrap(e: Elem): F[Elem]
+        }
+
+        data Box[A](content: A)
+
+        implement Container[Box] {
+          def wrap(e: Elem): Box[Elem] = Box(e)
+        }
+
+        def someElem: Elem
+        def f: Box[Elem] = wrap(someElem)
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
+  ignore should "fail when no implementation exists for the higher-kinded type" in {
+    runEngineForErrors("""
+        data Elem
+
+        ability Container[F[_]] {
+          def wrap(e: Elem): F[Elem]
+        }
+
+        data Box[A](content: A)
+
+        def someElem: Elem
+        def f: Box[Elem] = wrap(someElem)
+    """).asserting(_.nonEmpty shouldBe true)
   }
 
   private val intType: GroundValue =
