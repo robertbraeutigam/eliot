@@ -13,4 +13,14 @@ object ValueFQN {
   given Eq[ValueFQN] = Eq.fromUniversalEquals
 
   val applyFQN: ValueFQN = ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("apply", Qualifier.Default))
+
+  /** True when the FQN refers to a declaration inside an ability block whose name starts with an uppercase letter,
+    * indicating an associated type rather than an abstract method. Abstract associated types have no runtime body; the
+    * concrete value comes from the ability impl and is resolved post-drain.
+    */
+  def isAbstractAbilityType(fqn: ValueFQN): Boolean =
+    fqn.name.qualifier match {
+      case _: Qualifier.Ability => fqn.name.name.headOption.exists(_.isUpper)
+      case _                    => false
+    }
 }

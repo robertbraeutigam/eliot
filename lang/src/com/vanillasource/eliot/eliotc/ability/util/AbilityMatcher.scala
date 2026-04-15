@@ -142,7 +142,7 @@ object AbilityMatcher {
       case (vfqn, Binding.Body(body))      =>
         vfqn -> VTopDef(vfqn, Some(Lazy(evaluator.eval(Env.empty, body.value))), Spine.SNil)
     } + (WellKnownTypes.typeFQN -> VType)
-    lazy val evaluator: Evaluator                    = new Evaluator(vfqn => bindings.get(vfqn), Map.empty)
+    lazy val evaluator: Evaluator                    = new Evaluator(vfqn => bindings.get(vfqn))
 
     Setup(evaluator, store0)
   }

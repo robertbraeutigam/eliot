@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
@@ -8,7 +9,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Quoter
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
 import com.vanillasource.eliot.eliotc.monomorphize.unify.{SemValuePrinter, UnifyError}
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
@@ -38,7 +39,7 @@ class TypeStackLoop(
   ): CheckIO[MonomorphicValue] =
     for {
       // Walk type stack levels top-down
-      signature <- walkTypeStack(resolvedValue)
+      signature <- walkTypeStack(resolvedValue.typeStack)
 
       // Apply explicit type args
       appliedSig   <- applyTypeArgs(signature, key.typeArguments, resolvedValue.typeStack)
@@ -52,11 +53,11 @@ class TypeStackLoop(
       // Drain-and-resolve loop: repeatedly drain the unifier, then try to resolve each pending ability reference;
       // on success, record the resolution and inject the impl's concrete associated-type values into their
       // standing metas, which re-feeds the next drain. Iterates until no new ability resolves, bounded for safety.
-      _       <- drainAndResolveLoop(runtime, resolvedValue.paramConstraints)
+      _       <- drainAndResolveLoop(resolvedValue.paramConstraints)
 
-      // Default any unsolved metas to VType. These are "phantom" type parameters whose values never get constrained
-      // (e.g., a generic parameter that doesn't appear in the signature besides its declaration). Leaving them
-      // unsolved would fail strict quoting; defaulting to VType matches the pre-NbE behaviour for such params.
+      // Default any unsolved metas to VType. These include "phantom" type parameters (ones that never get constrained
+      // by the signature) and match-arm binding metas that have no runtime type to be inferred against. Leaving them
+      // unsolved would fail strict quoting; defaulting to VType preserves the pre-NbE behaviour for such params.
       _     <- modify(s => s.withUnifier(s.unifier.defaultUnsolvedTo(VType)))
       state <- get
       _     <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
@@ -78,33 +79,37 @@ class TypeStackLoop(
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
 
-  /** Outer drain-and-resolve loop. Each iteration drains the unifier to solve pending constraints, then tries to
-    * resolve each still-pending ability reference. A resolution may inject associated-type solutions into the
-    * metastore, feeding the next drain. Resolved refs drop out of the pending set, so iteration is bounded by the
-    * initial ref count.
+  /** Single fixed-point loop over the combined (unifier-drain + ability-resolve) state. Each step drains the unifier to
+    * a fixed point and then attempts every still-unresolved ability reference from [[CheckState.abilityRefs]]. A
+    * successful ability resolution may inject associated-type solutions into the metastore, so if any ability newly
+    * resolved during the step we iterate again.
+    *
+    * Because each ability resolves at most once (resolved refs live in [[CheckState.abilityResolutions]] and are
+    * skipped on subsequent iterations), the outer loop is bounded by the initial ability count.
     */
   private def drainAndResolveLoop(
-      runtime: Option[Sourced[SemExpression]],
       paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
   ): CheckIO[Unit] = {
-    def loop(pending: Seq[AbilityRef]): CheckIO[Unit] =
+    val step: CheckIO[Boolean] =
       for {
-        _            <- modify(s => s.withUnifier(s.unifier.drain()))
-        stillPending <- pending.foldLeftM(Seq.empty[AbilityRef]) { (acc, ref) =>
-                          tryResolveOne(ref, paramConstraints).map {
-                            case true  => acc
-                            case false => acc :+ ref
-                          }
-                        }
-        _            <- if (stillPending.size < pending.size) loop(stillPending) else pure(())
-      } yield ()
-    loop(runtime.toSeq.flatMap(r => TypeStackLoop.collectAbilityRefs(r.value)))
+        _          <- modify(s => s.withUnifier(s.unifier.drain()))
+        state      <- get
+        unresolved  = state.abilityRefs.toSeq.filterNot { case (ref, _) => state.abilityResolutions.contains(ref) }
+        progressed <- unresolved.foldLeftM(false) { (acc, ref) =>
+                        tryResolveOne(ref, paramConstraints).map(_ || acc)
+                      }
+      } yield progressed
+
+    def loop: CheckIO[Unit] = step.flatMap(if (_) loop else pure(()))
+    loop
   }
 
   /** Try to resolve a single ability reference. Returns `true` iff the reference got newly resolved this call.
     *
-    *   - If the ref is covered by an in-scope parameter constraint, the constraint's ORE type arguments are evaluated
-    *     (reproducing the behaviour the old [[PostDrainQuoter]].`findConstraintParam` path had).
+    *   - If the ref is covered by an in-scope parameter constraint (e.g. calling a method of `Foo[T]` inside a `[T]
+    *     with Foo[T]` context), the constraint's own type arguments are used — at monomorphization time they're already
+    *     instantiated to the caller's concrete types, whereas the reference's implicit metas won't be solved until
+    *     unification connects them. The constraint path is the direct way to get concrete args.
     *   - Otherwise the ref's own type arguments are used.
     *   - Quoting failure (still-unsolved metas) leaves the ref pending for the next iteration.
     *   - `resolveAbility` returning `None` also leaves it pending — the ref will stay unresolved in the final
@@ -120,7 +125,7 @@ class TypeStackLoop(
         for {
           state        <- get
           effectiveArgs =
-            TypeStackLoop.findConstraintTypeArgs(paramConstraints, abilityName, state).getOrElse(refTypeArgs)
+            state.findConstraintTypeArgs(paramConstraints, abilityName).getOrElse(refTypeArgs)
           groundArgsE   = effectiveArgs.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore))
           progressed   <- groundArgsE match {
                             case Right(groundArgs) =>
@@ -155,8 +160,9 @@ class TypeStackLoop(
       ValueFQN(implFqn.moduleName, QualifiedName(absFqn.name.name, implFqn.name.qualifier))
     for {
       state <- get
-      _     <- state.associatedTypeMetas.toSeq
+      _     <- state.associatedTypeMetas
                  .filter { case (absFqn, _) => isForThisAbility(absFqn) }
+                 .toSeq
                  .traverse_ { case (absFqn, metaId) =>
                    liftF(fetchBinding(implAssocFqnFor(absFqn))).flatMap {
                      case None      => pure(())
@@ -175,20 +181,25 @@ class TypeStackLoop(
     } yield ()
   }
 
-  private def walkTypeStack(resolvedValue: OperatorResolvedValue): CheckIO[SemValue] = {
-    val levels = resolvedValue.typeStack.value.levels.toSeq.reverse
-    levels.foldLeftM(VType: SemValue) { (expected, level) =>
-      checker.check(resolvedValue.typeStack.as(level), expected) >>
+  /** Walk the type stack top-down, folding each level against the one above as its expected kind.
+    *
+    * For each level we (a) kind-check the ORE against the running `expected` so ill-kinded signatures surface as errors
+    * attached to the correct source, and (b) evaluate the ORE to obtain the next-lower level's expected kind. The
+    * [[SemExpression]] returned by the kind-check is discarded — the checker is invoked purely for its unification side
+    * effects and param-name bindings. The final fold result is the signature's [[SemValue]].
+    */
+  private def walkTypeStack(typeStack: Sourced[TypeStack[OperatorResolvedExpression]]): CheckIO[SemValue] =
+    typeStack.value.levels.toSeq.reverse.foldLeftM(VType: SemValue) { (expected, level) =>
+      checker.check(typeStack.as(level), expected) >>
         checker.evalExpr(level)
     }
-  }
 
   /** Instantiate any remaining VLam closures (unapplied type parameters) with fresh metas, binding each in the env.
     * This handles phantom type parameters and cases where fewer explicit type args were provided than type parameters
     * exist.
     */
   private def instantiateRemaining(sig: SemValue): CheckIO[SemValue] =
-    checker.peelLams(sig, (name, meta) => modify(_.bind(name, meta))).map(_._1)
+    checker.peelLamsBinding(sig).map(_._1)
 
   /** Apply concrete GroundValue type arguments to the signature by wrapping each in VConst and applying to VLam
     * closures.
@@ -242,35 +253,4 @@ object TypeStackLoop {
     new TypeStackLoop(fetchBinding, resolveAbility).process(key, resolvedValue)
 
   private type AbilityRef = (Sourced[ValueFQN], Seq[SemValue])
-
-  /** Collect every ability-qualified [[SemExpression.ValueReference]] in the tree together with its type arguments. The
-    * sourced vfqn itself carries the source position used for error attribution.
-    */
-  private def collectAbilityRefs(expr: SemExpression): Seq[AbilityRef] =
-    expr.expression match {
-      case SemExpression.ValueReference(vfqn, typeArgs) =>
-        vfqn.value.name.qualifier match {
-          case _: Qualifier.Ability => Seq((vfqn, typeArgs))
-          case _                    => Seq.empty
-        }
-      case SemExpression.FunctionApplication(t, a)      =>
-        collectAbilityRefs(t.value) ++ collectAbilityRefs(a.value)
-      case SemExpression.FunctionLiteral(_, _, body)    =>
-        collectAbilityRefs(body.value)
-      case _                                            => Seq.empty
-    }
-
-  /** Look up the first in-scope parameter constraint that targets the given ability name and return its type arguments
-    * evaluated against the current check state. Mirrors the old [[PostDrainQuoter]] path.
-    */
-  private def findConstraintTypeArgs(
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]],
-      abilityName: String,
-      state: CheckState
-  ): Option[Seq[SemValue]] =
-    paramConstraints.collectFirst(Function.unlift { (_, constraints) =>
-      constraints.find(_.abilityFQN.abilityName == abilityName).map { c =>
-        c.typeArgs.map(arg => state.makeEvaluator.eval(state.env, arg))
-      }
-    })
 }

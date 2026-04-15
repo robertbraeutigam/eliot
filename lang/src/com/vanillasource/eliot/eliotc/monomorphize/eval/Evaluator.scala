@@ -12,12 +12,9 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
   *
   * @param lookupTopDef
   *   Function to look up a top-level definition by ValueFQN, returning its semantic value
-  * @param nameLevels
-  *   Map from parameter name to de Bruijn level, maintained by the Checker
   */
 class Evaluator(
-    lookupTopDef: ValueFQN => Option[SemValue],
-    nameLevels: Map[String, Int]
+    lookupTopDef: ValueFQN => Option[SemValue]
 ) {
 
   /** Evaluate an ORE expression to a semantic value under the given environment. */
@@ -31,9 +28,6 @@ class Evaluator(
     case OperatorResolvedExpression.ParameterReference(name) =>
       env
         .lookupByName(name.value)
-        .orElse(
-          nameLevels.get(name.value).map(env.lookupByLevel)
-        )
         .getOrElse(
           VNeutral(NeutralHead.VVar(env.level, name.value), Spine.SNil)
         )

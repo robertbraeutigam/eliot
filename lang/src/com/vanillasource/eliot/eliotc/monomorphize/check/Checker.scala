@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -28,7 +29,8 @@ class Checker(
     *
     * References to abstract associated ability types (`type X` inside `ability ...`, no body) are rewritten to a fresh
     * [[VMeta]] on first access and cached in that form. The meta is solved post-drain by unifying against the concrete
-    * impl's corresponding associated-type value. One meta per (fqn, check-session).
+    * impl's corresponding associated-type value. The cache provides per-(fqn, check-session) dedup automatically —
+    * subsequent lookups return the same cached meta.
     */
   private def ensureBinding(vfqn: ValueFQN): CheckIO[Option[SemValue]] =
     for {
@@ -39,9 +41,9 @@ class Checker(
                     for {
                       opt      <- liftF(fetchBinding(vfqn))
                       replaced <- opt match {
-                                    case Some(VTopDef(fqn, None, Spine.SNil)) if Checker.isAbstractAbilityType(fqn) =>
-                                      allocateAssociatedTypeMeta(fqn).map(Some(_))
-                                    case other                                                                      =>
+                                    case Some(VTopDef(fqn, None, Spine.SNil)) if ValueFQN.isAbstractAbilityType(fqn) =>
+                                      freshMeta.map(meta => Some(meta: SemValue))
+                                    case other                                                                       =>
                                       pure(other)
                                   }
                       _        <- modify(_.cacheBinding(vfqn, replaced))
@@ -49,40 +51,27 @@ class Checker(
                 }
     } yield result
 
-  /** Allocate or reuse the meta standing in for an abstract associated ability type. */
-  private def allocateAssociatedTypeMeta(fqn: ValueFQN): CheckIO[SemValue] =
-    for {
-      existing <- inspect(_.associatedTypeMetas.get(fqn))
-      result   <- existing match {
-                    case Some(id) => pure(VMeta(id, Spine.SNil))
-                    case None     =>
-                      for {
-                        meta <- freshMeta
-                        _    <- modify(_.recordAssociatedTypeMeta(fqn, meta.id))
-                      } yield (meta: SemValue)
-                  }
-    } yield result
-
-  /** Evaluate an ORE expression under the current state's env. Pre-fetches every referenced binding (so
-    * [[ensureBinding]]'s intercept of abstract associated ability types fires before the pure [[Evaluator]] runs).
+  /** Evaluate an ORE expression under the current state's env. Fetches bindings lazily as the traversal encounters
+    * ValueReferences, so [[ensureBinding]]'s intercept of abstract associated ability types fires naturally.
     */
   def evalExpr(tm: OperatorResolvedExpression): CheckIO[SemValue] =
-    evalExprIn(tm, useCurrentEnv = true)
+    for {
+      s      <- get
+      result <- evalIn(s.env, tm)
+    } yield result
 
-  /** Fetch a value's signature ORE and evaluate it against an empty env (signatures have no local bindings in scope).
-    * Pre-fetches referenced bindings the same way [[evalExpr]] does.
+  /** Evaluate an ORE expression against an empty env. Used for signatures, which have no outer-session bindings in
+    * scope and only reference their own parameters or top-level values.
     */
+  private def evalExprInEmptyEnv(tm: OperatorResolvedExpression): CheckIO[SemValue] =
+    evalIn(Env.empty, tm)
+
+  /** Fetch a value's signature ORE and evaluate it against an empty env. */
   private def fetchAndEvalSignature(vfqn: ValueFQN): CheckIO[Option[SemValue]] =
     liftF(getFact(OperatorResolvedValue.Key(vfqn))).flatMap {
-      case Some(orv) => evalExprIn(orv.typeStack.value.signature, useCurrentEnv = false).map(Some(_))
+      case Some(orv) => evalExprInEmptyEnv(orv.typeStack.value.signature).map(Some(_))
       case None      => pure(None)
     }
-
-  private def evalExprIn(tm: OperatorResolvedExpression, useCurrentEnv: Boolean): CheckIO[SemValue] =
-    for {
-      _ <- fetchBindings(tm)
-      s <- get
-    } yield s.makeEvaluator.eval(if (useCurrentEnv) s.env else Env.empty, tm)
 
   /** Force a SemValue through the current meta store. */
   private[check] def force(v: SemValue): CheckIO[SemValue] =
@@ -132,30 +121,34 @@ class Checker(
                                   SemExpression.FunctionLiteral(paramName, domain, body.as(bodyExpr))
                                 )
                               case _                     =>
-                                for {
-                                  (expr, inferred) <- infer(tm)
-                                  _                <- doUnify(inferred, expected, tm.as("Type mismatch."))
-                                } yield expr
+                                liftF(compilerError(tm.as("Cannot infer type of unannotated lambda.")) >> abort)
                             }
 
                           case _ =>
                             for {
-                              (expr, inferred)              <- infer(tm)
-                              (instantiated, implicitMetas) <- peelLams(inferred, (_, _) => pure(()))
-                              _                             <- doUnify(instantiated, expected, tm.as("Type mismatch."))
-                              updatedExpr                    =
-                                addTypeArgs(expr, implicitMetas).copy(expressionType = instantiated)
+                              (expr, inferred)            <- infer(tm)
+                              (updatedExpr, instantiated) <- instantiatePolymorphic(expr, inferred)
+                              _                           <- doUnify(instantiated, expected, tm.as("Type mismatch."))
                             } yield updatedExpr
                         }
     } yield result
 
   /** Peel off leading VLam closures by substituting fresh metas, and return the resulting non-VLam head together with
-    * the metas collected in order. `onPeel` runs for each VLam peeled, receiving the parameter name and the fresh meta
-    * — used by the top-level type-stack walk to bind param names in the env.
+    * the metas collected in order. The metas are not bound in the env — use [[peelLamsBinding]] if you also need to
+    * bind the peeled parameter names.
     */
-  private[check] def peelLams(
+  private[check] def peelLams(sem: SemValue): CheckIO[(SemValue, Seq[SemValue])] =
+    peelLamsImpl(sem, bindInEnv = false)
+
+  /** Like [[peelLams]] but also binds each peeled parameter name to its fresh meta in the env. Used by the top-level
+    * type-stack walk so remaining unapplied type parameters become in-scope names.
+    */
+  private[check] def peelLamsBinding(sem: SemValue): CheckIO[(SemValue, Seq[SemValue])] =
+    peelLamsImpl(sem, bindInEnv = true)
+
+  private def peelLamsImpl(
       sem: SemValue,
-      onPeel: (String, SemValue) => CheckIO[Unit]
+      bindInEnv: Boolean
   ): CheckIO[(SemValue, Seq[SemValue])] = {
     def loop(s: SemValue, acc: Seq[SemValue]): CheckIO[(SemValue, Seq[SemValue])] =
       for {
@@ -164,7 +157,7 @@ class Checker(
                     case VLam(name, closure) =>
                       for {
                         meta <- freshMeta
-                        _    <- onPeel(name, meta)
+                        _    <- if (bindInEnv) modify(_.bind(name, meta)) else pure(())
                         rest <- loop(closure(meta), acc :+ meta)
                       } yield rest
                     case other               => pure((other, acc))
@@ -190,11 +183,10 @@ class Checker(
     case OperatorResolvedExpression.ParameterReference(name) =>
       for {
         state  <- get
-        result <- state.nameLevels.get(name.value) match {
-                    case Some(level) =>
-                      val sem = state.env.lookupByLevel(level)
+        result <- state.env.lookupByName(name.value) match {
+                    case Some(sem) =>
                       pure((SemExpression(sem, SemExpression.ParameterReference(name)), sem))
-                    case None        =>
+                    case None      =>
                       liftF(compilerError(tm.as("Name not defined.")) >> abort)
                   }
       } yield result
@@ -205,7 +197,10 @@ class Checker(
         sigOpt <- fetchAndEvalSignature(vfqn.value)
         result <- sigOpt match {
                     case Some(sig) =>
-                      typeArgs.traverse(ta => evalExpr(ta.value)).map { explicitTypeArgs =>
+                      for {
+                        explicitTypeArgs <- typeArgs.traverse(ta => evalExpr(ta.value))
+                        _                <- recordIfAbility(vfqn, explicitTypeArgs)
+                      } yield {
                         val appliedSig = explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)
                         (
                           SemExpression(appliedSig, SemExpression.ValueReference(vfqn, explicitTypeArgs)),
@@ -252,8 +247,7 @@ class Checker(
       arg: Sourced[OperatorResolvedExpression]
   ): CheckIO[(SemExpression, SemValue)] =
     for {
-      (peeled, implicitMetas) <- peelLams(targetType, (_, _) => pure(()))
-      updatedTarget            = addTypeArgs(targetExpr, implicitMetas).copy(expressionType = peeled)
+      (updatedTarget, peeled) <- instantiatePolymorphic(targetExpr, targetType)
       vpi                     <- peeled match {
                                    case p: VPi => pure(p)
                                    case _      =>
@@ -275,28 +269,111 @@ class Checker(
       retType
     )
 
-  /** Append type args to a [[SemExpression.ValueReference]] expression. No-op for other shapes. */
-  private def addTypeArgs(expr: SemExpression, extraArgs: Seq[SemValue]): SemExpression =
-    if (extraArgs.isEmpty) expr
+  /** Peel leading `VLam` closures from an inferred type with fresh metas, baking the metas as implicit type arguments
+    * onto the expression's [[SemExpression.ValueReference]] and updating its `expressionType`. Returns the updated
+    * expression paired with the peeled (monotype) type. Used both by the generic `check` fallback and by
+    * [[applyInferred]] — any polytype introduced by referencing a generic value gets instantiated at exactly one place.
+    */
+  private def instantiatePolymorphic(
+      expr: SemExpression,
+      tpe: SemValue
+  ): CheckIO[(SemExpression, SemValue)] =
+    for {
+      (peeled, implicitMetas) <- peelLams(tpe)
+      updated                 <- addTypeArgs(expr, implicitMetas)
+    } yield (updated.copy(expressionType = peeled), peeled)
+
+  /** If the given vfqn has an `Ability` qualifier, record the (sourced-vfqn → type args) entry in state so the
+    * drain-and-resolve loop doesn't have to re-walk the output tree.
+    */
+  private def recordIfAbility(vfqn: Sourced[ValueFQN], typeArgs: Seq[SemValue]): CheckIO[Unit] =
+    vfqn.value.name.qualifier match {
+      case _: Qualifier.Ability => modify(_.recordAbilityRef(vfqn, typeArgs))
+      case _                    => pure(())
+    }
+
+  /** Append type args to a [[SemExpression.ValueReference]] expression. Only a value reference can inherit a polytype
+    * (since polymorphism lives on named signatures), so no other shape should ever arrive here with non-empty
+    * `extraArgs`. Hitting that branch indicates the checker produced a polytype for a non-reference expression —
+    * surface it as a compiler bug instead of silently dropping the type args.
+    *
+    * For ability-qualified refs, the updated type-argument sequence is also recorded in the state so the
+    * drain-and-resolve loop sees the final set (explicit surface args + implicit metas).
+    */
+  private def addTypeArgs(expr: SemExpression, extraArgs: Seq[SemValue]): CheckIO[SemExpression] =
+    if (extraArgs.isEmpty) pure(expr)
     else
       expr.expression match {
         case ref: SemExpression.ValueReference =>
-          expr.copy(expression = ref.copy(typeArguments = ref.typeArguments ++ extraArgs))
-        case _                                 => expr
+          val updatedArgs = ref.typeArguments ++ extraArgs
+          val updatedExpr = expr.copy(expression = ref.copy(typeArguments = updatedArgs))
+          recordIfAbility(ref.valueName, updatedArgs).as(updatedExpr)
+        case other                             =>
+          throw new IllegalStateException(
+            s"Polytype instantiation produced implicit type arguments for a non-reference expression: $other"
+          )
       }
 
-  /** Fetch all NativeBindings referenced by ValueReferences in an ORE into the cache. Called automatically by evalExpr
-    * before evaluation.
+  /** Single-traversal evaluator: walks the ORE in CheckIO, fetching bindings inline at each ValueReference and building
+    * the corresponding SemValue. Replaces the old pre-walk-then-pure-eval pattern.
+    *
+    * `FunctionLiteral` is special: its body is not evaluated here (it becomes a VLam closure that fires later via the
+    * pure [[Evaluator]]), so we still prefetch all bindings reachable through the body. Likewise for parameter type
+    * annotations, whose type-stack levels the pure evaluator may read when the closure runs.
     */
-  private def fetchBindings(ore: OperatorResolvedExpression): CheckIO[Unit] = ore match {
+  private def evalIn(env: Env, tm: OperatorResolvedExpression): CheckIO[SemValue] = tm match {
+    case OperatorResolvedExpression.IntegerLiteral(value) =>
+      pure(VConst(GroundValue.Direct(value.value, Evaluator.bigIntGroundType)))
+
+    case OperatorResolvedExpression.StringLiteral(value) =>
+      pure(VConst(GroundValue.Direct(value.value, Evaluator.stringGroundType)))
+
+    case OperatorResolvedExpression.ParameterReference(name) =>
+      pure(
+        env
+          .lookupByName(name.value)
+          .getOrElse(VNeutral(NeutralHead.VVar(env.level, name.value), Spine.SNil))
+      )
+
+    case OperatorResolvedExpression.ValueReference(vfqn, typeArgs) =>
+      for {
+        binding <- ensureBinding(vfqn.value)
+        // Prefetch bindings reachable through type arguments; the pure Evaluator doesn't evaluate them, but the
+        // checker does evaluate them separately elsewhere, and any nested ValueReferences need their bindings in
+        // cache before the pure evaluator fires on enclosing lambda bodies.
+        _       <- typeArgs.traverse_(ta => prefetchBindings(ta.value))
+      } yield binding.getOrElse(VNeutral(NeutralHead.VVar(env.level, vfqn.value.name.name), Spine.SNil))
+
+    case OperatorResolvedExpression.FunctionApplication(target, arg) =>
+      for {
+        tv <- evalIn(env, target.value)
+        av <- evalIn(env, arg.value)
+      } yield Evaluator.applyValue(tv, av)
+
+    case OperatorResolvedExpression.FunctionLiteral(paramName, paramType, body) =>
+      for {
+        _ <- paramType.traverse_(pt => pt.value.levels.toSeq.traverse_(prefetchBindings))
+        _ <- prefetchBindings(body.value)
+        s <- get
+      } yield {
+        val ev = s.makeEvaluator
+        VLam(paramName.value, arg => ev.eval(env.bind(paramName.value, arg), body.value))
+      }
+  }
+
+  /** Prefetch-only traversal: walks an ORE and calls [[ensureBinding]] at every ValueReference, discarding any
+    * resulting SemValue. Used for subtrees whose actual evaluation is deferred to a pure [[Evaluator]] invocation
+    * inside a [[VLam]] closure — the closure must find every reachable binding already in the cache.
+    */
+  private def prefetchBindings(ore: OperatorResolvedExpression): CheckIO[Unit] = ore match {
     case OperatorResolvedExpression.ValueReference(vfqn, typeArgs)      =>
       ensureBinding(vfqn.value).void >>
-        typeArgs.traverse_(ta => fetchBindings(ta.value))
+        typeArgs.traverse_(ta => prefetchBindings(ta.value))
     case OperatorResolvedExpression.FunctionApplication(target, arg)    =>
-      fetchBindings(target.value) >> fetchBindings(arg.value)
+      prefetchBindings(target.value) >> prefetchBindings(arg.value)
     case OperatorResolvedExpression.FunctionLiteral(_, paramType, body) =>
-      paramType.traverse_(pt => pt.value.levels.toSeq.traverse_(fetchBindings)) >>
-        fetchBindings(body.value)
+      paramType.traverse_(pt => pt.value.levels.toSeq.traverse_(prefetchBindings)) >>
+        prefetchBindings(body.value)
     case _                                                              => pure(())
   }
 
@@ -306,18 +383,5 @@ class Checker(
         case VPi(_, codomain) => codomain(VNeutral(NeutralHead.VVar(s.env.level, "$ret"), Spine.SNil))
         case other            => other
       }
-    }
-}
-
-object Checker {
-
-  /** True when the FQN refers to a declaration inside an ability block whose name starts with an uppercase letter,
-    * indicating an associated type rather than an abstract method. Abstract associated types have no runtime body; the
-    * concrete value comes from the ability impl and is resolved post-drain.
-    */
-  def isAbstractAbilityType(fqn: ValueFQN): Boolean =
-    fqn.name.qualifier match {
-      case _: Qualifier.Ability => fqn.name.name.headOption.exists(_.isUpper)
-      case _                    => false
     }
 }

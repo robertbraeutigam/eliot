@@ -42,7 +42,7 @@ class UserValueNativesProcessor
         key.vfqn,
         fact.runtime.map { body =>
           Lazy {
-            val evaluator = new Evaluator(vfqn => bodyBindings.get(vfqn), Map.empty)
+            val evaluator = new Evaluator(vfqn => bodyBindings.get(vfqn))
             evaluator.eval(Env.empty, body.value)
           }
         },

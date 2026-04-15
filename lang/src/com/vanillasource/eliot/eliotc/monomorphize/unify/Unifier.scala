@@ -154,7 +154,7 @@ case class Unifier(
     copy(errors = UnifyError(context, None, None) :: errors)
 
   /** Solve any still-unsolved metavariables with the given value. Used to "default" unconstrained phantom type
-    * parameters after the main drain completes.
+    * parameters and match-binding metas after the main drain completes.
     */
   def defaultUnsolvedTo(value: SemValue): Unifier = {
     val store          = metaStore
