@@ -338,6 +338,38 @@ class MonomorphicTypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  // Injectivity decomposition: `?F[BigInt] ~ Box[BigInt]` at the call site should solve `?F := Box` without
+  // needing explicit type args. Covers the `?id [x] ~ C [x]` case GHC/Scala 3 handle via injective type-application
+  // decomposition.
+  it should "infer higher-kinded type parameter from argument type" in {
+    runForErrors(
+      "data Box[A]\ndef id[F[_]](x: F[BigInteger]): F[BigInteger] = x\ndef someBox: Box[BigInteger]\ndef f: Box[BigInteger] = id(someBox)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  // Decomposition must cascade: `?F[?G[BigInt]] ~ Box[Maybe[BigInt]]` decomposes to `?F := Box`, then
+  // `?G[BigInt] ~ Maybe[BigInt]` decomposes to `?G := Maybe`, then BigInt ~ BigInt trivially.
+  it should "infer nested higher-kinded type parameters from argument type" in {
+    runForErrors(
+      "data Box[A]\ndata Maybe[A]\ndef id[F[_], G[_]](x: F[G[BigInteger]]): F[G[BigInteger]] = x\ndef nested: Box[Maybe[BigInteger]]\ndef f: Box[Maybe[BigInteger]] = id(nested)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  // Two-arg HKT decomposition: `?F[BigInt, String] ~ Function[BigInt, String]` → `?F := Function` and spines match.
+  it should "infer two-argument higher-kinded type parameter from argument type" in {
+    runForErrors(
+      "def id[F[_, _]](x: F[BigInteger, String]): F[BigInteger, String] = x\ndef someFunc: Function[BigInteger, String]\ndef f: Function[BigInteger, String] = id(someFunc)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  // Decomposition is structural: `?F[BigInt] ~ Box[String]` solves `?F := Box`, then the spine pointwise unify
+  // `BigInt ~ String` fails. The error must surface rather than silently succeeding via default-to-Type.
+  it should "report type mismatch inside higher-kinded parameter spine" in {
+    runForErrors(
+      "data Box[A]\ndef id[F[_]](x: F[BigInteger]): F[BigInteger] = x\ndef someBox: Box[String]\ndef f: Box[String] = id(someBox)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
   // --- Explicit type restrictions (Step 6) ---
 
   "explicit type restrictions" should "type check with explicit Type restriction like implicit" in {

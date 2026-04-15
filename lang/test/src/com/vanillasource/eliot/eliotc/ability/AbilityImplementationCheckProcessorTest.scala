@@ -390,7 +390,7 @@ class AbilityImplementationCheckProcessorTest
     """).asserting(_ shouldBe Seq.empty)
   }
 
-  ignore should "fail when no implementation exists for the higher-kinded type" in {
+  it should "fail when no implementation exists for the higher-kinded type" in {
     runEngineForErrors("""
         ability Container[F[_]] {
           def wrap(s: String): F[String]
@@ -401,6 +401,51 @@ class AbilityImplementationCheckProcessorTest
         def someString: String
         def f: Box[String] = wrap(someString)
     """).asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "dispatch a higher-kinded ability to the right implementation when multiple are in scope" in {
+    // Two impls for the same HKT ability; the expected return type is what drives dispatch.
+    // Relies on injectivity decomposition solving `?F := Box` (not `?F := Other`) purely from the call context.
+    runEngineForErrors("""
+        ability Container[F[_]] {
+          def wrap(s: String): F[String]
+        }
+
+        data Box[A](content: A)
+        data Other[A](value: A)
+
+        implement Container[Box] {
+          def wrap(s: String): Box[String] = Box(s)
+        }
+
+        implement Container[Other] {
+          def wrap(s: String): Other[String] = Other(s)
+        }
+
+        def someString: String
+        def f: Box[String] = wrap(someString)
+        def g: Other[String] = wrap(someString)
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail when the higher-kinded ability is called at a type with no matching impl but another impl exists" in {
+    // One impl for Container[Box]; the call site expects Container[Other]. Without this working, either the wrong
+    // impl would be picked (if decomposition were sloppy) or no impl at all would be checked.
+    runEngineForErrors("""
+        ability Container[F[_]] {
+          def wrap(s: String): F[String]
+        }
+
+        data Box[A](content: A)
+        data Other[A]
+
+        implement Container[Box] {
+          def wrap(s: String): Box[String] = Box(s)
+        }
+
+        def someString: String
+        def f: Other[String] = wrap(someString)
+    """).asserting(errors => errors.exists(_.message.contains("Container")) shouldBe true)
   }
 
   private val intType: GroundValue =

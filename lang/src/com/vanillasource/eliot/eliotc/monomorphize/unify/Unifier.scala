@@ -73,8 +73,8 @@ case class Unifier(
     }
   }
 
-  /** Try to solve a meta via the pattern rule. If the spine is empty or consists of distinct bound variables, solve
-    * directly (wrapping in lambdas for non-empty pattern spines). Otherwise postpone.
+  /** Try to solve a meta. Empty spine solves directly. Non-empty spine attempts injectivity-style decomposition against
+    * a rigid applied rhs (see [[tryDecomposeApplied]]); failing that, postpones.
     */
   private def solveMeta(id: MetaId, spine: Spine, rhs: SemValue, context: Sourced[String]): Unifier =
     metaStore.lookup(id) match {
@@ -92,11 +92,53 @@ case class Unifier(
               // Empty spine — solve directly
               copy(metaStore = metaStore.solve(id, rhs))
             } else {
-              // Non-empty spine — postpone (higher-kinded meta application)
-              copy(postponed = (VMeta(id, spine), rhs, context) :: postponed)
+              // Non-empty spine — try injectivity decomposition first, otherwise postpone.
+              tryDecomposeApplied(id, spineList, rhs, context)
+                .getOrElse(copy(postponed = (VMeta(id, spine), rhs, context) :: postponed))
             }
         }
     }
+
+  /** Injectivity-based decomposition of `?id s1..sn ~ H r1..rn`, mirroring what GHC and Scala 3 do for applied types:
+    * type constructor application is treated as injective, so the decomposition into `?id := H` (unapplied) plus
+    * pointwise spine unification is unique.
+    *
+    * Fires only when the rhs's head is rigid and the arities match:
+    *   - [[VTopDef]] with no cached body — data-type constructors are bound this way and never β-reduce. Cached
+    *     VTopDefs (user-defined type aliases) would have been unfolded by the ambient [[Evaluator.force]] before
+    *     reaching here, so we should not see them; the `None` guard is a belt-and-braces check.
+    *   - [[VNeutral]] — rigid bound variables with a spine.
+    *
+    * Arity mismatches and non-rigid rhs shapes return `None`, leaving the caller to postpone. Cases like `?A [?B] ~
+    * Function [Int, String]` have multiple valid solutions and correctly postpone.
+    */
+  private def tryDecomposeApplied(
+      id: MetaId,
+      metaSpine: List[SemValue],
+      rhs: SemValue,
+      context: Sourced[String]
+  ): Option[Unifier] = rhs match {
+    case VTopDef(fqn, None, rhsSpine) =>
+      decomposeSpines(id, metaSpine, rhsSpine, VTopDef(fqn, None, Spine.SNil), context)
+    case VNeutral(head, rhsSpine)     =>
+      decomposeSpines(id, metaSpine, rhsSpine, VNeutral(head, Spine.SNil), context)
+    case _                            => None
+  }
+
+  private def decomposeSpines(
+      id: MetaId,
+      metaSpine: List[SemValue],
+      rhsSpine: Spine,
+      bareHead: SemValue,
+      context: Sourced[String]
+  ): Option[Unifier] = {
+    val rhsList = rhsSpine.toList
+    if (rhsList.length != metaSpine.length) None
+    else {
+      val solvedMeta = copy(metaStore = metaStore.solve(id, bareHead))
+      Some(metaSpine.zip(rhsList).foldLeft(solvedMeta) { case (u, (l, r)) => u.unify(l, r, context) })
+    }
+  }
 
   /** Drain the postponement queue, re-attempting postponed unifications. Repeats until stable. */
   def drain(): Unifier = {
