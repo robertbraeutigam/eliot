@@ -179,16 +179,10 @@ class MonomorphicTypeCheckProcessorTest
   }
 
   private val intType: GroundValue =
-    GroundValue.Structure(
-      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.bigIntFQN, GroundValue.Type)),
-      GroundValue.Type
-    )
+    GroundValue.Structure(WellKnownTypes.bigIntFQN, Seq.empty, GroundValue.Type)
 
   private val stringType: GroundValue =
-    GroundValue.Structure(
-      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.stringFQN, GroundValue.Type)),
-      GroundValue.Type
-    )
+    GroundValue.Structure(WellKnownTypes.stringFQN, Seq.empty, GroundValue.Type)
 
   private def runEngineForMonomorphicValue(
       source: String,
@@ -216,12 +210,10 @@ class MonomorphicTypeCheckProcessorTest
     }
 
   private def showType(value: GroundValue): String = value match {
-    case GroundValue.Structure(fields, GroundValue.Type) =>
-      val typeName = fields("$typeName").asInstanceOf[GroundValue.Direct].value.asInstanceOf[ValueFQN].name.name
-      val typeArgs = fields.removed("$typeName")
-      if (typeArgs.isEmpty) typeName
-      else s"$typeName[${typeArgs.toSeq.sortBy(_._1).map(f => showType(f._2)).mkString(", ")}]"
-    case GroundValue.Type                                => "Type"
-    case _                                               => value.toString
+    case GroundValue.Structure(typeName, args, GroundValue.Type) =>
+      if (args.isEmpty) typeName.name.name
+      else s"${typeName.name.name}[${args.map(showType).mkString(", ")}]"
+    case GroundValue.Type                                        => "Type"
+    case _                                                       => value.toString
   }
 }

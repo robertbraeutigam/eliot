@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
   *
   * Examples:
   *   - `Direct(42, bigIntType)` — the integer 42 with type BigInteger
-  *   - `Structure(Map("A" -> intType, "B" -> stringType, "$typeName" -> ...), Type)` — Function[Int, String]
+  *   - `Structure(functionFQN, Seq(intType, stringType), Type)` — Function[Int, String]
   *   - `Type` — the type of all types
   */
 sealed trait GroundValue {
@@ -17,8 +17,11 @@ sealed trait GroundValue {
 }
 
 object GroundValue {
-  case class Direct(value: Any, override val valueType: GroundValue)                    extends GroundValue
-  case class Structure(fields: Map[String, GroundValue], override val valueType: GroundValue) extends GroundValue
+  case class Direct(value: Any, override val valueType: GroundValue) extends GroundValue
+
+  /** A type-constructor or data-constructor application identified by [[typeName]] applied to positional [[args]]. */
+  case class Structure(typeName: ValueFQN, args: Seq[GroundValue], override val valueType: GroundValue)
+      extends GroundValue
 
   /** The type of all types and Type itself. This is the root of the type hierarchy where the infinite recursion stops.
     */
@@ -30,20 +33,15 @@ object GroundValue {
 
     def typeFQN: Option[ValueFQN] =
       gv match {
-        case Structure(fields, _) =>
-          fields.get("$typeName").collect { case Direct(vfqn: ValueFQN, _) => vfqn }
-        case Type                 => Some(WellKnownTypes.typeFQN)
-        case _                    => None
+        case Structure(name, _, _) => Some(name)
+        case Type                  => Some(WellKnownTypes.typeFQN)
+        case _                     => None
       }
 
     def asFunctionType: Option[(GroundValue, GroundValue)] =
       gv match {
-        case Structure(fields, Type) =>
-          fields.get("$typeName").collect {
-            case Direct(vfqn: ValueFQN, _) if vfqn === WellKnownTypes.functionDataTypeFQN =>
-              (fields("A"), fields("B"))
-          }
-        case _                       => None
+        case Structure(name, Seq(a, b), Type) if name === WellKnownTypes.functionDataTypeFQN => Some((a, b))
+        case _                                                                               => None
       }
 
     @scala.annotation.tailrec
@@ -72,13 +70,9 @@ object GroundValue {
   given Eq[GroundValue] = Eq.fromUniversalEquals
 
   given Show[GroundValue] = {
-    case Type                                               => "Type"
-    case Direct(value, _)                                   => value.toString
-    case Structure(fields, valueType) if valueType === Type =>
-      fields
-        .get("$typeName")
-        .map(_.asInstanceOf[Direct].value.asInstanceOf[ValueFQN].name.name)
-        .getOrElse("<unknown type>")
-    case Structure(_, _)                                    => "Structure(...)"
+    case Type                                     => "Type"
+    case Direct(value, _)                         => value.toString
+    case Structure(name, _, valueType) if valueType === Type => name.name.name
+    case Structure(_, _, _)                       => "Structure(...)"
   }
 }

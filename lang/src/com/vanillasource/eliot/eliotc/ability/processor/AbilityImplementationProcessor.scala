@@ -150,9 +150,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
 
   private def collectModuleNames(v: GroundValue): Seq[ModuleName] =
     v match {
-      case GroundValue.Structure(fields, _) =>
-        fields.values.toSeq.flatMap(collectModuleNames) ++
-          fields.get("$typeName").toSeq.collect { case GroundValue.Direct(vfqn: ValueFQN, _) => vfqn.moduleName }
-      case _                                => Seq.empty
+      case GroundValue.Structure(typeName, args, _) =>
+        args.flatMap(collectModuleNames) :+ typeName.moduleName
+      case _                                        => Seq.empty
     }
 }

@@ -197,13 +197,14 @@ case class Unifier(
 
   /** Structural equality for ground values. */
   private def groundEquals(g1: GroundValue, g2: GroundValue): Boolean = (g1, g2) match {
-    case (GroundValue.Type, GroundValue.Type)                           => true
-    case (GroundValue.Direct(v1, t1), GroundValue.Direct(v2, t2))       => v1 == v2 && groundEquals(t1, t2)
-    case (GroundValue.Structure(f1, t1), GroundValue.Structure(f2, t2)) =>
-      f1.keySet == f2.keySet &&
+    case (GroundValue.Type, GroundValue.Type)                                   => true
+    case (GroundValue.Direct(v1, t1), GroundValue.Direct(v2, t2))               => v1 == v2 && groundEquals(t1, t2)
+    case (GroundValue.Structure(n1, a1, t1), GroundValue.Structure(n2, a2, t2)) =>
+      n1 == n2 &&
+      a1.length == a2.length &&
       groundEquals(t1, t2) &&
-      f1.keys.forall(k => groundEquals(f1(k), f2(k)))
-    case _                                                              => false
+      a1.zip(a2).forall { case (l, r) => groundEquals(l, r) }
+    case _                                                                      => false
   }
 }
 

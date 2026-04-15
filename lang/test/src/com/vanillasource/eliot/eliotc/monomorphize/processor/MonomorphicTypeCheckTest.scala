@@ -494,31 +494,20 @@ class MonomorphicTypeCheckTest
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: GroundValue =
-    GroundValue.Structure(
-      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.bigIntFQN, GroundValue.Type)),
-      GroundValue.Type
-    )
+    GroundValue.Structure(WellKnownTypes.bigIntFQN, Seq.empty, GroundValue.Type)
 
   private val stringType: GroundValue =
-    GroundValue.Structure(
-      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.stringFQN, GroundValue.Type)),
-      GroundValue.Type
-    )
+    GroundValue.Structure(WellKnownTypes.stringFQN, Seq.empty, GroundValue.Type)
 
   private val funcType: GroundValue =
-    GroundValue.Structure(
-      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.functionDataTypeFQN, GroundValue.Type)),
-      GroundValue.Type
-    )
+    GroundValue.Structure(WellKnownTypes.functionDataTypeFQN, Seq.empty, GroundValue.Type)
 
   private val boxType: GroundValue = testType("Box")
 
   private def testType(name: String): GroundValue =
     GroundValue.Structure(
-      Map(
-        "$typeName" -> GroundValue
-          .Direct(ValueFQN(testModuleName, QualifiedName(name, Qualifier.Type)), GroundValue.Type)
-      ),
+      ValueFQN(testModuleName, QualifiedName(name, Qualifier.Type)),
+      Seq.empty,
       GroundValue.Type
     )
 

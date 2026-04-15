@@ -108,20 +108,9 @@ object Evaluator {
     case VPi(domain, codomain)           =>
       val domGround = semToGround(domain)
       val codGround = semToGround(codomain(VNeutral(NeutralHead.VVar(0, "$quote"), Spine.SNil)))
-      GroundValue.Structure(
-        Map(
-          "$typeName" -> GroundValue.Direct(WellKnownTypes.functionDataTypeFQN, GroundValue.Type),
-          "A"         -> domGround,
-          "B"         -> codGround
-        ),
-        GroundValue.Type
-      )
+      GroundValue.Structure(WellKnownTypes.functionDataTypeFQN, Seq(domGround, codGround), GroundValue.Type)
     case VTopDef(fqn, None, spine)       =>
-      val fields = spine.toList.zipWithIndex.map { (arg, i) => s"$$$i" -> semToGround(arg) }.toMap
-      GroundValue.Structure(
-        Map("$typeName" -> GroundValue.Direct(fqn, GroundValue.Type)) ++ fields,
-        GroundValue.Type
-      )
+      GroundValue.Structure(fqn, spine.toList.map(semToGround), GroundValue.Type)
     case VTopDef(_, Some(cached), spine) =>
       val base   = cached.value
       val result = spine.toList.foldLeft(base)(applyValue)
@@ -129,39 +118,25 @@ object Evaluator {
     case _                               => GroundValue.Type
   }
 
-  /** Convert a GroundValue to a SemValue. Inverse of [[semToGround]] for type-constructor [[GroundValue.Structure]]s
-    * (those carrying a `$typeName` field): the head FQN becomes a [[VTopDef]] and the remaining fields (sorted
-    * alphabetically by name) become a spine in that order. `GroundValue.Type` maps to [[VType]]. All other ground
-    * values wrap as [[VConst]].
+  /** Convert a GroundValue to a SemValue. Inverse of [[semToGround]] for [[GroundValue.Structure]]s: the head FQN
+    * becomes a [[VTopDef]] and the positional args become a spine in order. `GroundValue.Type` maps to [[VType]]. All
+    * other ground values wrap as [[VConst]].
     *
     * Used by ability pattern matching so that concrete query-side ground arguments participate in structural
     * unification against pattern-side [[SemValue]]s produced by evaluating marker-function ORE signatures.
     */
   def groundToSem(g: GroundValue): SemValue = g match {
-    case GroundValue.Type                 => VType
-    case GroundValue.Structure(fields, _) =>
-      fields.get("$typeName") match {
-        case Some(GroundValue.Direct(fqn: ValueFQN, _)) =>
-          val tail = (fields - "$typeName").toSeq.sortBy(_._1).map { case (_, v) => groundToSem(v) }
-          tail.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
-        case _                                          => VConst(g)
-      }
-    case _                                => VConst(g)
+    case GroundValue.Type                    => VType
+    case GroundValue.Structure(fqn, args, _) =>
+      args.map(groundToSem).foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
+    case _                                   => VConst(g)
   }
 
   /** Ground type for BigInteger values (used by eval for IntegerLiteral). */
-  val bigIntGroundType: GroundValue = GroundValue.Structure(
-    Map(
-      "$typeName" -> GroundValue.Direct(WellKnownTypes.bigIntFQN, GroundValue.Type)
-    ),
-    GroundValue.Type
-  )
+  val bigIntGroundType: GroundValue =
+    GroundValue.Structure(WellKnownTypes.bigIntFQN, Seq.empty, GroundValue.Type)
 
   /** Ground type for String values (used by eval for StringLiteral). */
-  val stringGroundType: GroundValue = GroundValue.Structure(
-    Map(
-      "$typeName" -> GroundValue.Direct(WellKnownTypes.stringFQN, GroundValue.Type)
-    ),
-    GroundValue.Type
-  )
+  val stringGroundType: GroundValue =
+    GroundValue.Structure(WellKnownTypes.stringFQN, Seq.empty, GroundValue.Type)
 }

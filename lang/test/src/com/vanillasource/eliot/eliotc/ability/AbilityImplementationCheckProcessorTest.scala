@@ -450,12 +450,8 @@ class AbilityImplementationCheckProcessorTest
 
   private val intType: GroundValue =
     GroundValue.Structure(
-      Map(
-        "$typeName" -> GroundValue.Direct(
-          ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type)),
-          GroundValue.Type
-        )
-      ),
+      ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type)),
+      Seq.empty,
       GroundValue.Type
     )
 

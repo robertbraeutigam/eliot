@@ -27,14 +27,8 @@ object Quoter {
           domGround <- quote(depth, domain, metaStore)
           codGround <- quote(depth + 1, codomain(freshVar(depth)), metaStore)
         } yield GroundValue.Structure(
-          Map(
-            "$typeName" -> GroundValue.Direct(
-              com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.functionDataTypeFQN,
-              GroundValue.Type
-            ),
-            "A"         -> domGround,
-            "B"         -> codGround
-          ),
+          com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.functionDataTypeFQN,
+          Seq(domGround, codGround),
           GroundValue.Type
         )
 
@@ -52,16 +46,9 @@ object Quoter {
 
       case VTopDef(fqn, None, spine) =>
         // An unevaluated constructor-like application (cached body is absent, e.g. for data value constructors).
-        // Encode its spine entries as `$0`/`$1`/... fields, matching `Evaluator.semToGround`'s treatment so
-        // that data values like `Person(1)` quote to a consistent Structure.
         for {
-          fields <- spine.toList.zipWithIndex.traverse { case (arg, i) =>
-                      quote(depth, arg, metaStore).map(g => s"$$$i" -> g)
-                    }
-        } yield GroundValue.Structure(
-          Map("$typeName" -> GroundValue.Direct(fqn, GroundValue.Type)) ++ fields.toMap,
-          GroundValue.Type
-        )
+          args <- spine.toList.traverse(quote(depth, _, metaStore))
+        } yield GroundValue.Structure(fqn, args, GroundValue.Type)
 
       case VTopDef(fqn, _, _) =>
         Left(s"Cannot quote unapplied top-level definition ${fqn.show}")

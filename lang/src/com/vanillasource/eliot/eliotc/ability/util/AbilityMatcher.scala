@@ -231,29 +231,22 @@ object AbilityMatcher {
   /** Walk a pattern [[SemValue]] alongside the original query [[GroundValue]] that it was unified against, and
     * record every [[MetaId]] → [[GroundValue]] pairing that appears at a structurally-aligned position.
     *
-    * This preserves exact field naming on complex bindings: when an impl type parameter binds to a parameterised
-    * type (e.g. `A ↦ Pair[Int, String]`), reading the meta's solution back through the metastore would produce a
-    * positional `{$typeName, $0, $1}` structure instead of the original `{$typeName, first, second}`. Walking the
-    * query side in parallel lets us return the GroundValue that was already present on the call site.
+    * Preserves the exact query-side ground values on complex bindings rather than re-quoting the meta's solution
+    * through the metastore, so the returned GroundValue matches the one present on the call site.
     */
   private def tracePatternMetas(
       pattern: SemValue,
       query: GroundValue
   ): Seq[(MetaId, GroundValue)] = pattern match {
-    case VMeta(id, Spine.SNil) =>
+    case VMeta(id, Spine.SNil)  =>
       Seq(id -> query)
-    case VTopDef(fqn, _, spine)   =>
+    case VTopDef(fqn, _, spine) =>
       query match {
-        case GroundValue.Structure(fields, _) =>
-          fields.get("$typeName") match {
-            case Some(GroundValue.Direct(queryFqn: ValueFQN, _)) if queryFqn == fqn =>
-              val sortedArgFields = (fields - "$typeName").toSeq.sortBy(_._1).map(_._2)
-              spine.toList.zip(sortedArgFields).flatMap { case (s, g) => tracePatternMetas(s, g) }
-            case _                                                                  => Seq.empty
-          }
-        case _                                => Seq.empty
+        case GroundValue.Structure(queryFqn, args, _) if queryFqn == fqn =>
+          spine.toList.zip(args).flatMap { case (s, g) => tracePatternMetas(s, g) }
+        case _                                                           => Seq.empty
       }
-    case _                        => Seq.empty
+    case _                      => Seq.empty
   }
 
   private def attemptSigCompat(
@@ -301,10 +294,7 @@ object AbilityMatcher {
           case VType                       => GroundValue.Type
           case VConst(g)                   => g
           case VTopDef(fqn, _, Spine.SNil) =>
-            GroundValue.Structure(
-              Map("$typeName" -> GroundValue.Direct(fqn, GroundValue.Type)),
-              GroundValue.Type
-            )
+            GroundValue.Structure(fqn, Seq.empty, GroundValue.Type)
           case _                           => GroundValue.Type
         }
     }

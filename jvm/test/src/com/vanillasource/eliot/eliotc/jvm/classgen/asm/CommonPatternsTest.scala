@@ -25,18 +25,12 @@ class CommonPatternsTest extends BytecodeTest {
   private def sourced[T](value: T): Sourced[T] = Sourced(testUri, zeroRange, value)
 
   private def stringValue: GroundValue =
-    GroundValue.Structure(
-      Map("$typeName" -> GroundValue.Direct(WellKnownTypes.stringFQN, GroundValue.Type)),
-      GroundValue.Type
-    )
+    GroundValue.Structure(WellKnownTypes.stringFQN, Seq.empty, GroundValue.Type)
 
   private def functionValue: GroundValue =
     GroundValue.Structure(
-      Map(
-        "$typeName" -> GroundValue.Direct(WellKnownTypes.functionDataTypeFQN, GroundValue.Type),
-        "A" -> stringValue,
-        "B" -> stringValue
-      ),
+      WellKnownTypes.functionDataTypeFQN,
+      Seq(stringValue, stringValue),
       GroundValue.Type
     )
 
@@ -162,17 +156,12 @@ class CommonPatternsTest extends BytecodeTest {
 
   "valueType" should "extract ValueFQN from a data type GroundValue" in {
     val fqn   = ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Type))
-    val value = GroundValue.Structure(Map("$typeName" -> GroundValue.Direct(fqn, GroundValue.Type)), GroundValue.Type)
+    val value = GroundValue.Structure(fqn, Seq.empty, GroundValue.Type)
     valueType(value) shouldBe ValueFQN(ModuleName(Seq("test"), "Foo"), QualifiedName("Foo", Qualifier.Default))
   }
 
   it should "return Any for GroundValue.Type" in {
     valueType(GroundValue.Type) shouldBe systemAnyValue
-  }
-
-  it should "return Any for a Structure without $typeName" in {
-    val value = GroundValue.Structure(Map("other" -> GroundValue.Direct(42, GroundValue.Type)), GroundValue.Type)
-    valueType(value) shouldBe systemAnyValue
   }
 
   it should "return Any for a Direct value" in {

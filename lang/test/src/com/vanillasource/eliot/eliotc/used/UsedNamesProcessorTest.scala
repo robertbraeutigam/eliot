@@ -10,10 +10,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 class UsedNamesProcessorTest extends ProcessorTest(UsedNamesProcessor()) {
   private val intVfqn = ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Default))
-  private val intType = GroundValue.Structure(
-    Map("$typeName" -> GroundValue.Direct(intVfqn, GroundValue.Type)),
-    GroundValue.Type
-  )
+  private val intType = GroundValue.Structure(intVfqn, Seq.empty, GroundValue.Type)
 
   "UsedNamesProcessor" should "include root name in used names for value with no body" in {
     val valueVfqn = ValueFQN(testModuleName, default("value"))
