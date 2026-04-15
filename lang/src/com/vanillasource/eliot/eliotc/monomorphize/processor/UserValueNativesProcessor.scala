@@ -33,7 +33,7 @@ class UserValueNativesProcessor
     generating.add(key.vfqn)
     for {
       bodyBindings <- fact.runtime match {
-                        case Some(body) => collectBindings(body.value, Set(key.vfqn))
+                        case Some(body) => collectBindings(body.value, key.vfqn)
                         case None       => Map.empty[ValueFQN, SemValue].pure[CompilerIO]
                       }
     } yield {
@@ -52,48 +52,22 @@ class UserValueNativesProcessor
     }
   }
 
-  /** Recursively collect NativeBindings for all ValueReferences in an ORE expression. Skips FQNs that are currently
-    * being generated (in the `generating` set) to prevent mutual recursion deadlocks.
+  /** Collect NativeBindings for every ValueReference transitively reachable from `ore`, skipping FQNs that are
+    * currently being generated (`generating` set) or already accumulated in this walk — this prevents mutual-recursion
+    * deadlocks and duplicate fact fetches.
     */
   private def collectBindings(
       ore: OperatorResolvedExpression,
-      seen: Set[ValueFQN]
-  ): CompilerIO[Map[ValueFQN, SemValue]] = ore match {
-    case OperatorResolvedExpression.ValueReference(vfqn, typeArgs) =>
-      if (seen.contains(vfqn.value) || generating.contains(vfqn.value))
-        Map.empty[ValueFQN, SemValue].pure[CompilerIO]
-      else
-        getFact(NativeBinding.Key(vfqn.value)).flatMap {
-          case Some(binding) =>
-            val base = Map(vfqn.value -> binding.semValue)
-            typeArgs.foldLeft(base.pure[CompilerIO]) { (acc, ta) =>
-              for {
-                m  <- acc
-                ta <- collectBindings(ta.value, seen + vfqn.value)
-              } yield m ++ ta
-            }
-          case None          => Map.empty[ValueFQN, SemValue].pure[CompilerIO]
-        }
-    case OperatorResolvedExpression.FunctionApplication(target, arg) =>
-      for {
-        t <- collectBindings(target.value, seen)
-        a <- collectBindings(arg.value, seen)
-      } yield t ++ a
-    case OperatorResolvedExpression.FunctionLiteral(_, paramType, body) =>
-      val ptBindings = paramType match {
-        case Some(pt) =>
-          pt.value.levels.toSeq.foldLeft(Map.empty[ValueFQN, SemValue].pure[CompilerIO]) { (acc, level) =>
-            for {
-              m <- acc
-              b <- collectBindings(level, seen)
-            } yield m ++ b
+      selfFqn: ValueFQN
+  ): CompilerIO[Map[ValueFQN, SemValue]] =
+    OperatorResolvedExpression
+      .foldValueReferences[CompilerIO, Map[ValueFQN, SemValue]](ore, Map.empty) { (acc, vfqn) =>
+        if (acc.contains(vfqn.value) || vfqn.value == selfFqn || generating.contains(vfqn.value))
+          acc.pure[CompilerIO]
+        else
+          getFact(NativeBinding.Key(vfqn.value)).map {
+            case Some(binding) => acc + (vfqn.value -> binding.semValue)
+            case None          => acc
           }
-        case None     => Map.empty[ValueFQN, SemValue].pure[CompilerIO]
       }
-      for {
-        pt <- ptBindings
-        b  <- collectBindings(body.value, seen)
-      } yield pt ++ b
-    case _                                                             => Map.empty[ValueFQN, SemValue].pure[CompilerIO]
-  }
 }

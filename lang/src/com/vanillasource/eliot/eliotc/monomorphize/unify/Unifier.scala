@@ -153,18 +153,6 @@ case class Unifier(
   private[monomorphize] def addError(context: Sourced[String]): Unifier =
     copy(errors = UnifyError(context, None, None) :: errors)
 
-  /** Solve any still-unsolved metavariables with the given value. Used to "default" unconstrained phantom type
-    * parameters and match-binding metas after the main drain completes.
-    */
-  def defaultUnsolvedTo(value: SemValue): Unifier = {
-    val store          = metaStore
-    val defaultedStore = store.entries.foldLeft(store) {
-      case (acc, (id, None))   => acc.solve(SemValue.MetaId(id), value)
-      case (acc, (_, Some(_))) => acc
-    }
-    copy(metaStore = defaultedStore)
-  }
-
   /** Structural equality for ground values. */
   private def groundEquals(g1: GroundValue, g2: GroundValue): Boolean = (g1, g2) match {
     case (GroundValue.Type, GroundValue.Type)                           => true

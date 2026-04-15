@@ -16,9 +16,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param unifier
   *   The unifier (carries meta store, depth, postponed, errors)
   * @param bindingCache
-  *   Cache of fetched NativeBinding SemValues, keyed by ValueFQN. References to abstract associated ability types
-  *   (`type X` inside `ability ...`, no body) are rewritten to a fresh [[SemValue.VMeta]] on first access and cached in
-  *   that form; the meta is solved post-drain by unifying against the concrete impl's associated-type value.
+  *   Cache of fetched NativeBinding SemValues, keyed by ValueFQN.
+  * @param abstractTypeMetas
+  *   For each abstract associated-ability-type (`type X` inside `ability ...`, no body) that has been referenced in
+  *   this session, the fresh [[SemValue.MetaId]] used as its standing placeholder. Looked up at [[bindingCache]] hits;
+  *   solved post-drain by unifying against the concrete impl's associated-type value.
   * @param abilityResolutions
   *   Map from each ability-qualified value reference (by its source-positioned FQN) to its resolved concrete impl.
   *   Filled by the drain-resolution loop; absence means the ref stays abstract (constraint-covered) at quoting time.
@@ -26,13 +28,20 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   Pending ability-qualified value references collected during inference, keyed by source-positioned FQN with their
   *   current type arguments. Built by [[Checker]] as it walks the ORE; consumed by the drain-and-resolve loop instead
   *   of re-walking the checker's output tree.
+  * @param phantomMetas
+  *   Metas allocated while peeling VLam closures from polytype signatures (implicit type arguments + phantom type
+  *   parameters). If still unsolved after drain-and-resolve, they are defaulted to [[SemValue.VType]]: they either
+  *   never get constrained (true phantoms) or they cover a polymorphic reference whose caller didn't need to pin them
+  *   down (e.g. a generic value referenced inside a match arm). Defaulting preserves the pre-NbE behaviour.
   */
 case class CheckState(
     env: Env,
     unifier: Unifier,
     bindingCache: Map[ValueFQN, Option[SemValue]],
+    abstractTypeMetas: Map[ValueFQN, MetaId],
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
-    abilityRefs: Map[Sourced[ValueFQN], Seq[SemValue]]
+    abilityRefs: Map[Sourced[ValueFQN], Seq[SemValue]],
+    phantomMetas: Set[MetaId]
 ) {
 
   /** Bind a parameter with the given name and type, extending the env. */
@@ -43,6 +52,12 @@ case class CheckState(
 
   def cacheBinding(vfqn: ValueFQN, value: Option[SemValue]): CheckState =
     copy(bindingCache = bindingCache + (vfqn -> value))
+
+  def recordAbstractTypeMeta(vfqn: ValueFQN, metaId: MetaId): CheckState =
+    copy(abstractTypeMetas = abstractTypeMetas + (vfqn -> metaId))
+
+  def recordPhantomMeta(metaId: MetaId): CheckState =
+    copy(phantomMetas = phantomMetas + metaId)
 
   def recordAbilityResolution(
       ref: Sourced[ValueFQN],
@@ -55,16 +70,6 @@ case class CheckState(
     */
   def recordAbilityRef(ref: Sourced[ValueFQN], typeArgs: Seq[SemValue]): CheckState =
     copy(abilityRefs = abilityRefs + (ref -> typeArgs))
-
-  /** Enumerate every abstract associated-type reference (abstract-ability-type vfqn → its standing meta id) that was
-    * rewritten into a [[SemValue.VMeta]] during binding fetch. Derived from [[bindingCache]] — no separate index is
-    * maintained. Used by the drain-resolve loop to inject concrete impl values into the standing metas once an ability
-    * is resolved.
-    */
-  def associatedTypeMetas: Iterator[(ValueFQN, MetaId)] =
-    bindingCache.iterator.collect { case (absFqn, Some(SemValue.VMeta(id, SemValue.Spine.SNil))) =>
-      (absFqn, id)
-    }
 
   /** Build an [[Evaluator]] from this state. Pure — only reads `bindingCache`. */
   def makeEvaluator: Evaluator =
@@ -94,6 +99,8 @@ object CheckState {
     Unifier.create(MetaStore.empty, 0),
     Map.empty,
     Map.empty,
-    Map.empty
+    Map.empty,
+    Map.empty,
+    Set.empty
   )
 }

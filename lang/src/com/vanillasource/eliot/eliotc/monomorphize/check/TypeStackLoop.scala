@@ -55,10 +55,9 @@ class TypeStackLoop(
       // standing metas, which re-feeds the next drain. Iterates until no new ability resolves, bounded for safety.
       _       <- drainAndResolveLoop(resolvedValue.paramConstraints)
 
-      // Default any unsolved metas to VType. These include "phantom" type parameters (ones that never get constrained
-      // by the signature) and match-arm binding metas that have no runtime type to be inferred against. Leaving them
-      // unsolved would fail strict quoting; defaulting to VType preserves the pre-NbE behaviour for such params.
-      _     <- modify(s => s.withUnifier(s.unifier.defaultUnsolvedTo(VType)))
+      // Default any still-unsolved phantom metas (those allocated while peeling VLam closures from polytype
+      // signatures) to VType. Any other unsolved meta surfaces as a compiler error at quoting time.
+      _     <- defaultPhantomMetas
       state <- get
       _     <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
 
@@ -78,6 +77,21 @@ class TypeStackLoop(
       groundSig,
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
+
+  /** Solve every still-unsolved phantom meta (see [[CheckState.phantomMetas]]) to [[VType]]. Runs after the
+    * drain-and-resolve loop has reached its fixed point, so any meta that unification could have determined has already
+    * been solved.
+    */
+  private def defaultPhantomMetas: CheckIO[Unit] =
+    modify { s =>
+      val solved = s.phantomMetas.foldLeft(s.unifier.metaStore) { (store, id) =>
+        store.lookup(id) match {
+          case Some(_) => store
+          case None    => store.solve(id, VType)
+        }
+      }
+      s.withUnifier(s.unifier.copy(metaStore = solved))
+    }
 
   /** Single fixed-point loop over the combined (unifier-drain + ability-resolve) state. Each step drains the unifier to
     * a fixed point and then attempts every still-unresolved ability reference from [[CheckState.abilityRefs]]. A
@@ -160,7 +174,7 @@ class TypeStackLoop(
       ValueFQN(implFqn.moduleName, QualifiedName(absFqn.name.name, implFqn.name.qualifier))
     for {
       state <- get
-      _     <- state.associatedTypeMetas
+      _     <- state.abstractTypeMetas.iterator
                  .filter { case (absFqn, _) => isForThisAbility(absFqn) }
                  .toSeq
                  .traverse_ { case (absFqn, metaId) =>
@@ -199,28 +213,34 @@ class TypeStackLoop(
     * exist.
     */
   private def instantiateRemaining(sig: SemValue): CheckIO[SemValue] =
-    checker.peelLamsBinding(sig).map(_._1)
+    checker.peelLams(sig, bindInEnv = true).map(_._1)
 
   /** Apply concrete GroundValue type arguments to the signature by wrapping each in VConst and applying to VLam
-    * closures.
+    * closures. Stops on the first non-VLam head, recording a single "Too many type arguments." error rather than one
+    * per excess arg.
     */
   private def applyTypeArgs(
       signature: SemValue,
       typeArgs: Seq[GroundValue],
       errorSource: Sourced[?]
-  ): CheckIO[SemValue] =
-    typeArgs.foldLeftM(signature) { (sig, typeArg) =>
-      val argVal = VConst(typeArg)
-      for {
-        forced <- checker.force(sig)
-        result <- forced match {
-                    case VLam(name, closure) =>
-                      modify(_.bind(name, argVal)).as(closure(argVal))
-                    case _                   =>
-                      modify(s => s.withUnifier(s.unifier.addError(errorSource.as("Too many type arguments.")))).as(sig)
-                  }
-      } yield result
+  ): CheckIO[SemValue] = {
+    def loop(sig: SemValue, remaining: List[GroundValue]): CheckIO[SemValue] = remaining match {
+      case Nil          => pure(sig)
+      case head :: tail =>
+        val argVal = VConst(head)
+        for {
+          forced <- checker.force(sig)
+          result <- forced match {
+                      case VLam(name, closure) =>
+                        modify(_.bind(name, argVal)) >> loop(closure(argVal), tail)
+                      case _                   =>
+                        modify(s => s.withUnifier(s.unifier.addError(errorSource.as("Too many type arguments."))))
+                          .as(sig)
+                    }
+        } yield result
     }
+    loop(signature, typeArgs.toList)
+  }
 
   /** Emit a [[UnifyError]] as a compiler error, including `Expected` / `Actual` hints when the error carries both
     * sides. The semantic values are re-forced through the final metastore so any metas that were solved after the error
@@ -247,8 +267,7 @@ object TypeStackLoop {
       key: MonomorphicValue.Key,
       resolvedValue: OperatorResolvedValue,
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]] = (_, _) =>
-        None.pure[CompilerIO]
+      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
   ): CompilerIO[MonomorphicValue] =
     new TypeStackLoop(fetchBinding, resolveAbility).process(key, resolvedValue)
 
