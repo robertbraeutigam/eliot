@@ -24,24 +24,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param abilityResolutions
   *   Map from each ability-qualified value reference (by its source-positioned FQN) to its resolved concrete impl.
   *   Filled by the drain-resolution loop; absence means the ref stays abstract (constraint-covered) at quoting time.
-  * @param abilityRefs
-  *   Pending ability-qualified value references collected during inference, keyed by source-positioned FQN with their
-  *   current type arguments. Built by [[Checker]] as it walks the ORE; consumed by the drain-and-resolve loop instead
-  *   of re-walking the checker's output tree.
-  * @param phantomMetas
-  *   Metas allocated while peeling VLam closures from polytype signatures (implicit type arguments + phantom type
-  *   parameters). If still unsolved after drain-and-resolve, they are defaulted to [[SemValue.VType]]: they either
-  *   never get constrained (true phantoms) or they cover a polymorphic reference whose caller didn't need to pin them
-  *   down (e.g. a generic value referenced inside a match arm). Defaulting preserves the pre-NbE behaviour.
   */
 case class CheckState(
     env: Env,
     unifier: Unifier,
     bindingCache: Map[ValueFQN, Option[SemValue]],
     abstractTypeMetas: Map[ValueFQN, MetaId],
-    abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
-    abilityRefs: Map[Sourced[ValueFQN], Seq[SemValue]],
-    phantomMetas: Set[MetaId]
+    abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])]
 ) {
 
   /** Bind a parameter with the given name and type, extending the env. */
@@ -56,20 +45,11 @@ case class CheckState(
   def recordAbstractTypeMeta(vfqn: ValueFQN, metaId: MetaId): CheckState =
     copy(abstractTypeMetas = abstractTypeMetas + (vfqn -> metaId))
 
-  def recordPhantomMeta(metaId: MetaId): CheckState =
-    copy(phantomMetas = phantomMetas + metaId)
-
   def recordAbilityResolution(
       ref: Sourced[ValueFQN],
       impl: (ValueFQN, Seq[GroundValue])
   ): CheckState =
     copy(abilityResolutions = abilityResolutions + (ref -> impl))
-
-  /** Record (or overwrite) the type arguments for an ability-qualified value reference. Called on initial inference and
-    * again when implicit metas are appended during polytype instantiation.
-    */
-  def recordAbilityRef(ref: Sourced[ValueFQN], typeArgs: Seq[SemValue]): CheckState =
-    copy(abilityRefs = abilityRefs + (ref -> typeArgs))
 
   /** Build an [[Evaluator]] from this state. Pure — only reads `bindingCache`. */
   def makeEvaluator: Evaluator =
@@ -99,8 +79,6 @@ object CheckState {
     Unifier.create(MetaStore.empty, 0),
     Map.empty,
     Map.empty,
-    Map.empty,
-    Map.empty,
-    Set.empty
+    Map.empty
   )
 }

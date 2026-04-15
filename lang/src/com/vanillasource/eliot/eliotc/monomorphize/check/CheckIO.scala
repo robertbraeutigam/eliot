@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.data.StateT
-import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
 
 object CheckIO {

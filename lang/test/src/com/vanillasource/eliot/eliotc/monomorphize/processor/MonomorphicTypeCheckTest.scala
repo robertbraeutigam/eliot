@@ -386,6 +386,11 @@ class MonomorphicTypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  it should "reject annotated lambda whose param type mismatches expected function domain" in {
+    runForErrors("data Foo(l: Function[String, BigInteger])\ndef f: Foo = Foo((x: BigInteger) -> 42)")
+      .asserting(_ should contain("Type mismatch." at "x"))
+  }
+
   it should "infer type parameter of generic data constructor from unannotated lambda body" in {
     // Mirrors the jvm `IO(_ -> printlnInternal(s))` shape from the HelloWorld example. Before the refactor this
     // produced `Expected: Box[Unit]` / `Actual: Box[Type]` because `Checker.forceAndConst` silently defaulted the
