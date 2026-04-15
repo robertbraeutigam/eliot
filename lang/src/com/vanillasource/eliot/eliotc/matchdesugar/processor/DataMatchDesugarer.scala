@@ -29,7 +29,7 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       allConstructors              <- findAllConstructors(constructorModule, dataType)
       _                            <- checkExhaustiveness(cases, allConstructors)
       handleCasesFqn               <-
-        findAbilityMethodImpl(constructorModule, "PatternMatch", "handleCases", Some(dataType.name))
+        findAbilityMethodImpl(scrutinee, constructorModule, "PatternMatch", "handleCases", Some(dataType.name))
       orderedHandlers              <- buildOrderedHandlers(scrutinee, cases, allConstructors)
     } yield buildHandleCasesCall(scrutinee, handleCasesFqn, orderedHandlers)
 
@@ -37,7 +37,7 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       cases: Seq[Expression.MatchCase]
   ): CompilerIO[(ModuleName, QualifiedName)] =
     cases
-      .flatMap(c => collectConstructorPatterns(c.pattern.value))
+      .flatMap(c => firstConstructorPattern(c.pattern.value))
       .headOption match {
       case Some(vfqn) =>
         for {
@@ -95,9 +95,7 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
 
     if (!hasWildcard && missing.nonEmpty) {
       val missingText = missing.map(_.name.name).mkString(", ")
-      Sourced
-        .compilerError(cases.head.pattern.as(s"Non-exhaustive match. Missing constructors: $missingText."))
-        .flatMap(_ => abort)
+      compilerAbort(cases.head.pattern.as(s"Non-exhaustive match. Missing constructors: $missingText."))
     } else {
       ().pure[CompilerIO]
     }
@@ -181,12 +179,12 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       case Some(colIdx) =>
         val fieldRef    = wrapExpr(scrutinee, Expression.ParameterReference(freshNames(colIdx)))
         val nestedCases = patternRows.zip(bodies).map { case (row, body) =>
-          Expression.MatchCase(row(colIdx), wrapWithBindings(scrutinee, freshNames, row, colIdx, body))
+          Expression.MatchCase(row(colIdx), wrapWithBindings(scrutinee, freshNames, row, Some(colIdx), body))
         }
         context.desugarMatch(fieldRef, nestedCases).map(wrapExpr(scrutinee, _))
 
       case None =>
-        context.desugarInTypeStack(wrapWithBindings(scrutinee, freshNames, patternRows.head, -1, bodies.head))
+        context.desugarInTypeStack(wrapWithBindings(scrutinee, freshNames, patternRows.head, None, bodies.head))
     }
   }
 
@@ -194,11 +192,11 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       scrutinee: Sourced[TypeStack[Expression]],
       freshNames: Seq[Sourced[String]],
       patterns: Seq[Sourced[Pattern]],
-      skipColumn: Int,
+      skipColumn: Option[Int],
       body: Sourced[TypeStack[Expression]]
   ): Sourced[TypeStack[Expression]] =
     patterns.zipWithIndex.foldRight(body) { case ((pat, idx), innerBody) =>
-      if (idx == skipColumn) innerBody
+      if (skipColumn.contains(idx)) innerBody
       else
         pat.value match {
           case Pattern.VariablePattern(varName) if varName.value != freshNames(idx).value =>

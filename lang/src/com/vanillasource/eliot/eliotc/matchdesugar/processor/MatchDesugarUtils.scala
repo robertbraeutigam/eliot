@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleName
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 object MatchDesugarUtils {
 
@@ -30,6 +31,12 @@ object MatchDesugarUtils {
       Expression.FunctionApplication(scrutinee.as(acc), arg.as(arg.value.signature))
     }
 
+  def firstConstructorPattern(pattern: Pattern): Option[ValueFQN] =
+    pattern match {
+      case Pattern.ConstructorPattern(ctor, _) => Some(ctor.value)
+      case _                                   => None
+    }
+
   def collectConstructorPatterns(pattern: Pattern): Seq[ValueFQN] =
     pattern match {
       case Pattern.ConstructorPattern(ctor, subs) =>
@@ -38,6 +45,7 @@ object MatchDesugarUtils {
     }
 
   def findAbilityMethodImpl(
+      errorSource: Sourced[?],
       moduleName: ModuleName,
       abilityName: String,
       methodName: String,
@@ -59,7 +67,11 @@ object MatchDesugarUtils {
                              .map(_.contains(dtn))
                          )
                      }
-    } yield selected
-      .map(qn => ValueFQN(moduleName, qn))
-      .getOrElse(throw RuntimeException(s"No $abilityName $methodName implementation in module $moduleName"))
+      result      <- selected match
+                       case Some(qn) => ValueFQN(moduleName, qn).pure[CompilerIO]
+                       case None     =>
+                         compilerAbort(
+                           errorSource.as(s"No $abilityName.$methodName implementation found in module $moduleName.")
+                         )
+    } yield result
 }

@@ -31,6 +31,7 @@ class TypeMatchDesugarer(context: MatchDesugarContext) {
                             for {
                               handler      <- context.buildPatternHandler(scrutinee, subPatterns, ctorCase.body)
                               typeMatchFqn <- findAbilityMethodImpl(
+                                                ctor,
                                                 ctor.value.moduleName,
                                                 "TypeMatch",
                                                 "typeMatch",
@@ -73,7 +74,7 @@ object TypeMatchDesugarer {
 
   def isTypeMatch(cases: Seq[Expression.MatchCase]): Boolean =
     cases
-      .flatMap(c => collectConstructorPatterns(c.pattern.value))
+      .flatMap(c => firstConstructorPattern(c.pattern.value))
       .headOption
       .exists(_.name.qualifier == Qualifier.Type)
 }

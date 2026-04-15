@@ -31,11 +31,7 @@ class MatchDesugarContext(
       fieldPatterns: Seq[Sourced[Pattern]],
       body: Sourced[TypeStack[Expression]]
   ): CompilerIO[Sourced[TypeStack[Expression]]] =
-    fieldPatterns match {
-      case Seq()        => body.pure[CompilerIO]
-      case init :+ last =>
-        buildFieldLambda(scrutinee, last, body).flatMap(innerBody => buildFieldLambdas(scrutinee, init, innerBody))
-    }
+    fieldPatterns.reverse.foldM(body)((innerBody, pat) => buildFieldLambda(scrutinee, pat, innerBody))
 
   private def buildFieldLambda(
       scrutinee: Sourced[TypeStack[Expression]],
