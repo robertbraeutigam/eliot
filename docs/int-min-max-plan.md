@@ -1,0 +1,292 @@
+# Plan: Implementing `Int[MIN, MAX]` (dependent integer type)
+
+Status: design / in progress. This document is the durable reference for the
+`Int[MIN, MAX]` work so it survives across sessions.
+
+## !! CRITICAL FINDING (blocks the agreed mechanism) -- read first
+
+Empirically verified (throwaway probe tests in `MonomorphicTypeCheckTest`, since
+reverted): **`match` does NOT reduce at the NbE type level.** Neither a data
+match (`PatternMatch.handleCases`) nor a type match (`TypeMatch.typeMatch`)
+reduces during type checking. A function whose body is a `match` stays stuck
+when evaluated in a type position (e.g. `Box[pick(True)]` does not reduce to
+`Box[1]`); the probe failed with `"Ability not found"` + `"Type mismatch"`.
+
+Root cause: the type checker (`TypeStackLoop.drainAndResolveLoop`) only resolves
+*which* ability impl a call dispatches to (for codegen + associated types); it
+never *executes* the call. `match` desugars to the `PatternMatch`/`TypeMatch`
+ability calls, whose per-type impls are **JVM-native** (instanceof dispatch in
+bytecode) with no NbE-reducible body, and the pure `Evaluator` cannot resolve or
+run abilities. Only true natives with a `VNative` reducer (e.g. `inc`) reduce at
+the type level.
+
+**Consequence:** a `TypeRefinement` whose `assignableFrom`/`combine` are written
+in Eliot using `match` (the agreed shape) cannot be run by the checker. The
+mechanism must change. Two paths (decision pending):
+
+- **Path A (principled, larger): make `match` reduce at the type level.** Add
+  NbE `VNative` reduction rules for `handleCases`/`typeMatch` that perform
+  structural branch selection on a concrete argument value at type-check time.
+  Then pure-Eliot `TypeRefinement` works *and* general compile-time evaluation is
+  unlocked (valuable for the dependently-typed roadmap). Bigger; touches the
+  match-desugar/native machinery; must understand the `Cases[R]`/`Fields[R]`
+  encoding.
+- **Path B (pragmatic, smaller): make Int's refinement a Scala native.**
+  Implement `TypeRefinement[Int]`'s `assignableFrom`/`combine` as `VNative`
+  reducers operating directly on the concrete `GroundValue` bounds. Declare the
+  ability in stdlib (the interface) but Int's impl is native. Unblocks Int ranges
+  now; user-defined refinement types stay blocked until Path A lands.
+
+Everything below was written before this finding; the type-level design (literal
+typing, the `TypeRefinement` interface, the checker hook, representation/promotion)
+still holds -- only *how* `assignableFrom`/`combine` are implemented changes.
+
+Phase 0 status: `Bool` data type + a `lessThanOrEqual` BigInteger native are still
+needed under either path (Path B uses them inside the native reducer's output /
+or skips Bool entirely and returns a raw decision; Path A uses them in Eliot).
+
+## Goal & chosen model
+
+Make `Int[MIN, MAX]` a real, usable dependent integer type:
+
+- Integer literals carry their value as a singleton type `Int[V, V]` (wiring up
+  the currently-unused `Runtime.els` alias `IntegerLiteralType[V] = Int[V, V]`)
+  instead of being hardcoded to `BigInteger`
+  (`monomorphize/check/Checker.scala`, the `IntegerLiteral` case).
+- Range compatibility is decided by a **user-space ability** (working name
+  `Category`, see "Ability design" below): when the checker compares two types
+  built from the same type constructor and that constructor implements the
+  ability, it *runs* the ability to decide compatibility / combine the types;
+  otherwise it falls back to today's structural data equality.
+- `+` / `-` / `*` (and comparisons) become natives with type-level bounds
+  propagation **and** JVM runtime bytecode, so real programs compute.
+
+### Key insight that keeps existing tests working
+
+Literal typing becomes **expected-type-directed**:
+
+- Checked against `BigInteger` (a type-level *bound* position, e.g. `Box[one]`,
+  `def one: BigInteger = 1`) -> stays `Direct(v, BigInteger)`. Existing behaviour
+  preserved.
+- Checked against an `Int[...]` or a metavariable (a runtime *value* position)
+  -> becomes `Int[v, v]`, then unified (which triggers the ability's range check
+  when bounds are concrete).
+
+So `BigInteger` stays the type of the *bounds*; `Int[MIN, MAX]` is the type of
+*runtime integers*. No conflation, minimal breakage.
+
+## How integers flow today (research findings)
+
+- Tokenizer: `Token.IntegerLiteral(content: String)`.
+- AST/core: `IntegerLiteral(Sourced[String])` (string passed through).
+- resolve: `ValueResolver` converts string -> `BigInt`
+  (`Expression.IntegerLiteral(Sourced[BigInt])`); preserved through
+  OperatorResolved / Monomorphic / Uncurried.
+- monomorphize: `Checker` hardcodes the literal's type to
+  `VTopDef(WellKnownTypes.bigIntFQN, None, SNil)` (i.e. `BigInteger`).
+  `Evaluator` produces `VConst(Direct(value, bigIntGroundType))`.
+- JVM: `ExpressionCodeGenerator` emits `Long.valueOf(toLong)`; `NativeType`
+  maps `BigInteger` -> `java.lang.Long`. No arithmetic exists yet; only `inc`
+  on `BigInteger` (a compile-time native).
+
+## Native mechanisms (two of them)
+
+1. **Compile-time / type-level** via `NativeBinding` facts
+   (`StdlibNativesProcessor`, `SystemNativesProcessor`,
+   `DataTypeNativesProcessor`, `UserValueNativesProcessor`). A body-less `def`
+   becomes a `VTopDef(fqn, None, SNil)` (stuck) unless a processor binds a
+   `VNative` reducer. Example: `inc` fires `VConst(Direct(n)) -> Direct(n+1)`.
+   The NbE evaluator/unifier are **pure**; all `NativeBinding`s must be
+   pre-fetched before evaluation.
+2. **JVM runtime** via `NativeImplementation.implementations: Map[ValueFQN, ...]`,
+   consumed in `JvmClassGenerator.createModuleMethod`. Emits ASM bytecode.
+
+Both are keyed by the same `ValueFQN`.
+
+## Ability design: `TypeRefinement` (DECIDED: name + operations)
+
+The ability captures, for a refinement type whose values denote *sets* of
+concrete values (e.g. `Int[a,b]` denotes the integers in `[a,b]`), how the
+type checker should compare and combine those types. Deliberately named in
+plain, non-mathematical terms (same spirit as calling typeclasses "ability").
+
+**Ability:** `TypeRefinement[T]`. **Operations (two):**
+
+- `assignableFrom(target: T, source: T): Bool` -- directional, reads like Java's
+  `isAssignableFrom`: true iff a value of `source` may be used where `target` is
+  expected. Used for **assignability / subsumption** at every
+  `check(actual, expected)`. For Int:
+  `assignableFrom(Int[c,d], Int[a,b]) = (c <= a) && (b <= d)`
+  (target `[c,d]` accepts source `[a,b]` iff `[a,b]` is inside `[c,d]`).
+- `combine(a: T, b: T): T` -- the join / least upper bound. Used to **synthesise**
+  one type from several when there is no expected type to check against:
+  branches of `if` / `match`, etc. For Int:
+  `combine(Int[a,b], Int[c,d]) = Int[min(a,c), max(b,d)]`.
+
+Notes:
+
+- `assignableFrom` is derivable from `combine` + existing data equality:
+  `assignableFrom(target, source) == (combine(target, source) === target)`.
+  `combine` is the fundamental op; we still expose `assignableFrom` explicitly
+  (the assignability path is hot and reads clearer; possible default impl later).
+- A **meet / intersection** (`Int[max(a,c), min(b,d)]`) would be needed only if
+  the checker ever has to combine multiple *upper-bound* expectations on one
+  unknown; it introduces empty/uninhabited ranges (a type error) and a bottom
+  representation, so it is **deferred** until a concrete need appears.
+- Law (not necessarily enforced): `combine` is the LUB w.r.t. `assignableFrom`.
+- Fallback: a type with no `TypeRefinement` impl uses plain structural data
+  equality (current behaviour).
+
+### Parameterization & dispatch (RESOLVED in shape, nuance for the spike)
+
+`Int` is a type *constructor* (`Int[MIN, MAX]`); the ability's methods must
+operate on *applied* types (`Int[a,b]`), and `assignableFrom`/`combine` take
+**two independent applications** of the same constructor (`Int[c,d]` vs
+`Int[a,b]`) -- so a fully-applied impl like `implement[a,b] TypeRefinement[Int[a,b]]`
+can't work (it would force both arguments to share one pair of bounds).
+
+Resolution -- combine two existing, tested features:
+
+1. **Higher-kinded ability dispatched on the bare constructor.** Exactly like the
+   tested `ability Container[F[_]] { def wrap(s: String): F[String] }` +
+   `implement Container[Box]` (AbilityImplementationCheckProcessorTest, "higher-kinded
+   abilities"). So `TypeRefinement` dispatches on the constructor `Int`.
+2. **Methods typed over `Type`, bodies pattern-match the constructor.** The
+   `def personName(t: Type) = t match { case Person[name] -> ... }` idiom from
+   `TypeValues.els`. Each argument is matched independently, giving independent
+   bounds.
+
+Resolved shape:
+
+```
+ability TypeRefinement[T] {                          // T = the refined constructor (HKT dispatch key)
+   def assignableFrom(target: Type, source: Type): Bool
+   def combine(a: Type, b: Type): Type
+}
+
+implement TypeRefinement[Int] {                      // dispatch on the Int constructor
+   def assignableFrom(target: Type, source: Type): Bool = target match {
+      case Int[tmin, tmax] -> source match {
+         case Int[smin, smax] -> tmin <= smin && smax <= tmax
+      }
+   }
+   def combine(a: Type, b: Type): Type = a match {
+      case Int[amin, amax] -> b match {
+         case Int[bmin, bmax] -> Int[min(amin, bmin), max(amax, bmax)]
+      }
+   }
+}
+```
+
+Residual nuance to settle in the Phase 2 spike: whether `T` needs an explicit
+kind annotation to dispatch on a 2-arg constructor (`T[_, _]`?) or whether the
+checker keys dispatch purely on the head FQN (`Int`), making `T` effectively a
+phantom dispatch key. The checker invokes these methods *itself* during
+unification (it already knows the head constructor), so dispatch is
+checker-driven via `AbilityImplementation.Key(typeRefinementFQN, Seq(Int))`
+rather than normal argument-type inference.
+
+### Checker integration (pre-fetch then pure)
+
+The `Checker` already has a `resolveAbility` callback
+(`getFact(AbilityImplementation.Key(...))`) and the pure `Unifier` compares
+types via `groundEquals` on `Structure(name, args)`. Plan: pre-resolve the
+ability impls for the type constructors that appear, inject a
+`typeFQN -> {assignableFrom, combine} SemValue` map into the `Unifier` (same
+pattern as `NativeBinding` pre-fetching), and at the `VConst` vs `VConst` /
+`groundEquals(Structure, Structure)` site:
+
+- if the head has the ability AND both sides have fully-ground bounds, run
+  `assignableFrom(target = expected, source = inferred)` and accept on `True` /
+  reject on `False`;
+- otherwise fall back to structural equality (also the path when bounds are
+  metas/generics, so unification still solves `MIN := a, MAX := b`).
+
+Direction matters: target = expected, source = inferred -- verify the
+`unify(l, r)` argument order at the `check` call sites so we accept *widening*,
+not narrowing. The `combine` op plugs into branch/match result-type synthesis.
+
+## Phases
+
+- **Phase 0 -- Foundations.** `Bool` (`data Bool = False | True`) + two-arg
+  compile-time `VNative` reductions on `BigInteger` (`+`, `-`, `*`,
+  `lessThanOrEqual`/`<=`, `&&` on Bool, plus `min`/`max` for `combine`) in
+  `StdlibNativesProcessor`; body-less decls in `BigInteger.els` / `Bool.els`.
+- **Phase 1 -- Literals as `Int[V,V]`.** Expected-type-directed literal typing
+  in `Checker`. Audit monomorphize tests assuming `BigInteger` in value position.
+- **Phase 2 -- `TypeRefinement` + range-checked compatibility.** Define
+  `ability TypeRefinement[T]` and `implement TypeRefinement[Int]` in stdlib
+  (pattern-match on `Int[a,b]` like `TypeValues.els`); hook
+  `assignableFrom`/`combine` into the checker/unifier as above. Start with a
+  short feasibility spike (pure evaluation of the ability inside the Unifier;
+  ability impls resolving for a *type constructor*; the parameterization/dispatch
+  question above).
+- **Phase 3 -- Runtime arithmetic (JVM).** Infix `+`/`-`/`*` on `Int` with
+  dependent bounds (`Int[a,b] + Int[c,d] : Int[a+c, b+d]`); `NativeImplementation`
+  emitting `LADD`/`LSUB`/`LMUL` (unbox Long -> op -> rebox). Runtime stays `Long`.
+- **Phase 4 -- Tests / examples / docs.** Literal typing; range accept/reject;
+  ability fallback to equality; arithmetic bounds; a JVM run test; an example
+  `.els`; a design note.
+
+## Decisions & open sub-decisions
+
+- DECIDED: ability `TypeRefinement[T]`; ops `assignableFrom(target, source): Bool`
+  and `combine(a, b): T`. `meet`/intersection deferred.
+- OPEN: parameterization & dispatch of `TypeRefinement` over a type *constructor*
+  whose methods receive *applied* types (see Ability design section).
+- OPEN: `Bool` as pure stdlib data type (recommended) vs native.
+- Out of scope for now: overflow/width enforcement; everything maps to `Long`.
+
+## Representation & promotion (value-level coercion) -- DESIGN NOTE
+
+Concern (raised by the author): `Int[MIN,MAX]` is meant to drive the *optimal
+backend representation* (`Int[0,10]` -> Byte, `Int[0,1000]` -> Word, ...). If a
+branch `combine`s `Int[0,10]` (Byte) and `Int[0,1000]` (Word) to `Int[0,1000]`
+(Word), the Byte arm's runtime value must actually become a Word, or the type
+would mislead the backend. So we need a *value-level promotion*. Does that
+replace the type-level `combine`?
+
+**Resolution: no -- they are complementary, at different levels.**
+
+- **Promotion is semantically the identity.** Widening `Int[0,10] -> Int[0,1000]`
+  preserves the integer value (10 stays 10); only the machine encoding changes
+  (zero/sign-extend). So the *type-level* reasoning (`combine`/`assignableFrom`)
+  is sound and complete on its own; promotion is purely a backend realization.
+- `combine` answers "what type does this branch have?" -- load-bearing for
+  type-checking everything downstream. It stays.
+- Promotion answers "how do I physically materialize this value at the target
+  type's representation?" -- only matters at a representation boundary.
+
+**It is not specific to branches.** A promotion is needed at *every* assignability
+boundary where representations differ (`assignableFrom` succeeding by widening):
+branch/match arms vs. their `combine`d result, arg vs. param, body vs. declared
+return. So it is a **systematic coercion-insertion pass**: walk the typed
+program; wherever an expression of static type `S` sits in a context wanting `T`
+with `repr(S) != repr(T)`, wrap it in `promote_{S->T}`. Driven by a
+`repr(type) -> machine type` function; branches get `T` from `combine`, others
+from the expected type.
+
+**Invariant that keeps the backend honest:** *after the coercion pass, every
+value's physical representation equals `repr(its static type)`.* The backend may
+assume this; the pass establishes it; nothing changes a type without a matching
+`promote` inserted.
+
+**For now:** the backend maps everything to `Long`, so `repr` is constant and
+every promotion is a **no-op**. Range-based width selection (Byte/Word/...) is a
+separate future feature, and promotion is meaningless without it -- build them
+together, later. The type-level `TypeRefinement` design stands unchanged now; we
+only **reserve the seam** (a coercion pass slot between type-checking and
+codegen, identity until widths land).
+
+**Open future choice:** where `repr` + `promote` live once widths exist --
+(1) a separate backend-facing concern (`repr` fn + `promote` native), keyed on
+representation, keeping `TypeRefinement` purely type-level (current lean); or
+(2) extra value-level methods on `TypeRefinement` so user-defined refinement
+types also define their own representation/widening (more unified, heavier).
+Either way `combine` survives.
+
+## Risks
+
+- Phase 2 purity: the Unifier is synchronous/pure -> all ability impls must be
+  pre-fetched; missing impls would wrongly fall back to equality.
+- Literal-retyping fallout in existing tests/stdlib (Phase 1).
