@@ -85,10 +85,16 @@ self-cycle is an error (handled by the guard).
 
 ## Phases
 
-- **P1 -- `EvaluatedValue` fact + interpreter skeleton.** New backend
-  module/plugin; interpret the simplest pure values (literals, data construction,
-  value references, application) over uncurried IR; cache via the fact. Test:
-  evaluate `def two = inc(1)` -> `2`.
+- **P1 -- `EvaluatedValue` fact + interpreter skeleton. [DONE]** Implemented in
+  `lang/.../interpret/{fact/EvaluatedValue, processor/EvaluationProcessor}`,
+  registered in `LangPlugin` (inert until an `EvaluatedValue` fact is requested).
+  Interprets literals, parameter refs, monomorphic value refs, application, and
+  function literals (closures) over the uncurried IR; nested ground value calls
+  recurse via further `EvaluatedValue` facts (the compile-then-run fixpoint);
+  `inc` is the first backend native. Value domain has Ground + Closure; the fact
+  boundary is ground-only. Tests: `inc(1)->2`, `inc(inc(1))->3`,
+  `addOne(inc(inc(1)))->4` (user fn via the fact). NOTE: kept in `lang` for now,
+  not a separate module -- the fact boundary already gives the swappability.
 - **P2 -- match natives.** `handleCases` + `typeMatch` backend natives (constructor
   metadata + resolved-impl-encodes-constructor). Test: evaluate a data-match and a
   type-match function to a ground value through the fact.
