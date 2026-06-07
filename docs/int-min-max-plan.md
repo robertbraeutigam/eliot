@@ -95,35 +95,54 @@ Notes:
 - Fallback: a type with no `TypeRefinement` impl uses plain structural data
   equality (current behaviour).
 
-### OPEN design question: parameterization & dispatch
+### Parameterization & dispatch (RESOLVED in shape, nuance for the spike)
 
-`Int` is a type *constructor* (`Int[MIN, MAX]`); the ability's methods operate on
-*applied* types (`Int[a,b]`, which have kind `Type`, cf. `TypeValues.els` where
-`def personName(t: Type)` matches `case Person[name]`). Need to settle how
-`TypeRefinement` is parameterized and dispatched: implemented for the
-constructor `Int`, with methods receiving the applied `Int[...]` types, and the
-checker dispatching on the head constructor it sees during unification. Proposed
-shape (to confirm):
+`Int` is a type *constructor* (`Int[MIN, MAX]`); the ability's methods must
+operate on *applied* types (`Int[a,b]`), and `assignableFrom`/`combine` take
+**two independent applications** of the same constructor (`Int[c,d]` vs
+`Int[a,b]`) -- so a fully-applied impl like `implement[a,b] TypeRefinement[Int[a,b]]`
+can't work (it would force both arguments to share one pair of bounds).
+
+Resolution -- combine two existing, tested features:
+
+1. **Higher-kinded ability dispatched on the bare constructor.** Exactly like the
+   tested `ability Container[F[_]] { def wrap(s: String): F[String] }` +
+   `implement Container[Box]` (AbilityImplementationCheckProcessorTest, "higher-kinded
+   abilities"). So `TypeRefinement` dispatches on the constructor `Int`.
+2. **Methods typed over `Type`, bodies pattern-match the constructor.** The
+   `def personName(t: Type) = t match { case Person[name] -> ... }` idiom from
+   `TypeValues.els`. Each argument is matched independently, giving independent
+   bounds.
+
+Resolved shape:
 
 ```
-ability TypeRefinement[T] {
-   def assignableFrom(target: T, source: T): Bool
-   def combine(a: T, b: T): T
+ability TypeRefinement[T] {                          // T = the refined constructor (HKT dispatch key)
+   def assignableFrom(target: Type, source: Type): Bool
+   def combine(a: Type, b: Type): Type
 }
 
-implement TypeRefinement[Int] {
-   def assignableFrom(target: Int, source: Int): Bool = target match {
+implement TypeRefinement[Int] {                      // dispatch on the Int constructor
+   def assignableFrom(target: Type, source: Type): Bool = target match {
       case Int[tmin, tmax] -> source match {
          case Int[smin, smax] -> tmin <= smin && smax <= tmax
       }
    }
-   def combine(a: Int, b: Int): Int = a match {
+   def combine(a: Type, b: Type): Type = a match {
       case Int[amin, amax] -> b match {
          case Int[bmin, bmax] -> Int[min(amin, bmin), max(amax, bmax)]
       }
    }
 }
 ```
+
+Residual nuance to settle in the Phase 2 spike: whether `T` needs an explicit
+kind annotation to dispatch on a 2-arg constructor (`T[_, _]`?) or whether the
+checker keys dispatch purely on the head FQN (`Int`), making `T` effectively a
+phantom dispatch key. The checker invokes these methods *itself* during
+unification (it already knows the head constructor), so dispatch is
+checker-driven via `AbilityImplementation.Key(typeRefinementFQN, Seq(Int))`
+rather than normal argument-type inference.
 
 ### Checker integration (pre-fetch then pure)
 
