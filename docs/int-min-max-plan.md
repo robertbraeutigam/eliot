@@ -3,6 +3,48 @@
 Status: design / in progress. This document is the durable reference for the
 `Int[MIN, MAX]` work so it survives across sessions.
 
+## !! CRITICAL FINDING (blocks the agreed mechanism) -- read first
+
+Empirically verified (throwaway probe tests in `MonomorphicTypeCheckTest`, since
+reverted): **`match` does NOT reduce at the NbE type level.** Neither a data
+match (`PatternMatch.handleCases`) nor a type match (`TypeMatch.typeMatch`)
+reduces during type checking. A function whose body is a `match` stays stuck
+when evaluated in a type position (e.g. `Box[pick(True)]` does not reduce to
+`Box[1]`); the probe failed with `"Ability not found"` + `"Type mismatch"`.
+
+Root cause: the type checker (`TypeStackLoop.drainAndResolveLoop`) only resolves
+*which* ability impl a call dispatches to (for codegen + associated types); it
+never *executes* the call. `match` desugars to the `PatternMatch`/`TypeMatch`
+ability calls, whose per-type impls are **JVM-native** (instanceof dispatch in
+bytecode) with no NbE-reducible body, and the pure `Evaluator` cannot resolve or
+run abilities. Only true natives with a `VNative` reducer (e.g. `inc`) reduce at
+the type level.
+
+**Consequence:** a `TypeRefinement` whose `assignableFrom`/`combine` are written
+in Eliot using `match` (the agreed shape) cannot be run by the checker. The
+mechanism must change. Two paths (decision pending):
+
+- **Path A (principled, larger): make `match` reduce at the type level.** Add
+  NbE `VNative` reduction rules for `handleCases`/`typeMatch` that perform
+  structural branch selection on a concrete argument value at type-check time.
+  Then pure-Eliot `TypeRefinement` works *and* general compile-time evaluation is
+  unlocked (valuable for the dependently-typed roadmap). Bigger; touches the
+  match-desugar/native machinery; must understand the `Cases[R]`/`Fields[R]`
+  encoding.
+- **Path B (pragmatic, smaller): make Int's refinement a Scala native.**
+  Implement `TypeRefinement[Int]`'s `assignableFrom`/`combine` as `VNative`
+  reducers operating directly on the concrete `GroundValue` bounds. Declare the
+  ability in stdlib (the interface) but Int's impl is native. Unblocks Int ranges
+  now; user-defined refinement types stay blocked until Path A lands.
+
+Everything below was written before this finding; the type-level design (literal
+typing, the `TypeRefinement` interface, the checker hook, representation/promotion)
+still holds -- only *how* `assignableFrom`/`combine` are implemented changes.
+
+Phase 0 status: `Bool` data type + a `lessThanOrEqual` BigInteger native are still
+needed under either path (Path B uses them inside the native reducer's output /
+or skips Bool entirely and returns a raw decision; Path A uses them in Eliot).
+
 ## Goal & chosen model
 
 Make `Int[MIN, MAX]` a real, usable dependent integer type:
