@@ -195,6 +195,54 @@ not narrowing. The `combine` op plugs into branch/match result-type synthesis.
 - OPEN: `Bool` as pure stdlib data type (recommended) vs native.
 - Out of scope for now: overflow/width enforcement; everything maps to `Long`.
 
+## Representation & promotion (value-level coercion) -- DESIGN NOTE
+
+Concern (raised by the author): `Int[MIN,MAX]` is meant to drive the *optimal
+backend representation* (`Int[0,10]` -> Byte, `Int[0,1000]` -> Word, ...). If a
+branch `combine`s `Int[0,10]` (Byte) and `Int[0,1000]` (Word) to `Int[0,1000]`
+(Word), the Byte arm's runtime value must actually become a Word, or the type
+would mislead the backend. So we need a *value-level promotion*. Does that
+replace the type-level `combine`?
+
+**Resolution: no -- they are complementary, at different levels.**
+
+- **Promotion is semantically the identity.** Widening `Int[0,10] -> Int[0,1000]`
+  preserves the integer value (10 stays 10); only the machine encoding changes
+  (zero/sign-extend). So the *type-level* reasoning (`combine`/`assignableFrom`)
+  is sound and complete on its own; promotion is purely a backend realization.
+- `combine` answers "what type does this branch have?" -- load-bearing for
+  type-checking everything downstream. It stays.
+- Promotion answers "how do I physically materialize this value at the target
+  type's representation?" -- only matters at a representation boundary.
+
+**It is not specific to branches.** A promotion is needed at *every* assignability
+boundary where representations differ (`assignableFrom` succeeding by widening):
+branch/match arms vs. their `combine`d result, arg vs. param, body vs. declared
+return. So it is a **systematic coercion-insertion pass**: walk the typed
+program; wherever an expression of static type `S` sits in a context wanting `T`
+with `repr(S) != repr(T)`, wrap it in `promote_{S->T}`. Driven by a
+`repr(type) -> machine type` function; branches get `T` from `combine`, others
+from the expected type.
+
+**Invariant that keeps the backend honest:** *after the coercion pass, every
+value's physical representation equals `repr(its static type)`.* The backend may
+assume this; the pass establishes it; nothing changes a type without a matching
+`promote` inserted.
+
+**For now:** the backend maps everything to `Long`, so `repr` is constant and
+every promotion is a **no-op**. Range-based width selection (Byte/Word/...) is a
+separate future feature, and promotion is meaningless without it -- build them
+together, later. The type-level `TypeRefinement` design stands unchanged now; we
+only **reserve the seam** (a coercion pass slot between type-checking and
+codegen, identity until widths land).
+
+**Open future choice:** where `repr` + `promote` live once widths exist --
+(1) a separate backend-facing concern (`repr` fn + `promote` native), keyed on
+representation, keeping `TypeRefinement` purely type-level (current lean); or
+(2) extra value-level methods on `TypeRefinement` so user-defined refinement
+types also define their own representation/widening (more unified, heavier).
+Either way `combine` survives.
+
 ## Risks
 
 - Phase 2 purity: the Unifier is synchronous/pure -> all ability impls must be
