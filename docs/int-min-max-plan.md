@@ -61,35 +61,69 @@ So `BigInteger` stays the type of the *bounds*; `Int[MIN, MAX]` is the type of
 
 Both are keyed by the same `ValueFQN`.
 
-## Ability design (the `Category` / lattice ability) -- UNDER DISCUSSION
+## Ability design: `TypeRefinement` (DECIDED: name + operations)
 
 The ability captures, for a refinement type whose values denote *sets* of
 concrete values (e.g. `Int[a,b]` denotes the integers in `[a,b]`), how the
-type checker should compare and combine those types. Required operations:
+type checker should compare and combine those types. Deliberately named in
+plain, non-mathematical terms (same spirit as calling typeclasses "ability").
 
-- `subsetOf(sub: T, sup: T): Bool` -- the partial order (set inclusion). Used
-  for **assignability / subsumption**: every `check(actual, expected)`. For Int:
-  `subsetOf(Int[a,b], Int[c,d]) = (c <= a) && (b <= d)`.
-- `union(a: T, b: T): T` -- the join / least upper bound. Used to **synthesise**
+**Ability:** `TypeRefinement[T]`. **Operations (two):**
+
+- `assignableFrom(target: T, source: T): Bool` -- directional, reads like Java's
+  `isAssignableFrom`: true iff a value of `source` may be used where `target` is
+  expected. Used for **assignability / subsumption** at every
+  `check(actual, expected)`. For Int:
+  `assignableFrom(Int[c,d], Int[a,b]) = (c <= a) && (b <= d)`
+  (target `[c,d]` accepts source `[a,b]` iff `[a,b]` is inside `[c,d]`).
+- `combine(a: T, b: T): T` -- the join / least upper bound. Used to **synthesise**
   one type from several when there is no expected type to check against:
   branches of `if` / `match`, etc. For Int:
-  `union(Int[a,b], Int[c,d]) = Int[min(a,c), max(b,d)]`.
+  `combine(Int[a,b], Int[c,d]) = Int[min(a,c), max(b,d)]`.
 
 Notes:
 
-- `subsetOf` is derivable from `union` + existing data equality:
-  `subsetOf(a, b) == (union(a, b) === b)`. `union` is the fundamental op; we may
-  still expose `subsetOf` explicitly (clarity / cheaper / possible default impl).
+- `assignableFrom` is derivable from `combine` + existing data equality:
+  `assignableFrom(target, source) == (combine(target, source) === target)`.
+  `combine` is the fundamental op; we still expose `assignableFrom` explicitly
+  (the assignability path is hot and reads clearer; possible default impl later).
 - A **meet / intersection** (`Int[max(a,c), min(b,d)]`) would be needed only if
   the checker ever has to combine multiple *upper-bound* expectations on one
   unknown; it introduces empty/uninhabited ranges (a type error) and a bottom
   representation, so it is **deferred** until a concrete need appears.
-- Law (not necessarily enforced): `union` is the LUB w.r.t. `subsetOf`.
-- Fallback: a type with no such ability uses plain structural data equality
-  (current behaviour).
+- Law (not necessarily enforced): `combine` is the LUB w.r.t. `assignableFrom`.
+- Fallback: a type with no `TypeRefinement` impl uses plain structural data
+  equality (current behaviour).
 
-Name is not yet settled (candidates: `Lattice`, `Refinement`, `Subset`/set-themed,
-...). `Category` clashes with category theory and is a placeholder.
+### OPEN design question: parameterization & dispatch
+
+`Int` is a type *constructor* (`Int[MIN, MAX]`); the ability's methods operate on
+*applied* types (`Int[a,b]`, which have kind `Type`, cf. `TypeValues.els` where
+`def personName(t: Type)` matches `case Person[name]`). Need to settle how
+`TypeRefinement` is parameterized and dispatched: implemented for the
+constructor `Int`, with methods receiving the applied `Int[...]` types, and the
+checker dispatching on the head constructor it sees during unification. Proposed
+shape (to confirm):
+
+```
+ability TypeRefinement[T] {
+   def assignableFrom(target: T, source: T): Bool
+   def combine(a: T, b: T): T
+}
+
+implement TypeRefinement[Int] {
+   def assignableFrom(target: Int, source: Int): Bool = target match {
+      case Int[tmin, tmax] -> source match {
+         case Int[smin, smax] -> tmin <= smin && smax <= tmax
+      }
+   }
+   def combine(a: Int, b: Int): Int = a match {
+      case Int[amin, amax] -> b match {
+         case Int[bmin, bmax] -> Int[min(amin, bmin), max(amax, bmax)]
+      }
+   }
+}
+```
 
 ### Checker integration (pre-fetch then pure)
 
@@ -97,32 +131,35 @@ The `Checker` already has a `resolveAbility` callback
 (`getFact(AbilityImplementation.Key(...))`) and the pure `Unifier` compares
 types via `groundEquals` on `Structure(name, args)`. Plan: pre-resolve the
 ability impls for the type constructors that appear, inject a
-`typeFQN -> {subsetOf, union} SemValue` map into the `Unifier` (same pattern as
-`NativeBinding` pre-fetching), and at the `VConst` vs `VConst` /
+`typeFQN -> {assignableFrom, combine} SemValue` map into the `Unifier` (same
+pattern as `NativeBinding` pre-fetching), and at the `VConst` vs `VConst` /
 `groundEquals(Structure, Structure)` site:
 
 - if the head has the ability AND both sides have fully-ground bounds, run
-  `subsetOf(actual, expected)` and accept on `True` / reject on `False`;
+  `assignableFrom(target = expected, source = inferred)` and accept on `True` /
+  reject on `False`;
 - otherwise fall back to structural equality (also the path when bounds are
   metas/generics, so unification still solves `MIN := a, MAX := b`).
 
-Direction matters: `subsetOf(actual = inferred, sup = expected)` -- verify the
+Direction matters: target = expected, source = inferred -- verify the
 `unify(l, r)` argument order at the `check` call sites so we accept *widening*,
-not narrowing. The `union` op plugs into branch/match result-type synthesis.
+not narrowing. The `combine` op plugs into branch/match result-type synthesis.
 
 ## Phases
 
 - **Phase 0 -- Foundations.** `Bool` (`data Bool = False | True`) + two-arg
   compile-time `VNative` reductions on `BigInteger` (`+`, `-`, `*`,
-  `lessThanOrEqual`, plus `min`/`max` for `union`) in `StdlibNativesProcessor`;
-  body-less decls in `BigInteger.els` / `Bool.els`.
+  `lessThanOrEqual`/`<=`, `&&` on Bool, plus `min`/`max` for `combine`) in
+  `StdlibNativesProcessor`; body-less decls in `BigInteger.els` / `Bool.els`.
 - **Phase 1 -- Literals as `Int[V,V]`.** Expected-type-directed literal typing
   in `Checker`. Audit monomorphize tests assuming `BigInteger` in value position.
-- **Phase 2 -- The ability + range-checked compatibility.** Define the ability
-  and `implement ...[Int]` in stdlib (pattern-match on `Int[a,b]` like
-  `TypeValues.els`); hook `subsetOf`/`union` into the checker/unifier as above.
-  Start with a short feasibility spike (pure evaluation of the ability inside the
-  Unifier; ability impls resolving for a *type constructor*).
+- **Phase 2 -- `TypeRefinement` + range-checked compatibility.** Define
+  `ability TypeRefinement[T]` and `implement TypeRefinement[Int]` in stdlib
+  (pattern-match on `Int[a,b]` like `TypeValues.els`); hook
+  `assignableFrom`/`combine` into the checker/unifier as above. Start with a
+  short feasibility spike (pure evaluation of the ability inside the Unifier;
+  ability impls resolving for a *type constructor*; the parameterization/dispatch
+  question above).
 - **Phase 3 -- Runtime arithmetic (JVM).** Infix `+`/`-`/`*` on `Int` with
   dependent bounds (`Int[a,b] + Int[c,d] : Int[a+c, b+d]`); `NativeImplementation`
   emitting `LADD`/`LSUB`/`LMUL` (unbox Long -> op -> rebox). Runtime stays `Long`.
@@ -130,13 +167,14 @@ not narrowing. The `union` op plugs into branch/match result-type synthesis.
   ability fallback to equality; arithmetic bounds; a JVM run test; an example
   `.els`; a design note.
 
-## Open sub-decisions
+## Decisions & open sub-decisions
 
-1. Ability name (see above).
-2. Exact operation set (`subsetOf` + `union`; `subsetOf` primitive vs derived;
-   `meet` deferred?).
-3. `Bool` as pure stdlib data type (recommended) vs native.
-4. Out of scope for now: overflow/width enforcement; everything maps to `Long`.
+- DECIDED: ability `TypeRefinement[T]`; ops `assignableFrom(target, source): Bool`
+  and `combine(a, b): T`. `meet`/intersection deferred.
+- OPEN: parameterization & dispatch of `TypeRefinement` over a type *constructor*
+  whose methods receive *applied* types (see Ability design section).
+- OPEN: `Bool` as pure stdlib data type (recommended) vs native.
+- Out of scope for now: overflow/width enforcement; everything maps to `Long`.
 
 ## Risks
 
