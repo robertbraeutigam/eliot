@@ -1,9 +1,30 @@
 # Plan: Implementing `Int[MIN, MAX]` (dependent integer type)
 
-Status: design / in progress. This document is the durable reference for the
-`Int[MIN, MAX]` work so it survives across sessions.
+Status: design settled; implementation under way. This document is the durable
+reference for the `Int[MIN, MAX]` work so it survives across sessions. The
+companion doc `path-a-compile-time-ability-eval.md` holds the detailed plan +
+progress for the evaluation backend this feature now depends on.
 
-## !! CRITICAL FINDING (blocks the agreed mechanism) -- read first
+## Current status (2026-06-08)
+
+- **Design settled.** Literal typing as `Int[V,V]`; the `TypeRefinement` ability
+  (`assignableFrom` + `combine`); representation/promotion as a deferred,
+  identity-for-now coercion seam. See sections below.
+- **Mechanism settled.** See the CRITICAL FINDING below: `match` does not reduce
+  at the NbE type level, so `TypeRefinement` cannot be "run" by the symbolic
+  checker directly. **Resolved by building a compiler-internal evaluation
+  backend** (Path A) that compiles-and-runs pure type-level code behind a fact
+  boundary (`EvaluatedValue`). Detailed plan + phasing: `path-a-...md`.
+- **Progress.** P1 of the eval backend is **DONE** (merged to master,
+  `5f4e9b3a`): the `EvaluatedValue` fact + `EvaluationProcessor` interpret the
+  uncurried IR for the pure subset (`lang/.../interpret/`). Next is P2 (the
+  `handleCases`/`typeMatch` backend natives).
+- **Heads-up / to reconcile:** master commit `b90dcf8a "Add + to Int"` added a
+  `+` declaration to `stdlib/.../Int.els` (author's work). Reconcile this with
+  the arithmetic plan (Phase 3 / eval-backend `+` native) when we get there --
+  see "Native arithmetic" note under Phases.
+
+## CRITICAL FINDING (drove the mechanism change)
 
 Empirically verified (throwaway probe tests in `MonomorphicTypeCheckTest`, since
 reverted): **`match` does NOT reduce at the NbE type level.** Neither a data
@@ -20,30 +41,21 @@ bytecode) with no NbE-reducible body, and the pure `Evaluator` cannot resolve or
 run abilities. Only true natives with a `VNative` reducer (e.g. `inc`) reduce at
 the type level.
 
-**Consequence:** a `TypeRefinement` whose `assignableFrom`/`combine` are written
-in Eliot using `match` (the agreed shape) cannot be run by the checker. The
-mechanism must change. Two paths (decision pending):
+**Resolution (DECIDED): a fact-bounded, compiler-internal evaluation backend.**
+Rather than special-casing `match` in the checker, evaluate pure type-level code
+by **compiling-and-running it** through a dedicated backend, recursively to a
+fixpoint, behind the `EvaluatedValue` fact. No special handling in the checker:
+by the uncurried-IR stage dispatch is already resolved, so the backend just runs
+the resolved `handleCases`/`typeMatch` impls as ordinary backend natives (like
+the JVM backend runs `println`). Hybrid with NbE: the backend evaluates *closed*
+pure terms; NbE keeps unification + open/generic reasoning. Full rationale,
+architecture, and phasing live in `path-a-compile-time-ability-eval.md`.
 
-- **Path A (principled, larger): make `match` reduce at the type level.** Add
-  NbE `VNative` reduction rules for `handleCases`/`typeMatch` that perform
-  structural branch selection on a concrete argument value at type-check time.
-  Then pure-Eliot `TypeRefinement` works *and* general compile-time evaluation is
-  unlocked (valuable for the dependently-typed roadmap). Bigger; touches the
-  match-desugar/native machinery; must understand the `Cases[R]`/`Fields[R]`
-  encoding.
-- **Path B (pragmatic, smaller): make Int's refinement a Scala native.**
-  Implement `TypeRefinement[Int]`'s `assignableFrom`/`combine` as `VNative`
-  reducers operating directly on the concrete `GroundValue` bounds. Declare the
-  ability in stdlib (the interface) but Int's impl is native. Unblocks Int ranges
-  now; user-defined refinement types stay blocked until Path A lands.
-
-Everything below was written before this finding; the type-level design (literal
-typing, the `TypeRefinement` interface, the checker hook, representation/promotion)
-still holds -- only *how* `assignableFrom`/`combine` are implemented changes.
-
-Phase 0 status: `Bool` data type + a `lessThanOrEqual` BigInteger native are still
-needed under either path (Path B uses them inside the native reducer's output /
-or skips Bool entirely and returns a raw decision; Path A uses them in Eliot).
+Consequence for this doc: the type-level design below (literal typing, the
+`TypeRefinement` interface, representation/promotion) is unchanged; only the
+**checker integration** changes -- `assignableFrom`/`combine` are *run* via an
+`EvaluatedValue` request rather than reduced inside the pure Unifier (see the
+updated "Checker integration" section).
 
 ## Goal & chosen model
 
@@ -100,8 +112,13 @@ So `BigInteger` stays the type of the *bounds*; `Int[MIN, MAX]` is the type of
    pre-fetched before evaluation.
 2. **JVM runtime** via `NativeImplementation.implementations: Map[ValueFQN, ...]`,
    consumed in `JvmClassGenerator.createModuleMethod`. Emits ASM bytecode.
+3. **Compile-time execution backend** (NEW, P1 done) via the `EvaluatedValue`
+   fact + `EvaluationProcessor` (`lang/.../interpret/`). Interprets the uncurried
+   IR for the pure subset; provides its own backend natives (currently `inc`;
+   `handleCases`/`typeMatch`/comparisons/arithmetic to come). This is what lets
+   the checker *run* pure type-level code. See `path-a-...md`.
 
-Both are keyed by the same `ValueFQN`.
+All are keyed by `ValueFQN` (#3's fact key also carries the ground arguments).
 
 ## Ability design: `TypeRefinement` (DECIDED: name + operations)
 
@@ -186,55 +203,79 @@ unification (it already knows the head constructor), so dispatch is
 checker-driven via `AbilityImplementation.Key(typeRefinementFQN, Seq(Int))`
 rather than normal argument-type inference.
 
-### Checker integration (pre-fetch then pure)
+### Checker integration (via the eval backend) -- UPDATED
 
-The `Checker` already has a `resolveAbility` callback
-(`getFact(AbilityImplementation.Key(...))`) and the pure `Unifier` compares
-types via `groundEquals` on `Structure(name, args)`. Plan: pre-resolve the
-ability impls for the type constructors that appear, inject a
-`typeFQN -> {assignableFrom, combine} SemValue` map into the `Unifier` (same
-pattern as `NativeBinding` pre-fetching), and at the `VConst` vs `VConst` /
-`groundEquals(Structure, Structure)` site:
+(Supersedes the earlier "pre-fetch then pure" idea, which assumed the ability
+could be reduced inside the pure Unifier. It can't -- see CRITICAL FINDING.)
 
-- if the head has the ability AND both sides have fully-ground bounds, run
-  `assignableFrom(target = expected, source = inferred)` and accept on `True` /
-  reject on `False`;
-- otherwise fall back to structural equality (also the path when bounds are
+The integration runs `assignableFrom`/`combine` through the eval backend:
+
+- When the checker compares two same-head types (`Int[..]` vs `Int[..]`) with
+  **fully-ground bounds** and the head constructor has a `TypeRefinement` impl,
+  it resolves the impl (`AbilityImplementation.Key`) and requests
+  `EvaluatedValue.Key(assignableFromImplFQN, typeArgs, [target, source])`. Accept
+  on `True`, reject on `False`.
+- Otherwise fall back to structural equality (also the path when bounds are
   metas/generics, so unification still solves `MIN := a, MAX := b`).
+- This must happen on the IO-capable side (the `Checker`, which can request
+  facts), not inside the synchronous pure `Unifier`. Likely seam: the
+  same-head/`VTopDef`-vs-`VTopDef` comparison surfaces a "needs refinement check"
+  obligation that the Checker discharges via `EvaluatedValue` (exact wiring is
+  P7 of the eval-backend plan).
 
-Direction matters: target = expected, source = inferred -- verify the
-`unify(l, r)` argument order at the `check` call sites so we accept *widening*,
-not narrowing. The `combine` op plugs into branch/match result-type synthesis.
+Direction matters: `assignableFrom(target = expected, source = inferred)` so we
+accept *widening*, not narrowing -- verify the `unify(l, r)` argument order at
+the `check` call sites. `combine` plugs into branch/match result-type synthesis
+(also via `EvaluatedValue`).
 
 ## Phases
 
-- **Phase 0 -- Foundations.** `Bool` (`data Bool = False | True`) + two-arg
-  compile-time `VNative` reductions on `BigInteger` (`+`, `-`, `*`,
-  `lessThanOrEqual`/`<=`, `&&` on Bool, plus `min`/`max` for `combine`) in
-  `StdlibNativesProcessor`; body-less decls in `BigInteger.els` / `Bool.els`.
+**Prerequisite (separate plan): the eval backend.** `path-a-...md` phases
+P1..P4 build + integrate the compile-time evaluation backend. P1 (fact +
+interpreter skeleton) is DONE; P2 (`handleCases`/`typeMatch` natives), P3
+(termination/cycles), P4 (checker requests `EvaluatedValue` for closed type
+terms; the reverted `match` probes become the green target) follow. The
+`Int[MIN,MAX]` phases below sit on top of that.
+
+- **Phase 0 -- Foundations.** `Bool` (`data Bool = False | True`) +
+  `lessThanOrEqual(BigInteger, BigInteger): Bool` as the one true new primitive.
+  With `match` now runnable (eval backend), `&&`/`min`/`max` are **ordinary
+  Eliot** (no longer natives). Add `Bool` to `defaultSystemModules`. (= P5 in
+  `path-a`.)
 - **Phase 1 -- Literals as `Int[V,V]`.** Expected-type-directed literal typing
   in `Checker`. Audit monomorphize tests assuming `BigInteger` in value position.
 - **Phase 2 -- `TypeRefinement` + range-checked compatibility.** Define
-  `ability TypeRefinement[T]` and `implement TypeRefinement[Int]` in stdlib
-  (pattern-match on `Int[a,b]` like `TypeValues.els`); hook
-  `assignableFrom`/`combine` into the checker/unifier as above. Start with a
-  short feasibility spike (pure evaluation of the ability inside the Unifier;
-  ability impls resolving for a *type constructor*; the parameterization/dispatch
-  question above).
-- **Phase 3 -- Runtime arithmetic (JVM).** Infix `+`/`-`/`*` on `Int` with
-  dependent bounds (`Int[a,b] + Int[c,d] : Int[a+c, b+d]`); `NativeImplementation`
-  emitting `LADD`/`LSUB`/`LMUL` (unbox Long -> op -> rebox). Runtime stays `Long`.
+  `ability TypeRefinement[T]` + `implement TypeRefinement[Int]` in **pure Eliot**
+  (the `match`-based bodies shown above); checker integration via the eval
+  backend (see updated "Checker integration"). The earlier "spike inside the
+  Unifier" is obsolete -- the eval backend is the mechanism.
+- **Phase 3 -- Runtime arithmetic.** `+`/`-`/`*` on `Int` with dependent bounds
+  (`Int[a,b] + Int[c,d] : Int[a+c, b+d]`). Two execution targets now: (a) the
+  **eval backend** native (for type-level bound computation), and (b) the **JVM**
+  `NativeImplementation` (`LADD`/`LSUB`/`LMUL`, unbox Long -> op -> rebox) for
+  runtime. Runtime stays `Long`.
+  - *Reconcile with master's `b90dcf8a "Add + to Int"`* which already declares a
+    `+` in `Int.els`. Decide the final signature (dependent bounds) and back it
+    with both natives.
 - **Phase 4 -- Tests / examples / docs.** Literal typing; range accept/reject;
-  ability fallback to equality; arithmetic bounds; a JVM run test; an example
-  `.els`; a design note.
+  `TypeRefinement` fallback to equality; arithmetic bounds; a JVM run test; an
+  example `.els`; fold notes back here.
 
 ## Decisions & open sub-decisions
 
 - DECIDED: ability `TypeRefinement[T]`; ops `assignableFrom(target, source): Bool`
   and `combine(a, b): T`. `meet`/intersection deferred.
+- DECIDED: mechanism = compile-and-run via the `EvaluatedValue` eval backend
+  (Path A), not symbolic reduction in the checker. `TypeRefinement[Int]` is
+  written in **pure Eliot**.
+- DECIDED: `Bool` is a pure stdlib data type (`match` runs now, so no need for a
+  native Bool).
 - OPEN: parameterization & dispatch of `TypeRefinement` over a type *constructor*
-  whose methods receive *applied* types (see Ability design section).
-- OPEN: `Bool` as pure stdlib data type (recommended) vs native.
+  whose methods receive *applied* types (HKT ability on the bare constructor; see
+  Ability design section). Note: by the uncurried-IR stage dispatch is already
+  resolved, which simplifies the eval-backend side.
+- OPEN: exact `EvaluatedValue.Key` shape for the hook (how to pass the two
+  type-as-data arguments) -- pin down in eval-backend P7.
 - Out of scope for now: overflow/width enforcement; everything maps to `Long`.
 
 ## Representation & promotion (value-level coercion) -- DESIGN NOTE
@@ -287,6 +328,10 @@ Either way `combine` survives.
 
 ## Risks
 
-- Phase 2 purity: the Unifier is synchronous/pure -> all ability impls must be
-  pre-fetched; missing impls would wrongly fall back to equality.
+- Eval-backend maturity: the `TypeRefinement` hook depends on eval-backend
+  P2..P4 (match natives, termination/cycles, checker integration). Tracked in
+  `path-a-...md`.
+- Checker/eval-backend boundary: detecting "closed enough to run" and discharging
+  the refinement check on the IO-capable side without a pure-Unifier escape hatch.
 - Literal-retyping fallout in existing tests/stdlib (Phase 1).
+- Termination: running user code at compile time can loop (eval-backend P3).
