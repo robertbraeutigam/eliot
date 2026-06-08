@@ -57,8 +57,14 @@ class EvaluationProcessorTest
     SystemImport("Unit", "type Unit"),
     SystemImport("String", "type String"),
     SystemImport("IO", "type IO"),
-    SystemImport("PatternMatch", ""),
-    SystemImport("TypeMatch", "")
+    SystemImport(
+      "PatternMatch",
+      "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}"
+    ),
+    SystemImport(
+      "TypeMatch",
+      "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
+    )
   )
 
   private val bigIntegerType: GroundValue =
@@ -78,6 +84,44 @@ class EvaluationProcessorTest
     runEval("def addOne(x: BigInteger): BigInteger = inc(x)\ndef four: BigInteger = addOne(inc(inc(1)))", "four")
       .asserting(_ shouldBe Some(GroundValue.Direct(BigInt(4), bigIntegerType)))
   }
+
+  it should "evaluate a data-match on nullary constructors (handleCases)" in {
+    runEval(
+      "data Switch = On | Off\n" +
+        "def toggle(s: Switch): Switch = s match { case On -> Off case Off -> On }\n" +
+        "def result: Switch = toggle(On)",
+      "result"
+    ).asserting(_.collect { case GroundValue.Structure(name, _, _) => name } shouldBe Some(constructorFqn("Off")))
+  }
+
+  it should "evaluate a data-match binding a constructor field (handleCases)" in {
+    runEval(
+      "data Box(content: BigInteger)\n" +
+        "def unwrap(b: Box): BigInteger = b match { case Box(x) -> x }\n" +
+        "def result: BigInteger = unwrap(Box(inc(1)))",
+      "result"
+    ).asserting(_ shouldBe Some(GroundValue.Direct(BigInt(2), bigIntegerType)))
+  }
+
+  it should "evaluate a type-match selecting the matching constructor (typeMatch)" in {
+    runEval(
+      "data Tag[NAME: String](content: String)\n" +
+        "def tagName(t: Type): String = t match { case Tag[name] -> name case _ -> \"untagged\" }\n" +
+        "def result: String = tagName(Tag[\"hello\"])",
+      "result"
+    ).asserting(_.collect { case GroundValue.Direct(value, _) => value } shouldBe Some("hello"))
+  }
+
+  it should "evaluate a type-match falling through to the wildcard (typeMatch)" in {
+    runEval(
+      "data Tag[NAME: String](content: String)\ndata Other[X: String](payload: String)\n" +
+        "def tagName(t: Type): String = t match { case Tag[name] -> name case _ -> \"untagged\" }\n" +
+        "def result: String = tagName(Other[\"hello\"])",
+      "result"
+    ).asserting(_.collect { case GroundValue.Direct(value, _) => value } shouldBe Some("untagged"))
+  }
+
+  private def constructorFqn(name: String): ValueFQN = ValueFQN(testModuleName, default(name))
 
   private def runEval(source: String, name: String): IO[Option[GroundValue]] = {
     val key = EvaluatedValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty, Seq.empty)

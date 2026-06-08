@@ -95,9 +95,22 @@ self-cycle is an error (handled by the guard).
   boundary is ground-only. Tests: `inc(1)->2`, `inc(inc(1))->3`,
   `addOne(inc(inc(1)))->4` (user fn via the fact). NOTE: kept in `lang` for now,
   not a separate module -- the fact boundary already gives the swappability.
-- **P2 -- match natives.** `handleCases` + `typeMatch` backend natives (constructor
-  metadata + resolved-impl-encodes-constructor). Test: evaluate a data-match and a
-  type-match function to a ground value through the fact.
+- **P2 -- match natives. [DONE]** `handleCases` + `typeMatch` backend natives in
+  `EvaluationProcessor`. Both are abstract ability impls (the JVM backend generates
+  their bodies), so the eval backend supplies them, dispatched by the impl FQN's
+  qualifier (`AbilityImplementation("PatternMatch"/"TypeMatch", _)`) rather than a
+  fixed FQN. `handleCases(value, cases)`: `value = Structure(ctorᵢ, fields)`; build a
+  `Native` Church selector picking `ctorᵢ`'s declaration-order index, apply `cases`
+  to it -> handler, apply handler to `fields` (or a unit placeholder for a field-less
+  ctor, mirroring the JVM `null`). `typeMatch(obj, matched, notMatched)`: the impl
+  FQN encodes target ctor `C` via `ImplementationMarkerUtils.firstPatternType­Constructor­Name`;
+  if `obj`'s head matches `C`, apply `matched` to its fields, else `notMatched(unit)`.
+  Constructor metadata (declaration order) is derived from `UnifiedModuleNames` +
+  `RoleHint.ValueConstructor` (same as `DataMatchDesugarer.findAllConstructors`); no
+  dedicated ctor-list fact exists. A third `EvalValue.Native` variant + a uniform
+  `applyValue` were added (uncurrying fully flattens lambdas/applications, so
+  application is always saturated). Tests: nullary data-match, field-binding
+  data-match, type-match (matched + wildcard fallthrough) -- all through the fact.
 - **P3 -- termination + cycles.** Fuel/timeout; self-cycle guard; error surfaces.
 - **P4 -- checker integration (hybrid).** Checker detects a closed pure type-level
   application and requests `EvaluatedValue`; splice result. Re-add the reverted
@@ -120,8 +133,10 @@ self-cycle is an error (handled by the guard).
 - **`EvaluatedValue.Key` shape** -- how to encode "the monomorphic value to run"
   (its monomorphic key incl. type args) plus the ground runtime `args`. Pin down
   in P1.
-- **Constructor-metadata fact** -- which fact lists a data type's constructors in
-  declaration order (for `handleCases` index/count). Identify in P2.
+- **Constructor-metadata fact** -- RESOLVED (P2): there is no dedicated fact;
+  declaration order is recovered from `UnifiedModuleNames` (filter Default-qualifier
+  upper-case names) cross-checked against each value's `RoleHint.ValueConstructor`
+  and sorted by source position -- the same derivation `DataMatchDesugarer` uses.
 - **Module placement** -- new backend module (parallel to `jvm`) vs a package in
   `lang`. Fact lives where the checker can see it; processor in the backend.
 - **Boundary generality** -- start with the `TypeRefinement` hook (narrow), decide
