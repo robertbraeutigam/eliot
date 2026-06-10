@@ -144,10 +144,35 @@ folding it in means fuel/step-limiting must live in the evaluator/`force` itself
     No current term reduces to a case where the wrong `valueType` is observable, so the
     decision is best made and validated against P6's concrete values-in-types use — same
     deferral philosophy as P4.
-- **P3 — termination / fuel in NbE.** Fuel or step-budget threaded through
-  `eval`/`applyValue`/`force`; clean "type-level evaluation did not terminate" error
-  with source attribution. Keep reduction demand-driven (triggered by unify/quote),
-  not eager, to bound cost.
+- **P3 — termination / fuel in NbE. DEFERRED to P6 (decided 2026-06-10).** An ambient
+  throw-based step counter (threaded through `eval`/`applyValue`/`force` + `Unifier` +
+  `Checker` + `Quoter`, caught at the `CompilerIO` boundary) was scoped and ready to
+  build but **not built**, for two reasons:
+  - **Not load-bearing yet.** No normal program reduces to a non-terminating term in the
+    hot path. The only divergence is a recursive definition the evaluator force-unfolds
+    with no base case (a self-referential type alias today; match-driven type-level
+    recursion only once **P6** wires type-level evaluation into the checker). The guard
+    becomes load-bearing exactly when P6 lands, so it is built then — when we also know
+    more about the effect direction below.
+  - **Largely orthogonal to the target design.** Eliot will eventually model **recursion
+    as an effect** (alongside an `IO`-like `Effect`). Because the pure compile-time
+    evaluator has no implementation for effects, effectful code — including *unbounded*
+    recursion — trivially **gets stuck** (produces a neutral/residual), the same way `IO`
+    and a `match` on a symbolic scrutinee already get stuck; it never loops. *Bounded*
+    recursion will carry its **fuel as an in-language value** with a type-level proof of
+    the bound, so it terminates *by construction* and the evaluator needs no out-of-band
+    counter. In that world a step counter is redundant (at most a deep last-resort
+    fallback). So termination is a **typing property + in-language fuel**, not an ambient
+    runtime guard — and the throw-based counter would be throwaway.
+  - **When P6 needs a guard, build the minimal *on-architecture* version, not the
+    throw-based one:** a step-limit kept **local to the `eval` package** that, on
+    exhaustion, returns a **stuck residual** (caught inside the evaluator entry, converted
+    to a neutral) rather than throwing. That flows through the *existing*
+    `Quoter`/`PostDrainQuoter` "Cannot resolve type." path — no `Unifier`/`Checker` fuel
+    field, no `CompilerIO` exception-catch combinator. "Ran out → stuck → cannot resolve"
+    is the same *shape* as "effect unavailable → stuck," so it is a stepping stone toward
+    the effect model rather than a mechanism to rip out later. Default budget and error
+    wording are decided at that point.
 - **P4 — re-firing neutrals (advanced; *beyond* the closed-term goal; deferred).**
   Make a `VNative` stuck on a neutral/meta **re-fire** when the argument is later
   refined (today `applyValue`'s `VNative`-on-neutral case *drops* the native into an
@@ -172,8 +197,11 @@ folding it in means fuel/step-limiting must live in the evaluator/`force` itself
 
 ## Open decisions / risks
 
-- **Fuel policy.** Step-count vs wall-clock; where to attribute the error; default
-  budget. Lands in the hot path, so it must be cheap.
+- **Fuel policy.** Resolved by deferral — see **P3** above. Termination will be a typing
+  property (recursion-as-effect) + in-language fuel, not an ambient runtime counter; the
+  interim guard (built at P6) is a `eval`-local step-limit that yields a *stuck residual*,
+  not a thrown budget. Step-count vs wall-clock / default budget / error wording are
+  settled when that interim guard is built.
 - **Re-firing design (P4).** Neutral-head-carrying-native vs glued evaluation; how it
   interacts with the unifier's speculative application and `drain()`. Only needed for
   open-term match.
