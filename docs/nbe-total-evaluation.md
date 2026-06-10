@@ -116,16 +116,34 @@ folding it in means fuel/step-limiting must live in the evaluator/`force` itself
   before they get a body-less `VTopDef`. `MatchNativesProcessorTest` checks NbE reduces
   `negate(True)`, a field-binding data-match, and type-match dispatch (matched +
   wildcard) to ground values via `Evaluator.semToGround`.
-  - **Scope notes for later phases:** the evaluator ignores `ValueReference.typeArgs`
-    (the `_` in `eval`), so type-application scrutinees like `Tag["hello"]` reduce to a
-    spine-less `VTopDef` — type-match *dispatch* (head-name compare) works, but binding a
-    type argument out of a type-match (`case Tag[name] -> name`) does not yet thread the
-    arg into the spine. That field-extraction-from-type-args case is **P2** (closed-term
-    eval + quoting / value-as-data read-back). Arithmetic natives like `inc` have no NbE
-    `NativeBinding` (they were `interpret`-only) — P1 tests avoid them.
-- **P2 — closed-term evaluation + quoting.** Confirm/extend `Quoter.quote` for fully
-  reduced values; fix value-constructor `valueType` read-back. Provide the helper the
-  checker uses to reduce a closed type-level subterm to a `GroundValue`.
+  - **Scope notes for later phases:** at P1 the evaluator ignored
+    `ValueReference.typeArgs`, so type-application scrutinees like `Tag["hello"]` reduced
+    to a spine-less `VTopDef` and binding a type argument out of a type-match
+    (`case Tag[name] -> name`) did not work; **P2 now threads the args into the spine**,
+    so that case reduces. Arithmetic natives like `inc` have no NbE `NativeBinding` (they
+    were `interpret`-only) — P1/P2 tests avoid them.
+- **P2 — closed-term evaluation + quoting. DONE (value-type read-back deferred).**
+  The evaluator now threads `ValueReference.typeArgs` into the spine (`eval` folds each
+  evaluated type arg via `applyValue`), so a type-application scrutinee like
+  `Tag["hello"]` keeps `"hello"` in the constructor spine and a type-match
+  `case Tag[name] -> name` binds it — the field-extraction-from-type-args case the P1
+  note deferred. The closed-term read-back entry point is `eval → Quoter.quote`
+  (`Quoter.quote` forces internally and already handles every fully-reduced shape:
+  `VConst`, `VType`, `VPi`, and the body-less constructor `VTopDef(fqn, None, spine)`);
+  no separate fact is needed. `MatchNativesProcessorTest` covers both the type-arg
+  binding and the `Quoter`-entry-point read-back.
+  - **Deferred: value-constructor `valueType` read-back.** Value constructors still
+    quote with `valueType = GroundValue.Type` rather than their data type. This is
+    load-bearing **only** for values embedded in types compared via `GroundValue`'s
+    universal `Eq` — i.e. the dependent direction wired in P6 — and is harmless while
+    read-back stays internally consistent (a single evaluator, post-P5). Fixing it
+    requires a design choice the plan flags as open (carry the data type on the
+    constructor's `NativeBinding` — e.g. an extra `VTopDef` field, vs. building value
+    constructors as saturating `VConst(Structure(fqn, fields, dataType))` `VNative`
+    chains, which would also change `MatchNativesProcessor`'s `VTopDef`-head dispatch).
+    No current term reduces to a case where the wrong `valueType` is observable, so the
+    decision is best made and validated against P6's concrete values-in-types use — same
+    deferral philosophy as P4.
 - **P3 — termination / fuel in NbE.** Fuel or step-budget threaded through
   `eval`/`applyValue`/`force`; clean "type-level evaluation did not terminate" error
   with source attribution. Keep reduction demand-driven (triggered by unify/quote),

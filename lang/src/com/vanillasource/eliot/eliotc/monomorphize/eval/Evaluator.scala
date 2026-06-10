@@ -32,11 +32,14 @@ class Evaluator(
           VNeutral(NeutralHead.VVar(env.level, name.value), Spine.SNil)
         )
 
-    case OperatorResolvedExpression.ValueReference(vfqn, _) =>
-      lookupTopDef(vfqn.value) match {
+    case OperatorResolvedExpression.ValueReference(vfqn, typeArgs) =>
+      val base = lookupTopDef(vfqn.value) match {
         case Some(sem) => sem
         case None      => VNeutral(NeutralHead.VVar(env.level, vfqn.value.name.name), Spine.SNil)
       }
+      // Thread explicit type arguments into the value's spine. For a type-application scrutinee like `Tag["hello"]`
+      // this keeps `"hello"` in the constructor's spine, so a type-match `case Tag[name] -> name` can bind it.
+      typeArgs.foldLeft(base)((acc, ta) => Evaluator.applyValue(acc, eval(env, ta.value)))
 
     case OperatorResolvedExpression.FunctionApplication(target, arg) =>
       Evaluator.applyValue(eval(env, target.value), eval(env, arg.value))
