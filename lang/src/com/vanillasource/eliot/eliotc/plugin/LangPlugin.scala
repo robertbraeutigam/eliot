@@ -39,7 +39,6 @@ import com.vanillasource.eliot.eliotc.source.stat.FileStatProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.uncurry.processor.MonomorphicUncurryingProcessor
 import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
-import com.vanillasource.eliot.eliotc.interpret.processor.EvaluationProcessor
 import scopt.{OParser, OParserBuilder}
 
 import java.nio.file.Path
@@ -87,8 +86,7 @@ class LangPlugin extends CompilerPlugin {
             UserValueNativesProcessor(),
             MonomorphicTypeCheckProcessor(),
             UsedNamesProcessor(),
-            MonomorphicUncurryingProcessor(),
-            EvaluationProcessor()
+            MonomorphicUncurryingProcessor()
           )
         )
       )

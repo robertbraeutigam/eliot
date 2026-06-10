@@ -182,11 +182,17 @@ folding it in means fuel/step-limiting must live in the evaluator/`force` itself
   depends on an unsolved meta — i.e. *symbols involved*. Not required for the immediate
   `TypeRefinement` use (its scrutinees are concrete bounds), so this can wait for a
   concrete use case.
-- **P5 — remove `interpret`.** Delete `interpret/{fact/EvaluatedValue,
-  processor/EvaluationProcessor}`, the `EvalValue` domain, the structural
-  handleCases/typeMatch natives, and their tests; unregister from `LangPlugin`.
-  Migrate the P1/P2 `interpret` tests into NbE-level tests (kept as the oracle until
-  this point). Drop the duplicate `inc` (it lived only in `EvaluationProcessor`).
+- **P5 — remove `interpret`. DONE (2026-06-10).** Deleted
+  `interpret/{fact/EvaluatedValue, processor/EvaluationProcessor}` (the latter held the
+  `EvalValue` domain and the structural `handleCases`/`typeMatch` natives) and
+  `EvaluationProcessorTest`; unregistered `EvaluationProcessor` from `LangPlugin` (import
+  + pipeline entry). Nothing consumed `EvaluatedValue` (path-a P4 was never wired), so
+  removal was self-contained. The P1/P2 oracle cases were already re-expressed at the NbE
+  level in `MatchNativesProcessorTest` (P1/P2), which is now the sole coverage — the match
+  cases (nullary/field-binding `handleCases`, matching/binding/wildcard `typeMatch`,
+  `Quoter` read-back) carried over; the `inc`-based arithmetic cases were **dropped** with
+  the duplicate `inc` native, which lived only in `EvaluationProcessor` (NbE has no `inc`
+  `NativeBinding`). Full `__.test` green.
 - **P6 — `TypeRefinement` / Int integration.** With NbE reducing `match`, the pure
   Eliot `TypeRefinement` code (`assignableFrom`, `combine`) runs *during checking*
   directly — no fact hop. Wire the unify hook from `int-min-max-plan.md` to evaluate
