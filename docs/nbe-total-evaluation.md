@@ -108,12 +108,21 @@ folding it in means fuel/step-limiting must live in the evaluator/`force` itself
 
 ## Phases
 
-- **P1 — `match` `VNative`s (concrete scrutinee).** `MatchNativesProcessor` emits
-  `handleCases`/`typeMatch` `NativeBinding`s with baked constructor metadata; Church
-  selector + dispatch in `SemValue`. Order it ahead of `UserValueNativesProcessor` for
-  those FQNs. Test: NbE reduces `negate(True)`, a field-binding data-match, and a
-  type-match to ground `SemValue`s (the `interpret` P1/P2 cases, re-expressed at the
-  NbE level).
+- **P1 — `match` `VNative`s (concrete scrutinee). DONE.** `MatchNativesProcessor`
+  (`monomorphize/processor`) emits `handleCases`/`typeMatch` `NativeBinding`s with baked
+  constructor metadata; Church selector + dispatch in `SemValue`. Registered in
+  `LangPlugin` ahead of `UserValueNativesProcessor` (first-registration-wins via
+  `registerFactIfClear` + `Deferred.complete`), so it intercepts the abstract impl FQNs
+  before they get a body-less `VTopDef`. `MatchNativesProcessorTest` checks NbE reduces
+  `negate(True)`, a field-binding data-match, and type-match dispatch (matched +
+  wildcard) to ground values via `Evaluator.semToGround`.
+  - **Scope notes for later phases:** the evaluator ignores `ValueReference.typeArgs`
+    (the `_` in `eval`), so type-application scrutinees like `Tag["hello"]` reduce to a
+    spine-less `VTopDef` — type-match *dispatch* (head-name compare) works, but binding a
+    type argument out of a type-match (`case Tag[name] -> name`) does not yet thread the
+    arg into the spine. That field-extraction-from-type-args case is **P2** (closed-term
+    eval + quoting / value-as-data read-back). Arithmetic natives like `inc` have no NbE
+    `NativeBinding` (they were `interpret`-only) — P1 tests avoid them.
 - **P2 — closed-term evaluation + quoting.** Confirm/extend `Quoter.quote` for fully
   reduced values; fix value-constructor `valueType` read-back. Provide the helper the
   checker uses to reduce a closed type-level subterm to a `GroundValue`.

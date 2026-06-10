@@ -19,6 +19,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   DataTypeNativesProcessor,
+  MatchNativesProcessor,
   MonomorphicTypeCheckProcessor,
   SystemNativesProcessor,
   UserValueNativesProcessor
@@ -82,6 +83,7 @@ class LangPlugin extends CompilerPlugin {
             ModuleAbilityOverlapCheckProcessor(),
             SystemNativesProcessor(),
             DataTypeNativesProcessor(),
+            MatchNativesProcessor(),
             UserValueNativesProcessor(),
             MonomorphicTypeCheckProcessor(),
             UsedNamesProcessor(),
