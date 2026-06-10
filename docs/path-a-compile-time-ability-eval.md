@@ -1,5 +1,16 @@
 # Path A: compile-time evaluation via a fact-bounded pure eval backend
 
+> **Status: superseded for P3+ by `docs/nbe-total-evaluation.md`.** P1/P2 (the
+> `interpret` backend: `EvaluatedValue` fact, `EvaluationProcessor`, `handleCases`/
+> `typeMatch` natives) are implemented and serve as the working oracle. The remaining
+> phases are replaced: rather than integrate the separate `interpret` backend into the
+> checker (P4) and build it out (P3, P5–P8), the closed-term match-evaluation
+> capability is folded **into the NbE evaluator itself**, and the `interpret` package
+> is then removed. The match semantics and constructor-metadata derivations from P2 are
+> reused there, retargeted from the `EvalValue` domain to `SemValue`. See the new doc
+> for rationale (the "stuck on `match`" limitation is narrowed to *symbolic* scrutinees
+> only).
+
 Durable plan for evaluating pure type-level Eliot code at compile time by
 **compiling-and-running it through a dedicated, compiler-internal backend**,
 rather than teaching the NbE checker to symbolically reduce `match`/abilities.
