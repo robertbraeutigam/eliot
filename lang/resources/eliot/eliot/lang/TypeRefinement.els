@@ -9,15 +9,14 @@ import eliot.lang.Bool
  * two types built from the same type constructor: assignableFrom(target, source)
  * decides whether a value of `source` may be used where `target` is expected.
  *
- * Every data type gets a default implementation whose assignableFrom is plain
- * structural type equality (the pre-refinement behaviour). Types like Int provide
- * their own implementation to allow widening.
+ * A type constructor with no implementation is compared structurally (the
+ * pre-refinement behaviour, decided directly by the unifier). Types like Int
+ * provide their own implementation to allow widening.
  * Reason for being in lang: the type checker invokes it during unification.
  */
 ability TypeRefinement[T] {
    /**
     * True iff a value of type `source` may be used where `target` is expected.
-    * Default: the two types must be structurally equal.
     */
-   def assignableFrom(target: Type, source: Type): Bool = typeEquals(target, source)
+   def assignableFrom(target: Type, source: Type): Bool
 }

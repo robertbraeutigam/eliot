@@ -27,10 +27,9 @@ object WellKnownTypes {
 
   private val boolModule: ModuleName = ModuleName(defaultSystemPackage, "Bool")
 
-  val boolTrueFQN: ValueFQN   = ValueFQN(boolModule, QualifiedName("true", Qualifier.Default))
-  val boolFalseFQN: ValueFQN  = ValueFQN(boolModule, QualifiedName("false", Qualifier.Default))
-  val boolAndFQN: ValueFQN    = ValueFQN(boolModule, QualifiedName("&&", Qualifier.Default))
-  val typeEqualsFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("typeEquals", Qualifier.Default))
+  val boolTrueFQN: ValueFQN  = ValueFQN(boolModule, QualifiedName("true", Qualifier.Default))
+  val boolFalseFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("false", Qualifier.Default))
+  val boolAndFQN: ValueFQN   = ValueFQN(boolModule, QualifiedName("&&", Qualifier.Default))
 
   val lessThanOrEqualFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("lessThanOrEqual", Qualifier.Default))

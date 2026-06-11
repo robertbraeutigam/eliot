@@ -22,10 +22,3 @@ def false: Bool
  * Logical conjunction. Native: reduces when both arguments are concrete.
  */
 infix def &&(a: Bool, b: Bool): Bool
-
-/**
- * Structural equality of two types. Native: reduces to a concrete Bool only when
- * both arguments are fully ground; otherwise it stays stuck so the type checker
- * falls back to ordinary unification (which can still solve metavariables).
- */
-def typeEquals(a: Type, b: Type): Bool
