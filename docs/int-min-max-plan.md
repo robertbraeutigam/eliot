@@ -14,8 +14,12 @@ the current frontier. This document is the durable reference for the
   (`EvaluatedValue`). That backend was **removed**: the NbE evaluator now reduces
   `match` on a concrete scrutinee directly, so pure type-level code runs inside the
   checker's own evaluator. The `TypeRefinement` hook is wired into the `Unifier`.
-  Full rationale + phasing: `docs/nbe-total-evaluation.md` (P1–P6 done). This
-  supersedes the old "CRITICAL FINDING / eval backend" framing entirely.
+  This supersedes the old "CRITICAL FINDING / eval backend" framing entirely. (The
+  evaluator rework was tracked separately as the now-complete "NbE total evaluation"
+  effort — match-as-`VNative` for concrete scrutinees, removal of the `interpret`
+  package, and the assignability hook are all done. Its residual deferrals that bear
+  on the `Int` work — a termination guard and value-constructor read-back — are
+  folded into "Risks" and "Decisions" below.)
 - **What exists today (the foundation, from nbe P6):**
   - `Bool` — opaque `type Bool` in `lang` with compile-time natives
     `true`/`false`/`&&` (`SystemNativesProcessor`) and `lessThanOrEqual` (on
@@ -93,7 +97,8 @@ So `BigInteger` stays the type of the *bounds*; `Int[MIN, MAX]` is the type of
 
 (The former third mechanism — a fact-bounded `interpret` backend / `EvaluatedValue`
 — was removed; closed type-level terms now reduce inside the NbE evaluator itself.
-See `docs/nbe-total-evaluation.md`.)
+`MatchNativesProcessor` bakes the `handleCases`/`typeMatch` reducers that make this
+work; the checker pre-fetches all `NativeBinding`s and evaluates purely.)
 
 ## Ability design: `TypeRefinement` (name + operations)
 
@@ -242,6 +247,18 @@ are the `Int`-specific work that sits on top.
 - OPEN: how the `TypeMatch`-for-abstract-`type` desugaring binds type arguments
   (Phase 1) — the shape of the synthesised `typeMatch` impl for a constructor-less
   `type`.
+- OPEN (validate at Phase 2): **value-constructor read-back.** NbE's `Quoter` quotes
+  a value constructor with `valueType = GroundValue.Type` rather than its real data
+  type. Harmless while read-back stays internally consistent (a single evaluator), but
+  `GroundValue`'s `Eq` is universal (it compares `valueType`), so it is load-bearing
+  for a *value embedded in a type* — exactly the `Int[V,V]` singleton case this plan
+  introduces. Decide where the data type is threaded (e.g. carry it on the
+  constructor's `NativeBinding`) and validate against the literal-typing work.
+- NOTE (not a blocker for `Int`): NbE does **not** reduce a `match` whose scrutinee is
+  a *symbolic* (unsolved-metavariable) value — such a native stays a neutral and never
+  "re-fires" when the meta is later solved. `assignableFrom`'s scrutinees are concrete
+  bounds, so this does not affect the `Int` work; it is a known limitation only for
+  open-term type-level match, deferred until a concrete use appears.
 - Out of scope for now: overflow/width enforcement; everything maps to `Long`.
 
 ## Representation & promotion (value-level coercion) — DESIGN NOTE
@@ -297,6 +314,21 @@ survives.
 - **Phase 1 is the real unknown.** Synthesising a `TypeMatch` impl for an abstract
   `type` constructor is new ground; everything downstream depends on it.
 - Literal-retyping fallout in existing tests/stdlib (Phase 2).
-- Termination: running user code at compile time can loop. Deferred guard — see
-  `docs/nbe-total-evaluation.md` P3 (an `eval`-local step-limit yielding a stuck
-  residual), to be built when type-level recursion becomes load-bearing.
+- **Termination (becomes load-bearing at Phase 3).** Running user code at compile
+  time can loop, and type-level recursion only enters the checker once
+  `implement TypeRefinement[Int]` runs during unification. No guard exists yet (no
+  normal program reduces to a non-terminating term in the hot path today). When one
+  is needed, build the minimal *on-architecture* version: a step-limit kept **local
+  to the `eval` package** that, on exhaustion, returns a **stuck residual** (caught
+  inside the evaluator entry, converted to a neutral) rather than throwing — it flows
+  through the existing `Quoter`/`PostDrainQuoter` "Cannot resolve type." path, needing
+  no `Unifier`/`Checker` fuel field and no `CompilerIO` exception-catch. Do **not**
+  build the throw-based ambient counter (threaded through `eval`/`applyValue`/`force`
+  + `Unifier` + `Checker` + `Quoter`): it is throwaway under the planned
+  recursion-as-effect model, where unbounded recursion simply *gets stuck* (a neutral,
+  like any unavailable effect) and bounded recursion carries its **fuel as an
+  in-language value** with a type-level bound, terminating by construction. So
+  termination is ultimately a typing property + in-language fuel; the `eval`-local
+  step-limit is only an interim guard, and "ran out → stuck → cannot resolve" mirrors
+  "effect unavailable → stuck," making it a stepping stone rather than a mechanism to
+  rip out later.
