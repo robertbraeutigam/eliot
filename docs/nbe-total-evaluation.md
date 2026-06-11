@@ -2,8 +2,8 @@
 
 Durable plan for making the NbE evaluator reduce **all pure code** to normal form,
 so that for a *closed* (symbol-free) term the normal form **is** the final value.
-This rolls the capability of the separate `interpret` backend
-(`docs/path-a-compile-time-ability-eval.md`) into NbE itself and **removes the
+This rolls the capability of the separate `interpret` backend (the former
+"Path A" compile-time eval backend) into NbE itself and **removes the
 `interpret` package**. The result is one evaluator and one semantics for the whole
 compiler, and seamless type-level computation for the dependent-types direction
 (`docs/int-min-max-plan.md`).
@@ -32,9 +32,9 @@ behind a fact boundary. `interpret` was the *conservative* way to get closed-ter
 match evaluation **without** first touching the NbE/unifier core. Once NbE has the
 rule, `interpret` is redundant.
 
-Timing makes this clean: `EvaluatedValue`/`EvaluationProcessor` (path-a P1/P2) are
-**not yet consumed** by anything (the checker integration, path-a P4, was never
-done). So we can pivot before any dependency forms.
+Timing makes this clean: `EvaluatedValue`/`EvaluationProcessor` (the eval
+backend's P1/P2) are **not yet consumed** by anything (the checker integration was
+never done). So we can pivot before any dependency forms.
 
 ## What changes (essence)
 
@@ -186,7 +186,7 @@ folding it in means fuel/step-limiting must live in the evaluator/`force` itself
   `interpret/{fact/EvaluatedValue, processor/EvaluationProcessor}` (the latter held the
   `EvalValue` domain and the structural `handleCases`/`typeMatch` natives) and
   `EvaluationProcessorTest`; unregistered `EvaluationProcessor` from `LangPlugin` (import
-  + pipeline entry). Nothing consumed `EvaluatedValue` (path-a P4 was never wired), so
+  + pipeline entry). Nothing consumed `EvaluatedValue` (its checker integration was never wired), so
   removal was self-contained. The P1/P2 oracle cases were already re-expressed at the NbE
   level in `MatchNativesProcessorTest` (P1/P2), which is now the sole coverage — the match
   cases (nullary/field-binding `handleCases`, matching/binding/wildcard `typeMatch`,
@@ -222,9 +222,13 @@ folding it in means fuel/step-limiting must live in the evaluator/`force` itself
     bounds via `case Int[tmin,tmax]` requires a `TypeMatch` impl, which is currently generated
     only for `data` types, so `implement TypeRefinement[Int]` on the abstract `type Int` is not
     yet functional and was left out of `Int.els` (a note marks the intent).
-- **P7 — tests / docs / reconcile.** Mark `path-a-compile-time-ability-eval.md`
-  superseded (its P2 match semantics/metadata derivations are reused here, retargeted
-  to `SemValue`). Fold notes into `int-min-max-plan.md`.
+- **P7 — tests / docs / reconcile. DONE (2026-06-11).** Deleted the superseded
+  `path-a-compile-time-ability-eval.md` (its match semantics + constructor-metadata
+  derivations live on here, retargeted to `SemValue`; nothing unique was lost). Rewrote
+  `int-min-max-plan.md` to drop the removed `interpret`/`EvaluatedValue` backend framing
+  and describe the current mechanism — the NbE `TypeRefinement` hook (P6) — recording the
+  built foundation and the remaining `Int`-specific phases (the `TypeMatch`-for-abstract-
+  `type` blocker first).
 
 ## Open decisions / risks
 
@@ -248,12 +252,12 @@ folding it in means fuel/step-limiting must live in the evaluator/`force` itself
 
 ## Relationship to existing docs
 
-- **Supersedes** the `interpret`-backend approach of
-  `path-a-compile-time-ability-eval.md` (its P3–P8). Path-a's premise ("NbE cannot
-  reduce `match`") is *narrowed*: NbE cannot reduce `match` on a *symbolic* scrutinee
-  (correct, load-bearing), but it *can* on a *concrete* one once given the rule — which
-  is all the closed-term goal needs. The match metadata derivations from path-a P2 are
-  reused, retargeted from the `EvalValue` domain to `SemValue`.
+- **Superseded and replaced** the former "Path A" `interpret`-backend plan
+  (`path-a-compile-time-ability-eval.md`, now deleted — P7). That plan's premise ("NbE
+  cannot reduce `match`") was *narrowed*: NbE cannot reduce `match` on a *symbolic*
+  scrutinee (correct, load-bearing), but it *can* on a *concrete* one once given the rule
+  — which is all the closed-term goal needs. Its match-metadata derivations were reused,
+  retargeted from the `EvalValue` domain to `SemValue`.
 - **Unblocks** `int-min-max-plan.md` directly: type-level pure evaluation is now a
   property of the checker's own evaluator rather than a separate backend reached via a
   fact.
