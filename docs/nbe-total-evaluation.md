@@ -193,10 +193,35 @@ folding it in means fuel/step-limiting must live in the evaluator/`force` itself
   `Quoter` read-back) carried over; the `inc`-based arithmetic cases were **dropped** with
   the duplicate `inc` native, which lived only in `EvaluationProcessor` (NbE has no `inc`
   `NativeBinding`). Full `__.test` green.
-- **P6 — `TypeRefinement` / Int integration.** With NbE reducing `match`, the pure
-  Eliot `TypeRefinement` code (`assignableFrom`, `combine`) runs *during checking*
-  directly — no fact hop. Wire the unify hook from `int-min-max-plan.md` to evaluate
-  through NbE.
+- **P6 — `TypeRefinement` assignability hook (slice 1). DONE (2026-06-10).** The `Unifier`
+  carries a `refinements: Map[ValueFQN, SemValue]` (type-constructor FQN → its custom
+  `assignableFrom` impl). In the `VTopDef`-same-FQN case it runs the impl through the pure
+  evaluator (`force(applyValue(applyValue(impl, expected), actual))`): a concrete `Bool`
+  `Direct(true)`/`Direct(false)` accepts/rejects; anything else (stuck on metavariable bounds)
+  falls back to `unifySpines`, preserving meta-solving. `MonomorphicTypeCheckProcessor` builds
+  the map by scanning each referenced type constructor's module names for a custom
+  `assignableFrom` `TypeRefinement` impl (the resolver's own lookup, via `getFact`
+  +`AbilityMatcher.matchImpl` — **non-erroring**, so a constructor with no custom impl is just
+  omitted and compares structurally, which *is* the default). `Bool` is an opaque `type Bool`
+  (lang) with compile-time natives `true`/`false`/`&&`/`typeEquals`/`lessThanOrEqual` in
+  `SystemNativesProcessor`; `TypeRefinement` is a lang ability with a structural-equality
+  default. `RefinementUnifyTest` verifies accept/reject/fallback and a realistic
+  nested-match + `lessThanOrEqual`/`&&` range refinement (widening accepted, narrowing
+  rejected). Whole-repo tests green; the JVM `HelloWorld` example still builds and runs.
+  - **Rejected mechanisms (with reasons), for the next reader:** (a) hardcoding `Int` in the
+    checker — wrong, the hook is generic over any type with a custom impl; (b) a new
+    non-erroring resolver fact — rejected as a parallel generator; (c) auto-generating a
+    default `implement TypeRefinement[C]` per type constructor — fails structurally: types
+    declared across multiple resource files (`String`/`Unit`/`Function`/`IO` in
+    lang+stdlib+jvm) get duplicate markers → overlap errors, `Type` is `VType` (no marker can
+    match it), and the default body self-references `TypeRefinement[Type]`. The chosen
+    custom-impl-only detection has none of these problems.
+  - **Deferred to `int-min-max-plan.md` (the real `Int` use needs more than the hook):**
+    `combine` (branch/match result synthesis); literal-typing-as `Int[V,V]` (Phase 1) to
+    produce `Int` values; and **`TypeMatch` for abstract `type` constructors** — extracting
+    bounds via `case Int[tmin,tmax]` requires a `TypeMatch` impl, which is currently generated
+    only for `data` types, so `implement TypeRefinement[Int]` on the abstract `type Int` is not
+    yet functional and was left out of `Int.els` (a note marks the intent).
 - **P7 — tests / docs / reconcile.** Mark `path-a-compile-time-ability-eval.md`
   superseded (its P2 match semantics/metadata derivations are reused here, retargeted
   to `SemValue`). Fold notes into `int-min-max-plan.md`.

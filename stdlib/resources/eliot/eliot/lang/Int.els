@@ -14,3 +14,8 @@ type Long            = Int[-9223372036854775808, 9223372036854775807]
 type UnsignedLong    = Int[0, 18446744073709551615]
 
 infix def +[m1: BigInteger, M1: BigInteger, m2: BigInteger, M2: BigInteger](left: Int[m1, M1], right: Int[m2, M2]): Int[add(m1, m2), add(M1, M2)]
+
+// A range-subsumption `implement TypeRefinement[Int]` (Int[tmin,tmax] accepts Int[smin,smax] iff [smin,smax] is inside
+// [tmin,tmax]) is the intended use of the TypeRefinement hook, but it is deferred: extracting the bounds requires
+// matching on the abstract `type Int` constructor (TypeMatch is only generated for `data` types today), and producing
+// Int values requires literal-typing-as-Int[V,V]. Both are follow-ups in docs/int-min-max-plan.md.

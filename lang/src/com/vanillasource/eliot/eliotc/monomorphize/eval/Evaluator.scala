@@ -142,4 +142,14 @@ object Evaluator {
   /** Ground type for String values (used by eval for StringLiteral). */
   val stringGroundType: GroundValue =
     GroundValue.Structure(WellKnownTypes.stringFQN, Seq.empty, GroundValue.Type)
+
+  /** Ground type for Bool values (used by the compile-time Bool natives). */
+  val boolGroundType: GroundValue =
+    GroundValue.Structure(WellKnownTypes.boolFQN, Seq.empty, GroundValue.Type)
+
+  /** Compile-time Bool values. The runtime representation is platform-dependent (the JVM backend maps Bool to a
+    * platform boolean); these are the values the NbE evaluator reduces type-level predicates to.
+    */
+  val trueValue: SemValue  = VConst(GroundValue.Direct(true, boolGroundType))
+  val falseValue: SemValue = VConst(GroundValue.Direct(false, boolGroundType))
 }

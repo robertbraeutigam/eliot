@@ -3,9 +3,9 @@ package com.vanillasource.eliot.eliotc.stdlib.plugin
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.bigIntFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
@@ -40,7 +40,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
     */
   private def incNative: SemValue =
     VNative(
-      VTopDef(com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.bigIntFQN, None, Spine.SNil),
+      VTopDef(bigIntFQN, None, Spine.SNil),
       {
         case VConst(GroundValue.Direct(n: BigInt, tpe)) =>
           VConst(GroundValue.Direct(n + 1, tpe))

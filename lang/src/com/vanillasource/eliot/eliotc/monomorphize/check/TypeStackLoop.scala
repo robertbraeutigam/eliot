@@ -21,7 +21,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   */
 class TypeStackLoop(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
+    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+    refinements: Map[ValueFQN, SemValue]
 ) {
   import TypeStackLoop.AbilityRef
 
@@ -38,6 +39,10 @@ class TypeStackLoop(
       resolvedValue: OperatorResolvedValue
   ): CheckIO[MonomorphicValue] =
     for {
+      // Seed the unifier with the resolved TypeRefinement implementations so same-constructor unifications can decide
+      // assignability by running them (see Unifier.refinements).
+      _                       <- modify(s => s.withUnifier(s.unifier.copy(refinements = refinements)))
+
       // Walk type stack levels top-down — returns the final SemValue plus one kind-check SemExpression per level
       (signature, levelExprs) <- walkTypeStack(resolvedValue.typeStack)
 
@@ -302,9 +307,10 @@ object TypeStackLoop {
       key: MonomorphicValue.Key,
       resolvedValue: OperatorResolvedValue,
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
+      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+      refinements: Map[ValueFQN, SemValue]
   ): CompilerIO[MonomorphicValue] =
-    new TypeStackLoop(fetchBinding, resolveAbility).process(key, resolvedValue)
+    new TypeStackLoop(fetchBinding, resolveAbility, refinements).process(key, resolvedValue)
 
   private type AbilityRef = (Sourced[ValueFQN], Seq[SemValue])
 }

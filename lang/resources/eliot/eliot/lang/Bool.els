@@ -1,0 +1,31 @@
+/**
+ * Boolean truth values.
+ * Declared opaque on purpose: the concrete representation is platform-dependent
+ * (the JVM backend maps it to a platform boolean). The compiler provides a
+ * compile-time representation via native reductions so that type-level predicates
+ * (for example TypeRefinement) reduce during type checking.
+ * Reason for being in lang: TypeRefinement (a type-checking ability) depends on it.
+ */
+type Bool
+
+/**
+ * The true value. Native nullary value.
+ */
+def true: Bool
+
+/**
+ * The false value. Native nullary value.
+ */
+def false: Bool
+
+/**
+ * Logical conjunction. Native: reduces when both arguments are concrete.
+ */
+infix def &&(a: Bool, b: Bool): Bool
+
+/**
+ * Structural equality of two types. Native: reduces to a concrete Bool only when
+ * both arguments are fully ground; otherwise it stays stuck so the type checker
+ * falls back to ordinary unification (which can still solve metavariables).
+ */
+def typeEquals(a: Type, b: Type): Bool

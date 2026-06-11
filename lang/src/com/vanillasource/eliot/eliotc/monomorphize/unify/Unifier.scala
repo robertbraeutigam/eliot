@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.unify
 
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
@@ -17,12 +18,18 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   Queue of postponed unification problems (when a meta's spine is not pattern)
   * @param errors
   *   Accumulated errors with source positions and (when available) the expected and actual semantic values.
+  * @param refinements
+  *   Resolved `TypeRefinement.assignableFrom` implementations keyed by the type constructor FQN they apply to. When two
+  *   types built from the same constructor are unified and the constructor has an entry here, assignability is decided
+  *   by running that implementation through the evaluator rather than by structural equality. Empty by default (so
+  *   ability-matching unifications never trigger refinement).
   */
 case class Unifier(
     metaStore: MetaStore,
     depth: Int,
     postponed: List[(SemValue, SemValue, Sourced[String])],
-    errors: List[UnifyError]
+    errors: List[UnifyError],
+    refinements: Map[ValueFQN, SemValue] = Map.empty
 ) {
 
   /** Unify two semantic values, reporting errors with the given context message and source position. */
@@ -64,9 +71,20 @@ case class Unifier(
       case (lhs, VMeta(id, spine))                                        =>
         solveMeta(id, spine, lhs, context)
 
-      // VTopDef equality by FQN
+      // VTopDef equality by FQN. If the constructor has a TypeRefinement implementation, assignability is decided by
+      // running it (target = expected = right, source = actual = left): a concrete `true`/`false` accepts/rejects;
+      // anything else (the implementation stayed stuck, e.g. metavariable bounds) falls back to structural unification,
+      // which still solves metavariables.
       case (VTopDef(fqn1, _, sp1), VTopDef(fqn2, _, sp2)) if fqn1 == fqn2 =>
-        unifySpines(fl, fr, sp1, sp2, context)
+        refinements.get(fqn1) match {
+          case Some(impl) =>
+            Evaluator.force(Evaluator.applyValue(Evaluator.applyValue(impl, fr), fl), metaStore) match {
+              case VConst(GroundValue.Direct(true, _))  => this
+              case VConst(GroundValue.Direct(false, _)) => addMismatch(fl, fr, context)
+              case _                                    => unifySpines(fl, fr, sp1, sp2, context)
+            }
+          case None       => unifySpines(fl, fr, sp1, sp2, context)
+        }
 
       case _ =>
         addMismatch(fl, fr, context)

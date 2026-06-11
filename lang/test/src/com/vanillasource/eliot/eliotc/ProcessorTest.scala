@@ -110,3 +110,19 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
       TestError(error.message, highlight)
     }
 }
+
+object ProcessorTest {
+
+  /** Declarations for the built-in opaque `Bool` type and its compile-time predicates, mirroring
+    * `lang/resources/eliot/eliot/lang/Bool.els`. The reductions are supplied by `SystemNativesProcessor`.
+    */
+  val boolImportContent: String =
+    "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef typeEquals(a: Type, b: Type): Bool"
+
+  /** The built-in `TypeRefinement` ability with its structural-equality default, mirroring
+    * `lang/resources/eliot/eliot/lang/TypeRefinement.els`. Every data type gets a default implementation, so tests that
+    * desugar data types must provide this ability.
+    */
+  val typeRefinementImportContent: String =
+    "import eliot.lang.Bool\nability TypeRefinement[T] {\ndef assignableFrom(target: Type, source: Type): Bool = typeEquals(target, source)\n}"
+}
