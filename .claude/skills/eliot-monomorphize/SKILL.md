@@ -25,12 +25,13 @@ lang/src/com/vanillasource/eliot/eliotc/monomorphize/
 │   ├── Evaluator.scala                (eval, applyValue, force, semToGround)
 │   └── Quoter.scala                   (SemValue → GroundValue read-back)
 ├── processor/
-│   ├── SystemNativesProcessor.scala   (Function → VPi, Type → VType)
-│   ├── DataTypeNativesProcessor.scala (data decls → VNative chains → VConst)
+│   ├── SystemNativesProcessor.scala   (Function → VPi, Type → VType, Bool primitives)
+│   ├── DataTypeNativesProcessor.scala (type ctors → body-less VTopDef; spine grows on apply)
+│   ├── MatchNativesProcessor.scala    (handleCases/typeMatch impls → VNative; reduces match)
 │   ├── UserValueNativesProcessor.scala(user defs → VTopDef with lazy thunk)
-│   └── MonomorphicTypeCheckProcessor.scala (entry point, delegates to TypeStackLoop)
+│   └── MonomorphicTypeCheckProcessor.scala (entry point; builds refinement map; → TypeStackLoop)
 ├── unify/
-│   └── Unifier.scala                  (pattern unification + postponement)
+│   └── Unifier.scala                  (pattern unification + postponement + TypeRefinement hook)
 └── check/
     ├── Checker.scala                  (bidirectional check/infer)
     ├── CheckIO.scala
@@ -51,13 +52,23 @@ The core idea: ORE (syntax) is evaluated into `SemValue` (semantics) via Scala c
 | Variant | What it represents | Produced by |
 |---|---|---|
 | `VType` | The type of all types | Constant |
-| `VConst(ground)` | Non-function ground values: concrete types (`BigInteger`, `Person`), literals (`42`) | Evaluator (literals), DataTypeNativesProcessor (fully applied constructors) |
+| `VConst(ground)` | Non-function ground values: literals (`42`, `"hi"`), compile-time `Bool` (`Direct(true/false)`) | Evaluator (literals), Bool natives |
 | `VLam(name, closure)` | Runtime lambda closure | Evaluator (always, for `FunctionLiteral`) |
 | `VPi(domain, codomain)` | Function type (dependent or non-dependent) | Checker (when checking `FunctionLiteral` against `VType`), `Function` native |
-| `VNative(paramType, fire)` | Primitive awaiting a concrete argument | SystemNativesProcessor, DataTypeNativesProcessor |
-| `VTopDef(fqn, cached, spine)` | Lazy top-level definition | UserValueNativesProcessor |
+| `VNative(paramType, fire)` | Primitive awaiting a concrete argument | SystemNativesProcessor (Function, Bool ops), MatchNativesProcessor (handleCases/typeMatch) |
+| `VTopDef(fqn, cached, spine)` | Lazy top-level definition **and** applied type/value constructor | UserValueNativesProcessor (cached body), DataTypeNativesProcessor (body-less) |
 | `VMeta(id, spine, expected)` | Unsolved metavariable | Checker (fresh allocation via `MetaStore.fresh`) |
 | `VNeutral(head, spine, tpe)` | Stuck application on a variable head | Evaluator (unresolved `ParameterReference`) |
+
+### Type/value constructors are body-less `VTopDef`s
+
+`DataTypeNativesProcessor` binds every type constructor (and abstract `type`) to
+`VTopDef(fqn, None, SNil)`. Applying type args just grows its spine (`applyValue` on a
+`VTopDef` appends). So `Int[2, 5]` is `VTopDef(IntFQN, None, [VConst(Direct(2)), VConst(Direct(5))])`
+— **not** a `VConst(Structure)`. `VConst(Structure(...))` only appears after read-back
+(`semToGround` / `Quoter`). This is load-bearing: `typeMatch`/`handleCases` dispatch on the
+`VTopDef(head, None, spine)` shape, and the unifier's same-FQN case (and the TypeRefinement
+hook) operate on these `VTopDef`s.
 
 ### VLam vs VPi — who produces what
 
@@ -95,11 +106,14 @@ Both are applicable: `apply(VLam(_, c), x)` invokes the closure; `apply(VPi(_, c
 
 ### NativeBinding injection
 
-Three processors emit `NativeBinding` facts that map `ValueFQN → SemValue`:
+Processors emit `NativeBinding` facts that map `ValueFQN → SemValue`:
 
-1. **`SystemNativesProcessor`** — `Function` → curried `VNative` producing `VPi(A, _ => B)`; `Type` → `VType`.
-2. **`DataTypeNativesProcessor`** — Data type constructors → `VNative` chains that collect type args and build `VConst(Structure(...))`.
-3. **`UserValueNativesProcessor`** — User-defined values → `VTopDef(fqn, Lazy(eval(body)), SNil)`. Uses a concurrent `generating` guard to prevent mutual-recursion deadlocks.
+1. **`SystemNativesProcessor`** — `Function` → curried `VNative` producing `VPi(A, _ => B)`; `Type` → `VType`; the compile-time `Bool` primitives `true`/`false` (`VConst(Direct(Boolean))`), `&&`, `typeEquals`, `lessThanOrEqual` (all `VNative`s that reduce only on concrete args, else stay stuck).
+2. **`DataTypeNativesProcessor`** — Type constructors → body-less `VTopDef(fqn, None, SNil)` (spine grows on apply; see above).
+3. **`MatchNativesProcessor`** — the abstract `PatternMatch.handleCases` / `TypeMatch.typeMatch` ability-impl FQNs → `VNative`s that dispatch a concrete `VTopDef(ctor, None, spine)` scrutinee (so `match` reduces during checking). Registered ahead of `UserValueNativesProcessor` (first-registration-wins) to intercept those FQNs. **Only `data` types get `TypeMatch`/`PatternMatch` impls** (auto-generated in `DataDefinitionDesugarer`); abstract `type X` declarations do not, so you cannot `match` on an abstract type's constructor.
+4. **`UserValueNativesProcessor`** — User-defined values → `VTopDef(fqn, Lazy(eval(body)), SNil)`. The thunk captures its one-hop binding closure (`collectBindings`), so each `NativeBinding` SemValue is self-contained: holding it lets you `applyValue`+`force` it synchronously with no further prefetch. Uses a concurrent `generating` guard to prevent mutual-recursion deadlocks.
+
+(`StdlibNativesProcessor` in the `stdlib` module similarly binds `inc`. `Bool` is an opaque `type Bool` in lang resources; its values exist only as the compile-time `VConst(Direct(Boolean))` representation — the JVM backend maps `Bool` to a platform boolean.)
 
 ### TypeStackLoop — the uniform fold
 
@@ -139,10 +153,42 @@ Pattern unification on `SemValue`s with postponement:
 5. Eta: `VLam(_, c)` vs other → unify `c(fresh)` against `apply(other, fresh)`.
 6. `VNeutral` vs `VNeutral` with same head → zip spines.
 7. `VMeta` → pattern rule: empty spine → solve directly; non-empty → postpone.
-8. `VTopDef` vs `VTopDef` with same FQN → zip spines.
+8. `VTopDef` vs `VTopDef` with same FQN → **TypeRefinement hook** (below) if the FQN has a custom refinement, otherwise zip spines.
 9. Otherwise → error.
 
 `drain()` retries postponed constraints until stable (no progress → stop).
+
+### The TypeRefinement hook (dependent-type assignability)
+
+`Unifier` carries `refinements: Map[ValueFQN, SemValue]` (default empty) — a type-constructor
+FQN → its *custom* `TypeRefinement.assignableFrom` impl `SemValue`. In the `VTopDef`-same-FQN
+case, if `fqn` has an entry, assignability is decided by **running the impl through the pure
+evaluator** instead of by structural spine equality:
+
+```
+force(applyValue(applyValue(impl, fr /*target = expected = right*/), fl /*source = actual = left*/), metaStore) match {
+  case VConst(Direct(true,  _)) => this                              // accept (e.g. range widening)
+  case VConst(Direct(false, _)) => addMismatch(fl, fr, context)      // reject
+  case _                        => unifySpines(...)                  // stuck → structural (still solves metas)
+}
+```
+
+Direction matters: `unify(l = actual, r = expected)`, so `assignableFrom(target = expected, source = actual)` — accepts widening, not narrowing. The fall-back is what keeps generics working: when bounds contain unsolved metas the `lessThanOrEqual`/`typeEquals` natives stay stuck → the result is neither `true` nor `false` → ordinary `unifySpines` runs and solves the metas.
+
+**Building the map** (`MonomorphicTypeCheckProcessor.buildRefinements`): scan the value's type
+stack + runtime for `Qualifier.Type` value references; for each constructor that has a *custom*
+`assignableFrom` impl, add it. Detection is **non-erroring**: scan the constructor's module names
+(`getFact(UnifiedModuleNames)`) for an `assignableFrom` `AbilityImplementation`, confirm with
+`AbilityMatcher.matchImpl`, then `fetchBinding`. It must NOT demand `AbilityImplementation` /
+`AbilityImplementationCheck` for arbitrary types — those emit a hard "does not implement" error
+for any type without an impl. A constructor with **no** custom impl is simply omitted; the unifier
+then compares it structurally — which *is* the default (structural equality), so no per-type
+default impl needs to be generated.
+
+Constraints / gotchas:
+- The hook is generic — it fires for any type with a custom `implement TypeRefinement[C]`. Never special-case a concrete type (e.g. `Int`) in the checker/unifier.
+- Do **not** auto-generate a default `TypeRefinement` impl per type constructor: types declared across multiple resource files get duplicate markers (overlap errors), `Type` is `VType` (unmatchable), and the default body self-references `TypeRefinement[Type]`. "No impl = structural" already provides the default.
+- The hook dispatches on the bare constructor (HKT-style, `TypeRefinement[T]`), so the dispatch query is `Structure(C, Seq.empty, Type)`.
 
 ### Quoting (`forceAndConst` / `Quoter`)
 
@@ -177,6 +223,8 @@ Two quoting paths exist:
 
 **Meta not solved.** After `drain()`, unsolved metas fall back to `GroundValue.Type` via `forceAndConst`'s fallback case. If this produces wrong types, the unifier likely postponed a constraint that should have been solved. Check that `solveMeta` handles the empty-spine case correctly.
 
+**A refinement that should accept is rejected (or vice-versa).** Force `applyValue(applyValue(impl, expected), actual)` mentally: the impl must reduce to `VConst(Direct(true/false))`. If it stays stuck (→ `unifySpines` → structural), the usual cause is a referenced native being unresolved — e.g. `lessThanOrEqual`/`&&`/`typeEquals` not declared in the (test) module, or matching on an abstract `type` constructor that lacks a `TypeMatch` impl ("No TypeMatch.typeMatch implementation found"). Check direction too: `assignableFrom(target = expected, source = actual)`. A spurious "does not implement ability 'TypeRefinement'" means something demanded `AbilityImplementation`/`AbilityImplementationCheck` for an impl-less type — `buildRefinements` must use the non-erroring module-names lookup, not those facts.
+
 ## Anti-patterns (reject in review)
 
 - **Inspecting ORE to count or classify type parameters.** No `extractLeadingLambdaParams`, no `TypeParameterAnalysis`, no "how many type parameters does this value have?" question. The type stack fold is uniform.
@@ -190,6 +238,9 @@ Two quoting paths exist:
 - **Pattern-matching on `SemValue` to count leading `VPi` binders or `VLam` closures.** The checker never asks "how many type parameters does this value have?" It applies what's given and lets unification figure out the rest.
 - **Skipping `prefetchBindings` before evaluating.** The evaluator reads from a mutable cache. If bindings aren't pre-fetched, the evaluator produces `VNeutral` for unresolved references, leading to spurious type mismatches.
 - **Forgetting to call `drain()` after the check/infer walk.** Postponed unification constraints accumulate silently. Without `drain()`, metas that depend on other metas being solved first will never be resolved.
+- **Special-casing a concrete type (e.g. `Int`) in the checker/unifier for refinement.** The TypeRefinement hook is generic over any type with a custom impl. Recognize the *ability protocol* by name (as `MatchNativesProcessor` does for `PatternMatch`/`TypeMatch`); never the type.
+- **Auto-generating a default `TypeRefinement` impl per type, or demanding `AbilityImplementation`/`AbilityImplementationCheck` for arbitrary types.** Auto-gen overlaps for split-module types and can't cover `Type`/`Function`; demanding the ability fact for an impl-less type emits a hard error. Detect custom impls non-erroringly (module-names + `AbilityMatcher.matchImpl`); treat "no impl" as the structural default.
+- **Returning `false` (not stuck) from the Bool natives on non-concrete args.** `&&`/`typeEquals`/`lessThanOrEqual` must stay **stuck** (return a stuck `VTopDef`) when an argument isn't fully concrete, so the unifier falls back to `unifySpines` and still solves metavariables. Returning `false` would wrongly reject generic/open comparisons.
 
 ## Testing
 
@@ -197,6 +248,8 @@ Tests live at:
 
 - `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/processor/MonomorphicTypeCheckProcessorTest.scala`
 - `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/processor/MonomorphicTypeCheckTest.scala`
+- `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/processor/MatchNativesProcessorTest.scala` — `match` reduction via `handleCases`/`typeMatch` natives.
+- `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/processor/RefinementUnifyTest.scala` — the TypeRefinement hook (accept/reject/structural-fallback; nested-match + `lessThanOrEqual`/`&&` range refinement). `Bool`/`TypeRefinement` are not in `defaultSystemModules`, so tests that use them must register the modules (`ProcessorTest.boolImportContent` / `typeRefinementImportContent`) and the test source must `import eliot.lang.Bool` / `import eliot.lang.TypeRefinement`.
 
 Run them:
 
