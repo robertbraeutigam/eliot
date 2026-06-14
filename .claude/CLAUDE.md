@@ -87,13 +87,12 @@ Each of these is a package in the "lang" module, roughly in order of processing:
 4. core: Building the core language AST
 5. module: Splitting working with modules into working with individual values. It also unifies similarly named modules from different paths.
 6. resolve: Resolve all identifiers to fully qualified names or parameters.
-7. eval: Evaluate data type and value definitions into typed structures.
-8. matchdesugar: Desugar pattern-match expressions into function applications. Checks exhaustiveness and handles nested patterns, multiple cases, constructor patterns, and wildcards.
-9. operator: Resolve infix operators with proper precedence and associativity. Transforms flat expressions into correctly structured function applications.
-10. ability: Checks and returns a type-specific ability implementation.
-11. monomorphize: Monomorphic type checker. Checks all types at their usage with all instantiated values.
-12. used: Collects all the used value names starting at a given "main".
-13. uncurry: Uncurries function calls, so its easier to generate on the backend.
+7. matchdesugar: Desugar pattern-match expressions into function applications. Checks exhaustiveness and handles nested patterns, multiple cases, constructor patterns, and wildcards.
+8. operator: Resolve infix operators with proper precedence and associativity. Transforms flat expressions into correctly structured function applications.
+9. ability: Checks and returns a type-specific ability implementation.
+10. monomorphize: Monomorphic type checker. Evaluates data type and value definitions into typed structures and checks all types at their usage with all instantiated values, using the single NbE evaluator. (This phase absorbed the former standalone `eval` phase, which was removed.)
+11. used: Collects all the used value names starting at a given "main".
+12. uncurry: Uncurries function calls, so its easier to generate on the backend.
 
 ### Error Handling
 
@@ -105,6 +104,31 @@ Each of these is a package in the "lang" module, roughly in order of processing:
 
 - Tests extend `AsyncFlatSpec` with `AsyncIOSpec` with `Matchers`
 - Test files are in `<module>/test/src/` directories
+
+## Language Cornerstone: Types Are Values (λ\*)
+
+Eliot has **no internal distinction between the type level and the value level**. Type
+constructors (`Int[..]`) and value constructors (`Int(..)`) are both ordinary named values
+("functions"), and the type *of* a value is itself just another value. The only thing that makes
+a computation "type-level" is *when* it is forced: type-level code happens to be evaluated by the
+compiler before code generation, but that staging is incidental, not a difference in kind.
+Formally this is a **non-stratified Pure Type System** — λ\* / "type-in-type" (`Type : Type`) —
+where the compile-time/runtime split is a pure **phase / erasure** distinction and type checking is
+implemented as **Normalisation by Evaluation** (the `monomorphize` package: one `Evaluator`, one
+`SemValue` domain shared by types and values, `VType` as an ordinary value). This is deliberately
+*not* "dependent types" as a bolted-on feature; dependency is merely a consequence of types being
+values. Accepted trade-off: `Type : Type` is logically inconsistent (Girard's paradox) — fine for a
+general-purpose language, with termination/totality handled separately rather than by a universe
+hierarchy.
+
+**Sanctioned sugar vs. required discipline.** Familiar surface distinctions are *intentional sugar*,
+not violations: the `Qualifier.Type`/`Qualifier.Default` namespaces, the `[]` vs `()` call/pattern
+syntax, and the restricted `Expression.typeParser` all collapse to "the same `FunctionDefinition`
+with a different qualifier tag." What the cornerstone *requires* of every task: there is exactly one
+evaluator and one value domain (never a second, weaker "compile-time" interpreter); type equality is
+definitional (force/normalise via that evaluator, then compare) rather than a parallel bespoke
+mechanism; and kind/arity metadata (e.g. `RoleHint.TypeConstructor`) stays out of semantic phases.
+See `docs/cornerstone-fidelity-plan.md` for the remaining clean-ups.
 
 ## Language Overview
 
@@ -128,7 +152,10 @@ The main building blocks of the language are:
 
 - When making a field optional in `resolve.fact.Expression` case classes, update ALL pattern matches across
   the codebase (eval, monomorphize phases) **and** test files that directly construct those cases.
-- `Evaluator` (eval/compile-time phase) cannot do type inference; use `compilerAbort` for types it can't resolve.
+- There is a **single** evaluator (`monomorphize/eval/Evaluator.scala`, NbE over `SemValue`); the
+  old separate `eval`/`interpret` compile-time evaluator was removed. Unresolved/stuck terms surface
+  as explicit errors at quote time (`PostDrainQuoter`, "Cannot resolve type."), never via a silent
+  `Type` fallback. Do not reintroduce a second compile-time evaluator (see the Language Cornerstone).
 
 ## Development Notes
 

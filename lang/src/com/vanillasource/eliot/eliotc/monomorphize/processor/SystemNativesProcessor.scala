@@ -21,9 +21,9 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 /** Emits NativeBinding facts for built-in system values: Function (type constructor), Type, and the compile-time Bool
   * primitives (`true`/`false`/`&&`).
   *
-  * Function is wired as a curried native that takes two type args (A, B) and produces VPi(A, _ => B). This is the key
-  * departure from eval's SystemValueEvaluator, which produces VConst(Structure(...)) — monomorphize uses VPi for all
-  * function types.
+  * Function is wired as a curried native that takes two type args (A, B) and produces VPi(A, _ => B): the Π-former is
+  * the single primitive type former, so every function type is a VPi (read back to a Function structure only at quote
+  * time by the Quoter).
   *
   * Bool is declared opaque in the language (`type Bool`); its compile-time representation is supplied here as
   * `VConst(Direct(Boolean, …))` so type-level predicates (e.g. TypeRefinement) reduce during checking. `&&` reduces
