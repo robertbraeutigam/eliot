@@ -50,6 +50,28 @@ class MonomorphicTypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Coerce[Int, Int] instance (int-min-max-plan Phase 3) ---
+
+  "Coerce[Int, Int] instance" should "type-check and resolve via the ability machinery" in {
+    runCoerce("def test: Option[Int[0, 10]] = coerce(integerLiteral[3])")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  "check-mode Coerce insertion" should "implicitly widen Int[3, 3] to Int[0, 10]" in {
+    runCoerce("def test: Int[0, 10] = integerLiteral[3]")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject widening Int[5, 5] to the non-containing Int[0, 3]" in {
+    runCoerce("def test: Int[0, 3] = integerLiteral[5]")
+      .asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[5]"))
+  }
+
+  it should "still accept a definitionally equal Int[7, 7] without coercion" in {
+    runCoerce("def test: Int[7, 7] = integerLiteral[7]")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   // --- Function call tests ---
 
   "function call" should "compile if same number of arguments" in {
@@ -528,5 +550,49 @@ class MonomorphicTypeCheckTest
       source,
       MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
       systemImports
+    ).map(result => toTestErrors(result._1))
+
+  /** Imports providing the full `Int`/`Coerce`/`Option`/`Bool` environment for the check-mode `Coerce` insertion. The
+    * module names mirror the real `eliot.lang.*` layout so the compile-time natives (`&&`/`fold`/`lessThanOrEqual`)
+    * bind to their well-known FQNs.
+    */
+  private val coerceImports: Seq[SystemImport] = Seq(
+    SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
+    SystemImport("Type", "type Type"),
+    SystemImport(
+      "BigInteger",
+      "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool"
+    ),
+    SystemImport("Unit", "type Unit"),
+    SystemImport("String", "type String"),
+    SystemImport("IO", "type IO"),
+    SystemImport("PatternMatch", ""),
+    SystemImport("TypeMatch", ""),
+    SystemImport(
+      "Bool",
+      "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A"
+    ),
+    SystemImport("Option", "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]"),
+    SystemImport("Coerce", "import eliot.lang.Option\nability Coerce[From, To] { def coerce(value: From): Option[To] }")
+  )
+
+  /** The `Int` type plus the parametric range-widening `Coerce[Int, Int]` instance, the internal `nativeWiden`, and the
+    * `integerLiteral` constructor — prepended to each `runCoerce` source so the supplied snippet can use them.
+    */
+  private val coercePrelude: String =
+    """import eliot.lang.Bool
+      |import eliot.lang.Coerce
+      |import eliot.lang.Option
+      |type Int[MIN: BigInteger, MAX: BigInteger]
+      |def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger](value: Int[Smin, Smax]): Int[Tmin, Tmax]
+      |implement[Smin, Smax, Tmin, Tmax] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] { def coerce(value: Int[Smin, Smax]): Option[Int[Tmin, Tmax]] = fold(lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax), some(nativeWiden(value)), none) }
+      |def integerLiteral[V: BigInteger]: Int[V, V]
+      |""".stripMargin
+
+  private def runCoerce(source: String, name: String = "test"): IO[Seq[TestError]] =
+    runGenerator(
+      coercePrelude + source,
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty),
+      coerceImports
     ).map(result => toTestErrors(result._1))
 }

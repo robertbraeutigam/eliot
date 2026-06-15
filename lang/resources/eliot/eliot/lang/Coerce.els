@@ -14,9 +14,9 @@ import eliot.lang.Option
  * The checker-side insertion is deferred (it lands with the `Int[MIN,MAX]` frontier); this declaration is the durable
  * design commitment.
  */
-ability Coerce[from, to] {
+ability Coerce[From, To] {
    /**
-    * Convert `value` to type `to`, yielding `Some` when the conversion exists and `None` when it does not.
+    * Convert `value` to type `To`, yielding `some` when the conversion exists and `none` when it does not.
     */
-   def coerce(value: from): Option[to]
+   def coerce(value: From): Option[To]
 }

@@ -1,11 +1,12 @@
 # Plan: Implementing `Int[MIN, MAX]` (dependent integer type)
 
-Status: design settled; foundational machinery in place. The frontier is Phase 3 (the
-check-mode `Coerce` insertion). Literal typing as `Int[V,V]` is built and tested via an
-**explicit** `integerLiteral[n]` constructor (Phase 2) and only flipped to the global
-default literal type at the **end** (Phase 6), once the supporting machinery works — see
-"De-risking: explicit constructor first, global flip last." This document is the durable
-cross-session reference.
+Status: Phase 2 (explicit `integerLiteral[n]`) and **Phase 3 (check-mode `Coerce` insertion) are
+DONE** — implicit `Int` range widening works through a user-space `Coerce` instance, resolved by
+name and evaluated by the one NbE evaluator (`Int[3,3] → Int[0,10]` accepted, `Int[5,5] → Int[0,3]`
+rejected). The frontier is now **Phase 4** (branch/match join). Literal typing as `Int[V,V]` is built
+and tested via the **explicit** `integerLiteral[n]` constructor and only flipped to the global default
+literal type at the **end** (Phase 6), once the supporting machinery works — see "De-risking: explicit
+constructor first, global flip last." This document is the durable cross-session reference.
 
 ## Goal & chosen model
 
@@ -75,12 +76,17 @@ type, together with its `BigInteger`-value-position fallout audit.
   when its arguments are concrete, otherwise stays stuck so unification still solves
   metavariables. (Opaque keeps the representation platform-dependent; the JVM backend
   maps it to a platform boolean.)
-- **`Coerce` / `Option` declared.** `ability Coerce[from, to] { def coerce(value: from): Option[to] }`
-  (`Coerce.els`) and the abstract `Option.els` are in place; `WellKnownTypes.coerceFQN`
-  exists. The check-mode *insertion* does not yet (Phase 3).
-- **`Int.els`** declares the abstract `type Int[MIN, MAX]`, the width aliases
-  (`Byte`/`Short`/`Long`/…), and `+` with dependent bounds
-  (`Int[m1,M1] + Int[m2,M2] : Int[add(m1,m2), add(M1,M2)]`). No `Coerce[Int,Int]` instance yet.
+- **`Coerce` / `Option` declared and wired.** `ability Coerce[From, To] { def coerce(value: From): Option[To] }`
+  (`Coerce.els`) and the abstract `Option.els` (now with body-less `some`/`none` constructors) are in
+  place; `WellKnownTypes` exposes `coerceFQN`/`someFQN`/`noneFQN`/`optionFQN`. The check-mode *insertion*
+  is **DONE** (Phase 3) — `Checker.unifyOrCoerce`/`tryCoerce`/`coerceWith`.
+- **`Bool` eliminator.** `Bool.fold(condition, whenTrue, whenFalse)` (`Bool.els` + `boolFoldFQN` native in
+  `SystemNativesProcessor`) — the only way to branch on opaque `Bool` (no `if`/`then`/`else`); used by the
+  `Coerce` instance body.
+- **`Int.els`** declares the abstract `type Int[MIN, MAX]`, the width aliases (`Byte`/`Short`/`Long`/…),
+  `+` with dependent bounds, the internal `nativeWiden`, and the parametric range-widening
+  `Coerce[Int[Smin,Smax], Int[Tmin,Tmax]]` instance (Phase 3). (`add` is declared abstract; its native +
+  runtime are Phase 5.)
 
 ## Check-mode `Coerce` insertion (the assignability seam)
 
@@ -167,25 +173,45 @@ the compiler can actually see it is safe.
   lets diverge. The stuck-residual/fuel guard lands with the termination model
   (`project_recursion_as_effect`) — see "Risks".
 
-### Work items
+### As built (Phase 3 — DONE)
 
-- `Int.els`: add the parametric `Coerce[Int,Int]` instance (head-bound bounds, as above) + the
-  native widen.
-- `check/TypeStackLoop.scala`: add the leaf check-mode coercion hook above. It discriminates the
-  `Option` result through the abstract `fold` eliminator, **not** a constructor match.
-- Evaluator: give `Option`'s `fold` (and the `Some`/`None` constructors) compiler-side native
-  reductions (`fold(Some p,…) ⤳ s p`, `fold(None,…) ⤳ n`) so the discrimination forces at compile
-  time. `Option` stays an opaque platform `type`; reuse the existing `NativeFunction`
-  compiler-as-platform path rather than introducing a `data Option`.
-- Value→runtime-expression read-back — a **new** `Quoter` direction. Today's `Quoter` *rejects*
-  neutrals; the residual `nativeWiden · x` neutral must read back to a
-  `MonomorphicExpression.FunctionApplication`, treating the stuck native/var as the *desired* output,
-  not an error. Not a reuse of `Quoter.quote` as-is.
-- Coercion-insertion test: `Int[0,5]` into `Int[0,10]` succeeds and inserts the widen; into `Int[0,3]`
-  is a type error.
+The implementation kept the design's spirit (user-space `Coerce`, resolved by name, run on the one NbE
+evaluator) but **simplified two planned work items** — both faithful to the cornerstone:
 
-Acceptance: implicit widening flows through a user-defined stdlib `Coerce` instance inserted in check
-mode; `Int[0,5] → Int[0,10]` succeeds while `Int[0,5] → Int[0,3]` is a compile error.
+- **Discrimination is direct `VTopDef`-head inspection, not an in-language `fold`.** The checker forces
+  `coerce(value)` and matches the head FQN: `WellKnownTypes.someFQN` ⟹ accept, anything else (`none` or
+  stuck) ⟹ no coercion. So **no `Option` `fold`/`some`/`none` native reductions were needed** — `some`/
+  `none` are ordinary body-less `def`s that evaluate to stuck `VTopDef`s (the same applied-constructor
+  shape the unifier and `MatchNativesProcessor` already dispatch on). Recognizing `some`/`none` by
+  well-known FQN is the sanctioned by-name-protocol pattern.
+- **No new `Quoter` direction.** The widen is the identity on the Long-only backend (see "Representation
+  & promotion"), so an accepted coercion just re-types the term: `expr.copy(expressionType = expected)`.
+  `nativeWiden` exists only so the instance *body* type-checks (`some(nativeWiden value) : Option[To]`);
+  it is never emitted to the runtime tree today. A real read-back lands with range-based width selection.
+- **A `Bool` eliminator native was added** (`Bool.fold(condition, whenTrue, whenFalse)`, `boolFoldFQN` in
+  `SystemNativesProcessor`) — the language has no `if`/`then`/`else` and `Bool` is opaque, so the instance
+  body needs it to select `some`/`none` on the bounds check.
+
+Files: `Int.els` (parametric instance + `nativeWiden`); `Option.els` (`some`/`none`); `Bool.els` +
+`SystemNativesProcessor` (`fold`); `WellKnownTypes` (`some/none/option/boolFold` FQNs);
+`Checker.unifyOrCoerce`/`tryCoerce`/`coerceWith`/`peelSigMetas`.
+
+**Type-param binding subtlety (load-bearing).** The impl `coerce` body references the bound parameters
+`Smin…Tmax` as *free names* (only value params are runtime lambdas — `CoreExpressionConverter.buildCurriedBody`),
+and the pure NbE evaluator has **no metastore**. So `coerceWith` peels the impl *signature*'s type-param
+`VLam`s into fresh metas, unifies the value-level function type against `VPi(actual, _ => Option[expected])`
+and drains to solve them, then rebuilds the body env binding each name to the **forced (concrete)** meta value
+— binding the metas directly would make the `lessThanOrEqual` native go stuck on unforced `VMeta`s at eval time.
+
+**Grammar gotchas surfaced (and fixed) here:** generic/ability type parameters must be **upper-case**
+identifiers (`acceptIfAll(isUpperCase, …)` in `GenericParameter`), and `def` names must be **non-upper-case**
+— so the abstract `Option` constructors are `some`/`none` (not `Some`/`None`), and the existing
+`Coerce.els`/`Int.els` declarations (`from,to`; `m1,M1,…`; `smin,…`) had to be upper-cased; they had never
+actually been parsed before this phase.
+
+Acceptance (met): implicit widening flows through the user-defined `Coerce` instance inserted in check mode;
+`Int[3,3] → Int[0,10]` succeeds while `Int[5,5] → Int[0,3]` is a compile error; definitional equality is
+untouched.
 
 ## How integers flow today (research findings)
 
@@ -233,12 +259,12 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
     integer lands with the arithmetic in Phase 5 (a trivial body earlier is fine). A compile-time
     `NativeBinding` is only needed once constant folding of runtime ints is wanted (Phase 5+), and
     even then it is *data* for the existing evaluator, not a code change.
-- **Phase 3 — `Coerce[Int,Int]` instance + check-mode insertion (range subsumption). (FRONTIER.)**
-  Write the parametric `Coerce` instance in `Int.els` and add the leaf check-mode hook in
-  `TypeStackLoop` — see "Check-mode `Coerce` insertion" for the full design and work items. The
-  genuinely new machinery is the `Option` `fold`/`Some`/`None` native reductions and the
-  value→runtime-expression read-back `Quoter` direction. Verify widening accepted / narrowing
-  rejected end to end.
+- **Phase 3 — `Coerce[Int,Int]` instance + check-mode insertion (range subsumption). (DONE.)**
+  Implemented; see "Check-mode `Coerce` insertion" below for the as-built design (which simplified two
+  of the planned work items). The parametric instance lives in `Int.els`; the leaf check-mode hook is
+  `Checker.unifyOrCoerce`/`tryCoerce`/`coerceWith`. Tests: `MonomorphicTypeCheckTest`'s
+  "check-mode Coerce insertion" cases (widen accepted, non-containing rejected, definitional equality
+  untouched) + the "Coerce[Int, Int] instance" resolution test.
 - **Phase 4 — branch/match result synthesis (the join / LUB).** When there is no expected type to
   check against (branches of `if` / `match`), the checker must synthesise one type from several:
   `join(Int[a,b], Int[c,d]) = Int[min(a,c), max(b,d)]`. Decide its ability home — likely another

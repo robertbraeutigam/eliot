@@ -1,3 +1,7 @@
+import eliot.lang.Bool
+import eliot.lang.Coerce
+import eliot.lang.Option
+
 /**
  * All integers are represented by this type.
  */
@@ -13,10 +17,33 @@ type UnsignedMedium  = Int[0, 4294967295]
 type Long            = Int[-9223372036854775808, 9223372036854775807]
 type UnsignedLong    = Int[0, 18446744073709551615]
 
-infix def +[m1: BigInteger, M1: BigInteger, m2: BigInteger, M2: BigInteger](left: Int[m1, M1], right: Int[m2, M2]): Int[add(m1, m2), add(M1, M2)]
+/**
+ * Addition of bounds (type-level): the result range of `+`. Abstract here; a platform layer supplies the native
+ * (compile-time bound arithmetic) and runtime body. (Generic-parameter and `add` arithmetic are Phase 5 of
+ * docs/int-min-max-plan.md; declared so this signature resolves.)
+ */
+def add(a: BigInteger, b: BigInteger): BigInteger
 
-// A range-widening `implement [smin, smax, tmin, tmax] Coerce[Int[smin,smax], Int[tmin,tmax]]` (yielding Some(widen) iff
-// [smin,smax] is inside [tmin,tmax], else None) is the intended way the checker inserts implicit Int widening, but it is
-// deferred: it needs the Coerce check-mode insertion, an `Option` with Some/None/fold natives, a native widen, and
-// literal-typing-as-Int[V,V] so Int values actually arise. All are follow-ups in docs/int-min-max-plan.md
-// ("Check-mode `Coerce` insertion").
+infix def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)]
+
+/**
+ * Representation-changing identity on the integer value: reinterprets an `Int[Smin, Smax]` at a different
+ * (necessarily wider) bound `Int[Tmin, Tmax]`. The bound relationship is NOT enforced here — `nativeWiden` is an
+ * internal primitive used only by the `Coerce` instance below, which gates it behind the bounds check. At the type
+ * level it bridges `Int[Smin, Smax]` to `Int[Tmin, Tmax]`; at runtime it is the identity on the underlying machine
+ * integer (everything currently maps to `Long`, so widening is a no-op — a jvm-layer body supplies the real
+ * sign/zero-extension once range-based width selection exists).
+ */
+def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger](value: Int[Smin, Smax]): Int[Tmin, Tmax]
+
+/**
+ * Range widening as a user-space `Coerce` instance: an `Int[Smin, Smax]` coerces to `Int[Tmin, Tmax]` exactly when
+ * `[Smin, Smax]` is contained in `[Tmin, Tmax]`. The `some`/`none` result IS the existence proof — the checker's
+ * check-mode `Coerce` insertion (see `docs/int-min-max-plan.md`) resolves this instance by name, evaluates `coerce`
+ * through the one NbE evaluator, and splices the `some` payload at the use site (or reports a type error on `none`).
+ *
+ * The bounds check `lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax)` depends only on type-level data, so NbE
+ * forces it away at compile time; the `nativeWiden value` payload stays a residual carrying the (currently identity)
+ * conversion.
+ */
+implement[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] { def coerce(value: Int[Smin, Smax]): Option[Int[Tmin, Tmax]] = fold(lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax), some(nativeWiden(value)), none) }

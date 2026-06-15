@@ -22,3 +22,15 @@ def false: Bool
  * Logical conjunction. Native: reduces when both arguments are concrete.
  */
 infix def &&(a: Bool, b: Bool): Bool
+
+/**
+ * Boolean eliminator (catamorphism): yields `whenTrue` when `condition` is `true` and
+ * `whenFalse` when it is `false`. This is the only way to branch on a `Bool` (there is no
+ * `if`/`then`/`else` syntax and `Bool` is opaque, so it has no pattern-match constructors).
+ *
+ * Native: reduces when `condition` is a concrete `true`/`false`, otherwise stays stuck so the
+ * unifier falls back to ordinary unification. Both branches are evaluated by NbE (the language
+ * is total at the type level); the native merely selects one. Reason for being in lang: the
+ * Coerce instance's bounds check selects between `Some`/`None` with it during type checking.
+ */
+def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A

@@ -25,7 +25,7 @@ class TypeStackLoop(
 ) {
   import TypeStackLoop.AbilityRef
 
-  private val checker = new Checker(fetchBinding)
+  private val checker = new Checker(fetchBinding, resolveAbility)
 
   def process(
       key: MonomorphicValue.Key,

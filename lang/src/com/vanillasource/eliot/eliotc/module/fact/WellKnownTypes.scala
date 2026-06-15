@@ -31,6 +31,26 @@ object WellKnownTypes {
   val boolFalseFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("false", Qualifier.Default))
   val boolAndFQN: ValueFQN   = ValueFQN(boolModule, QualifiedName("&&", Qualifier.Default))
 
+  /** The `Bool` eliminator `fold(condition, whenTrue, whenFalse)` — the only way to branch on an opaque `Bool`. Backed
+    * by a compile-time native (see `SystemNativesProcessor`) that selects a branch when the condition is concrete.
+    */
+  val boolFoldFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("fold", Qualifier.Default))
+
+  private val optionModule: ModuleName = ModuleName(defaultSystemPackage, "Option")
+
+  /** The abstract `Option` type constructor — the result type of `Coerce.coerce`. The checker builds `Option[expected]`
+    * with this FQN to solve the coercion instance's target bounds by unification.
+    */
+  val optionFQN: ValueFQN = ValueFQN(optionModule, QualifiedName("Option", Qualifier.Type))
+
+  /** The `some`/`none` constructors of the abstract `Option`. They are ordinary body-less defs (the NbE evaluator
+    * represents an applied constructor as a stuck `VTopDef`); the checker's check-mode `Coerce` insertion recognizes
+    * these FQNs to discriminate a coercion result — `some payload` ⟹ accept (splice `payload`), `none` ⟹ reject. They
+    * are lower-case because `Option` is an abstract `type` (not `data`), so its constructors are body-less `def`s.
+    */
+  val someFQN: ValueFQN = ValueFQN(optionModule, QualifiedName("some", Qualifier.Default))
+  val noneFQN: ValueFQN = ValueFQN(optionModule, QualifiedName("none", Qualifier.Default))
+
   val lessThanOrEqualFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("lessThanOrEqual", Qualifier.Default))
 

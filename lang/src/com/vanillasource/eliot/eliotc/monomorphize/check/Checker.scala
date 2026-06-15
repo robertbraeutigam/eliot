@@ -5,7 +5,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnow
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
+import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -22,7 +22,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * avoids any silent "default to Type" behaviour for unsolved metas — they surface as explicit errors at quoting time.
   */
 class Checker(
-    fetchBinding: ValueFQN => CompilerIO[Option[SemValue]]
+    fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
+    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
 ) {
 
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed.
@@ -118,9 +119,132 @@ class Checker(
                             for {
                               (expr, inferred)            <- infer(tm)
                               (updatedExpr, instantiated) <- instantiatePolymorphic(expr, inferred)
-                              _                           <- doUnify(instantiated, expected, tm.as("Type mismatch."))
-                            } yield updatedExpr
+                              checked                     <- unifyOrCoerce(tm, updatedExpr, instantiated, expected)
+                            } yield checked
                         }
+    } yield result
+
+  /** Resolve a term against an expected type. First attempt pure definitional equality (the unifier). If that fails,
+    * attempt a check-mode `Coerce` insertion: where the inferred type is used where a different expected type built from
+    * the same constructor is wanted (e.g. `Int[3,3]` where `Int[0,10]` is expected), resolve the user-defined `Coerce`
+    * ability by name and evaluate its `coerce` through the one NbE evaluator. A `some payload` result means the
+    * coercion exists; the term is re-typed at `expected` (the widening payload `nativeWiden` is the identity on the
+    * current Long-only backend, so no runtime rewrite is needed — see `docs/int-min-max-plan.md`, "Representation &
+    * promotion"; a real read-back lands with range-based width selection). A `none` or stuck result means no coercion,
+    * so the original "Type mismatch." is committed.
+    *
+    * `unify` itself stays pure definitional equality — the directional widening lives here, in check mode only.
+    */
+  private def unifyOrCoerce(
+      tm: Sourced[OperatorResolvedExpression],
+      expr: SemExpression,
+      actual: SemValue,
+      expected: SemValue
+  ): CheckIO[SemExpression] =
+    for {
+      s      <- get
+      trial   = s.unifier.unify(actual, expected, tm.as("Type mismatch."))
+      result <- if (trial.errors.size == s.unifier.errors.size)
+                  modify(_.withUnifier(trial)).as(expr)
+                else
+                  tryCoerce(tm, expr, actual, expected).flatMap {
+                    case Some(coerced) => pure(coerced)
+                    // No coercion: report a single mismatch (carrying Expected/Actual) at the term rather than
+                    // committing `trial`, whose spine descent can yield one error per mismatched type argument (e.g.
+                    // both `Int` bounds).
+                    case None          =>
+                      modify(st => st.withUnifier(st.unifier.addMismatch(actual, expected, tm.as("Type mismatch.")))).as(expr)
+                  }
+    } yield result
+
+  /** Try to resolve and apply a `Coerce[actual, expected]` instance. Returns the re-typed expression on success (the
+    * coercion's `coerce` evaluated to `some`), or `None` when no coercion applies (no instance, a `none` result, or
+    * bounds too abstract to decide). Only fires for leaf positions (argument / binding / return); coercing inside a
+    * constructor (e.g. `List[Int[0,5]] → List[Int[0,10]]`) needs variance reasoning and is not handled here.
+    */
+  private def tryCoerce(
+      tm: Sourced[OperatorResolvedExpression],
+      expr: SemExpression,
+      actual: SemValue,
+      expected: SemValue
+  ): CheckIO[Option[SemExpression]] =
+    for {
+      s      <- get
+      grounds = for {
+                  a <- Quoter.quote(0, actual, s.unifier.metaStore)
+                  e <- Quoter.quote(0, expected, s.unifier.metaStore)
+                } yield (a, e)
+      result <- grounds match {
+                  case Left(_)         => pure(None) // abstract / unsolved bounds — cannot prove a coercion
+                  case Right((aG, eG)) =>
+                    liftF(resolveAbility(WellKnownTypes.coerceFQN, Seq(aG, eG))).flatMap {
+                      case None               => pure(None)
+                      case Some((implFqn, _)) => coerceWith(implFqn, tm, expr, actual, expected)
+                    }
+                }
+    } yield result
+
+  /** Evaluate the resolved `coerce` implementation against the concrete bounds and discriminate its `Option` result.
+    *
+    * The impl's generic bound parameters are not lambdas in its runtime body (only value parameters are — see
+    * `CoreExpressionConverter.buildCurriedBody`); they are free names resolved through the env. So:
+    *   1. peel the impl signature's type-parameter `VLam`s into fresh metas (recording each `name → meta`),
+    *   2. unify the resulting value-level function type against `VPi(actual, _ => Option[expected])` and drain, which
+    *      solves those metas to the concrete bounds,
+    *   3. rebuild the body env binding each name to the **forced (concrete)** meta value — not the meta itself: the NbE
+    *      evaluator has no metastore, so a native applied to an unforced `VMeta` would go stuck during evaluation.
+    *
+    * Evaluating the runtime body in that concrete env and forcing it reduces the bounds-only existence check to
+    * `some`/`none`. Coercion runs user code at compile time, which Girard's paradox allows to diverge; the termination
+    * guard is deferred with the recursion/effect model (see `docs/int-min-max-plan.md`, "Risks").
+    */
+  private def coerceWith(
+      implFqn: ValueFQN,
+      tm: Sourced[OperatorResolvedExpression],
+      expr: SemExpression,
+      actual: SemValue,
+      expected: SemValue
+  ): CheckIO[Option[SemExpression]] =
+    for {
+      orvOpt <- liftF(getFact(OperatorResolvedValue.Key(implFqn)))
+      result <- orvOpt.flatMap(orv => orv.runtime.map((orv, _))) match {
+                  case None              => pure(None)
+                  case Some((orv, body)) =>
+                    for {
+                      sigSem        <- evalExpr(orv.typeStack.value.signature, env = Some(Env.empty))
+                      (mono, binds) <- peelSigMetas(sigSem, Seq.empty)
+                      optionExpected = Evaluator.applyValue(VTopDef(WellKnownTypes.optionFQN, None, Spine.SNil), expected)
+                      _             <- doUnify(mono, VPi(actual, _ => optionExpected), tm.as("Type mismatch."))
+                      _             <- modify(st => st.withUnifier(st.unifier.drain()))
+                      concreteEnv   <- binds.foldLeftM(Env.empty) { case (env, (name, meta)) =>
+                                         force(meta).map(env.bind(name, _))
+                                       }
+                      bodyVal       <- evalExpr(body.value, env = Some(concreteEnv))
+                      applied        = Evaluator.applyValue(bodyVal, VNeutral(NeutralHead.VVar(0, "$coerceArg"), Spine.SNil))
+                      forced        <- force(applied)
+                    } yield forced match {
+                      case VTopDef(fqn, _, _) if fqn == WellKnownTypes.someFQN =>
+                        Some(expr.copy(expressionType = expected))
+                      case _                                                   =>
+                        None
+                    }
+                }
+    } yield result
+
+  /** Peel leading `VLam` closures (the impl signature's bound type parameters) into fresh metas. Returns the non-lambda
+    * head (the value-level function type) and the `name → meta` bindings in peel order.
+    */
+  private def peelSigMetas(sem: SemValue, acc: Seq[(String, VMeta)]): CheckIO[(SemValue, Seq[(String, VMeta)])] =
+    for {
+      forced <- force(sem)
+      result <- forced match {
+                  case VLam(name, closure) =>
+                    for {
+                      meta <- freshMeta
+                      res  <- peelSigMetas(closure(meta), acc :+ (name, meta))
+                    } yield res
+                  case other               => pure((other, acc))
+                }
     } yield result
 
   /** Peel leading VLam closures by substituting fresh metas; return the non-VLam head together with the fresh metas in

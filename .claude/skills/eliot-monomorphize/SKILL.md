@@ -165,14 +165,18 @@ top. There is **no** notion of "assignability" or directional widening inside it
 
 Directional coercion (an `Int[0,5]` *used where* an `Int[0,10]` is expected) is a separate concern
 handled **outside** the unifier, in the checker's check mode, by a user-defined `Coerce` ability
-(`coerce(value: from): Option[to]`) the checker resolves by name (`WellKnownTypes.coerceFQN`) and
+(`coerce(value: From): Option[To]`) the checker resolves by name (`WellKnownTypes.coerceFQN`) and
 evaluates through the one NbE evaluator: the existence decision (bounds-only) forces away at compile
-time, any value-dependent conversion residualises into the generated code. See
-`docs/int-min-max-plan.md` ("Check-mode `Coerce` insertion"). **The check-mode insertion is not built yet** — it
-lands with the `Int[MIN,MAX]` frontier (`docs/int-min-max-plan.md`); today only the `Coerce`/`Option`
-declarations + `coerceFQN` exist. The former `TypeRefinement`-in-`unify` hook (a `refinements` map +
-a `VTopDef`-same-FQN assignability arm) was **removed** when this design was adopted; do not
-reintroduce assignability into `unify`.
+time, any value-dependent conversion residualises into the generated code. **This is built**
+(`Checker.unifyOrCoerce`/`tryCoerce`/`coerceWith`): on a `unify` failure at a leaf, the checker quotes
+both sides, resolves `Coerce[actual, expected]`, evaluates the impl's `coerce` on the concrete bounds,
+and **discriminates by `VTopDef` head** — `WellKnownTypes.someFQN` ⟹ accept (re-type the term at
+`expected`; the widen is identity on the Long-only backend, so no runtime rewrite), else ⟹ keep the
+mismatch. `some`/`none` are body-less `def`s (stuck `VTopDef`s), so no `Option` `fold`/`some`/`none`
+*native* was needed; branching on the opaque `Bool` bounds-check uses the `Bool.fold` native
+(`boolFoldFQN`). The former `TypeRefinement`-in-`unify` hook (a `refinements` map + a `VTopDef`-same-FQN
+assignability arm) was **removed** when this design was adopted; do not reintroduce assignability into
+`unify`. See `docs/int-min-max-plan.md` ("Check-mode `Coerce` insertion — As built").
 
 ### Quoting (`forceAndConst` / `Quoter`)
 
@@ -232,7 +236,7 @@ Tests live at:
 - `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/processor/MonomorphicTypeCheckTest.scala`
 - `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/processor/MatchNativesProcessorTest.scala` — `match` reduction via `handleCases`/`typeMatch` natives.
 
-(The former `RefinementUnifyTest` was removed with the `TypeRefinement`-in-`unify` hook; a coercion-insertion test will land with the deferred check-mode `Coerce` work. `Bool` is not in `defaultSystemModules`, so tests using it register the module via `ProcessorTest.boolImportContent` and `import eliot.lang.Bool`.)
+(The former `RefinementUnifyTest` was removed with the `TypeRefinement`-in-`unify` hook; the check-mode `Coerce` insertion is covered by `MonomorphicTypeCheckTest`'s "check-mode Coerce insertion" cases via the `coercePrelude`/`coerceImports` helpers. `Bool` is not in `defaultSystemModules`, so tests using it register the module via `ProcessorTest.boolImportContent` and `import eliot.lang.Bool`.)
 
 Run them:
 

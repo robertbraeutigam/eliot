@@ -9,3 +9,22 @@
  * resolvable from the language layer.
  */
 type Option[A]
+
+/**
+ * The present case, wrapping a value of type `A`. Abstract (body-less): a platform layer supplies
+ * the concrete representation. During type checking the NbE evaluator represents an applied `some`
+ * as a stuck constructor (`VTopDef(some, [value])`), which the checker's Coerce insertion inspects
+ * by name to mean "the coercion exists, and here is the (possibly widened) value."
+ *
+ * Lower-cased because constructor (upper-case) names are introduced only by `data`, and `Option`
+ * is deliberately an abstract `type` (no `data`) per the platform-independence cornerstone — so its
+ * constructors are ordinary body-less `def`s, which the grammar requires to be lower-case.
+ */
+def some[A](value: A): Option[A]
+
+/**
+ * The absent case. Abstract (body-less): a platform layer supplies the concrete representation.
+ * During type checking the checker's Coerce insertion reads a `none` result as "the coercion does
+ * not exist" (a type error at the use site). Lower-cased for the same reason as `some`.
+ */
+def none[A]: Option[A]

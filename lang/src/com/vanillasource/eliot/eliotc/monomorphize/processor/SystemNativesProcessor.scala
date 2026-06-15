@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   boolAndFQN,
   boolFQN,
   boolFalseFQN,
+  boolFoldFQN,
   boolTrueFQN,
   functionDataTypeFQN,
   lessThanOrEqualFQN,
@@ -45,6 +46,8 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
       NativeBinding(boolFalseFQN, Evaluator.falseValue).pure[CompilerIO]
     } else if (key.vfqn === boolAndFQN) {
       NativeBinding(boolAndFQN, andNative).pure[CompilerIO]
+    } else if (key.vfqn === boolFoldFQN) {
+      NativeBinding(boolFoldFQN, boolFoldNative).pure[CompilerIO]
     } else if (key.vfqn === lessThanOrEqualFQN) {
       NativeBinding(lessThanOrEqualFQN, lessThanOrEqualNative).pure[CompilerIO]
     } else {
@@ -84,5 +87,19 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
       VConst(GroundValue.Direct(x && y, Evaluator.boolGroundType))
     case _                                                                                      =>
       VTopDef(boolAndFQN, None, Spine.SNil :+ a :+ b)
+  }
+
+  /** `fold(condition, whenTrue, whenFalse)`: selects a branch when the condition is a concrete Bool, otherwise stays
+    * stuck. The type parameter `A` is implicit (never applied at evaluation time, since implicit type args are not
+    * threaded into the ORE), so the native takes exactly the three value arguments. The branches are passed through
+    * unevaluated-by-selection — NbE has already evaluated them to SemValues, but only the chosen one is returned.
+    */
+  private def boolFoldNative: SemValue =
+    VNative(boolType, cond => VNative(VType, whenTrue => VNative(VType, whenFalse => foldResult(cond, whenTrue, whenFalse))))
+
+  private def foldResult(cond: SemValue, whenTrue: SemValue, whenFalse: SemValue): SemValue = cond match {
+    case VConst(GroundValue.Direct(true, _))  => whenTrue
+    case VConst(GroundValue.Direct(false, _)) => whenFalse
+    case _                                    => VTopDef(boolFoldFQN, None, Spine.SNil :+ cond :+ whenTrue :+ whenFalse)
   }
 }
