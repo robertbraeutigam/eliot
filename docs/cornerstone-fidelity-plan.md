@@ -25,9 +25,10 @@ ordinary bound value. Unsolved metas surface as explicit errors (`PostDrainQuote
 `Type` fallback.
 
 What remains is therefore modest: (1) ~~**stale documentation/comments** that still describe the
-removed second evaluator~~ — **done (Phase 1)**; (2) one **genuine design refinement** — type
-equality vs. refinement/assignability is split between structural unification and an FQN-keyed
-side-channel; (3) a low-priority **guardrail** keeping kind metadata out of semantic phases.
+removed second evaluator~~ — **done (Phase 1)**; (2) one **genuine design refinement** — keep
+`Unifier` as pure definitional equality and move widening out to a user-defined `Coerce` ability
+that the checker inserts (design decided 2026-06-15, Phase 2 below); (3) a low-priority **guardrail**
+keeping kind metadata out of semantic phases.
 
 Explicitly **out of scope** (sanctioned sugar or principled primitives, not violations):
 `Qualifier.Type`/`Default`, `[]` vs `()`, `Pattern.isTypePattern`, the restricted `typeParser`,
@@ -69,48 +70,134 @@ and `int-min-max-plan.md`), not live architectural claims.
 
 ---
 
-## Phase 2 — One notion of comparison: definitional equality vs. refinement (design refinement)
+## Phase 2 — `Unifier` is pure definitional equality; widening is a user-defined `Coerce` ability
 
-This is the only genuine code-level deviation, and it is subtle. `Unifier.unify`
-(`monomorphize/unify/Unifier.scala`) already *is* evaluator-based definitional equality: it
-`Evaluator.force`s both sides (= normalises) and compares, solving metavariables as inference on
-top. That part is on-principle — keep it.
+**Design decided (2026-06-15).** The unifier keeps doing exactly one thing — evaluator-based
+*definitional (value) equality*: `Evaluator.force` both sides (= normalise) and compare, solving
+metavariables as inference on top (`Unifier.unify`). There is no second, weaker comparison and no
+notion of "assignability" inside unification. The directional part — that an `Int[0,5]` may be used
+where an `Int[0,10]` is expected — is handled *outside* the unifier, by an ordinary user-defined
+coercion that the checker inserts.
 
-The wrinkle is the same-head `VTopDef` case (`Unifier.scala:78-87`): for two type constructors with
-the same FQN, assignability is decided either by
+### Why not subtyping in the unifier
 
-1. running a `TypeRefinement.assignableFrom` implementation pulled from an FQN-keyed
-   `refinements: Map[ValueFQN, SemValue]` side-map (e.g. `Int[MIN,MAX]` subtyping), or
-2. falling back to structural `unifySpines`.
+`Int[0,5]` and `Int[0,10]` are genuinely **different values** (different `MAX`); no normalisation
+makes them equal, so this is not definitional equality. And because the bounds drive the chosen
+machine representation, `Int[0,5]` (a byte) is *not* bit-compatible with `Int[0,10]` (could be a
+word) — so it is not true subtyping either: a real, possibly representation-changing **conversion**
+may be required. Baking a `≤` relation into `unify` would therefore (a) lie about bit-compatibility
+and (b) re-introduce the directional comparison the cornerstone wants to avoid. The honest primitive
+is a conversion the programmer (stdlib) defines, applied at a well-defined site.
 
-Two things to make uniform / clarify, in increasing ambition:
+### The `Coerce` ability returning `Option`
 
-- **Separate the two concepts explicitly.** `unify` currently conflates *definitional equality*
-  (force + compare, principled) with *refinement/subtyping* (run a predicate). Subtyping is
-  genuinely a relation richer than equality (`Int[0,5]` ≤ `Int[0,10]` is not definitional equality),
-  so it legitimately needs *something* beyond equality — but the code should name that boundary
-  rather than burying it in a single `match` arm. Consider splitting "are these definitionally
-  equal?" from "is `actual` assignable to `expected`?" so the refinement path is a first-class step,
-  not an exception inside equality.
-- **Make assignability uniform rather than an FQN side-channel.** Today only constructors present in
-  the `refinements` map get predicate-driven assignability; everything else is structural. Evaluate
-  whether assignability can be expressed as "every type former optionally *is* an
-  `assignableFrom` value" reached through normal evaluation/ability resolution, so the `Unifier`
-  doesn't need a bespoke `Map` injected by `MonomorphicTypeCheckProcessor`. The end state: comparison
-  is always "force both, then either definitional-compare or run the type's own assignability value,"
-  with no per-FQN special table.
-- **Guard termination.** Running `assignableFrom` inside unification executes user/type-level code in
-  the checker (Girard's paradox means this can diverge). Coordinate with the termination model
-  (`project_recursion_as_effect`) — at minimum a stuck-residual/fuel guard so a non-terminating
-  refinement predicate fails as a compile error rather than hanging the compiler.
+Replace the predicate-only `TypeRefinement[T]` (`assignableFrom(target, source): Bool`, currently in
+`lang`, never implemented — see `Int.els`) with a **`Coerce` ability** whose method *performs* the
+conversion and whose `Some`/`None` result *is* the existence proof:
 
-Acceptance: definitional equality and assignability are distinguishable in the code (named methods
-or clearly separated arms); refinement is not a special case keyed on a hand-built FQN map; a
-divergent refinement predicate is caught rather than hanging. Behaviour for existing `Int[MIN,MAX]`
-tests is preserved.
+```
+ability Coerce[from, to] {        -- declared in lang: well-known, checker-invoked by name
+   def coerce(value: from): Option[to]
+}
+```
 
-Risk: this touches the live `Int[MIN,MAX]` frontier (`int-min-max-plan.md`). Do Phase 1 first;
-treat Phase 2 as a refactor to land *alongside* that work, not a prerequisite for it.
+The single parametric Int instance lives in **stdlib** (`Int.els`); the compiler hardcodes nothing
+but the *name* `Coerce` (by-name protocol recognition, the codebase's existing pattern):
+
+```
+implement [smin, smax, tmin, tmax] Coerce[Int[smin,smax], Int[tmin,tmax]] {
+   def coerce(value) =
+      if le(tmin, smin) && le(smax, tmax)   -- existence: depends ONLY on the bounds
+        then Some(nativeWiden(value))        -- payload: the (possibly runtime) conversion
+        else None
+}
+```
+
+**The two halves live in two phases, and NbE separates them automatically.** When the checker
+evaluates `coerce(x)` at compile time for `x : Int[0,5]` against `Int[0,10]`:
+
+- the `if` condition `le(0,0) && le(5,10)` has all bounds **known**, so NbE forces it to `true` — the
+  `Some`/`None` choice is decided entirely at compile time (your "the compiler can evaluate the
+  Option, it is pure code");
+- the payload `nativeWiden(x)` is **stuck on `x`** (the runtime value is unknown), so NbE leaves it
+  as a residual — a well-typed runtime expression;
+- result: `coerce(x)` ⤳ `Some(nativeWiden(x))`. The checker reads the `Some`, **unwraps it, and
+  splices `nativeWiden(x)` into the call site** as a bare `Int[0,10]`. There is no `Option` at
+  runtime and the user never handles one. For `Int[0,5] → Int[0,3]` it forces to `None` → the
+  coercion does not exist → compile-time type error.
+
+This is precisely the cornerstone's phase/erasure split: the type-only part (existence) is forced
+away at compile time, the value-dependent part (the byte→word `nativeWiden`) is residualised to
+codegen. When representations already match (`Int[0,5] → Int[0,6]`, both byte) the instance returns
+`Some(value)` and the payload is identity — zero runtime cost, same mechanism. Narrowing
+(`Int[0,10] → Int[0,5]`, value-dependent, genuinely fallible) is *not* this mechanism: it is an
+ordinary explicit stdlib function returning `Option`, with no checker support.
+
+It is more faithful than a separate `IsTrue`/evidence type would be: no bespoke witness type, no
+canonical-witness synthesis — the ability method's `Some`/`None` is the proof and its payload is the
+staged conversion, all through the one evaluator.
+
+### Where the directional logic lives — leaf check-mode, not `unify`
+
+Coercion insertion belongs in the bidirectional checker's **check mode** (`check/TypeStackLoop.scala`),
+where there is a known *expected* type and a freshly *inferred* actual — never in `unify` and never
+in inference (subtyping interacts badly with metavariable unification; confining it to check mode
+keeps inference symmetric):
+
+```
+check(term, expected):
+  actual = infer(term)
+  if unify(actual, expected): done                  -- pure definitional equality, unchanged
+  else resolve Coerce[actual, expected]:
+    evaluate coerce(term) via NbE:
+      Some(payload) => replace term with payload     -- payload may carry runtime nativeWiden
+      None          => report mismatch (contract violated)
+      stuck         => report mismatch / postpone    -- abstract bounds: cannot prove widening
+```
+
+Resolution is **two-level, so no conditional-instance machinery is required** (Eliot has none today —
+confirmed: no `given`/`where` constraints anywhere): the ability resolves the coercion *family* by
+constructor (one parametric `Coerce[Int[..],Int[..]]` instance), and the returned `Option` decides
+whether *these specific bounds* coerce. That is exactly the job constrained instances would have
+done, expressed as ordinary value-level code in the instance body.
+
+**Abstract bounds → `stuck`.** Inside a generic function where `a,b` are unknown, `le(...)` does not
+reduce, so `coerce(x)` is neither `Some` nor `None`; the checker then falls back to requiring
+definitional equality (or postpones until monomorphization makes the bounds concrete). You only get
+implicit widening where the compiler can actually see it is safe.
+
+### Scope for now (per 2026-06-15 decision)
+
+- **Leaf positions only.** Coerce at argument / let-binding / return positions (`Int[0,5]` passed
+  where `Int[0,10]` is expected). Coercing *inside* a constructor (`List[Int[0,5]] → List[Int[0,10]]`)
+  needs variance reasoning + a structural rewrite — deferred; leave a comment marking the boundary so
+  it is a known edge, not a silent gap.
+- **Termination guard deferred.** Evaluating `coerce` in the checker runs type-level code, which
+  Girard's paradox lets diverge. The stuck-residual/fuel guard is *not* part of this phase — it lands
+  later with the termination model (`project_recursion_as_effect`), the same guard the
+  `Int[MIN,MAX]` work needs.
+
+### Net change list
+
+- Delete `lang/resources/eliot/eliot/lang/TypeRefinement.els`; add the `Coerce` ability there, and a
+  `WellKnownTypes` FQN for `Coerce` (replacing `typeRefinementAssignableFromFQN`).
+- `stdlib/resources/eliot/eliot/lang/Int.els`: add the parametric `Coerce[Int,Int]` instance + the
+  native widen; drop the deferred-`TypeRefinement` comment.
+- `Unifier.scala`: remove the `VTopDef` refinement arm (`:74-87`) and the `refinements` field →
+  `unify` becomes pure definitional equality.
+- `MonomorphicTypeCheckProcessor`: remove `buildRefinements` / `assignableFromImpls` and the
+  `refinements =` wiring.
+- `check/TypeStackLoop.scala`: add the leaf check-mode coercion hook above.
+- Replace `RefinementUnifyTest` with a coercion-insertion test (`Int[0,5]` into `Int[0,10]` succeeds
+  and inserts the widen; into `Int[0,3]` is a type error).
+
+Acceptance: `unify` does only definitional equality (no `refinements` map, no assignability arm);
+implicit widening flows through a user-defined stdlib `Coerce` instance inserted in check mode;
+`Int[0,5] → Int[0,10]` succeeds while `Int[0,5] → Int[0,3]` is a compile error.
+
+Risk: touches the live `Int[MIN,MAX]` frontier (`int-min-max-plan.md`); land alongside that work. The
+deferred follow-ups it depends on (matching on the abstract `type Int` constructor to read bounds;
+literal-typing-as-`Int[V,V]`; the native widen) are tracked there.
 
 ---
 
