@@ -130,6 +130,49 @@ definitional (force/normalise via that evaluator, then compare) rather than a pa
 mechanism; and kind/arity metadata (e.g. `RoleHint.TypeConstructor`) stays out of semantic phases.
 See `docs/cornerstone-fidelity-plan.md` for the remaining clean-ups.
 
+## Language Cornerstone: Platform-Independence via Layers
+
+Eliot targets everything from an ATtiny to the JVM, so the language and its base stdlib commit to **no
+platform assumptions** — not even the size of an `Int`. The base layer is therefore written *purely
+abstractly*: it may only declare **`type` definitions without a body** and **`def`s without a body**
+(signature only). It never says *how* anything is represented or computed.
+
+- `type Int[MIN: BigInteger, MAX: BigInteger]` — an abstract type; no value constructor, no chosen width.
+- `def println(s: String): IO[Unit]` — an abstract function; signature only, no implementation.
+- `type Byte = Int[-128, 127]` — a `type` *with* a body is just an alias; still platform-neutral.
+
+A `type X = ...` (alias) and a body-less `type X` differ only by the presence of a body; a `data X(...)`
+declaration is the *concrete* form that additionally introduces a value constructor. **The base stdlib
+must avoid `data` and avoid `def` bodies** — those belong to platform layers (see
+[[feedback_stdlib_platform_independent]]).
+
+**Layers = redefinition, not inheritance.** A platform "implements" an abstract definition by simply
+*defining the same name again*, in its own root path, with a body. There is no `extends`, `override`
+keyword, or instance mechanism — co-located definitions of the same qualified name across root paths are
+**merged**, preferring the concrete one. Example: base declares `type IO[A]` and `def println(...): IO[Unit]`
+(abstract); the `jvm` layer redefines `data IO[A](block: Function[Unit, A])` and
+`def println(s) = IO(_ -> printlnInternal(s))` (concrete). The compiler unifies them into a single value.
+
+**How it works mechanically** (the `source` + `module` packages):
+- The compiler is given multiple **root paths** (CLI roots + classpath resources). `PathScanner`
+  (`source/scan/PathScanner.scala`) resolves a module path against *all* roots and returns *every*
+  matching file as one `PathScan`.
+- `ModuleNamesProcessor` extracts names per file; `UnifiedModuleNamesProcessor` flattens the name sets of
+  all files for a module into one.
+- For each name, `UnifiedModuleValueProcessor.scala` collects the `ModuleValue` from every file that
+  defines it and calls `unifyValues`. The abstract/concrete distinction is carried by
+  `core/fact/NamedValue.scala`'s `runtime: Option[Sourced[Expression]]` — `None` = abstract (no body),
+  `Some` = concrete. Unification rules:
+  - **Prefer the implementation**: pick the value whose `runtime.isDefined`; if none, keep the abstract one.
+  - **Reject conflicts**: more than one implementation → "Has multiple implementations."; differing
+    signatures → "Has multiple different definitions." (`signatureEquality` must hold across all layers, so
+    a layer may add a body but must not change the signature).
+
+So "implementing the abstract stdlib for a platform" = adding a layer (a root path) that re-declares the
+same names with bodies / as `data`. The base stays universal; each platform fills in representation and
+behaviour. (`data` desugars to an abstract type-constructor `FunctionDefinition` plus value-constructor
+functions via `DataDefinitionDesugarer`, so even concrete types reduce to the same `NamedValue` model.)
+
 ## Language Overview
 
 Eliot is a functional, strongly-typed language, with whole-application compilation
