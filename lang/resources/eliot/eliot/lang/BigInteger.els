@@ -8,7 +8,7 @@ type BigInteger
 
 /**
  * True iff `a` is less than or equal to `b`. Native: reduces when both arguments are
- * concrete, otherwise stays stuck. Reason for being in lang: used by the TypeRefinement
- * machinery to compare dependent-type bounds during checking.
+ * concrete, otherwise stays stuck. Reason for being in lang: used by the Coerce machinery
+ * to compare dependent-type bounds during checking.
  */
 def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool

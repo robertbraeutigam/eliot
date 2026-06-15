@@ -34,12 +34,15 @@ object WellKnownTypes {
   val lessThanOrEqualFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("lessThanOrEqual", Qualifier.Default))
 
-  /** The `assignableFrom` method of the `TypeRefinement` ability — invoked by the checker to decide assignability of
-    * two types built from the same type constructor.
+  /** The `coerce` method of the `Coerce` ability — the by-name protocol the checker resolves (in check mode) to insert
+    * an implicit, possibly representation-changing widening when an inferred type is used where a different expected
+    * type built from the same constructor is wanted (e.g. `Int[0,5]` where `Int[0,10]` is expected). The widening
+    * insertion itself is deferred (it lands with the `Int[MIN,MAX]` frontier); this FQN is the durable design
+    * commitment — see `docs/cornerstone-fidelity-plan.md` Phase 2.
     */
-  val typeRefinementAssignableFromFQN: ValueFQN =
+  val coerceFQN: ValueFQN =
     ValueFQN(
-      ModuleName(defaultSystemPackage, "TypeRefinement"),
-      QualifiedName("assignableFrom", Qualifier.Ability("TypeRefinement"))
+      ModuleName(defaultSystemPackage, "Coerce"),
+      QualifiedName("coerce", Qualifier.Ability("Coerce"))
     )
 }

@@ -4,6 +4,18 @@ Status: design settled; foundational machinery in place; the real `Int` use is
 the current frontier. This document is the durable reference for the
 `Int[MIN, MAX]` work so it survives across sessions.
 
+> **Superseded mechanism note (2026-06-15).** The assignability mechanism described
+> throughout this doc as the **`TypeRefinement` ability + a `refinements` hook in the
+> `Unifier`** has been **removed**. Per `docs/cornerstone-fidelity-plan.md` Phase 2,
+> `unify` is now pure definitional equality, and directional Int widening moves to a
+> user-defined **`Coerce` ability inserted in the checker's check mode** (returning
+> `Option`, discriminated via `fold`). So wherever this doc says "run `assignableFrom`
+> in `unify`," read "evaluate `Coerce.coerce` in check mode and splice the residual
+> widen." The `Int`-specific prerequisites below (TypeMatch-for-abstract-`type` to read
+> bounds, literal-typing-as-`Int[V,V]`, the native widen) are unchanged and still the
+> real work; only the assignability *seam* changed. The `Coerce`/`Option` declarations
+> and `WellKnownTypes.coerceFQN` already exist; the check-mode insertion does not yet.
+
 ## Current status (2026-06-11)
 
 - **Design settled.** Literal typing as `Int[V,V]`; the `TypeRefinement` ability

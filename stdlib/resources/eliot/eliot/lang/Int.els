@@ -15,7 +15,8 @@ type UnsignedLong    = Int[0, 18446744073709551615]
 
 infix def +[m1: BigInteger, M1: BigInteger, m2: BigInteger, M2: BigInteger](left: Int[m1, M1], right: Int[m2, M2]): Int[add(m1, m2), add(M1, M2)]
 
-// A range-subsumption `implement TypeRefinement[Int]` (Int[tmin,tmax] accepts Int[smin,smax] iff [smin,smax] is inside
-// [tmin,tmax]) is the intended use of the TypeRefinement hook, but it is deferred: extracting the bounds requires
-// matching on the abstract `type Int` constructor (TypeMatch is only generated for `data` types today), and producing
-// Int values requires literal-typing-as-Int[V,V]. Both are follow-ups in docs/int-min-max-plan.md.
+// A range-widening `implement [smin, smax, tmin, tmax] Coerce[Int[smin,smax], Int[tmin,tmax]]` (yielding Some(widen) iff
+// [smin,smax] is inside [tmin,tmax], else None) is the intended way the checker inserts implicit Int widening, but it is
+// deferred: it needs the Coerce check-mode insertion (docs/cornerstone-fidelity-plan.md Phase 2), an `Option` with
+// Some/None/fold natives, a native widen, and literal-typing-as-Int[V,V] so Int values actually arise. All are
+// follow-ups in docs/int-min-max-plan.md.

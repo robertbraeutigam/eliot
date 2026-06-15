@@ -26,8 +26,9 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * time by the Quoter).
   *
   * Bool is declared opaque in the language (`type Bool`); its compile-time representation is supplied here as
-  * `VConst(Direct(Boolean, …))` so type-level predicates (e.g. TypeRefinement) reduce during checking. `&&` reduces
-  * only when its arguments are concrete, otherwise it stays stuck so the unifier falls back to ordinary unification.
+  * `VConst(Direct(Boolean, …))` so type-level predicates (e.g. a Coerce instance's bounds check) reduce during
+  * checking. `&&` reduces only when its arguments are concrete, otherwise it stays stuck so the unifier falls back to
+  * ordinary unification.
   */
 class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
 

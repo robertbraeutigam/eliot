@@ -1,0 +1,11 @@
+/**
+ * An optional value: either present or absent.
+ *
+ * Declared abstract on purpose (no value constructors, no body): the concrete representation is platform-dependent, in
+ * keeping with the platform-independence-via-layers cornerstone. A platform layer supplies the constructors / eliminator
+ * (`Some`/`None`/`fold`) by redefining this name with a body.
+ *
+ * Reason for being in lang: the `Coerce` ability (a type-checking ability) returns an `Option`, so the type must be
+ * resolvable from the language layer.
+ */
+type Option[A]

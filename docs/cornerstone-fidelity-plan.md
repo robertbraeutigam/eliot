@@ -27,8 +27,10 @@ ordinary bound value. Unsolved metas surface as explicit errors (`PostDrainQuote
 What remains is therefore modest: (1) ~~**stale documentation/comments** that still describe the
 removed second evaluator~~ — **done (Phase 1)**; (2) one **genuine design refinement** — keep
 `Unifier` as pure definitional equality and move widening out to a user-defined `Coerce` ability
-that the checker inserts (design decided 2026-06-15, Phase 2 below); (3) a low-priority **guardrail**
-keeping kind metadata out of semantic phases.
+that the checker inserts (design decided 2026-06-15; the unifier-purification half is **done
+(2026-06-15)**, the check-mode widening insertion is **deferred** to land with the `Int[MIN,MAX]`
+frontier — Phase 2 below); (3) a low-priority **guardrail** keeping kind metadata out of semantic
+phases.
 
 Explicitly **out of scope** (sanctioned sugar or principled primitives, not violations):
 `Qualifier.Type`/`Default`, `[]` vs `()`, `Pattern.isTypePattern`, the restricted `typeParser`,
@@ -71,6 +73,20 @@ and `int-min-max-plan.md`), not live architectural claims.
 ---
 
 ## Phase 2 — `Unifier` is pure definitional equality; widening is a user-defined `Coerce` ability
+
+**Status (2026-06-15): split executed.** The cornerstone half — making `unify` pure definitional
+equality — is **done**: the `refinements` map, the `VTopDef`-same-FQN assignability arm, and
+`MonomorphicTypeCheckProcessor.buildRefinements` were removed; `TypeRefinement.els` /
+`RefinementUnifyTest` deleted; the durable `Coerce` design commitment is in place (`Coerce.els` +
+abstract `Option.els` in `lang`, `WellKnownTypes.coerceFQN`). The other half — the **check-mode
+coercion insertion** that actually splices an implicit widen — is **deferred**: it depends on
+machinery that does not exist yet (an `Option` with `Some`/`None`/`fold` natives, a `nativeWiden`, a
+value→runtime-expression read-back, and literal-typing-as-`Int[V,V]` so `Int`-typed values arise) and
+lands with the `Int[MIN,MAX]` frontier (`int-min-max-plan.md`). Net effect today: there is no implicit
+widening at all (the abandoned `TypeRefinement` path is gone, the `Coerce` path not yet wired) — a
+deliberate, temporary gap until the Int work lands.
+
+The design below is the still-current spec for that deferred insertion.
 
 **Design decided (2026-06-15).** The unifier keeps doing exactly one thing — evaluator-based
 *definitional (value) equality*: `Evaluator.force` both sides (= normalise) and compare, solving
@@ -192,30 +208,48 @@ implicit widening where the compiler can actually see it is safe.
 
 ### Net change list
 
-- Delete `lang/resources/eliot/eliot/lang/TypeRefinement.els`; add the `Coerce` ability there, and a
-  `WellKnownTypes` FQN for `Coerce` (replacing `typeRefinementAssignableFromFQN`).
+**Done (2026-06-15) — unifier purification + durable `Coerce` commitment:**
+
+- ✅ Deleted `lang/resources/eliot/eliot/lang/TypeRefinement.els`; added the `Coerce` ability
+  (`Coerce.els`) and an abstract `Option.els` (`type Option[A]`, body-less, platform-independent) it
+  references, both in `lang`; added `WellKnownTypes.coerceFQN` (replacing
+  `typeRefinementAssignableFromFQN`).
+- ✅ `Unifier.scala`: removed the `VTopDef` refinement arm and the `refinements` field → `unify` is
+  pure definitional equality (same-FQN `VTopDef` now just zips spines).
+- ✅ `MonomorphicTypeCheckProcessor`: removed `buildRefinements` / `resolveRefinement` /
+  `assignableFromImpls` / `markerMatches` and the `refinements =` wiring; `TypeStackLoop` lost its
+  `refinements` parameter and the seeding line.
+- ✅ Deleted `RefinementUnifyTest` (it tested the removed `TypeRefinement`-in-`unify` hook) and the
+  now-unused `ProcessorTest.typeRefinementImportContent`. Reconciled comments in `Bool.els`,
+  `BigInteger.els`, `SystemNativesProcessor`, `Int.els`, and the `eliot-monomorphize` skill.
+- Verified: full `__.compile`, `lang`/`jvm`/`eliotc` test suites green, HelloWorld example builds &
+  runs.
+
+**Deferred — check-mode coercion insertion (lands with the `Int[MIN,MAX]` frontier):**
+
 - `stdlib/resources/eliot/eliot/lang/Int.els`: add the parametric `Coerce[Int,Int]` instance + the
-  native widen; drop the deferred-`TypeRefinement` comment.
-- `Unifier.scala`: remove the `VTopDef` refinement arm (`:74-87`) and the `refinements` field →
-  `unify` becomes pure definitional equality.
-- `MonomorphicTypeCheckProcessor`: remove `buildRefinements` / `assignableFromImpls` and the
-  `refinements =` wiring.
+  native widen.
 - `check/TypeStackLoop.scala`: add the leaf check-mode coercion hook above. It discriminates the
   `Option` result through the abstract `fold` eliminator, **not** a constructor match.
 - Ensure `Option`'s `fold` (and the `Some`/`None` constructors) have compiler-side native reductions
   in the evaluator (`fold(Some p,…) ⤳ s p`, `fold(None,…) ⤳ n`) so the discrimination above forces at
-  compile time. `Option` stays an opaque platform `type`; reuse the existing `NativeFunction`
-  compiler-as-platform path rather than introducing a `data Option`.
-- Replace `RefinementUnifyTest` with a coercion-insertion test (`Int[0,5]` into `Int[0,10]` succeeds
-  and inserts the widen; into `Int[0,3]` is a type error).
+  compile time. `Option` stays an opaque platform `type` (the abstract `Option.els` is in place);
+  reuse the existing `NativeFunction` compiler-as-platform path rather than introducing a `data Option`.
+- The payload read-back is **value → runtime-expression**, a new direction from today's type-only
+  `Quoter` (which *rejects* neutrals): the residual `nativeWiden · x` neutral must read back to a
+  `MonomorphicExpression.FunctionApplication`, treating the stuck native/var as the *desired* output,
+  not an error. Not a reuse of `Quoter.quote` as-is.
+- Add a coercion-insertion test (`Int[0,5]` into `Int[0,10]` succeeds and inserts the widen; into
+  `Int[0,3]` is a type error) — replaces the deleted `RefinementUnifyTest`.
 
-Acceptance: `unify` does only definitional equality (no `refinements` map, no assignability arm);
-implicit widening flows through a user-defined stdlib `Coerce` instance inserted in check mode;
-`Int[0,5] → Int[0,10]` succeeds while `Int[0,5] → Int[0,3]` is a compile error.
+Acceptance (done part): `unify` does only definitional equality (no `refinements` map, no
+assignability arm) — **met**. Acceptance (deferred part): implicit widening flows through a
+user-defined stdlib `Coerce` instance inserted in check mode; `Int[0,5] → Int[0,10]` succeeds while
+`Int[0,5] → Int[0,3]` is a compile error.
 
-Risk: touches the live `Int[MIN,MAX]` frontier (`int-min-max-plan.md`); land alongside that work. The
-deferred follow-ups it depends on (matching on the abstract `type Int` constructor to read bounds;
-literal-typing-as-`Int[V,V]`; the native widen) are tracked there.
+Risk: the deferred half touches the live `Int[MIN,MAX]` frontier (`int-min-max-plan.md`); land
+alongside that work. The follow-ups it depends on (matching on the abstract `type Int` constructor to
+read bounds; literal-typing-as-`Int[V,V]`; the native widen) are tracked there.
 
 ---
 

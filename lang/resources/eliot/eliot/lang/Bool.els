@@ -3,8 +3,8 @@
  * Declared opaque on purpose: the concrete representation is platform-dependent
  * (the JVM backend maps it to a platform boolean). The compiler provides a
  * compile-time representation via native reductions so that type-level predicates
- * (for example TypeRefinement) reduce during type checking.
- * Reason for being in lang: TypeRefinement (a type-checking ability) depends on it.
+ * (for example a Coerce instance's bounds check) reduce during type checking.
+ * Reason for being in lang: type-checking abilities (such as Coerce) depend on it.
  */
 type Bool
 
