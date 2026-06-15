@@ -121,10 +121,23 @@ evaluates `coerce(x)` at compile time for `x : Int[0,5]` against `Int[0,10]`:
   Option, it is pure code");
 - the payload `nativeWiden(x)` is **stuck on `x`** (the runtime value is unknown), so NbE leaves it
   as a residual — a well-typed runtime expression;
-- result: `coerce(x)` ⤳ `Some(nativeWiden(x))`. The checker reads the `Some`, **unwraps it, and
-  splices `nativeWiden(x)` into the call site** as a bare `Int[0,10]`. There is no `Option` at
-  runtime and the user never handles one. For `Int[0,5] → Int[0,3]` it forces to `None` → the
+- result: `coerce(x)` ⤳ `Some(nativeWiden(x))`. The checker then **discriminates this through
+  Option's abstract `fold`** (see below), reaching the some-branch, and **splices `nativeWiden(x)`
+  into the call site** as a bare `Int[0,10]`. There is no `Option` at runtime and the user never
+  handles one. For `Int[0,5] → Int[0,3]` it forces to `None` → `fold` reaches the none-branch → the
   coercion does not exist → compile-time type error.
+
+**Discriminating via `fold`, not a constructor match.** `Option` (like `Bool`, `Int`) is an *opaque
+platform `type`*, not a `data` declaration — its representation is defined per-backend, so there are
+no `Some`/`None` constructors the compile-time evaluator can pattern-match on. The checker instead
+applies Option's abstract eliminator `fold` with two checker-internal sentinels — roughly
+`fold(coerce(term), onNone = ⟨reject⟩, onSome = λp. ⟨accept p⟩)` — and evaluates *that*. The
+compile-time reduction rules `fold(Some(p), n, s) ⤳ s(p)` and `fold(None, n, s) ⤳ n` are supplied by
+the compiler-as-platform native (`NativeFunction`); the backend supplies a different native for the
+real layout. Because the existence decision is bounds-only (known), the `fold` reduces at compile
+time to either `accept(nativeWiden(term))` — from which the checker reads back the residual payload —
+or `reject`. The same applies one level down: the instance body's `if … then Some … else None` is
+itself `Bool`/`Option` abstract operations (natives), not surface constructors.
 
 This is precisely the cornerstone's phase/erasure split: the type-only part (existence) is forced
 away at compile time, the value-dependent part (the byte→word `nativeWiden`) is residualised to
@@ -149,10 +162,10 @@ check(term, expected):
   actual = infer(term)
   if unify(actual, expected): done                  -- pure definitional equality, unchanged
   else resolve Coerce[actual, expected]:
-    evaluate coerce(term) via NbE:
-      Some(payload) => replace term with payload     -- payload may carry runtime nativeWiden
-      None          => report mismatch (contract violated)
-      stuck         => report mismatch / postpone    -- abstract bounds: cannot prove widening
+    evaluate  fold(coerce(term), onNone, onSome)  via NbE:   -- discriminate via abstract fold
+      accept(payload) => replace term with payload   -- payload may carry runtime nativeWiden
+      reject          => report mismatch (contract violated)
+      stuck           => report mismatch / postpone  -- abstract bounds: cannot prove widening
 ```
 
 Resolution is **two-level, so no conditional-instance machinery is required** (Eliot has none today —
@@ -187,7 +200,12 @@ implicit widening where the compiler can actually see it is safe.
   `unify` becomes pure definitional equality.
 - `MonomorphicTypeCheckProcessor`: remove `buildRefinements` / `assignableFromImpls` and the
   `refinements =` wiring.
-- `check/TypeStackLoop.scala`: add the leaf check-mode coercion hook above.
+- `check/TypeStackLoop.scala`: add the leaf check-mode coercion hook above. It discriminates the
+  `Option` result through the abstract `fold` eliminator, **not** a constructor match.
+- Ensure `Option`'s `fold` (and the `Some`/`None` constructors) have compiler-side native reductions
+  in the evaluator (`fold(Some p,…) ⤳ s p`, `fold(None,…) ⤳ n`) so the discrimination above forces at
+  compile time. `Option` stays an opaque platform `type`; reuse the existing `NativeFunction`
+  compiler-as-platform path rather than introducing a `data Option`.
 - Replace `RefinementUnifyTest` with a coercion-insertion test (`Int[0,5]` into `Int[0,10]` succeeds
   and inserts the widen; into `Int[0,3]` is a type error).
 
