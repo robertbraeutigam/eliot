@@ -42,6 +42,14 @@ class MonomorphicTypeCheckTest
       MonomorphicTypeCheckProcessor()
     ) {
 
+  // --- Explicit integerLiteral constructor (int-min-max-plan Phase 2) ---
+
+  "explicit integerLiteral" should "type-check to the singleton Int[V, V]" in {
+    runForErrors(
+      "type Int[MIN: BigInteger, MAX: BigInteger]\ndef integerLiteral[V: BigInteger]: Int[V, V]\ndef f: Int[5, 5] = integerLiteral[5]"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   // --- Function call tests ---
 
   "function call" should "compile if same number of arguments" in {

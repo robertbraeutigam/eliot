@@ -1,18 +1,23 @@
 # Plan: Implementing `Int[MIN, MAX]` (dependent integer type)
 
-Status: design settled; foundational machinery in place. The frontier is Phase 2 +
-Phase 3 (literal typing as `Int[V,V]`, then the check-mode `Coerce` insertion). This
-document is the durable cross-session reference.
+Status: design settled; foundational machinery in place. The frontier is Phase 3 (the
+check-mode `Coerce` insertion). Literal typing as `Int[V,V]` is built and tested via an
+**explicit** `integerLiteral[n]` constructor (Phase 2) and only flipped to the global
+default literal type at the **end** (Phase 6), once the supporting machinery works — see
+"De-risking: explicit constructor first, global flip last." This document is the durable
+cross-session reference.
 
 ## Goal & chosen model
 
 Make `Int[MIN, MAX]` a real, usable dependent integer type:
 
-- Integer literals carry their value as a singleton type `Int[V, V]` — achieved by a
-  **frontend desugar** that wraps every *value-position* literal `n` into a call
-  `integerLiteral[n]` (wiring up the `Runtime.els` decls `IntegerLiteralType[V] = Int[V, V]`
-  and `def integerLiteral[V: BigInteger]: Int[V, V]`). Monomorphize is **not** involved
-  (see "Literals as `Int[V,V]`" below).
+- Integer literals carry their value as a singleton type `Int[V, V]`. This is reached in
+  two steps so the tree never breaks: first the value is mintable **explicitly** as
+  `integerLiteral[n] : Int[V, V]` (the `Runtime.els` decls `IntegerLiteralType[V] = Int[V, V]`
+  and `def integerLiteral[V: BigInteger]: Int[V, V]` already exist), used in tests while bare
+  literals stay `BigInteger`; only at the end does a **frontend desugar** wrap every
+  *value-position* literal `n` into `integerLiteral[n]`, making `Int[V,V]` the default. Monomorphize
+  is **not** involved either way (see "Literals as `Int[V,V]`" below).
 - Range compatibility (using `Int[0,5]` where `Int[0,10]` is expected) is decided
   by a user-space **`Coerce` ability inserted in the checker's check mode** — *not*
   by the unifier. `unify` is pure definitional equality.
@@ -41,6 +46,22 @@ The principled stance: **`BigInteger` values arise only in type/bound position o
 concrete need for value-position `BigInteger` appears, add a `Coerce[Int[V,V], BigInteger]`
 (semantically sound — the singleton's value *is* the bound) rather than reintroducing
 expected-type-directed typing.
+
+## De-risking: explicit constructor first, global flip last
+
+The global literal flip (value-position `n` ⟹ `integerLiteral[n]`) is the single **most
+dependent** step, not the least: the instant bare literals become `Int[V,V]`, ordinary code
+like `def x: Int[0,10] = 5` needs `Int[5,5] → Int[0,10]` widening — i.e. the check-mode
+`Coerce` insertion of Phase 3. Doing the flip first therefore breaks the whole tree (every
+literal retyped, no widening, no arithmetic) while delivering *no* working `Int`.
+
+So the order is inverted: build and test all the `Int` machinery (Coerce widening, branch
+join, arithmetic) against the **explicit** `integerLiteral[n]` constructor — which already
+exists and needs no global change — while bare literals keep meaning `BigInteger` and the
+codebase stays green. Each phase is validated in isolation (e.g. `f(integerLiteral[3])` against
+`def f(x: Int[0,10])` exercises `Coerce` end to end). Only once that all works does Phase 6
+perform the one-line `CoreExpressionConverter` desugar that makes `Int[V,V]` the default literal
+type, together with its `BigInteger`-value-position fallout audit.
 
 ## What exists today (the foundation)
 
@@ -199,28 +220,19 @@ mode; `Int[0,5] → Int[0,10]` succeeds while `Int[0,5] → Int[0,3]` is a compi
 The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque `Bool`,
 `Coerce`/`Option` declared, pure `unify`). The phases below are the `Int`-specific work on top.
 
-- **Phase 2 — Literals as `Int[V,V]` (frontend desugar; monomorphize untouched).**
-  - `core/processor/CoreExpressionConverter.scala`: in the `IntegerLiteral` case (currently
-    ignores `typeContext`), when `typeContext == false` rewrite `n` into a
-    `NamedValueReference("integerLiteral", typeArgs = Seq(IntegerLiteral(n)))` — i.e.
-    `integerLiteral[n]`. When `typeContext == true`, leave the bare literal. The inner `[n]`
-    lands in `typeArgs` (type context), so it stays `BigInteger`. (The match-desugarers already
-    synthesise FQN-keyed calls this way — `DataMatchDesugarer.buildHandleCasesCall`,
-    `TypeMatchDesugarer`.)
-  - **Why monomorphize needs no change:** after the wrap, the only bare `IntegerLiteral`s that
-    reach monomorphize are type/bound-position ones, so the existing `Checker.scala`
-    "bare literal ⟹ `BigInteger`" rule becomes correct *by construction*. Value-position literals
-    are ordinary `integerLiteral[n]` applications, type-checked/evaluated by the generic machinery.
-  - `integerLiteral` is a **platform-layered def** (layers cornerstone, like `println`/`IO`):
-    base `Runtime.els` declares it abstract (`def integerLiteral[V: BigInteger]: Int[V, V]` —
-    already present, currently dead); the jvm layer redefines it with a body emitting the
-    right-sized integer (do this in Phase 5 with the arithmetic, or a trivial body now). For
-    type-checking the abstract decl suffices — `integerLiteral[5] : Int[5,5]` from the signature,
-    value stays a runtime residual. A compile-time `NativeBinding` is only needed once constant
-    folding of runtime ints is wanted (Phase 5+), and even then it is *data* for the existing
-    evaluator, not a code change.
-  - Audit tests/stdlib for the value-position `BigInteger` pattern (`def … : BigInteger = <lit>`)
-    — see the Phase-2 tradeoff under "Key insight".
+- **Phase 2 — Explicit `integerLiteral[n]` constructor (de-risk; no global flip).**
+  - The base `Runtime.els` already declares `def integerLiteral[V: BigInteger]: Int[V, V]`
+    (abstract) and `IntegerLiteralType[V] = Int[V, V]`. Goal of this phase: make `integerLiteral[n]`
+    usable *explicitly* in value position and type-check to `Int[n,n]` from the signature (value
+    stays a runtime residual), **without** touching `CoreExpressionConverter` — bare literals keep
+    meaning `BigInteger`, so the tree stays green and nothing is retyped yet.
+  - This is the safe test harness for Phases 3–5: widening/join/arithmetic are all exercised with
+    explicit `integerLiteral[n]` literals. No `BigInteger`-value-position fallout until Phase 6.
+  - `integerLiteral` is a **platform-layered def** (layers cornerstone, like `println`/`IO`): the
+    abstract decl suffices for type-checking now; the jvm-layer body that emits the right-sized
+    integer lands with the arithmetic in Phase 5 (a trivial body earlier is fine). A compile-time
+    `NativeBinding` is only needed once constant folding of runtime ints is wanted (Phase 5+), and
+    even then it is *data* for the existing evaluator, not a code change.
 - **Phase 3 — `Coerce[Int,Int]` instance + check-mode insertion (range subsumption). (FRONTIER.)**
   Write the parametric `Coerce` instance in `Int.els` and add the leaf check-mode hook in
   `TypeStackLoop` — see "Check-mode `Coerce` insertion" for the full design and work items. The
@@ -239,7 +251,22 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
   **JVM** `NativeImplementation` (`LADD`/`LSUB`/`LMUL`, unbox Long -> op -> rebox)
   for runtime. Runtime stays `Long`. `Int.els` already declares `+` with the
   dependent-bounds signature; back it with both natives.
-- **Phase 6 — Tests / examples / docs.** Literal typing; range accept/reject; arithmetic bounds; a
+- **Phase 6 — Flip literals to `Int[V,V]` (the global switchover; monomorphize untouched).** Now
+  that widening/join/arithmetic work and are tested, make `Int[V,V]` the default literal type:
+  - `core/processor/CoreExpressionConverter.scala`: in the `IntegerLiteral` case (currently ignores
+    `typeContext`), when `typeContext == false` rewrite `n` into a
+    `NamedValueReference("integerLiteral", typeArgs = Seq(IntegerLiteral(n)))` — i.e.
+    `integerLiteral[n]`. When `typeContext == true`, leave the bare literal. The inner `[n]` lands in
+    `typeArgs` (type context), so it stays `BigInteger`. (The match-desugarers already synthesise
+    FQN-keyed calls this way — `DataMatchDesugarer.buildHandleCasesCall`, `TypeMatchDesugarer`.)
+  - **Why monomorphize needs no change:** after the wrap, the only bare `IntegerLiteral`s that reach
+    monomorphize are type/bound-position ones, so the existing `Checker.scala` "bare literal ⟹
+    `BigInteger`" rule becomes correct *by construction*. Value-position literals are ordinary
+    `integerLiteral[n]` applications, type-checked/evaluated by the generic machinery.
+  - Audit tests/stdlib for the value-position `BigInteger` pattern (`def … : BigInteger = <lit>`) —
+    see the tradeoff under "Key insight". This fallout is now contained to the final phase, with the
+    `Coerce` safety net already in place.
+- **Phase 7 — Tests / examples / docs.** Literal typing; range accept/reject; arithmetic bounds; a
   JVM run test; an example `.els`; fold notes back here.
 
 ## Decisions & open sub-decisions
@@ -253,7 +280,10 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
 - DECIDED: literal typing is a **frontend desugar** (value-position `n` → `integerLiteral[n]`),
   *not* expected-type-directed typing in the Checker; `integerLiteral` is a platform-layered def.
   Monomorphize is untouched. Literal kind is positional (type vs value context), so value-position
-  `BigInteger` literals are unsupported (see the Phase-2 tradeoff under "Key insight").
+  `BigInteger` literals are unsupported (see the tradeoff under "Key insight").
+- DECIDED (ordering): the global desugar is the **last** step (Phase 6), not the first. It is the
+  most dependent change (a flipped literal needs Phase 3 widening to be usable), so `Int` is built
+  and tested against the explicit `integerLiteral[n]` constructor first — see "De-risking."
 - DECIDED: `Bool` is an opaque `type Bool` in `lang` with compile-time natives (not a `data` type) —
   its representation is platform-dependent.
 - OPEN (Phase 4): the ability home and shape of the branch/match join (`Int[min,max]`).
@@ -308,7 +338,8 @@ together, later.
 
 ## Risks
 
-- Literal-retyping fallout in existing tests/stdlib (Phase 2).
+- Literal-retyping fallout in existing tests/stdlib — now deferred to the global flip (Phase 6),
+  with the `Coerce` widening net already in place.
 - Check-mode insertion machinery (Phase 3): the `Option` `fold` natives and the
   value→runtime read-back `Quoter` direction are the genuinely new parts.
 - **Termination (becomes load-bearing at Phase 3).** Running user code at compile
