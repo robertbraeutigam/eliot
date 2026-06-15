@@ -59,6 +59,10 @@ class TypeStackLoop(
       // standing metas, which re-feeds the next drain. Iterates until no new ability resolves, bounded for safety.
       _ <- drainAndResolveLoop(abilityRefs, resolvedValue.paramConstraints)
 
+      // Discharge deferred result-against-expected checks now that every combinable meta has its final solution (a
+      // Combine join or its single candidate) — the join, not the first candidate, must fit a narrower declared type.
+      _ <- checker.resolveUpperBounds
+
       // Default any still-unsolved metas to VType. Type parameters that were never constrained (phantom types) and
       // implicit domain/codomain metas from non-VPi application paths are all treated uniformly here: if unification
       // has not solved them by this point, they have no runtime impact and can safely be Type. Abstract
@@ -118,13 +122,18 @@ class TypeStackLoop(
   ): CheckIO[Unit] = {
     val step: CheckIO[Boolean] =
       for {
-        _          <- modify(s => s.withUnifier(s.unifier.drain()))
-        state      <- get
-        unresolved  = allRefs.filterNot { case (ref, _) => state.abilityResolutions.contains(ref) }
-        progressed <- unresolved.foldLeftM(false) { (acc, ref) =>
-                        tryResolveOne(ref, paramConstraints).map(_ || acc)
-                      }
-      } yield progressed
+        _                 <- modify(s => s.withUnifier(s.unifier.drain()))
+        state             <- get
+        unresolved         = allRefs.filterNot { case (ref, _) => state.abilityResolutions.contains(ref) }
+        abilityProgressed <- unresolved.foldLeftM(false) { (acc, ref) =>
+                               tryResolveOne(ref, paramConstraints).map(_ || acc)
+                             }
+        // Resolve covariant multi-candidate metavariables to their `Combine` join (Phase 4). Drain first so any
+        // candidate that depends on a just-resolved ability is ground; a newly-joined meta may in turn unblock a
+        // postponed constraint, so a positive result re-iterates the loop.
+        _                 <- modify(s => s.withUnifier(s.unifier.drain()))
+        combineProgressed <- checker.resolveCombines
+      } yield abilityProgressed || combineProgressed
 
     def loop: CheckIO[Unit] = step.flatMap(if (_) loop else pure(()))
     loop

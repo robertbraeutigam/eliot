@@ -1,5 +1,6 @@
 import eliot.lang.Bool
 import eliot.lang.Coerce
+import eliot.lang.Combine
 import eliot.lang.Option
 
 /**
@@ -47,3 +48,12 @@ def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigI
  * conversion.
  */
 implement[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] { def coerce(value: Int[Smin, Smax]): Option[Int[Tmin, Tmax]] = fold(lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax), some(nativeWiden(value)), none) }
+
+/**
+ * Combining two integer ranges yields the range that covers both: the lower bound is the minimum of the two minima and
+ * the upper bound is the maximum of the two maxima. This is the join used to type a `match` whose branches return
+ * different integer ranges (or `f[A](a: A, b: A): A` called with different ranges): the checker solves the covariant
+ * result metavariable to this `Combined` type, then the `Coerce` instance above widens each contributor into it (which
+ * always exists, since the joined range contains both by construction). See `docs/int-min-max-plan.md` ("Phase 4").
+ */
+implement[Amin: BigInteger, Amax: BigInteger, Bmin: BigInteger, Bmax: BigInteger] Combine[Int[Amin, Amax], Int[Bmin, Bmax]] { type Combined = Int[min(Amin, Bmin), max(Amax, Bmax)] }

@@ -12,3 +12,15 @@ type BigInteger
  * to compare dependent-type bounds during checking.
  */
 def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool
+
+/**
+ * The smaller of `a` and `b`. Native: reduces when both arguments are concrete, otherwise stays stuck. Reason for
+ * being in lang: used by the `Combine[Int, Int]` instance to compute a joined bound range during checking.
+ */
+def min(a: BigInteger, b: BigInteger): BigInteger
+
+/**
+ * The larger of `a` and `b`. Native: reduces when both arguments are concrete, otherwise stays stuck. Reason for
+ * being in lang: used by the `Combine[Int, Int]` instance to compute a joined bound range during checking.
+ */
+def max(a: BigInteger, b: BigInteger): BigInteger

@@ -10,6 +10,8 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   boolTrueFQN,
   functionDataTypeFQN,
   lessThanOrEqualFQN,
+  maxFQN,
+  minFQN,
   typeFQN
 }
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
@@ -50,6 +52,10 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
       NativeBinding(boolFoldFQN, boolFoldNative).pure[CompilerIO]
     } else if (key.vfqn === lessThanOrEqualFQN) {
       NativeBinding(lessThanOrEqualFQN, lessThanOrEqualNative).pure[CompilerIO]
+    } else if (key.vfqn === minFQN) {
+      NativeBinding(minFQN, bigIntBinaryNative(minFQN)((a, b) => a min b)).pure[CompilerIO]
+    } else if (key.vfqn === maxFQN) {
+      NativeBinding(maxFQN, bigIntBinaryNative(maxFQN)((a, b) => a max b)).pure[CompilerIO]
     } else {
       abort
     }
@@ -76,6 +82,29 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
       if (x <= y) Evaluator.trueValue else Evaluator.falseValue
     case _                                                                                    =>
       VTopDef(lessThanOrEqualFQN, None, Spine.SNil :+ a :+ b)
+  }
+
+  /** A curried `BigInteger -> BigInteger -> BigInteger` native (e.g. `min`/`max`): reduces to a concrete BigInteger
+    * when both arguments are concrete, otherwise stays stuck (so the unifier falls back to ordinary unification on the
+    * still-abstract bounds). Mirrors [[lessThanOrEqualNative]]'s concreteness discipline.
+    */
+  private def bigIntBinaryNative(fqn: com.vanillasource.eliot.eliotc.module.fact.ValueFQN)(
+      op: (BigInt, BigInt) => BigInt
+  ): SemValue = {
+    val bigIntType = VTopDef(bigIntFQN, None, Spine.SNil)
+    VNative(bigIntType, a => VNative(bigIntType, b => bigIntBinaryResult(fqn, op, a, b)))
+  }
+
+  private def bigIntBinaryResult(
+      fqn: com.vanillasource.eliot.eliotc.module.fact.ValueFQN,
+      op: (BigInt, BigInt) => BigInt,
+      a: SemValue,
+      b: SemValue
+  ): SemValue = (a, b) match {
+    case (VConst(GroundValue.Direct(x: BigInt, t)), VConst(GroundValue.Direct(y: BigInt, _))) =>
+      VConst(GroundValue.Direct(op(x, y), t))
+    case _                                                                                    =>
+      VTopDef(fqn, None, Spine.SNil :+ a :+ b)
   }
 
   /** `&&(a, b)`: reduces to `Direct(a && b)` when both arguments are concrete Bools, otherwise stays stuck. */

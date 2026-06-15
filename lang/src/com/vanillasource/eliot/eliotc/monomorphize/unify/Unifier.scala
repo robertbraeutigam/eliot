@@ -23,16 +23,57 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * Directional coercion (e.g. an `Int[0,5]` used where an `Int[0,10]` is expected) is a separate concern handled
   * outside the unifier by a user-defined `Coerce` ability that the checker inserts in check mode — see
   * `docs/int-min-max-plan.md` ("Check-mode `Coerce` insertion").
+  *
+  * `combinable`/`candidates` support the Phase 4 `Combine` ability without breaking the purity above. A metavariable
+  * that sits in a covariant position (a `match` result, a result-position type parameter) is registered as
+  * `combinable`; when a *second, definitionally-unequal* type is unified against such a meta, instead of failing the
+  * unification (first-candidate-wins) we accumulate it as a candidate constraint and leave the meta solved to its first
+  * candidate. The checker later resolves these candidates to their `Combine` join at drain time
+  * ([[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.resolveCombines]]). A meta is *un*-registered (tainted)
+  * the moment it appears in a [[VPi]] domain — a contravariant position where joining would be unsound. When no
+  * `Combine` instance applies (or the meta was tainted), the checker re-unifies the candidates strictly, surfacing the
+  * ordinary mismatch — so unification stays first-candidate-wins for everything that has no `Combine` instance.
+  *
+  * @param combinable
+  *   Raw ids of metavariables eligible for `Combine`-based multi-candidate resolution (covariant positions only).
+  * @param candidates
+  *   For each combinable meta, the types unified against it (with their source contexts), in arrival order.
   */
 case class Unifier(
     metaStore: MetaStore,
     depth: Int,
     postponed: List[(SemValue, SemValue, Sourced[String])],
-    errors: List[UnifyError]
+    errors: List[UnifyError],
+    combinable: Set[Int] = Set.empty,
+    candidates: Map[Int, List[(SemValue, Sourced[String])]] = Map.empty
 ) {
 
-  /** Unify two semantic values, reporting errors with the given context message and source position. */
-  def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = {
+  /** Register a metavariable as combinable (covariant). Called by the checker when it allocates an implicit
+    * type-parameter instantiation meta (see [[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.peelLams]]).
+    */
+  def markCombinable(id: MetaId): Unifier = copy(combinable = combinable + id.value)
+
+  /** Unify two semantic values, reporting errors with the given context message and source position.
+    *
+    * Before forcing, intercept a *contribution to an already-solved combinable metavariable* — a concrete type unified
+    * against a combinable meta (always the expected/right side, since contributions arrive via `check(arg, ?A)`) that is
+    * already solved to a different first candidate. Rather than the ordinary first-candidate-wins mismatch, the new
+    * candidate is accumulated for `Combine` resolution at drain time and the unification succeeds. (The first candidate
+    * is recorded when the meta is solved in [[solveMeta]].) Everything else — including the result-against-expected
+    * direction `?A ~ E`, which stays first-candidate-wins so the checker's check-mode `Coerce` handles it — falls
+    * through to [[unifyForced]], keeping `unify` pure definitional equality.
+    */
+  def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = r match {
+    case VMeta(id, Spine.SNil) if combinable.contains(id.value) && metaStore.lookup(id).nonEmpty =>
+      val solution = metaStore.lookup(id).get
+      val trial    = unifyForced(l, solution, context)
+      if (trial.errors.size == errors.size) trial
+      else recordCandidate(id, l, context)
+    case _                                                                                       =>
+      unifyForced(l, r, context)
+  }
+
+  private def unifyForced(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = {
     val fl = Evaluator.force(l, metaStore)
     val fr = Evaluator.force(r, metaStore)
     (fl, fr) match {
@@ -43,8 +84,14 @@ case class Unifier(
         else this
 
       case (VPi(d1, c1), VPi(d2, c2)) =>
+        // Domains are contravariant: any combinable meta appearing in a domain is tainted (removed from `combinable`),
+        // so a meta that flows into a parameter-input position is never joined. This is the soundness gate for Phase 4
+        // (see the `useTwice[A](f: A -> Unit, x: A, y: A)` counterexample in docs/int-min-max-plan.md).
         val (fresh, u1) = freshVar()
-        u1.unify(d1, d2, context).unify(c1(fresh), c2(fresh), context)
+        u1.taintMetasIn(d1)
+          .taintMetasIn(d2)
+          .unify(d1, d2, context)
+          .unify(c1(fresh), c2(fresh), context)
 
       case (VLam(_, c1), VLam(_, c2)) =>
         val (fresh, u1) = freshVar()
@@ -87,7 +134,8 @@ case class Unifier(
   private def solveMeta(id: MetaId, spine: Spine, rhs: SemValue, context: Sourced[String]): Unifier =
     metaStore.lookup(id) match {
       case Some(solved) =>
-        // Already solved — unify the solution (with spine applied) against rhs
+        // Already solved — unify the solution (with spine applied) against rhs. (A contribution to a solved combinable
+        // meta is intercepted earlier, in `unify`, before forcing; by here the meta has already been forced away.)
         val applied = spine.toList.foldLeft(solved)(Evaluator.applyValue)
         unify(applied, rhs, context)
       case None         =>
@@ -97,8 +145,10 @@ case class Unifier(
           case _                                          =>
             val spineList = spine.toList
             if (spineList.isEmpty) {
-              // Empty spine — solve directly
-              copy(metaStore = metaStore.solve(id, rhs))
+              // Empty spine — solve directly. For a combinable meta also record the first candidate, so the checker's
+              // combine resolution sees the full candidate set.
+              val solvedU = copy(metaStore = metaStore.solve(id, rhs))
+              if (combinable.contains(id.value)) solvedU.recordCandidate(id, rhs, context) else solvedU
             } else {
               // Non-empty spine — try injectivity decomposition first, otherwise postpone.
               tryDecomposeApplied(id, spineList, rhs, context)
@@ -187,6 +237,40 @@ case class Unifier(
     val l2 = sp2.toList
     if (l1.length == l2.length) l1.zip(l2).foldLeft(this) { case (u, (a, b)) => u.unify(a, b, context) }
     else addMismatch(l, r, context)
+  }
+
+  /** Append a candidate type (with its source context) to a combinable meta's accumulated constraints. */
+  private def recordCandidate(id: MetaId, rhs: SemValue, context: Sourced[String]): Unifier =
+    copy(candidates = candidates.updated(id.value, candidates.getOrElse(id.value, Nil) :+ (rhs, context)))
+
+  /** Remove every metavariable occurring in `sv` from the `combinable` set (taint). Used on [[VPi]] domains. */
+  private def taintMetasIn(sv: SemValue): Unifier =
+    copy(combinable = combinable -- metasOf(sv))
+
+  /** Collect the ids of all metavariables occurring anywhere in `sv` — including inside spines and under binders.
+    * Binders are entered by applying a fresh rigid variable, mirroring [[unify]]'s treatment.
+    *
+    * Crucially this does **not** follow a metavariable's *solution*: a combinable meta that has already been solved to
+    * its first candidate is still recorded by id. This is what lets a contravariant use taint a combinable meta even
+    * when an earlier (covariant-looking) argument already pinned it — e.g. `useTwice[A](x: A, y: A, f: A -> Unit)`,
+    * where `f`'s domain reaches the meta only after `x`/`y` have solved it. Other shapes are forced so type aliases and
+    * cached definitions are seen through.
+    */
+  private def metasOf(sv: SemValue): Set[Int] = sv match {
+    case VMeta(id, spine) => spine.toList.flatMap(metasOf).toSet + id.value
+    case _                =>
+      Evaluator.force(sv, metaStore) match {
+        case VMeta(id, spine)                  => spine.toList.flatMap(metasOf).toSet + id.value
+        case VTopDef(_, _, spine)              => spine.toList.flatMap(metasOf).toSet
+        case VNeutral(_, spine)                => spine.toList.flatMap(metasOf).toSet
+        case VPi(domain, codomain)             =>
+          val (fresh, _) = freshVar()
+          metasOf(domain) ++ metasOf(codomain(fresh))
+        case VLam(_, closure)                  =>
+          val (fresh, _) = freshVar()
+          metasOf(closure(fresh))
+        case VConst(_) | VType | VNative(_, _) => Set.empty
+      }
   }
 
   private def freshVar(): (SemValue, Unifier) = {

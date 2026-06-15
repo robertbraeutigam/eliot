@@ -72,6 +72,41 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Combine: covariant multi-candidate metavariable (int-min-max-plan Phase 4) ---
+
+  "Combine[Int, Int] instance" should "join two ranges via a covariant result type parameter" in {
+    runCombine("def pick[A](first: A, second: A): A\ndef test: Int[3, 7] = pick(integerLiteral[3], integerLiteral[7])")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "join then widen the result to an even broader expected range" in {
+    runCombine("def pick[A](first: A, second: A): A\ndef test: Int[0, 20] = pick(integerLiteral[3], integerLiteral[7])")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "need no combine when both candidates are the same range" in {
+    runCombine("def pick[A](first: A, second: A): A\ndef test: Int[5, 5] = pick(integerLiteral[5], integerLiteral[5])")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject combining a contravariant metavariable (taint on a function-typed parameter)" in {
+    runCombine(
+      "def consume(value: Int[0, 0]): Unit\ndef useTwice[A](first: A, second: A, action: Function[A, Unit]): Unit\ndef test: Unit = useTwice(integerLiteral[0], integerLiteral[10], consume)"
+    ).asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[10]"))
+  }
+
+  it should "fall back to a mismatch when no Combine instance applies" in {
+    runCombine("def pick[A](first: A, second: A): A\ndef test: String = pick(\"hello\", integerLiteral[3])")
+      .asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[3]"))
+  }
+
+  it should "reject when the join overflows a narrower declared result type" in {
+    // The join Int[3,7] does not fit the declared Int[3,5]; the result-against-declared-type check is deferred to drain
+    // (after the join is known), so the join — not the first candidate Int[3,3] — is checked against Int[3,5].
+    runCombine("def pick[A](first: A, second: A): A\ndef test: Int[3, 5] = pick(integerLiteral[3], integerLiteral[7])")
+      .asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[7]"))
+  }
+
   // --- Function call tests ---
 
   "function call" should "compile if same number of arguments" in {
@@ -594,5 +629,30 @@ class MonomorphicTypeCheckTest
       coercePrelude + source,
       MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty),
       coerceImports
+    ).map(result => toTestErrors(result._1))
+
+  /** Imports for the Phase 4 `Combine` tests: the `Coerce` environment (`Combine` layers over it), plus `min`/`max` on
+    * `BigInteger` and the type-only `Combine` ability itself.
+    */
+  private val combineImports: Seq[SystemImport] = coerceImports.map {
+    case SystemImport("BigInteger", _) =>
+      SystemImport(
+        "BigInteger",
+        "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef min(a: BigInteger, b: BigInteger): BigInteger\ndef max(a: BigInteger, b: BigInteger): BigInteger"
+      )
+    case other                         => other
+  } :+ SystemImport("Combine", "ability Combine[A, B] { type Combined }")
+
+  /** The `Coerce` prelude plus the parametric `Combine[Int, Int]` instance (`Combined = Int[min, max]`). */
+  private val combinePrelude: String =
+    coercePrelude +
+      "import eliot.lang.Combine\n" +
+      "implement[Amin, Amax, Bmin, Bmax] Combine[Int[Amin, Amax], Int[Bmin, Bmax]] { type Combined = Int[min(Amin, Bmin), max(Amax, Bmax)] }\n"
+
+  private def runCombine(source: String, name: String = "test"): IO[Seq[TestError]] =
+    runGenerator(
+      combinePrelude + source,
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty),
+      combineImports
     ).map(result => toTestErrors(result._1))
 }

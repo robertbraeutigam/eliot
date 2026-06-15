@@ -117,9 +117,42 @@ class Checker(
 
                           case _ =>
                             for {
-                              (expr, inferred)            <- infer(tm)
-                              (updatedExpr, instantiated) <- instantiatePolymorphic(expr, inferred)
-                              checked                     <- unifyOrCoerce(tm, updatedExpr, instantiated, expected)
+                              (expr, inferred) <- infer(tm)
+                              // Defer only when checking, against a *concrete* expected type, a combinable-meta result
+                              // that actually accumulated argument contributions (so it could be a `Combine` join). Two
+                              // guards matter: (1) if `expected` is itself a (flowing) meta this is an intermediate
+                              // contribution — e.g. `id(i)` as an argument — and must unify now to propagate through the
+                              // chain; (2) a result meta with *no* candidates (e.g. an ability method's `B` in
+                              // `convert(x): B`, or any fresh result) has no join to wait for and must unify now so the
+                              // value/ability resolution that depends on its solution can proceed.
+                              forcedExp        <- force(expected)
+                              combinableMeta   <- (inferred, forcedExp) match {
+                                                    case (VMeta(id, Spine.SNil), exp) if !exp.isInstanceOf[VMeta] =>
+                                                      inspect(s =>
+                                                        Option.when(
+                                                          s.unifier.combinable.contains(id.value) &&
+                                                            s.unifier.candidates.get(id.value).exists(_.nonEmpty)
+                                                        )(id)
+                                                      )
+                                                    case _                                                       => pure(None)
+                                                  }
+                              checked          <- combinableMeta match {
+                                                    // The term's type is a bare combinable meta — the result of a
+                                                    // polymorphic call whose result type is a type parameter. Its final
+                                                    // solution (possibly a `Combine` join) is unknown until drain, so
+                                                    // defer the check against `expected` rather than committing it
+                                                    // against the meta's first candidate (which would unsoundly accept a
+                                                    // join that overflows a narrower `expected`). See resolveUpperBounds.
+                                                    case Some(id) =>
+                                                      modify(_.recordUpperBound(id, expected, tm.as("Type mismatch.")))
+                                                        .as(expr)
+                                                    case None     =>
+                                                      for {
+                                                        (updatedExpr, instantiated) <-
+                                                          instantiatePolymorphic(expr, inferred)
+                                                        c <- unifyOrCoerce(tm, updatedExpr, instantiated, expected)
+                                                      } yield c
+                                                  }
                             } yield checked
                         }
     } yield result
@@ -205,16 +238,29 @@ class Checker(
       actual: SemValue,
       expected: SemValue
   ): CheckIO[Option[SemExpression]] =
+    coercionHolds(implFqn, actual, expected, tm.as("Type mismatch."))
+      .map(holds => if (holds) Some(expr.copy(expressionType = expected)) else None)
+
+  /** Evaluate the resolved `coerce` implementation against the concrete bounds and report whether it yields `some`
+    * (the coercion exists). Shared by [[coerceWith]] (which on success re-types the term) and [[coercionExists]] (which
+    * only needs the yes/no answer, used by `Combine` to confirm each contributor widens to the joined type).
+    */
+  private def coercionHolds(
+      implFqn: ValueFQN,
+      actual: SemValue,
+      expected: SemValue,
+      context: Sourced[String]
+  ): CheckIO[Boolean] =
     for {
       orvOpt <- liftF(getFact(OperatorResolvedValue.Key(implFqn)))
       result <- orvOpt.flatMap(orv => orv.runtime.map((orv, _))) match {
-                  case None              => pure(None)
+                  case None              => pure(false)
                   case Some((orv, body)) =>
                     for {
                       sigSem        <- evalExpr(orv.typeStack.value.signature, env = Some(Env.empty))
                       (mono, binds) <- peelSigMetas(sigSem, Seq.empty)
                       optionExpected = Evaluator.applyValue(VTopDef(WellKnownTypes.optionFQN, None, Spine.SNil), expected)
-                      _             <- doUnify(mono, VPi(actual, _ => optionExpected), tm.as("Type mismatch."))
+                      _             <- doUnify(mono, VPi(actual, _ => optionExpected), context)
                       _             <- modify(st => st.withUnifier(st.unifier.drain()))
                       concreteEnv   <- binds.foldLeftM(Env.empty) { case (env, (name, meta)) =>
                                          force(meta).map(env.bind(name, _))
@@ -223,13 +269,208 @@ class Checker(
                       applied        = Evaluator.applyValue(bodyVal, VNeutral(NeutralHead.VVar(0, "$coerceArg"), Spine.SNil))
                       forced        <- force(applied)
                     } yield forced match {
-                      case VTopDef(fqn, _, _) if fqn == WellKnownTypes.someFQN =>
-                        Some(expr.copy(expressionType = expected))
-                      case _                                                   =>
-                        None
+                      case VTopDef(fqn, _, _) if fqn == WellKnownTypes.someFQN => true
+                      case _                                                   => false
                     }
                 }
     } yield result
+
+  /** Resolve every combinable metavariable that accumulated more than one distinct candidate type
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.candidates]]). For a still-combinable (covariant) meta
+    * the candidates are folded pairwise through the `Combine` ability into their join `R`; the meta is solved to `R` and
+    * each contributor is verified to `Coerce` into `R` (always true for `Int` by construction). When no `Combine`
+    * instance applies — or the meta was tainted by a contravariant use — the candidates are re-unified strictly, which
+    * surfaces the ordinary "Type mismatch." that first-candidate-wins would have produced. Returns whether any meta was
+    * newly resolved, so the caller can iterate to a fixed point. Each meta resolves at most once
+    * ([[CheckState.combineResolved]]).
+    */
+  def resolveCombines: CheckIO[Boolean] =
+    for {
+      s          <- get
+      targets     = s.unifier.candidates.toList.filterNot { case (rawId, _) => s.combineResolved.contains(rawId) }
+      progressed <- targets.foldLeftM(false) { case (acc, (rawId, cs)) =>
+                      resolveOneCombine(SemValue.MetaId(rawId), cs).map(_ || acc)
+                    }
+    } yield progressed
+
+  /** Discharge the deferred "result fits expected" obligations ([[CheckState.pendingUpperBounds]]) after combine
+    * resolution has settled each combinable meta to its final solution (a `Combine` join, or its single candidate).
+    * The final solution must be definitionally equal to, or `Coerce` into, the expected type; otherwise a mismatch is
+    * reported. Run once, after the drain-and-resolve loop, so the join — not the meta's first candidate — is what is
+    * checked against a narrower declared type (e.g. `def x: Int[3,5] = pick(integerLiteral[3], integerLiteral[7])`,
+    * whose join `Int[3,7]` does not fit `Int[3,5]`).
+    */
+  def resolveUpperBounds: CheckIO[Unit] =
+    for {
+      s <- get
+      _ <- s.pendingUpperBounds.traverse_ { case (id, expected, context) =>
+             for {
+               solution <- force(VMeta(id, Spine.SNil))
+               ok       <- coercionExists(solution, expected, context)
+               _        <- if (ok) pure(())
+                           else modify(st => st.withUnifier(st.unifier.addMismatch(solution, expected, context)))
+             } yield ()
+           }
+    } yield ()
+
+  private def resolveOneCombine(
+      id: SemValue.MetaId,
+      cs: List[(SemValue, Sourced[String])]
+  ): CheckIO[Boolean] =
+    for {
+      s        <- get
+      distinct <- distinctCandidates(cs)
+      result   <- distinct match {
+                    case None                       => pure(false) // a candidate isn't ground yet — retry next round
+                    case Some(ds) if ds.size < 2    => modify(_.recordCombineResolved(id)).as(false)
+                    case Some(ds)                   =>
+                      if (s.unifier.combinable.contains(id.value)) combineCandidates(id, ds)
+                      else strictReunify(id, ds)
+                  }
+    } yield result
+
+  /** Quote each candidate to a [[GroundValue]] and keep the first occurrence of each distinct ground (preserving its
+    * [[SemValue]] and source context). Returns `None` if any candidate is not yet ground (has unsolved metas).
+    */
+  private def distinctCandidates(
+      cs: List[(SemValue, Sourced[String])]
+  ): CheckIO[Option[List[(GroundValue, SemValue, Sourced[String])]]] =
+    inspect { s =>
+      val quoted = cs.map { case (sem, ctx) => Quoter.quote(0, sem, s.unifier.metaStore).map((_, sem, ctx)) }
+      if (quoted.exists(_.isLeft)) None
+      else Some(quoted.collect { case Right(t) => t }.distinctBy(_._1))
+    }
+
+  private def combineCandidates(
+      id: SemValue.MetaId,
+      ds: List[(GroundValue, SemValue, Sourced[String])]
+  ): CheckIO[Boolean] =
+    foldCombine(ds.map(_._1)).flatMap {
+      case Some(combinedSem) =>
+        for {
+          _ <- modify(st => st.withUnifier(st.unifier.copy(metaStore = st.unifier.metaStore.solve(id, combinedSem))))
+          _ <- ds.traverse_ { case (_, sem, ctx) => verifyCoercion(sem, combinedSem, ctx) }
+          _ <- modify(_.recordCombineResolved(id))
+        } yield true
+      case None              => strictReunify(id, ds)
+    }
+
+  /** Fold a non-empty list of distinct candidate grounds pairwise through the `Combine` ability into a single joined
+    * [[SemValue]]. `None` if any pair has no `Combine` instance (or the joined type fails to read back).
+    */
+  private def foldCombine(grounds: List[GroundValue]): CheckIO[Option[SemValue]] =
+    grounds match {
+      case Nil          => pure(None)
+      case head :: tail =>
+        tail.foldLeftM(Option(Evaluator.groundToSem(head))) {
+          case (None, _)            => pure(None)
+          case (Some(accSem), next) =>
+            for {
+              s      <- get
+              result <- Quoter.quote(0, accSem, s.unifier.metaStore) match {
+                          case Left(_)          => pure(None)
+                          case Right(accGround) => combinePair(accGround, next)
+                        }
+            } yield result
+        }
+    }
+
+  /** Resolve `Combine[g1, g2]` by name and evaluate the resolved instance's associated `Combined` type, binding the
+    * instance's leading type parameters to the matched type arguments returned by ability resolution. Returns the
+    * joined type's [[SemValue]], or `None` if there is no instance.
+    *
+    * Only attempted when the two candidates share a head constructor: probing `resolveAbility` for a pair with no
+    * implementation triggers the ability machinery's "does not implement" error as a side effect of fact generation
+    * (which the caller cannot suppress), so cross-constructor pairs (e.g. `String`/`Int`) skip straight to a strict
+    * mismatch. The only `Combine` instance today is the head-homogeneous `Combine[Int[..], Int[..]]`.
+    */
+  private def combinePair(g1: GroundValue, g2: GroundValue): CheckIO[Option[SemValue]] =
+    if (!sameHead(g1, g2)) pure(None) // Different constructors cannot combine; skip the probe (see [[resolveAbility]] note).
+    else liftF(resolveAbility(WellKnownTypes.combinedFQN, Seq(g1, g2))).flatMap {
+      case None                            => pure(None)
+      case Some((implCombinedFqn, implTypeArgs)) =>
+        for {
+          orvOpt <- liftF(getFact(OperatorResolvedValue.Key(implCombinedFqn)))
+          result <- orvOpt.flatMap(orv => orv.runtime.map((orv, _))) match {
+                      case None              => pure(None)
+                      case Some((orv, body)) =>
+                        for {
+                          sigSem <- evalExpr(orv.typeStack.value.signature, env = Some(Env.empty))
+                          names  <- peelLamNames(sigSem, Seq.empty)
+                          env     = names.zip(implTypeArgs).foldLeft(Env.empty) { case (e, (n, g)) =>
+                                      e.bind(n, Evaluator.groundToSem(g))
+                                    }
+                          combined <- evalExpr(body.value, env = Some(env))
+                          forced   <- force(combined)
+                        } yield Some(forced)
+                    }
+        } yield result
+    }
+
+  /** Peel the leading `VLam` binder names of an evaluated signature (the impl's bound type parameters, in declaration
+    * order), advancing each closure with a rigid placeholder. Mirrors [[peelSigMetas]] but keeps only the names, since
+    * the bound values come from ability resolution rather than from unification.
+    */
+  private def peelLamNames(sem: SemValue, acc: Seq[String]): CheckIO[Seq[String]] =
+    force(sem).flatMap {
+      case VLam(name, closure) =>
+        peelLamNames(closure(VNeutral(NeutralHead.VVar(0, name), Spine.SNil)), acc :+ name)
+      case _                   => pure(acc)
+    }
+
+  /** Confirm a contributor type coerces (or is definitionally equal) to the joined type; otherwise record the mismatch.
+    */
+  private def verifyCoercion(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Unit] =
+    coercionExists(actual, expected, context).flatMap {
+      case true  => pure(())
+      case false => modify(st => st.withUnifier(st.unifier.addMismatch(actual, expected, context)))
+    }
+
+  /** Whether `actual` is definitionally equal to, or `Coerce`s into, `expected`. Resolves `Coerce[actual, expected]` by
+    * name and evaluates it (the same machinery as check-mode coercion), without re-typing any expression.
+    */
+  private def coercionExists(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Boolean] =
+    for {
+      s       <- get
+      trial    = s.unifier.unify(actual, expected, context)
+      result  <- if (trial.errors.size == s.unifier.errors.size) pure(true)
+                 else
+                   inspect(st =>
+                     for {
+                       a <- Quoter.quote(0, actual, st.unifier.metaStore)
+                       e <- Quoter.quote(0, expected, st.unifier.metaStore)
+                     } yield (a, e)
+                   ).flatMap {
+                     case Left(_)         => pure(false)
+                     case Right((aG, eG)) =>
+                       liftF(resolveAbility(WellKnownTypes.coerceFQN, Seq(aG, eG))).flatMap {
+                         case None               => pure(false)
+                         case Some((implFqn, _)) => coercionHolds(implFqn, actual, expected, context)
+                       }
+                   }
+    } yield result
+
+  /** Re-unify the distinct candidates strictly (first against each subsequent), surfacing the ordinary "Type mismatch."
+    * that first-candidate-wins would have produced when no `Combine` join is available.
+    */
+  private def strictReunify(
+      id: SemValue.MetaId,
+      ds: List[(GroundValue, SemValue, Sourced[String])]
+  ): CheckIO[Boolean] =
+    for {
+      // Distinct candidates cannot be definitionally equal, so each is a genuine mismatch against the first. Use
+      // `addMismatch` (one error per candidate) rather than `unify`, whose spine descent would emit one error per
+      // differing type argument (e.g. both `Int` bounds).
+      _ <- ds.tail.traverse_ { case (_, sem, ctx) =>
+             modify(st => st.withUnifier(st.unifier.addMismatch(ds.head._2, sem, ctx)))
+           }
+      _ <- modify(_.recordCombineResolved(id))
+    } yield true
+
+  private def sameHead(g1: GroundValue, g2: GroundValue): Boolean = (g1, g2) match {
+    case (GroundValue.Structure(fqn1, _, _), GroundValue.Structure(fqn2, _, _)) => fqn1 == fqn2
+    case _                                                                      => false
+  }
 
   /** Peel leading `VLam` closures (the impl signature's bound type parameters) into fresh metas. Returns the non-lambda
     * head (the value-level function type) and the `name → meta` bindings in peel order.
@@ -267,6 +508,10 @@ class Checker(
                     case VLam(name, closure) =>
                       for {
                         meta <- freshMeta
+                        // Implicit type-parameter instantiation metas sit in covariant positions (a match result, a
+                        // result-position type param), so they are eligible for `Combine`-based multi-candidate
+                        // resolution. The unifier taints any that later flow into a contravariant (VPi domain) position.
+                        _    <- modify(s => s.withUnifier(s.unifier.markCombinable(meta.id)))
                         _    <- if (bindInEnv) modify(_.bind(name, meta)) else pure(())
                         rest <- loop(closure(meta), acc :+ meta)
                       } yield rest

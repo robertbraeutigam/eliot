@@ -54,6 +54,29 @@ object WellKnownTypes {
   val lessThanOrEqualFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("lessThanOrEqual", Qualifier.Default))
 
+  /** `min(a, b)` / `max(a, b)` on `BigInteger` — compile-time natives (see `SystemNativesProcessor`) that reduce when
+    * both arguments are concrete, otherwise stay stuck. Used by the `Combine[Int, Int]` instance's associated
+    * `Combined` type to compute the joined bound range `Int[min(aMin,bMin), max(aMax,bMax)]`.
+    */
+  val minFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("min", Qualifier.Default))
+
+  val maxFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("max", Qualifier.Default))
+
+  /** The abstract associated type `Combined` of the type-only `Combine[A, B]` ability. The checker resolves a
+    * multi-candidate covariant metavariable (a `match` result, or a `f[A](a: A, b: A): A` result type parameter) to the
+    * join of its candidate types by resolving this ability by name (`resolveAbility(combinedFQN, Seq(t1, t2))`) and
+    * evaluating the resolved instance's `Combined` body. The member name is `Combined` and it carries the
+    * `Qualifier.Ability("Combine")` qualifier (an associated type is a body-less ability member). See
+    * `docs/int-min-max-plan.md` ("Phase 4 — combining a covariant multi-candidate metavariable").
+    */
+  val combinedFQN: ValueFQN =
+    ValueFQN(
+      ModuleName(defaultSystemPackage, "Combine"),
+      QualifiedName("Combined", Qualifier.Ability("Combine"))
+    )
+
   /** The `coerce` method of the `Coerce` ability — the by-name protocol the checker resolves (in check mode) to insert
     * an implicit, possibly representation-changing widening when an inferred type is used where a different expected
     * type built from the same constructor is wanted (e.g. `Int[0,5]` where `Int[0,10]` is expected). The widening

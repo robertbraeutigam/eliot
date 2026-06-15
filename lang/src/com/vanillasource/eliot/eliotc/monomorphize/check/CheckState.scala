@@ -24,14 +24,32 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param abilityResolutions
   *   Map from each ability-qualified value reference (by its source-positioned FQN) to its resolved concrete impl.
   *   Filled by the drain-resolution loop; absence means the ref stays abstract (constraint-covered) at quoting time.
+  * @param combineResolved
+  *   Ids of combinable metavariables whose accumulated candidates have already been resolved (joined via `Combine`, or
+  *   re-unified strictly when no instance applied). Bounds the combine-resolution loop — each meta resolves at most
+  *   once. See [[Checker.resolveCombines]].
+  * @param pendingUpperBounds
+  *   Deferred "result fits expected" obligations: when a term's inferred type is a bare combinable metavariable (the
+  *   result of a polymorphic call whose result type is a type parameter), its final solution — possibly a `Combine`
+  *   join — is not known until drain, so the check against the expected type is deferred here instead of being
+  *   committed against the meta's first candidate. Discharged by [[Checker.resolveUpperBounds]] after combine
+  *   resolution: the *final* solution must coerce into the expected type, otherwise a mismatch is reported.
   */
 case class CheckState(
     env: Env,
     unifier: Unifier,
     bindingCache: Map[ValueFQN, Option[SemValue]],
     abstractTypeMetas: Map[ValueFQN, MetaId],
-    abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])]
+    abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
+    combineResolved: Set[Int],
+    pendingUpperBounds: List[(MetaId, SemValue, Sourced[String])]
 ) {
+
+  def recordCombineResolved(id: MetaId): CheckState =
+    copy(combineResolved = combineResolved + id.value)
+
+  def recordUpperBound(id: MetaId, expected: SemValue, context: Sourced[String]): CheckState =
+    copy(pendingUpperBounds = (id, expected, context) :: pendingUpperBounds)
 
   /** Bind a parameter with the given name and type, extending the env. */
   def bind(name: String, value: SemValue): CheckState =
@@ -79,6 +97,8 @@ object CheckState {
     Unifier.create(MetaStore.empty, 0),
     Map.empty,
     Map.empty,
-    Map.empty
+    Map.empty,
+    Set.empty,
+    Nil
   )
 }

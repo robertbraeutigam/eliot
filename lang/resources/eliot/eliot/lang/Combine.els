@@ -1,0 +1,20 @@
+/**
+ * The least common type that covers both `A` and `B` — the "join" of two types.
+ *
+ * `Combine` is *type-only*: it has a single associated type `Combined` and no runtime method. It answers exactly one
+ * question — "what single type covers both `A` and `B`?" — and nothing else. The checker resolves it by name (see
+ * `WellKnownTypes.combinedFQN`) when more than one type is unified against the same covariant metavariable: a `match`
+ * result, or the result type parameter of `f[A](a: A, b: A): A`. Instead of letting the first candidate win, the
+ * checker solves the metavariable to `Combine[c1, c2].Combined` (folded pairwise across all candidates), then the
+ * Phase-3 `Coerce` ability widens each contributor to that joined type.
+ *
+ * Combining is sound only for *covariant* metavariables; the checker tracks per-meta polarity and never combines a
+ * metavariable used in a contravariant (parameter-input) position. See `docs/int-min-max-plan.md`
+ * ("Phase 4 — combining a covariant multi-candidate metavariable").
+ */
+ability Combine[A, B] {
+   /**
+    * The single type that covers both `A` and `B`.
+    */
+   type Combined
+}

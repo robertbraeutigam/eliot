@@ -1,12 +1,16 @@
 # Plan: Implementing `Int[MIN, MAX]` (dependent integer type)
 
-Status: Phase 2 (explicit `integerLiteral[n]`) and **Phase 3 (check-mode `Coerce` insertion) are
-DONE** — implicit `Int` range widening works through a user-space `Coerce` instance, resolved by
-name and evaluated by the one NbE evaluator (`Int[3,3] → Int[0,10]` accepted, `Int[5,5] → Int[0,3]`
-rejected). The frontier is now **Phase 4** (branch/match join). Literal typing as `Int[V,V]` is built
-and tested via the **explicit** `integerLiteral[n]` constructor and only flipped to the global default
-literal type at the **end** (Phase 6), once the supporting machinery works — see "De-risking: explicit
-constructor first, global flip last." This document is the durable cross-session reference.
+Status: Phase 2 (explicit `integerLiteral[n]`), **Phase 3 (check-mode `Coerce` insertion), and
+Phase 4 (combining a covariant multi-candidate metavariable via the `Combine` ability) are DONE.**
+Implicit `Int` range widening works through a user-space `Coerce` instance, resolved by name and
+evaluated by the one NbE evaluator (`Int[3,3] → Int[0,10]` accepted, `Int[5,5] → Int[0,3]` rejected);
+and a covariant metavariable with more than one candidate (a `match` result, or `f[A](a:A,b:A):A`)
+resolves to the `Combine` join of its candidates, with per-meta polarity tracking ("taint on
+contravariant use") keeping the join sound. The frontier is now **Phase 5** (runtime arithmetic). Literal
+typing as `Int[V,V]` is built and tested via the **explicit** `integerLiteral[n]` constructor and only
+flipped to the global default literal type at the **end** (Phase 6), once the supporting machinery works
+— see "De-risking: explicit constructor first, global flip last." This document is the durable
+cross-session reference.
 
 ## Goal & chosen model
 
@@ -57,7 +61,7 @@ like `def x: Int[0,10] = 5` needs `Int[5,5] → Int[0,10]` widening — i.e. the
 literal retyped, no widening, no arithmetic) while delivering *no* working `Int`.
 
 So the order is inverted: build and test all the `Int` machinery (Coerce widening, branch
-join, arithmetic) against the **explicit** `integerLiteral[n]` constructor — which already
+`Combine`, arithmetic) against the **explicit** `integerLiteral[n]` constructor — which already
 exists and needs no global change — while bare literals keep meaning `BigInteger` and the
 codebase stays green. Each phase is validated in isolation (e.g. `f(integerLiteral[3])` against
 `def f(x: Int[0,10])` exercises `Coerce` end to end). Only once that all works does Phase 6
@@ -213,6 +217,59 @@ Acceptance (met): implicit widening flows through the user-defined `Coerce` inst
 `Int[3,3] → Int[0,10]` succeeds while `Int[5,5] → Int[0,3]` is a compile error; definitional equality is
 untouched.
 
+## Phase 4 — As built (DONE)
+
+`Combine` is a **type-only** by-name ability — `ability Combine[A, B] { type Combined }` (`Combine.els`) — with
+one parametric instance, `Combine[Int[Amin,Amax], Int[Bmin,Bmax]] { type Combined = Int[min(Amin,Bmin),
+max(Amax,Bmax)] }` (`Int.els`), backed by `min`/`max` compile-time natives on `BigInteger`
+(`SystemNativesProcessor`, same concreteness discipline as `lessThanOrEqual`). The implementation kept the plan's
+spirit (accumulate candidates while `unify` stays pure equality; resolve at drain via the one NbE evaluator) but
+**simplified / pinned down** several points:
+
+- **Candidate accumulation is intercepted in `unify` *before forcing*, not in `solveMeta`'s already-solved arm.**
+  `unify` forces both sides first, so a *solved* meta is replaced by its solution before the meta cases ever run —
+  the planned "already-solved arm adds rather than `unify`s" would have been dead code. Instead `unify` matches the
+  raw right side: a concrete type unified against an *already-solved combinable* meta (contributions always arrive
+  as `check(arg, ?A)`, so the meta is the expected/right side) is recorded as a candidate and the unification
+  succeeds; the first candidate is recorded when the meta is solved in `solveMeta`'s empty-spine `None` branch. The
+  result-against-expected direction `?A ~ E` is left to the existing check-mode `Coerce` path (Phase 3),
+  preserving its behaviour exactly.
+- **Polarity = taint on contravariant use** (see the DECIDED note below) — `peelLams` registers each instantiation
+  meta `combinable`; the `VPi`-vs-`VPi` case taints any meta in a domain. `metasOf` does **not** follow a meta's
+  solution, so a meta that an earlier argument already pinned is still tainted by a later function-typed argument
+  (`useTwice` is rejected in any argument order).
+- **Resolution lives in the checker's drain-resolve loop**, not a separate pass: `Checker.resolveCombines` (folded
+  into `TypeStackLoop`'s `step`) reads the unifier's accumulated `candidates`, and for each still-`combinable` meta
+  with ≥2 distinct candidates folds them pairwise through `combinePair` (resolve `Combine` by name → evaluate the
+  instance's `Combined`, binding its type params to the ability-resolution-returned type args), solves the meta to
+  the join, and verifies each contributor `Coerce`s into it (`coercionExists`, reusing the Phase-3 `coercionHolds`
+  core). When the join doesn't exist — no instance, or the meta was tainted — it falls back to `strictReunify`
+  (one `addMismatch` per extra candidate, *not* `unify`, to avoid one error per `Int` bound).
+- **`combinePair` only probes pairs that share a head constructor.** Probing `resolveAbility` for a pair with no
+  implementation makes the ability machinery emit a "does not implement" error as a *fact-generation side effect*
+  the caller cannot suppress, so cross-constructor pairs (`String`/`Int`) skip straight to the strict mismatch.
+  The only instance today is the head-homogeneous `Combine[Int,Int]`; cross-constructor `Combine` is therefore not
+  reached (a deliberate, documented limitation).
+- **No `handleCases` recognition** — the trigger is purely generic meta-solving, so `match` branches and
+  `f[A](a:A,b:A):A` are the same code path, exactly as planned.
+- **Result-against-declared-type is checked against the join, not the first candidate** (closing what was briefly a
+  soundness gap). The natural place to check "the result fits the declared type `E`" runs during the body walk, when
+  the result meta is only solved to its *first* candidate — so checking there would accept a narrower `E` that the
+  eventual join overflows (`def x: Int[3,5] = pick(int[3], int[7])`, join `Int[3,7]` ⊄ `Int[3,5]`). Instead, when a
+  term's inferred type is a bare combinable meta **that has accumulated argument contributions** and the expected type
+  is **concrete**, the check is *deferred* (`CheckState.pendingUpperBounds`) and discharged by
+  `Checker.resolveUpperBounds` after drain, so the *join* is what must `Coerce` into `E`. Two guards keep this from
+  over-firing: a fresh result meta with **no** contributions (e.g. an ability method's `B` in `convert(x): B`) must
+  unify eagerly so value/ability resolution that depends on its solution proceeds; and an `expected` that is itself a
+  (flowing) meta is an intermediate contribution (e.g. `id(i)` as an argument) that must unify now to propagate
+  through the chain.
+
+Acceptance (met): `pick[A](a:A,b:A):A` over two `Int` ranges joins to their covering range (and further widens to
+a broader expected range); identical-range candidates need no join; a join that overflows a *narrower* declared
+result type is rejected (checked against the join, post-drain); a contravariant (function-typed) parameter taints
+the meta and rejects the join; and a pair with no `Combine` instance (`String`/`Int`) falls back to the ordinary
+single "Type mismatch." No known soundness gaps remain in Phase 4.
+
 ## How integers flow today (research findings)
 
 - Tokenizer: `Token.IntegerLiteral(content: String)`.
@@ -252,7 +309,7 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
     usable *explicitly* in value position and type-check to `Int[n,n]` from the signature (value
     stays a runtime residual), **without** touching `CoreExpressionConverter` — bare literals keep
     meaning `BigInteger`, so the tree stays green and nothing is retyped yet.
-  - This is the safe test harness for Phases 3–5: widening/join/arithmetic are all exercised with
+  - This is the safe test harness for Phases 3–5: widening/combine/arithmetic are all exercised with
     explicit `integerLiteral[n]` literals. No `BigInteger`-value-position fallout until Phase 6.
   - `integerLiteral` is a **platform-layered def** (layers cornerstone, like `println`/`IO`): the
     abstract decl suffices for type-checking now; the jvm-layer body that emits the right-sized
@@ -265,12 +322,68 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
   `Checker.unifyOrCoerce`/`tryCoerce`/`coerceWith`. Tests: `MonomorphicTypeCheckTest`'s
   "check-mode Coerce insertion" cases (widen accepted, non-containing rejected, definitional equality
   untouched) + the "Coerce[Int, Int] instance" resolution test.
-- **Phase 4 — branch/match result synthesis (the join / LUB).** When there is no expected type to
-  check against (branches of `if` / `match`), the checker must synthesise one type from several:
-  `join(Int[a,b], Int[c,d]) = Int[min(a,c), max(b,d)]`. Decide its ability home — likely another
-  by-name ability with a structured instance head (same pattern as `Coerce`), so it also avoids any
-  in-body `case Int[..]` match. `min`/`max` are ordinary Eliot (now runnable). Wire into branch/match
-  result-type synthesis.
+- **Phase 4 — combining a covariant multi-candidate metavariable (the `Combine` ability). (DONE.)**
+  See "Phase 4 — As built" below for the as-built design (which simplified a couple of planned work
+  items). Files: `Combine.els` (type-only ability); `Int.els` (parametric `Combine[Int,Int]` instance);
+  `BigInteger.els` + `SystemNativesProcessor` (`min`/`max` natives); `WellKnownTypes`
+  (`combinedFQN`/`minFQN`/`maxFQN`); `Unifier` (candidate accumulation + `combinable`/taint);
+  `Checker.resolveCombines`/`combinePair`/`coercionExists`/`resolveUpperBounds` +
+  `CheckState.combineResolved`/`pendingUpperBounds`; `TypeStackLoop` (combine step folded into the drain-resolve
+  loop, upper-bound discharge after it). Tests: `MonomorphicTypeCheckTest`'s "Combine[Int, Int] instance" cases.
+  The plan-of-record below is retained for context.
+
+  The phenomenon is **not** match-specific. Whenever *more than one type is unified against the same
+  metavariable*, today the first solution wins and any unequal later candidate fails (the already-solved
+  arm of `Unifier.solveMeta`, `Unifier.scala:88-92`: `unify(solved, rhs)`). A `match` hits this because
+  it desugars to one `PatternMatch.handleCases[R](value, cases): R` call
+  (`DataMatchDesugarer.buildHandleCasesCall`) so every branch body solves the one `R`; but
+  `f[A](a: A, b: A): A` with `a: Int[0,5]`, `b: Int[3,10]` hits the *identical* seam. Phase 4 makes such
+  a metavariable resolve to the **combination of its candidates** instead of the first — which is the
+  standard "solve a type variable to the join of its lower bounds." There is **no `handleCases`
+  recognition**; the trigger is generic meta-solving.
+  - **The ability (`Combine`).** A by-name ability with a structured instance head, *type-only* (no
+    runtime method — unlike `Coerce`): it answers "what single type covers both?" and nothing else.
+    ```
+    ability Combine[A, B] { type Combined }
+    implement [aMin,aMax,bMin,bMax]
+       Combine[Int[aMin,aMax], Int[bMin,bMax]] {
+       type Combined = Int[min(aMin,bMin), max(aMax,bMax)]
+    }
+    ```
+    The structured instance head avoids any in-body `case Int[..]` match (same discipline as `Coerce`).
+    `min`/`max` are ordinary Eliot (now runnable on the one evaluator). Resolution mirrors `tryCoerce`:
+    quote the two candidate types to ground, `resolveAbility(combineFQN, Seq(t1, t2))`, evaluate the
+    `Combined` associated type. Fold pairwise across all candidates → the meta's solution `R`.
+  - **`Combine` and `Coerce` are layered, not redundant.** `Combine` (type-level) *picks* the meta
+    solution `R`; the Phase-3 `Coerce` (which carries the `nativeWiden`) then *materializes* each
+    contributor at `R`. For `Int` this composes for free: `R` contains every input range by
+    construction, so each per-contributor `Coerce[Int[..], R]` already exists. A `Combine` author isn't
+    forced to make every input coercible to `Combined`; if one isn't, the widen just emits the normal
+    mismatch — no new error machinery. User-facing error: `Cannot combine types: Int and String.`
+  - **Soundness gate — only *covariant* metas may combine (the new prerequisite).** Joining candidates
+    is sound only where the metavariable sits in **output (covariant)** position. Counterexample in an
+    input position: `useTwice[A](f: A -> Unit, x: A, y: A)` with `f: Int[0,5] -> Unit`, `x: Int[0,5]`,
+    `y: Int[0,10]`. Combining `A` up to `Int[0,10]` lets `f` (accepts only `0..5`) be called with a
+    value statically allowed to be `10` — unsound; a contravariant meta needs the *meet*, or a rejection,
+    never the join. `handleCases`'s `R` is safe **because** `R` is purely covariant (it is the output;
+    nothing consumes an `R`). Pure definitional equality is what lets the checker ignore variance today;
+    `Combine` brings the obligation in, so Phase 4 must add **per-meta polarity tracking** — the one
+    piece the current design lacks. Near term the only covariant-only metas are exactly the match result
+    and result-position type params, so combining can be restricted to those; contravariant metas keep
+    today's strict-equality behaviour (defer meet/reject).
+  - **Where it binds — accumulate in unify, resolve at drain (keeps `unify` pure).** `unify` stays pure
+    definitional equality (`Unifier.scala:22` — "no assignability or directional widening here"), so
+    `Combine` must **not** fire inside `solveMeta`'s comparison. Instead: a meta accumulates the types
+    unified against it as candidate constraints (the already-solved arm *adds* rather than `unify`s);
+    at `Unifier.drain()` (check-mode), a covariant meta is solved to `Combine(candidates…)`, then the
+    existing per-position `Coerce` widens each contributor to `R`. Concrete-vs-concrete unification stays
+    strict equality; the lattice solve sits in the same check-mode layer as `Coerce`. This **subsumes**
+    the earlier `handleCases`-shape wiring — both the `match` and the `f[A](a,b)` cases fall out of the
+    one meta rule. (When an *expected* type `E` is present — declared return, function argument — `E` is
+    just another candidate unified into the meta, so checking position needs no special path.)
+  - **Validate alongside:** the value-in-type `Eq` caveat (see the open sub-decision below) is
+    load-bearing here — `Int[V,V]` embeds a value in a type, and `Combine` compares/combines those
+    embedded bound values, so `GroundValue` read-back must be sound for this case.
 - **Phase 5 — Runtime arithmetic.** `+`/`-`/`*` on `Int` with dependent bounds
   (`Int[a,b] + Int[c,d] : Int[a+c, b+d]`). Two execution targets: (a) a
   **compile-time `NativeBinding`** (for type-level bound computation), and (b) the
@@ -278,7 +391,7 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
   for runtime. Runtime stays `Long`. `Int.els` already declares `+` with the
   dependent-bounds signature; back it with both natives.
 - **Phase 6 — Flip literals to `Int[V,V]` (the global switchover; monomorphize untouched).** Now
-  that widening/join/arithmetic work and are tested, make `Int[V,V]` the default literal type:
+  that widening/combine/arithmetic work and are tested, make `Int[V,V]` the default literal type:
   - `core/processor/CoreExpressionConverter.scala`: in the `IntegerLiteral` case (currently ignores
     `typeContext`), when `typeContext == false` rewrite `n` into a
     `NamedValueReference("integerLiteral", typeArgs = Seq(IntegerLiteral(n)))` — i.e.
@@ -312,7 +425,20 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
   and tested against the explicit `integerLiteral[n]` constructor first — see "De-risking."
 - DECIDED: `Bool` is an opaque `type Bool` in `lang` with compile-time natives (not a `data` type) —
   its representation is platform-dependent.
-- OPEN (Phase 4): the ability home and shape of the branch/match join (`Int[min,max]`).
+- DECIDED (Phase 4): multi-candidate metavariable resolution is a *type-only* by-name **`Combine[A, B]
+  { type Combined }`** ability (instance: `Combined = Int[min,max]`), layered over `Coerce` — `Combine`
+  picks the meta solution, `Coerce` widens each contributor to it. The trigger is **generic
+  meta-solving**, not `handleCases` recognition: `match` branches and `f[A](a: A, b: A): A` are the same
+  phenomenon. Implementation = accumulate candidates in `unify`, resolve to their `Combine` at
+  `drain()`, keeping `unify` pure equality.
+- DECIDED (Phase 4): **per-meta polarity tracking = "taint on contravariant use."** Every implicit
+  type-parameter instantiation meta (allocated in `Checker.peelLams`) is registered `combinable`
+  (covariant by default); a meta is *un*-registered (tainted) the moment it appears in a `VPi` *domain*
+  during unification (`Unifier`'s `VPi`-vs-`VPi` case, via a non-forcing `metasOf` so a meta already
+  solved to its first candidate is still tainted). Only still-`combinable` metas are joined; tainted ones
+  fall back to strict equality. This catches the `useTwice[A](f: A -> Unit, x: A, y: A)` counterexample
+  in any argument order without a full variance analysis. Chosen over full variance analysis (more code,
+  trickier over closures) and over "combine all, defer soundness" (knowingly unsound).
 - OPEN (validate at Phase 2): **value-constructor read-back.** NbE's `Quoter` quotes
   a value constructor with `valueType = GroundValue.Type` rather than its real data
   type. Harmless while read-back stays internally consistent (a single evaluator), but
@@ -331,10 +457,10 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
 
 Concern (raised by the author): `Int[MIN,MAX]` is meant to drive the *optimal
 backend representation* (`Int[0,10]` -> Byte, `Int[0,1000]` -> Word, ...). If a
-branch joins `Int[0,10]` (Byte) and `Int[0,1000]` (Word) to `Int[0,1000]`
+branch `Combine`s `Int[0,10]` (Byte) and `Int[0,1000]` (Word) into `Int[0,1000]`
 (Word), the Byte arm's runtime value must actually become a Word, or the type
 would mislead the backend. So we need a *value-level promotion*. Does that
-replace the type-level join?
+replace the type-level `Combine`?
 
 **Resolution: no — they are complementary, at different levels.**
 
@@ -342,14 +468,14 @@ replace the type-level join?
   preserves the integer value (10 stays 10); only the machine encoding changes
   (zero/sign-extend). So the *type-level* reasoning is sound and complete on its own;
   promotion is purely a backend realization.
-- The type-level join answers "what type does this branch have?" — load-bearing for
+- The type-level `Combine` answers "what type covers both branches?" — load-bearing for
   type-checking everything downstream. It stays.
 - Promotion answers "how do I physically materialize this value at the target
   type's representation?" — only matters at a representation boundary.
 
 **It is not specific to branches.** A promotion is needed at *every* assignability
 boundary where representations differ (a `Coerce` widen succeeding): branch/match arms
-vs. their joined result, arg vs. param, body vs. declared return. In the `Coerce`
+vs. their combined result, arg vs. param, body vs. declared return. In the `Coerce`
 design the promotion *is* the `nativeWiden` payload spliced at the call site — when
 widths exist it becomes a real conversion, today it is identity.
 
