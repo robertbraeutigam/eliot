@@ -57,7 +57,13 @@ class MatchNativesProcessor extends SingleKeyTypeProcessor[NativeBinding.Key] {
       case None       => abort
     }
 
-  /** The value constructors of a data type, in source-declaration order (= handler order). */
+  /** The value constructors of a data type, in source-declaration order (= handler order).
+    *
+    * Reads [[RoleHint.ValueConstructor]] purely to recover constructor identity and declaration order while baking the
+    * pattern-dispatch native — the native-emitting half of match desugaring. This is a sanctioned hint consumer (see the
+    * cornerstone invariant on [[RoleHint]]): it reconstructs the programmer's written shape, makes no typing decision,
+    * and never consults `typeParamCount`.
+    */
   private def orderedConstructors(moduleName: ModuleName, dataType: QualifiedName): CompilerIO[Seq[ValueFQN]] =
     for {
       moduleNames     <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))

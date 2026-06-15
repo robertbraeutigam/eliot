@@ -17,6 +17,6 @@ infix def +[m1: BigInteger, M1: BigInteger, m2: BigInteger, M2: BigInteger](left
 
 // A range-widening `implement [smin, smax, tmin, tmax] Coerce[Int[smin,smax], Int[tmin,tmax]]` (yielding Some(widen) iff
 // [smin,smax] is inside [tmin,tmax], else None) is the intended way the checker inserts implicit Int widening, but it is
-// deferred: it needs the Coerce check-mode insertion (docs/cornerstone-fidelity-plan.md Phase 2), an `Option` with
-// Some/None/fold natives, a native widen, and literal-typing-as-Int[V,V] so Int values actually arise. All are
-// follow-ups in docs/int-min-max-plan.md.
+// deferred: it needs the Coerce check-mode insertion, an `Option` with Some/None/fold natives, a native widen, and
+// literal-typing-as-Int[V,V] so Int values actually arise. All are follow-ups in docs/int-min-max-plan.md
+// ("Check-mode `Coerce` insertion").

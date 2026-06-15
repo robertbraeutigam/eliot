@@ -38,7 +38,7 @@ object WellKnownTypes {
     * an implicit, possibly representation-changing widening when an inferred type is used where a different expected
     * type built from the same constructor is wanted (e.g. `Int[0,5]` where `Int[0,10]` is expected). The widening
     * insertion itself is deferred (it lands with the `Int[MIN,MAX]` frontier); this FQN is the durable design
-    * commitment — see `docs/cornerstone-fidelity-plan.md` Phase 2.
+    * commitment — see `docs/int-min-max-plan.md` ("Check-mode `Coerce` insertion").
     */
   val coerceFQN: ValueFQN =
     ValueFQN(

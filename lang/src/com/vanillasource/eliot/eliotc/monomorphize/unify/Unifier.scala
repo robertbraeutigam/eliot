@@ -22,7 +22,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * evaluator (= normalises) and compares. There is no notion of "assignability" or directional widening here.
   * Directional coercion (e.g. an `Int[0,5]` used where an `Int[0,10]` is expected) is a separate concern handled
   * outside the unifier by a user-defined `Coerce` ability that the checker inserts in check mode — see
-  * `docs/cornerstone-fidelity-plan.md` Phase 2.
+  * `docs/int-min-max-plan.md` ("Check-mode `Coerce` insertion").
   */
 case class Unifier(
     metaStore: MetaStore,

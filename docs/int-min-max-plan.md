@@ -6,7 +6,7 @@ the current frontier. This document is the durable reference for the
 
 > **Superseded mechanism note (2026-06-15).** The assignability mechanism described
 > throughout this doc as the **`TypeRefinement` ability + a `refinements` hook in the
-> `Unifier`** has been **removed**. Per `docs/cornerstone-fidelity-plan.md` Phase 2,
+> `Unifier`** has been **removed** (by the now-complete cornerstone-fidelity work):
 > `unify` is now pure definitional equality, and directional Int widening moves to a
 > user-defined **`Coerce` ability inserted in the checker's check mode** (returning
 > `Option`, discriminated via `fold`). So wherever this doc says "run `assignableFrom`
@@ -15,6 +15,8 @@ the current frontier. This document is the durable reference for the
 > bounds, literal-typing-as-`Int[V,V]`, the native widen) are unchanged and still the
 > real work; only the assignability *seam* changed. The `Coerce`/`Option` declarations
 > and `WellKnownTypes.coerceFQN` already exist; the check-mode insertion does not yet.
+> See "Check-mode `Coerce` insertion" below — the authoritative design + work items,
+> consolidated here from the (now-retired) cornerstone-fidelity Phase 2.
 
 ## Current status (2026-06-11)
 
@@ -48,6 +50,111 @@ the current frontier. This document is the durable reference for the
     (`Byte`/`Short`/`Long`/…), and `+` with dependent bounds
     (`Int[m1,M1] + Int[m2,M2] : Int[add(m1,m2), add(M1,M2)]`). There is **no**
     `implement TypeRefinement[Int]` yet — it is blocked (see Phases).
+
+## Check-mode `Coerce` insertion (the assignability seam — moved from cornerstone-fidelity Phase 2, 2026-06-15)
+
+This is the authoritative home for the **check-mode coercion insertion** that replaces the removed
+`TypeRefinement`-in-`unify` hook. The (now-complete) cornerstone-fidelity work delivered the
+unifier-purification half (`unify` is now pure definitional equality) and the durable `Coerce` /
+`Option` declarations; the *insertion* below was deferred to land **here**, with the `Int` frontier,
+because it depends on `Int`-specific machinery (Phases 1–2 of this doc) that does not exist yet.
+
+### Design
+
+`unify` stays pure definitional equality. Directional widening (`Int[0,5]` used where `Int[0,10]` is
+expected) is an ordinary user-defined coercion the checker inserts in **check mode** — never in
+`unify`, never in inference (subtyping interacts badly with metavariable unification; confining it to
+check mode keeps inference symmetric):
+
+```
+ability Coerce[from, to] {        -- declared in lang (Coerce.els); checker-invoked by name
+   def coerce(value: from): Option[to]
+}
+```
+
+The single parametric Int instance lives in stdlib (`Int.els`); the compiler hardcodes only the
+*name* `Coerce` (by-name protocol recognition, the codebase's existing pattern):
+
+```
+implement [smin, smax, tmin, tmax] Coerce[Int[smin,smax], Int[tmin,tmax]] {
+   def coerce(value) =
+      if le(tmin, smin) && le(smax, tmax)   -- existence: depends ONLY on the bounds
+        then Some(nativeWiden(value))        -- payload: the (possibly runtime) conversion
+        else None
+}
+```
+
+**NbE separates the two halves automatically.** For `x : Int[0,5]` checked against `Int[0,10]`:
+
+- the `if` condition `le(0,0) && le(5,10)` has all bounds **known**, so NbE forces it to `true` — the
+  `Some`/`None` choice is decided entirely at compile time;
+- the payload `nativeWiden(x)` is **stuck on `x`** (runtime value unknown), so NbE leaves it as a
+  residual — a well-typed runtime expression;
+- result: `coerce(x)` ⤳ `Some(nativeWiden(x))`. The checker discriminates this through Option's
+  abstract `fold`, reaches the some-branch, and **splices `nativeWiden(x)` into the call site** as a
+  bare `Int[0,10]`. No `Option` survives at runtime. For `Int[0,5] → Int[0,3]` it forces to `None` →
+  none-branch → compile-time type error. When representations already match (`Int[0,5] → Int[0,6]`,
+  both byte) the payload is identity — zero runtime cost, same mechanism. Narrowing
+  (`Int[0,10] → Int[0,5]`) is *not* this mechanism: it is an ordinary explicit stdlib function
+  returning `Option`, with no checker support.
+
+**Discriminate via `fold`, not a constructor match.** `Option` is an opaque platform `type`, not a
+`data` declaration — no `Some`/`None` constructors for the compile-time evaluator to pattern-match.
+The checker applies Option's abstract eliminator with two checker-internal sentinels — roughly
+`fold(coerce(term), onNone = ⟨reject⟩, onSome = λp. ⟨accept p⟩)` — and evaluates *that*. The
+reductions `fold(Some p, n, s) ⤳ s p` and `fold(None, n, s) ⤳ n` are compiler-as-platform natives
+(`NativeFunction`); the backend supplies a different native for the real layout. The instance body's
+`if … then Some … else None` is likewise `Bool`/`Option` abstract operations (natives), not surface
+constructors.
+
+### Where it lives — leaf check mode
+
+```
+check(term, expected):
+  actual = infer(term)
+  if unify(actual, expected): done                  -- pure definitional equality, unchanged
+  else resolve Coerce[actual, expected]:
+    evaluate fold(coerce(term), onNone, onSome) via NbE:   -- discriminate via abstract fold
+      accept(payload) => replace term with payload   -- payload may carry runtime nativeWiden
+      reject          => report mismatch (contract violated)
+      stuck           => report mismatch / postpone  -- abstract bounds: cannot prove widening
+```
+
+Resolution is **two-level, so no conditional-instance machinery is required** (Eliot has none): the
+ability resolves the coercion *family* by constructor (one parametric `Coerce[Int[..],Int[..]]`
+instance), and the returned `Option` decides whether *these specific bounds* coerce. **Abstract
+bounds → `stuck`:** inside a generic function where `a,b` are unknown, `le(...)` does not reduce, so
+`coerce(x)` is neither `Some` nor `None`; the checker falls back to requiring definitional equality
+(or postpones until monomorphization makes the bounds concrete). Implicit widening only happens where
+the compiler can actually see it is safe.
+
+### Scope
+
+- **Leaf positions only** — argument / let-binding / return (`Int[0,5]` passed where `Int[0,10]` is
+  expected). Coercing *inside* a constructor (`List[Int[0,5]] → List[Int[0,10]]`) needs variance
+  reasoning + a structural rewrite — deferred; leave a boundary comment so it is a known edge.
+- **Termination guard deferred** — evaluating `coerce` runs type-level code, which Girard's paradox
+  lets diverge. The stuck-residual/fuel guard lands with the termination model
+  (`project_recursion_as_effect`) — the same guard described under "Risks" below.
+
+### Work items (the deferred net-change list)
+
+- `Int.els`: add the parametric `Coerce[Int,Int]` instance + the native widen.
+- `check/TypeStackLoop.scala`: add the leaf check-mode coercion hook above. It discriminates the
+  `Option` result through the abstract `fold` eliminator, **not** a constructor match.
+- Evaluator: give `Option`'s `fold` (and the `Some`/`None` constructors) compiler-side native
+  reductions (`fold(Some p,…) ⤳ s p`, `fold(None,…) ⤳ n`) so the discrimination forces at compile
+  time. `Option` stays an opaque platform `type` (the abstract `Option.els` is in place); reuse the
+  existing `NativeFunction` compiler-as-platform path rather than introducing a `data Option`.
+- Value→runtime-expression read-back — a **new** `Quoter` direction. Today's `Quoter` *rejects*
+  neutrals; the residual `nativeWiden · x` neutral must read back to a
+  `MonomorphicExpression.FunctionApplication`, treating the stuck native/var as the *desired* output,
+  not an error. Not a reuse of `Quoter.quote` as-is.
+- Coercion-insertion test (replaces the deleted `RefinementUnifyTest`): `Int[0,5]` into `Int[0,10]`
+  succeeds and inserts the widen; into `Int[0,3]` is a type error.
+
+Acceptance: implicit widening flows through a user-defined stdlib `Coerce` instance inserted in check
+mode; `Int[0,5] → Int[0,10]` succeeds while `Int[0,5] → Int[0,3]` is a compile error.
 
 ## Goal & chosen model
 
@@ -231,10 +338,11 @@ are the `Int`-specific work that sits on top.
 - **Phase 2 — Literals as `Int[V,V]`.** Expected-type-directed literal typing in
   `Checker` (see "Key insight"). Audit monomorphize tests assuming `BigInteger` in
   value position. Needed to actually *produce* `Int` values.
-- **Phase 3 — `implement TypeRefinement[Int]` (range subsumption).** With Phase 1
-  in place, write the pure-Eliot impl shown above and add it to `Int.els`. The
-  checker hook already runs it. Verify widening accepted / narrowing rejected end
-  to end.
+- **Phase 3 — `Coerce[Int,Int]` instance + check-mode insertion (range subsumption).**
+  With Phase 1 in place, write the parametric `Coerce` instance in `Int.els` and add
+  the leaf check-mode hook in `TypeStackLoop` — see "Check-mode `Coerce` insertion"
+  above for the full design and work items. Verify widening accepted / narrowing
+  rejected end to end. (Replaces the removed `TypeRefinement[Int]` + `Unifier` hook.)
 - **Phase 4 — `combine` + branch/match synthesis.** Add `combine` to the ability,
   implement for `Int` (`min`/`max` as ordinary Eliot, now runnable), and wire it
   into branch/match result-type synthesis in the checker.
