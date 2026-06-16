@@ -1,0 +1,19 @@
+/**
+ * JVM representation types: the fixed, finite set of machine layouts an `Int[MIN, MAX]` can lower to.
+ *
+ * These are body-less platform types (like `String`/`Unit`): each one maps to exactly one JVM wrapper class via
+ * `NativeType.types` (`JvmByte` -> `java.lang.Byte`, ..., `JvmBigInteger` -> `java.math.BigInteger`). They carry no
+ * bounds and no value constructor; they are *not* meant to be written by user code. The jvm-layer `opaque type Int`
+ * body selects one of these from a range's bounds (Phase 2), and the post-checking unfold pass rewrites every
+ * `Int[MIN, MAX]` to its chosen representation here (Phase 3). A microcontroller backend reuses the same Eliot policy,
+ * swapping only this type->layout map.
+ */
+type JvmByte
+
+type JvmShort
+
+type JvmInt
+
+type JvmLong
+
+type JvmBigInteger

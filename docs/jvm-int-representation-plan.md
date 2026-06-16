@@ -1,6 +1,7 @@
 # Exact `Int` representations via `opaque` + Eliot dispatch
 
-Status: **planned** (the `opaque` modifier it depends on is **implemented** — see "Foundation").
+Status: **Phase 1 implemented**; Phases 2–5 planned (the `opaque` modifier it depends on is **implemented** —
+see "Foundation").
 
 Goal: store each `Int[MIN, MAX]` in the *smallest* machine representation whose range contains `[MIN, MAX]`
 (`Byte`/`Short`/`Int`/`Long`, with a bignum fall-back), and make range widening (`Coerce`) a *real* runtime
@@ -64,17 +65,27 @@ native mapping.* It never names `Int`.
 
 ---
 
-## Phase 1 — Representation types
+## Phase 1 — Representation types  *(implemented)*
 
 Body-less platform types (like `String`/`Unit` today), mapped to JVM classes:
 
-- `jvm/resources/.../Jvm.els`: `type JvmByte`, `type JvmShort`, `type JvmInt`, `type JvmLong`,
-  `type JvmBigInteger`.
-- `NativeType.types`: add `JvmByte → java.lang.Byte`, `JvmShort → java.lang.Short`, `JvmInt →
-  java.lang.Integer`, `JvmLong → java.lang.Long`, `JvmBigInteger → java.math.BigInteger`; **remove** the
-  `Int → Long` entry — `Int` is no longer native-mapped; it lowers through its opaque body.
+- `jvm/resources/eliot/eliot/lang/Jvm.els` (module `eliot.lang.Jvm`): `type JvmByte`, `type JvmShort`,
+  `type JvmInt`, `type JvmLong`, `type JvmBigInteger`. (One module rather than one-per-type; the opaque `Int`
+  body and the unfold pass reference them via the `Jvm` module.)
+- `NativeType.types`: added `JvmByte → java.lang.Byte`, `JvmShort → java.lang.Short`, `JvmInt →
+  java.lang.Integer`, `JvmLong → java.lang.Long`, `JvmBigInteger → java.math.BigInteger`, via the new
+  `NativeType.jvmRepresentationType` helper (fixed module `Jvm`, `Qualifier.Default` to match
+  `CommonPatterns.stripDataTypeSuffix`).
 
 These five entries are the **entire** new Scala "type knowledge."
+
+**Deviation from the original bullet — `Int → Long` kept for now.** Removing the `Int → Long` entry is
+deferred to **Phase 3**, not done here: until the post-checking unfold pass exists to lower `Int` through its
+opaque body to a `Jvm*` type, `Int` *must* stay native-mapped or codegen for every `Int`-using program breaks
+(`javaSignatureName` would fall back to a non-existent `eliot/eliot/lang/Int$Int` class). Keeping it preserves
+the "nothing observable yet" property of Phases 1–2 (all jvm tests, incl. integer arithmetic/widening, still
+pass). The removal lands in Phase 3 alongside the unfold pass. The `Jvm.els` module is currently unimported,
+so the new types are inert until Phase 2 references them.
 
 ## Phase 2 — The representation policy, in Eliot (`opaque type Int`)
 

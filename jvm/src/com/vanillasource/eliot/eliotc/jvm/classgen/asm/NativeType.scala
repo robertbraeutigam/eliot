@@ -15,6 +15,12 @@ object NativeType {
   def systemLangType(typeName: String): ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, typeName), QualifiedName(typeName, Qualifier.Default))
 
+  // JVM representation types live together in the `eliot.lang.Jvm` module (see `Jvm.els`), so unlike `systemLangType`
+  // the module name is fixed (`Jvm`) and only the value name varies. `Qualifier.Default` matches the qualifier that
+  // type FQNs carry by the time they reach this map (`CommonPatterns.stripDataTypeSuffix`).
+  def jvmRepresentationType(typeName: String): ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "Jvm"), QualifiedName(typeName, Qualifier.Default))
+
   val systemFunctionValue: ValueFQN = systemLangType("Function")
   val systemAnyValue: ValueFQN      = systemLangType("Any")
   val systemUnitValue: ValueFQN     = systemLangType("Unit")
@@ -27,8 +33,17 @@ object NativeType {
       (systemLangType("Unit"), eliot_lang_Unit),
       (systemLangType("Any"), eliot_lang_Any),
       (systemLangType("BigInteger"), eliot_lang_BigInteger),
-      // `Int[MIN, MAX]` is represented at runtime by a boxed `java.lang.Long` (everything maps to Long; range-based
-      // width selection is a later feature).
+      // The fixed set of JVM representation types `Int[MIN, MAX]` can lower to (see `Jvm.els`). These five entries are
+      // the entire backend "type knowledge" of integer widths; all width *policy* (which range picks which) lives in
+      // Eliot's opaque `Int` body (Phase 2) and the unfold pass (Phase 3).
+      (jvmRepresentationType("JvmByte"), eliot_lang_JvmByte),
+      (jvmRepresentationType("JvmShort"), eliot_lang_JvmShort),
+      (jvmRepresentationType("JvmInt"), eliot_lang_JvmInt),
+      (jvmRepresentationType("JvmLong"), eliot_lang_JvmLong),
+      (jvmRepresentationType("JvmBigInteger"), eliot_lang_JvmBigInteger),
+      // `Int[MIN, MAX]` is still represented at runtime by a boxed `java.lang.Long` (everything maps to Long). This
+      // mapping is removed in Phase 3, once the post-checking unfold pass lowers `Int` through its opaque body to one
+      // of the `Jvm*` representation types above; until then `Int` must stay native-mapped or codegen breaks.
       (systemLangType("Int"), eliot_lang_Int)
     )
   )
@@ -90,6 +105,26 @@ object NativeType {
 
   private def eliot_lang_Int: NativeType = new NativeType {
     override def javaClass: Class[?] = classOf[java.lang.Long]
+  }
+
+  private def eliot_lang_JvmByte: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[java.lang.Byte]
+  }
+
+  private def eliot_lang_JvmShort: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[java.lang.Short]
+  }
+
+  private def eliot_lang_JvmInt: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[java.lang.Integer]
+  }
+
+  private def eliot_lang_JvmLong: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[java.lang.Long]
+  }
+
+  private def eliot_lang_JvmBigInteger: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[java.math.BigInteger]
   }
 
   private def eliot_lang_Function: NativeType = new NativeType {
