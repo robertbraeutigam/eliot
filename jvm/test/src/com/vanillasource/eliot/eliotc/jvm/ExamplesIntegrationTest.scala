@@ -221,4 +221,28 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
       """def main: IO[Unit] = println(intToString(3 - 10))""".stripMargin
     ).asserting(_ shouldBe "-7")
   }
+
+  "integer range widening" should "widen a bare literal into a broader declared range at runtime" in {
+    compileAndRun(
+      """def widened: Int[0, 1000] = 7
+        |
+        |def main: IO[Unit] = println(intToString(widened))""".stripMargin
+    ).asserting(_ shouldBe "7")
+  }
+
+  it should "accept a literal assigned through a width alias and print it" in {
+    compileAndRun(
+      """def small: Byte = 42
+        |
+        |def main: IO[Unit] = println(intToString(small))""".stripMargin
+    ).asserting(_ shouldBe "42")
+  }
+
+  it should "widen an arithmetic result into a broader declared range at runtime" in {
+    compileAndRun(
+      """def total: Int[0, 1000] = 3 + 4
+        |
+        |def main: IO[Unit] = println(intToString(total))""".stripMargin
+    ).asserting(_ shouldBe "7")
+  }
 }

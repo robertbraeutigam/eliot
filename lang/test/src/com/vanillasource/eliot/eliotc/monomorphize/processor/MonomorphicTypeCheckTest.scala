@@ -149,6 +149,30 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Bare-literal widening: Phase-6 desugar + Phase-3 Coerce, end to end (int-min-max-plan Phase 7) ---
+
+  "bare literal widening" should "widen a bare value-position literal into a broader declared range" in {
+    // `7` desugars to `integerLiteral[7] : Int[7, 7]` (Phase 6), then the `Coerce[Int, Int]` instance widens it
+    // into `Int[0, 1000]` (Phase 3) — no explicit `integerLiteral` in the source.
+    runCoerce("def test: Int[0, 1000] = 7")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject a bare literal that does not fit the declared range" in {
+    runCoerce("def test: Int[0, 3] = 5")
+      .asserting(_ shouldBe Seq("Type mismatch." at "5"))
+  }
+
+  it should "widen a bare literal into a width alias (Byte)" in {
+    runCoerce("def test: Byte = 5")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject a bare literal that overflows a width alias (Byte)" in {
+    runCoerce("def test: Byte = 5000")
+      .asserting(_ shouldBe Seq("Type mismatch." at "5000"))
+  }
+
   // --- Function call tests ---
 
   "function call" should "compile if same number of arguments" in {
@@ -665,6 +689,7 @@ class MonomorphicTypeCheckTest
         |import eliot.lang.Combine
         |import eliot.lang.Option
         |type Int[MIN: BigInteger, MAX: BigInteger]
+        |type Byte = Int[-128, 127]
         |def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger](value: Int[Smin, Smax]): Int[Tmin, Tmax]
         |implement[Smin, Smax, Tmin, Tmax] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] { def coerce(value: Int[Smin, Smax]): Option[Int[Tmin, Tmax]] = fold(lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax), some(nativeWiden(value)), none) }
         |implement[Amin, Amax, Bmin, Bmax] Combine[Int[Amin, Amax], Int[Bmin, Bmax]] { type Combined = Int[min(Amin, Bmin), max(Amax, Bmax)] }

@@ -2,19 +2,20 @@
 
 Status: Phase 2 (explicit `integerLiteral[n]`), **Phase 3 (check-mode `Coerce` insertion),
 Phase 4 (combining a covariant multi-candidate metavariable via the `Combine` ability), Phase 5
-(runtime arithmetic — `+`/`-`/`*` with dependent bounds, type-level AND on the JVM), and Phase 6
-(the global literal flip — value-position `n` ⟹ `integerLiteral[n] : Int[n,n]`) are DONE.** Real
-programs now compute from **bare literals with no imports**: `println(intToString(2 + 3 * 4))` prints
-`14`, and `def widened: Int[0, 1000] = 7` widens the bare `7` through the `Coerce` instance. See
-"Phase 6 — As built" below. Implicit `Int` range widening works through a user-space `Coerce` instance,
-resolved by name and evaluated by the one NbE evaluator (`Int[3,3] → Int[0,10]` accepted,
-`Int[5,5] → Int[0,3]` rejected); and a covariant metavariable with more than one candidate (a `match`
-result, or `f[A](a:A,b:A):A`) resolves to the `Combine` join of its candidates, with per-meta polarity
-tracking ("taint on contravariant use") keeping the join sound. Dependent-bounds `+` type-checks
-(`Int[3,3] + Int[4,4] : Int[7,7]`) via the `add` `BigInteger` native, and `renormalize` re-fires natives
-stuck on now-solved metavariables. The remaining frontier is **Phase 7** (consolidated tests / examples /
-docs polish) and the deferred width-selection / termination work noted under "Risks". This document is the
-durable cross-session reference.
+(runtime arithmetic — `+`/`-`/`*` with dependent bounds, type-level AND on the JVM), Phase 6
+(the global literal flip — value-position `n` ⟹ `integerLiteral[n] : Int[n,n]`), and Phase 7
+(consolidated tests / examples / docs) are DONE — the `Int[MIN, MAX]` feature is functionally
+complete.** Real programs now compute from **bare literals with no imports**:
+`println(intToString(2 + 3 * 4))` prints `14`, and `def widened: Int[0, 1000] = 7` widens the bare `7`
+through the `Coerce` instance. See "Phase 6 — As built" below. Implicit `Int` range widening works through
+a user-space `Coerce` instance, resolved by name and evaluated by the one NbE evaluator
+(`Int[3,3] → Int[0,10]` accepted, `Int[5,5] → Int[0,3]` rejected); and a covariant metavariable with more
+than one candidate (a `match` result, or `f[A](a:A,b:A):A`) resolves to the `Combine` join of its
+candidates, with per-meta polarity tracking ("taint on contravariant use") keeping the join sound.
+Dependent-bounds `+` type-checks (`Int[3,3] + Int[4,4] : Int[7,7]`) via the `add` `BigInteger` native, and
+`renormalize` re-fires natives stuck on now-solved metavariables. The only remaining work is the deferred
+width-selection / termination work noted under "Risks" (out of scope for the core feature). This document
+is the durable cross-session reference.
 
 ## Goal & chosen model
 
@@ -501,8 +502,27 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
     `MonomorphicTypeCheck(Processor)Test`, `MatchNativesProcessorTest`, `AbilityImplementationCheckProcessorTest`,
     `CoreProcessorTest`, `ValueResolverTest`, `OperatorResolverProcessorTest`, `MatchDesugaringProcessorTest`
     (+ its new `IntValue` matcher), and `ExamplesIntegrationTest` (runtime `7`/`6`/`14`/`-7` from bare literals).
-- **Phase 7 — Tests / examples / docs.** Literal typing; range accept/reject; arithmetic bounds; a
-  JVM run test; an example `.els`; fold notes back here.
+- **Phase 7 — Tests / examples / docs. (DONE.)** See "Phase 7 — As built" below.
+
+  **Phase 7 — As built (DONE).** Most acceptance coverage landed incrementally in Phases 2–6 (each phase
+  added its own typecheck + JVM-run tests, listed under the phase entries above). Phase 7 consolidated the
+  remaining cross-phase gaps and polished the examples:
+  - **Bare-literal widening end to end (Phase 6 desugar + Phase 3 `Coerce`).** The earlier `Coerce` tests
+    used the *explicit* `integerLiteral[n]` constructor; Phase 7 added the bare-literal versions that
+    exercise the full chain (`MonomorphicTypeCheckTest` "bare literal widening"): `def test: Int[0, 1000] = 7`
+    accepted, `def test: Int[0, 3] = 5` rejected at `5`, plus the same through a **width alias**
+    (`def test: Byte = 5` accepted, `def test: Byte = 5000` rejected). The `Int` test stub (`intImports`)
+    gained `type Byte = Int[-128, 127]` so alias resolution + widening are covered at the unit level.
+  - **JVM runtime widening (`ExamplesIntegrationTest` "integer range widening").** A bare literal widened
+    into a broader range prints at runtime (`Int[0, 1000] = 7` ⟹ `7`), a width-alias value prints
+    (`Byte = 42` ⟹ `42`), and an arithmetic result widens into a broader declared range
+    (`Int[0, 1000] = 3 + 4` ⟹ `7`) — each widen is the identity on `Long`, as designed.
+  - **Example.** `examples/src/Ranges.els` demonstrates the distinctive range behaviour — a bare literal
+    widening into the `UnsignedByte` alias, dependent-bounds `+` (`count + count + count : Int[0, 765]`),
+    and that result widening into a broader declared `Int[0, 1000]` (prints `21`). (`examples/src/Arithmetic.els`
+    from Phase 5/6 covers `+`/`-`/`*` precedence.)
+  - Files: `MonomorphicTypeCheckTest.scala` (bare-literal widening cases + `Byte` alias in `intImports`),
+    `ExamplesIntegrationTest.scala` (runtime widening cases), `examples/src/Ranges.els` (new example).
 
 ## Decisions & open sub-decisions
 
