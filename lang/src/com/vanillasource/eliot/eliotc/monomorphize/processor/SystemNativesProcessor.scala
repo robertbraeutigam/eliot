@@ -18,6 +18,7 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   subtractFQN,
   typeFQN
 }
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
@@ -39,7 +40,15 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   */
 class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
 
-  private val boolType: SemValue = VTopDef(boolFQN, None, Spine.SNil)
+  private val boolType: SemValue   = VTopDef(boolFQN, None, Spine.SNil)
+  private val bigIntType: SemValue = VTopDef(bigIntFQN, None, Spine.SNil)
+
+  /** The canonical stuck form of a native: a body-less [[VTopDef]] carrying the native's own FQN and the (not-yet-
+    * concrete) arguments as its spine. Keeping the FQN is what lets distinct stuck natives stay definitionally distinct
+    * and lets [[Evaluator.renormalize]] re-fire them once the arguments become concrete.
+    */
+  private def stuck(fqn: ValueFQN, args: SemValue*): SemValue =
+    VTopDef(fqn, None, args.foldLeft(Spine.SNil: Spine)(_ :+ _))
 
   override def generateSingleFact(key: NativeBinding.Key): CompilerIO[NativeBinding] =
     if (key.vfqn === functionDataTypeFQN) {
@@ -84,31 +93,27 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
   /** `lessThanOrEqual(a, b): Bool` — reduces to a concrete Bool when both arguments are concrete BigIntegers,
     * otherwise stays stuck (so the unifier falls back to ordinary unification).
     */
-  private def lessThanOrEqualNative: SemValue = {
-    val bigIntType = VTopDef(bigIntFQN, None, Spine.SNil)
+  private def lessThanOrEqualNative: SemValue =
     VNative(bigIntType, a => VNative(bigIntType, b => lessThanOrEqualResult(a, b)))
-  }
 
   private def lessThanOrEqualResult(a: SemValue, b: SemValue): SemValue = (a, b) match {
     case (VConst(GroundValue.Direct(x: BigInt, _)), VConst(GroundValue.Direct(y: BigInt, _))) =>
       if (x <= y) Evaluator.trueValue else Evaluator.falseValue
     case _                                                                                    =>
-      VTopDef(lessThanOrEqualFQN, None, Spine.SNil :+ a :+ b)
+      stuck(lessThanOrEqualFQN, a, b)
   }
 
   /** A curried `BigInteger -> BigInteger -> BigInteger` native (e.g. `min`/`max`): reduces to a concrete BigInteger
     * when both arguments are concrete, otherwise stays stuck (so the unifier falls back to ordinary unification on the
     * still-abstract bounds). Mirrors [[lessThanOrEqualNative]]'s concreteness discipline.
     */
-  private def bigIntBinaryNative(fqn: com.vanillasource.eliot.eliotc.module.fact.ValueFQN)(
+  private def bigIntBinaryNative(fqn: ValueFQN)(
       op: (BigInt, BigInt) => BigInt
-  ): SemValue = {
-    val bigIntType = VTopDef(bigIntFQN, None, Spine.SNil)
+  ): SemValue =
     VNative(bigIntType, a => VNative(bigIntType, b => bigIntBinaryResult(fqn, op, a, b)))
-  }
 
   private def bigIntBinaryResult(
-      fqn: com.vanillasource.eliot.eliotc.module.fact.ValueFQN,
+      fqn: ValueFQN,
       op: (BigInt, BigInt) => BigInt,
       a: SemValue,
       b: SemValue
@@ -116,7 +121,7 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
     case (VConst(GroundValue.Direct(x: BigInt, t)), VConst(GroundValue.Direct(y: BigInt, _))) =>
       VConst(GroundValue.Direct(op(x, y), t))
     case _                                                                                    =>
-      VTopDef(fqn, None, Spine.SNil :+ a :+ b)
+      stuck(fqn, a, b)
   }
 
   /** A curried 4-argument `BigInteger -> … -> BigInteger` native over the corner products of `Int[a,b] * Int[c,d]`
@@ -124,10 +129,9 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
     * (`min`/`max`), otherwise it stays stuck so the unifier falls back to ordinary unification on the still-abstract
     * bounds. Mirrors [[bigIntBinaryNative]]'s concreteness discipline.
     */
-  private def bigIntCornerNative(fqn: com.vanillasource.eliot.eliotc.module.fact.ValueFQN)(
+  private def bigIntCornerNative(fqn: ValueFQN)(
       op: Seq[BigInt] => BigInt
   ): SemValue = {
-    val bigIntType = VTopDef(bigIntFQN, None, Spine.SNil)
     def collect(acc: Seq[SemValue], remaining: Int): SemValue =
       if (remaining === 0) bigIntCornerResult(fqn, op, acc)
       else VNative(bigIntType, arg => collect(acc :+ arg, remaining - 1))
@@ -135,7 +139,7 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
   }
 
   private def bigIntCornerResult(
-      fqn: com.vanillasource.eliot.eliotc.module.fact.ValueFQN,
+      fqn: ValueFQN,
       op: Seq[BigInt] => BigInt,
       args: Seq[SemValue]
   ): SemValue = args match {
@@ -147,7 +151,7 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
         ) =>
       VConst(GroundValue.Direct(op(Seq(a * c, a * d, b * c, b * d)), t))
     case _ =>
-      VTopDef(fqn, None, args.foldLeft(Spine.SNil: Spine)(_ :+ _))
+      stuck(fqn, args*)
   }
 
   /** `&&(a, b)`: reduces to `Direct(a && b)` when both arguments are concrete Bools, otherwise stays stuck. */
@@ -158,7 +162,7 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
     case (VConst(GroundValue.Direct(x: Boolean, _)), VConst(GroundValue.Direct(y: Boolean, _))) =>
       VConst(GroundValue.Direct(x && y, Evaluator.boolGroundType))
     case _                                                                                      =>
-      VTopDef(boolAndFQN, None, Spine.SNil :+ a :+ b)
+      stuck(boolAndFQN, a, b)
   }
 
   /** `fold(condition, whenTrue, whenFalse)`: selects a branch when the condition is a concrete Bool, otherwise stays
@@ -172,6 +176,6 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
   private def foldResult(cond: SemValue, whenTrue: SemValue, whenFalse: SemValue): SemValue = cond match {
     case VConst(GroundValue.Direct(true, _))  => whenTrue
     case VConst(GroundValue.Direct(false, _)) => whenFalse
-    case _                                    => VTopDef(boolFoldFQN, None, Spine.SNil :+ cond :+ whenTrue :+ whenFalse)
+    case _                                    => stuck(boolFoldFQN, cond, whenTrue, whenFalse)
   }
 }

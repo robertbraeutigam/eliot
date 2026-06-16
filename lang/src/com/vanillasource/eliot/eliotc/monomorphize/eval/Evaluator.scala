@@ -58,11 +58,14 @@ object Evaluator {
     case VPi(_, codomain) => codomain(x)
 
     case VNative(_, fire) =>
-      val resolved = unfoldTopDef(x)
-      resolved match {
-        case _: VNeutral => VNeutral(NeutralHead.VVar(0, "native"), Spine.SNil :+ resolved)
-        case _           => fire(resolved)
-      }
+      // Always fire — even on a non-concrete argument. The native's `fire` produces its own canonical stuck form
+      // (a body-less `VTopDef` carrying the native's FQN and the renormalised spine) when an argument is not yet
+      // concrete, so distinct stuck natives stay definitionally distinct and `renormalize` can re-fire them once the
+      // arguments solve. (A previous neutral-only special case collapsed every native to a single anonymous
+      // `VVar(0, "native")` head, which conflated, e.g., `add(x, y)` with `subtract(x, y)` under definitional
+      // equality.) Firing on a neutral mirrors firing on a concrete value: a curried native simply yields the next
+      // `VNative` awaiting the remaining arguments.
+      fire(unfoldTopDef(x))
 
     case VNeutral(head, spine) => VNeutral(head, spine :+ x)
 
@@ -96,21 +99,21 @@ object Evaluator {
     * compared against the expected type the metavariables *are* solved, but the `add`s never reduced.
     *
     * `renormalize` walks the value, [[force]]ing through solved metas, and for each body-less `VTopDef` whose FQN
-    * resolves (via `lookupNative`) to a [[VNative]] it re-applies the native to the renormalised spine — so a now-fully-
-    * concrete `add(3, 4)` reduces to `7`. If re-firing still produces the same stuck head (an argument is genuinely
-    * still abstract), the stuck form is kept (with renormalised arguments) and no progress loops. Non-native body-less
-    * `VTopDef`s (type constructors like `Int`, abstract `def`s) are rebuilt with renormalised arguments; everything else
-    * is returned as forced.
+    * resolves (via `lookupNative`) to a [[VNative]] it re-applies the native to the renormalised spine — so a
+    * now-fully- concrete `add(3, 4)` reduces to `7`. If re-firing still produces the same stuck head (an argument is
+    * genuinely still abstract), the stuck form is kept (with renormalised arguments) and no progress loops. Non-native
+    * body-less `VTopDef`s (type constructors like `Int`, abstract `def`s) are rebuilt with renormalised arguments;
+    * everything else is returned as forced.
     *
     * `lookupNative` is the checker's binding cache (`vfqn => bindingCache.getOrElse(vfqn, None)`), which already holds
-    * every native reachable from the term (prefetched before evaluation). See `docs/int-min-max-plan.md`
-    * ("Phase 5 — Runtime arithmetic").
+    * every native reachable from the term (prefetched before evaluation). See `docs/int-min-max-plan.md` ("Phase 5 —
+    * Runtime arithmetic").
     */
   def renormalize(v: SemValue, metaStore: MetaStore, lookupNative: ValueFQN => Option[SemValue]): SemValue =
     force(v, metaStore) match {
       case VTopDef(fqn, None, spine) =>
-        val args     = spine.toList.map(renormalize(_, metaStore, lookupNative))
-        val rebuilt  = args.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
+        val args    = spine.toList.map(renormalize(_, metaStore, lookupNative))
+        val rebuilt = args.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
         lookupNative(fqn) match {
           case Some(native: VNative) =>
             args.foldLeft(native: SemValue)(applyValue) match {

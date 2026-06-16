@@ -4,12 +4,6 @@ import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 
 object WellKnownTypes {
-  val fqnFQN: ValueFQN =
-    ValueFQN(
-      ModuleName(Seq("eliot", "lang"), "FullyQualifiedName"),
-      QualifiedName("FullyQualifiedName", Qualifier.Default)
-    )
-
   val typeFQN: ValueFQN =
     ValueFQN(ModuleName(Seq("eliot", "lang"), "Type"), QualifiedName("Type", Qualifier.Type))
 
@@ -66,9 +60,9 @@ object WellKnownTypes {
 
   /** `add(a, b)` on `BigInteger` — a compile-time native (see `SystemNativesProcessor`) that reduces when both
     * arguments are concrete, otherwise stays stuck. It computes the dependent result bounds of integer addition: the
-    * `+` operator on `Int[LMin, LMax]` / `Int[RMin, RMax]` has result type `Int[add(LMin, RMin), add(LMax, RMax)]`,
-    * so the bounds are summed at the type level by this native while `+` itself is realized at runtime by the JVM
-    * backend (`LADD`). See `docs/int-min-max-plan.md` ("Phase 5 — Runtime arithmetic").
+    * `+` operator on `Int[LMin, LMax]` / `Int[RMin, RMax]` has result type `Int[add(LMin, RMin), add(LMax, RMax)]`, so
+    * the bounds are summed at the type level by this native while `+` itself is realized at runtime by the JVM backend
+    * (`LADD`). See `docs/int-min-max-plan.md` ("Phase 5 — Runtime arithmetic").
     */
   val addFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("add", Qualifier.Default))

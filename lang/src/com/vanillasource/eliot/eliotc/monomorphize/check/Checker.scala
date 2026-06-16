@@ -141,7 +141,7 @@ class Checker(
                                                             s.unifier.candidates.get(id.value).exists(_.nonEmpty)
                                                         )(id)
                                                       )
-                                                    case _                                                       => pure(None)
+                                                    case _                                                        => pure(None)
                                                   }
                               checked          <- combinableMeta match {
                                                     // The term's type is a bare combinable meta — the result of a
@@ -157,7 +157,7 @@ class Checker(
                                                       for {
                                                         (updatedExpr, instantiated) <-
                                                           instantiatePolymorphic(expr, inferred)
-                                                        c <- unifyOrCoerce(tm, updatedExpr, instantiated, expected)
+                                                        c                           <- unifyOrCoerce(tm, updatedExpr, instantiated, expected)
                                                       } yield c
                                                   }
                             } yield checked
@@ -165,10 +165,10 @@ class Checker(
     } yield result
 
   /** Resolve a term against an expected type. First attempt pure definitional equality (the unifier). If that fails,
-    * attempt a check-mode `Coerce` insertion: where the inferred type is used where a different expected type built from
-    * the same constructor is wanted (e.g. `Int[3,3]` where `Int[0,10]` is expected), resolve the user-defined `Coerce`
-    * ability by name and evaluate its `coerce` through the one NbE evaluator. A `some payload` result means the
-    * coercion exists; the term is re-typed at `expected` (the widening payload `nativeWiden` is the identity on the
+    * attempt a check-mode `Coerce` insertion: where the inferred type is used where a different expected type built
+    * from the same constructor is wanted (e.g. `Int[3,3]` where `Int[0,10]` is expected), resolve the user-defined
+    * `Coerce` ability by name and evaluate its `coerce` through the one NbE evaluator. A `some payload` result means
+    * the coercion exists; the term is re-typed at `expected` (the widening payload `nativeWiden` is the identity on the
     * current Long-only backend, so no runtime rewrite is needed — see `docs/int-min-max-plan.md`, "Representation &
     * promotion"; a real read-back lands with range-based width selection). A `none` or stuck result means no coercion,
     * so the original "Type mismatch." is committed.
@@ -193,7 +193,8 @@ class Checker(
                     // committing `trial`, whose spine descent can yield one error per mismatched type argument (e.g.
                     // both `Int` bounds).
                     case None          =>
-                      modify(st => st.withUnifier(st.unifier.addMismatch(actual, expected, tm.as("Type mismatch.")))).as(expr)
+                      modify(st => st.withUnifier(st.unifier.addMismatch(actual, expected, tm.as("Type mismatch."))))
+                        .as(expr)
                   }
     } yield result
 
@@ -208,6 +209,20 @@ class Checker(
       actual: SemValue,
       expected: SemValue
   ): CheckIO[Option[SemExpression]] =
+    resolveCoercion(actual, expected, tm.as("Type mismatch.")).map { holds =>
+      // On success re-type the term at `expected`. The widening payload `nativeWiden` is the identity on the current
+      // Long-only backend, so no runtime rewrite is needed (see `docs/int-min-max-plan.md`, "Representation &
+      // promotion"); a real read-back lands with range-based width selection.
+      if (holds) Some(expr.copy(expressionType = expected)) else None
+    }
+
+  /** Resolve `Coerce[actual, expected]` by name and report whether the coercion exists (the resolved `coerce` evaluates
+    * to `some`). This is the shared core of the check-mode insertion ([[tryCoerce]]) and the `Combine` contributor
+    * check ([[coercionExists]]) — both need "does this coercion hold?" but differ in what they do with the answer. It
+    * does **not** attempt definitional equality first (callers decide whether to); it returns `false` when the bounds
+    * are abstract/unsolved (cannot quote to ground), when no instance resolves, or when the instance yields `none`.
+    */
+  private def resolveCoercion(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Boolean] =
     for {
       s      <- get
       grounds = for {
@@ -215,42 +230,29 @@ class Checker(
                   e <- Quoter.quote(0, expected, s.unifier.metaStore)
                 } yield (a, e)
       result <- grounds match {
-                  case Left(_)         => pure(None) // abstract / unsolved bounds — cannot prove a coercion
+                  case Left(_)         => pure(false) // abstract / unsolved bounds — cannot prove a coercion
                   case Right((aG, eG)) =>
                     liftF(resolveAbility(WellKnownTypes.coerceFQN, Seq(aG, eG))).flatMap {
-                      case None               => pure(None)
-                      case Some((implFqn, _)) => coerceWith(implFqn, tm, expr, actual, expected)
+                      case None               => pure(false)
+                      case Some((implFqn, _)) => coercionHolds(implFqn, actual, expected, context)
                     }
                 }
     } yield result
 
-  /** Evaluate the resolved `coerce` implementation against the concrete bounds and discriminate its `Option` result.
+  /** Evaluate the resolved `coerce` implementation against the concrete bounds and report whether it yields `some` (the
+    * coercion exists). Invoked through [[resolveCoercion]] once an instance has been resolved by name.
     *
     * The impl's generic bound parameters are not lambdas in its runtime body (only value parameters are — see
     * `CoreExpressionConverter.buildCurriedBody`); they are free names resolved through the env. So:
-    *   1. peel the impl signature's type-parameter `VLam`s into fresh metas (recording each `name → meta`),
-    *   2. unify the resulting value-level function type against `VPi(actual, _ => Option[expected])` and drain, which
-    *      solves those metas to the concrete bounds,
-    *   3. rebuild the body env binding each name to the **forced (concrete)** meta value — not the meta itself: the NbE
-    *      evaluator has no metastore, so a native applied to an unforced `VMeta` would go stuck during evaluation.
+    *   - peel the impl signature's type-parameter `VLam`s into fresh metas (recording each `name → meta`);
+    *   - unify the resulting value-level function type against `VPi(actual, _ => Option[expected])` and drain, which
+    *     solves those metas to the concrete bounds;
+    *   - rebuild the body env binding each name to the **forced (concrete)** meta value — not the meta itself: the NbE
+    *     evaluator has no metastore, so a native applied to an unforced `VMeta` would go stuck during evaluation.
     *
     * Evaluating the runtime body in that concrete env and forcing it reduces the bounds-only existence check to
     * `some`/`none`. Coercion runs user code at compile time, which Girard's paradox allows to diverge; the termination
     * guard is deferred with the recursion/effect model (see `docs/int-min-max-plan.md`, "Risks").
-    */
-  private def coerceWith(
-      implFqn: ValueFQN,
-      tm: Sourced[OperatorResolvedExpression],
-      expr: SemExpression,
-      actual: SemValue,
-      expected: SemValue
-  ): CheckIO[Option[SemExpression]] =
-    coercionHolds(implFqn, actual, expected, tm.as("Type mismatch."))
-      .map(holds => if (holds) Some(expr.copy(expressionType = expected)) else None)
-
-  /** Evaluate the resolved `coerce` implementation against the concrete bounds and report whether it yields `some`
-    * (the coercion exists). Shared by [[coerceWith]] (which on success re-types the term) and [[coercionExists]] (which
-    * only needs the yes/no answer, used by `Combine` to confirm each contributor widens to the joined type).
     */
   private def coercionHolds(
       implFqn: ValueFQN,
@@ -266,7 +268,8 @@ class Checker(
                     for {
                       sigSem        <- evalExpr(orv.typeStack.value.signature, env = Some(Env.empty))
                       (mono, binds) <- peelSigMetas(sigSem, Seq.empty)
-                      optionExpected = Evaluator.applyValue(VTopDef(WellKnownTypes.optionFQN, None, Spine.SNil), expected)
+                      optionExpected =
+                        Evaluator.applyValue(VTopDef(WellKnownTypes.optionFQN, None, Spine.SNil), expected)
                       _             <- doUnify(mono, VPi(actual, _ => optionExpected), context)
                       _             <- modify(st => st.withUnifier(st.unifier.drain()))
                       concreteEnv   <- binds.foldLeftM(Env.empty) { case (env, (name, meta)) =>
@@ -283,12 +286,12 @@ class Checker(
     } yield result
 
   /** Resolve every combinable metavariable that accumulated more than one distinct candidate type
-    * ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.candidates]]). For a still-combinable (covariant) meta
-    * the candidates are folded pairwise through the `Combine` ability into their join `R`; the meta is solved to `R` and
-    * each contributor is verified to `Coerce` into `R` (always true for `Int` by construction). When no `Combine`
-    * instance applies — or the meta was tainted by a contravariant use — the candidates are re-unified strictly, which
-    * surfaces the ordinary "Type mismatch." that first-candidate-wins would have produced. Returns whether any meta was
-    * newly resolved, so the caller can iterate to a fixed point. Each meta resolves at most once
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.unify.Unifier.candidates]]). For a still-combinable (covariant)
+    * meta the candidates are folded pairwise through the `Combine` ability into their join `R`; the meta is solved to
+    * `R` and each contributor is verified to `Coerce` into `R` (always true for `Int` by construction). When no
+    * `Combine` instance applies — or the meta was tainted by a contravariant use — the candidates are re-unified
+    * strictly, which surfaces the ordinary "Type mismatch." that first-candidate-wins would have produced. Returns
+    * whether any meta was newly resolved, so the caller can iterate to a fixed point. Each meta resolves at most once
     * ([[CheckState.combineResolved]]).
     */
   def resolveCombines: CheckIO[Boolean] =
@@ -301,8 +304,8 @@ class Checker(
     } yield progressed
 
   /** Discharge the deferred "result fits expected" obligations ([[CheckState.pendingUpperBounds]]) after combine
-    * resolution has settled each combinable meta to its final solution (a `Combine` join, or its single candidate).
-    * The final solution must be definitionally equal to, or `Coerce` into, the expected type; otherwise a mismatch is
+    * resolution has settled each combinable meta to its final solution (a `Combine` join, or its single candidate). The
+    * final solution must be definitionally equal to, or `Coerce` into, the expected type; otherwise a mismatch is
     * reported. Run once, after the drain-and-resolve loop, so the join — not the meta's first candidate — is what is
     * checked against a narrower declared type (e.g. `def x: Int[3,5] = pick(integerLiteral[3], integerLiteral[7])`,
     * whose join `Int[3,7]` does not fit `Int[3,5]`).
@@ -328,9 +331,9 @@ class Checker(
       s        <- get
       distinct <- distinctCandidates(cs)
       result   <- distinct match {
-                    case None                       => pure(false) // a candidate isn't ground yet — retry next round
-                    case Some(ds) if ds.size < 2    => modify(_.recordCombineResolved(id)).as(false)
-                    case Some(ds)                   =>
+                    case None                    => pure(false) // a candidate isn't ground yet — retry next round
+                    case Some(ds) if ds.size < 2 => modify(_.recordCombineResolved(id)).as(false)
+                    case Some(ds)                =>
                       if (s.unifier.combinable.contains(id.value)) combineCandidates(id, ds)
                       else strictReunify(id, ds)
                   }
@@ -392,27 +395,29 @@ class Checker(
     * mismatch. The only `Combine` instance today is the head-homogeneous `Combine[Int[..], Int[..]]`.
     */
   private def combinePair(g1: GroundValue, g2: GroundValue): CheckIO[Option[SemValue]] =
-    if (!sameHead(g1, g2)) pure(None) // Different constructors cannot combine; skip the probe (see [[resolveAbility]] note).
-    else liftF(resolveAbility(WellKnownTypes.combinedFQN, Seq(g1, g2))).flatMap {
-      case None                            => pure(None)
-      case Some((implCombinedFqn, implTypeArgs)) =>
-        for {
-          orvOpt <- liftF(getFact(OperatorResolvedValue.Key(implCombinedFqn)))
-          result <- orvOpt.flatMap(orv => orv.runtime.map((orv, _))) match {
-                      case None              => pure(None)
-                      case Some((orv, body)) =>
-                        for {
-                          sigSem <- evalExpr(orv.typeStack.value.signature, env = Some(Env.empty))
-                          names  <- peelLamNames(sigSem, Seq.empty)
-                          env     = names.zip(implTypeArgs).foldLeft(Env.empty) { case (e, (n, g)) =>
-                                      e.bind(n, Evaluator.groundToSem(g))
-                                    }
-                          combined <- evalExpr(body.value, env = Some(env))
-                          forced   <- force(combined)
-                        } yield Some(forced)
-                    }
-        } yield result
-    }
+    if (!sameHead(g1, g2))
+      pure(None) // Different constructors cannot combine; skip the probe (see [[resolveAbility]] note).
+    else
+      liftF(resolveAbility(WellKnownTypes.combinedFQN, Seq(g1, g2))).flatMap {
+        case None                                  => pure(None)
+        case Some((implCombinedFqn, implTypeArgs)) =>
+          for {
+            orvOpt <- liftF(getFact(OperatorResolvedValue.Key(implCombinedFqn)))
+            result <- orvOpt.flatMap(orv => orv.runtime.map((orv, _))) match {
+                        case None              => pure(None)
+                        case Some((orv, body)) =>
+                          for {
+                            sigSem   <- evalExpr(orv.typeStack.value.signature, env = Some(Env.empty))
+                            names    <- peelLamNames(sigSem, Seq.empty)
+                            env       = names.zip(implTypeArgs).foldLeft(Env.empty) { case (e, (n, g)) =>
+                                          e.bind(n, Evaluator.groundToSem(g))
+                                        }
+                            combined <- evalExpr(body.value, env = Some(env))
+                            forced   <- force(combined)
+                          } yield Some(forced)
+                      }
+          } yield result
+      }
 
   /** Peel the leading `VLam` binder names of an evaluated signature (the impl's bound type parameters, in declaration
     * order), advancing each closure with a rigid placeholder. Mirrors [[peelSigMetas]] but keeps only the names, since
@@ -438,23 +443,10 @@ class Checker(
     */
   private def coercionExists(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Boolean] =
     for {
-      s       <- get
-      trial    = s.unifier.unify(actual, expected, context)
-      result  <- if (trial.errors.size == s.unifier.errors.size) pure(true)
-                 else
-                   inspect(st =>
-                     for {
-                       a <- Quoter.quote(0, actual, st.unifier.metaStore)
-                       e <- Quoter.quote(0, expected, st.unifier.metaStore)
-                     } yield (a, e)
-                   ).flatMap {
-                     case Left(_)         => pure(false)
-                     case Right((aG, eG)) =>
-                       liftF(resolveAbility(WellKnownTypes.coerceFQN, Seq(aG, eG))).flatMap {
-                         case None               => pure(false)
-                         case Some((implFqn, _)) => coercionHolds(implFqn, actual, expected, context)
-                       }
-                   }
+      s      <- get
+      trial   = s.unifier.unify(actual, expected, context)
+      result <- if (trial.errors.size == s.unifier.errors.size) pure(true)
+                else resolveCoercion(actual, expected, context)
     } yield result
 
   /** Re-unify the distinct candidates strictly (first against each subsequent), surfacing the ordinary "Type mismatch."
