@@ -1,155 +1,138 @@
-# JVM exact `Int` representations via `opaque`
+# JVM exact `Int` representations via leaf natives + Eliot dispatch
 
-Status: **planned** (the `opaque` modifier it depends on is **implemented** — see "Foundation" below).
+Status: **planned**.
 
-Goal: have the JVM backend store each `Int[MIN, MAX]` in the *smallest* machine representation whose
-range contains `[MIN, MAX]` (`Byte`/`Short`/`Int`/`Long`, with a `BigInteger` fall-back for ranges that
-exceed signed `Long`), and make range widening (`Coerce`) a *real* runtime conversion. Crucially, the
-backend must do this **without any `Int`-specific Scala code**: it only ever maps a small, fixed set of
-platform representation types to JVM classes and applies one general rule — *unfold `opaque` types until
-you reach a representation you know*.
+Goal: the JVM backend stores each `Int[MIN, MAX]` value in the *smallest* boxed wrapper whose range
+contains `[MIN, MAX]` (`Byte`/`Short`/`Integer`/`Long`, with `BigInteger` for ranges exceeding signed
+`Long`), and range widening (`Coerce`) is a *real* runtime conversion. Crucially the backend does this with
+**no `Int`-specific Scala code and no type unfolding**: all width *policy* — which representation a range
+uses, which operation/conversion to run — lives in Eliot, and the backend only ever sees **easy-to-map
+native things**: one uniform carrier type plus a fixed set of trivial leaf natives.
 
-## Core principle: representation is *derived from* the type, never *is* the type
+## Core principle: width is a value-level detail, not a static-type detail
 
-`Int[0,255]` and `Int[0,1000]` must stay **distinct types** for the checker — otherwise the checker would
-accept assigning a `[0,1000]` value into a `[0,255]` slot (both "are" a 16-bit int). So the bounds are the
-type's identity and meaning for assignability/`Coerce`/arithmetic, and they must survive type-checking
-intact. The machine representation is a *separate, later* fact computed from those bounds.
+`Int[0,255]` and `Int[0,1000]` must stay **distinct types** for the checker — otherwise it would accept
+assigning a `[0,1000]` value into a `[0,255]` slot. So the bounds are the type's identity for
+assignability/`Coerce`/arithmetic, and they survive type-checking intact. `Int` therefore stays **abstract**
+(body-less) on every layer — base *and* jvm — which already keeps distinct ranges distinct (there is nothing
+to unfold). No `opaque` modifier is needed: abstractness alone gives the soundness guarantee.
 
-The `opaque` modifier is exactly the barrier that makes this sound: the jvm layer gives `Int` a body that
-computes its representation, but marks it `opaque` so the **type checker never unfolds it** (it stays a
-stuck, bounds-carrying `Int[MIN,MAX]`), while **later phases may unfold it** to reach the representation.
-This restores the otherwise-unsound `type Int = <repr>` idea by phase-gating the unfolding.
+The exact machine width is then **not** something the static type exposes at all. It is an internal detail of
+the *values*: a boxed `java.lang.Number`'s concrete subclass (`Byte` vs `Long`) is chosen by the leaf native
+that produced it, which the Eliot layer selected from the bounds. The static carrier the backend lays out is
+a single uniform type.
 
-## Foundation (already implemented)
+## The lowering picture (zero `Int` knowledge in Scala)
 
-The `opaque` modifier exists and works in the type checker:
+```
+Int[0,255]                 -- abstract, bounds-carrying; the checker's view (distinct per range)
+  │  (jvm Int layer, in Eliot: selectByWidth fold over MIN/MAX)
+  ▼  picks the leaf native + wrapper for this range
+intLiteralShort / addShort / widenToShort …   -- fixed leaf natives (one instruction group each)
+  │  (each leaf boxes its own fixed wrapper internally)
+  ▼
+java.lang.Short  ⊑  java.lang.Number           -- the runtime object; static carrier is Number
+```
 
-- Parsed on `type`/`def` (`opaque type Int[MIN,MAX] = …`), threaded `FunctionDefinition` → `NamedValue` →
-  `ResolvedValue` → `MatchDesugaredValue` → `OperatorResolvedValue` as a `opaque: Boolean` field.
-- `UserValueNativesProcessor` builds an `opaque` definition's checking binding as a stuck
-  `VTopDef(fqn, None, …)` (body **not** cached), so the NbE evaluator never unfolds it during checking.
-  The body remains in `OperatorResolvedValue.runtime` for later phases to unfold.
-
-Verified property (test in `MonomorphicTypeCheckTest`): for `opaque type W[N: BigInteger] = String`, the
-types `W[1]` and `W[2]` stay distinct (a `W[1]` is rejected where `W[2]` is expected), whereas the
-transparent `type W[N] = String` collapses them. That distinctness is the soundness guarantee this plan
-relies on.
+The backend's *only* type knowledge is `Int → java.lang.Number`. It never unfolds a type, never asks "what
+width is this range" — the Eliot dispatch already routed each value through the width-correct leaf.
 
 ## Current backend state (what changes)
 
-- `NativeType.types` maps the `Int` FQN to `java.lang.Long`; **every** `Int` is a boxed `Long`.
-- `CommonPatterns.valueType(gv)` keys only off the type's FQN — the bounds in
-  `GroundValue.Structure(IntFQN, [min,max], Type)` are ignored.
+- `NativeType.types` maps the `Int` FQN to `java.lang.Long`; **every** `Int` is a boxed `Long`. → becomes
+  `java.lang.Number`.
 - `Intrinsics` emits `integerLiteral`/`+`/`-`/`*`/`intToString` inline on `Long`
-  (`ExpressionCodeGenerator.generateIntrinsic`).
+  (`ExpressionCodeGenerator.generateIntrinsic`). → these become Eliot functions that dispatch to leaf natives;
+  the inline `generateIntrinsic` representation logic goes away.
 - `Coerce` is **retype-only**: `Checker.tryCoerce` does `expr.copy(expressionType = expected)` and discards
-  the `nativeWiden(value)` payload. This is sound *only* because all ranges share the `Long`
-  representation; it breaks the moment representations differ.
-
-## The lowering chain (zero `Int` knowledge in Scala)
-
-```
-Int[0,255]            -- abstract, bounds-carrying; the checker's view (opaque, never unfolded)
-  │  (jvm layer: opaque Int body, in Eliot)
-  ▼  unfold opaque, force with concrete bounds
-JvmShort              -- a fixed platform representation type
-  │  (NativeType map: one line)
-  ▼
-java.lang.Short       -- the JVM class
-```
-
-The backend rule is general: *to lay out a value, force its type through `opaque` definitions until the
-head is a type with a native mapping.* It never names `Int`.
+  the `nativeWiden(value)` payload. This is sound *only* because all ranges share one representation; it
+  breaks the moment a `Byte`-boxed value must become a `Short`. → becomes a real payload-splice + leaf-native
+  widening.
 
 ---
 
-## Phase 1 — Representation types
+## Phase 1 — One carrier type
 
-Declare opaque-/body-less platform types and map them in the backend:
+- `NativeType.types`: replace the `Int → java.lang.Long` entry with `Int → java.lang.Number`.
 
-- `jvm/resources/.../Jvm.els` (or per-type): `type JvmByte`, `type JvmShort`, `type JvmInt`,
-  `type JvmLong`, `type JvmBigInteger` — body-less platform types (like `String`/`Unit` today).
-- `NativeType.types`: add `JvmByte → java.lang.Byte`, `JvmShort → java.lang.Short`,
-  `JvmInt → java.lang.Integer`, `JvmLong → java.lang.Long`, `JvmBigInteger → java.math.BigInteger`.
-- Remove the `Int → Long` entry — `Int` is no longer a native-mapped type; it lowers through `jvmRepr`.
+That single line is the **entire** backend type knowledge for `Int`. Every boxed width (`Byte`/`Short`/
+`Integer`/`Long`/`BigInteger`) is-a `Number`, so descriptors, fields, and signatures are uniform; only the
+*boxing* (which wrapper to allocate) varies, and that lives inside the leaf natives, not at any call site. No
+`Jvm*` representation vocabulary is introduced.
 
-These five entries are the **entire** new Scala "type knowledge".
+## Phase 2 — The width table, in Eliot (`selectByWidth`)
 
-## Phase 2 — The representation policy, in Eliot (`opaque type Int`)
-
-The jvm layer redefines `Int` with an `opaque` body that selects the representation from the bounds, using
-the existing compile-time `BigInteger` predicates (`lessThanOrEqual`, `&&`, `fold`):
+A single Eliot helper in the jvm `Int` layer selects per range, using the existing compile-time `BigInteger`
+predicates (`lessThanOrEqual`, `&&`, `fold`):
 
 ```eliot
-// jvm layer; signature identical to base so the module merge accepts the added body
-opaque type Int[MIN: BigInteger, MAX: BigInteger] =
-  fold(lessThanOrEqual(-128, MIN) && lessThanOrEqual(MAX, 127),          JvmByte,
-  fold(lessThanOrEqual(-32768, MIN) && lessThanOrEqual(MAX, 32767),      JvmShort,
-  fold(lessThanOrEqual(-2147483648, MIN) && lessThanOrEqual(MAX, 2147483647), JvmInt,
-  fold(lessThanOrEqual(-9223372036854775808, MIN) && lessThanOrEqual(MAX, 9223372036854775807), JvmLong,
-       JvmBigInteger))))
+// jvm Int layer; a plain (non-opaque) helper, not Int's type body — Int stays abstract.
+selectByWidth[MIN: BigInteger, MAX: BigInteger, R](byteCase: R, shortCase: R, intCase: R, longCase: R, bigCase: R): R =
+  fold(lessThanOrEqual(-128, MIN) && lessThanOrEqual(MAX, 127),                                   byteCase,
+  fold(lessThanOrEqual(-32768, MIN) && lessThanOrEqual(MAX, 32767),                               shortCase,
+  fold(lessThanOrEqual(-2147483648, MIN) && lessThanOrEqual(MAX, 2147483647),                     intCase,
+  fold(lessThanOrEqual(-9223372036854775808, MIN) && lessThanOrEqual(MAX, 9223372036854775807),  longCase,
+       bigCase))))
 ```
 
-Module unification (`UnifiedModuleValueProcessor`) prefers the implementation (`runtime.isDefined`); the
-base `Int` stays body-less, the jvm `Int` carries the body. **Verify** the merge preserves the `opaque`
-flag of the chosen definition (it selects a whole `NamedValue`, which now carries `opaque`) — add a test if
-not.
+Both operation dispatch (Phase 5) and conversion dispatch (Phase 6) call this one helper, so the whole width
+table lives here, in Eliot — adding a width = editing this one function.
 
-Because the body is `opaque`, the checker keeps `Int[min,max]` stuck and bounds-carrying; only the backend
-unfolds it. The whole width table lives here, in Eliot — adding a width = editing this file.
+## Phase 3 — (removed: no `representationOf`, no unfolding)
 
-## Phase 3 — Backend unfolds opaque to a representation
+There is **no backend representation resolution**. Because the carrier is uniform `Number` and each value is
+already boxed in its exact wrapper by the leaf native that produced it, the backend never unfolds `Int`,
+needs no transparent/opaque evaluator, and runs no per-value lowering pass. This phase intentionally does
+nothing — its prior job is dissolved by Phases 1, 2, and 5.
 
-The checking binding for `Int` is stuck (`cached = None`), so the backend needs a *transparent* evaluator
-that **does** cache opaque bodies. Add:
+## Phase 4 — Descriptors, boxing, reads
 
-- A `TransparentBinding` fact (or a flag on `NativeBinding`) produced like `UserValueNativesProcessor` but
-  **without** the `if (fact.opaque) None` guard — i.e. opaque bodies are cached.
-- A `representationOf(gv: GroundValue): CompilerIO[GroundValue]` in the jvm module: if `gv`'s head FQN is
-  native-mapped, return it; otherwise fetch the head's `OperatorResolvedValue`, evaluate its (opaque) body
-  applied to `gv`'s arguments via the transparent evaluator, `force` to weak-head normal form, quote, and
-  recurse (an opaque type may unfold to another). The recursion bottoms out at a `Jvm*`/native FQN.
+- **Descriptors / fields / signatures:** uniform `java.lang.Number` (from the Phase 1 map). The ~33 existing
+  descriptor sites and `CommonPatterns.valueType` stay pure and unchanged — they key off the `Int` FQN, which
+  now maps to `Number`.
+- **Boxing:** done *inside* the leaf natives; each hardcodes its own wrapper (`Byte.valueOf`/`Short.valueOf`/
+  …). No call site chooses a wrapper.
+- **Reads / unboxing:** uniformly `Number.longValue()` (or `intValue()`) for the `Byte…Long` family. The
+  `BigInteger` family reads the `Number` *as* a `BigInteger` (it already is one) inside its own leaves — never
+  a lossy `longValue` round-trip. Dispatch (Phase 5/6) guarantees BigInteger-range values only ever reach
+  BigInteger leaves, so that cast is safe.
+- **Mangling/dedup:** `mangleSuffix` is `"Int"` for every range *today already*, so this introduces no new
+  collision. Distinct ranges that share a carrier (`Int[0,3]`, `Int[0,5]`) now have identical signatures and
+  bodies and can be de-duplicated; if dedup is deferred, the existing per-range method identity is unchanged
+  from today.
 
-This is the one general rule; it is not specific to `Int`.
+## Phase 5 — Operations as per-representation leaf natives, dispatched in Eliot
 
-## Phase 4 — Representation-aware descriptors, boxing, and de-duplication
+The arithmetic heavy lifting moves **out** of `ExpressionCodeGenerator.generateIntrinsic` (no representation
+`switch` in Scala) and splits into (a) trivial **leaf natives** — each a *fixed* instruction sequence with a
+*fixed* box, no branching — and (b) an **Eliot-level dispatch** in the jvm `Int` layer that picks the leaf
+via `selectByWidth`.
 
-`Int[min,max]` survives monomorphization unchanged (the checker keeps it stuck), so two ranges remain
-distinct `UncurriedMonomorphicValue`s. Lower representations **once**, just before codegen:
+Leaf natives, via the existing `NativeImplementation` pattern (real named methods, exactly like
+`printlnInternal`/`unit` — one instruction group each, no conditionals):
 
-- A jvm-module lowering step rewrites every `GroundValue` in an `UncurriedMonomorphicValue` via
-  `representationOf`, so `Int[0,255]` becomes `JvmShort`. After this, `CommonPatterns.valueType` stays pure
-  and the existing ~33 descriptor sites need no change — they already key off the (now `Jvm*`) FQN.
-- **De-duplicate** values that become identical after lowering: `Int[0,3]` and `Int[0,5]` both lower to
-  `JvmByte` with byte-identical bodies. Canonicalising/deduping them dissolves the method-name collision
-  that `mangleSuffix` (currently `"Int"` for every range) would otherwise produce. Without dedup, fold the
-  representation into the mangle suffix instead.
-- **Reads vs. writes:** every wrapper is a `java.lang.Number`, so unboxing is uniformly
-  `Number.longValue()`; only *boxing* (`Byte.valueOf`/`Short.valueOf`/…) and *descriptors* need the exact
-  wrapper. `JvmBigInteger` is the exception — it needs its own read/box path (`BigInteger`, no `longValue`
-  round-trip).
+- `addByte`/`addShort`/`addInt`: unbox both (`Number.intValue()`), `IADD`, narrow (`i2b`/`i2s`/none), box
+  (`Byte`/`Short`/`Integer.valueOf`). `addLong`: `longValue` → `LADD` → box `Long`. `addBigInteger`:
+  `BigInteger.add`.
+- `subByte…`/`mulByte…`: identical shape with `ISUB`/`IMUL`/`LSUB`/`LMUL`/`BigInteger.{subtract,multiply}`.
+- `intLiteralByte/Short/Int/Long/BigInteger[V]`: materialise the compile-time constant `V` and box into the
+  matching wrapper (this keeps `integerLiteral`'s compile-time-constant nature, now one trivial native per
+  representation).
+- `toStringLong`/`toStringBigInteger`: `Long.toString` / `BigInteger.toString`.
 
-## Phase 5 — Representation-aware operations
+Each add/sub/mul leaf takes operands that are **already at the result width** and returns that width — so it
+needs no inter-width branching. The Eliot `+`/`-`/`*` bodies first `widenToResult` both operands (reusing the
+Phase 6 widen leaves) then call the single same-width op leaf chosen by `selectByWidth` on the *result*
+bounds. So every operation reduces to *widen + fixed-width op* — both halves dispatched in Eliot.
 
-`ExpressionCodeGenerator.generateIntrinsic` becomes representation-aware (it can read each operand's and the
-result's representation via the lowered type):
+Scala holds only this fixed leaf set; it carries **zero `Int` policy**. This is the shape a microcontroller
+backend reuses unchanged: there `addByte` is a tiny 8-bit add native instead of `IADD`+`i2b`, but the Eliot
+dispatch is identical — JVM no longer takes a special uniform-`long` shortcut that would have to be unwound
+later.
 
-- `integerLiteral[V]` → box `V` into `representationOf(Int[V,V])`'s wrapper.
-- `+` / `-` / `*` → unbox operands with `Number.longValue()`, compute in `long` (`LADD`/`LSUB`/`LMUL`),
-  narrow to the **result** representation (`l2i`/`i2s`/`i2b`), box. The dependent bounds guarantee the
-  result fits, so narrowing is lossless. The over-`Long` (`JvmBigInteger`) case takes a parallel
-  `BigInteger` arithmetic arm.
-- `intToString` → `Number.longValue()` + `Long.toString` (or `BigInteger.toString`).
+## Phase 6 — `Coerce` as leaf-native widening, dispatched in Eliot
 
-On the JVM the uniform-`long` path keeps these as a handful of intrinsics. On a true microcontroller backend
-the same shape is where per-width Eliot dispatch to tiny leaf natives (`nativeAddByte` vs `nativeAddInt`)
-pays off; the design leaves that door open.
-
-## Phase 6 — `Coerce` as a real conversion
-
-Two coordinated changes (representation differences make the current retype-only `Coerce` unsound — a boxed
-`Byte` would be `checkcast` to `Short`):
+Same split — the conversion logic lives in Eliot, the backend owns only fixed leaf conversions:
 
 - **Checker (principled payload-splice):** in `tryCoerce`, instead of `expr.copy(expressionType = expected)`,
   splice the resolved `Coerce` instance's `some` payload (for `Int`, `nativeWiden[S,T](value)`) as a real
@@ -157,47 +140,57 @@ Two coordinated changes (representation differences make the current retype-only
   `coercionHolds` machinery (evaluate `coerce` with `value` bound to a fresh neutral, read back the `some`
   payload, substitute the actual expression). No `Int`-specific code in the checker; any future `Coerce`
   instance works the same way.
-- **Backend (`nativeWiden` intrinsic):** add `nativeWiden` to `Intrinsics`; emit `Number.longValue()` →
-  narrow/extend to the target representation → box into the target wrapper (with a `BigInteger` arm). When
-  source and target representations coincide it collapses to a no-op, so the all-`Long` widening tests stay
-  green.
+- **Backend = leaf natives + Eliot dispatch:** `nativeWiden`'s Eliot body uses `selectByWidth` on the target
+  bounds to call a fixed leaf — `widenToByte/Short/Int/Long/BigInteger` (read `Number.longValue()`, extend,
+  box the target wrapper; the `BigInteger` arm via `BigInteger.valueOf` / pass-through). When source and
+  target select the same width the leaf is the identity native (optimisable away), so all-same-representation
+  widening stays correct and cheap.
+
+No representation `switch` in Scala anywhere; the source→target choice is an Eliot fold.
 
 ---
 
 ## Decisions (settled)
 
-- **Over-`Long` ranges** (e.g. `UnsignedLong = [0, 2^64-1]`) → `java.math.BigInteger` (`JvmBigInteger`).
-- **`Coerce` insertion** → principled payload-splice (above), not synthesising a hard-coded `nativeWiden`.
+- **Carrier:** one uniform `java.lang.Number` static carrier; the exact wrapper is a value-level detail chosen
+  by leaf natives. (Chosen over per-range `Jvm*` descriptors + a backend unfolding pass — see the
+  `representationOf` discussion: the unfolding/opaque machinery is unnecessary once operations are leaf
+  natives that box their own wrapper.)
+- **No `opaque` for `Int`:** `Int` stays abstract on all layers; distinctness comes from abstractness. The
+  `opaque` modifier (recently added) is **not used** by this plan — decide separately whether to keep it for
+  other uses or revert it.
+- **Over-`Long` ranges** (e.g. `UnsignedLong = [0, 2^64-1]`) → `java.math.BigInteger`, reached via its own
+  leaf natives.
+- **`Coerce` insertion** → principled payload-splice, not a hard-coded synthesised `nativeWiden`.
 - **Representation kept boxed** (`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), not unboxed
   primitives — the `Function.apply(Object)`/erased-field ABI is preserved. Genuine unboxed primitives are a
   separate, larger effort and the natural divergence point for microcontroller backends.
 
 ## Risks / open questions
 
-- **Termination of the opaque body / `representationOf`.** Unfolding runs user Eliot at compile time, which
-  Girard's paradox permits to diverge; bounded by the recursion/effect model work, not here. The width
-  `fold` tree is non-recursive, so in practice it terminates.
-- **Lowering mechanism.** A pre-codegen lowering pass over `UncurriedMonomorphicValue` (keeps `valueType`
-  pure) vs. an effectful on-demand resolver at each descriptor site. The pass is recommended; it also
-  enables the post-lowering de-dup that dissolves the mangling collision.
-- **`opaque` flag through module unification** — confirm it is preserved when the concrete `Int` is chosen.
+- **Width table runs user Eliot at compile time** (`selectByWidth`), which Girard's paradox permits to
+  diverge; bounded by the recursion/effect model work, not here. The `fold` tree is non-recursive, so in
+  practice it terminates.
+- **Leaf-native count.** ~5 wrappers × {literal, add, sub, mul, widen, toString} is a fixed, modest set; each
+  is a few instructions. Acceptable, and shared in shape with future backends.
+- **De-dup vs. mangling.** Optional; no worse than today if skipped (see Phase 4).
 
 ## Tests
 
-- **Representation selection** (jvm processor test): `Int[0,127]`→`Byte`, `Int[0,255]`→`Short`,
-  `Int[0,70000]`→`Int`, a wide range→`Long`, `UnsignedLong`→`BigInteger` (assert the chosen JVM class /
-  descriptor).
-- **Runtime widening across representations** (`ExamplesIntegrationTest`): `Byte`→`Int[0,1000]` (Short)
-  prints correctly; an arithmetic result whose operands and result span different representations; a data
-  type with mixed-width `Int` fields round-trips.
-- **Mangling/dedup**: a generic `f[A](a: A): A` instantiated at two ranges sharing a representation produces
-  one method (or distinct, collision-free methods).
-- **Regression**: all existing widening/arithmetic tests still pass (the all-`Long`-today programs now pick
-  narrower representations but must print identically); `nativeWiden` no-op when representations coincide.
-- **Soundness** (already covered by the `opaque` `W[1]`/`W[2]` test): distinct ranges never merge.
+- **Width dispatch** (jvm processor / integration test): `Int[0,127]` boxes a `Byte`, `Int[0,255]` a `Short`,
+  `Int[0,70000]` an `Integer`, a wide range a `Long`, `UnsignedLong` a `BigInteger` (assert the runtime class
+  of the boxed value, e.g. via a value that round-trips through a field and is printed / reflected).
+- **Runtime widening across representations** (`ExamplesIntegrationTest`): `Byte`→`Int[0,1000]` (Short) prints
+  correctly; an arithmetic result whose operands and result span different representations; a data type with
+  mixed-width `Int` fields round-trips.
+- **Soundness:** distinct ranges never merge (an `Int[0,1000]` rejected where `Int[0,255]` is expected) —
+  holds from `Int` being abstract.
+- **Regression:** all existing widening/arithmetic tests still pass (programs that were all-`Long` today now
+  box narrower wrappers but must print identically); `nativeWiden` is a no-op when source/target coincide.
 
 ## Sequencing
 
-Phase 1 → 2 (land the representation vocabulary and the Eliot policy; nothing observable yet) → 3 → 4
-(backend sees `Jvm*`; descriptors/boxing narrow) → 5 (operations) → 6 (`Coerce`), verifying tests at each
-step.
+Phase 1 (carrier) + Phase 2 (`selectByWidth`) land the vocabulary. → Phase 5 (operations: leaf natives +
+Eliot dispatch) replaces the inline intrinsics. → Phase 6 (`Coerce`). Phase 4 is mostly "nothing changes"
+(uniform descriptors) plus optional dedup; Phase 3 is intentionally empty. Verify tests at each step; the
+narrower-wrapper programs must stay print-identical to today.
