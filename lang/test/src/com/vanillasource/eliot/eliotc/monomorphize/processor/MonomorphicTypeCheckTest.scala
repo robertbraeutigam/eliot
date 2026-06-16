@@ -72,6 +72,14 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Value-parameter function invoked with `[...]` (the jvm `Int` width-policy `fitsIn` pattern) ---
+
+  "a value-parameter predicate invoked with [...]" should "type-check, the brackets only keeping the literal arguments BigInteger" in {
+    runInt(
+      "import eliot.lang.Bool\ndef fitsIn(lo: BigInteger, hi: BigInteger): Bool = lessThanOrEqual(lo, hi)\ndef test: Bool = fitsIn[1, 2]"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   // --- Combine: covariant multi-candidate metavariable ---
 
   "Combine[Int, Int] instance" should "join two ranges via a covariant result type parameter" in {

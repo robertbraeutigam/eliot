@@ -104,8 +104,8 @@ opaque type Int[MIN: BigInteger, MAX: BigInteger] =
   fold(fitsIn[-9223372036854775808, 9223372036854775807, MIN, MAX], JvmLong[],
        JvmBigInteger[]))))
 
-def fitsIn[LO: BigInteger, HI: BigInteger, MIN: BigInteger, MAX: BigInteger]: Bool =
-  lessThanOrEqual(LO, MIN) && lessThanOrEqual(MAX, HI)
+def fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bool =
+  lessThanOrEqual(lo, min) && lessThanOrEqual(max, hi)
 ```
 
 Module unification (`UnifiedModuleValueProcessor`) prefers the implementation (`runtime.isDefined`): base `Int`
@@ -125,12 +125,15 @@ integration tests exercise the merged opaque `Int` end-to-end.
    tree references the representations directly, so no helper indirection is needed. (`selectByWidth` was an
    earlier workaround that passed the representations as type *parameters*; `[]` made it unnecessary.) The
    genuinely reusable kernel for Phases 4/5 is `fitsIn` (the threshold table), not the fold tree.
-2. **The width thresholds go through a `fitsIn` helper that takes them as type arguments.** After the Phase-6
-   literal flip, a value-position integer literal desugars to `integerLiteral[n] : Int[n, n]`, not a bare
-   `BigInteger` — so `lessThanOrEqual(-128, MIN)` (literals in `()` value position) would feed an `Int` where a
-   `BigInteger` is expected. `fitsIn[LO, HI, MIN, MAX]` receives the bounds in `[...]` (type context, where
-   literals stay `BigInteger`) and its body compares only its `BigInteger` parameters — exactly like the base
-   `Coerce[Int, Int]` bounds check.
+2. **The width thresholds go through a `fitsIn` helper, *invoked* with `[...]`.** After the Phase-6 literal flip,
+   a value-position integer literal desugars to `integerLiteral[n] : Int[n, n]`, not a bare `BigInteger` — so
+   `lessThanOrEqual(-128, MIN)` (literals in `()` value position) would feed an `Int` where a `BigInteger` is
+   expected. `fitsIn` is an ordinary **value-parameter** predicate (`(lo, hi, min, max: BigInteger): Bool`);
+   nothing about it is type-level. It is the *call site* that uses `[...]` brackets (`fitsIn[-128, 127, MIN,
+   MAX]`) so the literal arguments land in type context and stay `BigInteger`. `[...]` and `()` are the same
+   Pi-application — `Evaluator` applies `ValueReference` type-args via the same `applyValue` as ordinary
+   application — so applying `[...]` to a value-parameter function is well-defined (covered by a dedicated
+   `MonomorphicTypeCheckTest` case). The brackets only affect the arguments' context, not `fitsIn`'s signature.
 
 **Language feature added — the `[]` type-namespace marker.** Eliot disambiguates the type vs value namespace by
 *context*, not casing: a bare upper-case name resolves to the value constructor (`Qualifier.Default`) in value

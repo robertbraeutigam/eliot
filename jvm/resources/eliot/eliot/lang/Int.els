@@ -26,10 +26,11 @@ opaque type Int[MIN: BigInteger, MAX: BigInteger] =
        JvmBigInteger[]))))
 
 /**
- * True iff the range `[MIN, MAX]` is contained in `[LO, HI]`. The four bounds are type parameters (`BigInteger`), so
- * the literal thresholds passed above stay `BigInteger` (they sit in `[...]` type-argument position rather than
- * desugaring to `Int[n, n]` values). The body itself contains no literals — it only compares its `BigInteger`
- * parameters — exactly like the bounds check in the base `Coerce[Int, Int]` instance.
+ * True iff the range `[min, max]` is contained in `[lo, hi]`. An ordinary value-level predicate on `BigInteger`s —
+ * there is nothing type-level about it; it just happens to be *invoked* during compile-time (type-level) evaluation of
+ * the `Int` body above. The thresholds are supplied at that call site through `[...]` brackets (`fitsIn[-128, 127, …]`)
+ * purely so the integer literals stay `BigInteger` rather than desugaring to `Int[n, n]` values; `[...]` and `()` are
+ * the same Pi-application, so the brackets only affect the arguments' context, not this signature.
  */
-def fitsIn[LO: BigInteger, HI: BigInteger, MIN: BigInteger, MAX: BigInteger]: Bool =
-  lessThanOrEqual(LO, MIN) && lessThanOrEqual(MAX, HI)
+def fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bool =
+  lessThanOrEqual(lo, min) && lessThanOrEqual(max, hi)
