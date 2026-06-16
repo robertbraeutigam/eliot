@@ -132,20 +132,28 @@ global `opaque` (no `JvmByte` appears in Eliot, so the checker never needs to br
 Phase-3 pass then concretizes their monomorphized signatures to representation types for the backend.
 
 ```eliot
-// abstract leaf natives — body-less; the backend implements them over the concrete (post-Phase-3) signature.
-nativeAddByte[MIN1,MAX1,MIN2,MAX2](a: Int[MIN1,MAX1], b: Int[MIN2,MAX2]): Int[MIN1+MIN2, MAX1+MAX2]   // …Short/Int/Long/Big
-nativeReprConvert[FROM_MIN,FROM_MAX,TO_MIN,TO_MAX](x: Int[FROM_MIN,FROM_MAX]): Int[TO_MIN,TO_MAX]      // value-preserving width change
-nativeIntLiteral[V](): Int[V, V]                                                                        // materialise constant V
+// abstract leaf natives — body-less; typed at Int ranges so they check under the global `opaque`.
+// Each is keyed by (operand width → result width); post-Phase-3 each FQN unfolds to exactly ONE concrete
+// signature, which the backend matches by FQN. So `…ByteToByte` and `…ByteToShort` are distinct functions.
+nativeAddByteToByte  [MIN1,MAX1,MIN2,MAX2](a: Int[MIN1,MAX1], b: Int[MIN2,MAX2]): Int[MIN1+MIN2,MAX1+MAX2]  // (JvmByte ,JvmByte ):JvmByte
+nativeAddByteToShort [MIN1,MAX1,MIN2,MAX2](a: Int[MIN1,MAX1], b: Int[MIN2,MAX2]): Int[MIN1+MIN2,MAX1+MAX2]  // (JvmByte ,JvmByte ):JvmShort
+nativeAddShortToShort[MIN1,MAX1,MIN2,MAX2](a: Int[MIN1,MAX1], b: Int[MIN2,MAX2]): Int[MIN1+MIN2,MAX1+MAX2]  // (JvmShort,JvmShort):JvmShort
+// …nativeAddShortToInt, nativeMulByteToShort, nativeMulShortToInt, … ; same matrix for `-`/`*`.
+nativeReprConvert[FROM_MIN,FROM_MAX,TO_MIN,TO_MAX](x: Int[FROM_MIN,FROM_MAX]): Int[TO_MIN,TO_MAX]           // value-preserving widen/narrow
+nativeIntLiteral[V](): Int[V, V]                                                                            // materialise constant V
 nativeIntToString[MIN,MAX](x: Int[MIN,MAX]): String
 ```
 
-- `+` / `-` / `*` dispatch on the **result** bounds. Note operands and result may sit in *different*
-  representations (e.g. `Int[0,1000] + Int[0,1000] : Int[0,2000]`, all `Short`; but `Int[1000,1000] +
-  Int[-1000,-1000] : Int[0,0]` has `Short` operands and a `Byte` result). So each op (a) computes a common
-  working representation wide enough for both operands and the result, (b) `nativeReprConvert`s operands into
-  it, (c) calls the same-width `nativeAdd*`/`nativeSub*`/`nativeMul*`, (d) `nativeReprConvert`s the result to
-  the result representation (lossless — the dependent bounds guarantee it fits). All four steps are Eliot
-  dispatch over `selectByWidth`; the backend implements only the same-width leaves.
+- `+` / `-` / `*` dispatch in **two steps**, both via `selectByWidth`: **(1) equalize operands** — convert the
+  narrower operand up to the wider operand's representation `Wc` with `nativeReprConvert` (always a lossless
+  widen); **(2) select by result width** `Wr` — pick `nativeOp{Wc}To{Wr}`. Result width relative to `Wc`:
+  *equal* (typical), *wider* (carry: +1 step for `±`, up to ~2× for `*` — e.g. `Int[0,1000]+Int[0,1000]
+  :Int[0,2000]` stays `Short`, but `byte*byte` → `Short`), or *narrower* (additive cancellation:
+  `Int[1000,1000]+Int[-1000,-1000] :Int[0,0]` has `Short` operands, `Byte` result — handled as
+  `nativeAdd{Wc}To{Wc}` then a narrowing `nativeReprConvert`). The result width **must** be a dispatch key
+  because computing at a width too small for the result overflows — you cannot add at `Byte` then widen. The
+  backend implements each `nativeOp{Wc}To{Wr}` leaf as one fixed, branch-free sequence (e.g.
+  `nativeAddByteToShort` = unbox bytes, sign-extend, `IADD`, box `Short`).
 - On the JVM the common working representation is uniformly `Long`, so this collapses to today's
   "unbox → `LADD`/`LSUB`/`LMUL` → narrow to result → box" — a handful of `NativeImplementation` methods. On a
   microcontroller the same Eliot picks 8-/16-bit leaves; the door is open by construction, not bolted on.
@@ -187,6 +195,10 @@ No representation `switch` in Scala anywhere; every source→target choice is an
   modifier; deferred.)
 - **Over-`Long` ranges** (e.g. `UnsignedLong = [0, 2^64-1]`) → `java.math.BigInteger` (`JvmBigInteger`), via
   its own leaves (no lossy `longValue` round-trip).
+- **Multiplication grows unbounded into `BigInteger`** — no saturation or rejection. `*` follows the same
+  `(Wc → Wr)` rule as `±`, except `Wr` can be up to ~2× the operand width, so the `nativeMul*` matrix includes
+  widening leaves all the way up (`nativeMulIntToLong`, `nativeMulLongToBigInteger`, …); any product whose
+  result range exceeds signed `Long` selects `JvmBigInteger` exactly like an over-`Long` literal range.
 - **Representation kept boxed** (`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), not unboxed primitives —
   preserves the `Function.apply(Object)`/erased-field ABI. Unboxed primitives are a separate, larger effort and
   the natural divergence point for microcontroller backends.
@@ -196,9 +208,12 @@ No representation `switch` in Scala anywhere; every source→target choice is an
 - **Termination of the opaque body / `representationOf`.** Unfolding runs user Eliot at compile time, which
   Girard's paradox permits to diverge; bounded by the recursion/effect model work, not here. The width `fold`
   tree is non-recursive, so in practice it terminates.
-- **Operand/result width reconciliation** (Phase 4) is the subtle correctness point: arithmetic must occur in a
-  representation wide enough for *both* operands and the result, then convert to the result representation.
-  Get the `selectByWidth` over the combined magnitude right, with tests for mixed-width operands.
+- **Operand/result width reconciliation** (Phase 4) is the subtle correctness point: operations are keyed by
+  *both* operand and result representation (`nativeAddByteToByte` vs `nativeAddByteToShort` are distinct
+  natives — each FQN must unfold to one concrete signature for the backend to implement it). Enumerate the
+  needed `(Wc → Wr)` leaves per operator; `Wr` can be equal, wider (carry/product growth), or narrower
+  (additive cancellation, composed with a narrowing convert). Test mixed-width operands, carry, and
+  cancellation explicitly.
 - **`opaque` flag through module unification** — confirm it is preserved when the concrete `Int` is chosen.
 - **Lowering mechanism** — a pre-codegen pass over `UncurriedMonomorphicValue` (keeps `valueType` pure, enables
   dedup) vs. an effectful on-demand resolver at each descriptor site. The pass is recommended.
