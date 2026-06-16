@@ -1,0 +1,245 @@
+# Seamless compile→runtime reification (cross-stage persistence)
+
+Status: **Planned.** Unblocks `docs/jvm-int-representation-plan.md` Phase 4 (replaces the proposed `bigInt[N]`
+primitive entirely) and generalises to "use any compile-time value at runtime."
+
+## Goal
+
+Let a value that the compiler already computed at type/erased time be used in value-position (runtime) code
+**without any explicit reification call**. Concretely, make this work:
+
+```eliot
+-- there is no dot syntax; `A.name` is written as the accessor application `name(A)`
+def staticName[A: Person]: String = name(A)
+```
+
+`A` is an erased (`[]`-bound) parameter; after monomorphisation it is a concrete `Person`. `name(A)` must
+appear at runtime as the *constant* `"Alice"`, even though `A` itself has no runtime representation.
+
+The same mechanism removes the need for the `bigInt[N]` primitive: a width-dispatch body can mention its
+erased bound `MIN`/`MAX` directly in value position and the compiler materialises the `BigInteger` constant.
+
+## Why this is small: the front half is already generic
+
+The pipeline already carries compile-time values to the boundary. The only special-cased part is the back
+half (materialisation), and today it is hardcoded to integer literals.
+
+- **Erased params are already concrete in the checker env.** `TypeStackLoop.applyTypeArgs`
+  (`monomorphize/check/TypeStackLoop.scala:280-281`) binds each `[]`-param `name → VConst(groundArg)`.
+- **Value-position references to them already resolve.** `ValueResolver` returns `ParameterReference("A")`
+  for a type-stack param used anywhere (it short-circuits before the dictionary lookup), and the checker's
+  `infer`/`ParameterReference` (`Checker.scala:536`) looks it up in the env and gets the concrete `VConst`.
+- **The NbE evaluator already reduces `name(A)` to a ground value** once `A` is concrete — that is just
+  ordinary evaluation/`Quoter.quote`.
+
+So "is this expression a compile-time constant?" is a *detectable property* (`Quoter.quote` succeeds to a
+`GroundValue`), not something the programmer must annotate. The only missing piece is: at the
+`SemExpression → MonomorphicExpression` boundary, emit that constant instead of a broken
+`ParameterReference("A")` (A has no runtime slot, so the current output is wrong/uncompilable).
+
+## Where it lives: `lang`, at the quote boundary — not the backend
+
+Materialisation is a **`SemExpression → MonomorphicExpression` rewrite**, i.e. a smarter `PostDrainQuoter`. It
+is platform-independent: it produces ordinary literal / constructor-application expression nodes. The backend
+stays unchanged — it already emits literals and constructor calls. Only the primitive-literal *leaf* emission
+(how to push a `java.math.BigInteger` / `String` constant) is backend code, and it already exists.
+
+## The mechanism
+
+Walk the runtime body `SemExpression` top-down, threading a `runtimeParams: Set[String]` (names bound by
+enclosing `FunctionLiteral`s) and an evaluation `Env`. For each value-position node `N`:
+
+1. **`N` references no erased param** → recurse structurally, exactly as today. *No evaluation happens* — so
+   ordinary runtime code (including recursive defs and large constants) is never evaluated and cannot diverge
+   or bloat. This preserves current behaviour for everything that already works.
+2. **`N` references an erased param *and* (a runtime param or an inner lambda)** → cannot be a single
+   constant; recurse into children (the erased dependence resolves deeper).
+3. **`N` references an erased param and nothing runtime** → it is a compile-time constant. Evaluate it,
+   `force`, and `Quoter.quote`:
+   - `Right(ground)` → **materialise**: expand `ground` into a literal / constructor-call tree.
+   - `Left(_)` (closure / stuck / `Type`) → **hard compiler error** ("value depends on a compile-time
+     parameter but does not reduce to a constant"). Fail-safe; never a silent bad emit.
+
+The "references an erased param, nothing runtime" gate is what makes evaluation safe: we only ever evaluate
+sub-terms whose value is fully determined by erased data — exactly the ones that *cannot* be compiled as
+runtime code and *must* become constants. Genuinely-runtime sub-terms are never evaluated. This is the
+classic staging boundary: the residual is the neutral (runtime-param-headed) part; everything ground is a
+constant. Closures (`VLam`, e.g. the block inside `data IO(block)`) fail `Quoter.quote`, so effects are
+automatically excluded from materialisation.
+
+### The two new helpers
+
+**(a) `evalSem(env, semExpr): SemValue`** — a ~15-line evaluator over `SemExpression`, mirroring
+`Evaluator.eval` (`monomorphize/eval/Evaluator.scala:21`) but reading the already-evaluated `SemValue` type
+args out of `SemExpression.ValueReference` instead of re-evaluating ORE. `lookupTopDef` is the checker's
+binding cache (`fqn => state.bindingCache.getOrElse(fqn, None)`), which already holds every reachable binding
+(prefetched during checking — same source `renormalize` uses). Reuses `Evaluator.applyValue`.
+
+```
+IntegerLiteral(v)            -> VConst(Direct(v, bigIntGroundType))
+StringLiteral(v)             -> VConst(Direct(v, stringGroundType))
+ParameterReference(name)     -> env.lookupByName(name).getOrElse(neutral)
+ValueReference(vfqn, targs)  -> targs.foldLeft(lookupTopDef(vfqn))(applyValue)   // targs are SemValues already
+FunctionApplication(t, a)    -> applyValue(evalSem(env,t), evalSem(env,a))
+FunctionLiteral(n, _, body)  -> VLam(n, x => evalSem(env.bind(n,x), body))
+```
+
+**(b) `materialise(ground: GroundValue): MonomorphicExpression.Expression`** — the recursive
+`GroundValue → Expression` expander:
+
+```
+Direct(v: BigInt,  _)  -> IntegerLiteral(v)
+Direct(v: String,  _)  -> StringLiteral(v)
+Direct(v: Boolean, _)  -> MonomorphicValueReference(true/false ctor)        // Bool is data on the platform side
+Structure(ctorFqn, args, _)  -> nested FunctionApplication of
+                                MonomorphicValueReference(ctorFqn, <type args>) to materialise(valueArg)…
+Type                   -> error ("cannot reify a type into runtime")
+```
+
+Each produced `MonomorphicExpression` carries `expressionType = ground.valueType`; `RepresentationLowering`
+(run later, unchanged) lowers it to the machine representation.
+
+### Staging — ship the leaf case first
+
+The `Structure` arm needs to split a constructor's `args` into type-args vs value-args (so the value-args
+become applications and the type-args go into `MonomorphicValueReference.typeArguments`). That requires
+constructor-shape metadata — the one sanctioned read of `RoleHint`/arity per the cornerstone, already used by
+`match` reconstruction. Defer it:
+
+- **Stage 1 (unblocks Phase 4 and `name(A)`):** materialise `Direct` leaves only (`BigInteger`, `String`,
+  `Bool`). A `Structure` result raises the fail-safe error ("cannot yet materialise a structured compile-time
+  value"). This already covers `bigInt[N]` → erased `BigInteger`, and `name(A)` → `String`, because projecting
+  a primitive field yields a `Direct`, not a `Structure`.
+- **Stage 2 (full "any data type"):** implement the `Structure` arm by splitting type/value args via the
+  constructor-shape machinery `match` already uses, emitting nested constructor calls. This is what makes
+  `def whole[A: Person]: Person = A` (returning the whole structure) and user data types work. Requires the
+  constructor to be concrete on the runtime side (defined "on both sides") — otherwise the fail-safe error
+  fires.
+
+## Concrete code changes
+
+1. **`monomorphize/eval/` — add `SemExpressionEvaluator`** (helper (a) above). One top-level type per file
+   (project convention); reuses `Evaluator.applyValue`/`force` and `Quoter`.
+
+2. **`monomorphize/check/PostDrainQuoter.scala` — fold materialisation into `quoteExpression`.**
+   - New constructor params: `monoEnv: Env`, `lookupTopDef: ValueFQN => Option[SemValue]`.
+   - Thread `runtimeParams: Set[String]` through `quoteExpression`/`quoteSourced`, adding the binder in the
+     `FunctionLiteral` arm and binding it to a fresh neutral in the eval env.
+   - Before the existing structural match, apply the gate (steps 1–3). On materialise, return
+     `materialise(ground)`; otherwise fall through to the current structural recursion (unchanged).
+   - Keep `resolveIfAbility` as-is.
+
+3. **`monomorphize/check/TypeStackLoop.scala` — supply the new inputs.**
+   - Capture `monoEnv` right after `instantiateRemaining` (env = erased type-stack params only; value params
+     are `FunctionLiteral` binders bound later during `check`, so they are correctly absent here).
+   - At the `PostDrainQuoter` construction (`:83`), pass `monoEnv` and
+     `fqn => state.bindingCache.getOrElse(fqn, None)`.
+
+4. **`resolve` — verify only.** Confirm `name(A)` (accessor applied to a type-stack param) resolves to
+   `FunctionApplication(name, ParameterReference("A"))` with no incidental "type param used in value position"
+   guard. No dot syntax exists, so the surface form is `name(A)`, not `A.name`. (If a guard exists, remove it;
+   the cornerstone says `[]`/`()` are sugar over one binder, so a value-position reference is legitimate.)
+
+5. **`stdlib`/Phase 4 — drop `bigInt`.** Width-dispatch bodies reference `MIN`/`MAX` directly in value
+   position instead of via `bigInt[...]`. `integerLiteral[n]` for *literals* is untouched (a literal does not
+   reference an erased param, so it keeps using the existing backend intrinsic).
+
+## Decision required: `BigInteger`'s runtime representation
+
+`NativeType.scala` currently maps `eliot_lang_BigInteger → java.lang.Long` (a Phase-3 stopgap), while
+`JvmBigInteger → java.math.BigInteger`. A materialised `Direct(BigInt, bigIntType)` becomes an
+`IntegerLiteral` at `BigInteger`'s representation, and the backend's integer-literal path boxes from `Long`.
+
+- If width-dispatch only ever materialises Long-range bounds → keep `Long`, no backend leaf change.
+- If bounds can exceed `Long` (the general case; bignum is the fallback representation) → map `BigInteger` to
+  `java.math.BigInteger` and add a one-line leaf so an `IntegerLiteral` at that representation emits
+  `BigInteger.valueOf(...)` / `new BigInteger(String)` (commit `f8126ae1` already added a `BigInteger`
+  emission path in `convertRepresentation`, so the capability mostly exists).
+
+Settle this explicitly rather than inheriting the stopgap. The consumer (Phase 4) decides whether `Long`
+suffices.
+
+## Fail-safe behaviour (per the "gaps must be fail-safe" rule)
+
+- Erased-dependent sub-term that does not reduce to ground → hard error, never a silent emit.
+- Stage 1 hitting a `Structure` result → explicit "not yet supported" error, never a partial/garbage emit.
+- Stage 2 materialising a type whose constructor is abstract-only (no runtime form) → hard error
+  ("compile-time value of an abstract type cannot be reified"). This *is* the "must be defined on both sides"
+  requirement, surfaced as an error.
+- `Type` reaching `materialise` → error.
+
+## Test plan (ScalaTest; single-line asserts per `.claude/rules/testing-conventions.md`)
+
+- `def staticName[A: Person]: String = name(A)` with `staticName[Person("Alice", 30)]` → runtime constant
+  `"Alice"` (assert the monomorphic body is a `StringLiteral("Alice")`, and end-to-end via the jvm module).
+- Erased `BigInteger` bound referenced in value position → materialises the constant (the Phase-4 unblock).
+- `def f(x: Int): Int = x` (no erased ref) → body unchanged (regression guard: ordinary runtime code is not
+  evaluated/folded).
+- `def f[A: Person](x: String): String = x` → `x` stays a `ParameterReference` (runtime param not materialised
+  even though an erased param is in scope).
+- Mixed: `f(name(A), x)` → arg1 materialised, arg2 kept.
+- Fail-safe: erased-dependent value that does not reduce to ground → expected compiler error (assert the
+  error, not a crash). Stage 1: a `Structure`-valued erased reference → expected "not yet supported" error.
+
+## Open questions
+
+- **Stage-2 arg splitting:** confirm whether a data value-constructor's quoted `Structure.args` includes
+  leading type-args (e.g. `cons[Int](h, t)`), and reuse the exact constructor-shape source that `match`
+  reconstruction uses to split them — do not introduce a second arity source.
+- **Code size:** a large materialised `Structure` inlines at every use site. Acceptable for now; a later
+  optimisation can hoist a materialised value into a cached `static final` field.
+
+## Stage 3 (follow-up): reconcile downstream, and fold in `integerLiteral`
+
+Once Stages 1–2 land, two pieces of existing machinery were built to do by hand what this mechanism now does
+generically. Revisit both.
+
+### Adjust the `jvm-int` plan
+
+`docs/jvm-int-representation-plan.md` still documents `bigInt[N]` (compile-time→runtime `BigInteger`
+reification) as the agreed Phase-4 unblock. That primitive is now subsumed — an erased `BigInteger` bound
+referenced in value position materialises directly. Update that plan's "Phase 4 — status, blocker, and the
+`bigInt` fix" section to: (a) drop `bigInt[N]` as the fix, (b) point at this document as the actual unblock,
+and (c) note that width-dispatch bodies reference `MIN`/`MAX` in value position rather than wrapping them.
+Do this *after* the mechanism is implemented and Phase 4 compiles against it, so the cross-reference describes
+shipped behaviour, not intent.
+
+### Evaluate simplifying / removing `integerLiteral`
+
+`integerLiteral[n]` is itself a hand-written reification: it lifts the type-level `n: BigInteger` into a
+value-position `Int[n,n]`, with a dedicated backend intrinsic (`Intrinsics.integerLiteralFQN`,
+`ExpressionCodeGenerator.generateIntrinsic`) that reads `typeArgs.head` and emits `ldc`+box. A materialised
+`Direct(BigInt, …)` now lowers to a `MonomorphicExpression.IntegerLiteral`, which the backend *already* emits
+via its plain integer-literal path — so the intrinsic and possibly the `5 ⟶ integerLiteral[5]` desugaring
+(`CoreExpressionConverter`) may be collapsible into the one general path.
+
+Two load-bearing details to weigh before removing anything — this is a "decide if it's a net simplification",
+not a foregone conclusion:
+
+- **The desugaring also assigns the type.** `5 ⟶ integerLiteral[5] : Int[5,5]` is what gives a value-position
+  literal its singleton `Int[n,n]` type (not a bare `BigInteger`). Any simplification must preserve that
+  typing. The cleanest route is probably to keep the literal's *typing* desugaring but let the literal
+  *reduce to a `Direct`* (e.g. give `integerLiteral` a reducing body / native that fires to
+  `Direct(n, Int[n,n])`), so the general `materialise` path emits it and the backend intrinsic can be deleted.
+- **The gate does not fire on closed literals.** A bare literal references no erased param, so under the
+  Stage-1 gate it is *not* materialised — it recurses structurally and stays an `IntegerLiteral` node, which
+  the backend handles directly anyway. So removing the *intrinsic* is plausibly independent of the gate;
+  removing the *desugaring* is the part that needs the typing argument above.
+
+Outcome of this phase is a decision + (if positive) the deletion: one materialisation path for every constant,
+no `integerLiteral`-specific backend code. If it is *not* a net simplification, record why and leave
+`integerLiteral` as-is.
+
+## Phasing checklist
+
+- [ ] Stage 1a: `SemExpressionEvaluator` + `materialise` (Direct leaves) + `PostDrainQuoter`/`TypeStackLoop`
+      wiring; gate logic; fail-safe errors.
+- [ ] Stage 1b: resolve verify; drop `bigInt`; Phase-4 bodies reference `MIN`/`MAX` directly; settle
+      `BigInteger` representation.
+- [ ] Stage 1 tests (above) green; Phase 4 compiles.
+- [ ] Stage 2: `Structure` materialisation via constructor-shape arg splitting; abstract-type fail-safe;
+      whole-structure + user-data tests.
+- [ ] Stage 3a: update `docs/jvm-int-representation-plan.md` Phase-4 section to drop `bigInt[N]` and reference
+      this plan (do after Phase 4 compiles against the mechanism).
+- [ ] Stage 3b: decide whether `integerLiteral` (intrinsic + desugaring) collapses into the general
+      `materialise` path; delete it if it is a net simplification, otherwise record why not.
