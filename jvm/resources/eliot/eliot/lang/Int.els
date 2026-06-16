@@ -24,13 +24,3 @@ opaque type Int[MIN: BigInteger, MAX: BigInteger] =
   fold(fitsIn[-2147483648, 2147483647, MIN, MAX], JvmInt[],
   fold(fitsIn[-9223372036854775808, 9223372036854775807, MIN, MAX], JvmLong[],
        JvmBigInteger[]))))
-
-/**
- * True iff the range `[min, max]` is contained in `[lo, hi]`. An ordinary value-level predicate on `BigInteger`s —
- * there is nothing type-level about it; it just happens to be *invoked* during compile-time (type-level) evaluation of
- * the `Int` body above. The thresholds are supplied at that call site through `[...]` brackets (`fitsIn[-128, 127, …]`)
- * purely so the integer literals stay `BigInteger` rather than desugaring to `Int[n, n]` values; `[...]` and `()` are
- * the same Pi-application, so the brackets only affect the arguments' context, not this signature.
- */
-def fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bool =
-  lessThanOrEqual(lo, min) && lessThanOrEqual(max, hi)

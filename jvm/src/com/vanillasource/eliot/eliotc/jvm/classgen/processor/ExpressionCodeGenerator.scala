@@ -205,15 +205,19 @@ object ExpressionCodeGenerator {
     "PatternMatch$" + dataTypeVfqn.name.name + "$impl"
 
   /** Emit a backend [[Intrinsics]] call inline. After Phase 3, an `Int[MIN, MAX]` value is carried at the *narrowest*
-    * JVM wrapper its range fits (`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), so each operation works in the
-    * common `long` working representation and (un)boxes at the operand/result representations read from the (already
-    * lowered) expression types:
+    * JVM wrapper its range fits (`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), and the operand/result
+    * representations are read from the (already lowered) expression types:
     *   - `integerLiteral[V]` pushes the constant `V` (from its type argument) boxed at the result representation;
-    *   - `+`/`-`/`*` unbox both operands to `long`, apply `LADD`/`LSUB`/`LMUL`, and rebox at the result representation;
-    *   - `intToString` unboxes its operand to `long` and calls `Long.toString(long)`.
+    *   - `intToString` unboxes its operand to `long` and calls `Long.toString(long)`;
+    *   - `nativeWiden` converts its operand from the source to the target representation (unbox/rebox, via `BigInteger`
+    *     when the target is `BigInteger`);
+    *   - an arithmetic leaf (`nativeAdd…`/`nativeSubtract…`/`nativeMultiply…`) computes in primitive `long`
+    *     (`LADD`/`LSUB`/`LMUL`, then rebox at the result representation) when operands and result fit `Long`, or in
+    *     `java.math.BigInteger` (`add`/`subtract`/`multiply`) when anything overflows it — so `nativeMultiplyLongToBigInteger`
+    *     never truncates through a `long`.
     *
-    * This is the JVM specialisation of the Phase-4 leaf natives ("unbox → LADD → narrow → box"); a microcontroller
-    * backend would instead pick width-specific instructions from the same lowered representations.
+    * This is the JVM realisation of the Phase-4 leaf natives; a microcontroller backend would instead pick
+    * width-specific instructions per leaf FQN from the same lowered representations.
     */
   private def generateIntrinsic(
       moduleName: ModuleName,
@@ -244,32 +248,92 @@ object ExpressionCodeGenerator {
                      mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "toString", "(J)Ljava/lang/String;", false)
                    }
       } yield classes
+    } else if (calledVfqn === Intrinsics.nativeWidenFQN) {
+      val sourceRep = representationInternalName(arguments.head.expressionType)
+      val targetRep = representationInternalName(expectedResultType)
+      for {
+        classes <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments.head)
+        _       <- methodGenerator.runNative[CompilationTypesIO](convertRepresentation(sourceRep, targetRep))
+      } yield classes
     } else {
-      val opcode =
-        if (calledVfqn === Intrinsics.plusFQN) Opcodes.LADD
-        else if (calledVfqn === Intrinsics.minusFQN) Opcodes.LSUB
-        else Opcodes.LMUL // Intrinsics.timesFQN
       val resultRep = representationInternalName(expectedResultType)
       val leftRep   = representationInternalName(arguments(0).expressionType)
       val rightRep  = representationInternalName(arguments(1).expressionType)
+      // `Long`-range operands and results compute in primitive `long`; anything that touches `BigInteger` (a
+      // `BigInteger` operand, or a result that overflowed `Long` — e.g. `nativeMultiplyLongToBigInteger`) computes in
+      // `BigInteger` so no value is truncated through a `long` round-trip.
+      val viaBigInteger =
+        resultRep === bigIntegerInternalName || leftRep === bigIntegerInternalName || rightRep === bigIntegerInternalName
       for {
         classes1 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(0))
-        _        <- methodGenerator.runNative[CompilationTypesIO](unboxToLong(leftRep))
+        _        <- methodGenerator.runNative[CompilationTypesIO](
+                      if (viaBigInteger) pushAsBigInteger(leftRep) else unboxToLong(leftRep)
+                    )
         classes2 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(1))
-        _        <- methodGenerator.runNative[CompilationTypesIO](unboxToLong(rightRep))
+        _        <- methodGenerator.runNative[CompilationTypesIO](
+                      if (viaBigInteger) pushAsBigInteger(rightRep) else unboxToLong(rightRep)
+                    )
         _        <- methodGenerator.runNative[CompilationTypesIO] { mv =>
-                      mv.visitInsn(opcode)
-                      boxFromLong(resultRep)(mv)
+                      if (viaBigInteger) bigIntegerOp(calledVfqn)(mv)
+                      else {
+                        mv.visitInsn(longOpcode(calledVfqn))
+                        boxFromLong(resultRep)(mv)
+                      }
                     }
       } yield classes1 ++ classes2
     }
   }
+
+  /** The primitive `long` opcode for an arithmetic leaf FQN. */
+  private def longOpcode(leafVfqn: ValueFQN): Int =
+    if (Intrinsics.addLeaves.contains(leafVfqn)) Opcodes.LADD
+    else if (Intrinsics.subtractLeaves.contains(leafVfqn)) Opcodes.LSUB
+    else Opcodes.LMUL // multiplyLeaves
+
+  /** The `java.math.BigInteger` instance method for an arithmetic leaf FQN; applied to the two `BigInteger`s on the
+    * stack, it leaves the (already-boxed) `BigInteger` result.
+    */
+  private def bigIntegerOp(leafVfqn: ValueFQN)(mv: org.objectweb.asm.MethodVisitor): Unit = {
+    val method =
+      if (Intrinsics.addLeaves.contains(leafVfqn)) "add"
+      else if (Intrinsics.subtractLeaves.contains(leafVfqn)) "subtract"
+      else "multiply" // multiplyLeaves
+    mv.visitMethodInsn(
+      Opcodes.INVOKEVIRTUAL,
+      bigIntegerInternalName,
+      method,
+      "(Ljava/math/BigInteger;)Ljava/math/BigInteger;",
+      false
+    )
+  }
+
+  private val bigIntegerInternalName = "java/math/BigInteger"
 
   /** The internal JVM class name (`java/lang/Byte`, …, `java/math/BigInteger`) of a value's machine representation. The
     * ground value must already be lowered (Phase 3), so its head FQN is one of the `Jvm*` representation types.
     */
   private def representationInternalName(t: GroundValue): String =
     NativeType.javaInternalName(valueType(t))
+
+  /** Convert the boxed value on the stack from its source representation to its target representation, preserving the
+    * logical integer (the caller guarantees it fits the target). Routes through `BigInteger` when the target is
+    * `BigInteger`, otherwise through primitive `long`.
+    */
+  private def convertRepresentation(sourceRep: String, targetRep: String)(mv: org.objectweb.asm.MethodVisitor): Unit =
+    if (targetRep === bigIntegerInternalName) pushAsBigInteger(sourceRep)(mv)
+    else {
+      unboxToLong(sourceRep)(mv)
+      boxFromLong(targetRep)(mv)
+    }
+
+  /** Leave a `java.math.BigInteger` on the stack from a boxed value of the given representation: a `BigInteger` is
+    * already in the right form; any narrower wrapper is unboxed to `long` and lifted via `BigInteger.valueOf`.
+    */
+  private def pushAsBigInteger(repInternalName: String)(mv: org.objectweb.asm.MethodVisitor): Unit =
+    if (repInternalName =!= bigIntegerInternalName) {
+      unboxToLong(repInternalName)(mv)
+      mv.visitMethodInsn(Opcodes.INVOKESTATIC, bigIntegerInternalName, "valueOf", "(J)Ljava/math/BigInteger;", false)
+    }
 
   /** Unbox the boxed integer wrapper of the given representation on the top of the stack into a primitive `long`. All
     * the wrapper classes extend `java.lang.Number`, so `longValue()` widens uniformly.

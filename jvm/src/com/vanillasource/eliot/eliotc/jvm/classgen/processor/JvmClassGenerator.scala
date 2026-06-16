@@ -232,17 +232,28 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
         val distinctTypeArgs = stats.monomorphicTypeParameters.distinct
         val arities          = stats.directCallApplications.keys.toSeq.sorted
         for {
-          result <- distinctTypeArgs.foldLeftM((Seq.empty[ClassFile], 0)) { case ((accFiles, lambdaCount), typeArgs) =>
-                      arities.foldLeftM((accFiles, lambdaCount)) { case ((innerAccFiles, innerLambdaCount), arity) =>
-                        for {
-                          uncurriedValue          <- getFactOrAbort(UncurriedMonomorphicValue.Key(vfqn, typeArgs, arity))
-                          (files, newLambdaCount) <- createModuleMethod(
-                                                       mainClassGenerator, uncurriedValue, typeArgs, innerLambdaCount
-                                                     )
-                        } yield (innerAccFiles ++ files, newLambdaCount)
-                      }
+          // Distinct ranges that lower to the same representation (e.g. `Int[0,3]` and `Int[0,5]` -> `Byte`) yield the
+          // SAME method name + descriptor with byte-identical bodies; generate each such signature only once. Different
+          // representations give different descriptors and so legitimately overload the same mangled name.
+          result <- distinctTypeArgs.foldLeftM((Seq.empty[ClassFile], 0, Set.empty[String])) {
+                      case ((accFiles, lambdaCount, seen), typeArgs) =>
+                        arities.foldLeftM((accFiles, lambdaCount, seen)) {
+                          case ((innerAccFiles, innerLambdaCount, innerSeen), arity) =>
+                            for {
+                              uncurriedValue <- getFactOrAbort(UncurriedMonomorphicValue.Key(vfqn, typeArgs, arity))
+                              key             = methodSignatureKey(uncurriedValue, typeArgs)
+                              next           <-
+                                if (innerSeen.contains(key))
+                                  (innerAccFiles, innerLambdaCount, innerSeen).pure[CompilerIO]
+                                else
+                                  createModuleMethod(mainClassGenerator, uncurriedValue, typeArgs, innerLambdaCount)
+                                    .map { case (files, newLambdaCount) =>
+                                      (innerAccFiles ++ files, newLambdaCount, innerSeen + key)
+                                    }
+                            } yield next
+                        }
                     }
-          (classFiles, _)   = result
+          (classFiles, _, _) = result
           // Check if this is the main function
           highestTypeArgs    = distinctTypeArgs.headOption.getOrElse(Seq.empty)
           highestUncurried  <- getFactOrAbort(
@@ -251,6 +262,16 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
           _                 <- createApplicationMain(vfqn, mainClassGenerator).whenA(isMain(highestUncurried))
         } yield classFiles
     }
+  }
+
+  /** A stable key for a generated method's emitted signature: the mangled name plus the lowered parameter and return
+    * representations (i.e. its JVM descriptor). Two monomorphic instantiations sharing this key are byte-identical and
+    * must be generated once; instantiations with the same name but a different key are valid overloads.
+    */
+  private def methodSignatureKey(uncurriedValue: UncurriedMonomorphicValue, typeArgs: Seq[GroundValue]): String = {
+    val name       = uncurriedValue.vfqn.name.name + mangleSuffix(typeArgs)
+    val paramTypes = uncurriedValue.parameters.map(p => valueType(p.parameterType).show).mkString(",")
+    s"$name($paramTypes):${valueType(uncurriedValue.returnType).show}"
   }
 
   private def createModuleMethod(

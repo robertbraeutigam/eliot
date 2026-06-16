@@ -68,10 +68,14 @@ object FunctionDefinition {
         .optional()
         .map(_.getOrElse(Fixity.Associativity.Left))
 
+    // `infix`/`prefix`/`postfix` are hard keywords (not identifiers): besides marking fixity they are the only tokens
+    // that begin a fixity-annotated definition, so making them keywords lets a preceding function *body* (parsed with
+    // the greedy full-expression parser) stop cleanly at the next definition rather than swallowing its annotation as
+    // an application chain.
     private val fixityDecl: Parser[Sourced[Token], Fixity] =
-      identifierWith("prefix").as(Fixity.Prefix: Fixity) or
-        (identifierWith("infix") *> infixAssociativity).map(a => Fixity.Infix(a): Fixity) or
-        identifierWith("postfix").as(Fixity.Postfix: Fixity)
+      keyword("prefix").as(Fixity.Prefix: Fixity) or
+        (keyword("infix") *> infixAssociativity).map(a => Fixity.Infix(a): Fixity) or
+        keyword("postfix").as(Fixity.Postfix: Fixity)
 
     private val fixityWithDef: Parser[Sourced[Token], (Fixity, Seq[PrecedenceDeclaration])] =
       (for {

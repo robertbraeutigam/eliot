@@ -23,7 +23,8 @@ class TokenParser(sourced: Sourced[?]) {
         operatorLetter = Basic("!#$%&*+./<=>?@\\^|-~;".contains(_))
       ),
       SymbolDesc(
-        hardKeywords = Set("import", "data", "def", "ability", "implement", "match", "case", "type"),
+        hardKeywords =
+          Set("import", "data", "def", "ability", "implement", "match", "case", "type", "infix", "prefix", "postfix"),
         hardOperators = Set("(", ")", "[", "]", "->", "_", "::", ":"),
         caseSensitive = true
       ),
@@ -55,7 +56,9 @@ class TokenParser(sourced: Sourced[?]) {
   ).label("special operator")
 
   private lazy val keyword: Parsley[Sourced[Token.Keyword]] = sourcedLexeme(
-    character.strings("import", "data", "def", "ability", "implement", "match", "case", "type").map(Token.Keyword.apply)
+    character
+      .strings("import", "data", "def", "ability", "implement", "match", "case", "type", "infix", "prefix", "postfix")
+      .map(Token.Keyword.apply)
   ).label("keyword")
 
   private lazy val integerLiteral: Parsley[Sourced[Token.IntegerLiteral]] = sourcedLexeme(

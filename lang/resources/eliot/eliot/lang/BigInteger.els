@@ -53,3 +53,17 @@ def multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): Big
  * operator to compute the upper result bound.
  */
 def multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger
+
+/**
+ * True iff the range `[Min, Max]` is contained in `[Lo, Hi]`. An ordinary value-level predicate (not a native),
+ * defined here in the ambient `BigInteger` module so that both the base `Int` width dispatch (`+`/`-`/`*`) and the
+ * jvm-layer opaque `Int` body can resolve it without an import.
+ *
+ * Its four `BigInteger` operands are **generic (type) parameters**, not value parameters: that is what lets it be
+ * applied with `[...]` (`fitsIn[-128, 127, …]`) in ordinary, type-checked value positions like the dispatch bodies —
+ * the bracket arguments land in type context, so integer literals stay `BigInteger` rather than desugaring to
+ * `Int[n, n]`. (A value-parameter version applied with `[...]` only "works" inside the opaque `Int` body because that
+ * body is never type-checked, only evaluated; a checked caller would see "too many type arguments".)
+ */
+def fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bool =
+  lessThanOrEqual(lo, min) && lessThanOrEqual(max, hi)
