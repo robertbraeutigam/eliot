@@ -42,7 +42,8 @@ case class CheckState(
     abstractTypeMetas: Map[ValueFQN, MetaId],
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
     combineResolved: Set[Int],
-    pendingUpperBounds: List[(MetaId, SemValue, Sourced[String])]
+    pendingUpperBounds: List[(MetaId, SemValue, Sourced[String])],
+    typeStackValueParams: Set[String]
 ) {
 
   def recordCombineResolved(id: MetaId): CheckState =
@@ -54,6 +55,14 @@ case class CheckState(
   /** Bind a parameter with the given name and type, extending the env. */
   def bind(name: String, value: SemValue): CheckState =
     copy(env = env.bind(name, value))
+
+  /** Bind an erased type-stack parameter to its concrete value and record its name. Unlike a runtime value parameter
+    * (whose env binding is its *type*), a type-stack parameter's env binding is its *value* — so when it is referenced
+    * in value position the checker must recover its type from the value, not return the value as a type. The recorded
+    * set distinguishes the two; see [[Checker.infer]]'s `ParameterReference` case.
+    */
+  def bindTypeStackParam(name: String, value: SemValue): CheckState =
+    copy(env = env.bind(name, value), typeStackValueParams = typeStackValueParams + name)
 
   def withUnifier(u: Unifier): CheckState = copy(unifier = u)
 
@@ -99,6 +108,7 @@ object CheckState {
     Map.empty,
     Map.empty,
     Set.empty,
-    Nil
+    Nil,
+    Set.empty
   )
 }

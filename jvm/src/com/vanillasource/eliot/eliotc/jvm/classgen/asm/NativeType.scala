@@ -98,8 +98,10 @@ object NativeType {
     override def javaClass: Class[?] = classOf[java.lang.Object]
   }
 
+  // An unbounded `BigInteger` is represented as a real `java.math.BigInteger` (not a stopgap `Long`), so a materialised
+  // compile-time constant whose bounds exceed `Long` (the general width-dispatch case) keeps its full precision.
   private def eliot_lang_BigInteger: NativeType = new NativeType {
-    override def javaClass: Class[?] = classOf[java.lang.Long]
+    override def javaClass: Class[?] = classOf[java.math.BigInteger]
   }
 
   private def eliot_lang_JvmByte: NativeType = new NativeType {

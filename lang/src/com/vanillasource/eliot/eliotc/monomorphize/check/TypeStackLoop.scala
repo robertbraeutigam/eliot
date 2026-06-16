@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, Val
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.eval.Quoter
+import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
 import com.vanillasource.eliot.eliotc.monomorphize.unify.{SemValuePrinter, UnifyError}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -45,6 +45,20 @@ class TypeStackLoop(
       appliedSig   <- applyTypeArgs(signature, key.typeArguments, resolvedValue.typeStack)
       instantiated <- instantiateRemaining(appliedSig)
 
+      // Capture the env of erased type-stack parameters now, before `check` binds the runtime value parameters as
+      // `FunctionLiteral` binders. Each erased explicit type arg is converted from its `VConst(ground)` form to the
+      // evaluable `groundToSem` form (so a data value reads as a constructor `VTopDef`, which accessors / `match` can
+      // reduce); phantom-parameter metas are kept as-is and resolve through the final metastore at materialisation time.
+      // This env seeds the reification gate in `PostDrainQuoter`.
+      monoEnvState <- get
+      monoEnv       = Env(
+                        monoEnvState.env.bindings.map {
+                          case VConst(g) => Evaluator.groundToSem(g)
+                          case other     => other
+                        },
+                        monoEnvState.env.names
+                      )
+
       // Check runtime body if present — produces SemExpression with SemValue slots. An `opaque` value presents as
       // body-less here (`checkingRuntime`), so its body is neither checked nor emitted during checking; post-checking
       // representation lowering unfolds it separately.
@@ -80,7 +94,12 @@ class TypeStackLoop(
       // Post-drain: quote SemValues to GroundValues using the pre-computed ability resolutions. This is the sole
       // SemValue → GroundValue transition and has no silent fallback; Quoter reports unresolved metas as compiler
       // errors.
-      quoter     = new PostDrainQuoter(state.unifier.metaStore, state.abilityResolutions)
+      quoter     = new PostDrainQuoter(
+                     state.unifier.metaStore,
+                     state.abilityResolutions,
+                     monoEnv,
+                     fqn => state.bindingCache.getOrElse(fqn, None)
+                   )
       groundSig <- liftF(quoter.quoteSem(instantiated, resolvedValue.typeStack))
       monoBody  <- runtime.traverse(srcSem => liftF(quoter.quoteSourced(srcSem)))
     } yield MonomorphicValue(
@@ -278,7 +297,7 @@ class TypeStackLoop(
           forced <- checker.force(sig)
           result <- forced match {
                       case VLam(name, closure) =>
-                        modify(_.bind(name, argVal)) >> loop(closure(argVal), tail)
+                        modify(_.bindTypeStackParam(name, argVal)) >> loop(closure(argVal), tail)
                       case _                   =>
                         modify(s => s.withUnifier(s.unifier.addError(errorSource.as("Too many type arguments."))))
                           .as(sig)

@@ -538,7 +538,17 @@ class Checker(
         state  <- get
         result <- state.env.lookupByName(name.value) match {
                     case Some(sem) =>
-                      pure((SemExpression(sem, SemExpression.ParameterReference(name)), sem))
+                      // A runtime value parameter's env binding *is* its type, so it serves as the inferred type
+                      // directly. An erased type-stack value parameter's binding is its concrete *value* instead (e.g.
+                      // `A: Person` bound to `Person("Alice", …)`); referenced in value position its type is the value's
+                      // type, recovered here. (Type-position references go through evaluation, never this path, so they
+                      // still see the concrete value.)
+                      val tpe = sem match {
+                        case VConst(ground) if state.typeStackValueParams.contains(name.value) =>
+                          Evaluator.groundToSem(ground.valueType)
+                        case _                                                                  => sem
+                      }
+                      pure((SemExpression(tpe, SemExpression.ParameterReference(name)), tpe))
                     case None      =>
                       liftF(compilerError(tm.as("Name not defined.")) >> abort)
                   }

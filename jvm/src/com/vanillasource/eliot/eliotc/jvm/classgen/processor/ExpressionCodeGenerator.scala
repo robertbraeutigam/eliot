@@ -38,12 +38,11 @@ object ExpressionCodeGenerator {
           uncurriedExpression.expressionType
         )
       case IntegerLiteral(integerLiteral)                   =>
-        for {
-          _ <- methodGenerator.addLdcInsn[CompilationTypesIO](java.lang.Long.valueOf(integerLiteral.value.toLong))
-          _ <- methodGenerator.runNative[CompilationTypesIO](
-                 boxFromLong(representationInternalName(uncurriedExpression.expressionType))
-               )
-        } yield Seq.empty
+        methodGenerator
+          .runNative[CompilationTypesIO](
+            pushIntegerConstant(integerLiteral.value, representationInternalName(uncurriedExpression.expressionType))
+          )
+          .as(Seq.empty)
       case StringLiteral(stringLiteral)                     =>
         methodGenerator.addLdcInsn[CompilationTypesIO](stringLiteral.value).as(Seq.empty)
       case ParameterReference(sourcedParameterName)         =>
@@ -232,10 +231,9 @@ object ExpressionCodeGenerator {
     if (calledVfqn === Intrinsics.integerLiteralFQN) {
       typeArgs.headOption match {
         case Some(GroundValue.Direct(value: BigInt, _)) =>
-          for {
-            _ <- methodGenerator.addLdcInsn[CompilationTypesIO](java.lang.Long.valueOf(value.toLong))
-            _ <- methodGenerator.runNative[CompilationTypesIO](boxFromLong(representationInternalName(expectedResultType)))
-          } yield Seq.empty
+          methodGenerator
+            .runNative[CompilationTypesIO](pushIntegerConstant(value, representationInternalName(expectedResultType)))
+            .as(Seq.empty)
         case _                                          =>
           compilerAbort(sourcedCalledVfqn.as("integerLiteral has no concrete value argument.")).liftToTypes.as(Seq.empty)
       }
@@ -340,6 +338,21 @@ object ExpressionCodeGenerator {
     */
   private def unboxToLong(repInternalName: String)(mv: org.objectweb.asm.MethodVisitor): Unit =
     mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, repInternalName, "longValue", "()J", false)
+
+  /** Push an integer constant boxed at the given machine representation. A `BigInteger` representation is built at full
+    * precision via `new BigInteger(decimalString)`, so a materialised constant whose value exceeds `Long` range is not
+    * truncated; every narrower wrapper goes through a `long` constant and [[boxFromLong]].
+    */
+  private def pushIntegerConstant(value: BigInt, repInternalName: String)(mv: org.objectweb.asm.MethodVisitor): Unit =
+    if (repInternalName === bigIntegerInternalName) {
+      mv.visitTypeInsn(Opcodes.NEW, bigIntegerInternalName)
+      mv.visitInsn(Opcodes.DUP)
+      mv.visitLdcInsn(value.toString)
+      mv.visitMethodInsn(Opcodes.INVOKESPECIAL, bigIntegerInternalName, "<init>", "(Ljava/lang/String;)V", false)
+    } else {
+      mv.visitLdcInsn(java.lang.Long.valueOf(value.toLong))
+      boxFromLong(repInternalName)(mv)
+    }
 
   /** Box the primitive `long` on the top of the stack into the wrapper of the given representation, narrowing first
     * (`l2i` + `i2b`/`i2s` for `Byte`/`Short`) so the boxed value matches the declared descriptor.
