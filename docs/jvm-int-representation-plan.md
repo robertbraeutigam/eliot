@@ -1,7 +1,10 @@
 # Exact `Int` representations via `opaque` + Eliot dispatch
 
-Status: **Phases 1–3 implemented**; Phases 4–5 planned (the `opaque` modifier it depends on is **implemented** —
-see "Foundation"). After Phase 3 an `Int[MIN, MAX]` is laid out at the narrowest JVM wrapper its range fits
+Status: **Phases 1–3 implemented and green.** **Phase 4 is in progress and currently BLOCKED** on a missing
+primitive (`bigInt[N]` — compile-time→runtime `BigInteger` reification); a partial Phase-4 implementation is
+committed (`f8126ae1 "Implementing int min-max eliot dispatch"`) but **does not compile yet** — see
+"Phase 4 — status, blocker, and the `bigInt` fix" below before continuing. Phase 5 still planned. After Phase 3
+an `Int[MIN, MAX]` is laid out at the narrowest JVM wrapper its range fits
 (`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), verified end-to-end (`2 + 3*4` computes in `Byte`,
 `Int[0, 1000]` in `Short`, `1000 * 1000 : Int[0, 1000000]` in `Integer`).
 
@@ -210,6 +213,83 @@ distinction that keeps it on-concept: Scala holds no width policy.
 after lowering; canonicalise them so the per-range method-name mangling (`mangleSuffix`, currently `"Int"` for
 every range — pre-existing, so no regression) collapses to one method. If dedup is deferred, fold the
 representation into the mangle suffix.
+
+## Phase 4 — status, blocker, and the `bigInt` fix
+
+**Decision (settled with the user):** the leaf matrix is **operand×result keyed** — `nativeAdd{Wc}To{Wr}`,
+keyed by the common operand representation `Wc` and the result representation `Wr` (the "plan's literal matrix"
+below), *not* the simpler diagonal. Chosen for microcontroller fidelity: a backend with no uniform `long`
+carrier needs genuinely different per-width instruction sequences, so the *selection* must be in Eliot and the
+backend must only realise fixed leaves. **No `Int` width policy may live in Scala.**
+
+**What is committed (`f8126ae1`) — does NOT compile yet:**
+- `stdlib/.../Int.els`: `+`/`-`/`*` given bodies = `nativeWiden(dispatch{Add,Subtract,Multiply}(nativeWiden(left),
+  nativeWiden(right)))`; 27 body-less leaf natives (`nativeAdd/Subtract/Multiply` × `{ByteToByte, ByteToShort,
+  ShortToShort, ShortToInt, IntToInt, IntToLong, LongToLong, LongToBigInteger, BigIntegerToBigInteger}`); three
+  `dispatch*` helpers (nested `fold` over `fitsIn`, selecting a leaf applied to the two equalised operands).
+- `lang/.../BigInteger.els`: `fitsIn` moved here (ambient `BigInteger` module → resolvable from both `Int.els`
+  files; same-module names are NOT shared cross-file at resolve time, so it could not stay in `Int.els`).
+- `jvm/.../Int.els`: `fitsIn` removed (now ambient).
+- Backend: `Intrinsics` drops `+`/`-`/`*`, registers the 27 leaves + `nativeWiden`; `ExpressionCodeGenerator`
+  realises each leaf inline (long `LADD`/`LSUB`/`LMUL` for ≤`Long`; `java.math.BigInteger` `add/subtract/multiply`
+  when an operand/result is `BigInteger` — so `nativeMultiplyLongToBigInteger` never truncates) and `nativeWiden`
+  as unbox→rebox; `JvmClassGenerator` **dedups generated methods by (mangled name + lowered descriptor)** so two
+  ranges sharing a representation collapse to one method (different reps stay legal overloads — no mangling
+  rewrite needed). These backend pieces are correct and reusable as-is.
+- Parser: `infix`/`prefix`/`postfix` promoted to **hard keywords** (`TokenParser` + `FunctionDefinition`). This is
+  an independent latent-bug fix: a function *body* (greedy full-expression parser) used to swallow the *next*
+  definition's `infix …` annotation as an application chain (the `TypeAliasDefinition` comment documents the same
+  latent bug). Keep this regardless of how Phase 4 resolves.
+
+**The blocker — width dispatch cannot be written in a *checked* `def` body.** The dispatch must compare range
+bounds to literal width thresholds (`-128`, `127`, …) as `BigInteger`. But:
+- `BigInteger` is a **purely type-level type** — it has no value constructor and no value-position literal. A
+  value-position literal `n` desugars to `Int[n,n]` (`integerLiteral`, Phase 6), so `def x: BigInteger = 5` is
+  rejected (no `Coerce Int→BigInteger`). There is *no* expression of type `BigInteger` writable in a value body.
+- A generic `BigInteger` parameter (`def f[N: BigInteger]: Bool = lessThanOrEqual(N, …)`) is **not usable as a
+  value** in a checked body — "Type mismatch" on `N`.
+- `fitsIn[-128, 127, …]` applied to a **value-parameter** `fitsIn` only "works" inside the **opaque `Int` body**,
+  because an opaque body is **evaluated, never type-checked** (the checker's arity rule rejects "too many type
+  arguments" for a checked caller). The `Coerce`/`Combine` instances get away with `lessThanOrEqual(Tmin, Smin)`
+  on generic params for the **same reason** — ability-instance bodies are evaluated (resolved + spliced), not
+  generically checked.
+
+So the realisation: **checked `def` bodies cannot do type-level (`BigInteger`) value computation**; only
+*evaluated* contexts (opaque bodies, ability instances) can. The dispatch must be expressible in checked Eliot,
+so we need a *value-level* `BigInteger`.
+
+**The fix — `bigInt[N]` reification (mirror of `integerLiteral`), agreed with the user.** Just as
+`integerLiteral[V] : Int[V,V]` reifies a compile-time bound `V` into a runtime `Int`, add a primitive that reifies
+a compile-time `BigInteger` into a runtime/value `BigInteger`. This deliberately opens a general **compile-time →
+runtime divide** (compile-level data flowing into runtime values), of which the width dispatch is the first user.
+
+1. **Declaration** (`Runtime.els`, beside `integerLiteral`): `def bigInt[N: BigInteger]: BigInteger` — body-less.
+   `N` enters through the *type-arg* slot (literals and generic params are legal there), and exits as a `BigInteger`
+   *value*: `bigInt[-128]`, `bigInt[Cmin]` are well-typed in checked value code, sidestepping both walls.
+2. **Compile-time reduction** (one NbE native in `SystemNativesProcessor`): `bigInt[N]` reduces to its argument —
+   identity on the concrete `BigInteger`. So `bigInt[5] → 5`, `bigInt[Cmin] → Cmin` once `Cmin` is concrete, which
+   lets `lessThanOrEqual`/`fold` fire ⇒ **leaf selection stays at compile time** (each `+` instantiation monomorphises
+   to exactly one leaf; no runtime width branching).
+3. **Runtime materialisation** (the general capability): the `jvm` layer maps `BigInteger → java.math.BigInteger`
+   (a `NativeType`) and codegen emits a concrete `new BigInteger("…")` for a reified constant. The dispatch never
+   needs this (its `bigInt`s all reduce away), but it makes `bigInt[N]` a real runtime value everywhere.
+4. **Dispatch rewrite:** change the three `dispatch*` helpers to use a **value-parameter** `fitsIn` fed reified
+   bounds — `fitsIn(bigInt[-128], bigInt[127], bigInt[Cmin], bigInt[Cmax])` — all `BigInteger` *values*, so
+   `fitsIn`'s body type-checks normally. (`fitsIn` reverts to value parameters; the opaque `Int` body's
+   `fitsIn[-128,127,MIN,MAX]` stays as-is since it is unchecked.)
+
+**Pending steps to unblock Phase 4 (do in order):**
+1. Add `bigInt` decl (`Runtime.els`) + identity NbE native (`SystemNativesProcessor`, with `bigIntFQN`/well-known
+   wiring) — prove `def check: Bool = fitsIn(bigInt[-128], bigInt[127], bigInt[5])` type-checks and reduces.
+2. Rewrite the three `dispatch*` helpers (and `fitsIn`, back to value params) to use `bigInt[...]`.
+3. Add `BigInteger → java.math.BigInteger` `NativeType` map + codegen for a reified `BigInteger` constant
+   (the runtime side of the divide; keep it fail-safe — abort on a non-concrete `bigInt` at codegen).
+4. Compile; run the regression suite (`2 + 3 * 4 = 14`, `count+count+count = 21`, representation-selection tests,
+   widening tests). Add mixed-width carry/cancellation + dedup tests.
+5. Then Phase 5 (`Coerce` payload-splice for non-materialised cross-rep widening).
+
+The remainder of this section is the original keyed-matrix design (still valid; the `bigInt` fix only changes
+*how the `fitsIn` conditions are written*, not the matrix or the leaf set).
 
 ## Phase 4 — Operations as Eliot dispatch to concretely-sized leaf natives
 
