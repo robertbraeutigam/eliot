@@ -194,15 +194,19 @@ suffices.
 Once Stages 1–2 land, two pieces of existing machinery were built to do by hand what this mechanism now does
 generically. Revisit both.
 
-### Adjust the `jvm-int` plan
+### Adjust the `jvm-int` plan — **done**
 
-`docs/jvm-int-representation-plan.md` still documents `bigInt[N]` (compile-time→runtime `BigInteger`
-reification) as the agreed Phase-4 unblock. That primitive is now subsumed — an erased `BigInteger` bound
-referenced in value position materialises directly. Update that plan's "Phase 4 — status, blocker, and the
-`bigInt` fix" section to: (a) drop `bigInt[N]` as the fix, (b) point at this document as the actual unblock,
-and (c) note that width-dispatch bodies reference `MIN`/`MAX` in value position rather than wrapping them.
-Do this *after* the mechanism is implemented and Phase 4 compiles against it, so the cross-reference describes
-shipped behaviour, not intent.
+`docs/jvm-int-representation-plan.md` documented `bigInt[N]` (compile-time→runtime `BigInteger` reification) as
+the agreed Phase-4 unblock. That primitive is now subsumed — an erased `BigInteger` bound referenced in value
+position materialises directly. Its "Phase 4 — status, blocker, and the reification unblock" section has been
+updated to: (a) drop `bigInt[N]` as the fix, (b) point at this document as the actual unblock, and (c) note that
+width-dispatch bodies reference `MIN`/`MAX` in value position rather than wrapping them.
+
+Caveat to the "do this only after Phase 4 compiles" guidance: this edit was made early, by request. The
+reification mechanism is built and tested, but the committed Phase-4 dispatch does **not** compile yet — the
+type-level `fitsIn[…]` call in the checked dispatch bodies still raises "Too many type arguments" (deferred).
+The cross-reference therefore describes the agreed mechanism plus an honest "not yet compiling" status, not
+fully shipped Phase-4 behaviour.
 
 ### Evaluate simplifying / removing `integerLiteral`
 
@@ -239,7 +243,8 @@ no `integerLiteral`-specific backend code. If it is *not* a net simplification, 
 - [ ] Stage 1 tests (above) green; Phase 4 compiles.
 - [ ] Stage 2: `Structure` materialisation via constructor-shape arg splitting; abstract-type fail-safe;
       whole-structure + user-data tests.
-- [ ] Stage 3a: update `docs/jvm-int-representation-plan.md` Phase-4 section to drop `bigInt[N]` and reference
-      this plan (do after Phase 4 compiles against the mechanism).
+- [x] Stage 3a: update `docs/jvm-int-representation-plan.md` Phase-4 section to drop `bigInt[N]` and reference
+      this plan. **Done early by request** — note the Phase-4 dispatch does not compile yet (type-level `fitsIn[…]`
+      call → "Too many type arguments", deferred); the section reflects that honestly.
 - [ ] Stage 3b: decide whether `integerLiteral` (intrinsic + desugaring) collapses into the general
       `materialise` path; delete it if it is a net simplification, otherwise record why not.

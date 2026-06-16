@@ -1,12 +1,18 @@
 # Exact `Int` representations via `opaque` + Eliot dispatch
 
-Status: **Phases 1–3 implemented and green.** **Phase 4 is in progress and currently BLOCKED** on a missing
-primitive (`bigInt[N]` — compile-time→runtime `BigInteger` reification); a partial Phase-4 implementation is
-committed (`f8126ae1 "Implementing int min-max eliot dispatch"`) but **does not compile yet** — see
-"Phase 4 — status, blocker, and the `bigInt` fix" below before continuing. Phase 5 still planned. After Phase 3
-an `Int[MIN, MAX]` is laid out at the narrowest JVM wrapper its range fits
-(`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), verified end-to-end (`2 + 3*4` computes in `Byte`,
-`Int[0, 1000]` in `Short`, `1000 * 1000 : Int[0, 1000000]` in `Integer`).
+Status: **Phases 1–3 implemented.** **Phase 4 is in progress and does not compile yet.** A partial Phase-4
+implementation is committed (`f8126ae1 "Implementing int min-max eliot dispatch"`) that swapped the working
+inline `+`/`-`/`*` intrinsics for an Eliot width-dispatch which does not type-check — so the *arithmetic*
+integration tests currently fail, while the literal / representation-selection tests still pass. The original
+Phase-4 blocker (the dispatch needs a *value-level* `BigInteger` for its width comparisons) is resolved in
+principle by the compile→runtime **reification** mechanism (`docs/compile-runtime-reification-plan.md`, Stages
+1–2, **built and tested**), which subsumes — and replaces — the once-proposed `bigInt[N]` primitive. The
+remaining Phase-4 work (make the type-level `fitsIn[…]` call type-check in the checked dispatch bodies, then
+re-verify) is **deferred** — see "Phase 4 — status, blocker, and the reification unblock" below. Phase 5 still
+planned. After Phase 3 an `Int[MIN, MAX]` is laid out at the narrowest JVM wrapper its range fits
+(`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), verified end-to-end for literal-position values
+(`Int[0, 1000]` in `Short`, `Int[0, 70000]` in `Integer`, `Int[0, 5000000000]` in `Long`); arithmetic awaits the
+Phase-4 completion.
 
 Goal: store each `Int[MIN, MAX]` in the *smallest* machine representation whose range contains `[MIN, MAX]`
 (`Byte`/`Short`/`Int`/`Long`, with a bignum fall-back), and make range widening (`Coerce`) a *real* runtime
@@ -214,7 +220,7 @@ after lowering; canonicalise them so the per-range method-name mangling (`mangle
 every range — pre-existing, so no regression) collapses to one method. If dedup is deferred, fold the
 representation into the mangle suffix.
 
-## Phase 4 — status, blocker, and the `bigInt` fix
+## Phase 4 — status, blocker, and the reification unblock
 
 **Decision (settled with the user):** the leaf matrix is **operand×result keyed** — `nativeAdd{Wc}To{Wr}`,
 keyed by the common operand representation `Wc` and the result representation `Wr` (the "plan's literal matrix"
@@ -241,55 +247,53 @@ backend must only realise fixed leaves. **No `Int` width policy may live in Scal
   definition's `infix …` annotation as an application chain (the `TypeAliasDefinition` comment documents the same
   latent bug). Keep this regardless of how Phase 4 resolves.
 
-**The blocker — width dispatch cannot be written in a *checked* `def` body.** The dispatch must compare range
-bounds to literal width thresholds (`-128`, `127`, …) as `BigInteger`. But:
+**The blocker (original) — width dispatch needs a *value-level* `BigInteger`.** The dispatch compares range
+bounds to literal width thresholds (`-128`, `127`, …) as `BigInteger`. When `f8126ae1` was written this could not
+be expressed in a *checked* `def` body:
 - `BigInteger` is a **purely type-level type** — it has no value constructor and no value-position literal. A
   value-position literal `n` desugars to `Int[n,n]` (`integerLiteral`, Phase 6), so `def x: BigInteger = 5` is
-  rejected (no `Coerce Int→BigInteger`). There is *no* expression of type `BigInteger` writable in a value body.
-- A generic `BigInteger` parameter (`def f[N: BigInteger]: Bool = lessThanOrEqual(N, …)`) is **not usable as a
-  value** in a checked body — "Type mismatch" on `N`.
-- `fitsIn[-128, 127, …]` applied to a **value-parameter** `fitsIn` only "works" inside the **opaque `Int` body**,
-  because an opaque body is **evaluated, never type-checked** (the checker's arity rule rejects "too many type
-  arguments" for a checked caller). The `Coerce`/`Combine` instances get away with `lessThanOrEqual(Tmin, Smin)`
-  on generic params for the **same reason** — ability-instance bodies are evaluated (resolved + spliced), not
-  generically checked.
+  rejected (no `Coerce Int→BigInteger`). There was *no* expression of type `BigInteger` writable in a value body.
+- A generic `BigInteger` parameter used as a value (`def f[N: BigInteger]: Bool = lessThanOrEqual(N, …)`) was
+  rejected — "Type mismatch" on `N`.
+- The `Coerce`/`Combine` instances get away with `lessThanOrEqual(Tmin, Smin)` on generic params only because
+  ability-instance bodies are **evaluated** (resolved + spliced), not generically checked — and the opaque `Int`
+  body gets away with `fitsIn[-128, 127, MIN, MAX]` for the same reason (it is evaluated, never checked).
 
-So the realisation: **checked `def` bodies cannot do type-level (`BigInteger`) value computation**; only
-*evaluated* contexts (opaque bodies, ability instances) can. The dispatch must be expressible in checked Eliot,
-so we need a *value-level* `BigInteger`.
+**The unblock — compile→runtime reification (replaces the proposed `bigInt[N]`).** The earlier fix was to add a
+`bigInt[N] : BigInteger` primitive (a mirror of `integerLiteral`) that reified a compile-time `BigInteger` into a
+value. That primitive is **dropped**: the now-built reification mechanism
+(`docs/compile-runtime-reification-plan.md`, Stages 1–2) subsumes it generically. An erased (`[]`-bound) parameter
+**referenced in value position** materialises into a constant at the `SemExpression → MonomorphicExpression`
+boundary — no explicit reification call. Concretely, `def staticBound[N: BigInteger]: BigInteger = N` now
+type-checks and lowers to a full-precision `BigInteger` literal (`ReificationTest`, green). That removes the
+second blocker bullet above — a `[N: BigInteger]` bound **is** now usable as a value — so a value-level
+`BigInteger` is available without any new primitive.
 
-**The fix — `bigInt[N]` reification (mirror of `integerLiteral`), agreed with the user.** Just as
-`integerLiteral[V] : Int[V,V]` reifies a compile-time bound `V` into a runtime `Int`, add a primitive that reifies
-a compile-time `BigInteger` into a runtime/value `BigInteger`. This deliberately opens a general **compile-time →
-runtime divide** (compile-level data flowing into runtime values), of which the width dispatch is the first user.
+Two things follow. First, no `bigInt[…]` wrapper is needed anywhere: where a body does reference an erased bound
+in value position, reification materialises it. Second — and this is the form actually chosen, confirmed with the
+user — the width dispatch keeps `fitsIn` as an ordinary **value-parameter** predicate
+(`fitsIn(lo, hi, min, max: BigInteger): Bool`, in `lang/.../BigInteger.els`) and it is the *call*
+`fitsIn[-128, 127, MIN, MAX]` that is on the type level: the bracket arguments land in type context, so the
+literals stay `BigInteger` and the bounds `MIN`/`MAX` flow through as type-args. `[...]` and `()` are the same
+Π-application, so a type-level call on a value-parameter function is well-defined (evaluated via `applyValue`, the
+`fold` selecting a single leaf at compile time), and the closed case (`fitsIn[1, 2]`) already type-checks
+(`MonomorphicTypeCheckTest`). So reification is the *general* unblock — it retires `bigInt[N]` and proves a
+value-level `BigInteger` exists — while this specific dispatch form's only remaining gap is a checker arity rule
+(below), not reification.
 
-1. **Declaration** (`Runtime.els`, beside `integerLiteral`): `def bigInt[N: BigInteger]: BigInteger` — body-less.
-   `N` enters through the *type-arg* slot (literals and generic params are legal there), and exits as a `BigInteger`
-   *value*: `bigInt[-128]`, `bigInt[Cmin]` are well-typed in checked value code, sidestepping both walls.
-2. **Compile-time reduction** (one NbE native in `SystemNativesProcessor`): `bigInt[N]` reduces to its argument —
-   identity on the concrete `BigInteger`. So `bigInt[5] → 5`, `bigInt[Cmin] → Cmin` once `Cmin` is concrete, which
-   lets `lessThanOrEqual`/`fold` fire ⇒ **leaf selection stays at compile time** (each `+` instantiation monomorphises
-   to exactly one leaf; no runtime width branching).
-3. **Runtime materialisation** (the general capability): the `jvm` layer maps `BigInteger → java.math.BigInteger`
-   (a `NativeType`) and codegen emits a concrete `new BigInteger("…")` for a reified constant. The dispatch never
-   needs this (its `bigInt`s all reduce away), but it makes `bigInt[N]` a real runtime value everywhere.
-4. **Dispatch rewrite:** change the three `dispatch*` helpers to use a **value-parameter** `fitsIn` fed reified
-   bounds — `fitsIn(bigInt[-128], bigInt[127], bigInt[Cmin], bigInt[Cmax])` — all `BigInteger` *values*, so
-   `fitsIn`'s body type-checks normally. (`fitsIn` reverts to value parameters; the opaque `Int` body's
-   `fitsIn[-128,127,MIN,MAX]` stays as-is since it is unchecked.)
+**Remaining Phase-4 work (deferred until properly implemented):**
+- The checked dispatch bodies still do not type-check: `fitsIn[-128, 127, Cmin, Cmax]` (a four-argument type-level
+  call on the value-parameter `fitsIn`, two of whose arguments are the dispatch's own type-stack params) raises
+  **"Too many type arguments."** in a checked caller (`TypeStackLoop.applyTypeArgs`), even though the closed
+  two-argument `fitsIn[1, 2]` is accepted. Reconciling the checker's arity rule for type-level calls on
+  value-parameter functions is the open task; until then the committed `+`/`-`/`*` bodies do not compile and the
+  arithmetic integration tests fail.
+- Once that compiles: run the regression suite (`2 + 3 * 4 = 14`, `count + count + count = 21`,
+  representation-selection tests, widening tests), add mixed-width carry/cancellation + dedup tests, then proceed
+  to Phase 5 (`Coerce` payload-splice for non-materialised cross-rep widening).
 
-**Pending steps to unblock Phase 4 (do in order):**
-1. Add `bigInt` decl (`Runtime.els`) + identity NbE native (`SystemNativesProcessor`, with `bigIntFQN`/well-known
-   wiring) — prove `def check: Bool = fitsIn(bigInt[-128], bigInt[127], bigInt[5])` type-checks and reduces.
-2. Rewrite the three `dispatch*` helpers (and `fitsIn`, back to value params) to use `bigInt[...]`.
-3. Add `BigInteger → java.math.BigInteger` `NativeType` map + codegen for a reified `BigInteger` constant
-   (the runtime side of the divide; keep it fail-safe — abort on a non-concrete `bigInt` at codegen).
-4. Compile; run the regression suite (`2 + 3 * 4 = 14`, `count+count+count = 21`, representation-selection tests,
-   widening tests). Add mixed-width carry/cancellation + dedup tests.
-5. Then Phase 5 (`Coerce` payload-splice for non-materialised cross-rep widening).
-
-The remainder of this section is the original keyed-matrix design (still valid; the `bigInt` fix only changes
-*how the `fitsIn` conditions are written*, not the matrix or the leaf set).
+The remainder of this section is the original keyed-matrix design (still valid; reification only changes how a
+value-level `BigInteger` is *obtained*, not the matrix or the leaf set).
 
 ## Phase 4 — Operations as Eliot dispatch to concretely-sized leaf natives
 
