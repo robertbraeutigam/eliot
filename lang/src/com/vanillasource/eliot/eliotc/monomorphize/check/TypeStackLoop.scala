@@ -45,8 +45,10 @@ class TypeStackLoop(
       appliedSig   <- applyTypeArgs(signature, key.typeArguments, resolvedValue.typeStack)
       instantiated <- instantiateRemaining(appliedSig)
 
-      // Check runtime body if present — produces SemExpression with SemValue slots
-      runtime    <- resolvedValue.runtime.traverse { body =>
+      // Check runtime body if present — produces SemExpression with SemValue slots. An `opaque` value presents as
+      // body-less here (`checkingRuntime`), so its body is neither checked nor emitted during checking; post-checking
+      // representation lowering unfolds it separately.
+      runtime    <- resolvedValue.checkingRuntime.traverse { body =>
                       checker.check(body, instantiated).map(expr => body.as(expr))
                     }
 

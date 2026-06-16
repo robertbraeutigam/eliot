@@ -91,7 +91,7 @@ object DataDefinitionDesugarer {
       field: ArgumentDefinition
   ): FunctionDefinition = {
     val matchBody = SourceExpression.MatchExpression(
-      field.name.as(SourceExpression.FunctionApplication(None, field.name.as("obj"), Seq.empty, Seq.empty)),
+      field.name.as(SourceExpression.FunctionApplication(None, field.name.as("obj"), None, Seq.empty)),
       Seq(
         SourceExpression.MatchCase(
           field.name.as(
@@ -106,7 +106,7 @@ object DataDefinitionDesugarer {
               }
             )
           ),
-          field.name.as(SourceExpression.FunctionApplication(None, field.name, Seq.empty, Seq.empty))
+          field.name.as(SourceExpression.FunctionApplication(None, field.name, None, Seq.empty))
         )
       )
     )
@@ -170,7 +170,7 @@ object DataDefinitionDesugarer {
           definition.genericParameters,
           Seq(ArgumentDefinition(s.as("arg"), dataTypeRef)),
           dataTypeRef,
-          Some(s.as(SourceExpression.FunctionApplication(None, s.as("arg"), Seq.empty, Seq.empty)))
+          Some(s.as(SourceExpression.FunctionApplication(None, s.as("arg"), None, Seq.empty)))
         )
 
         val casesTypeDef = FunctionDefinition(
@@ -244,7 +244,7 @@ object DataDefinitionDesugarer {
       definition.genericParameters,
       Seq(ArgumentDefinition(s.as("arg"), dataTypeRef)),
       dataTypeRef,
-      Some(s.as(SourceExpression.FunctionApplication(None, s.as("arg"), Seq.empty, Seq.empty)))
+      Some(s.as(SourceExpression.FunctionApplication(None, s.as("arg"), None, Seq.empty)))
     )
 
     val fieldsTypeDef = FunctionDefinition(
@@ -321,5 +321,5 @@ object DataDefinitionDesugarer {
       name: Sourced[String],
       genericArgs: Seq[Sourced[SourceExpression]] = Seq.empty
   ): Sourced[SourceExpression] =
-    name.as(SourceExpression.FunctionApplication(None, name, genericArgs, Seq.empty))
+    name.as(SourceExpression.FunctionApplication(None, name, Option.when(genericArgs.nonEmpty)(genericArgs), Seq.empty))
 }

@@ -25,7 +25,7 @@ object TypeAliasDefinition {
       body              <- (symbol("=") *> sourced(Expression.typeParser)).optional()
     } yield {
       val args     = genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction))
-      val typeExpr = name.as(Expression.FunctionApplication(None, name.map(_ => "Type"), Seq.empty, Seq.empty))
+      val typeExpr = name.as(Expression.FunctionApplication(None, name.map(_ => "Type"), None, Seq.empty))
       FunctionDefinition(
         name.map(n => QualifiedName(n.content, Qualifier.Type)),
         Seq.empty,

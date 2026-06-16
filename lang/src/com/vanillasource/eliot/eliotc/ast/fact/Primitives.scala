@@ -32,6 +32,23 @@ object Primitives {
       .optional()
       .map(_.getOrElse(Seq.empty))
 
+  /** Like [[optionalBracketedCommaSeparatedItems]], but tracks whether the brackets were present and permits an
+    * *empty* bracket pair. Returns `None` when no brackets were written, `Some(Seq())` for an empty `[]`, and
+    * `Some(items)` for `[items]`. Used for type arguments, where an explicit empty `[]` carries meaning (it forces the
+    * Type namespace).
+    */
+  def presenceTrackingBracketedCommaSeparatedItems[A](
+      bracketStartSymbol: String,
+      item: Parser[Sourced[Token], A],
+      bracketEndSymbol: String
+  ): Parser[Sourced[Token], Option[Seq[A]]] =
+    item
+      .atLeastOnceSeparatedBy(symbol(","))
+      .optional()
+      .map(_.getOrElse(Seq.empty))
+      .between(symbol(bracketStartSymbol), symbol(bracketEndSymbol))
+      .optional()
+
   def sourced[A](p: Parser[Sourced[Token], A]): Parser[Sourced[Token], Sourced[A]] =
     p.withBounds.map { case (result, first, last) =>
       Sourced(first.uri, PositionRange(first.range.from, last.range.to), result)

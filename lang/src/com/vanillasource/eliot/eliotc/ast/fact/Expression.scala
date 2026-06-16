@@ -12,10 +12,15 @@ import com.vanillasource.eliot.eliotc.token.Token
 sealed trait Expression
 
 object Expression {
+  /** @param genericArguments
+    *   The `[...]` type arguments. `None` means no brackets were written; `Some(Seq())` means an explicit empty `[]`
+    *   (which forces the name into the Type namespace even in value position, the `[]` analogue of value-level `()`);
+    *   `Some(xs)` means `[xs]`.
+    */
   case class FunctionApplication(
       moduleName: Option[Sourced[String]],
       functionName: Sourced[String],
-      genericArguments: Seq[Sourced[Expression]],
+      genericArguments: Option[Seq[Sourced[Expression]]],
       arguments: Seq[Sourced[Expression]]
   ) extends Expression
   case class FunctionLiteral(parameters: Seq[LambdaParameterDefinition], body: Sourced[Expression]) extends Expression
@@ -30,16 +35,16 @@ object Expression {
     case IntegerLiteral(Sourced(_, _, value))                                                 => value
     case StringLiteral(Sourced(_, _, value))                                                  => value
     case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ga, ns @ _ :: _) =>
-      val gaStr = if (ga.isEmpty) "" else ga.map(_.value.show).mkString("[", ", ", "]")
+      val gaStr = ga.fold("")(_.map(_.value.show).mkString("[", ", ", "]"))
       s"$module::$fn$gaStr(${ns.map(_.value.show).mkString(", ")})"
     case FunctionApplication(Some(Sourced(_, _, module)), Sourced(_, _, fn), ga, _)           =>
-      val gaStr = if (ga.isEmpty) "" else ga.map(_.value.show).mkString("[", ", ", "]")
+      val gaStr = ga.fold("")(_.map(_.value.show).mkString("[", ", ", "]"))
       s"$module::$fn$gaStr"
     case FunctionApplication(None, Sourced(_, _, value), ga, ns @ _ :: _)                     =>
-      val gaStr = if (ga.isEmpty) "" else ga.map(_.value.show).mkString("[", ", ", "]")
+      val gaStr = ga.fold("")(_.map(_.value.show).mkString("[", ", ", "]"))
       s"$value$gaStr(${ns.map(_.value.show).mkString(", ")})"
     case FunctionApplication(None, Sourced(_, _, value), ga, _)                               =>
-      val gaStr = if (ga.isEmpty) "" else ga.map(_.value.show).mkString("[", ", ", "]")
+      val gaStr = ga.fold("")(_.map(_.value.show).mkString("[", ", ", "]"))
       s"$value$gaStr"
     case FunctionLiteral(parameters, body)                                                    => parameters.map(_.show).mkString("(", ", ", ")") + " -> " + body.show
     case FlatExpression(parts)                                                                => parts.map(_.value.show).mkString(" ")
@@ -69,7 +74,7 @@ object Expression {
   private lazy val namedRefOrCallParser: Parser[Sourced[Token], Expression] = for {
     module   <- (moduleParser <* symbol("::")).atomic().optional()
     name     <- acceptIf(isIdentifierOrSymbol, "name")
-    typeArgs <- optionalBracketedCommaSeparatedItems("[", sourced(fullParser), "]")
+    typeArgs <- presenceTrackingBracketedCommaSeparatedItems("[", sourced(fullParser), "]")
     args     <- bracketedCommaSeparatedItems("(", sourced(fullParser), ")").optional()
   } yield FunctionApplication(module, name.map(_.content), typeArgs, args.getOrElse(Seq.empty))
 

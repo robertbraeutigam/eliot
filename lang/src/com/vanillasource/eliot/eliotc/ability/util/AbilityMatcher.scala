@@ -100,7 +100,10 @@ object AbilityMatcher {
           case _              => compilerAbort[Map[ValueFQN, Binding]](sourceRef.as("Can not evaluate referenced value."))
         }
       case Some(fact) =>
-        fact.runtime match {
+        // Use `checkingRuntime`, not `runtime`: an `opaque` value (e.g. the jvm `Int`) must stay a stuck head here so
+        // that ability-pattern matching compares by type constructor (`Coerce[Int, Int]`) instead of unfolding the
+        // body into its representation and failing to match.
+        fact.checkingRuntime match {
           case Some(body) =>
             // Recurse into the fetched body to discover further references; the already-in-map check in
             // `collectBindings` guards against cycles because we add the Body entry before recursing.

@@ -59,7 +59,7 @@ object ImplementBlock {
               genericParameters,
               pattern.zipWithIndex.map { case (p, i) => ArgumentDefinition(name.as(s"arg$i"), p) },
               pattern.head,
-              Some(name.as(FunctionApplication(None, name.as("arg0"), Seq.empty, Seq.empty)))
+              Some(name.as(FunctionApplication(None, name.as("arg0"), None, Seq.empty)))
             )
         )
     }

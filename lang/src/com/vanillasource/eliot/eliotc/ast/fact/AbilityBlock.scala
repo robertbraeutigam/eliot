@@ -32,7 +32,7 @@ object AbilityBlock {
               .map(_.getOrElse(Seq.empty, Seq.empty))
         } yield {
           def gpTypeExpr(gp: GenericParameter): Sourced[Expression] =
-            gp.name.as(Expression.FunctionApplication(None, gp.name, Seq.empty, Seq.empty))
+            gp.name.as(Expression.FunctionApplication(None, gp.name, None, Seq.empty))
           (
             errors,
             functions.map(f =>

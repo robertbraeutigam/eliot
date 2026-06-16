@@ -27,19 +27,21 @@ object CoreExpressionConverter {
     expr.value match {
       case SourceExpression.FunctionApplication(moduleName, fnName, genericArgs, args) =>
         val isUpper = fnName.value.charAt(0).isUpper
-        if (isUpper && args.isEmpty && typeContext) {
+        // An upper-case name (not applied to value `()` args) resolves in the Type namespace when it is in type
+        // context, OR when `[...]` brackets are present at all — including an explicit empty `[]`. The empty `[]` is
+        // the type-level analogue of value-level `()`: it forces a bare type constructor (e.g. `JvmByte[]`) into the
+        // Type namespace in value position, where a plain `JvmByte` would default to a (possibly non-existent) value
+        // constructor.
+        if (isUpper && args.isEmpty && (typeContext || genericArgs.isDefined)) {
           val base = expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName))
-          curryApplicationWith(base, genericArgs, convertExpression(_, typeContext = true))
-        } else if (isUpper && args.isEmpty && genericArgs.nonEmpty) {
-          val base = expr.as(NamedValueReference(fnName.map(n => QualifiedName(n, Qualifier.Type)), moduleName))
-          curryApplicationWith(base, genericArgs, convertExpression(_, typeContext = true))
+          curryApplicationWith(base, genericArgs.getOrElse(Seq.empty), convertExpression(_, typeContext = true))
         } else {
           curryApplicationWith(
             expr.as(
               NamedValueReference(
                 fnName.map(n => QualifiedName(n, Qualifier.Default)),
                 moduleName,
-                genericArgs.map(convertExpression(_, typeContext = true))
+                genericArgs.getOrElse(Seq.empty).map(convertExpression(_, typeContext = true))
               )
             ),
             args,

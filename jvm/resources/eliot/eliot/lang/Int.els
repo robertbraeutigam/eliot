@@ -1,0 +1,35 @@
+import eliot.lang.Bool
+import eliot.lang.Jvm
+
+/**
+ * JVM-layer representation policy for `Int`.
+ *
+ * The base layer (`stdlib`) declares `type Int[MIN: BigInteger, MAX: BigInteger]` abstractly. This layer redefines the
+ * same name with the SAME signature but adds a body, so the module merge (`UnifiedModuleValueProcessor`) prefers this
+ * implementation (and carries its `opaque` flag through).
+ *
+ * The body computes the *smallest* JVM representation whose range contains `[MIN, MAX]`, falling back to the bignum
+ * representation. It is marked `opaque` on purpose: the type checker must NOT unfold it (so `Int[0,255]` and
+ * `Int[0,1000]` stay distinct, bounds-carrying types — the soundness property), while a later, post-checking pass
+ * (Phase 3) unfolds it to reach the representation. Until that pass exists, `Int` still lowers to `java.lang.Long` via
+ * the `NativeType` map, so nothing observable changes.
+ *
+ * The representation candidates are written `JvmByte[]` etc.: the empty `[]` forces the bare type constructor into the
+ * Type namespace even though it sits in the value-argument position of `fold` (where a plain `JvmByte` would default
+ * to a — here non-existent — value constructor).
+ */
+opaque type Int[MIN: BigInteger, MAX: BigInteger] =
+  fold(fitsIn[-128, 127, MIN, MAX], JvmByte[],
+  fold(fitsIn[-32768, 32767, MIN, MAX], JvmShort[],
+  fold(fitsIn[-2147483648, 2147483647, MIN, MAX], JvmInt[],
+  fold(fitsIn[-9223372036854775808, 9223372036854775807, MIN, MAX], JvmLong[],
+       JvmBigInteger[]))))
+
+/**
+ * True iff the range `[MIN, MAX]` is contained in `[LO, HI]`. The four bounds are type parameters (`BigInteger`), so
+ * the literal thresholds passed above stay `BigInteger` (they sit in `[...]` type-argument position rather than
+ * desugaring to `Int[n, n]` values). The body itself contains no literals — it only compares its `BigInteger`
+ * parameters — exactly like the bounds check in the base `Coerce[Int, Int]` instance.
+ */
+def fitsIn[LO: BigInteger, HI: BigInteger, MIN: BigInteger, MAX: BigInteger]: Bool =
+  lessThanOrEqual(LO, MIN) && lessThanOrEqual(MAX, HI)

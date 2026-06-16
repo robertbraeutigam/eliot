@@ -16,6 +16,14 @@ case class OperatorResolvedValue(
     opaque: Boolean = false
 ) extends CompilerFact {
   override def key(): CompilerFactKey[OperatorResolvedValue] = OperatorResolvedValue.Key(vfqn)
+
+  /** The body as seen during type checking: an `opaque` definition presents as body-less (stuck), so checker-phase
+    * evaluators never unfold it (keeping e.g. `Int[0,255]` distinct from `Int[0,1000]`). The body stays in [[runtime]]
+    * for post-checking phases (representation lowering) to unfold. Mirrors the guard in `UserValueNativesProcessor`;
+    * every checker-phase reader that builds an evaluator from a value's own body must use this, not [[runtime]].
+    */
+  def checkingRuntime: Option[Sourced[OperatorResolvedExpression]] =
+    if (opaque) None else runtime
 }
 
 object OperatorResolvedValue {

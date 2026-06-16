@@ -91,7 +91,7 @@ object GenericParameter {
 
   /** Helper to create a type expression from a name and optional generic arguments. */
   private def typeExpr(name: Sourced[String], genericArgs: Seq[Sourced[Expression]] = Seq.empty): Expression =
-    Expression.FunctionApplication(None, name, genericArgs, Seq.empty)
+    Expression.FunctionApplication(None, name, Option.when(genericArgs.nonEmpty)(genericArgs), Seq.empty)
 
   given ASTComponent[AbilityConstraint] = new ASTComponent[AbilityConstraint] {
     override def parser: Parser[Sourced[Token], AbilityConstraint] =

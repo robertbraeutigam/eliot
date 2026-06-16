@@ -1,6 +1,6 @@
 # Exact `Int` representations via `opaque` + Eliot dispatch
 
-Status: **Phase 1 implemented**; Phases 2–5 planned (the `opaque` modifier it depends on is **implemented** —
+Status: **Phases 1–2 implemented**; Phases 3–5 planned (the `opaque` modifier it depends on is **implemented** —
 see "Foundation").
 
 Goal: store each `Int[MIN, MAX]` in the *smallest* machine representation whose range contains `[MIN, MAX]`
@@ -87,28 +87,73 @@ the "nothing observable yet" property of Phases 1–2 (all jvm tests, incl. inte
 pass). The removal lands in Phase 3 alongside the unfold pass. The `Jvm.els` module is currently unimported,
 so the new types are inert until Phase 2 references them.
 
-## Phase 2 — The representation policy, in Eliot (`opaque type Int`)
+## Phase 2 — The representation policy, in Eliot (`opaque type Int`)  *(implemented)*
 
 The jvm layer redefines `Int` with an `opaque` body that selects the representation from the bounds, using the
-existing compile-time `BigInteger` predicates (`lessThanOrEqual`, `&&`, `fold`). Factor the width table into
-one helper so operations (Phase 4) and `Coerce` (Phase 5) dispatch on the *same* table:
+existing compile-time `BigInteger` predicates (`lessThanOrEqual`, `&&`, `fold`). Implemented in
+`jvm/resources/eliot/eliot/lang/Int.els` (module `eliot.lang.Int`, merged with the base `stdlib` `Int.els`):
 
 ```eliot
-// jvm layer; signature identical to base so the module merge accepts the added body.
-opaque type Int[MIN: BigInteger, MAX: BigInteger] = selectByWidth[MIN, MAX](JvmByte, JvmShort, JvmInt, JvmLong, JvmBigInteger)
+import eliot.lang.Bool
+import eliot.lang.Jvm
 
-selectByWidth[MIN: BigInteger, MAX: BigInteger, R](byteCase: R, shortCase: R, intCase: R, longCase: R, bigCase: R): R =
-  fold(lessThanOrEqual(-128, MIN) && lessThanOrEqual(MAX, 127),                                  byteCase,
-  fold(lessThanOrEqual(-32768, MIN) && lessThanOrEqual(MAX, 32767),                              shortCase,
-  fold(lessThanOrEqual(-2147483648, MIN) && lessThanOrEqual(MAX, 2147483647),                    intCase,
-  fold(lessThanOrEqual(-9223372036854775808, MIN) && lessThanOrEqual(MAX, 9223372036854775807), longCase,
-       bigCase))))
+opaque type Int[MIN: BigInteger, MAX: BigInteger] =
+  fold(fitsIn[-128, 127, MIN, MAX], JvmByte[],
+  fold(fitsIn[-32768, 32767, MIN, MAX], JvmShort[],
+  fold(fitsIn[-2147483648, 2147483647, MIN, MAX], JvmInt[],
+  fold(fitsIn[-9223372036854775808, 9223372036854775807, MIN, MAX], JvmLong[],
+       JvmBigInteger[]))))
+
+def fitsIn[LO: BigInteger, HI: BigInteger, MIN: BigInteger, MAX: BigInteger]: Bool =
+  lessThanOrEqual(LO, MIN) && lessThanOrEqual(MAX, HI)
 ```
 
 Module unification (`UnifiedModuleValueProcessor`) prefers the implementation (`runtime.isDefined`): base `Int`
-stays body-less, jvm `Int` carries the opaque body. **Verify** the merge preserves the `opaque` flag of the
-chosen definition (it selects a whole `NamedValue`, which now carries `opaque`); add a test if not. The whole
-width table lives here, in Eliot — adding a width = editing this file.
+stays body-less, jvm `Int` carries the opaque body. **Verified**: the merge selects the whole `NamedValue` of
+the implemented (jvm) definition, which carries `opaque = true`, and `signatureEquality` compares only
+`typeStack.signature` (not the body/flag), so the added body + flag don't break the merge. The jvm widening
+integration tests exercise the merged opaque `Int` end-to-end.
+
+**Two deviations from the plan's literal code above**, both forced by mechanics that postdate the plan:
+
+1. **The representation candidates are written `JvmByte[]` … (empty type-argument brackets), and the width table
+   is inlined into the `Int` body rather than factored into a `selectByWidth` helper.** Type constructors
+   (`JvmByte`, …) are registered only under `Qualifier.Type` (`DataDefinitionDesugarer.createTypeFunction`), but
+   `fold`'s branches are value-position args, where a bare `JvmByte` converts to `Qualifier.Default` and fails to
+   resolve. The empty `[]` suffix is a language feature added for exactly this (see "`[]` type-namespace marker"
+   below): it forces a bare type constructor into the Type namespace even in value position. With it, the fold
+   tree references the representations directly, so no helper indirection is needed. (`selectByWidth` was an
+   earlier workaround that passed the representations as type *parameters*; `[]` made it unnecessary.) The
+   genuinely reusable kernel for Phases 4/5 is `fitsIn` (the threshold table), not the fold tree.
+2. **The width thresholds go through a `fitsIn` helper that takes them as type arguments.** After the Phase-6
+   literal flip, a value-position integer literal desugars to `integerLiteral[n] : Int[n, n]`, not a bare
+   `BigInteger` — so `lessThanOrEqual(-128, MIN)` (literals in `()` value position) would feed an `Int` where a
+   `BigInteger` is expected. `fitsIn[LO, HI, MIN, MAX]` receives the bounds in `[...]` (type context, where
+   literals stay `BigInteger`) and its body compares only its `BigInteger` parameters — exactly like the base
+   `Coerce[Int, Int]` bounds check.
+
+**Language feature added — the `[]` type-namespace marker.** Eliot disambiguates the type vs value namespace by
+*context*, not casing: a bare upper-case name resolves to the value constructor (`Qualifier.Default`) in value
+position and the type constructor (`Qualifier.Type`) in type position — necessary because a `data` declaration
+makes *both* (e.g. `Box`), and bare data constructors (`True`, `Just`, …) are upper-case Default-namespace
+values. (Confirmed by experiment: forcing all upper-case names to `Type` broke 13 constructor-match tests.) To
+let a *type-only* name (like the body-less `JvmByte`, which has no value constructor) be named in value
+position, `[]` is now the type-level analogue of value-level `()`: `genericArguments` on the AST
+`FunctionApplication` became `Option[Seq[...]]` (`None` = no brackets, `Some(Seq())` = `[]`), the parser accepts
+an empty `[]`, and `CoreExpressionConverter` resolves to `Qualifier.Type` whenever brackets are present (even
+empty) — so `JvmByte[]` is the Type-namespace `JvmByte`. (`CoreProcessor.isTypeBody` was updated for the new
+`Option` field — its old `Seq()` pattern silently stopped matching, a warning not an error.)
+
+**Foundation gap fixed (required to keep Phase 2 non-observable).** Making `Int` opaque exposed that two
+checker-phase sites read `OperatorResolvedValue.runtime` directly and ignored the `opaque` flag (the
+`UserValueNativesProcessor`/`NativeBinding` guard only covers the main checker evaluator):
+`AbilityMatcher.classifyValueRef` (which unfolded `Int[7,7]`→`JvmByte`, breaking `Coerce[Int, Int]` matching)
+and `TypeStackLoop.processIO` (which would check/emit the opaque body). Added
+`OperatorResolvedValue.checkingRuntime` (`= if (opaque) None else runtime`) and routed both sites through it.
+The `Checker` coercion/combine sites read *impl* bodies (never opaque) and resolve `Int` via the guarded
+evaluator, so they needed no change. With these guards the checker's view of `Int` is identical to the
+pre-Phase-2 abstract `Int` (a stuck, bounds-carrying head), so all arithmetic/widening tests stay green and the
+opaque `W[1]`/`W[2]` distinctness property still holds.
 
 ## Phase 3 — The generic "unfold to representation" pass
 

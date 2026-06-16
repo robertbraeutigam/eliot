@@ -82,8 +82,11 @@ class CoreProcessor
     import CoreExpressionConverter.*
     val curriedType  = curriedFunctionType(function.args, function.typeDefinition, function.genericParameters)
     val isTypeBody   = function.typeDefinition.value match {
-      case SourceExpression.FunctionApplication(None, fnName, Seq(), Seq()) => fnName.value == "Type"
-      case _                                                               => false
+      // A bare `Type` return type (no value args, no — or empty — generic brackets). `genericArguments` is now an
+      // `Option`: `None` = no brackets, `Some(Seq())` = `Type[]`; both count, neither carries args.
+      case SourceExpression.FunctionApplication(None, fnName, genArgs, Seq()) if genArgs.forall(_.isEmpty) =>
+        fnName.value == "Type"
+      case _                                                                                               => false
     }
     val curriedValue = function.body.map(body => buildCurriedBody(function.args, body, isTypeBody))
     val typeStack    =
