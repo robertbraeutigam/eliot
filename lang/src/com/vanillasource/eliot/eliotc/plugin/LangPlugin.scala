@@ -22,6 +22,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   MatchNativesProcessor,
   MonomorphicTypeCheckProcessor,
   SystemNativesProcessor,
+  TransparentBindingProcessor,
   UserValueNativesProcessor
 }
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
@@ -86,6 +87,7 @@ class LangPlugin extends CompilerPlugin {
             UserValueNativesProcessor(),
             MonomorphicTypeCheckProcessor(),
             UsedNamesProcessor(),
+            TransparentBindingProcessor(),
             MonomorphicUncurryingProcessor()
           )
         )

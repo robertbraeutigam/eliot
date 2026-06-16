@@ -1,7 +1,9 @@
 # Exact `Int` representations via `opaque` + Eliot dispatch
 
-Status: **Phases 1–2 implemented**; Phases 3–5 planned (the `opaque` modifier it depends on is **implemented** —
-see "Foundation").
+Status: **Phases 1–3 implemented**; Phases 4–5 planned (the `opaque` modifier it depends on is **implemented** —
+see "Foundation"). After Phase 3 an `Int[MIN, MAX]` is laid out at the narrowest JVM wrapper its range fits
+(`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), verified end-to-end (`2 + 3*4` computes in `Byte`,
+`Int[0, 1000]` in `Short`, `1000 * 1000 : Int[0, 1000000]` in `Integer`).
 
 Goal: store each `Int[MIN, MAX]` in the *smallest* machine representation whose range contains `[MIN, MAX]`
 (`Byte`/`Short`/`Int`/`Long`, with a bignum fall-back), and make range widening (`Coerce`) a *real* runtime
@@ -158,10 +160,36 @@ evaluator, so they needed no change. With these guards the checker's view of `In
 pre-Phase-2 abstract `Int` (a stuck, bounds-carrying head), so all arithmetic/widening tests stay green and the
 opaque `W[1]`/`W[2]` distinctness property still holds.
 
-## Phase 3 — The generic "unfold to representation" pass
+## Phase 3 — The generic "unfold to representation" pass  *(implemented)*
 
 The single mechanism that re-reveals the representation hidden by opacity. It runs **after** type-checking, on
 monomorphized values, and is **not** `Int`-specific.
+
+**As built.** `TransparentBinding` (fact) + `TransparentBindingProcessor` mirror `UserValueNativesProcessor` minus the
+`if (fact.opaque) None` guard, so opaque bodies are cached and unfoldable.
+`monomorphize/lowering/RepresentationLowering.representationOf(gv, context)` lowers a `GroundValue` structurally: a head
+with an `OperatorResolvedValue.runtime` body (the opaque `Int`) is unfolded by applying its ground args to the
+transparent binding, `force`-ing with an empty `MetaStore`, quoting, and recursing; any other head (representation
+types, data/`type` constructors, `Function`) is a leaf whose args are lowered in place. A non-reducing opaque head
+aborts (fail-safe) rather than looping. The pass is **folded into `MonomorphicUncurryingProcessor`** (rather than a
+separate fact): it lowers the `signature`, parameter types, return type, and every nested `expressionType` /
+`FunctionLiteral` parameter type. The instance-identity `typeArguments` — the `UncurriedMonomorphicValue` key **and** the
+`MonomorphicValueReference` type args inside bodies (the call-site lookup key, and `integerLiteral[V]`'s constant) — are
+left **un-lowered** on purpose; only descriptor-bound types are rewritten. The `Int → Long` `NativeType` entry is
+removed.
+
+**Deviation — JVM intrinsics made representation-aware now, not in Phase 4.** Narrowing descriptors below `Long` makes
+the JVM verifier reject the old uniformly-`Long`-boxed values (a `java.lang.Long` is not assignable to a `Short`-typed
+slot). So Phase 3 also makes the *inline* intrinsics (`ExpressionCodeGenerator.generateIntrinsic`) box/unbox at the
+lowered operand/result representations: `integerLiteral` boxes the constant at the result rep; `+`/`-`/`*` unbox each
+operand via `<rep>.longValue()`, compute `LADD`/`LSUB`/`LMUL` in `long`, and rebox at the result rep (`l2i`+`i2b`/`i2s`
+narrowing for `Byte`/`Short`); `intToString` unboxes to `long` then `Long.toString(long)`. This is exactly the JVM
+specialisation the plan predicts for the Phase-4 leaf natives ("unbox → `LADD` → narrow → box"), done inline; Phase 4
+will replace the inline emission with real `nativeOp{Wc}To{Wr}` leaves + Eliot dispatch. The retype-based `Coerce`
+(unchanged) propagates the wider target type down onto the value-producing site, so a *materialised* value (literal /
+arithmetic) is produced directly at the target rep — which is why cross-representation **widening of literals/arithmetic
+already works** without Phase 5. A cross-representation `Coerce` of a *non-materialised* value (e.g. `def f(x: Byte):
+Short = x`) still needs Phase 5's real `nativeWiden` splice; no current path hits it.
 
 - The checking binding for `Int` is stuck (`cached = None`). Add a *transparent* binding (a
   `TransparentBinding` fact, or a flag on `NativeBinding`) produced like `UserValueNativesProcessor` but

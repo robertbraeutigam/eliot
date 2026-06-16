@@ -40,11 +40,10 @@ object NativeType {
       (jvmRepresentationType("JvmShort"), eliot_lang_JvmShort),
       (jvmRepresentationType("JvmInt"), eliot_lang_JvmInt),
       (jvmRepresentationType("JvmLong"), eliot_lang_JvmLong),
-      (jvmRepresentationType("JvmBigInteger"), eliot_lang_JvmBigInteger),
-      // `Int[MIN, MAX]` is still represented at runtime by a boxed `java.lang.Long` (everything maps to Long). This
-      // mapping is removed in Phase 3, once the post-checking unfold pass lowers `Int` through its opaque body to one
-      // of the `Jvm*` representation types above; until then `Int` must stay native-mapped or codegen breaks.
-      (systemLangType("Int"), eliot_lang_Int)
+      (jvmRepresentationType("JvmBigInteger"), eliot_lang_JvmBigInteger)
+      // `Int` itself is NOT mapped: Phase 3's representation-lowering pass (`RepresentationLowering`) rewrites every
+      // `Int[MIN, MAX]` through its opaque body to one of the `Jvm*` representation types above before any descriptor is
+      // computed, so a bare `Int` FQN never reaches this map.
     )
   )
 
@@ -100,10 +99,6 @@ object NativeType {
   }
 
   private def eliot_lang_BigInteger: NativeType = new NativeType {
-    override def javaClass: Class[?] = classOf[java.lang.Long]
-  }
-
-  private def eliot_lang_Int: NativeType = new NativeType {
     override def javaClass: Class[?] = classOf[java.lang.Long]
   }
 

@@ -3,11 +3,13 @@ package com.vanillasource.eliot.eliotc.uncurry.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.lowering.RepresentationLowering.representationOf
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 import com.vanillasource.eliot.eliotc.uncurry.fact.*
+import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression.*
 
 import scala.annotation.tailrec
 
@@ -40,16 +42,60 @@ class MonomorphicUncurryingProcessor
                                                None
                                              ).pure[CompilerIO]
                                          }
+      // Phase 3: lower every descriptor-relevant type to its machine representation (e.g. `Int[0, 255]` -> `JvmByte`).
+      // The instance identity (`typeArguments`, the lookup key, and the `MonomorphicValueReference` type arguments
+      // inside the body) is left untouched — only the types that become JVM descriptors are rewritten.
+      loweredSignature                 <- representationOf(monomorphicValue.signature, monomorphicValue.name)
+      loweredReturnType                <- representationOf(returnType, monomorphicValue.name)
+      loweredParameterTypes            <- parameterTypes.traverse(representationOf(_, monomorphicValue.name))
+      loweredBody                      <- convertedBody.traverse(b => lowerUncurried(b.value, monomorphicValue.name).map(b.as))
     } yield UncurriedMonomorphicValue(
       vfqn = key.vfqn,
       typeArguments = key.typeArguments,
       arity = key.arity,
       name = monomorphicValue.name,
-      signature = monomorphicValue.signature,
-      parameters = parameterNames.zip(parameterTypes).map(MonomorphicParameterDefinition(_, _)),
-      returnType = returnType,
-      body = convertedBody.map(_.map(_.expression))
+      signature = loweredSignature,
+      parameters = parameterNames.zip(loweredParameterTypes).map(MonomorphicParameterDefinition(_, _)),
+      returnType = loweredReturnType,
+      body = loweredBody.map(_.map(_.expression))
     )
+
+  /** Lower every nested `expressionType` (and `FunctionLiteral` parameter type) of an uncurried expression to its
+    * machine representation (Phase 3). The `MonomorphicValueReference` type arguments are deliberately left untouched:
+    * they are the instance-lookup key into [[UncurriedMonomorphicValue]] and (for `integerLiteral[V]`) carry the literal
+    * constant, neither of which is a descriptor.
+    */
+  private def lowerUncurried(
+      expr: UncurriedMonomorphicExpression,
+      context: Sourced[?]
+  ): CompilerIO[UncurriedMonomorphicExpression] =
+    for {
+      loweredType       <- representationOf(expr.expressionType, context)
+      loweredExpression <- lowerExpression(expr.expression, context)
+    } yield UncurriedMonomorphicExpression(loweredType, loweredExpression)
+
+  private def lowerExpression(
+      expression: UncurriedMonomorphicExpression.Expression,
+      context: Sourced[?]
+  ): CompilerIO[UncurriedMonomorphicExpression.Expression] =
+    expression match {
+      case FunctionApplication(target, arguments) =>
+        for {
+          loweredTarget    <- lowerUncurried(target.value, context).map(target.as)
+          loweredArguments <- arguments.traverse(a => lowerUncurried(a.value, context).map(a.as))
+        } yield FunctionApplication(loweredTarget, loweredArguments)
+      case FunctionLiteral(parameters, body)      =>
+        for {
+          loweredParameters <- parameters.traverse(p =>
+                                 representationOf(p.parameterType, context).map(MonomorphicParameterDefinition(p.name, _))
+                               )
+          loweredBody       <- lowerUncurried(body.value, context).map(body.as)
+        } yield FunctionLiteral(loweredParameters, loweredBody)
+      case other                                  =>
+        // IntegerLiteral / StringLiteral / ParameterReference / MonomorphicValueReference carry no nested expression
+        // types to lower (their own `expressionType` is handled by `lowerUncurried`).
+        other.pure[CompilerIO]
+    }
 
   /** Extract parameter types from a function type GroundValue up to the specified arity. */
   private def extractParameters(

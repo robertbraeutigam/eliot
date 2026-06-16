@@ -245,4 +245,30 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
         |def main: IO[Unit] = println(intToString(total))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
+
+  // Phase 3: representation selection. Each range below lowers to a different JVM wrapper (Short/Integer/Long); a wrong
+  // width would overflow and print the wrong number, so these assert the chosen representation is wide enough.
+  "integer representation selection" should "carry an Int[0, 70000] value at the 32-bit representation" in {
+    compileAndRun(
+      """def big: Int[0, 70000] = 70000
+        |
+        |def main: IO[Unit] = println(intToString(big))""".stripMargin
+    ).asserting(_ shouldBe "70000")
+  }
+
+  it should "compute a product that overflows 16 bits at the 32-bit representation" in {
+    compileAndRun(
+      """def product: Int[0, 1000000] = 1000 * 1000
+        |
+        |def main: IO[Unit] = println(intToString(product))""".stripMargin
+    ).asserting(_ shouldBe "1000000")
+  }
+
+  it should "carry a value beyond 32 bits at the 64-bit representation" in {
+    compileAndRun(
+      """def huge: Int[0, 5000000000] = 5000000000
+        |
+        |def main: IO[Unit] = println(intToString(huge))""".stripMargin
+    ).asserting(_ shouldBe "5000000000")
+  }
 }

@@ -40,15 +40,9 @@ object ExpressionCodeGenerator {
       case IntegerLiteral(integerLiteral)                   =>
         for {
           _ <- methodGenerator.addLdcInsn[CompilationTypesIO](java.lang.Long.valueOf(integerLiteral.value.toLong))
-          _ <- methodGenerator.runNative[CompilationTypesIO] { mv =>
-                 mv.visitMethodInsn(
-                   Opcodes.INVOKESTATIC,
-                   "java/lang/Long",
-                   "valueOf",
-                   "(J)Ljava/lang/Long;",
-                   false
-                 )
-               }
+          _ <- methodGenerator.runNative[CompilationTypesIO](
+                 boxFromLong(representationInternalName(uncurriedExpression.expressionType))
+               )
         } yield Seq.empty
       case StringLiteral(stringLiteral)                     =>
         methodGenerator.addLdcInsn[CompilationTypesIO](stringLiteral.value).as(Seq.empty)
@@ -120,7 +114,8 @@ object ExpressionCodeGenerator {
           methodGenerator,
           sourcedCalledVfqn,
           typeArgs,
-          arguments
+          arguments,
+          expectedResultType
         )
       case MonomorphicValueReference(sourcedCalledVfqn, typeArgs) =>
         val calledVfqn = sourcedCalledVfqn.value
@@ -209,9 +204,16 @@ object ExpressionCodeGenerator {
   def patternMatchSingletonName(dataTypeVfqn: ValueFQN): String =
     "PatternMatch$" + dataTypeVfqn.name.name + "$impl"
 
-  /** Emit a backend [[Intrinsics]] call inline. `integerLiteral[V]` pushes the boxed-`Long` constant `V` (read from its
-    * type argument); `+`/`-`/`*` push both operands, unbox to `long`, apply `LADD`/`LSUB`/`LMUL`, and rebox;
-    * `intToString` pushes its operand and calls `Long.toString`. Everything is `java.lang.Long` (see [[NativeType]]).
+  /** Emit a backend [[Intrinsics]] call inline. After Phase 3, an `Int[MIN, MAX]` value is carried at the *narrowest*
+    * JVM wrapper its range fits (`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), so each operation works in the
+    * common `long` working representation and (un)boxes at the operand/result representations read from the (already
+    * lowered) expression types:
+    *   - `integerLiteral[V]` pushes the constant `V` (from its type argument) boxed at the result representation;
+    *   - `+`/`-`/`*` unbox both operands to `long`, apply `LADD`/`LSUB`/`LMUL`, and rebox at the result representation;
+    *   - `intToString` unboxes its operand to `long` and calls `Long.toString(long)`.
+    *
+    * This is the JVM specialisation of the Phase-4 leaf natives ("unbox → LADD → narrow → box"); a microcontroller
+    * backend would instead pick width-specific instructions from the same lowered representations.
     */
   private def generateIntrinsic(
       moduleName: ModuleName,
@@ -219,7 +221,8 @@ object ExpressionCodeGenerator {
       methodGenerator: MethodGenerator,
       sourcedCalledVfqn: Sourced[ValueFQN],
       typeArgs: Seq[GroundValue],
-      arguments: Seq[UncurriedMonomorphicExpression]
+      arguments: Seq[UncurriedMonomorphicExpression],
+      expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] = {
     val calledVfqn = sourcedCalledVfqn.value
     if (calledVfqn === Intrinsics.integerLiteralFQN) {
@@ -227,16 +230,18 @@ object ExpressionCodeGenerator {
         case Some(GroundValue.Direct(value: BigInt, _)) =>
           for {
             _ <- methodGenerator.addLdcInsn[CompilationTypesIO](java.lang.Long.valueOf(value.toLong))
-            _ <- methodGenerator.runNative[CompilationTypesIO](boxLong)
+            _ <- methodGenerator.runNative[CompilationTypesIO](boxFromLong(representationInternalName(expectedResultType)))
           } yield Seq.empty
         case _                                          =>
           compilerAbort(sourcedCalledVfqn.as("integerLiteral has no concrete value argument.")).liftToTypes.as(Seq.empty)
       }
     } else if (calledVfqn === Intrinsics.intToStringFQN) {
+      val operandRep = representationInternalName(arguments.head.expressionType)
       for {
         classes <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments.head)
         _       <- methodGenerator.runNative[CompilationTypesIO] { mv =>
-                     mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Long", "toString", "()Ljava/lang/String;", false)
+                     unboxToLong(operandRep)(mv)
+                     mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "toString", "(J)Ljava/lang/String;", false)
                    }
       } yield classes
     } else {
@@ -244,26 +249,55 @@ object ExpressionCodeGenerator {
         if (calledVfqn === Intrinsics.plusFQN) Opcodes.LADD
         else if (calledVfqn === Intrinsics.minusFQN) Opcodes.LSUB
         else Opcodes.LMUL // Intrinsics.timesFQN
+      val resultRep = representationInternalName(expectedResultType)
+      val leftRep   = representationInternalName(arguments(0).expressionType)
+      val rightRep  = representationInternalName(arguments(1).expressionType)
       for {
         classes1 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(0))
-        _        <- methodGenerator.runNative[CompilationTypesIO](unboxLong)
+        _        <- methodGenerator.runNative[CompilationTypesIO](unboxToLong(leftRep))
         classes2 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(1))
-        _        <- methodGenerator.runNative[CompilationTypesIO](unboxLong)
+        _        <- methodGenerator.runNative[CompilationTypesIO](unboxToLong(rightRep))
         _        <- methodGenerator.runNative[CompilationTypesIO] { mv =>
                       mv.visitInsn(opcode)
-                      boxLong(mv)
+                      boxFromLong(resultRep)(mv)
                     }
       } yield classes1 ++ classes2
     }
   }
 
-  /** Unbox the boxed `java.lang.Long` on the top of the stack into a primitive `long`. */
-  private def unboxLong(mv: org.objectweb.asm.MethodVisitor): Unit =
-    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Long", "longValue", "()J", false)
+  /** The internal JVM class name (`java/lang/Byte`, …, `java/math/BigInteger`) of a value's machine representation. The
+    * ground value must already be lowered (Phase 3), so its head FQN is one of the `Jvm*` representation types.
+    */
+  private def representationInternalName(t: GroundValue): String =
+    NativeType.javaInternalName(valueType(t))
 
-  /** Box the primitive `long` on the top of the stack into a `java.lang.Long`. */
-  private def boxLong(mv: org.objectweb.asm.MethodVisitor): Unit =
-    mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false)
+  /** Unbox the boxed integer wrapper of the given representation on the top of the stack into a primitive `long`. All
+    * the wrapper classes extend `java.lang.Number`, so `longValue()` widens uniformly.
+    */
+  private def unboxToLong(repInternalName: String)(mv: org.objectweb.asm.MethodVisitor): Unit =
+    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, repInternalName, "longValue", "()J", false)
+
+  /** Box the primitive `long` on the top of the stack into the wrapper of the given representation, narrowing first
+    * (`l2i` + `i2b`/`i2s` for `Byte`/`Short`) so the boxed value matches the declared descriptor.
+    */
+  private def boxFromLong(repInternalName: String)(mv: org.objectweb.asm.MethodVisitor): Unit =
+    repInternalName match {
+      case "java/lang/Byte"       =>
+        mv.visitInsn(Opcodes.L2I)
+        mv.visitInsn(Opcodes.I2B)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Byte", "valueOf", "(B)Ljava/lang/Byte;", false)
+      case "java/lang/Short"      =>
+        mv.visitInsn(Opcodes.L2I)
+        mv.visitInsn(Opcodes.I2S)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Short", "valueOf", "(S)Ljava/lang/Short;", false)
+      case "java/lang/Integer"    =>
+        mv.visitInsn(Opcodes.L2I)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false)
+      case "java/math/BigInteger" =>
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/math/BigInteger", "valueOf", "(J)Ljava/math/BigInteger;", false)
+      case _                      => // java/lang/Long
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false)
+    }
 
   private def generateNormalFunctionCall(
       moduleName: ModuleName,
