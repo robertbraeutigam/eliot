@@ -1,7 +1,6 @@
-import eliot.lang.Int
-
 /**
  * The runtime always returns Int for integer literals.
+ * (`Int` is ambient — auto-imported via `defaultSystemModules` — so it must not be imported explicitly.)
  */
 type IntegerLiteralType[V: BigInteger] = Int[V, V]
 

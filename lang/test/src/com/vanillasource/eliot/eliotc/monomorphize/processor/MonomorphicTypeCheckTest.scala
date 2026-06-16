@@ -45,9 +45,9 @@ class MonomorphicTypeCheckTest
   // --- Explicit integerLiteral constructor (int-min-max-plan Phase 2) ---
 
   "explicit integerLiteral" should "type-check to the singleton Int[V, V]" in {
-    runForErrors(
-      "type Int[MIN: BigInteger, MAX: BigInteger]\ndef integerLiteral[V: BigInteger]: Int[V, V]\ndef f: Int[5, 5] = integerLiteral[5]"
-    ).asserting(_ shouldBe Seq.empty)
+    // `Int` and `integerLiteral` are ambient (Phase-6), so the snippet uses them directly rather than redeclaring them.
+    runForErrors("def f: Int[5, 5] = integerLiteral[5]")
+      .asserting(_ shouldBe Seq.empty)
   }
 
   // --- Coerce[Int, Int] instance (int-min-max-plan Phase 3) ---
@@ -226,7 +226,8 @@ class MonomorphicTypeCheckTest
   // --- Literals ---
 
   "literals" should "monomorphize integer literal in body" in {
-    runForErrors("def f: BigInteger = 42")
+    // A bare value-position literal is now an `Int[42, 42]` singleton (Phase-6 desugar), not a `BigInteger`.
+    runForErrors("def f: Int[42, 42] = 42")
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -392,7 +393,7 @@ class MonomorphicTypeCheckTest
   // --- Function application with generics (Step 5) ---
 
   "function application" should "type check generic function application" in {
-    runForErrors("def id[A](a: A): A = a\ndef f: BigInteger = id(42)")
+    runForErrors("def id[A](a: A): A = a\ndef f: Int[42, 42] = id(42)")
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -552,26 +553,27 @@ class MonomorphicTypeCheckTest
   }
 
   it should "calculate concrete literal values" in {
+    // String literals (unaffected by the Phase-6 integer desugar) carry the concrete value-level equality being tested.
     runForErrors(
-      "def one: BigInteger = 1\ndef oneDifferently: BigInteger = 1\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+      "def one: String = \"x\"\ndef oneDifferently: String = \"x\"\ndef str: String\ndata Box[I: String](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "reject calculated differing concrete literal values" in {
     runForErrors(
-      "def one: BigInteger = 1\ndef two: BigInteger = 2\ndef str: String\ndata Box[I: BigInteger](name: String)\ndef f: Box[one] = Box[two](str)"
+      "def one: String = \"x\"\ndef two: String = \"y\"\ndef str: String\ndata Box[I: String](name: String)\ndef f: Box[one] = Box[two](str)"
     ).asserting(_.nonEmpty shouldBe true)
   }
 
   it should "calculate concrete data values" in {
     runForErrors(
-      "data Person(age: BigInteger)\ndef one: Person = Person(1)\ndef oneDifferently: Person = Person(1)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
+      "data Person(value: String)\ndef one: Person = Person(\"x\")\ndef oneDifferently: Person = Person(\"x\")\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[oneDifferently](str)"
     ).asserting(_ shouldBe Seq.empty)
   }
 
   it should "reject calculated differing data values" in {
     runForErrors(
-      "data Person(age: BigInteger)\ndef one: Person = Person(1)\ndef two: Person = Person(2)\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[two](str)"
+      "data Person(value: String)\ndef one: Person = Person(\"x\")\ndef two: Person = Person(\"y\")\ndef str: String\ndata Box[I: Person](name: String)\ndef f: Box[one] = Box[two](str)"
     ).asserting(_ shouldBe Seq("Type mismatch." at "str")) // TODO: attribution wrong!
   }
 
@@ -629,16 +631,20 @@ class MonomorphicTypeCheckTest
       systemImports
     ).map(result => toTestErrors(result._1))
 
-  /** Imports providing the full `Int`/`Coerce`/`Option`/`Bool` environment for the check-mode `Coerce` insertion. The
-    * module names mirror the real `eliot.lang.*` layout so the compile-time natives (`&&`/`fold`/`lessThanOrEqual`)
-    * bind to their well-known FQNs.
+  /** Imports providing the full ambient `Int` environment for the `Coerce`/`Combine`/arithmetic tests. As of the
+    * Phase-6 literal desugar `Int` and `Runtime` are auto-imported (`defaultSystemModules`), so — unlike before — the
+    * `Int` type, its parametric range-widening `Coerce[Int, Int]` instance, the `Combine[Int, Int]` instance, the
+    * `nativeWiden`, the `+`/`-`/`*` operators and the `integerLiteral` constructor live in the *ambient* `Int`/`Runtime`
+    * modules rather than in a prelude prepended to the Test module. The module names mirror the real `eliot.lang.*`
+    * layout so the compile-time natives (`&&`/`fold`/`lessThanOrEqual`/`min`/`max`/`add`/`subtract`/`multiply*`) bind to
+    * their well-known FQNs.
     */
-  private val coerceImports: Seq[SystemImport] = Seq(
+  private val intImports: Seq[SystemImport] = Seq(
     SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
     SystemImport("Type", "type Type"),
     SystemImport(
       "BigInteger",
-      "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool"
+      "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef min(a: BigInteger, b: BigInteger): BigInteger\ndef max(a: BigInteger, b: BigInteger): BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger"
     ),
     SystemImport("Unit", "type Unit"),
     SystemImport("String", "type String"),
@@ -650,77 +656,41 @@ class MonomorphicTypeCheckTest
       "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A"
     ),
     SystemImport("Option", "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]"),
-    SystemImport("Coerce", "import eliot.lang.Option\nability Coerce[From, To] { def coerce(value: From): Option[To] }")
+    SystemImport("Coerce", "import eliot.lang.Option\nability Coerce[From, To] { def coerce(value: From): Option[To] }"),
+    SystemImport("Combine", "ability Combine[A, B] { type Combined }"),
+    SystemImport(
+      "Int",
+      """import eliot.lang.Bool
+        |import eliot.lang.Coerce
+        |import eliot.lang.Combine
+        |import eliot.lang.Option
+        |type Int[MIN: BigInteger, MAX: BigInteger]
+        |def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger](value: Int[Smin, Smax]): Int[Tmin, Tmax]
+        |implement[Smin, Smax, Tmin, Tmax] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] { def coerce(value: Int[Smin, Smax]): Option[Int[Tmin, Tmax]] = fold(lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax), some(nativeWiden(value)), none) }
+        |implement[Amin, Amax, Bmin, Bmax] Combine[Int[Amin, Amax], Int[Bmin, Bmax]] { type Combined = Int[min(Amin, Bmin), max(Amax, Bmax)] }
+        |infix left
+        |def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)]
+        |infix left at +
+        |def -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)]
+        |infix left above +
+        |def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]
+        |""".stripMargin
+    ),
+    SystemImport("Runtime", ProcessorTest.runtimeStubContent)
   )
 
-  /** The `Int` type plus the parametric range-widening `Coerce[Int, Int]` instance, the internal `nativeWiden`, and the
-    * `integerLiteral` constructor — prepended to each `runCoerce` source so the supplied snippet can use them.
-    */
-  private val coercePrelude: String =
-    """import eliot.lang.Bool
-      |import eliot.lang.Coerce
-      |import eliot.lang.Option
-      |type Int[MIN: BigInteger, MAX: BigInteger]
-      |def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger](value: Int[Smin, Smax]): Int[Tmin, Tmax]
-      |implement[Smin, Smax, Tmin, Tmax] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] { def coerce(value: Int[Smin, Smax]): Option[Int[Tmin, Tmax]] = fold(lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax), some(nativeWiden(value)), none) }
-      |def integerLiteral[V: BigInteger]: Int[V, V]
-      |""".stripMargin
+  /** Imports for the snippet that reference `coerce`/`Option` by name (`Int` itself is ambient). */
+  private val intPrelude: String =
+    "import eliot.lang.Coerce\nimport eliot.lang.Option\n"
 
-  private def runCoerce(source: String, name: String = "test"): IO[Seq[TestError]] =
+  private def runInt(source: String, name: String = "test"): IO[Seq[TestError]] =
     runGenerator(
-      coercePrelude + source,
+      intPrelude + source,
       MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty),
-      coerceImports
+      intImports
     ).map(result => toTestErrors(result._1))
 
-  /** Imports for the Phase 4 `Combine` tests: the `Coerce` environment (`Combine` layers over it), plus `min`/`max` on
-    * `BigInteger` and the type-only `Combine` ability itself.
-    */
-  private val combineImports: Seq[SystemImport] = coerceImports.map {
-    case SystemImport("BigInteger", _) =>
-      SystemImport(
-        "BigInteger",
-        "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef min(a: BigInteger, b: BigInteger): BigInteger\ndef max(a: BigInteger, b: BigInteger): BigInteger"
-      )
-    case other                         => other
-  } :+ SystemImport("Combine", "ability Combine[A, B] { type Combined }")
-
-  /** The `Coerce` prelude plus the parametric `Combine[Int, Int]` instance (`Combined = Int[min, max]`). */
-  private val combinePrelude: String =
-    coercePrelude +
-      "import eliot.lang.Combine\n" +
-      "implement[Amin, Amax, Bmin, Bmax] Combine[Int[Amin, Amax], Int[Bmin, Bmax]] { type Combined = Int[min(Amin, Bmin), max(Amax, Bmax)] }\n"
-
-  private def runCombine(source: String, name: String = "test"): IO[Seq[TestError]] =
-    runGenerator(
-      combinePrelude + source,
-      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty),
-      combineImports
-    ).map(result => toTestErrors(result._1))
-
-  /** Imports for the Phase 5 arithmetic tests: the `Coerce` environment plus the `add` compile-time native on
-    * `BigInteger` used to compute the dependent result bounds of `Int`'s `+`.
-    */
-  private val addImports: Seq[SystemImport] = coerceImports.map {
-    case SystemImport("BigInteger", _) =>
-      SystemImport(
-        "BigInteger",
-        "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger"
-      )
-    case other                         => other
-  }
-
-  /** The `Coerce` prelude plus the dependent-bounds `+`/`-`/`*` operators on `Int`. */
-  private val addPrelude: String =
-    coercePrelude +
-      "infix left\ndef +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)]\n" +
-      "infix left at +\ndef -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)]\n" +
-      "infix left above +\ndef *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]\n"
-
-  private def runAdd(source: String, name: String = "test"): IO[Seq[TestError]] =
-    runGenerator(
-      addPrelude + source,
-      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty),
-      addImports
-    ).map(result => toTestErrors(result._1))
+  private def runCoerce(source: String, name: String = "test"): IO[Seq[TestError]]  = runInt(source, name)
+  private def runCombine(source: String, name: String = "test"): IO[Seq[TestError]] = runInt(source, name)
+  private def runAdd(source: String, name: String = "test"): IO[Seq[TestError]]     = runInt(source, name)
 }

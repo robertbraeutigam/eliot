@@ -36,7 +36,7 @@ class AbilityImplementationCheckProcessorTest
       CoreProcessor(),
       ModuleNamesProcessor(),
       UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(),
+      ModuleValueProcessor(ProcessorTest.systemModulesWithoutInt),
       UnifiedModuleValueProcessor(),
       ValueResolver(),
       MatchDesugaringProcessor(),

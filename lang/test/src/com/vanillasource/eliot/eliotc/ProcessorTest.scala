@@ -34,7 +34,9 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("String", "type String"),
     SystemImport("IO", "type IO"),
     SystemImport("PatternMatch", ""),
-    SystemImport("TypeMatch", "")
+    SystemImport("TypeMatch", ""),
+    SystemImport("Int", ProcessorTest.intStubContent),
+    SystemImport("Runtime", ProcessorTest.runtimeStubContent)
   )
 
   def sourced[T](value: T): Sourced[T] = Sourced(file, PositionRange.zero, value)
@@ -118,4 +120,20 @@ object ProcessorTest {
     */
   val boolImportContent: String =
     "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool"
+
+  /** Minimal ambient `Int`/`Runtime` stubs. As of the Phase-6 literal desugar every value-position integer literal
+    * `n` is rewritten to `integerLiteral[n] : Int[n, n]`, so `Int` and `Runtime` are in `defaultSystemModules` (always
+    * auto-imported) and the test harness must register matching stubs. These minimal versions only declare the abstract
+    * `Int` type and the `integerLiteral` constructor; the richer `Coerce`/`Combine`/arithmetic environment lives in the
+    * `Int` tests' own import lists. See `docs/int-min-max-plan.md` Phase 6.
+    */
+  val intStubContent: String     = "type Int[MIN: BigInteger, MAX: BigInteger]"
+  val runtimeStubContent: String = "def integerLiteral[V: BigInteger]: Int[V, V]"
+
+  /** The auto-imported system modules minus the Phase-6 ambient `Int`/`Runtime`. Tests that use `Int` (or
+    * `integerLiteral`) as a *local* declaration name — and never write a value-position integer literal — pass this to
+    * `ModuleValueProcessor` so the ambient `Int` does not shadow their local one.
+    */
+  val systemModulesWithoutInt: Seq[ModuleName] =
+    ModuleName.defaultSystemModules.filterNot(m => m.name == "Int" || m.name == "Runtime")
 }

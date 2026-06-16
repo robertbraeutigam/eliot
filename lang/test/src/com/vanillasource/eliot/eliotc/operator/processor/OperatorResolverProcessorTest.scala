@@ -178,10 +178,11 @@ class OperatorResolverProcessorTest
     }
   }
 
-  it should "pass through literal expressions" in {
-    runEngineForValue("data T\ndef main: T = 42").asserting {
-      case Some(IntLit(v)) => v shouldBe BigInt(42)
-      case x               => fail(s"unexpected: $x")
+  it should "pass through the integerLiteral application desugared from a value-position literal" in {
+    runEngineForValue("data T\ndef integerLiteral[V]: T\ndef main: T = 42").asserting {
+      case Some(OperatorResolvedExpression.ValueReference(Sourced(_, _, refVfqn), Seq(Sourced(_, _, IntLit(v))))) =>
+        (refVfqn, v) shouldBe (vfqn("integerLiteral"), BigInt(42))
+      case x => fail(s"unexpected: $x")
     }
   }
 

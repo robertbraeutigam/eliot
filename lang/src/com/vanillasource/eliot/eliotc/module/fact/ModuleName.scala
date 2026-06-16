@@ -24,10 +24,10 @@ object ModuleName {
   // TODO: Unit is no longer here, so we shouldn't refer to it...
   // This is used to determine what to automatically import, but this should work differently.
   // NOTE: anything added here is auto-imported into every module, so the test harness must provide a matching stub
-  // (see ProcessorTest's default SystemImports). `Int`/`Runtime` (integer arithmetic + `integerLiteral`) are therefore
-  // NOT auto-imported yet — code that uses them imports `eliot.lang.Int` / `eliot.lang.Runtime` explicitly. Making them
-  // ambient is deferred to the Phase-6 literal desugar, which will add them here together with the test stubs. See
-  // `docs/int-min-max-plan.md`.
+  // (see ProcessorTest's default systemImports). `Int`/`Runtime` are ambient as of the Phase-6 literal desugar: every
+  // value-position integer literal `n` is rewritten to `integerLiteral[n] : Int[n, n]` (`CoreExpressionConverter`), so
+  // `integerLiteral` (Runtime) and `Int` must resolve in every module. Code therefore must NOT import them explicitly
+  // (that would double-import and shadow). See `docs/int-min-max-plan.md`.
   val defaultSystemModules                 = Seq(
     "Type",
     "Function",
@@ -36,7 +36,9 @@ object ModuleName {
     "BigInteger",
     "IO",
     "PatternMatch",
-    "TypeMatch"
+    "TypeMatch",
+    "Int",
+    "Runtime"
   ).map(ModuleName(defaultSystemPackage, _))
 
 }

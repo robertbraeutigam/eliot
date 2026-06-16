@@ -1,22 +1,20 @@
 # Plan: Implementing `Int[MIN, MAX]` (dependent integer type)
 
 Status: Phase 2 (explicit `integerLiteral[n]`), **Phase 3 (check-mode `Coerce` insertion),
-Phase 4 (combining a covariant multi-candidate metavariable via the `Combine` ability), and Phase 5
-(runtime arithmetic — `+`/`-`/`*` with dependent bounds, type-level AND on the JVM) are DONE.** Real
-programs now compute: `intToString(integerLiteral[2] + integerLiteral[3] * integerLiteral[4])` prints
-`14`. The frontier is **Phase 6** (flip bare literals to `Int[V,V]`). See "Phase 5 — As built" below.
-Implicit `Int` range widening works through a user-space `Coerce` instance, resolved by name and
-evaluated by the one NbE evaluator (`Int[3,3] → Int[0,10]` accepted, `Int[5,5] → Int[0,3]` rejected);
-and a covariant metavariable with more than one candidate (a `match` result, or `f[A](a:A,b:A):A`)
-resolves to the `Combine` join of its candidates, with per-meta polarity tracking ("taint on
-contravariant use") keeping the join sound. The **compile-time half of Phase 5** is now also done:
-dependent-bounds `+` type-checks (`Int[3,3] + Int[4,4] : Int[7,7]`) via the `add` `BigInteger` native,
-and the new `renormalize` re-fires natives stuck on now-solved metavariables. The frontier is the
-**Phase 5 JVM runtime half** (`LADD` + `integerLiteral` codegen). Literal
-typing as `Int[V,V]` is built and tested via the **explicit** `integerLiteral[n]` constructor and only
-flipped to the global default literal type at the **end** (Phase 6), once the supporting machinery works
-— see "De-risking: explicit constructor first, global flip last." This document is the durable
-cross-session reference.
+Phase 4 (combining a covariant multi-candidate metavariable via the `Combine` ability), Phase 5
+(runtime arithmetic — `+`/`-`/`*` with dependent bounds, type-level AND on the JVM), and Phase 6
+(the global literal flip — value-position `n` ⟹ `integerLiteral[n] : Int[n,n]`) are DONE.** Real
+programs now compute from **bare literals with no imports**: `println(intToString(2 + 3 * 4))` prints
+`14`, and `def widened: Int[0, 1000] = 7` widens the bare `7` through the `Coerce` instance. See
+"Phase 6 — As built" below. Implicit `Int` range widening works through a user-space `Coerce` instance,
+resolved by name and evaluated by the one NbE evaluator (`Int[3,3] → Int[0,10]` accepted,
+`Int[5,5] → Int[0,3]` rejected); and a covariant metavariable with more than one candidate (a `match`
+result, or `f[A](a:A,b:A):A`) resolves to the `Combine` join of its candidates, with per-meta polarity
+tracking ("taint on contravariant use") keeping the join sound. Dependent-bounds `+` type-checks
+(`Int[3,3] + Int[4,4] : Int[7,7]`) via the `add` `BigInteger` native, and `renormalize` re-fires natives
+stuck on now-solved metavariables. The remaining frontier is **Phase 7** (consolidated tests / examples /
+docs polish) and the deferred width-selection / termination work noted under "Risks". This document is the
+durable cross-session reference.
 
 ## Goal & chosen model
 
@@ -456,8 +454,10 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
   stub. Code using arithmetic imports `eliot.lang.Int` / `eliot.lang.Runtime` explicitly for now; Phase 6
   (the literal desugar that mints `integerLiteral[n]` everywhere) is where they become ambient, together
   with the test-harness stubs. (`stdlib/Runtime.els` now imports `Int` for its own `Int[V,V]` body.)
-- **Phase 6 — Flip literals to `Int[V,V]` (the global switchover; monomorphize untouched).** Now
-  that widening/combine/arithmetic work and are tested, make `Int[V,V]` the default literal type:
+- **Phase 6 — Flip literals to `Int[V,V]` (the global switchover; monomorphize untouched). (DONE.)**
+  See "Phase 6 — As built" below. The one-line desugar in `CoreExpressionConverter` plus making
+  `Int`/`Runtime` ambient (`defaultSystemModules`) is all the production change; the rest was test/stdlib
+  fallout. Plan-of-record retained:
   - `core/processor/CoreExpressionConverter.scala`: in the `IntegerLiteral` case (currently ignores
     `typeContext`), when `typeContext == false` rewrite `n` into a
     `NamedValueReference("integerLiteral", typeArgs = Seq(IntegerLiteral(n)))` — i.e.
@@ -471,6 +471,36 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
   - Audit tests/stdlib for the value-position `BigInteger` pattern (`def … : BigInteger = <lit>`) —
     see the tradeoff under "Key insight". This fallout is now contained to the final phase, with the
     `Coerce` safety net already in place.
+
+  **Phase 6 — As built (DONE).** The production change is exactly two edits, both faithful to the
+  cornerstone (the desugar is a pure frontend rewrite; monomorphize and the evaluator are untouched):
+  - **The desugar** in `CoreExpressionConverter.convertExpression`'s `IntegerLiteral` case: value
+    position (`typeContext == false`) ⟹ `NamedValueReference(integerLiteral, typeArgs = [IntegerLiteral(n)])`;
+    type/bound position (`typeContext == true`) keeps the bare `IntegerLiteral`. The discriminator is the
+    existing `typeContext` flag — no checker / expected-type involvement.
+  - **`Int` and `Runtime` are now ambient** — added to `ModuleName.defaultSystemModules`, so every module
+    auto-imports them and `integerLiteral`/`Int` resolve for any value-position literal. Consequently code
+    must **not** import them explicitly (that double-imports and shadows): the explicit `import eliot.lang.Int`
+    was removed from `stdlib/Runtime.els`, `examples/Arithmetic.els`, and the JVM integration tests, which all
+    now use bare literals (`2 + 3 * 4`).
+  - **The documented tradeoff bit exactly once, as predicted:** value-position `BigInteger` literals no
+    longer type-check (`def x: BigInteger = 5` ⟹ `Int[5,5] ⊄ BigInteger`). Fallout was purely in tests; the
+    handful of fixtures that minted a `BigInteger` from a literal were retargeted to `Int[n,n]` (literal/app
+    tests) or to `String`-carried value-equality (the "calculate concrete value" tests), which exercise the
+    same mechanism without depending on `Int`.
+  - **Test-harness stubs.** `ProcessorTest` gained minimal ambient `Int`/`Runtime` stubs
+    (`intStubContent`/`runtimeStubContent`) in its base `systemImports`, plus `systemModulesWithoutInt` for
+    fixtures that use `Int` as a *local* declaration name (the ability tests' `data Int`) and write no
+    literal — they opt out of the ambient `Int` to avoid the shadow. The `MonomorphicTypeCheckTest`
+    `Coerce`/`Combine`/arithmetic fixtures moved their formerly-local `type Int` + instances + operators into
+    the *ambient* `Int`/`Runtime` import stubs (`intImports`), mirroring reality (the snippets now just use
+    the ambient `Int`).
+  - Files: `core/processor/CoreExpressionConverter.scala` (desugar); `module/fact/ModuleName.scala`
+    (`Int`/`Runtime` ambient); `stdlib/Runtime.els`, `examples/Arithmetic.els`,
+    `jvm/.../ExamplesIntegrationTest.scala` (drop explicit imports / bare literals). Tests: `ProcessorTest`,
+    `MonomorphicTypeCheck(Processor)Test`, `MatchNativesProcessorTest`, `AbilityImplementationCheckProcessorTest`,
+    `CoreProcessorTest`, `ValueResolverTest`, `OperatorResolverProcessorTest`, `MatchDesugaringProcessorTest`
+    (+ its new `IntValue` matcher), and `ExamplesIntegrationTest` (runtime `7`/`6`/`14`/`-7` from bare literals).
 - **Phase 7 — Tests / examples / docs.** Literal typing; range accept/reject; arithmetic bounds; a
   JVM run test; an example `.els`; fold notes back here.
 

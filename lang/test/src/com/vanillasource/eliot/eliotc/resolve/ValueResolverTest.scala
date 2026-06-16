@@ -30,10 +30,15 @@ class ValueResolverTest
   private val testModuleName2    = ModuleName2(Seq.empty, "Test")
   private val functionModuleName = ModuleName2.systemFunctionModuleName
 
-  "value resolver" should "resolve a literal integer expression" in {
-    runEngineForValue("data T\ndef a: T = 1").flatMap {
-      case Some(IntegerLiteral(Sourced(_, _, value))) => IO.delay(value shouldBe BigInt(1))
-      case x                                          => IO.delay(fail(s"was not an integer literal, instead: $x"))
+  "value resolver" should "resolve a value-position integer literal as an integerLiteral[n] application" in {
+    runEngineForValue("data T\ndef integerLiteral[V]: T\ndef a: T = 1").flatMap {
+      case Some(ValueReference(Sourced(_, _, vfqn), Seq(Sourced(_, _, IntegerLiteral(Sourced(_, _, value)))))) =>
+        IO.delay {
+          vfqn shouldBe ValueFQN(testModuleName2, QualifiedName("integerLiteral", Qualifier.Default))
+          value shouldBe BigInt(1)
+        }
+      case x                                                                                                   =>
+        IO.delay(fail(s"was not an integerLiteral application, instead: $x"))
     }
   }
 

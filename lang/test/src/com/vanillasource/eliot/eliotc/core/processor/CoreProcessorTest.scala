@@ -203,9 +203,9 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  "literals" should "convert integer literals" in {
+  "literals" should "desugar value-position integer literals into integerLiteral[n]" in {
     namedValue("def f: R = 42").asserting { nv =>
-      nv.runtimeStructure shouldBe Some(IntLit("42"))
+      nv.runtimeStructure shouldBe Some(Ref("integerLiteral", typeArgs = Seq(IntLit("42"))))
     }
   }
 

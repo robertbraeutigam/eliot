@@ -32,9 +32,10 @@ class MonomorphicTypeCheckProcessorTest
       ModuleValueProcessor(
         Seq(
           ModuleName.systemFunctionModuleName,
-          ModuleName(ModuleName.defaultSystemPackage, "Number"),
           ModuleName(ModuleName.defaultSystemPackage, "String"),
-          ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
+          ModuleName(ModuleName.defaultSystemPackage, "BigInteger"),
+          ModuleName(ModuleName.defaultSystemPackage, "Int"),
+          ModuleName(ModuleName.defaultSystemPackage, "Runtime")
         )
       ),
       UnifiedModuleValueProcessor(),
@@ -53,9 +54,10 @@ class MonomorphicTypeCheckProcessorTest
   override val systemImports: Seq[SystemImport] = Seq(
     SystemImport("Function", "type Function[A, B]"),
     SystemImport("Type", "type Type"),
-    SystemImport("Number", "type Int"),
     SystemImport("String", "type String"),
-    SystemImport("BigInteger", "type BigInteger")
+    SystemImport("BigInteger", "type BigInteger"),
+    SystemImport("Int", ProcessorTest.intStubContent),
+    SystemImport("Runtime", ProcessorTest.runtimeStubContent)
   )
 
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
@@ -74,8 +76,10 @@ class MonomorphicTypeCheckProcessorTest
   }
 
   it should "monomorphize integer literal in body" in {
-    runEngineForMonomorphicValue("def f: BigInteger = 42")
-      .asserting(_.runtime.get.value shouldBe a[MonomorphicExpression.IntegerLiteral])
+    // After the Phase-6 desugar a value-position `42` is `integerLiteral[42] : Int[42, 42]`, so the runtime is a
+    // monomorphic reference to the (abstract) `integerLiteral` constructor instantiated at the bound 42.
+    runEngineForMonomorphicValue("def f: Int[42, 42] = 42")
+      .asserting(_.runtime.get.value shouldBe a[MonomorphicExpression.MonomorphicValueReference])
   }
 
   it should "monomorphize string literal in body" in {
@@ -112,7 +116,7 @@ class MonomorphicTypeCheckProcessorTest
   }
 
   it should "monomorphize function application" in {
-    runEngineForMonomorphicValue("def id[A](a: A): A = a\ndef f: BigInteger = id(42)")
+    runEngineForMonomorphicValue("def id[A](a: A): A = a\ndef f: Int[42, 42] = id(42)")
       .asserting(_.runtime.get.value shouldBe a[MonomorphicExpression.FunctionApplication])
   }
 

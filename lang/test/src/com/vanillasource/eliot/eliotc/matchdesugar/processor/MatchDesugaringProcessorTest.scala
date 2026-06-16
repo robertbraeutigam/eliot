@@ -39,9 +39,9 @@ class MatchDesugaringProcessorTest
   )
 
   "match desugaring" should "pass through values without match expressions" in {
-    runEngineForValue("data T\ndef main: T = 1").asserting {
-      case Some(IntLit(v)) => v shouldBe BigInt(1)
-      case x               => fail(s"unexpected: $x")
+    runEngineForValue("data T\ndef integerLiteral[V]: T\ndef main: T = 1").asserting {
+      case Some(IntValue(v)) => v shouldBe BigInt(1)
+      case x                 => fail(s"unexpected: $x")
     }
   }
 
@@ -191,9 +191,9 @@ class MatchDesugaringProcessorTest
 
   it should "desugar type match with single constructor to typeMatch call" in {
     runEngineForValue(
-      "data Type\ndata S\ndata Person[NAME: S]\ndef main: S = t: Type -> t match { case Person[name] -> name case _ -> 1 }"
+      "data Type\ndata S\ndata Person[NAME: S]\ndef integerLiteral[V]: S\ndef main: S = t: Type -> t match { case Person[name] -> name case _ -> 1 }"
     ).asserting {
-      case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tm), ParamRef(scrutinee)), FunLit("name", ParamRef(nameParam))), FunLit("_", IntLit(fallback))))) =>
+      case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tm), ParamRef(scrutinee)), FunLit("name", ParamRef(nameParam))), FunLit("_", IntValue(fallback))))) =>
         isTypeMatch(tm) shouldBe true
         scrutinee shouldBe "t"
         nameParam shouldBe "name"
@@ -205,9 +205,9 @@ class MatchDesugaringProcessorTest
 
   it should "desugar type match with multiple constructors as chained typeMatch calls" in {
     runEngineForValue(
-      "data Type\ndata S\ndata A[X: S]\ndata B[Y: S]\ndef main: S = t: Type -> t match { case A[x] -> x case B[y] -> y case _ -> 1 }"
+      "data Type\ndata S\ndata A[X: S]\ndata B[Y: S]\ndef integerLiteral[V]: S\ndef main: S = t: Type -> t match { case A[x] -> x case B[y] -> y case _ -> 1 }"
     ).asserting {
-      case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tmA), ParamRef(scrutineeA)), FunLit("x", ParamRef(xParam))), FunLit("_", FunApp(FunApp(FunApp(ValRef(tmB), ParamRef(scrutineeB)), FunLit("y", ParamRef(yParam))), FunLit("_", IntLit(fallback))))))) =>
+      case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tmA), ParamRef(scrutineeA)), FunLit("x", ParamRef(xParam))), FunLit("_", FunApp(FunApp(FunApp(ValRef(tmB), ParamRef(scrutineeB)), FunLit("y", ParamRef(yParam))), FunLit("_", IntValue(fallback))))))) =>
         isTypeMatch(tmA) shouldBe true
         scrutineeA shouldBe "t"
         xParam shouldBe "x"
@@ -222,9 +222,9 @@ class MatchDesugaringProcessorTest
 
   it should "desugar type match with nullary type constructor" in {
     runEngineForValue(
-      "data Type\ndata S\ndata Foo\ndef main: S = t: Type -> t match { case Foo[] -> 1 case _ -> 2 }"
+      "data Type\ndata S\ndata Foo\ndef integerLiteral[V]: S\ndef main: S = t: Type -> t match { case Foo[] -> 1 case _ -> 2 }"
     ).asserting {
-      case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tm), ParamRef(scrutinee)), FunLit("_", IntLit(matchBody))), FunLit("_", IntLit(fallback))))) =>
+      case Some(FunLit("t", FunApp(FunApp(FunApp(ValRef(tm), ParamRef(scrutinee)), FunLit("_", IntValue(matchBody))), FunLit("_", IntValue(fallback))))) =>
         isTypeMatch(tm) shouldBe true
         scrutinee shouldBe "t"
         matchBody shouldBe BigInt(1)

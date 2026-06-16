@@ -49,7 +49,20 @@ object CoreExpressionConverter {
       case SourceExpression.FunctionLiteral(params, body)                              =>
         curryLambda(params, convertExpression(body, typeContext))
       case SourceExpression.IntegerLiteral(lit)                                        =>
-        expr.as(IntegerLiteral(lit))
+        if (typeContext) {
+          // Type/bound position (inside `[...]`): the literal is a bare `BigInteger` bound.
+          expr.as(IntegerLiteral(lit))
+        } else {
+          // Value position: desugar `n` into `integerLiteral[n] : Int[n, n]`. The inner `[n]` lands in
+          // `typeArgs` (type context), so it stays a bare `BigInteger`. See docs/int-min-max-plan.md Phase 6.
+          expr.as(
+            NamedValueReference(
+              lit.as(QualifiedName("integerLiteral", Qualifier.Default)),
+              None,
+              Seq(expr.as(IntegerLiteral(lit)))
+            )
+          )
+        }
       case SourceExpression.StringLiteral(lit)                                         =>
         expr.as(StringLiteral(lit))
       case SourceExpression.FlatExpression(Seq(single))                                =>
