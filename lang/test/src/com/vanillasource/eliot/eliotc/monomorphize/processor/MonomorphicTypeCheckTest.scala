@@ -107,6 +107,48 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[7]"))
   }
 
+  // --- Arithmetic: dependent-bounds `+` (int-min-max-plan Phase 5) ---
+
+  "dependent-bounds +" should "type-check Int[3, 3] + Int[4, 4] to the summed singleton Int[7, 7]" in {
+    runAdd("def test: Int[7, 7] = integerLiteral[3] + integerLiteral[4]")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "widen the summed result to a broader expected range" in {
+    runAdd("def test: Int[0, 100] = integerLiteral[3] + integerLiteral[4]")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject when the summed result overflows a narrower declared type" in {
+    runAdd("def test: Int[6, 6] = integerLiteral[3] + integerLiteral[4]")
+      .asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[3] + integerLiteral[4]"))
+  }
+
+  "dependent-bounds -" should "type-check Int[9, 9] - Int[4, 4] to the singleton Int[5, 5]" in {
+    runAdd("def test: Int[5, 5] = integerLiteral[9] - integerLiteral[4]")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "compute a range difference Int[5, 10] - Int[0, 3] : Int[2, 10]" in {
+    runAdd("def hi: Int[5, 10]\ndef lo: Int[0, 3]\ndef test: Int[2, 10] = hi - lo")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  "dependent-bounds *" should "type-check Int[3, 3] * Int[4, 4] to the singleton Int[12, 12]" in {
+    runAdd("def test: Int[12, 12] = integerLiteral[3] * integerLiteral[4]")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "compute corner-product bounds Int[2, 3] * Int[4, 5] : Int[8, 15]" in {
+    runAdd("def a: Int[2, 3]\ndef b: Int[4, 5]\ndef test: Int[8, 15] = a * b")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  "operator precedence" should "bind * tighter than + (1 + 2 * 3 : Int[7, 7])" in {
+    runAdd("def test: Int[7, 7] = integerLiteral[1] + integerLiteral[2] * integerLiteral[3]")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   // --- Function call tests ---
 
   "function call" should "compile if same number of arguments" in {
@@ -654,5 +696,31 @@ class MonomorphicTypeCheckTest
       combinePrelude + source,
       MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty),
       combineImports
+    ).map(result => toTestErrors(result._1))
+
+  /** Imports for the Phase 5 arithmetic tests: the `Coerce` environment plus the `add` compile-time native on
+    * `BigInteger` used to compute the dependent result bounds of `Int`'s `+`.
+    */
+  private val addImports: Seq[SystemImport] = coerceImports.map {
+    case SystemImport("BigInteger", _) =>
+      SystemImport(
+        "BigInteger",
+        "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger"
+      )
+    case other                         => other
+  }
+
+  /** The `Coerce` prelude plus the dependent-bounds `+`/`-`/`*` operators on `Int`. */
+  private val addPrelude: String =
+    coercePrelude +
+      "infix left\ndef +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)]\n" +
+      "infix left at +\ndef -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)]\n" +
+      "infix left above +\ndef *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]\n"
+
+  private def runAdd(source: String, name: String = "test"): IO[Seq[TestError]] =
+    runGenerator(
+      addPrelude + source,
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty),
+      addImports
     ).map(result => toTestErrors(result._1))
 }

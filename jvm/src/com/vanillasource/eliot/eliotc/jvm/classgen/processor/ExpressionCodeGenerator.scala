@@ -113,6 +113,15 @@ object ExpressionCodeGenerator {
                               valueType(expectedResultType)
                             )
         } yield classes
+      case MonomorphicValueReference(sourcedCalledVfqn, typeArgs) if Intrinsics.isIntrinsic(sourcedCalledVfqn.value) =>
+        generateIntrinsic(
+          moduleName,
+          outerClassGenerator,
+          methodGenerator,
+          sourcedCalledVfqn,
+          typeArgs,
+          arguments
+        )
       case MonomorphicValueReference(sourcedCalledVfqn, typeArgs) =>
         val calledVfqn = sourcedCalledVfqn.value
         calledVfqn.name.qualifier match {
@@ -199,6 +208,62 @@ object ExpressionCodeGenerator {
 
   def patternMatchSingletonName(dataTypeVfqn: ValueFQN): String =
     "PatternMatch$" + dataTypeVfqn.name.name + "$impl"
+
+  /** Emit a backend [[Intrinsics]] call inline. `integerLiteral[V]` pushes the boxed-`Long` constant `V` (read from its
+    * type argument); `+`/`-`/`*` push both operands, unbox to `long`, apply `LADD`/`LSUB`/`LMUL`, and rebox;
+    * `intToString` pushes its operand and calls `Long.toString`. Everything is `java.lang.Long` (see [[NativeType]]).
+    */
+  private def generateIntrinsic(
+      moduleName: ModuleName,
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      sourcedCalledVfqn: Sourced[ValueFQN],
+      typeArgs: Seq[GroundValue],
+      arguments: Seq[UncurriedMonomorphicExpression]
+  ): CompilationTypesIO[Seq[ClassFile]] = {
+    val calledVfqn = sourcedCalledVfqn.value
+    if (calledVfqn === Intrinsics.integerLiteralFQN) {
+      typeArgs.headOption match {
+        case Some(GroundValue.Direct(value: BigInt, _)) =>
+          for {
+            _ <- methodGenerator.addLdcInsn[CompilationTypesIO](java.lang.Long.valueOf(value.toLong))
+            _ <- methodGenerator.runNative[CompilationTypesIO](boxLong)
+          } yield Seq.empty
+        case _                                          =>
+          compilerAbort(sourcedCalledVfqn.as("integerLiteral has no concrete value argument.")).liftToTypes.as(Seq.empty)
+      }
+    } else if (calledVfqn === Intrinsics.intToStringFQN) {
+      for {
+        classes <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments.head)
+        _       <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                     mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Long", "toString", "()Ljava/lang/String;", false)
+                   }
+      } yield classes
+    } else {
+      val opcode =
+        if (calledVfqn === Intrinsics.plusFQN) Opcodes.LADD
+        else if (calledVfqn === Intrinsics.minusFQN) Opcodes.LSUB
+        else Opcodes.LMUL // Intrinsics.timesFQN
+      for {
+        classes1 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(0))
+        _        <- methodGenerator.runNative[CompilationTypesIO](unboxLong)
+        classes2 <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments(1))
+        _        <- methodGenerator.runNative[CompilationTypesIO](unboxLong)
+        _        <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                      mv.visitInsn(opcode)
+                      boxLong(mv)
+                    }
+      } yield classes1 ++ classes2
+    }
+  }
+
+  /** Unbox the boxed `java.lang.Long` on the top of the stack into a primitive `long`. */
+  private def unboxLong(mv: org.objectweb.asm.MethodVisitor): Unit =
+    mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Long", "longValue", "()J", false)
+
+  /** Box the primitive `long` on the top of the stack into a `java.lang.Long`. */
+  private def boxLong(mv: org.objectweb.asm.MethodVisitor): Unit =
+    mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false)
 
   private def generateNormalFunctionCall(
       moduleName: ModuleName,

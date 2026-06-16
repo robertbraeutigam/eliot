@@ -84,6 +84,45 @@ object Evaluator {
     case _                               => v
   }
 
+  /** Deeply normalise a semantic value, **re-firing stuck native applications** whose arguments have since become
+    * concrete.
+    *
+    * A native (e.g. `add`/`min`/`lessThanOrEqual`) applied to an argument that was a still-unsolved metavariable at
+    * evaluation time goes stuck as a body-less `VTopDef(fqn, None, spine)` (its `fire` returns this canonical stuck
+    * form) — and ordinary [[force]] never re-fires it, because the stuck form has dropped the `VNative` reducer and
+    * `force` only unfolds *cached* bodies. This bites dependent-bounds arithmetic: `Int[LMin,LMax] + Int[RMin,RMax]`
+    * has result type `Int[add(LMin,RMin), add(LMax,RMax)]`, and when that codomain is computed during application
+    * inference the bound metavariables are not yet solved, so each `add(?,?)` sticks. By the time the inferred type is
+    * compared against the expected type the metavariables *are* solved, but the `add`s never reduced.
+    *
+    * `renormalize` walks the value, [[force]]ing through solved metas, and for each body-less `VTopDef` whose FQN
+    * resolves (via `lookupNative`) to a [[VNative]] it re-applies the native to the renormalised spine — so a now-fully-
+    * concrete `add(3, 4)` reduces to `7`. If re-firing still produces the same stuck head (an argument is genuinely
+    * still abstract), the stuck form is kept (with renormalised arguments) and no progress loops. Non-native body-less
+    * `VTopDef`s (type constructors like `Int`, abstract `def`s) are rebuilt with renormalised arguments; everything else
+    * is returned as forced.
+    *
+    * `lookupNative` is the checker's binding cache (`vfqn => bindingCache.getOrElse(vfqn, None)`), which already holds
+    * every native reachable from the term (prefetched before evaluation). See `docs/int-min-max-plan.md`
+    * ("Phase 5 — Runtime arithmetic").
+    */
+  def renormalize(v: SemValue, metaStore: MetaStore, lookupNative: ValueFQN => Option[SemValue]): SemValue =
+    force(v, metaStore) match {
+      case VTopDef(fqn, None, spine) =>
+        val args     = spine.toList.map(renormalize(_, metaStore, lookupNative))
+        val rebuilt  = args.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
+        lookupNative(fqn) match {
+          case Some(native: VNative) =>
+            args.foldLeft(native: SemValue)(applyValue) match {
+              // Still stuck on the same native (an argument is genuinely abstract) — keep the rebuilt stuck form.
+              case VTopDef(stuckFqn, None, _) if stuckFqn == fqn => rebuilt
+              case fired                                         => renormalize(fired, metaStore, lookupNative)
+            }
+          case _                     => rebuilt
+        }
+      case forced                    => forced
+    }
+
   /** Force a semantic value by walking solved metas and unfolding VTopDef. */
   def force(v: SemValue, metaStore: MetaStore): SemValue = v match {
     case VMeta(id, spine)                =>

@@ -24,3 +24,32 @@ def min(a: BigInteger, b: BigInteger): BigInteger
  * being in lang: used by the `Combine[Int, Int]` instance to compute a joined bound range during checking.
  */
 def max(a: BigInteger, b: BigInteger): BigInteger
+
+/**
+ * The sum of `a` and `b`. Native: reduces when both arguments are concrete, otherwise stays stuck. Reason for
+ * being in lang: used by `Int`'s `+` operator to compute the dependent result bounds
+ * `Int[add(LMin, RMin), add(LMax, RMax)]` during checking (the runtime addition itself is supplied by the backend).
+ */
+def add(a: BigInteger, b: BigInteger): BigInteger
+
+/**
+ * The difference `a - b`. Native: reduces when both arguments are concrete, otherwise stays stuck. Reason for
+ * being in lang: used by `Int`'s `-` operator to compute the dependent result bounds
+ * `Int[subtract(LMin, RMax), subtract(LMax, RMin)]` during checking.
+ */
+def subtract(a: BigInteger, b: BigInteger): BigInteger
+
+/**
+ * The minimum of the four corner products of `Int[a, b] * Int[c, d]` — i.e. `min(a*c, a*d, b*c, b*d)`. Native:
+ * reduces when all four arguments are concrete, otherwise stays stuck. Reason for being in lang: used by `Int`'s `*`
+ * operator to compute the lower result bound (a single corner is not sufficient because either factor's range may
+ * straddle zero).
+ */
+def multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger
+
+/**
+ * The maximum of the four corner products of `Int[a, b] * Int[c, d]` — i.e. `max(a*c, a*d, b*c, b*d)`. Native:
+ * reduces when all four arguments are concrete, otherwise stays stuck. Reason for being in lang: used by `Int`'s `*`
+ * operator to compute the upper result bound.
+ */
+def multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger

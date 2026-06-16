@@ -1,0 +1,9 @@
+import eliot.lang.Int
+import eliot.lang.Runtime
+
+/**
+ * Dependent-bounds integer arithmetic (docs/int-min-max-plan.md, Phase 5). Each literal is an `Int[V, V]` singleton
+ * via `integerLiteral`; `+`/`-`/`*` carry their result range in the type (`*` binds tighter than `+`/`-`), and the
+ * runtime computes on `Long`. Prints `14`.
+ */
+def main: IO[Unit] = println(intToString(integerLiteral[2] + integerLiteral[3] * integerLiteral[4]))

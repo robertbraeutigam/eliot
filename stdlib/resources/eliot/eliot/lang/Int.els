@@ -19,13 +19,39 @@ type Long            = Int[-9223372036854775808, 9223372036854775807]
 type UnsignedLong    = Int[0, 18446744073709551615]
 
 /**
- * Addition of bounds (type-level): the result range of `+`. Abstract here; a platform layer supplies the native
- * (compile-time bound arithmetic) and runtime body. (Generic-parameter and `add` arithmetic are Phase 5 of
- * docs/int-min-max-plan.md; declared so this signature resolves.)
+ * Integer addition with dependent bounds: adding an `Int[LMin, LMax]` to an `Int[RMin, RMax]` yields an
+ * `Int[add(LMin, RMin), add(LMax, RMax)]`. The bound sums are computed at the type level by the `add` compile-time
+ * native on `BigInteger` (`eliot.lang.BigInteger`); the runtime addition is supplied by the platform backend (the JVM
+ * layer emits `LADD` on `Long`). Abstract here — body-less — exactly like `println`/`integerLiteral` (layers
+ * cornerstone). See `docs/int-min-max-plan.md` ("Phase 5 — Runtime arithmetic").
  */
-def add(a: BigInteger, b: BigInteger): BigInteger
+infix left
+def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)]
 
-infix def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)]
+/**
+ * Integer subtraction with dependent bounds: `Int[LMin, LMax] - Int[RMin, RMax]` yields
+ * `Int[subtract(LMin, RMax), subtract(LMax, RMin)]` (the smallest difference subtracts the largest right bound from
+ * the smallest left bound; the largest does the opposite). Same precedence as `+` (`at +`), left-associative. Runtime:
+ * the JVM layer emits `LSUB` on `Long`.
+ */
+infix left at +
+def -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)]
+
+/**
+ * Integer multiplication with dependent bounds: `Int[LMin, LMax] * Int[RMin, RMax]` yields
+ * `Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]`, where the result bounds are the
+ * minimum and maximum of the four corner products (correct even when a range straddles zero). Binds tighter than `+`
+ * (`above +`), left-associative. Runtime: the JVM layer emits `LMUL` on `Long`.
+ */
+infix left above +
+def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]
+
+/**
+ * Render an integer as its decimal `String`. Abstract here (body-less, like `println`); the JVM layer realises it as
+ * `Long.toString`. Lets programs observe computed integers (and seeds Phase-7 examples). The bounds are irrelevant to
+ * the rendering, so they are ordinary phantom type parameters.
+ */
+def intToString[Min: BigInteger, Max: BigInteger](value: Int[Min, Max]): String
 
 /**
  * Representation-changing identity on the integer value: reinterprets an `Int[Smin, Smax]` at a different

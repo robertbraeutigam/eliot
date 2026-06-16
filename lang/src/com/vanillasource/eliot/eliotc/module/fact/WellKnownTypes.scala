@@ -64,6 +64,29 @@ object WellKnownTypes {
   val maxFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("max", Qualifier.Default))
 
+  /** `add(a, b)` on `BigInteger` — a compile-time native (see `SystemNativesProcessor`) that reduces when both
+    * arguments are concrete, otherwise stays stuck. It computes the dependent result bounds of integer addition: the
+    * `+` operator on `Int[LMin, LMax]` / `Int[RMin, RMax]` has result type `Int[add(LMin, RMin), add(LMax, RMax)]`,
+    * so the bounds are summed at the type level by this native while `+` itself is realized at runtime by the JVM
+    * backend (`LADD`). See `docs/int-min-max-plan.md` ("Phase 5 — Runtime arithmetic").
+    */
+  val addFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("add", Qualifier.Default))
+
+  /** `subtract(a, b)` / `multiplyMin(a, b, c, d)` / `multiplyMax(a, b, c, d)` on `BigInteger` — compile-time natives
+    * (see `SystemNativesProcessor`) backing the dependent result bounds of `Int`'s `-` and `*`. `subtract` gives the
+    * `-` bounds `Int[subtract(LMin,RMax), subtract(LMax,RMin)]`; `multiplyMin`/`multiplyMax` give the `*` bounds as the
+    * min/max of the four corner products `{a*c, a*d, b*c, b*d}` (a single corner is wrong when a range straddles zero).
+    */
+  val subtractFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("subtract", Qualifier.Default))
+
+  val multiplyMinFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("multiplyMin", Qualifier.Default))
+
+  val multiplyMaxFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("multiplyMax", Qualifier.Default))
+
   /** The abstract associated type `Combined` of the type-only `Combine[A, B]` ability. The checker resolves a
     * multi-candidate covariant metavariable (a `match` result, or a `f[A](a: A, b: A): A` result type parameter) to the
     * join of its candidate types by resolving this ability by name (`resolveAbility(combinedFQN, Seq(t1, t2))`) and

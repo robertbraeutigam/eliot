@@ -197,4 +197,40 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
         |def <===>: String = "Hello World!"""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
   }
+
+  "integer addition" should "compute and print a sum at runtime" in {
+    compileAndRun(
+      """import eliot.lang.Int
+        |import eliot.lang.Runtime
+        |
+        |def main: IO[Unit] = println(intToString(integerLiteral[3] + integerLiteral[4]))""".stripMargin
+    ).asserting(_ shouldBe "7")
+  }
+
+  "integer subtraction" should "compute and print a difference at runtime" in {
+    compileAndRun(
+      """import eliot.lang.Int
+        |import eliot.lang.Runtime
+        |
+        |def main: IO[Unit] = println(intToString(integerLiteral[10] - integerLiteral[4]))""".stripMargin
+    ).asserting(_ shouldBe "6")
+  }
+
+  "integer arithmetic" should "respect operator precedence at runtime" in {
+    compileAndRun(
+      """import eliot.lang.Int
+        |import eliot.lang.Runtime
+        |
+        |def main: IO[Unit] = println(intToString(integerLiteral[2] + integerLiteral[3] * integerLiteral[4]))""".stripMargin
+    ).asserting(_ shouldBe "14")
+  }
+
+  it should "compute a negative result at runtime" in {
+    compileAndRun(
+      """import eliot.lang.Int
+        |import eliot.lang.Runtime
+        |
+        |def main: IO[Unit] = println(intToString(integerLiteral[3] - integerLiteral[10]))""".stripMargin
+    ).asserting(_ shouldBe "-7")
+  }
 }

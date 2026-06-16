@@ -16,7 +16,12 @@ object TypeAliasDefinition {
       _                 <- keyword("type")
       name              <- acceptIfAll(isIdentifier, isUpperCase)("type name")
       genericParameters <- component[Seq[GenericParameter]]
-      body              <- (symbol("=") *> sourced(component[Expression])).optional()
+      // A type-alias body is a type position, so parse it with the restricted `typeParser` (a single type atom), NOT
+      // the greedy full expression parser: the full parser would consume the following top-level definition's leading
+      // `infix`/`prefix`/`postfix`/`left`/… identifiers (they are not keywords) as an application chain, silently
+      // dropping that definition's fixity. (Latent until an `infix` def followed a `type` alias with no plain `def`
+      // between them — see `docs/int-min-max-plan.md`, Phase 5.)
+      body              <- (symbol("=") *> sourced(Expression.typeParser)).optional()
     } yield {
       val args     = genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction))
       val typeExpr = name.as(Expression.FunctionApplication(None, name.map(_ => "Type"), Seq.empty, Seq.empty))

@@ -202,7 +202,10 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       allGeneratedFunctions   = dataGeneratedFunctions ++ typeCtorGeneratedFns ++ allPatternMatchVfqns ++ allTypeMatchVfqns
       functionFiles          <-
         usedValues.view
-          .filterKeys(k => !allGeneratedFunctions.contains(k))
+          // Intrinsics (`+`/`-`/`*`, `integerLiteral`, `intToString`) are emitted inline at the call site by
+          // ExpressionCodeGenerator, so they have no generated method — skip them rather than hitting the body-less
+          // "Function not implemented." abort.
+          .filterKeys(k => !allGeneratedFunctions.contains(k) && !Intrinsics.isIntrinsic(k))
           .toSeq
           .flatTraverse { case (vfqn, stats) =>
             createModuleMethod(mainClassGenerator, vfqn, stats)

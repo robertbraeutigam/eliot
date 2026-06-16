@@ -1,12 +1,18 @@
 # Plan: Implementing `Int[MIN, MAX]` (dependent integer type)
 
-Status: Phase 2 (explicit `integerLiteral[n]`), **Phase 3 (check-mode `Coerce` insertion), and
-Phase 4 (combining a covariant multi-candidate metavariable via the `Combine` ability) are DONE.**
+Status: Phase 2 (explicit `integerLiteral[n]`), **Phase 3 (check-mode `Coerce` insertion),
+Phase 4 (combining a covariant multi-candidate metavariable via the `Combine` ability), and Phase 5
+(runtime arithmetic — `+`/`-`/`*` with dependent bounds, type-level AND on the JVM) are DONE.** Real
+programs now compute: `intToString(integerLiteral[2] + integerLiteral[3] * integerLiteral[4])` prints
+`14`. The frontier is **Phase 6** (flip bare literals to `Int[V,V]`). See "Phase 5 — As built" below.
 Implicit `Int` range widening works through a user-space `Coerce` instance, resolved by name and
 evaluated by the one NbE evaluator (`Int[3,3] → Int[0,10]` accepted, `Int[5,5] → Int[0,3]` rejected);
 and a covariant metavariable with more than one candidate (a `match` result, or `f[A](a:A,b:A):A`)
 resolves to the `Combine` join of its candidates, with per-meta polarity tracking ("taint on
-contravariant use") keeping the join sound. The frontier is now **Phase 5** (runtime arithmetic). Literal
+contravariant use") keeping the join sound. The **compile-time half of Phase 5** is now also done:
+dependent-bounds `+` type-checks (`Int[3,3] + Int[4,4] : Int[7,7]`) via the `add` `BigInteger` native,
+and the new `renormalize` re-fires natives stuck on now-solved metavariables. The frontier is the
+**Phase 5 JVM runtime half** (`LADD` + `integerLiteral` codegen). Literal
 typing as `Int[V,V]` is built and tested via the **explicit** `integerLiteral[n]` constructor and only
 flipped to the global default literal type at the **end** (Phase 6), once the supporting machinery works
 — see "De-risking: explicit constructor first, global flip last." This document is the durable
@@ -384,12 +390,72 @@ The prerequisite evaluation machinery is **done** (single NbE evaluator, opaque 
   - **Validate alongside:** the value-in-type `Eq` caveat (see the open sub-decision below) is
     load-bearing here — `Int[V,V]` embeds a value in a type, and `Combine` compares/combines those
     embedded bound values, so `GroundValue` read-back must be sound for this case.
-- **Phase 5 — Runtime arithmetic.** `+`/`-`/`*` on `Int` with dependent bounds
+- **Phase 5 — Runtime arithmetic. (DONE.)** `+`/`-`/`*` on `Int` with dependent bounds
   (`Int[a,b] + Int[c,d] : Int[a+c, b+d]`). Two execution targets: (a) a
   **compile-time `NativeBinding`** (for type-level bound computation), and (b) the
-  **JVM** `NativeImplementation` (`LADD`/`LSUB`/`LMUL`, unbox Long -> op -> rebox)
-  for runtime. Runtime stays `Long`. `Int.els` already declares `+` with the
-  dependent-bounds signature; back it with both natives.
+  **JVM** intrinsic (`LADD`/`LSUB`/`LMUL`, unbox Long -> op -> rebox) for runtime. Runtime
+  stays `Long`. See "Phase 5 — As built" above for the as-built design (compile-time + JVM halves,
+  the `renormalize` native-re-firing fix, and the two latent parser/lexer bugs it surfaced).
+
+  **Compile-time half — As built (DONE).** `add(a,b): BigInteger` is declared in
+  `lang/BigInteger.els` next to `min`/`max`/`lessThanOrEqual` and backed by the same
+  compile-time native discipline (`SystemNativesProcessor.bigIntBinaryNative(addFQN)(_+_)`,
+  `WellKnownTypes.addFQN`); it reduces only when both bounds are concrete, else stays stuck.
+  `Int.els`'s `+` return type `Int[add(LMin,RMin), add(LMax,RMax)]` therefore computes the
+  summed range at the type level. `Int[3,3] + Int[4,4]` type-checks to `Int[7,7]`, widens to a
+  broader expected range (via the Phase-3 `Coerce`), and is rejected against a narrower one.
+  Tests: `MonomorphicTypeCheckTest`'s "dependent-bounds +" cases (`addPrelude`/`addImports`).
+
+  **Load-bearing fix — `renormalize` re-fires stuck natives.** A native applied to a
+  *still-unsolved* metavariable goes stuck as a body-less `VTopDef(fqn, None, spine)` whose
+  `fire` dropped the `VNative` reducer; ordinary `force` never re-fires it (it only unfolds
+  *cached* bodies). This bit `+`: the codomain `add(LMin,RMin)` is built during application
+  inference while the bound metas are unsolved, so each `add` stuck — and stayed stuck even
+  after the metas solved (the error showed `Int(add(3,4), add(3,4))`). Fix: `Evaluator.renormalize`
+  (+ `Checker.renormalize`) deeply forces and, for each body-less `VTopDef` whose FQN resolves
+  (via the binding cache) to a `VNative`, re-applies the native to the renormalised spine —
+  `add(3,4) ⤳ 7`. It is called on the codomain in `Checker.applyInferred`, **guarded to skip a
+  bare `VMeta` result** so it never collapses a covariant combinable-meta to its provisional first
+  candidate (which would break the Phase-4 `Combine` deferral / `resolveUpperBounds`). This is the
+  same "bind to *forced* concrete values, not raw metas" discipline already used by the Coerce/Combine
+  resolvers (plan "As built" notes), generalised into the evaluator.
+
+  **JVM runtime half — As built (DONE).** `+`/`-`/`*` (compile-time bounds: `add`/`subtract` and
+  `multiplyMin`/`multiplyMax` — the latter two are the min/max of the four corner products, correct
+  across zero) plus `integerLiteral` and `intToString` are **inline JVM intrinsics**, recognised by
+  well-known FQN in `jvm`'s `Intrinsics` object, emitted at the call site by
+  `ExpressionCodeGenerator.generateIntrinsic`, and excluded from `JvmClassGenerator.createModuleMethod`'s
+  body-less "Function not implemented." abort. `integerLiteral[V]` pushes the boxed-`Long` constant `V`
+  (read from its type arg) — it *cannot* be a single `NativeImplementation` method (one method can't bake a
+  per-`V` constant); `+`/`-`/`*` push both operands, unbox to `long`, apply `LADD`/`LSUB`/`LMUL`, rebox;
+  `intToString` calls `Long.toString`. `Int` is mapped to `java.lang.Long` in `NativeType.types`. Chosen
+  inline over the `NativeImplementation`-method route to avoid coupling to call-site name mangling.
+  `nativeWiden` stays identity (no width selection yet). `Int → String` was added to stdlib (the chosen
+  observability path) as abstract `def intToString` + the JVM intrinsic. Files: `Int.els` (`-`/`*`/
+  `intToString` + precedence), `BigInteger.els` (`subtract`/`multiplyMin`/`multiplyMax`),
+  `SystemNativesProcessor` + `WellKnownTypes` (the bound natives), `jvm` `Intrinsics` /
+  `ExpressionCodeGenerator` / `JvmClassGenerator` / `NativeType`. Tests: `MonomorphicTypeCheckTest`
+  ("dependent-bounds +/-/*", "operator precedence") + `ExamplesIntegrationTest` (runtime `7`/`6`/`14`/`-7`)
+  + `examples/src/Arithmetic.els`.
+
+  **Two latent bugs surfaced and fixed here (both pre-existing, exposed by the new operators):**
+  - **Type-alias bodies were parsed with the greedy full expression parser.** `TypeAliasDefinition` used
+    `component[Expression]` for the `= …` body, which consumes the *following* top-level definition's leading
+    `infix`/`left`/… identifiers (not keywords) as an application chain — silently dropping that definition's
+    fixity. Harmless until an `infix` def directly followed a `type` alias (it does now: the width aliases
+    precede `+`, and the `def add` that used to sit between them moved to `BigInteger.els`). Fixed to
+    `Expression.typeParser` (a single type atom) — the correct, consistent choice for a type position.
+  - **No negative integer literals.** `-128` lexed as the `-` operator + `128`, so the signed width aliases
+    (`type Long = Int[-9223…, 9223…]`) failed once the `-` operator existed and they were actually checked.
+    Added a `negativeIntegerLiteral` token (atomic `-` *glued* to digits, before the symbol parser) so binary
+    `a - b` still needs spacing. Negative *results* always worked at runtime (`Long`); this is only about
+    *writing* a negative bound literal.
+
+  **Not auto-imported (deferred to Phase 6).** `Int`/`Runtime` are intentionally **not** in
+  `defaultSystemModules` — adding them there breaks every `ProcessorTest` that doesn't provide a matching
+  stub. Code using arithmetic imports `eliot.lang.Int` / `eliot.lang.Runtime` explicitly for now; Phase 6
+  (the literal desugar that mints `integerLiteral[n]` everywhere) is where they become ambient, together
+  with the test-harness stubs. (`stdlib/Runtime.els` now imports `Int` for its own `Int[V,V]` body.)
 - **Phase 6 — Flip literals to `Int[V,V]` (the global switchover; monomorphize untouched).** Now
   that widening/combine/arithmetic work and are tested, make `Int[V,V]` the default literal type:
   - `core/processor/CoreExpressionConverter.scala`: in the `IntegerLiteral` case (currently ignores

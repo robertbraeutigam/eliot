@@ -26,7 +26,10 @@ object NativeType {
       (systemLangType("Function"), eliot_lang_Function),
       (systemLangType("Unit"), eliot_lang_Unit),
       (systemLangType("Any"), eliot_lang_Any),
-      (systemLangType("BigInteger"), eliot_lang_BigInteger)
+      (systemLangType("BigInteger"), eliot_lang_BigInteger),
+      // `Int[MIN, MAX]` is represented at runtime by a boxed `java.lang.Long` (everything maps to Long; range-based
+      // width selection is a later feature). See `docs/int-min-max-plan.md` ("Phase 5 — Runtime arithmetic").
+      (systemLangType("Int"), eliot_lang_Int)
     )
   )
 
@@ -82,6 +85,10 @@ object NativeType {
   }
 
   private def eliot_lang_BigInteger: NativeType = new NativeType {
+    override def javaClass: Class[?] = classOf[java.lang.Long]
+  }
+
+  private def eliot_lang_Int: NativeType = new NativeType {
     override def javaClass: Class[?] = classOf[java.lang.Long]
   }
 

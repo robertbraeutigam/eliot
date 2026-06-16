@@ -69,6 +69,13 @@ class Checker(
   private[check] def force(v: SemValue): CheckIO[SemValue] =
     inspect(s => Evaluator.force(v, s.unifier.metaStore))
 
+  /** Deeply normalise a SemValue, re-firing stuck native applications (e.g. the dependent-bounds `add` in
+    * `Int[add(LMin,RMin), …]`) whose bound arguments have since been solved. Uses the binding cache as the native
+    * lookup. See [[Evaluator.renormalize]].
+    */
+  private[check] def renormalize(v: SemValue): CheckIO[SemValue] =
+    inspect(s => Evaluator.renormalize(v, s.unifier.metaStore, fqn => s.bindingCache.getOrElse(fqn, None)))
+
   /** Unify two semantic values, updating the unifier in the state. */
   private def doUnify(l: SemValue, r: SemValue, context: Sourced[String]): CheckIO[Unit] =
     modify(s => s.withUnifier(s.unifier.unify(l, r, context)))
@@ -617,7 +624,17 @@ class Checker(
                                  }
       argExpr                 <- check(arg, vpi.domain)
       argSem                  <- evalExpr(arg.value)
-      retType                  = vpi.codomain(argSem)
+      // The codomain may embed a native applied to the target's instantiation metas — e.g. `+`'s result type
+      // `Int[add(LMin,RMin), …]`. Those bounds are solved by the argument checks just above, so renormalise the
+      // codomain now to re-fire the natives (`add(3,4) ⤳ 7`) before the type reaches unification or quoting. A *bare*
+      // metavariable result (a result-position type parameter, e.g. `pick[A](a,b): A`) is left untouched: forcing it to
+      // its provisional first candidate would destroy the combinable-meta signal the `check` fallback uses to defer the
+      // `Combine` join (see `check` / resolveUpperBounds).
+      rawRetType               = vpi.codomain(argSem)
+      retType                 <- rawRetType match {
+                                   case _: VMeta => pure(rawRetType)
+                                   case other    => renormalize(other)
+                                 }
     } yield (
       SemExpression(
         retType,
