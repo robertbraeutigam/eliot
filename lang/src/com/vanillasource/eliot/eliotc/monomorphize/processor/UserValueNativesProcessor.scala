@@ -1,80 +1,28 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
-import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.monomorphize.domain.*
-import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
+import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.NativeBinding
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
-import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
+import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Emits NativeBinding facts for user-defined values. Each value is represented as a VTopDef with a lazy thunk that
-  * evaluates the value's body on demand.
+/** Emits [[NativeBinding]] facts for user-defined values: the binding used during type checking. Each value becomes a
+  * `VTopDef` with a lazy thunk that evaluates the value's body on demand.
   *
-  * Pre-fetches NativeBindings for all ValueReferences in the body so the thunk evaluator can resolve them during
-  * type-level computation (e.g., `def one: Person = Person(1)` needs Person's native binding).
-  *
-  * Uses a concurrent generation guard to prevent fact system deadlocks from mutual recursion: when generating
-  * NativeBinding(f), if f's body references g and g's body references f, the second collectBindings skips f (already
-  * generating) instead of deadlocking.
+  * An `opaque` definition is treated as a stuck, identity-based reference during checking: its body is NOT cached (via
+  * [[OperatorResolvedValue.checkingRuntime]]), so the evaluator never unfolds it — it stays a `VTopDef(fqn, None, ...)`,
+  * exactly like a body-less native/type constructor. The body remains in [[OperatorResolvedValue.runtime]] for later
+  * phases (representation lowering, via
+  * [[com.vanillasource.eliot.eliotc.monomorphize.fact.TransparentBinding]]) to unfold. This keeps a platform type with a
+  * body — like `opaque type Int[MIN, MAX] = <repr>` — distinct per type argument, so range assignability stays sound
+  * instead of the type collapsing to its body.
   */
 class UserValueNativesProcessor
-    extends TransformationProcessor[OperatorResolvedValue.Key, NativeBinding.Key](key =>
-      OperatorResolvedValue.Key(key.vfqn)
-    ) {
+    extends BindingProcessor[NativeBinding.Key](key => OperatorResolvedValue.Key(key.vfqn)) {
 
-  /** Thread-safe set of FQNs currently being generated. Prevents mutual recursion deadlocks in collectBindings. */
-  private val generating: java.util.Set[ValueFQN] =
-    java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap())
+  override protected def selfBody(fact: OperatorResolvedValue): Option[Sourced[OperatorResolvedExpression]] =
+    fact.checkingRuntime
 
-  override protected def generateFromKeyAndFact(key: NativeBinding.Key, fact: InputFact): CompilerIO[OutputFact] = {
-    generating.add(key.vfqn)
-    // An `opaque` definition is treated as a stuck, identity-based reference during type checking: we do NOT cache its
-    // body, so the evaluator never unfolds it (it stays a `VTopDef(fqn, None, ...)`, exactly like a body-less
-    // native/type constructor). The body remains in the `OperatorResolvedValue.runtime` fact for later phases (e.g.
-    // backend representation lowering) to unfold. This keeps a platform type with a body — like
-    // `opaque type Int[MIN, MAX] = <repr>` — distinct per type argument, so range assignability stays sound instead of
-    // the type collapsing to its body.
-    val checkedRuntime = if (fact.opaque) None else fact.runtime
-    for {
-      bodyBindings <- checkedRuntime match {
-                        case Some(body) => collectBindings(body.value, key.vfqn)
-                        case None       => Map.empty[ValueFQN, SemValue].pure[CompilerIO]
-                      }
-    } yield {
-      generating.remove(key.vfqn)
-      val semValue = VTopDef(
-        key.vfqn,
-        checkedRuntime.map { body =>
-          Lazy {
-            val evaluator = new Evaluator(vfqn => bodyBindings.get(vfqn))
-            evaluator.eval(Env.empty, body.value)
-          }
-        },
-        Spine.SNil
-      )
-      NativeBinding(key.vfqn, semValue)
-    }
-  }
-
-  /** Collect NativeBindings for every ValueReference transitively reachable from `ore`, skipping FQNs that are
-    * currently being generated (`generating` set) or already accumulated in this walk — this prevents mutual-recursion
-    * deadlocks and duplicate fact fetches.
-    */
-  private def collectBindings(
-      ore: OperatorResolvedExpression,
-      selfFqn: ValueFQN
-  ): CompilerIO[Map[ValueFQN, SemValue]] =
-    OperatorResolvedExpression
-      .foldValueReferences[CompilerIO, Map[ValueFQN, SemValue]](ore, Map.empty) { (acc, vfqn) =>
-        if (acc.contains(vfqn.value) || vfqn.value == selfFqn || generating.contains(vfqn.value))
-          acc.pure[CompilerIO]
-        else
-          getFact(NativeBinding.Key(vfqn.value)).map {
-            case Some(binding) => acc + (vfqn.value -> binding.semValue)
-            case None          => acc
-          }
-      }
+  override protected def buildFact(vfqn: ValueFQN, semValue: SemValue): NativeBinding =
+    NativeBinding(vfqn, semValue)
 }
