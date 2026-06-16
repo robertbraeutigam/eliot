@@ -176,7 +176,7 @@ mismatch. `some`/`none` are body-less `def`s (stuck `VTopDef`s), so no `Option` 
 *native* was needed; branching on the opaque `Bool` bounds-check uses the `Bool.fold` native
 (`boolFoldFQN`). The former `TypeRefinement`-in-`unify` hook (a `refinements` map + a `VTopDef`-same-FQN
 assignability arm) was **removed** when this design was adopted; do not reintroduce assignability into
-`unify`. See `docs/int-min-max-plan.md` ("Check-mode `Coerce` insertion — As built").
+`unify`.
 
 ### Quoting (`forceAndConst` / `Quoter`)
 
@@ -224,7 +224,7 @@ Two quoting paths exist:
 - **Pattern-matching on `SemValue` to count leading `VPi` binders or `VLam` closures.** The checker never asks "how many type parameters does this value have?" It applies what's given and lets unification figure out the rest.
 - **Skipping `prefetchBindings` before evaluating.** The evaluator reads from a mutable cache. If bindings aren't pre-fetched, the evaluator produces `VNeutral` for unresolved references, leading to spurious type mismatches.
 - **Forgetting to call `drain()` after the check/infer walk.** Postponed unification constraints accumulate silently. Without `drain()`, metas that depend on other metas being solved first will never be resolved.
-- **Re-introducing assignability/widening into `unify`.** `unify` is pure definitional equality. Directional coercion is the `Coerce` ability's job in the checker's check mode (deferred — see `docs/int-min-max-plan.md`, "Check-mode `Coerce` insertion"), never a `refinements` map or a same-FQN assignability arm in the unifier.
+- **Re-introducing assignability/widening into `unify`.** `unify` is pure definitional equality. Directional coercion is the `Coerce` ability's job in the checker's check mode, never a `refinements` map or a same-FQN assignability arm in the unifier.
 - **Special-casing a concrete type (e.g. `Int`) in the checker/unifier.** Any future coercion path must recognize the *ability protocol* by name (`WellKnownTypes.coerceFQN`, as `MatchNativesProcessor` does for `PatternMatch`/`TypeMatch`); never the type.
 - **Returning `false` (not stuck) from the Bool natives on non-concrete args.** `&&`/`typeEquals`/`lessThanOrEqual` must stay **stuck** (return a stuck `VTopDef`) when an argument isn't fully concrete, so the unifier falls back to `unifySpines` and still solves metavariables. Returning `false` would wrongly reject generic/open comparisons.
 

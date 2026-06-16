@@ -27,7 +27,7 @@ object ModuleName {
   // (see ProcessorTest's default systemImports). `Int`/`Runtime` are ambient as of the Phase-6 literal desugar: every
   // value-position integer literal `n` is rewritten to `integerLiteral[n] : Int[n, n]` (`CoreExpressionConverter`), so
   // `integerLiteral` (Runtime) and `Int` must resolve in every module. Code therefore must NOT import them explicitly
-  // (that would double-import and shadow). See `docs/int-min-max-plan.md`.
+  // (that would double-import and shadow).
   val defaultSystemModules                 = Seq(
     "Type",
     "Function",

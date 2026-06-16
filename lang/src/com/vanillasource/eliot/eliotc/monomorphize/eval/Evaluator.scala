@@ -106,8 +106,7 @@ object Evaluator {
     * everything else is returned as forced.
     *
     * `lookupNative` is the checker's binding cache (`vfqn => bindingCache.getOrElse(vfqn, None)`), which already holds
-    * every native reachable from the term (prefetched before evaluation). See `docs/int-min-max-plan.md` ("Phase 5 —
-    * Runtime arithmetic").
+    * every native reachable from the term (prefetched before evaluation).
     */
   def renormalize(v: SemValue, metaStore: MetaStore, lookupNative: ValueFQN => Option[SemValue]): SemValue =
     force(v, metaStore) match {

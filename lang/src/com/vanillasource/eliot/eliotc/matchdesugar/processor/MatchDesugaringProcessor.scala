@@ -32,7 +32,8 @@ class MatchDesugaringProcessor
       MatchDesugaredExpression.convertTypeStack(resolvedValue.typeStack),
       convertParamConstraints(resolvedValue.paramConstraints),
       resolvedValue.fixity,
-      resolvedValue.precedence
+      resolvedValue.precedence,
+      resolvedValue.opaque
     )
 
   private def convertParamConstraints(

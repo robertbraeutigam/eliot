@@ -5,7 +5,7 @@ metadata:
   type: project
 ---
 
-Phase 5 of [[project_renormalize_refires_natives]]'s plan (docs/int-min-max-plan.md) is DONE: `Int`
+Phase 5 of [[project_renormalize_refires_natives]]'s plan is DONE: `Int`
 `+`/`-`/`*` type-check with dependent bounds AND run on the JVM. `intToString(integerLiteral[2] +
 integerLiteral[3] * integerLiteral[4])` prints `14`.
 

@@ -21,8 +21,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * This is *pure definitional (value) equality* with metavariable solving on top: it forces both sides through the
   * evaluator (= normalises) and compares. There is no notion of "assignability" or directional widening here.
   * Directional coercion (e.g. an `Int[0,5]` used where an `Int[0,10]` is expected) is a separate concern handled
-  * outside the unifier by a user-defined `Coerce` ability that the checker inserts in check mode — see
-  * `docs/int-min-max-plan.md` ("Check-mode `Coerce` insertion").
+  * outside the unifier by a user-defined `Coerce` ability that the checker inserts in check mode.
   *
   * `combinable`/`candidates` support the Phase 4 `Combine` ability without breaking the purity above. A metavariable
   * that sits in a covariant position (a `match` result, a result-position type parameter) is registered as
@@ -86,7 +85,7 @@ case class Unifier(
       case (VPi(d1, c1), VPi(d2, c2)) =>
         // Domains are contravariant: any combinable meta appearing in a domain is tainted (removed from `combinable`),
         // so a meta that flows into a parameter-input position is never joined. This is the soundness gate for Phase 4
-        // (see the `useTwice[A](f: A -> Unit, x: A, y: A)` counterexample in docs/int-min-max-plan.md).
+        // (see the `useTwice[A](f: A -> Unit, x: A, y: A)` counterexample).
         val (fresh, u1) = freshVar()
         u1.taintMetasIn(d1)
           .taintMetasIn(d2)

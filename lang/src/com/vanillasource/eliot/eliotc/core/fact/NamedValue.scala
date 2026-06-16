@@ -32,7 +32,8 @@ case class NamedValue(
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     visibility: Visibility = Visibility.Public,
-    roleHint: RoleHint = RoleHint.NoHint
+    roleHint: RoleHint = RoleHint.NoHint,
+    opaque: Boolean = false
 )
 
 object NamedValue {

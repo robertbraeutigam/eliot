@@ -9,7 +9,7 @@ import eliot.lang.Option
  * not. The checker resolves this ability by name (see `WellKnownTypes.coerceFQN`) in check mode: where an inferred
  * `from` is used where a `to` is expected and the two are not definitionally equal, it evaluates `coerce` through the
  * NbE evaluator. The existence decision (depending only on type-level data, e.g. bounds) is forced away at compile time;
- * any value-dependent conversion residualises into the generated code. See `docs/int-min-max-plan.md` ("Check-mode `Coerce` insertion").
+ * any value-dependent conversion residualises into the generated code.
  *
  * The checker-side insertion is deferred (it lands with the `Int[MIN,MAX]` frontier); this declaration is the durable
  * design commitment.

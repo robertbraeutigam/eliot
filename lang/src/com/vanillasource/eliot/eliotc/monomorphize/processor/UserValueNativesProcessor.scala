@@ -31,8 +31,15 @@ class UserValueNativesProcessor
 
   override protected def generateFromKeyAndFact(key: NativeBinding.Key, fact: InputFact): CompilerIO[OutputFact] = {
     generating.add(key.vfqn)
+    // An `opaque` definition is treated as a stuck, identity-based reference during type checking: we do NOT cache its
+    // body, so the evaluator never unfolds it (it stays a `VTopDef(fqn, None, ...)`, exactly like a body-less
+    // native/type constructor). The body remains in the `OperatorResolvedValue.runtime` fact for later phases (e.g.
+    // backend representation lowering) to unfold. This keeps a platform type with a body — like
+    // `opaque type Int[MIN, MAX] = <repr>` — distinct per type argument, so range assignability stays sound instead of
+    // the type collapsing to its body.
+    val checkedRuntime = if (fact.opaque) None else fact.runtime
     for {
-      bodyBindings <- fact.runtime match {
+      bodyBindings <- checkedRuntime match {
                         case Some(body) => collectBindings(body.value, key.vfqn)
                         case None       => Map.empty[ValueFQN, SemValue].pure[CompilerIO]
                       }
@@ -40,7 +47,7 @@ class UserValueNativesProcessor
       generating.remove(key.vfqn)
       val semValue = VTopDef(
         key.vfqn,
-        fact.runtime.map { body =>
+        checkedRuntime.map { body =>
           Lazy {
             val evaluator = new Evaluator(vfqn => bodyBindings.get(vfqn))
             evaluator.eval(Env.empty, body.value)

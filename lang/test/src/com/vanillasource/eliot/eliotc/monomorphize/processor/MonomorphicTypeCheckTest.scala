@@ -42,7 +42,7 @@ class MonomorphicTypeCheckTest
       MonomorphicTypeCheckProcessor()
     ) {
 
-  // --- Explicit integerLiteral constructor (int-min-max-plan Phase 2) ---
+  // --- Explicit integerLiteral constructor ---
 
   "explicit integerLiteral" should "type-check to the singleton Int[V, V]" in {
     // `Int` and `integerLiteral` are ambient (Phase-6), so the snippet uses them directly rather than redeclaring them.
@@ -50,7 +50,7 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  // --- Coerce[Int, Int] instance (int-min-max-plan Phase 3) ---
+  // --- Coerce[Int, Int] instance ---
 
   "Coerce[Int, Int] instance" should "type-check and resolve via the ability machinery" in {
     runCoerce("def test: Option[Int[0, 10]] = coerce(integerLiteral[3])")
@@ -72,7 +72,7 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  // --- Combine: covariant multi-candidate metavariable (int-min-max-plan Phase 4) ---
+  // --- Combine: covariant multi-candidate metavariable ---
 
   "Combine[Int, Int] instance" should "join two ranges via a covariant result type parameter" in {
     runCombine("def pick[A](first: A, second: A): A\ndef test: Int[3, 7] = pick(integerLiteral[3], integerLiteral[7])")
@@ -107,7 +107,7 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("Type mismatch." at "integerLiteral[7]"))
   }
 
-  // --- Arithmetic: dependent-bounds `+` (int-min-max-plan Phase 5) ---
+  // --- Arithmetic: dependent-bounds `+` ---
 
   "dependent-bounds +" should "type-check Int[3, 3] + Int[4, 4] to the summed singleton Int[7, 7]" in {
     runAdd("def test: Int[7, 7] = integerLiteral[3] + integerLiteral[4]")
@@ -149,7 +149,7 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
-  // --- Bare-literal widening: Phase-6 desugar + Phase-3 Coerce, end to end (int-min-max-plan Phase 7) ---
+  // --- Bare-literal widening: Phase-6 desugar + Phase-3 Coerce, end to end ---
 
   "bare literal widening" should "widen a bare value-position literal into a broader declared range" in {
     // `7` desugars to `integerLiteral[7] : Int[7, 7]` (Phase 6), then the `Coerce[Int, Int]` instance widens it
@@ -606,6 +606,39 @@ class MonomorphicTypeCheckTest
       "def g(x: String): String = x\ndata Box[X: String](value: String)\ndef f[G: String](value: String): Box[g(G)] = Box[G](value)",
       typeArgs = Seq(GroundValue.Direct("STR", stringType))
     ).asserting(_ shouldBe Seq.empty)
+  }
+
+  // --- Opaque modifier ---
+
+  "opaque modifier" should "keep a plain (transparent) alias definitionally equal to its body" in {
+    runForErrors("type Id[A] = A\ndef s: String\ndef f: Id[String] = s")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "make an opaque alias NOT definitionally equal to its body" in {
+    // With the body hidden, `Box[String]` stays a stuck reference and does not unfold to `String`, so a `String` is no
+    // longer assignable to it.
+    runForErrors("opaque type Box[A] = A\ndef s: String\ndef f: Box[String] = s")
+      .asserting(_ shouldBe Seq("Type mismatch." at "s"))
+  }
+
+  it should "keep an opaque alias definitionally equal to itself" in {
+    runForErrors("opaque type Box[A] = A\ndef s: Box[String]\ndef f: Box[String] = s")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "merge distinct type arguments of a transparent alias that ignores them" in {
+    // `W[1]` and `W[2]` both unfold to `String`, so `W[1]` is accepted where `W[2]` is expected — the unsound collapse
+    // an opaque barrier must prevent for representation-bearing types.
+    runForErrors("type W[N: BigInteger] = String\ndef f(x: W[1]): W[2] = x")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "keep distinct type arguments of an opaque alias distinct" in {
+    // The opaque barrier keeps `W[1]` and `W[2]` separate even though both bodies are `String` — the soundness property
+    // that lets a platform `opaque type Int[MIN, MAX] = <repr>` map ranges to representations without conflating them.
+    runForErrors("opaque type W[N: BigInteger] = String\ndef f(x: W[1]): W[2] = x")
+      .asserting(_ shouldBe Seq("Type mismatch." at "x"))
   }
 
   // --- Recursion (Step 9) ---

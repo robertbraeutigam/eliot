@@ -109,7 +109,8 @@ class CoreProcessor
       function.fixity,
       function.precedence.map(convertPrecedenceDeclaration),
       function.visibility,
-      roleHint
+      roleHint,
+      function.opaque
     )
   }
 }

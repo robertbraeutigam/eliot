@@ -125,7 +125,7 @@ object ProcessorTest {
     * `n` is rewritten to `integerLiteral[n] : Int[n, n]`, so `Int` and `Runtime` are in `defaultSystemModules` (always
     * auto-imported) and the test harness must register matching stubs. These minimal versions only declare the abstract
     * `Int` type and the `integerLiteral` constructor; the richer `Coerce`/`Combine`/arithmetic environment lives in the
-    * `Int` tests' own import lists. See `docs/int-min-max-plan.md` Phase 6.
+    * `Int` tests' own import lists.
     */
   val intStubContent: String     = "type Int[MIN: BigInteger, MAX: BigInteger]"
   val runtimeStubContent: String = "def integerLiteral[V: BigInteger]: Int[V, V]"

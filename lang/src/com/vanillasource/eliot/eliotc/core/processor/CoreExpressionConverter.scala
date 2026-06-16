@@ -54,7 +54,7 @@ object CoreExpressionConverter {
           expr.as(IntegerLiteral(lit))
         } else {
           // Value position: desugar `n` into `integerLiteral[n] : Int[n, n]`. The inner `[n]` lands in
-          // `typeArgs` (type context), so it stays a bare `BigInteger`. See docs/int-min-max-plan.md Phase 6.
+          // `typeArgs` (type context), so it stays a bare `BigInteger`.
           expr.as(
             NamedValueReference(
               lit.as(QualifiedName("integerLiteral", Qualifier.Default)),

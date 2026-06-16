@@ -1,5 +1,5 @@
 /**
- * Dependent-bounds integer arithmetic (docs/int-min-max-plan.md). Each bare literal is desugared to an `Int[V, V]`
+ * Dependent-bounds integer arithmetic. Each bare literal is desugared to an `Int[V, V]`
  * singleton via `integerLiteral` (Phase 6); `+`/`-`/`*` carry their result range in the type (`*` binds tighter than
  * `+`/`-`), and the runtime computes on `Long`. Prints `14`.
  */

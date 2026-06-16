@@ -9,8 +9,7 @@
  * Phase-3 `Coerce` ability widens each contributor to that joined type.
  *
  * Combining is sound only for *covariant* metavariables; the checker tracks per-meta polarity and never combines a
- * metavariable used in a contravariant (parameter-input) position. See `docs/int-min-max-plan.md`
- * ("Phase 4 — combining a covariant multi-candidate metavariable").
+ * metavariable used in a contravariant (parameter-input) position.
  */
 ability Combine[A, B] {
    /**

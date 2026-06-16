@@ -28,7 +28,7 @@ object NativeType {
       (systemLangType("Any"), eliot_lang_Any),
       (systemLangType("BigInteger"), eliot_lang_BigInteger),
       // `Int[MIN, MAX]` is represented at runtime by a boxed `java.lang.Long` (everything maps to Long; range-based
-      // width selection is a later feature). See `docs/int-min-max-plan.md` ("Phase 5 — Runtime arithmetic").
+      // width selection is a later feature).
       (systemLangType("Int"), eliot_lang_Int)
     )
   )

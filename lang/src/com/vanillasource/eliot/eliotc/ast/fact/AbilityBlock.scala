@@ -44,7 +44,8 @@ object AbilityBlock {
                 f.args,
                 f.typeDefinition,
                 f.body,
-                visibility = Visibility.Public
+                visibility = Visibility.Public,
+                opaque = f.opaque
               )
             ) :+
               // Synthetic marker that indicates the ability exists and encodes its generic parameters.

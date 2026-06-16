@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
   * operators are simplest as a single inline `LADD`/`LSUB`/`LMUL` (with unbox/rebox) — a generated method would have
   * to match the call-site name mangling exactly. So all of them are recognised here by their well-known FQN, emitted
   * inline by [[ExpressionCodeGenerator]], and excluded from `JvmClassGenerator`'s body-less "Function not implemented."
-  * method generation. See `docs/int-min-max-plan.md` ("Phase 5 — Runtime arithmetic").
+  * method generation.
   */
 object Intrinsics {
 

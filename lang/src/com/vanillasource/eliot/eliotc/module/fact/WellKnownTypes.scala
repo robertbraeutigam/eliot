@@ -62,7 +62,7 @@ object WellKnownTypes {
     * arguments are concrete, otherwise stays stuck. It computes the dependent result bounds of integer addition: the
     * `+` operator on `Int[LMin, LMax]` / `Int[RMin, RMax]` has result type `Int[add(LMin, RMin), add(LMax, RMax)]`, so
     * the bounds are summed at the type level by this native while `+` itself is realized at runtime by the JVM backend
-    * (`LADD`). See `docs/int-min-max-plan.md` ("Phase 5 — Runtime arithmetic").
+    * (`LADD`).
     */
   val addFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("add", Qualifier.Default))
@@ -85,8 +85,7 @@ object WellKnownTypes {
     * multi-candidate covariant metavariable (a `match` result, or a `f[A](a: A, b: A): A` result type parameter) to the
     * join of its candidate types by resolving this ability by name (`resolveAbility(combinedFQN, Seq(t1, t2))`) and
     * evaluating the resolved instance's `Combined` body. The member name is `Combined` and it carries the
-    * `Qualifier.Ability("Combine")` qualifier (an associated type is a body-less ability member). See
-    * `docs/int-min-max-plan.md` ("Phase 4 — combining a covariant multi-candidate metavariable").
+    * `Qualifier.Ability("Combine")` qualifier (an associated type is a body-less ability member).
     */
   val combinedFQN: ValueFQN =
     ValueFQN(
@@ -98,7 +97,7 @@ object WellKnownTypes {
     * an implicit, possibly representation-changing widening when an inferred type is used where a different expected
     * type built from the same constructor is wanted (e.g. `Int[0,5]` where `Int[0,10]` is expected). The widening
     * insertion itself is deferred (it lands with the `Int[MIN,MAX]` frontier); this FQN is the durable design
-    * commitment — see `docs/int-min-max-plan.md` ("Check-mode `Coerce` insertion").
+    * commitment.
     */
   val coerceFQN: ValueFQN =
     ValueFQN(

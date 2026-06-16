@@ -169,8 +169,8 @@ class Checker(
     * from the same constructor is wanted (e.g. `Int[3,3]` where `Int[0,10]` is expected), resolve the user-defined
     * `Coerce` ability by name and evaluate its `coerce` through the one NbE evaluator. A `some payload` result means
     * the coercion exists; the term is re-typed at `expected` (the widening payload `nativeWiden` is the identity on the
-    * current Long-only backend, so no runtime rewrite is needed — see `docs/int-min-max-plan.md`, "Representation &
-    * promotion"; a real read-back lands with range-based width selection). A `none` or stuck result means no coercion,
+    * current Long-only backend, so no runtime rewrite is needed; a real read-back lands with range-based width
+    * selection). A `none` or stuck result means no coercion,
     * so the original "Type mismatch." is committed.
     *
     * `unify` itself stays pure definitional equality — the directional widening lives here, in check mode only.
@@ -211,8 +211,7 @@ class Checker(
   ): CheckIO[Option[SemExpression]] =
     resolveCoercion(actual, expected, tm.as("Type mismatch.")).map { holds =>
       // On success re-type the term at `expected`. The widening payload `nativeWiden` is the identity on the current
-      // Long-only backend, so no runtime rewrite is needed (see `docs/int-min-max-plan.md`, "Representation &
-      // promotion"); a real read-back lands with range-based width selection.
+      // Long-only backend, so no runtime rewrite is needed; a real read-back lands with range-based width selection.
       if (holds) Some(expr.copy(expressionType = expected)) else None
     }
 
@@ -252,7 +251,7 @@ class Checker(
     *
     * Evaluating the runtime body in that concrete env and forcing it reduces the bounds-only existence check to
     * `some`/`none`. Coercion runs user code at compile time, which Girard's paradox allows to diverge; the termination
-    * guard is deferred with the recursion/effect model (see `docs/int-min-max-plan.md`, "Risks").
+    * guard is deferred with the recursion/effect model.
     */
   private def coercionHolds(
       implFqn: ValueFQN,
