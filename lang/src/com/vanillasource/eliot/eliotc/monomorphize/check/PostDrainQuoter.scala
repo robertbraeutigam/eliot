@@ -128,6 +128,20 @@ class PostDrainQuoter(
         b  <- quoteSourcedIn(body, runtimeParams + paramName.value, innerEnv)
       } yield MonomorphicExpression.FunctionLiteral(paramName, pt, b)
 
+    case SemExpression.ValueReference(vfqn, typeArgs) if vfqn.value === WellKnownTypes.integerLiteralFQN =>
+      // `integerLiteral[V]` is the platform-independent literal protocol (see `WellKnownTypes.integerLiteralFQN`): a
+      // value-position literal `n` desugared so the checker could type it as `IntegerLiteralType[n]` (= `Int[n, n]`).
+      // The reference carries the constant as its single erased type-argument `V`. This is a purely syntactic readback
+      // rewrite — not evaluation: read `V` (already ground) and emit a plain `IntegerLiteral` node, which `structuralQuote`
+      // stamps with the node's own already-computed `Int[n, n]` type. The backend's ordinary integer-literal path emits
+      // it, so no `integerLiteral` reference survives into the monomorphic tree and no backend intrinsic is needed.
+      typeArgs.traverse(a => quoteSem(a, vfqn)).flatMap {
+        case Seq(GroundValue.Direct(v: BigInt, _)) =>
+          (MonomorphicExpression.IntegerLiteral(vfqn.as(v)): MonomorphicExpression.Expression).pure[CompilerIO]
+        case _                                     =>
+          compilerAbort(vfqn.as("integerLiteral must have a single integer value argument."))
+      }
+
     case SemExpression.ValueReference(vfqn, typeArgs) =>
       for {
         args <- typeArgs.traverse(a => quoteSem(a, vfqn))

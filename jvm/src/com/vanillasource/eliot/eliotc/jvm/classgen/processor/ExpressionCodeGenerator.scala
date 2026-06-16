@@ -206,7 +206,6 @@ object ExpressionCodeGenerator {
   /** Emit a backend [[Intrinsics]] call inline. After Phase 3, an `Int[MIN, MAX]` value is carried at the *narrowest*
     * JVM wrapper its range fits (`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), and the operand/result
     * representations are read from the (already lowered) expression types:
-    *   - `integerLiteral[V]` pushes the constant `V` (from its type argument) boxed at the result representation;
     *   - `intToString` unboxes its operand to `long` and calls `Long.toString(long)`;
     *   - `nativeWiden` converts its operand from the source to the target representation (unbox/rebox, via `BigInteger`
     *     when the target is `BigInteger`);
@@ -228,16 +227,7 @@ object ExpressionCodeGenerator {
       expectedResultType: GroundValue
   ): CompilationTypesIO[Seq[ClassFile]] = {
     val calledVfqn = sourcedCalledVfqn.value
-    if (calledVfqn === Intrinsics.integerLiteralFQN) {
-      typeArgs.headOption match {
-        case Some(GroundValue.Direct(value: BigInt, _)) =>
-          methodGenerator
-            .runNative[CompilationTypesIO](pushIntegerConstant(value, representationInternalName(expectedResultType)))
-            .as(Seq.empty)
-        case _                                          =>
-          compilerAbort(sourcedCalledVfqn.as("integerLiteral has no concrete value argument.")).liftToTypes.as(Seq.empty)
-      }
-    } else if (calledVfqn === Intrinsics.intToStringFQN) {
+    if (calledVfqn === Intrinsics.intToStringFQN) {
       val operandRep = representationInternalName(arguments.head.expressionType)
       for {
         classes <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, arguments.head)

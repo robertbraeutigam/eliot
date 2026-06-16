@@ -104,4 +104,15 @@ object WellKnownTypes {
       ModuleName(defaultSystemPackage, "Coerce"),
       QualifiedName("coerce", Qualifier.Ability("Coerce"))
     )
+
+  /** `integerLiteral[V]: IntegerLiteralType[V]` — the platform-independent literal protocol. `CoreExpressionConverter`
+    * desugars a value-position integer literal `n` into `integerLiteral[n]` so that the checker assigns it the
+    * platform-chosen singleton type `IntegerLiteralType[n]` (= `Int[n, n]` on every concrete layer) without the
+    * compiler ever naming `Int`. The value itself is a compile-time constant carried as the erased type-argument `V`;
+    * `PostDrainQuoter` recognizes this FQN at the `SemExpression → MonomorphicExpression` readback and rewrites the
+    * reference into a plain `IntegerLiteral(V)` node (typed at the node's already-computed `Int[n, n]` type), which
+    * every backend emits via its ordinary integer-literal path — so no backend needs an `integerLiteral` intrinsic.
+    */
+  val integerLiteralFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "Runtime"), QualifiedName("integerLiteral", Qualifier.Default))
 }

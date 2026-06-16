@@ -76,10 +76,11 @@ class MonomorphicTypeCheckProcessorTest
   }
 
   it should "monomorphize integer literal in body" in {
-    // After the Phase-6 desugar a value-position `42` is `integerLiteral[42] : Int[42, 42]`, so the runtime is a
-    // monomorphic reference to the (abstract) `integerLiteral` constructor instantiated at the bound 42.
+    // A value-position `42` desugars to `integerLiteral[42] : Int[42, 42]`; `PostDrainQuoter` rewrites the
+    // `integerLiteral` reference back into a plain integer-literal node at the readback boundary (Stage 3b), so the
+    // monomorphic runtime is an `IntegerLiteral`, not a value reference.
     runEngineForMonomorphicValue("def f: Int[42, 42] = 42")
-      .asserting(_.runtime.get.value shouldBe a[MonomorphicExpression.MonomorphicValueReference])
+      .asserting(_.runtime.get.value shouldBe a[MonomorphicExpression.IntegerLiteral])
   }
 
   it should "monomorphize string literal in body" in {

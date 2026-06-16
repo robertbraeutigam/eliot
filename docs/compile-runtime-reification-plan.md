@@ -208,7 +208,7 @@ type-level `fitsIn[…]` call in the checked dispatch bodies still raises "Too m
 The cross-reference therefore describes the agreed mechanism plus an honest "not yet compiling" status, not
 fully shipped Phase-4 behaviour.
 
-### Evaluate simplifying / removing `integerLiteral`
+### Evaluate simplifying / removing `integerLiteral` — **done (intrinsic deleted)**
 
 `integerLiteral[n]` is itself a hand-written reification: it lifts the type-level `n: BigInteger` into a
 value-position `Int[n,n]`, with a dedicated backend intrinsic (`Intrinsics.integerLiteralFQN`,
@@ -217,22 +217,37 @@ value-position `Int[n,n]`, with a dedicated backend intrinsic (`Intrinsics.integ
 via its plain integer-literal path — so the intrinsic and possibly the `5 ⟶ integerLiteral[5]` desugaring
 (`CoreExpressionConverter`) may be collapsible into the one general path.
 
-Two load-bearing details to weigh before removing anything — this is a "decide if it's a net simplification",
-not a foregone conclusion:
+**Decision (implemented).** Decompose `integerLiteral` into the *one part that is genuinely redundant* and the
+*two parts that are load-bearing*:
 
-- **The desugaring also assigns the type.** `5 ⟶ integerLiteral[5] : Int[5,5]` is what gives a value-position
-  literal its singleton `Int[n,n]` type (not a bare `BigInteger`). Any simplification must preserve that
-  typing. The cleanest route is probably to keep the literal's *typing* desugaring but let the literal
-  *reduce to a `Direct`* (e.g. give `integerLiteral` a reducing body / native that fires to
-  `Direct(n, Int[n,n])`), so the general `materialise` path emits it and the backend intrinsic can be deleted.
-- **The gate does not fire on closed literals.** A bare literal references no erased param, so under the
-  Stage-1 gate it is *not* materialised — it recurses structurally and stays an `IntegerLiteral` node, which
-  the backend handles directly anyway. So removing the *intrinsic* is plausibly independent of the gate;
-  removing the *desugaring* is the part that needs the typing argument above.
+- **Redundant — the backend intrinsic — DELETED.** The intrinsic's emission was byte-identical to the
+  backend's own plain `IntegerLiteral` arm (both call `pushIntegerConstant(value, repr)`). The reification is
+  **not type-checking** — by readback time the value `n` is already on the node (the erased type-arg) and the
+  type `Int[n,n]` is already attached — so it is a purely **syntactic node-swap**: `PostDrainQuoter` (the
+  `SemExpression → MonomorphicExpression` readback) recognises the `integerLiteral` FQN
+  (`WellKnownTypes.integerLiteralFQN`, by name, like `coerceFQN`/`handleCases`) and emits a plain
+  `MonomorphicExpression.IntegerLiteral(n)` node, which `structuralQuote` stamps with the node's existing
+  `Int[n,n]` type. Because `used` runs *after* monomorphize and walks the `MonomorphicExpression` tree (where a
+  literal is a leaf that marks nothing), `integerLiteral` then never appears as a value reference anywhere
+  downstream → it is never collected as used → never reaches codegen at all. So **no `JvmClassGenerator`
+  skip-marker is needed** (it was removed from `Intrinsics.all`), and the gate's not-firing-on-closed-literals
+  is irrelevant (we never route through the gate — this is a direct by-name readback rule, not `materialise`).
+- **Load-bearing — the desugaring (`5 ⟶ integerLiteral[5]`) — KEPT.** It is what gives a value-position literal
+  its singleton `Int[n,n]` type instead of a bare (value-less) `BigInteger`.
+- **Load-bearing — the `integerLiteral`/`IntegerLiteralType` typing protocol — KEPT.** `IntegerLiteralType[V] =
+  Int[V,V]` is supplied by the *platform* layer, so a literal gets a concrete `Int` type **without the compiler
+  ever naming `Int`** (hardcoding `Int` in the checker is a cornerstone anti-pattern). This is the same
+  "recognise the protocol by name, not the type" discipline as `Coerce`/`PatternMatch`.
 
-Outcome of this phase is a decision + (if positive) the deletion: one materialisation path for every constant,
-no `integerLiteral`-specific backend code. If it is *not* a net simplification, record why and leave
-`integerLiteral` as-is.
+**Coercion is not a substitute** (explicitly evaluated, per the request). `Coerce[Int[s..],Int[t..]]` *widens an
+existing* `Int[n,n]` to a broader range; it needs a source value to coerce *from* — which is the `Int[n,n]`
+literal itself — so it is strictly downstream of literal *creation* and composes with it. Routing literals
+through a hypothetical `Coerce[BigInteger, Int[n,n]]` is a dead end because Phase 6 deliberately removed the
+value-position `BigInteger` form. So Coercion handles widening (already does); it cannot create the literal.
+
+**Outcome:** one constant-materialisation path in `lang` (`PostDrainQuoter`), every backend gets integer-literal
+emission for free via its ordinary literal node, and the redundant per-backend `integerLiteral` intrinsic is
+gone. `integerLiteral` is reduced to a pure syntactic device that evaporates at readback.
 
 ## Phasing checklist
 
@@ -246,5 +261,9 @@ no `integerLiteral`-specific backend code. If it is *not* a net simplification, 
 - [x] Stage 3a: update `docs/jvm-int-representation-plan.md` Phase-4 section to drop `bigInt[N]` and reference
       this plan. **Done early by request** — note the Phase-4 dispatch does not compile yet (type-level `fitsIn[…]`
       call → "Too many type arguments", deferred); the section reflects that honestly.
-- [ ] Stage 3b: decide whether `integerLiteral` (intrinsic + desugaring) collapses into the general
-      `materialise` path; delete it if it is a net simplification, otherwise record why not.
+- [x] Stage 3b: **done.** Decided + deleted the redundant part: the backend `integerLiteral` intrinsic is
+      removed; `PostDrainQuoter` rewrites `integerLiteral[n]` into a plain `MonomorphicExpression.IntegerLiteral`
+      node (by-name, at the readback — a syntactic node-swap, not via the `materialise` gate). The desugaring and
+      the `integerLiteral`/`IntegerLiteralType` typing protocol are KEPT (platform-independent typing; keeps `Int`
+      out of the compiler). Coercion is downstream widening, not a substitute. See "Evaluate simplifying /
+      removing `integerLiteral`" above.

@@ -8,22 +8,19 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
   * [[ExpressionCodeGenerator]], and excluded from `JvmClassGenerator`'s body-less "Function not implemented." method
   * generation.
   *
-  * `integerLiteral[V]` takes no value parameters and must materialise the per-`V` constant from its (compile-time) type
-  * argument; `intToString` renders via `Long.toString`. The arithmetic *leaves* (`nativeAdd…`/`nativeSubtract…`/
+  * `intToString` renders via `Long.toString`. The arithmetic *leaves* (`nativeAdd…`/`nativeSubtract…`/
   * `nativeMultiply…`) and the representation converter `nativeWiden` are the Phase-4 platform primitives the
   * `+`/`-`/`*` width dispatch in `Int.els` resolves to; each is one fixed unbox/op/rebox instruction group, so it is
   * cheapest inline.
+  *
+  * Integer *literals* are NOT intrinsics: `integerLiteral[V]` is rewritten into a plain `MonomorphicExpression.
+  * IntegerLiteral(V)` at the `lang` readback boundary (`PostDrainQuoter`), so it reaches codegen as an ordinary
+  * integer-literal node (`ExpressionCodeGenerator.createExpressionCode`'s `IntegerLiteral` arm) and never as a call.
   */
 object Intrinsics {
 
   private def langInt(name: String): ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Int"), QualifiedName(name, Qualifier.Default))
-
-  private def langRuntime(name: String): ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, "Runtime"), QualifiedName(name, Qualifier.Default))
-
-  /** `integerLiteral[V]: Int[V, V]` — materialises the constant `V` (from its type argument) as a boxed `Long`. */
-  val integerLiteralFQN: ValueFQN = langRuntime("integerLiteral")
 
   /** `intToString(value): String` — realised as `Long.toString`. */
   val intToStringFQN: ValueFQN = langInt("intToString")
@@ -59,7 +56,7 @@ object Intrinsics {
   val multiplyLeaves: Set[ValueFQN] = widthSuffixes.map(s => langInt("nativeMultiply" + s)).toSet
 
   val all: Set[ValueFQN] =
-    Set(integerLiteralFQN, intToStringFQN, nativeWidenFQN) ++ addLeaves ++ subtractLeaves ++ multiplyLeaves
+    Set(intToStringFQN, nativeWidenFQN) ++ addLeaves ++ subtractLeaves ++ multiplyLeaves
 
   def isIntrinsic(vfqn: ValueFQN): Boolean = all.contains(vfqn)
 }
