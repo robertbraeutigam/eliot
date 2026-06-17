@@ -41,8 +41,10 @@ today's backend and that target.
 
 1. **The architecture already endorses this direction.** `RepresentationLowering.scala:12-21` states the rule
    is "general and never names `Int`"; `NativeType.scala:36-47` notes the five `Jvm*` entries are "the entire
-   backend type knowledge of integer widths." `docs/jvm-int-representation-plan.md` commits to "no `Int`-specific
-   code in the backend." The work below continues that trajectory for the *non-Int* mechanisms.
+   backend type knowledge of integer widths." The (now-complete) jvm-`Int` representation work achieved "no
+   `Int`-specific code in the backend" — all width policy lives in the jvm layer's `Int.els`, the backend only maps
+   representation types to layouts and realises fixed leaf natives. The work below continues that trajectory for the
+   *non-Int* mechanisms.
 
 2. **`WellKnownTypes` is the established home for by-name protocol constants.** It already centralises
    `coerceFQN`, `combinedFQN`, `someFQN`/`noneFQN`, `boolFoldFQN`, `integerLiteralFQN`, and the `BigInteger`

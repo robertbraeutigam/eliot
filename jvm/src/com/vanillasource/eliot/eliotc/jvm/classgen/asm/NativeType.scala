@@ -15,11 +15,12 @@ object NativeType {
   def systemLangType(typeName: String): ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, typeName), QualifiedName(typeName, Qualifier.Default))
 
-  // JVM representation types live together in the `eliot.lang.Jvm` module (see `Jvm.els`), so unlike `systemLangType`
-  // the module name is fixed (`Jvm`) and only the value name varies. `Qualifier.Default` matches the qualifier that
-  // type FQNs carry by the time they reach this map (`CommonPatterns.stripDataTypeSuffix`).
+  // JVM representation types live in the jvm-layer `eliot.lang.Int` module (see jvm `Int.els`, alongside the opaque
+  // `Int` body that selects among them), so unlike `systemLangType` the module name is fixed (`Int`) and only the
+  // value name varies. `Qualifier.Default` matches the qualifier that type FQNs carry by the time they reach this map
+  // (`CommonPatterns.stripDataTypeSuffix`).
   def jvmRepresentationType(typeName: String): ValueFQN =
-    ValueFQN(ModuleName(defaultSystemPackage, "Jvm"), QualifiedName(typeName, Qualifier.Default))
+    ValueFQN(ModuleName(defaultSystemPackage, "Int"), QualifiedName(typeName, Qualifier.Default))
 
   val systemFunctionValue: ValueFQN = systemLangType("Function")
   val systemAnyValue: ValueFQN      = systemLangType("Any")
@@ -33,9 +34,9 @@ object NativeType {
       (systemLangType("Unit"), eliot_lang_Unit),
       (systemLangType("Any"), eliot_lang_Any),
       (systemLangType("BigInteger"), eliot_lang_BigInteger),
-      // The fixed set of JVM representation types `Int[MIN, MAX]` can lower to (see `Jvm.els`). These five entries are
-      // the entire backend "type knowledge" of integer widths; all width *policy* (which range picks which) lives in
-      // Eliot's opaque `Int` body (Phase 2) and the unfold pass (Phase 3).
+      // The fixed set of JVM representation types `Int[MIN, MAX]` can lower to (see jvm `Int.els`). These five entries
+      // are the entire backend "type knowledge" of integer widths; all width *policy* (which range picks which) lives
+      // in Eliot's opaque `Int` body (Phase 2) and the unfold pass (Phase 3).
       (jvmRepresentationType("JvmByte"), eliot_lang_JvmByte),
       (jvmRepresentationType("JvmShort"), eliot_lang_JvmShort),
       (jvmRepresentationType("JvmInt"), eliot_lang_JvmInt),

@@ -1,10 +1,13 @@
-import eliot.lang.Bool
-import eliot.lang.Coerce
 import eliot.lang.Combine
-import eliot.lang.Option
 
 /**
  * All integers are represented by this type.
+ *
+ * The base layer declares `Int` purely abstractly (no body, no chosen width): it carries only its bounds
+ * `[MIN, MAX]`, which are its identity and meaning. How a range is laid out in memory, and how the arithmetic
+ * operators are actually computed, is platform-specific and therefore lives in a platform layer (e.g. the `jvm`
+ * layer's `Int.els`), never here — a backend with a single numeric type (such as JavaScript) needs none of that
+ * machinery.
  */
 type Int[MIN: BigInteger, MAX: BigInteger]
 
@@ -23,165 +26,47 @@ type UnsignedLong    = Int[0, 18446744073709551615]
  * `Int[add(LMin, RMin), add(LMax, RMax)]`. The bound sums are computed at the type level by the `add` compile-time
  * native on `BigInteger` (`eliot.lang.BigInteger`).
  *
- * The body is the platform-neutral width dispatch (Phase 4): both operands are first widened to their common
- * representation `Int[min(LMin, RMin), max(LMax, RMax)]` via `nativeWiden`, then `dispatchAdd` selects the
- * concretely-sized leaf native (`nativeAdd{Wc}To{Wr}`) by the operand and result widths, and a final `nativeWiden`
- * narrows the leaf's (over-wide) result range back to the declared `Int[add(LMin, RMin), add(LMax, RMax)]`. No backend
- * width policy: the JVM realises each leaf as a fixed instruction group, an MCU swaps in 8-/16-bit leaves.
+ * Abstract here (signature only): the result-bound type is the platform-neutral typing contract, but how the sum is
+ * actually computed — which machine representation each range uses and which concretely-sized leaf operation runs —
+ * is platform-specific and supplied by a platform layer's body.
  */
 infix left
-def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)] =
-  nativeWiden(dispatchAdd(
-    nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
-    nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
+def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)]
 
 /**
  * Integer subtraction with dependent bounds: `Int[LMin, LMax] - Int[RMin, RMax]` yields
  * `Int[subtract(LMin, RMax), subtract(LMax, RMin)]` (the smallest difference subtracts the largest right bound from
- * the smallest left bound; the largest does the opposite). Same precedence as `+` (`at +`), left-associative. Runtime:
- * the JVM layer emits `LSUB` on `Long`.
+ * the smallest left bound; the largest does the opposite). Same precedence as `+` (`at +`), left-associative.
+ * Abstract here; the platform layer supplies the body.
  */
 infix left at +
-def -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)] =
-  nativeWiden(dispatchSubtract(
-    nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
-    nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
+def -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)]
 
 /**
  * Integer multiplication with dependent bounds: `Int[LMin, LMax] * Int[RMin, RMax]` yields
  * `Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]`, where the result bounds are the
  * minimum and maximum of the four corner products (correct even when a range straddles zero). Binds tighter than `+`
- * (`above +`), left-associative. Runtime: the JVM layer emits `LMUL` on `Long`.
+ * (`above +`), left-associative. Abstract here; the platform layer supplies the body.
  */
 infix left above +
-def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)] =
-  nativeWiden(dispatchMultiply(
-    nativeWiden[LMin, LMax, min(LMin, RMin), max(LMax, RMax)](left),
-    nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
+def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]
 
 /**
- * Render an integer as its decimal `String`. Abstract here (body-less, like `println`); the JVM layer realises it as
- * `Long.toString`. Lets programs observe computed integers (and seeds Phase-7 examples). The bounds are irrelevant to
- * the rendering, so they are ordinary phantom type parameters.
+ * Render an integer as its decimal `String`. Abstract here (body-less, like `println`); a platform layer realises it
+ * (the JVM layer recognises this FQN and emits `Long.toString`). Lets programs observe computed integers. The bounds
+ * are irrelevant to the rendering, so they are ordinary phantom type parameters.
  */
 def intToString[Min: BigInteger, Max: BigInteger](value: Int[Min, Max]): String
-
-/**
- * Value-preserving representation conversion: reinterprets an `Int[Smin, Smax]` at a different bound `Int[Tmin, Tmax]`,
- * keeping the same logical integer. The bound relationship is NOT enforced here — callers (the `Coerce` instance below,
- * gated by a bounds check; and the `+`/`-`/`*` dispatch, which only ever converts a value that provably fits) guarantee
- * the value lies within `[Tmin, Tmax]`. At the type level it bridges `Int[Smin, Smax]` to `Int[Tmin, Tmax]`; at runtime
- * the platform converts the machine integer between the source and target representations (on the JVM: unbox the source
- * wrapper to `long`, rebox at the target wrapper, sign/zero-extending or narrowing as the widths demand).
- */
-def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger](value: Int[Smin, Smax]): Int[Tmin, Tmax]
-
-/**
- * Range widening as a user-space `Coerce` instance: an `Int[Smin, Smax]` coerces to `Int[Tmin, Tmax]` exactly when
- * `[Smin, Smax]` is contained in `[Tmin, Tmax]`. The `some`/`none` result IS the existence proof — the checker's
- * check-mode `Coerce` insertion resolves this instance by name, evaluates `coerce`
- * through the one NbE evaluator, and splices the `some` payload at the use site (or reports a type error on `none`).
- *
- * The bounds check `lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax)` depends only on type-level data, so NbE
- * forces it away at compile time; the `nativeWiden value` payload stays a residual carrying the (currently identity)
- * conversion.
- */
-implement[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] { def coerce(value: Int[Smin, Smax]): Option[Int[Tmin, Tmax]] = fold(lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax), some(nativeWiden(value)), none) }
 
 /**
  * Combining two integer ranges yields the range that covers both: the lower bound is the minimum of the two minima and
  * the upper bound is the maximum of the two maxima. This is the join used to type a `match` whose branches return
  * different integer ranges (or `f[A](a: A, b: A): A` called with different ranges): the checker solves the covariant
- * result metavariable to this `Combined` type, then the `Coerce` instance above widens each contributor into it (which
- * always exists, since the joined range contains both by construction).
+ * result metavariable to this `Combined` type, then the `Coerce` instance (supplied by the platform layer) widens each
+ * contributor into it (which always exists, since the joined range contains both by construction).
+ *
+ * `Combine` is purely type-level — `Combined` is computed from `min`/`max` on the bounds, with no runtime payload and
+ * no machine representation — so it is platform-independent and belongs here, unlike the value-converting `Coerce`
+ * instance.
  */
 implement[Amin: BigInteger, Amax: BigInteger, Bmin: BigInteger, Bmax: BigInteger] Combine[Int[Amin, Amax], Int[Bmin, Bmax]] { type Combined = Int[min(Amin, Bmin), max(Amax, Bmax)] }
-
-/**
- * Concretely-sized leaf natives for the three arithmetic operators (Phase 4). Each is body-less and typed at `Int`
- * ranges (so the dispatch bodies type-check under the global opaque `Int`); its name encodes the operand
- * representation `Wc` and the result representation `Wr`. Both operands arrive at the SAME representation `Wc`
- * (the dispatch widens them first), so after monomorphization + representation lowering each leaf FQN reduces to
- * exactly one concrete machine signature, which the backend realises as a single fixed instruction group:
- *   - `…{Wc}To{Wc}` — operands and result share a width;
- *   - `…{Wc}To{next(Wc)}` — the result carries one width up (`+`/`-` overflow, `*` growth);
- *   - narrowing (additive cancellation) is handled by the surrounding final `nativeWiden`, not a leaf.
- * The result bounds are the operator's dependent bounds (`add`/`subtract`/`multiplyMin`+`multiplyMax`), identical
- * across the `{Wc}` variants of one operator; only the FQN (and thus the backend's chosen layout) differs.
- */
-def nativeAddByteToByte[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
-def nativeAddByteToShort[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
-def nativeAddShortToShort[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
-def nativeAddShortToInt[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
-def nativeAddIntToInt[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
-def nativeAddIntToLong[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
-def nativeAddLongToLong[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
-def nativeAddLongToBigInteger[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
-def nativeAddBigIntegerToBigInteger[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
-
-def nativeSubtractByteToByte[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[subtract(M1, X2), subtract(X1, M2)]
-def nativeSubtractByteToShort[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[subtract(M1, X2), subtract(X1, M2)]
-def nativeSubtractShortToShort[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[subtract(M1, X2), subtract(X1, M2)]
-def nativeSubtractShortToInt[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[subtract(M1, X2), subtract(X1, M2)]
-def nativeSubtractIntToInt[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[subtract(M1, X2), subtract(X1, M2)]
-def nativeSubtractIntToLong[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[subtract(M1, X2), subtract(X1, M2)]
-def nativeSubtractLongToLong[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[subtract(M1, X2), subtract(X1, M2)]
-def nativeSubtractLongToBigInteger[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[subtract(M1, X2), subtract(X1, M2)]
-def nativeSubtractBigIntegerToBigInteger[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[subtract(M1, X2), subtract(X1, M2)]
-
-def nativeMultiplyByteToByte[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
-def nativeMultiplyByteToShort[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
-def nativeMultiplyShortToShort[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
-def nativeMultiplyShortToInt[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
-def nativeMultiplyIntToInt[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
-def nativeMultiplyIntToLong[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
-def nativeMultiplyLongToLong[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
-def nativeMultiplyLongToBigInteger[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
-def nativeMultiplyBigIntegerToBigInteger[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
-
-/**
- * Width dispatch for addition. Both operands already share the representation of `Int[Cmin, Cmax]` (the caller widened
- * them). The outer fold picks the operand width `Wc` (the smallest threshold range containing `[Cmin, Cmax]`); the
- * inner fold picks the result width — `{Wc}To{Wc}` when the sum range `[add(Cmin, Cmin), add(Cmax, Cmax)]` still fits
- * `Wc`, else `{Wc}To{next(Wc)}` (carry). `BigInteger` is the top, so it has no carry variant.
- */
-def dispatchAdd[Cmin: BigInteger, Cmax: BigInteger](left: Int[Cmin, Cmax], right: Int[Cmin, Cmax]): Int[add(Cmin, Cmin), add(Cmax, Cmax)] =
-  fold(fitsIn[-128, 127, Cmin, Cmax],
-    fold(fitsIn[-128, 127, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddByteToByte(left, right), nativeAddByteToShort(left, right)),
-  fold(fitsIn[-32768, 32767, Cmin, Cmax],
-    fold(fitsIn[-32768, 32767, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddShortToShort(left, right), nativeAddShortToInt(left, right)),
-  fold(fitsIn[-2147483648, 2147483647, Cmin, Cmax],
-    fold(fitsIn[-2147483648, 2147483647, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddIntToInt(left, right), nativeAddIntToLong(left, right)),
-  fold(fitsIn[-9223372036854775808, 9223372036854775807, Cmin, Cmax],
-    fold(fitsIn[-9223372036854775808, 9223372036854775807, add(Cmin, Cmin), add(Cmax, Cmax)], nativeAddLongToLong(left, right), nativeAddLongToBigInteger(left, right)),
-    nativeAddBigIntegerToBigInteger(left, right)))))
-
-/**
- * Width dispatch for subtraction. As `dispatchAdd`, but the result range of two `[Cmin, Cmax]` operands is
- * `[subtract(Cmin, Cmax), subtract(Cmax, Cmin)]`.
- */
-def dispatchSubtract[Cmin: BigInteger, Cmax: BigInteger](left: Int[Cmin, Cmax], right: Int[Cmin, Cmax]): Int[subtract(Cmin, Cmax), subtract(Cmax, Cmin)] =
-  fold(fitsIn[-128, 127, Cmin, Cmax],
-    fold(fitsIn[-128, 127, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractByteToByte(left, right), nativeSubtractByteToShort(left, right)),
-  fold(fitsIn[-32768, 32767, Cmin, Cmax],
-    fold(fitsIn[-32768, 32767, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractShortToShort(left, right), nativeSubtractShortToInt(left, right)),
-  fold(fitsIn[-2147483648, 2147483647, Cmin, Cmax],
-    fold(fitsIn[-2147483648, 2147483647, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractIntToInt(left, right), nativeSubtractIntToLong(left, right)),
-  fold(fitsIn[-9223372036854775808, 9223372036854775807, Cmin, Cmax],
-    fold(fitsIn[-9223372036854775808, 9223372036854775807, subtract(Cmin, Cmax), subtract(Cmax, Cmin)], nativeSubtractLongToLong(left, right), nativeSubtractLongToBigInteger(left, right)),
-    nativeSubtractBigIntegerToBigInteger(left, right)))))
-
-/**
- * Width dispatch for multiplication. As `dispatchAdd`, but the result range of two `[Cmin, Cmax]` operands is the
- * min/max of the four corner products, `[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)]`.
- */
-def dispatchMultiply[Cmin: BigInteger, Cmax: BigInteger](left: Int[Cmin, Cmax], right: Int[Cmin, Cmax]): Int[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)] =
-  fold(fitsIn[-128, 127, Cmin, Cmax],
-    fold(fitsIn[-128, 127, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyByteToByte(left, right), nativeMultiplyByteToShort(left, right)),
-  fold(fitsIn[-32768, 32767, Cmin, Cmax],
-    fold(fitsIn[-32768, 32767, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyShortToShort(left, right), nativeMultiplyShortToInt(left, right)),
-  fold(fitsIn[-2147483648, 2147483647, Cmin, Cmax],
-    fold(fitsIn[-2147483648, 2147483647, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyIntToInt(left, right), nativeMultiplyIntToLong(left, right)),
-  fold(fitsIn[-9223372036854775808, 9223372036854775807, Cmin, Cmax],
-    fold(fitsIn[-9223372036854775808, 9223372036854775807, multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)], nativeMultiplyLongToLong(left, right), nativeMultiplyLongToBigInteger(left, right)),
-    nativeMultiplyBigIntegerToBigInteger(left, right)))))
