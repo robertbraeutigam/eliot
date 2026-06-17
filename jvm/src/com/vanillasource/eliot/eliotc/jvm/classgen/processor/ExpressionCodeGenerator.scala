@@ -304,7 +304,8 @@ object ExpressionCodeGenerator {
     * `BigInteger`, otherwise through primitive `long`.
     */
   private def convertRepresentation(sourceRep: String, targetRep: String)(mv: org.objectweb.asm.MethodVisitor): Unit =
-    if (targetRep === bigIntegerInternalName) pushAsBigInteger(sourceRep)(mv)
+    if (sourceRep === targetRep) ()                              // same representation: the value already has the right form
+    else if (targetRep === bigIntegerInternalName) pushAsBigInteger(sourceRep)(mv)
     else {
       unboxToLong(sourceRep)(mv)
       boxFromLong(targetRep)(mv)

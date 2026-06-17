@@ -401,15 +401,13 @@ No representation `switch` in Scala anywhere; every source→target choice is an
   descriptor).
 - **Runtime widening across representations** (`ExamplesIntegrationTest`): `Byte`→`Int[0,1000]` (Short) prints
   correctly *(covered)*; an arithmetic result whose operands and result span different representations *(covered)*.
-  A `data` type with mixed-width `Int` fields round-tripping is **blocked by a separate, pre-existing backend gap,
-  not a jvm-int issue**. *Constructing* a multi-field `data` value codegens fine; *eliminating* it (pattern match
-  or field accessor — accessors desugar to a `match`) does not: a `match` on an N-field constructor produces an
-  N-parameter handler, which the uncurry pass hands the backend as a multi-parameter lambda, and
-  `LambdaGenerator.generateLambda` is `??? // Multi-parameter lambdas not currently supported` for
-  `parameters.length > 1` (long-standing, since `fc4a3f72`). So matching/accessing *any* two-field `data` — even
-  one with `String` fields — fails codegen with `NotImplementedError`; single-field data works throughout (every
-  `data` in the repo has one value field). Implementing multi-parameter lambdas is its own task (general backend
-  codegen), outside this plan.
+  A `data` type with mixed-width `Int` fields round-tripping is **now covered**: `data IntPair(small: Int[0,255],
+  large: Int[0,5000000000])` whose fields lower to different representations (`Byte` and `Long`), matched out and
+  summed (`200 + 5000000000 = 5000000200`), exercising cross-representation arithmetic over peeled match closures.
+  This was previously blocked by the multi-parameter-lambda backend gap (`LambdaGenerator.generateLambda` was
+  `??? // Multi-parameter lambdas not currently supported` for `parameters.length > 1`); that gap was closed in
+  `3873d062` (the generator now peels an N-param `FunctionLiteral` into nested single-arg closures), unblocking
+  this test.
 - **Mangling/dedup** *(covered)*: a generic `id[Mn, Mx](x: Int[Mn, Mx])` instantiated at two ranges sharing a
   representation (`Int[0,3]`, `Int[0,5]` → `Byte`) reuses one method, and at two ranges with different
   representations (`Byte` and `Long`) dispatches collision-free distinct methods — both verified at runtime in
@@ -431,9 +429,16 @@ byte→short carry (`100 + 100 = 200`, via `nativeAddByteToShort`), short-operan
 (`1000 - 999 = 1`, via the narrowing outer `nativeWiden`), and generic-instantiation dedup across same- and
 different-representation ranges.
 
-**Remaining (small, optional) follow-ups, none blocking the plan:**
-- `nativeWiden` no-op when source and target share a representation (currently an unbox→rebox round-trip; could be
-  elided as an optimisation — correctness is fine).
-- A `data` type with mixed-width `Int` fields is *not yet testable* end-to-end because multi-field `data`
-  constructor codegen is unimplemented (the `LambdaGenerator` `???` above) — a separate general-`data` task.
-- Termination of the opaque body / `representationOf` is bounded by the future recursion/effect model, not here.
+**Remaining follow-ups:**
+- ~~`nativeWiden` no-op when source and target share a representation~~ **done**: `convertRepresentation` now
+  short-circuits when `sourceRep === targetRep`, leaving the already-correctly-boxed value on the stack instead of
+  an `unbox→rebox` round-trip. (The `BigInteger→BigInteger` case was already a no-op via `pushAsBigInteger`'s
+  guard; this generalises the elision to every representation.)
+- ~~A `data` type with mixed-width `Int` fields, end-to-end~~ **done**: covered by `ExamplesIntegrationTest`'s
+  `IntPair(Int[0,255], Int[0,5000000000])` round-trip, unblocked by the multi-parameter-lambda backend work
+  (`3873d062`).
+- Termination of the opaque body / `representationOf` is bounded by the future recursion/effect model, not here
+  (out of scope for this plan).
+
+With those resolved, the jvm-int representation plan is **complete**; the only deferred item (termination) belongs
+to the separate recursion/effect-model work.
