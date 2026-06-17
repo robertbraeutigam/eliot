@@ -64,6 +64,37 @@ today's backend and that target.
    - `LambdaGenerator` computes a lambda's captured free variables (`LambdaGenerator.scala:163-175`) and peels
      N-ary lambdas into nested single-arg closures (`LambdaGenerator.scala:43-56`).
 
+5. **The match-dispatch logic the plan wants to extract is already written once in `lang` — the backend just
+   does not share it.** `MatchNativesProcessor` (`monomorphize/processor/MatchNativesProcessor.scala`) builds
+   `handleCases`/`typeMatch` as pure `VNative` `SemValue`s for compile-time NbE. Its `orderedConstructors`
+   (lines 70–86) already computes *exactly what W2 wants* — a data type's value constructors in
+   source-declaration order — by reading `RoleHint.ValueConstructor` off `NamedValue` plus `UnifiedModuleNames`,
+   not by parsing signatures. It also already encodes the Church selector (`churchSelector`, line 126) and the
+   field application (`applyHandlerToFields`, line 121). The backend's `DataClassGenerator` re-derives the same
+   grouping by *signature re-parsing* and re-encodes the same selector chain in bytecode. So W2/W3 are
+   **deduplication across lang and backend**, not merely a backend cleanup, and they confirm the layout is
+   cheaply derivable from `RoleHint`. **Caveat for placement:** `RoleHint` does *not* reach the backend — it
+   lives on the `core` `NamedValue` fact, while the backend consumes `OperatorResolvedValue` /
+   `UncurriedMonomorphicValue`, which is precisely *why* it re-parses signatures. So the layout must surface in a
+   fact the backend already reads; "denormalize onto the existing `RoleHint`" is not sufficient on its own.
+
+## Solution-strategy preference
+
+The dispositions below are chosen against an explicit preference ordering for *where* extracted logic should
+live, from most to least preferred:
+
+1. **A method/function on an existing fact** (or an extension on an IR type). Best when the logic is a pure
+   function of data already on the fact — no new fact, no storage, no staleness. Applies to W4, W6.
+2. **Denormalized data carried on an existing fact.** Use when the value is needed repeatedly downstream and
+   recomputing is wasteful, or when it must be fixed at an earlier phase that has information later phases lack.
+   Applies to W5 (capture sets per peeled frame).
+3. **A new fact + processor.** Acceptable *only* when it offloads genuinely new, closed functionality — a
+   self-contained computation that no existing fact can host as a method (typically a cross-value aggregation or
+   a synthesis step). Applies to W2, W3, W8, and the optional form of W7.
+
+Each work item records its **Disposition** (the chosen strategy and any change from this document's original
+sketch) and its **Open questions**.
+
 ## Inventory: generic vs. genuinely backend-specific
 
 | Mechanism | Location | Verdict |
@@ -72,10 +103,10 @@ today's backend and that target.
 | PatternMatch/TypeMatch recognition by name | `JvmClassGenerator.scala:56-99`; `ExpressionCodeGenerator.scala:119-160` | **generic** → `WellKnownTypes` + plan fact |
 | Church/Scott `handleCases` encoding | `DataClassGenerator.scala:118-321` | **generic algorithm** → core desugaring |
 | `typeMatch` instanceof dispatch structure | `DataClassGenerator.scala:366-423` | **generic structure**, emission JVM |
-| Free-variable / capture analysis | `LambdaGenerator.scala:163-175` | **generic** → lang utility / IR field |
-| N-ary lambda → nested single-arg peel | `LambdaGenerator.scala:43-56` | **generic** → `uncurry` normalization |
-| Erasure (`valueType`) | `CommonPatterns.scala:14-22` | **logic generic**, FQN→class JVM |
-| Monomorphic-instance dedup by representation | `JvmClassGenerator.scala:233-276` | **generic principle** → IR keying |
+| Free-variable / capture analysis | `LambdaGenerator.scala:163-175` | **generic** → method on IR (W4) |
+| N-ary lambda → nested single-arg peel | `LambdaGenerator.scala:43-56` | **generic** → `uncurry` normalization (W5) |
+| Erasure (`valueType`) | `CommonPatterns.scala:14-22` | **generic** → `GroundValue` method (W6); FQN→class JVM |
+| Monomorphic-instance dedup by representation | `JvmClassGenerator.scala:233-276` | **generic** → shared key method (W7); pre-dedup optional |
 | "body-less def with no native = error" | `JvmClassGenerator.scala:315-317` | **generic guard** → lang check |
 | Intrinsic FQN set / width-suffix names | `Intrinsics.scala:35-59` | duplicated stdlib↔backend |
 | ASM emission, descriptors, verifier | `asm/*`, `MethodGenerator`, `ClassGenerator` | **JVM — keep** |
@@ -160,6 +191,33 @@ reads its output) rather than reconstructed from signatures downstream. The back
 backend and makes the data available to every backend), but care is needed to reproduce the exact ordering the
 backend currently derives from source positions.
 
+**Disposition — new fact + small processor (preference #3), keyed by the data-type FQN.** A method on an
+existing fact does not fit: this is a *cross-value aggregation* (enumerate a module's constructors, read each
+one's `RoleHint`, sort by source position). No single existing fact holds it, so it is exactly the
+"new, closed functionality" case for a processor.
+- **Body:** lift `MatchNativesProcessor.orderedConstructors` (which already does this, RoleHint-driven) into the
+  new processor; add `fieldCount` (already on `RoleHint.ValueConstructor`).
+- **Reuse, not just removal:** refactor `MatchNativesProcessor` to *consume* this fact, and delete the
+  backend's `evaluateConstructorDataType` / `stripFunctionLiterals` / `stripApplicationTargets` /
+  `stripCurriedReturnType` / `isFunctionTypeApplication` / `extractReturnTypeRef`. One ordering authority
+  replaces the current three.
+- **Layout carries structure only — not field types.** Field *types* are monomorphic/per-instance and already
+  on `UncurriedMonomorphicValue.parameters`; `DataClassGenerator` reads them from the uncurried value and needs
+  only *count + index + grouping* from the layout. So the fact is:
+
+  ```scala
+  case class DataTypeLayout(dataType: ValueFQN, constructors: Seq[ConstructorLayout])
+  case class ConstructorLayout(ctor: ValueFQN, index: Int, fieldCount: Int)
+  ```
+
+  Keeping it type-erasure-free makes it monomorphization-independent (one fact per data type, not per instance).
+
+**Open questions.**
+- Confirm the structure-only split holds for *every* backend consumer (no backend needs concrete field types
+  *from the layout* rather than from the uncurried value).
+- Keying by data-type FQN means "gather the module's constructors"; this relies on a constructor's module always
+  equalling its data type's module. The `RoleHint` doc asserts that invariant — confirm it is enforced.
+
 ---
 
 ### W3 — Synthesize `handleCases` / `typeMatch` implementations as core terms
@@ -191,6 +249,26 @@ produces equivalent output (the `ExamplesIntegrationTest` match cases are the or
 if delivered incrementally, because it is what most reduces a backend to "literals + allocations + lambdas +
 application + a type map."
 
+**Disposition — new desugaring (preference #3), but honestly scoped.** This fits "new, closed functionality."
+The claim of "**zero** pattern-match-specific code in the backend" is too strong, though: the synthesis bottoms
+out at two irreducible runtime leaves the backend must still emit —
+- **field projection** (`GETFIELD` today): applying a handler to a constructor's fields, and
+- **constructor-tag test** (`instanceof` today): needed by `typeMatch`'s dispatch. `handleCases` avoids this,
+  because dispatch is per-constructor via virtual method, so each constructor's body is just
+  `\cases -> cases pickᵢ field₀ … field_k` with no tag test.
+
+Both leaves already belong to the "ideal backend" list (item 2: allocation + field access). **Represent them as
+named intrinsic leaves** (like `nativeWiden`), *not* as new IR nodes — that keeps them consistent with the
+existing leaf-emitter contract and folds neatly into W8. The genuine, large win remains: the intricate
+selector-chain *shape* (handler-forwarding closures) moves from bytecode to `lang`.
+
+**Open questions.**
+- **One dispatch authority or two?** The biggest prize is making the synthesized core body *also replace*
+  `MatchNativesProcessor`'s compile-time `VNative`, so NbE and runtime share one definition (best cornerstone
+  story, highest risk). The lower-risk alternative keeps `MatchNativesProcessor` for compile time and only
+  synthesizes the runtime body. **Decide before starting W3.**
+- Field-projection / tag-test as named intrinsic leaves (recommended) vs. new IR nodes — confirm.
+
 ---
 
 ### W4 — Free-variable / capture analysis as a `lang` concern
@@ -210,6 +288,13 @@ ready-made and never re-walks the tree.
 the `uncurry` fact shape but removes a class of backend bugs (forgetting to exclude a bound name, mishandling
 nested binders).
 
+**Disposition — method/extension on the IR type (preference #1).** `collectParameterReferences` is a pure tree
+fold; make it `freeVariables` (extension) on `UncurriedMonomorphicExpression` in `lang`, the post-uncurry type
+the backend already consumes. No staleness risk, no IR change. Denormalizing onto `FunctionLiteral`
+(preference #2) buys nothing here unless it is measured hot — and it is not. Lowest-risk item in the plan.
+
+**Open questions.** None of substance — just confirm the single home is the post-uncurry expression type.
+
 ---
 
 ### W5 — Normalise N-ary lambdas to single-parameter form in `uncurry`
@@ -226,6 +311,18 @@ closure-class *emission* is JVM-specific. Doing it once in `lang` means every ba
 form (or expose them already-peeled).
 
 **Effort/risk.** Low-medium / low. Composes naturally with W4 (capture sets per peeled frame).
+
+**Disposition — extend the existing `uncurry` processor (no new processor); denormalize per-frame captures
+(preference #2).** This modifies an existing transformation, so it sidesteps the processor question. One
+precision the original sketch blurs: `uncurry` *flattens to N-ary* for top-level defs and call sites, whereas
+W5 is specifically about **expression-position lambda literals** (closures). Peel only those to single-parameter
+form, and pair with W4 to attach each peeled frame's capture set — the maximally backend-ready form.
+
+**Open question (genuine tension).** Single-parameter closures may over-commit to a JVM-ish representation; a
+microcontroller backend might prefer N-ary closures and would then have to re-coalesce. Counter-argument:
+currying *is* the language's semantics (`a -> b -> c`), so single-parameter is the *canonical* form and N-ary is
+the optimization — which argues for peeling in `lang`. This is the one place the plan bakes a representation
+choice into shared IR; **decide explicitly.**
 
 ---
 
@@ -246,6 +343,20 @@ The backend then needs only an FQN → machine-type map (`NativeType.types`), wi
 **Effort/risk.** Medium / medium. Highest-leverage of the "typed IR" items: it makes W7 unnecessary and shrinks
 `CommonPatterns` to a thin lookup.
 
+**Disposition — reframe to a method on `GroundValue` (preference #1), *not* "store erased types in the IR".**
+`CommonPatterns.valueType` is already a pure `GroundValue → ValueFQN` function whose only non-`lang` dependency
+is the final FQN→class lookup; `WellKnownTypes.typeFQN`, `stripDataTypeSuffix`, and the `Function`/`Any` FQNs are
+all `lang`-expressible. So lift it as `GroundValue.carrierFQN` in `lang`; the backend keeps only `NativeType.types`
+(FQN→class). This is preference #1 and **lower-risk** than mutating the IR, because erasure is lossy (function
+structure → bare `Function`) and storing it would discard structure other code may still want. It also gives W7
+its key computation for free.
+
+**Open question.** If you nevertheless want erased types *in* the IR (so the backend reads a field, not a call),
+erase **only** the descriptor positions (signature / params / return / expression types) and **never** the
+identity `typeArguments` / `MonomorphicValueReference` type args — the `uncurry` pass already respects that split
+and lowering must stay idempotent on instance identity. My recommendation is the method form unless there is a
+measured reason to denormalize.
+
 ---
 
 ### W7 — Representation-keyed monomorphic instances (eliminate backend dedup)
@@ -264,6 +375,17 @@ backend sees the instances — deleting this loop from every backend. This is al
 that forgets the dedup emits clashing overloads.
 
 **Effort/risk.** Medium / medium. Best done as a consequence of W6 rather than independently.
+
+**Disposition — share the *key* now (via W6's `GroundValue.carrierFQN`); defer full pre-dedup.** Fully removing
+the loop requires `lang` to present pre-collapsed instances, but the identity Key cannot be erased (distinct
+`typeArguments` must stay distinct through monomorphization), so that needs a *new* fact keyed on the erased
+signature — preference #3, justified only with a second backend in hand. The fragile/duplicable part today is
+the *key computation* (`methodSignatureKey`, built from `valueType(...).show`); once W6 yields
+`GroundValue.carrierFQN`, a new backend computes the key correctly for free and the remaining `seen`-set loop is
+~10 trivial lines. **Ship the shared-key version; treat full pre-dedup as optional and contingent on W6.**
+
+**Open question.** Is the structural guarantee (a backend *cannot* forget to dedup) worth a dedicated
+erased-signature-keyed fact? Depends on how soon the microcontroller backend lands.
 
 ---
 
@@ -287,18 +409,44 @@ should map FQN → emitter rather than re-listing the names.
 **Effort/risk.** Low-medium / low. Turns a per-backend convention into a structural guarantee and removes the
 stdlib↔backend name duplication.
 
+**Disposition — `lang` check (preference #3) + a backend-supplied *predicate* registry.** The check ("every used
+body-less def must be claimed by *some* backend native") is closed functionality and belongs in `lang`, computed
+over `UsedNames` + the body-less-def facts. The backend supplies *what it realizes* via the existing plugin
+`Configuration` mechanism (`JvmPlugin` already threads config).
+
+**Open question (the key design choice).** The `nativeAdd*` / `Subtract*` / `Multiply*` leaves are a *generated
+matrix* (operator × width-suffix), not a flat set independent of stdlib — which is exactly why
+`Intrinsics.scala:35-59` re-types them. So the registry should be a **predicate `FQN → Boolean`** (or
+`FQN → Option[emitter]`), not a `Set`: the check asks the backend "can you realize X?" per used body-less def,
+which covers inline intrinsics *and* generated families *and* kills the stdlib↔backend duplication. Confirm a
+predicate registry is acceptable over an enumerable set.
+
 ## Sequencing
 
-1. **Quick, safe, independently shippable:** **W1** (well-known names), **W4** (capture analysis), **W8**
-   (native-coverage check). Each de-risks a second backend with little churn and no IR changes.
-2. **Typed-IR layer (medium, high leverage):** **W2** (`DataTypeLayout` fact), then **W6** (erasure into
-   `RepresentationLowering`) which subsumes **W7** (dedup). **W5** rides along with W4.
-3. **Strategic:** **W3** (synthesize `handleCases`/`typeMatch` as core terms), staged behind the existing
-   backend path and switched over once output matches.
+Revised to reflect the dispositions above (methods-first where possible; W2's fact unblocks both W3 and the
+`MatchNativesProcessor` dedup; W6's method unblocks W7):
+
+1. **Small, independent, no IR change:** **W4** (`freeVariables` method), **W6** (`GroundValue.carrierFQN`
+   method), **W8** (check + predicate registry). W6 also de-risks W7's key computation.
+2. **Cross-value aggregation fact:** **W2** (`DataTypeLayout`) — unblocks W3 *and* dedupes
+   `MatchNativesProcessor`'s ordering logic.
+3. **IR normalization + cheap dedup:** **W5** (extend `uncurry`, pairs with W4), then **W7** (trivial once W6
+   lands; ship the shared-key version).
+4. **Strategic, staged:** **W3** (synthesize `handleCases`/`typeMatch`), on top of W2's layout, with the
+   one-vs-two-dispatch-authorities question settled first.
+
+**Open questions to settle before/while implementing** (collected):
+1. W3 — unify the synthesized body with `MatchNativesProcessor`'s NbE native (one source of truth), or keep two?
+2. W3 — field-projection + tag-test as named intrinsic leaves (recommended) or new IR nodes?
+3. W5 — is single-parameter-closure the right *canonical* IR form for all backends, or a backend choice?
+4. W6 — method on `GroundValue` (recommended) vs. denormalized erased types in the IR?
+5. W7 — ship the shared-key version, or invest in an erased-signature-keyed fact for the structural guarantee?
+6. W8 — predicate registry (`FQN → emitter`) vs. enumerable set?
 
 Net effect once all land: a new backend (the microcontroller target) implements roughly a representation-FQN →
-machine-layout map plus the intrinsic leaf emitters, and inherits data layout, pattern matching, closure
-conversion, coercion, dedup, and the coverage guard from `lang`.
+machine-layout map plus the intrinsic leaf emitters (including the field-projection and constructor-tag-test
+leaves W3 bottoms out at), and inherits data layout, pattern matching, closure conversion, coercion, dedup, and
+the coverage guard from `lang`.
 
 ## What stays in the backend (explicitly out of scope)
 
