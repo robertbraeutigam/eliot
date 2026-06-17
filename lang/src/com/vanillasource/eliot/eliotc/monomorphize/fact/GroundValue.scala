@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.monomorphize.fact
 
 import cats.{Eq, Show}
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN, WellKnownTypes}
 
 /** Ground values represent fully evaluated, concrete values with no free variables or unsolved metas. These are the
   * output of quoting NbE semantic values back to a first-order representation.
@@ -64,6 +64,24 @@ object GroundValue {
           (paramType +: restParams, finalReturn)
         case None                          =>
           (Seq.empty, gv)
+      }
+
+    /** The runtime *carrier* FQN this value's type erases to — the platform-independent half of type erasure. Function
+      * types collapse to [[WellKnownTypes.functionCarrierFQN]]; a concrete data/structure type keeps its FQN with the
+      * type-constructor qualifier stripped to [[Qualifier.Default]]; everything else (`Type` itself, or an
+      * erased/phantom value with no type FQN) collapses to the opaque top carrier [[WellKnownTypes.anyFQN]]. A backend
+      * maps the resulting FQN to a concrete machine type (the JVM via `NativeType.types`); this method holds the
+      * collapse logic so no backend reimplements it.
+      */
+    def carrierFQN: ValueFQN =
+      gv match {
+        case _ if gv.asFunctionType.isDefined => WellKnownTypes.functionCarrierFQN
+        case _                                =>
+          gv.typeFQN match {
+            case Some(name) if name =!= WellKnownTypes.typeFQN =>
+              ValueFQN(name.moduleName, QualifiedName(name.name.name, Qualifier.Default))
+            case _                                             => WellKnownTypes.anyFQN
+          }
       }
   }
 

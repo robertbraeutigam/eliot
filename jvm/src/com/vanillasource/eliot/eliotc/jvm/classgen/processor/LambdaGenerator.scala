@@ -63,7 +63,7 @@ object LambdaGenerator {
       body: Sourced[UncurriedMonomorphicExpression],
       createExpressionCode: ExpressionCodeFn
   ): CompilationTypesIO[Seq[ClassFile]] = {
-    val closedOverNames = collectParameterReferences(body.value.expression)
+    val closedOverNames = body.value.expression.freeVariables
       .filter(_ =!= definition.name.value)
     val returnType      = valueType(body.value.expressionType)
 
@@ -159,18 +159,4 @@ object LambdaGenerator {
                           )
     } yield classFile +: cls1
   }
-
-  def collectParameterReferences(expr: Expression): Seq[String] =
-    expr match {
-      case FunctionApplication(target, arguments) =>
-        collectParameterReferences(target.value.expression) ++
-          arguments.flatMap(arg => collectParameterReferences(arg.value.expression))
-      case FunctionLiteral(parameters, body)      =>
-        val boundNames = parameters.map(_.name.value).toSet
-        collectParameterReferences(body.value.expression).filterNot(boundNames.contains)
-      case IntegerLiteral(_)                      => Seq.empty
-      case StringLiteral(_)                       => Seq.empty
-      case ParameterReference(parameterName)      => Seq(parameterName.value)
-      case MonomorphicValueReference(_, _)        => Seq.empty
-    }
 }

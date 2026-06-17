@@ -49,4 +49,24 @@ object UncurriedMonomorphicExpression {
     case MonomorphicValueReference(valueName, _)                    => valueName.value.show
     case ParameterReference(parameterName)                          => parameterName.value
   }
+
+  extension (expression: Expression) {
+
+    /** The parameter names this expression references but does not itself bind — its free variables. A
+      * closure-converting backend subtracts the lambda's own parameters from this to obtain the captured environment.
+      * Names are returned in occurrence order and may repeat; nested `FunctionLiteral` binders are excluded.
+      */
+    def freeVariables: Seq[String] =
+      expression match {
+        case FunctionApplication(target, arguments) =>
+          target.value.expression.freeVariables ++ arguments.flatMap(_.value.expression.freeVariables)
+        case FunctionLiteral(parameters, body)      =>
+          val boundNames = parameters.map(_.name.value).toSet
+          body.value.expression.freeVariables.filterNot(boundNames.contains)
+        case IntegerLiteral(_)                      => Seq.empty
+        case StringLiteral(_)                       => Seq.empty
+        case ParameterReference(parameterName)      => Seq(parameterName.value)
+        case MonomorphicValueReference(_, _)        => Seq.empty
+      }
+  }
 }

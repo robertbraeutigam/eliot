@@ -10,6 +10,21 @@ object WellKnownTypes {
   val functionDataTypeFQN: ValueFQN =
     ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))
 
+  /** The runtime *carrier* a function value erases to: the same `eliot.lang.Function` module as
+    * [[functionDataTypeFQN]] but with [[Qualifier.Default]] (the value namespace) instead of the type-constructor
+    * qualifier. [[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.carrierFQN]] collapses every function
+    * type to this FQN; a backend maps it to its closure representation (the JVM maps it to `java.util.function.Function`).
+    */
+  val functionCarrierFQN: ValueFQN =
+    ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Default))
+
+  /** The opaque top carrier that erased or `Type`-typed values collapse to under
+    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.carrierFQN]]. It is deliberately not a declared
+    * stdlib type — it is the erased-representation sentinel every backend needs (the JVM maps it to `java.lang.Object`).
+    */
+  val anyFQN: ValueFQN =
+    ValueFQN(ModuleName(defaultSystemPackage, "Any"), QualifiedName("Any", Qualifier.Default))
+
   val bigIntFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "BigInteger"), QualifiedName("BigInteger", Qualifier.Type))
 

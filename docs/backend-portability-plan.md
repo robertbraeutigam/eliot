@@ -1,8 +1,8 @@
 # Extracting Generic Mechanisms From the JVM Backend Into `lang`
 
-Status: **Proposal / evaluation.** Nothing here is implemented yet. This is a survey of what currently lives
-in the `jvm` module but is platform-independent, and a sequenced plan for moving it into `lang` so that writing
-a second backend (the microcontroller target) is easier and safer.
+Status: **In progress.** W1, W4, and W6 are implemented (see their entries); W2, W3, W5, W7, W8 remain. This is
+a survey of what currently lives in the `jvm` module but is platform-independent, and a sequenced plan for moving
+it into `lang` so that writing a second backend (the microcontroller target) is easier and safer.
 
 ## Goal
 
@@ -84,7 +84,7 @@ The dispositions below are chosen against an explicit preference ordering for *w
 live, from most to least preferred:
 
 1. **A method/function on an existing fact** (or an extension on an IR type). Best when the logic is a pure
-   function of data already on the fact — no new fact, no storage, no staleness. Applies to W4, W6.
+   function of data already on the fact — no new fact, no storage, no staleness. Applies to W4, W6 (both **DONE**).
 2. **Denormalized data carried on an existing fact.** Use when the value is needed repeatedly downstream and
    recomputing is wasteful, or when it must be fixed at an earlier phase that has information later phases lack.
    Applies to W5 (capture sets per peeled frame).
@@ -103,9 +103,9 @@ sketch) and its **Open questions**.
 | PatternMatch/TypeMatch recognition by name | `JvmClassGenerator.scala:56-99`; `ExpressionCodeGenerator.scala:119-160` | **generic** → `WellKnownTypes` + plan fact |
 | Church/Scott `handleCases` encoding | `DataClassGenerator.scala:118-321` | **generic algorithm** → core desugaring |
 | `typeMatch` instanceof dispatch structure | `DataClassGenerator.scala:366-423` | **generic structure**, emission JVM |
-| Free-variable / capture analysis | `LambdaGenerator.scala:163-175` | **generic** → method on IR (W4) |
+| Free-variable / capture analysis | `LambdaGenerator.scala:163-175` | **DONE** → `freeVariables` method on IR (W4) |
 | N-ary lambda → nested single-arg peel | `LambdaGenerator.scala:43-56` | **generic** → `uncurry` normalization (W5) |
-| Erasure (`valueType`) | `CommonPatterns.scala:14-22` | **generic** → `GroundValue` method (W6); FQN→class JVM |
+| Erasure (`valueType`) | `CommonPatterns.scala:14-22` | **DONE** → `GroundValue.carrierFQN` (W6); FQN→class JVM |
 | Monomorphic-instance dedup by representation | `JvmClassGenerator.scala:233-276` | **generic** → shared key method (W7); pre-dedup optional |
 | "body-less def with no native = error" | `JvmClassGenerator.scala:315-317` | **generic guard** → lang check |
 | Intrinsic FQN set / width-suffix names | `Intrinsics.scala:35-59` | duplicated stdlib↔backend |
@@ -271,29 +271,16 @@ selector-chain *shape* (handler-forwarding closures) moves from bytecode to `lan
 
 ---
 
-### W4 — Free-variable / capture analysis as a `lang` concern
+### W4 — Free-variable / capture analysis as a `lang` concern — **DONE**
 
-**Now.** `LambdaGenerator.collectParameterReferences` (`LambdaGenerator.scala:163-175`) walks a lambda body and
-returns the parameter names it references; the generator subtracts the bound parameter to get the captured
-environment. Confirmed used only in the `jvm` module.
-
-**Why generic.** Computing a lambda's captured free variables is a pure, backend-independent tree analysis that
-every closure-converting backend needs.
-
-**Where.** Either a small utility in `lang` (alongside the `UncurriedMonomorphicExpression` definitions), or —
-better — precompute the capture list onto the `FunctionLiteral` node in the IR so the backend receives it
-ready-made and never re-walks the tree.
-
-**Effort/risk.** Low / low. If done as a utility, it is a near-mechanical move; if baked into the IR, it touches
-the `uncurry` fact shape but removes a class of backend bugs (forgetting to exclude a bound name, mishandling
-nested binders).
-
-**Disposition — method/extension on the IR type (preference #1).** `collectParameterReferences` is a pure tree
-fold; make it `freeVariables` (extension) on `UncurriedMonomorphicExpression` in `lang`, the post-uncurry type
-the backend already consumes. No staleness risk, no IR change. Denormalizing onto `FunctionLiteral`
-(preference #2) buys nothing here unless it is measured hot — and it is not. Lowest-risk item in the plan.
-
-**Open questions.** None of substance — just confirm the single home is the post-uncurry expression type.
+Implemented as a method on the IR type (preference #1). `freeVariables` is now an extension on
+`UncurriedMonomorphicExpression.Expression`
+(`lang/.../uncurry/fact/UncurriedMonomorphicExpression.scala`), the post-uncurry type every backend consumes.
+The backend's `LambdaGenerator.collectParameterReferences` was deleted and its one call site now reads
+`body.value.expression.freeVariables`. Behaviour is identical (occurrence order preserved, duplicate references
+not de-duplicated, nested binders excluded), so no bytecode change — `lang.test` and `jvm.test` (incl.
+`ExamplesIntegrationTest`) green. No IR-shape change; denormalizing the capture set onto `FunctionLiteral` was
+not warranted (not measured hot).
 
 ---
 
@@ -316,7 +303,8 @@ form (or expose them already-peeled).
 (preference #2).** This modifies an existing transformation, so it sidesteps the processor question. One
 precision the original sketch blurs: `uncurry` *flattens to N-ary* for top-level defs and call sites, whereas
 W5 is specifically about **expression-position lambda literals** (closures). Peel only those to single-parameter
-form, and pair with W4 to attach each peeled frame's capture set — the maximally backend-ready form.
+form, and use the now-available `freeVariables` (W4, **done**) to attach each peeled frame's capture set — the
+maximally backend-ready form.
 
 **Open question (genuine tension).** Single-parameter closures may over-commit to a JVM-ish representation; a
 microcontroller backend might prefer N-ary closures and would then have to re-coalesce. Counter-argument:
@@ -326,36 +314,20 @@ choice into shared IR; **decide explicitly.**
 
 ---
 
-### W6 — Unify erasure (`valueType`) with `RepresentationLowering`
+### W6 — Erasure (`valueType`) as a `lang` method — **DONE**
 
-**Now.** `CommonPatterns.valueType` (`CommonPatterns.scala:14-22`) collapses a bounds-carrying `GroundValue` to
-its runtime carrier: function types → `Function`, `Type`-typed things → `Any`, otherwise the type's FQN with the
-data-type suffix stripped. Only the final FQN→`java.lang.*` class step is JVM-specific.
+Implemented as a method on the fact (preference #1), *not* by storing erased types in the IR. The erasure logic
+now lives in `lang` as `GroundValue.carrierFQN`
+(`lang/.../monomorphize/fact/GroundValue.scala`): function types → `WellKnownTypes.functionCarrierFQN`; a concrete
+structure type → its FQN with the qualifier stripped to `Default`; `Type`/erased values →
+`WellKnownTypes.anyFQN`. The two carrier FQNs were added to `WellKnownTypes` (`functionCarrierFQN`, `anyFQN`) so
+the carrier *vocabulary* is `lang`-owned while the FQN→`java.lang.*` *map* stays the backend's sole erasure
+knowledge (`NativeType.types`). The backend's `CommonPatterns.valueType` is now a zero-logic delegate
+(`v.carrierFQN`) — kept only as a local convenience name, since rewriting its ~35 call sites to postfix form
+bought no safety. A second backend uses `GroundValue.carrierFQN` directly. `lang.test` / `jvm.test` green.
 
-**Why generic.** This erasure is the sibling of `RepresentationLowering`, which already generically rewrites
-`Int[MIN, MAX]` → `Jvm*`. The collapse logic (function carrier, `Type`→erased, strip bounds/suffix) is
-platform-independent; only the machine-class lookup is not.
-
-**Where.** Extend the existing `RepresentationLowering` pass (already in `lang`, already folded into `uncurry`)
-to also perform this erasure, yielding an IR in which **every type position is already a representation FQN**.
-The backend then needs only an FQN → machine-type map (`NativeType.types`), with no erasure logic of its own.
-
-**Effort/risk.** Medium / medium. Highest-leverage of the "typed IR" items: it makes W7 unnecessary and shrinks
-`CommonPatterns` to a thin lookup.
-
-**Disposition — reframe to a method on `GroundValue` (preference #1), *not* "store erased types in the IR".**
-`CommonPatterns.valueType` is already a pure `GroundValue → ValueFQN` function whose only non-`lang` dependency
-is the final FQN→class lookup; `WellKnownTypes.typeFQN`, `stripDataTypeSuffix`, and the `Function`/`Any` FQNs are
-all `lang`-expressible. So lift it as `GroundValue.carrierFQN` in `lang`; the backend keeps only `NativeType.types`
-(FQN→class). This is preference #1 and **lower-risk** than mutating the IR, because erasure is lossy (function
-structure → bare `Function`) and storing it would discard structure other code may still want. It also gives W7
-its key computation for free.
-
-**Open question.** If you nevertheless want erased types *in* the IR (so the backend reads a field, not a call),
-erase **only** the descriptor positions (signature / params / return / expression types) and **never** the
-identity `typeArguments` / `MonomorphicValueReference` type args — the `uncurry` pass already respects that split
-and lowering must stay idempotent on instance identity. My recommendation is the method form unless there is a
-measured reason to denormalize.
+The "store erased types in the IR" alternative was rejected: erasure is lossy (function structure → bare
+`Function`), and the method form is lower-risk and gives W7 its dedup key for free.
 
 ---
 
@@ -380,9 +352,9 @@ that forgets the dedup emits clashing overloads.
 the loop requires `lang` to present pre-collapsed instances, but the identity Key cannot be erased (distinct
 `typeArguments` must stay distinct through monomorphization), so that needs a *new* fact keyed on the erased
 signature — preference #3, justified only with a second backend in hand. The fragile/duplicable part today is
-the *key computation* (`methodSignatureKey`, built from `valueType(...).show`); once W6 yields
-`GroundValue.carrierFQN`, a new backend computes the key correctly for free and the remaining `seen`-set loop is
-~10 trivial lines. **Ship the shared-key version; treat full pre-dedup as optional and contingent on W6.**
+the *key computation* (`methodSignatureKey`, built from `valueType(...).show`); now that W6 has landed
+(`GroundValue.carrierFQN`), a new backend computes the key correctly for free and the remaining `seen`-set loop
+is ~10 trivial lines. **Ship the shared-key version; treat full pre-dedup as optional.**
 
 **Open question.** Is the structural guarantee (a backend *cannot* forget to dedup) worth a dedicated
 erased-signature-keyed fact? Depends on how soon the microcontroller backend lands.
@@ -409,6 +381,11 @@ should map FQN → emitter rather than re-listing the names.
 **Effort/risk.** Low-medium / low. Turns a per-backend convention into a structural guarantee and removes the
 stdlib↔backend name duplication.
 
+> **Superseded — see the W8 open question in Sequencing.** The predicate-registry framing below was rejected:
+> having `lang` ask the backend "can you realize X?" is a back-edge against the forward fact-DAG. The corrected
+> direction is that the check stays a *forward consumer* — either the backend's terminal abort, or a generic check
+> over forward-flowing realizer facts. This section is kept for context until W8 is re-specified.
+
 **Disposition — `lang` check (preference #3) + a backend-supplied *predicate* registry.** The check ("every used
 body-less def must be claimed by *some* backend native") is closed functionality and belongs in `lang`, computed
 over `UsedNames` + the body-less-def facts. The backend supplies *what it realizes* via the existing plugin
@@ -423,15 +400,15 @@ predicate registry is acceptable over an enumerable set.
 
 ## Sequencing
 
-Revised to reflect the dispositions above (methods-first where possible; W2's fact unblocks both W3 and the
-`MatchNativesProcessor` dedup; W6's method unblocks W7):
+**W4 and W6 are done** (methods on `lang` facts — see their entries). Remaining work, methods-first where
+possible (W2's fact unblocks both W3 and the `MatchNativesProcessor` dedup; W6 has already de-risked W7's key):
 
-1. **Small, independent, no IR change:** **W4** (`freeVariables` method), **W6** (`GroundValue.carrierFQN`
-   method), **W8** (check + predicate registry). W6 also de-risks W7's key computation.
+1. **Small / independent:** **W8** (coverage check) — but its shape is still open (see below); it is *not* a
+   `lang` service that interrogates the backend.
 2. **Cross-value aggregation fact:** **W2** (`DataTypeLayout`) — unblocks W3 *and* dedupes
    `MatchNativesProcessor`'s ordering logic.
-3. **IR normalization + cheap dedup:** **W5** (extend `uncurry`, pairs with W4), then **W7** (trivial once W6
-   lands; ship the shared-key version).
+3. **IR normalization + cheap dedup:** **W5** (extend `uncurry`, uses W4's `freeVariables`), then **W7** (trivial
+   now that W6 has landed; ship the shared-key version).
 4. **Strategic, staged:** **W3** (synthesize `handleCases`/`typeMatch`), on top of W2's layout, with the
    one-vs-two-dispatch-authorities question settled first.
 
@@ -439,9 +416,10 @@ Revised to reflect the dispositions above (methods-first where possible; W2's fa
 1. W3 — unify the synthesized body with `MatchNativesProcessor`'s NbE native (one source of truth), or keep two?
 2. W3 — field-projection + tag-test as named intrinsic leaves (recommended) or new IR nodes?
 3. W5 — is single-parameter-closure the right *canonical* IR form for all backends, or a backend choice?
-4. W6 — method on `GroundValue` (recommended) vs. denormalized erased types in the IR?
-5. W7 — ship the shared-key version, or invest in an erased-signature-keyed fact for the structural guarantee?
-6. W8 — predicate registry (`FQN → emitter`) vs. enumerable set?
+4. W7 — ship the shared-key version, or invest in an erased-signature-keyed fact for the structural guarantee?
+5. W8 — the coverage check must stay a *forward* consumer (it cannot interrogate the backend). Open: keep it as
+   the backend's terminal abort, or express realizers as forward-flowing facts a generic check consumes? (The
+   earlier predicate-registry sketch in W8's disposition is superseded — it was a back-edge against the fact-DAG.)
 
 Net effect once all land: a new backend (the microcontroller target) implements roughly a representation-FQN →
 machine-layout map plus the intrinsic leaf emitters (including the field-projection and constructor-tag-test

@@ -2,24 +2,18 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.asm
 
 import cats.effect.Sync
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition
-import NativeType.{systemAnyValue, systemFunctionValue}
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 
 object CommonPatterns {
 
-  def valueType(v: GroundValue): ValueFQN =
-    v match {
-      case _ if v.asFunctionType.isDefined => systemFunctionValue
-      case _                               =>
-        v.typeFQN match {
-          case Some(vfqn) if vfqn =!= WellKnownTypes.typeFQN => stripDataTypeSuffix(vfqn)
-          case _                                             => systemAnyValue
-        }
-    }
+  /** The JVM type FQN a value erases to. The erasure logic itself is the platform-independent
+    * [[GroundValue.carrierFQN]] in `lang`; this is only the local convenience name, holding no backend-specific logic.
+    * The backend's sole erasure knowledge is the FQN → `java.lang.*` map in [[NativeType.types]].
+    */
+  def valueType(v: GroundValue): ValueFQN = v.carrierFQN
 
   def extractValueSignatureTypes(signature: GroundValue): (Seq[GroundValue], GroundValue) =
     signature.extractParamAndReturnTypes
