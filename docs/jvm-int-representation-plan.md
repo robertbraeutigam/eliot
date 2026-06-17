@@ -400,10 +400,16 @@ No representation `switch` in Scala anywhere; every source→target choice is an
   `Int[0,70000]`→`Int`, a wide range→`Long`, `UnsignedLong`→`BigInteger` (assert the chosen JVM class /
   descriptor).
 - **Runtime widening across representations** (`ExamplesIntegrationTest`): `Byte`→`Int[0,1000]` (Short) prints
-  correctly; an arithmetic result whose operands and result span different representations; a data type with
-  mixed-width `Int` fields round-trips.
-- **Mangling/dedup**: a generic `f[A](a: A): A` instantiated at two ranges sharing a representation produces
-  one method (or distinct, collision-free methods).
+  correctly *(covered)*; an arithmetic result whose operands and result span different representations *(covered)*.
+  A `data` type with mixed-width `Int` fields round-tripping is **blocked by a separate, pre-existing backend gap,
+  not a jvm-int issue**: multi-field `data` constructors are unimplemented (`LambdaGenerator.generateLambda` is
+  `???` for `parameters.length > 1`), so *any* two-field `data` — even one with `String` fields — fails codegen
+  with `NotImplementedError`. Single-field `Int` data round-trips fine. Implementing multi-parameter lambdas /
+  multi-field constructors is its own task (general `data` codegen), outside this plan.
+- **Mangling/dedup** *(covered)*: a generic `id[Mn, Mx](x: Int[Mn, Mx])` instantiated at two ranges sharing a
+  representation (`Int[0,3]`, `Int[0,5]` → `Byte`) reuses one method, and at two ranges with different
+  representations (`Byte` and `Long`) dispatches collision-free distinct methods — both verified at runtime in
+  `ExamplesIntegrationTest`.
 - **Regression**: all existing widening/arithmetic tests still pass (the all-`Long`-today programs now pick
   narrower representations but must print identically); `nativeReprConvert` no-op when representations coincide.
 - **Soundness** (already covered by the `opaque` `W[1]`/`W[2]` test): distinct ranges never merge.
@@ -417,5 +423,13 @@ each step. The narrower-wrapper programs stay print-identical to today.
 **All phases are implemented and the full suite is green.** `ExamplesIntegrationTest` covers arithmetic
 (`3 + 4`, `2 + 3 * 4`, `3 - 10`), representation selection (`Int[0,70000]`→`Integer`, `1000 * 1000`→`Integer`,
 `Int[0,5000000000]`→`Long`), bare-literal and arithmetic-result widening (`Int[0,1000] = 7` / `= 3 + 4`),
-byte→short carry (`100 + 100 = 200`, via `nativeAddByteToShort`), and short-operand→byte additive cancellation
-(`1000 - 999 = 1`, via the narrowing outer `nativeWiden`).
+byte→short carry (`100 + 100 = 200`, via `nativeAddByteToShort`), short-operand→byte additive cancellation
+(`1000 - 999 = 1`, via the narrowing outer `nativeWiden`), and generic-instantiation dedup across same- and
+different-representation ranges.
+
+**Remaining (small, optional) follow-ups, none blocking the plan:**
+- `nativeWiden` no-op when source and target share a representation (currently an unbox→rebox round-trip; could be
+  elided as an optimisation — correctness is fine).
+- A `data` type with mixed-width `Int` fields is *not yet testable* end-to-end because multi-field `data`
+  constructor codegen is unimplemented (the `LambdaGenerator` `???` above) — a separate general-`data` task.
+- Termination of the opaque body / `representationOf` is bounded by the future recursion/effect model, not here.

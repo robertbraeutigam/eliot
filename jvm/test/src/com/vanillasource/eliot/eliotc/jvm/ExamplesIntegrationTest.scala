@@ -287,4 +287,28 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
         |def main: IO[Unit] = println(intToString(huge))""".stripMargin
     ).asserting(_ shouldBe "5000000000")
   }
+
+  // Mangling/dedup: a generic function instantiated at two ranges that share a representation (both `Byte`) lowers to a
+  // single concrete signature, so the per-range mangled methods collapse correctly and both calls dispatch.
+  "generic instantiation" should "reuse one method for two same-representation ranges at runtime" in {
+    compileAndRun(
+      """def id[Mn: BigInteger, Mx: BigInteger](x: Int[Mn, Mx]): Int[Mn, Mx] = x
+        |def a: Int[0, 3] = 3
+        |def b: Int[0, 5] = 5
+        |
+        |def main: IO[Unit] = println(intToString(id(a) + id(b)))""".stripMargin
+    ).asserting(_ shouldBe "8")
+  }
+
+  // The same generic at two ranges with *different* representations (`Byte` and `Long`) lowers to two distinct concrete
+  // signatures — collision-free overloads — and each call dispatches to the one matching its width.
+  it should "dispatch distinct methods for two different-representation ranges at runtime" in {
+    compileAndRun(
+      """def id[Mn: BigInteger, Mx: BigInteger](x: Int[Mn, Mx]): Int[Mn, Mx] = x
+        |def a: Int[0, 3] = 3
+        |def big: Int[0, 5000000000] = 5000000000
+        |
+        |def main: IO[Unit] = println(intToString(id(a) + id(big)))""".stripMargin
+    ).asserting(_ shouldBe "5000000003")
+  }
 }
