@@ -180,6 +180,32 @@ same names with bodies / as `data`. The base stays universal; each platform fill
 behaviour. (`data` desugars to an abstract type-constructor `FunctionDefinition` plus value-constructor
 functions via `DataDefinitionDesugarer`, so even concrete types reduce to the same `NamedValue` model.)
 
+## Language Cornerstone: Use-Site Verification (Sound, Not Modular)
+
+Eliot does not prove a definition correct for every instantiation it *could* receive (modular completeness); it
+guarantees every instantiation that *actually manifests* — the whole program is monomorphized from `main` — is
+fully type-checked. Soundness is total (**no incorrect program compiles**); only the modular per-definition
+certificate is given up.
+
+**Mechanism.** An obligation that can't be discharged abstractly (binders left neutral) — a bound-dependent
+`Coerce`/operation, an ability impl, a calculated bound — is **deferred to the concrete use site**, where the one
+NbE checker decides it exactly. A modular checker would instead reject the definition or demand a constraint; Eliot
+accepts it and verifies each use — the same monomorphize-from-`main` stance already used for codegen and ability
+resolution, extended from compilation to correctness. Applies to the *implicit/calculated layer* (`infer` params,
+calculated returns — `docs/implicit-generics-plan.md` — and abilities); explicit parametric defs still get the
+ordinary abstract check.
+
+**Trade-off** (intentional): more burden on library authors (totality comes from *tests* — generators + probing,
+plan W6 — not a proof); users may meet a type error "not of their making" (a library's latent partiality surfacing
+at the use site, which the IDE should surface at the definition first); completely **safe** (every manifest use is
+checked); far more **powerful** (full dependent/computed types — bounds, costs, resources — at near-zero
+annotation, zero type-level proof obligations, no inversion, accepting functions a modular system would reject).
+This is **not a silent gap**: it is complete verification of the actual program, hard-erroring at the use site,
+never silent acceptance of wrong typing (cf. [[feedback_gaps_must_be_failsafe]]).
+
+Principle: *we prove a definition correct for every input it does take, not every input it could take — and reject
+any program in which some input it does take is wrong.*
+
 ## Language Overview
 
 Eliot is a functional, strongly-typed language, with whole-application compilation

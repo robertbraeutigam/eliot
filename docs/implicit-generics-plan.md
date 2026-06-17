@@ -253,6 +253,55 @@ and proves (by test) that none of them silently degrades to a wrong or `Type` re
   returns; hover shows synthesized binders.
 - **Status:** TODO.
 
+### W6 — Explorability: examples, generators, and probing (IDE)
+
+Dependent signatures (`Int[add(MIN,MIN), add(MAX,MAX)]`) are precise but illegible. This item makes them legible
+and checkable **by example**, exploiting that whole-program monomorphization already computes worked examples for
+free. Everything here reduces to one primitive — *request more `MonomorphicValue` facts and observe* — which the
+lazy, unordered, cached fact graph already supports (`docs/ide-type-hints.md`, finding 2). Gated behind W3
+(calculated returns) and the IDE plan's Layers A (partial facts / `recover`) and C (`TypeHintIndex`).
+
+- **Real-usage examples ("all available examples").** Aggregate the existing `MonomorphicValue(fqn, *)` facts and
+  show the in→out set at a definition (`double` used as `Int[0,255]→Int[0,510]`, `Int[0,510]→Int[0,1020]`). Free;
+  the only change is letting `TypeHintIndex` hold a *set* of hints per definition range. An unused producer has no
+  such facts — which is exactly when generators take over.
+
+- **Generators (only for type-position types).** A generator for a type `T` is a finite enumeration of
+  representative *bound instantiations*. Primitive for `Int`: a **boundary-focused** canonical set (`Int[0,0]`,
+  `Int[0,255]`, `Int[-128,127]`, `Int[0,65535]`, `Int[0,2^31-1]`, `Int[0,2^63-1]`, `Int[0,2^64]`) hitting each
+  `Jvm*` tier and the cross-tier edges. Structurally derived for `data`: `Counter[lo,hi]`'s generator is
+  `{ Counter[i] | i ∈ Int-generator }` — composed from its components, like deriving `Arbitrary` but at the bound
+  level. The set of types needing a generator is derivable: the type-position constructors of every
+  `SaturatedValue` signature (a `data` used only as a runtime value needs none). Examples are produced by
+  *speculatively requesting* `MonomorphicValue(fqn, generatedArgs)`.
+
+- **Probing ("error on a bad parameter combination").** Each generated (or real) instantiation either monomorphizes
+  to an example or *registers an error* — a counterexample. Surface those at the definition ("`double` does not
+  type-check for `Int[0,2^63]`: the intermediate overflows `JvmLong` with no wider `Coerce`"). This is
+  **lightweight totality testing** of the over-claim that bare-input generalization is total over all bounds: a
+  body using a bound-restricted operation (a narrow-only `Coerce`, a fixed-width intermediate, a missing `Combine`
+  join) is only *partial*, and probing finds counterexamples that would otherwise surface as a confusing error at
+  a future caller. It is the proactive, example-driven twin of the **Limits** section — the same failures, found
+  early by sampling rather than late at a use. Honest scope: probing is a counterexample *finder*, not a totality
+  *proof* (sampling is incomplete; the sound version is bound-constraint inference, future work — see the CLAUDE.md
+  "Use-Site Verification" cornerstone). It must be **sandboxed**: small samples, a per-probe step/time budget, and
+  "probe didn't finish" (e.g. hit the recursion limit) reported as *unknown*, never a false-positive error.
+
+- **Presentation (creative affordances).** A differential inlay on a bare return (`: Int ⟨[0,255]→[0,510],
+  [0,65535]→[0,131070]⟩` — the relationship, not the formula); "view-through" an instantiation (pin a bound, drive
+  one speculative monomorphization, feed its per-node types into `TypeHintIndex` so every body node shows its type
+  at that width); a totality CodeLens (`7/7 sampled bounds ✓` / `⚠ partial above 2^62` — an empirically-derived
+  precondition); a representation-transition view marking where the output crosses a `Jvm*` tier (silent widening
+  before it costs memory on a small target).
+
+- **Where:** extends `lang/.../ide` — `TypeHintIndex` → set-per-range; a `GeneratorProcessor` deriving generators
+  from `SaturatedValue` signatures; a probing driver issuing budgeted speculative `MonomorphicValue` requests.
+  Reuses IDE Layers A/C/D wholesale; the only genuinely new code is generator derivation and probing/aggregation.
+- **Test:** a `double` definition with two real call sites shows both; an unused producer shows generated examples;
+  a deliberately bound-partial helper yields a counterexample at a representation boundary; a recursive producer's
+  probe reports *unknown*, not an error.
+- **Status:** TODO.
+
 ## Limits, and how the system says so out loud
 
 The governing rule (cornerstone "no silent `Type` fallback"; the project "gaps must be fail-safe" guidance): a
@@ -317,18 +366,22 @@ detector.
 - **Monomorphization.** Unchanged: synthesized input binders are ordinary generic params, so each call site keys
   a distinct `MonomorphicValue` specialization; the wide/viral parameter lists exist only in the generic form
   and monomorphize away.
-- **IDE hints.** `docs/ide-type-hints.md` is the natural surface for showing the synthesized binders and the
-  calculated return a user did not write.
+- **IDE hints / explorability.** Dependent signatures are precise but illegible, so the IDE makes them legible
+  *by example* — real-usage examples (free from `MonomorphicValue`), generated examples, and probing for bad bound
+  combinations. See **W6** and `docs/ide-type-hints.md`. This is also the practical answer to the
+  "Use-Site Verification" trade-off (CLAUDE.md): generators + probing substitute automated coverage for the
+  modular totality proof the type no longer provides.
 
 ## Sequencing
 
 ```
 W0  marker plumbing
- └─ W1  input generalization (functions)         ── ships value alone (all Int consumers)
-     ├─ W2  data/type field generalization        ── ships value alone (generic data)
-     └─ W3  calculated returns (back-edge)         ── needs ElaboratedSignature fact
+ └─ W1  input generalization (functions)         ── ships alone (all Int consumers)
+     ├─ W2  data/type field generalization        ── ships alone (generic data)
+     └─ W3  calculated returns (back-edge)         ── reuse MonomorphicValue; symbolic fallback
          └─ W4  limits + diagnostics               ── hardens W1–W3; gate before broad use
-             └─ W5  propagation / display polish
+             ├─ W5  propagation / display polish
+             └─ W6  explorability / IDE            ── needs W3 + ide-type-hints Layer A/C
 ```
 
 W1 and W2 are body-free and independently useful (every Int-*consuming* function and every Int-holding `data`).
