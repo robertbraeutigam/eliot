@@ -168,10 +168,10 @@ class Checker(
     * attempt a check-mode `Coerce` insertion: where the inferred type is used where a different expected type built
     * from the same constructor is wanted (e.g. `Int[3,3]` where `Int[0,10]` is expected), resolve the user-defined
     * `Coerce` ability by name and evaluate its `coerce` through the one NbE evaluator. A `some payload` result means
-    * the coercion exists; the term is re-typed at `expected` (the widening payload `nativeWiden` is the identity on the
-    * current Long-only backend, so no runtime rewrite is needed; a real read-back lands with range-based width
-    * selection). A `none` or stuck result means no coercion,
-    * so the original "Type mismatch." is committed.
+    * the coercion exists, and the `some` payload is spliced as a real conversion node wrapping the term (see
+    * [[buildCoercedExpr]]) — for `Int` that is a `nativeWiden` the backend lowers to an unbox→rebox between the source
+    * and target representations. A `none` or stuck result means no coercion, so the original "Type mismatch." is
+    * committed.
     *
     * `unify` itself stays pure definitional equality — the directional widening lives here, in check mode only.
     */
@@ -198,10 +198,11 @@ class Checker(
                   }
     } yield result
 
-  /** Try to resolve and apply a `Coerce[actual, expected]` instance. Returns the re-typed expression on success (the
-    * coercion's `coerce` evaluated to `some`), or `None` when no coercion applies (no instance, a `none` result, or
-    * bounds too abstract to decide). Only fires for leaf positions (argument / binding / return); coercing inside a
-    * constructor (e.g. `List[Int[0,5]] → List[Int[0,10]]`) needs variance reasoning and is not handled here.
+  /** Try to resolve and apply a `Coerce[actual, expected]` instance. Returns the coerced expression on success (the
+    * resolved `coerce`'s `some` payload spliced around the term — see [[buildCoercedExpr]]), or `None` when no coercion
+    * applies (no instance, a `none` result, or bounds too abstract to decide). Only fires for leaf positions (argument /
+    * binding / return); coercing inside a constructor (e.g. `List[Int[0,5]] → List[Int[0,10]]`) needs variance reasoning
+    * and is not handled here.
     */
   private def tryCoerce(
       tm: Sourced[OperatorResolvedExpression],
@@ -209,10 +210,68 @@ class Checker(
       actual: SemValue,
       expected: SemValue
   ): CheckIO[Option[SemExpression]] =
-    resolveCoercion(actual, expected, tm.as("Type mismatch.")).map { holds =>
-      // On success re-type the term at `expected`. The widening payload `nativeWiden` is the identity on the current
-      // Long-only backend, so no runtime rewrite is needed; a real read-back lands with range-based width selection.
-      if (holds) Some(expr.copy(expressionType = expected)) else None
+    resolveCoercionPayload(actual, expected, tm.as("Type mismatch.")).flatMap {
+      case None          => pure(None)
+      case Some(payload) => buildCoercedExpr(tm, expr, actual, expected, payload).map(Some(_))
+    }
+
+  /** Sentinel name of the neutral variable [[coercionPayload]] binds the `coerce` argument to, so [[buildCoercedExpr]]
+    * can recognise it as the slot the actual expression substitutes into.
+    */
+  private val coerceArgName = "$coerceArg"
+
+  /** Build the coerced expression from the resolved `Coerce` instance's `some` payload (the value the coercion yields,
+    * with the `coerce` argument left as the [[coerceArgName]] marker). This is the principled Phase-5 splice: rather
+    * than re-typing the term (which loses the source representation and produces a wrong-width value at runtime), the
+    * payload is materialised as a real conversion node wrapping the original expression.
+    *
+    *   - A payload of the shape `conv[…](marker)` — a single body-less conversion native applied to the coerce argument
+    *     — splices `conv(expr)` typed at `expected`, leaving `expr` at its narrower `actual` type. The conversion's own
+    *     type arguments are the source type's arguments followed by the target type's (for `Int`: `[Smin, Smax, Tmin,
+    *     Tmax]`), so the monomorphic `conv` reference is well-typed; the JVM backend reads the source/target
+    *     representations from the argument and result types, not these arguments.
+    *   - Any other payload (an identity coercion whose payload is the bare marker, or a shape this splice does not
+    *     model) falls back to re-typing the term at `expected`.
+    *
+    * No `Int`-specific knowledge: the conversion FQN comes from the resolved instance and the type arguments from the
+    * source/target type constructors.
+    */
+  private def buildCoercedExpr(
+      tm: Sourced[OperatorResolvedExpression],
+      expr: SemExpression,
+      actual: SemValue,
+      expected: SemValue,
+      payload: SemValue
+  ): CheckIO[SemExpression] =
+    force(payload).flatMap {
+      case VTopDef(convFqn, None, spine) if isCoerceArgMarker(spine.toList.lastOption) =>
+        for {
+          actualArgs   <- typeConstructorArgs(actual)
+          expectedArgs <- typeConstructorArgs(expected)
+        } yield {
+          val convRef = SemExpression(
+            VPi(actual, _ => expected),
+            SemExpression.ValueReference(tm.as(convFqn), actualArgs ++ expectedArgs)
+          )
+          SemExpression(expected, SemExpression.FunctionApplication(tm.as(convRef), tm.as(expr)))
+        }
+      case _                                                                           =>
+        pure(expr.copy(expressionType = expected))
+    }
+
+  private def isCoerceArgMarker(v: Option[SemValue]): Boolean = v match {
+    case Some(VNeutral(NeutralHead.VVar(_, name), Spine.SNil)) => name == coerceArgName
+    case _                                                     => false
+  }
+
+  /** The (forced) type arguments of a type-constructor value, e.g. `[Smin, Smax]` of `Int[Smin, Smax]`. A
+    * non-constructor head yields no arguments — the caller then splices a conversion with no type arguments, which only
+    * happens for coercions between argument-less types.
+    */
+  private def typeConstructorArgs(v: SemValue): CheckIO[Seq[SemValue]] =
+    force(v).map {
+      case VTopDef(_, None, spine) => spine.toList
+      case _                       => Seq.empty
     }
 
   /** Resolve `Coerce[actual, expected]` by name and report whether the coercion exists (the resolved `coerce` evaluates
@@ -222,6 +281,18 @@ class Checker(
     * are abstract/unsolved (cannot quote to ground), when no instance resolves, or when the instance yields `none`.
     */
   private def resolveCoercion(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Boolean] =
+    resolveCoercionPayload(actual, expected, context).map(_.isDefined)
+
+  /** Resolve `Coerce[actual, expected]` by name and return the resolved instance's `some` payload (the value the
+    * coercion yields, with the `coerce` argument left as the [[coerceArgName]] marker), or [[None]] when no coercion
+    * applies (abstract/unsolved bounds, no instance, or a `none` result). The shared core of [[tryCoerce]] (which
+    * splices the payload) and [[resolveCoercion]] (which only needs existence).
+    */
+  private def resolveCoercionPayload(
+      actual: SemValue,
+      expected: SemValue,
+      context: Sourced[String]
+  ): CheckIO[Option[SemValue]] =
     for {
       s      <- get
       grounds = for {
@@ -229,17 +300,20 @@ class Checker(
                   e <- Quoter.quote(0, expected, s.unifier.metaStore)
                 } yield (a, e)
       result <- grounds match {
-                  case Left(_)         => pure(false) // abstract / unsolved bounds — cannot prove a coercion
+                  case Left(_)         => pure(None) // abstract / unsolved bounds — cannot prove a coercion
                   case Right((aG, eG)) =>
                     liftF(resolveAbility(WellKnownTypes.coerceFQN, Seq(aG, eG))).flatMap {
-                      case None               => pure(false)
-                      case Some((implFqn, _)) => coercionHolds(implFqn, actual, expected, context)
+                      case None               => pure(None)
+                      case Some((implFqn, _)) => coercionPayload(implFqn, actual, expected, context)
                     }
                 }
     } yield result
 
-  /** Evaluate the resolved `coerce` implementation against the concrete bounds and report whether it yields `some` (the
-    * coercion exists). Invoked through [[resolveCoercion]] once an instance has been resolved by name.
+  /** Evaluate the resolved `coerce` implementation against the concrete bounds and return its `some` payload (the value
+    * the coercion yields), or [[None]] when it yields `none`. The `coerce` argument is bound to a [[coerceArgName]]
+    * marker neutral, so the payload carries that marker wherever the runtime value flows — [[buildCoercedExpr]] splices
+    * the actual expression in its place. A `Some(payload)` result therefore both proves the coercion exists and
+    * provides the conversion to splice.
     *
     * The impl's generic bound parameters are not lambdas in its runtime body (only value parameters are — see
     * `CoreExpressionConverter.buildCurriedBody`); they are free names resolved through the env. So:
@@ -253,16 +327,16 @@ class Checker(
     * `some`/`none`. Coercion runs user code at compile time, which Girard's paradox allows to diverge; the termination
     * guard is deferred with the recursion/effect model.
     */
-  private def coercionHolds(
+  private def coercionPayload(
       implFqn: ValueFQN,
       actual: SemValue,
       expected: SemValue,
       context: Sourced[String]
-  ): CheckIO[Boolean] =
+  ): CheckIO[Option[SemValue]] =
     for {
       orvOpt <- liftF(getFact(OperatorResolvedValue.Key(implFqn)))
       result <- orvOpt.flatMap(orv => orv.runtime.map((orv, _))) match {
-                  case None              => pure(false)
+                  case None              => pure(Option.empty[SemValue])
                   case Some((orv, body)) =>
                     for {
                       sigSem        <- evalExpr(orv.typeStack.value.signature, env = Some(Env.empty))
@@ -275,11 +349,12 @@ class Checker(
                                          force(meta).map(env.bind(name, _))
                                        }
                       bodyVal       <- evalExpr(body.value, env = Some(concreteEnv))
-                      applied        = Evaluator.applyValue(bodyVal, VNeutral(NeutralHead.VVar(0, "$coerceArg"), Spine.SNil))
+                      applied        = Evaluator.applyValue(bodyVal, VNeutral(NeutralHead.VVar(0, coerceArgName), Spine.SNil))
                       forced        <- force(applied)
                     } yield forced match {
-                      case VTopDef(fqn, _, _) if fqn == WellKnownTypes.someFQN => true
-                      case _                                                   => false
+                      // `some payload` ⟹ coercion holds; the payload is the value argument of `some`.
+                      case VTopDef(fqn, _, spine) if fqn == WellKnownTypes.someFQN => spine.toList.lastOption
+                      case _                                                       => None
                     }
                 }
     } yield result
@@ -546,7 +621,7 @@ class Checker(
                       val tpe = sem match {
                         case VConst(ground) if state.typeStackValueParams.contains(name.value) =>
                           Evaluator.groundToSem(ground.valueType)
-                        case _                                                                  => sem
+                        case _                                                                 => sem
                       }
                       pure((SemExpression(tpe, SemExpression.ParameterReference(name)), tpe))
                     case None      =>

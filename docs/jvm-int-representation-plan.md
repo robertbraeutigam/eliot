@@ -1,18 +1,27 @@
 # Exact `Int` representations via `opaque` + Eliot dispatch
 
-Status: **Phases 1–3 implemented.** **Phase 4 is in progress and does not compile yet.** A partial Phase-4
-implementation is committed (`f8126ae1 "Implementing int min-max eliot dispatch"`) that swapped the working
-inline `+`/`-`/`*` intrinsics for an Eliot width-dispatch which does not type-check — so the *arithmetic*
-integration tests currently fail, while the literal / representation-selection tests still pass. The original
-Phase-4 blocker (the dispatch needs a *value-level* `BigInteger` for its width comparisons) is resolved in
-principle by the compile→runtime **reification** mechanism (`docs/compile-runtime-reification-plan.md`, Stages
-1–2, **built and tested**), which subsumes — and replaces — the once-proposed `bigInt[N]` primitive. The
-remaining Phase-4 work (make the type-level `fitsIn[…]` call type-check in the checked dispatch bodies, then
-re-verify) is **deferred** — see "Phase 4 — status, blocker, and the reification unblock" below. Phase 5 still
-planned. After Phase 3 an `Int[MIN, MAX]` is laid out at the narrowest JVM wrapper its range fits
-(`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), verified end-to-end for literal-position values
-(`Int[0, 1000]` in `Short`, `Int[0, 70000]` in `Integer`, `Int[0, 5000000000]` in `Long`); arithmetic awaits the
-Phase-4 completion.
+Status: **Phases 1–5 implemented.** The full jvm-int representation pipeline now compiles and the whole test suite
+is green (`./mill __.test`), including all the `ExamplesIntegrationTest` arithmetic, representation-selection, and
+cross-representation widening cases. After Phase 3 an `Int[MIN, MAX]` is laid out at the narrowest JVM wrapper its
+range fits (`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), verified end-to-end for literal-position values
+(`Int[0, 1000]` in `Short`, `Int[0, 70000]` in `Integer`, `Int[0, 5000000000]` in `Long`); Phase 4 realises every
+operation as an Eliot width dispatch over concretely-sized leaf natives; Phase 5 makes cross-representation `Coerce`
+a real runtime conversion.
+
+**How Phase 4 was unblocked (differs from the earlier plan).** The committed `f8126ae1` dispatch did not compile
+because `fitsIn[-128, 127, MIN, MAX]` (a value-parameter predicate applied with `[...]`) was reaching
+`TypeStackLoop.applyTypeArgs` as a standalone monomorphic value and raising "Too many type arguments." The fix is
+*not* a checker arity-rule change (the once-"deferred" task) and *not* making `fitsIn` generic (that breaks the
+opaque `Int` body, whose free generic params would no longer evaluate). Instead the dispatch's `Bool` `fold` is
+collapsed at compile time: `PostDrainQuoter` now performs **compile-time branch selection** — a `fold` whose
+condition forces to a ground `true`/`false` is replaced by its selected branch (runtime content preserved). So the
+condition `fitsIn[…]` (and `fold` itself) never survive into the monomorphic body, only the one chosen leaf native
+does; `fitsIn` is therefore never monomorphized as a standalone value and the arity error never arises. `fitsIn`
+stays a value-parameter predicate; `[...]` and `()` are the same Π-application, so the checked dispatch bodies type
+it by stepping its `VPi` signature in `Checker.infer`. (The reification mechanism — Stages 1–2, built — remains the
+general "erased param in value position" unblock and retired the proposed `bigInt[N]` primitive; it is *not* what
+reduces the dispatch fold, which needed the new expression-level branch selection because the fold's branches carry
+runtime values.)
 
 Goal: store each `Int[MIN, MAX]` in the *smallest* machine representation whose range contains `[MIN, MAX]`
 (`Byte`/`Short`/`Int`/`Long`, with a bignum fall-back), and make range widening (`Coerce`) a *real* runtime
@@ -220,7 +229,7 @@ after lowering; canonicalise them so the per-range method-name mangling (`mangle
 every range — pre-existing, so no regression) collapses to one method. If dedup is deferred, fold the
 representation into the mangle suffix.
 
-## Phase 4 — status, blocker, and the reification unblock
+## Phase 4 — status and how it was unblocked  *(implemented)*
 
 **Decision (settled with the user):** the leaf matrix is **operand×result keyed** — `nativeAdd{Wc}To{Wr}`,
 keyed by the common operand representation `Wc` and the result representation `Wr` (the "plan's literal matrix"
@@ -228,7 +237,7 @@ below), *not* the simpler diagonal. Chosen for microcontroller fidelity: a backe
 carrier needs genuinely different per-width instruction sequences, so the *selection* must be in Eliot and the
 backend must only realise fixed leaves. **No `Int` width policy may live in Scala.**
 
-**What is committed (`f8126ae1`) — does NOT compile yet:**
+**What is committed (originally `f8126ae1`, now compiling):**
 - `stdlib/.../Int.els`: `+`/`-`/`*` given bodies = `nativeWiden(dispatch{Add,Subtract,Multiply}(nativeWiden(left),
   nativeWiden(right)))`; 27 body-less leaf natives (`nativeAdd/Subtract/Multiply` × `{ByteToByte, ByteToShort,
   ShortToShort, ShortToInt, IntToInt, IntToLong, LongToLong, LongToBigInteger, BigIntegerToBigInteger}`); three
@@ -247,50 +256,42 @@ backend must only realise fixed leaves. **No `Int` width policy may live in Scal
   definition's `infix …` annotation as an application chain (the `TypeAliasDefinition` comment documents the same
   latent bug). Keep this regardless of how Phase 4 resolves.
 
-**The blocker (original) — width dispatch needs a *value-level* `BigInteger`.** The dispatch compares range
-bounds to literal width thresholds (`-128`, `127`, …) as `BigInteger`. When `f8126ae1` was written this could not
-be expressed in a *checked* `def` body:
-- `BigInteger` is a **purely type-level type** — it has no value constructor and no value-position literal. A
-  value-position literal `n` desugars to `Int[n,n]` (`integerLiteral`, Phase 6), so `def x: BigInteger = 5` is
-  rejected (no `Coerce Int→BigInteger`). There was *no* expression of type `BigInteger` writable in a value body.
-- A generic `BigInteger` parameter used as a value (`def f[N: BigInteger]: Bool = lessThanOrEqual(N, …)`) was
-  rejected — "Type mismatch" on `N`.
-- The `Coerce`/`Combine` instances get away with `lessThanOrEqual(Tmin, Smin)` on generic params only because
-  ability-instance bodies are **evaluated** (resolved + spliced), not generically checked — and the opaque `Int`
-  body gets away with `fitsIn[-128, 127, MIN, MAX]` for the same reason (it is evaluated, never checked).
+**The actual blocker that remained — the dispatch `fold` did not collapse.** With the committed bodies, the
+checked dispatch (`dispatchAdd` etc.) type-checks fine: `fitsIn` stays a **value-parameter** predicate
+(`fitsIn(lo, hi, min, max: BigInteger): Bool`), and a `fitsIn[-128, 127, Cmin, Cmax]` *call* type-checks because
+`[...]` and `()` are the same Π-application — `Checker.infer` applies the bracket arguments by stepping `fitsIn`'s
+`VPi` signature through `applyValue` (the literals land in type context and stay `BigInteger`; the bounds
+`Cmin`/`Cmax` flow through as the dispatch's type-stack params). The real failure was downstream: the checker keeps
+the body's call structure, so the monomorphic body of `dispatchAdd` retained the whole `fold(fitsIn[…], leafA,
+leafB)` tree — with `fitsIn[…]` *surviving*. `UsedNamesProcessor` then requested
+`MonomorphicValue.Key(fitsIn, [4 args])`, and monomorphizing `fitsIn` (a value-parameter, hence `VPi`-headed,
+signature) hit `TypeStackLoop.applyTypeArgs`'s `VLam`-only peel → **"Too many type arguments."** Worse, even had
+it compiled, the surviving `fold`/`fitsIn` are compile-time-only constructs the backend cannot emit.
 
-**The unblock — compile→runtime reification (replaces the proposed `bigInt[N]`).** The earlier fix was to add a
-`bigInt[N] : BigInteger` primitive (a mirror of `integerLiteral`) that reified a compile-time `BigInteger` into a
-value. That primitive is **dropped**: the now-built reification mechanism
-(`docs/compile-runtime-reification-plan.md`, Stages 1–2) subsumes it generically. An erased (`[]`-bound) parameter
-**referenced in value position** materialises into a constant at the `SemExpression → MonomorphicExpression`
-boundary — no explicit reification call. Concretely, `def staticBound[N: BigInteger]: BigInteger = N` now
-type-checks and lowers to a full-precision `BigInteger` literal (`ReificationTest`, green). That removes the
-second blocker bullet above — a `[N: BigInteger]` bound **is** now usable as a value — so a value-level
-`BigInteger` is available without any new primitive.
+**The fix — compile-time branch selection in `PostDrainQuoter`.** The dispatch `fold` has an erased-determined
+*condition* but *runtime* branches (`left`/`right`), so the whole-node reification gate (Stages 1–2) cannot fire on
+it. So `PostDrainQuoter` gained a dedicated step (`trySelectFold`): an application of the `Bool` eliminator `fold`
+(`WellKnownTypes.boolFoldFQN`) whose condition evaluates (via `SemExpressionEvaluator` + `force`) to a ground
+`true`/`false` is replaced by the **structurally-quoted selected branch**, dropping the other and keeping the
+selected branch's runtime content verbatim. This is exactly `fold`'s documented native semantics ("reduces when the
+condition is a concrete `true`/`false`"), lifted to the expression read-back. Consequences: the dispatch collapses
+to its one chosen leaf native; `fold` and `fitsIn[…]` never reach the monomorphic body, so `fitsIn` is never
+monomorphized as a standalone value (the arity error never arises) and no compile-time-only construct reaches
+codegen. A condition that stays abstract (a genuine runtime `Bool`, e.g. user `fold(isEven, …)`) is left as an
+ordinary `fold` application.
 
-Two things follow. First, no `bigInt[…]` wrapper is needed anywhere: where a body does reference an erased bound
-in value position, reification materialises it. Second — and this is the form actually chosen, confirmed with the
-user — the width dispatch keeps `fitsIn` as an ordinary **value-parameter** predicate
-(`fitsIn(lo, hi, min, max: BigInteger): Bool`, in `lang/.../BigInteger.els`) and it is the *call*
-`fitsIn[-128, 127, MIN, MAX]` that is on the type level: the bracket arguments land in type context, so the
-literals stay `BigInteger` and the bounds `MIN`/`MAX` flow through as type-args. `[...]` and `()` are the same
-Π-application, so a type-level call on a value-parameter function is well-defined (evaluated via `applyValue`, the
-`fold` selecting a single leaf at compile time), and the closed case (`fitsIn[1, 2]`) already type-checks
-(`MonomorphicTypeCheckTest`). So reification is the *general* unblock — it retires `bigInt[N]` and proves a
-value-level `BigInteger` exists — while this specific dispatch form's only remaining gap is a checker arity rule
-(below), not reification.
+Note this is a *different* mechanism from reification (Stages 1–2, built): reification materialises a sub-term that
+is *wholly* erased-determined into a constant; branch selection reduces a `fold` whose *condition* is
+erased-determined while its *branches* stay runtime. The reification work remains the general "erased param in value
+position" unblock (it retired the proposed `bigInt[N]` primitive and proves a value-level `BigInteger` exists, e.g.
+`def staticBound[N: BigInteger]: BigInteger = N`), but it is not what reduces the dispatch fold.
 
-**Remaining Phase-4 work (deferred until properly implemented):**
-- The checked dispatch bodies still do not type-check: `fitsIn[-128, 127, Cmin, Cmax]` (a four-argument type-level
-  call on the value-parameter `fitsIn`, two of whose arguments are the dispatch's own type-stack params) raises
-  **"Too many type arguments."** in a checked caller (`TypeStackLoop.applyTypeArgs`), even though the closed
-  two-argument `fitsIn[1, 2]` is accepted. Reconciling the checker's arity rule for type-level calls on
-  value-parameter functions is the open task; until then the committed `+`/`-`/`*` bodies do not compile and the
-  arithmetic integration tests fail.
-- Once that compiles: run the regression suite (`2 + 3 * 4 = 14`, `count + count + count = 21`,
-  representation-selection tests, widening tests), add mixed-width carry/cancellation + dedup tests, then proceed
-  to Phase 5 (`Coerce` payload-splice for non-materialised cross-rep widening).
+**Rejected alternative — making `fitsIn` generic (`fitsIn[lo, hi, min, max: BigInteger]: Bool`).** This makes
+`applyTypeArgs`'s `VLam` peel succeed, but it breaks the opaque `Int` body: with generic params, `fitsIn`'s body
+references them as *free names* evaluated in `Env.empty` (`buildCurriedBody` only lambda-binds value params), so the
+cached `VTopDef` body is a stuck neutral and type-arg application via spine-growth never binds them — representation
+lowering of *every* `Int` (even a pure literal) then fails with "Cannot quote neutral value." Value-parameter
+`fitsIn` evaluates correctly in the opaque body (its body *is* a `VLam` chain), which is why it is kept.
 
 The remainder of this section is the original keyed-matrix design (still valid; reification only changes how a
 value-level `BigInteger` is *obtained*, not the matrix or the leaf set).
@@ -334,21 +335,25 @@ nativeIntToString[MIN,MAX](x: Int[MIN,MAX]): String
   instruction group with a fixed box, no branching, recognised by FQN, generated against the concrete
   post-Phase-3 signature.
 
-## Phase 5 — `Coerce` as leaf-native widening
+## Phase 5 — `Coerce` as leaf-native widening  *(implemented)*
 
-`Coerce` becomes a real conversion (retype-only is unsound once representations differ — a boxed `Byte` would
-be `checkcast` to `Short`):
+`Coerce` is now a real conversion (retype-only was unsound once representations differ — a `3 + 4 : Int[7,7]`
+(`Byte`) flowing into a declared `Int[0,1000]` (`Short`) slot threw `ClassCastException` at runtime, because the
+arithmetic leaf genuinely produced a `Byte`):
 
-- **Checker (principled payload-splice):** in `tryCoerce`, instead of `expr.copy(expressionType = expected)`,
-  splice the resolved `Coerce` instance's `some` payload (for `Int`, `nativeReprConvert[S,T](value)`) as a real
-  expression node wrapping the term — carrying source and target bounds. Done by-name through the existing
-  `coercionHolds` machinery (evaluate `coerce` with `value` bound to a fresh neutral, read back the `some`
-  payload, substitute the actual expression). No `Int`-specific code in the checker; any future `Coerce`
-  instance works the same way.
-- **Backend:** `nativeReprConvert` is the same leaf used by Phase 4 — after Phase 3 its signature is concrete
-  (`(JvmByte): JvmShort`, …). It reads, extends/narrows, and boxes the target wrapper; when source and target
-  share a representation it is the identity native (optimisable to a no-op), so all-same-representation
-  widening stays correct and cheap.
+- **Checker (principled payload-splice, as built):** `coercionHolds` was generalised to `coercionPayload`, which
+  returns the resolved `Coerce` instance's `some` payload (the value the coercion yields, with the `coerce` argument
+  left as a `$coerceArg` marker neutral). `tryCoerce` → `buildCoercedExpr` then inspects the payload: a payload of
+  the shape `conv[…](marker)` — a single body-less conversion native applied to the marker — is spliced as a real
+  `SemExpression.FunctionApplication(conv[srcArgs ++ tgtArgs], expr)` typed at `expected`, leaving `expr` at its
+  narrower `actual` type; any other payload (an identity coercion whose payload is the bare marker) falls back to
+  re-typing. No `Int`-specific code: the conversion FQN comes from the resolved instance, and its type arguments are
+  the source type constructor's arguments followed by the target's (`[Smin, Smax, Tmin, Tmax]` for `Int`). For `Int`
+  the conversion native is `nativeWiden`.
+- **Backend:** `nativeWiden` is the same leaf used by Phase 4. The JVM realisation reads the source/target
+  representations from the argument's and the call's (already Phase-3-lowered) types — *not* the type arguments — so
+  it unboxes the source wrapper and reboxes at the target; when source and target share a representation it is an
+  identity unbox→rebox (effectively a no-op), so all-same-representation widening stays correct and cheap.
 
 No representation `switch` in Scala anywhere; every source→target choice is an Eliot fold.
 
@@ -407,4 +412,10 @@ No representation `switch` in Scala anywhere; every source→target choice is an
 
 Phase 1 → 2 (land the representation vocabulary and the Eliot policy; nothing observable yet) → 3 (the unfold
 pass; backend now sees `Jvm*`, descriptors/boxing narrow) → 4 (operations) → 5 (`Coerce`), verifying tests at
-each step. The narrower-wrapper programs must stay print-identical to today.
+each step. The narrower-wrapper programs stay print-identical to today.
+
+**All phases are implemented and the full suite is green.** `ExamplesIntegrationTest` covers arithmetic
+(`3 + 4`, `2 + 3 * 4`, `3 - 10`), representation selection (`Int[0,70000]`→`Integer`, `1000 * 1000`→`Integer`,
+`Int[0,5000000000]`→`Long`), bare-literal and arithmetic-result widening (`Int[0,1000] = 7` / `= 3 + 4`),
+byte→short carry (`100 + 100 = 200`, via `nativeAddByteToShort`), and short-operand→byte additive cancellation
+(`1000 - 999 = 1`, via the narrowing outer `nativeWiden`).

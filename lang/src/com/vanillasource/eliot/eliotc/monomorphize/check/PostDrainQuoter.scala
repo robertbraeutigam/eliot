@@ -25,19 +25,19 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
   *
   * '''Compile→runtime reification (the staging gate).''' A value-position sub-term whose value is fully determined by
   * erased `[]`-bound parameters (e.g. `name(A)` projecting a field of an erased `A: Person`, or an erased `BigInteger`
-  * bound referenced directly) has no runtime slot for those parameters, so it cannot be emitted structurally. Instead it
-  * is a compile-time constant and is '''materialised''' into a literal / constructor-call tree. The quoter walks the tree
-  * top-down threading the names bound by enclosing runtime lambdas (`runtimeParams`) and an evaluation [[Env]] seeded
-  * with the erased parameters (`monoEnv`). For each node:
+  * bound referenced directly) has no runtime slot for those parameters, so it cannot be emitted structurally. Instead
+  * it is a compile-time constant and is '''materialised''' into a literal / constructor-call tree. The quoter walks the
+  * tree top-down threading the names bound by enclosing runtime lambdas (`runtimeParams`) and an evaluation [[Env]]
+  * seeded with the erased parameters (`monoEnv`). For each node:
   *   - references no erased parameter ⟹ recurse structurally; nothing is ever evaluated, so ordinary runtime code
   *     (including recursive defs and large constants) is preserved verbatim and cannot diverge.
   *   - references an erased parameter together with a runtime parameter or an inner lambda ⟹ the erased dependence
   *     resolves deeper; recurse structurally into the children.
   *   - references an erased parameter and nothing runtime ⟹ evaluate, force, and read back. A fully-ground result
-  *     materialises to a literal/constructor tree; a result that does not reduce to a materialisable constant (a partial
-  *     application's closure, a still-abstract head) recurses into the children if the node is an application, or — at a
-  *     leaf that genuinely depends on an erased parameter with no constant value — raises a fail-safe compiler error
-  *     (never a silent bad emit of a runtime reference to an erased parameter).
+  *     materialises to a literal/constructor tree; a result that does not reduce to a materialisable constant (a
+  *     partial application's closure, a still-abstract head) recurses into the children if the node is an application,
+  *     or — at a leaf that genuinely depends on an erased parameter with no constant value — raises a fail-safe
+  *     compiler error (never a silent bad emit of a runtime reference to an erased parameter).
   */
 class PostDrainQuoter(
     metaStore: MetaStore,
@@ -46,8 +46,8 @@ class PostDrainQuoter(
     lookupTopDef: ValueFQN => Option[SemValue]
 ) {
 
-  private val erasedParams: Set[String]              = monoEnv.names.toSet
-  private val semEvaluator: SemExpressionEvaluator   = new SemExpressionEvaluator(lookupTopDef)
+  private val erasedParams: Set[String]            = monoEnv.names.toSet
+  private val semEvaluator: SemExpressionEvaluator = new SemExpressionEvaluator(lookupTopDef)
 
   /** Quote a [[SemValue]] to a [[GroundValue]]. Raises a sourced compiler error on failure. */
   def quoteSem(v: SemValue, at: Sourced[?]): CompilerIO[GroundValue] =
@@ -64,25 +64,80 @@ class PostDrainQuoter(
       expr: Sourced[SemExpression],
       runtimeParams: Set[String],
       evalEnv: Env
-  ): CompilerIO[Sourced[MonomorphicExpression]] = {
-    val node       = expr.value.expression
-    val refs       = collectParamRefs(node)
-    val hasErased  = refs.exists(erasedParams.contains)
-    val hasRuntime = refs.exists(runtimeParams.contains) || containsLambda(node)
-    if (hasErased && !hasRuntime)
-      tryMaterialise(expr, evalEnv).flatMap {
-        case Some(mono) => mono.pure[CompilerIO]
-        case None       =>
-          node match {
-            case _: SemExpression.FunctionApplication => structuralQuote(expr, runtimeParams, evalEnv)
-            case _                                    =>
-              compilerAbort(
-                expr.as("Value depends on a compile-time parameter but does not reduce to a constant.")
-              )
-          }
+  ): CompilerIO[Sourced[MonomorphicExpression]] =
+    trySelectFold(expr, runtimeParams, evalEnv).getOrElse {
+      val node       = expr.value.expression
+      val refs       = collectParamRefs(node)
+      val hasErased  = refs.exists(erasedParams.contains)
+      val hasRuntime = refs.exists(runtimeParams.contains) || containsLambda(node)
+      if (hasErased && !hasRuntime)
+        tryMaterialise(expr, evalEnv).flatMap {
+          case Some(mono) => mono.pure[CompilerIO]
+          case None       =>
+            node match {
+              case _: SemExpression.FunctionApplication => structuralQuote(expr, runtimeParams, evalEnv)
+              case _                                    =>
+                compilerAbort(
+                  expr.as("Value depends on a compile-time parameter but does not reduce to a constant.")
+                )
+            }
+        }
+      else structuralQuote(expr, runtimeParams, evalEnv)
+    }
+
+  /** Compile-time branch selection for the `Bool` eliminator `fold` (`WellKnownTypes.boolFoldFQN`) when its condition
+    * is a compile-time constant.
+    *
+    * The width dispatch (`Int`'s `+`/`-`/`*` bodies) is a tree of `fold(fitsIn[...], leafA, leafB)` whose
+    * '''condition''' is fully determined by erased type-stack bounds but whose '''branches''' carry runtime values
+    * (`left`/`right`). The whole-node reification gate cannot fire (the branches are not erased-determined), yet the
+    * fold must still collapse so the compile-time-only `fitsIn`/`fold` never reach the backend and only the one
+    * selected leaf native survives.
+    *
+    * So: evaluate '''only the condition'''. If it forces to a ground `true`/`false`, emit the structurally-quoted
+    * selected branch — keeping that branch's runtime content verbatim — and drop the other. A condition that stays
+    * abstract (a genuine runtime `Bool`, e.g. user `fold(isEven, …)`) yields [[None]], leaving an ordinary `fold`
+    * application for the normal read-back. This is exactly `fold`'s documented native semantics ("reduces when the
+    * condition is a concrete `true`/`false`"), lifted to the expression read-back so runtime branch content is
+    * preserved rather than evaluated to a constant.
+    */
+  private def trySelectFold(
+      expr: Sourced[SemExpression],
+      runtimeParams: Set[String],
+      evalEnv: Env
+  ): Option[CompilerIO[Sourced[MonomorphicExpression]]] =
+    foldApplication(expr.value.expression).flatMap { case (cond, whenTrue, whenFalse) =>
+      Evaluator.force(semEvaluator.eval(evalEnv, cond.value), metaStore) match {
+        case SemValue.VConst(GroundValue.Direct(b: Boolean, _)) =>
+          Some(quoteSourcedIn(if (b) whenTrue else whenFalse, runtimeParams, evalEnv))
+        case _                                                  => None
       }
-    else structuralQuote(expr, runtimeParams, evalEnv)
-  }
+    }
+
+  /** Match a three-argument application of the `Bool` eliminator `fold`, returning its `(condition, whenTrue,
+    * whenFalse)` argument expressions. `fold`'s leading `[A]` type argument rides on the head value reference, so the
+    * value spine is exactly the three arguments.
+    */
+  private def foldApplication(
+      node: SemExpression.Expression
+  ): Option[(Sourced[SemExpression], Sourced[SemExpression], Sourced[SemExpression])] =
+    node match {
+      case SemExpression.FunctionApplication(f2, whenFalse) =>
+        f2.value.expression match {
+          case SemExpression.FunctionApplication(f1, whenTrue) =>
+            f1.value.expression match {
+              case SemExpression.FunctionApplication(head, cond) =>
+                head.value.expression match {
+                  case SemExpression.ValueReference(vfqn, _) if vfqn.value === WellKnownTypes.boolFoldFQN =>
+                    Some((cond, whenTrue, whenFalse))
+                  case _                                                                                  => None
+                }
+              case _                                             => None
+            }
+          case _                                               => None
+        }
+      case _                                                => None
+    }
 
   /** The normal structural read-back: quote this node's type slot and recurse into its children (unchanged from the
     * pre-reification behaviour, except that `runtimeParams` / `evalEnv` are threaded for the gate to use deeper).
@@ -203,15 +258,15 @@ class PostDrainQuoter(
       at: Sourced[?]
   ): CompilerIO[Option[MonomorphicExpression]] =
     constructorRole(s.typeName).flatMap {
-      case None                                                       =>
+      case None                                                  =>
         Option.empty[MonomorphicExpression].pure[CompilerIO]
-      case Some(RoleHint.ValueConstructor(dataType, fieldCount))      =>
+      case Some(RoleHint.ValueConstructor(dataType, fieldCount)) =>
         val splitIndex = s.args.size - fieldCount
         if (splitIndex < 0) Option.empty[MonomorphicExpression].pure[CompilerIO]
         else {
-          val (typeArgs, valueArgs) = s.args.splitAt(splitIndex)
+          val (typeArgs, valueArgs)       = s.args.splitAt(splitIndex)
           // The value's type is the data type constructor (same module as the constructor) applied to the type args.
-          val valueType             =
+          val valueType                   =
             GroundValue.Structure(ValueFQN(s.typeName.moduleName, dataType), typeArgs, GroundValue.Type)
           val base: MonomorphicExpression =
             MonomorphicExpression(
@@ -231,7 +286,7 @@ class PostDrainQuoter(
               })
           }
         }
-      case Some(_)                                                    =>
+      case Some(_)                                               =>
         Option.empty[MonomorphicExpression].pure[CompilerIO]
     }
 
@@ -244,11 +299,11 @@ class PostDrainQuoter(
     * materialisation of the surrounding value.
     */
   private def collectParamRefs(expression: SemExpression.Expression): Set[String] = expression match {
-    case SemExpression.ParameterReference(name)             => Set(name.value)
-    case SemExpression.FunctionApplication(target, arg)     =>
+    case SemExpression.ParameterReference(name)         => Set(name.value)
+    case SemExpression.FunctionApplication(target, arg) =>
       collectParamRefs(target.value.expression) ++ collectParamRefs(arg.value.expression)
-    case SemExpression.FunctionLiteral(_, _, body)          => collectParamRefs(body.value.expression)
-    case _                                                  => Set.empty
+    case SemExpression.FunctionLiteral(_, _, body)      => collectParamRefs(body.value.expression)
+    case _                                              => Set.empty
   }
 
   /** Whether this expression node's subtree contains a function literal (an inner runtime lambda). */
