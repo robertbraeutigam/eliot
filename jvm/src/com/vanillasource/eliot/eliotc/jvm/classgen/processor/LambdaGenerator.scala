@@ -7,7 +7,8 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addMonomo
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
@@ -26,12 +27,42 @@ object LambdaGenerator {
       parameters: Seq[MonomorphicParameterDefinition],
       body: Sourced[UncurriedMonomorphicExpression],
       createExpressionCode: ExpressionCodeFn
-  ): CompilationTypesIO[Seq[ClassFile]] = {
-    if (parameters.length > 1) {
-      ??? // Multi-parameter lambdas not currently supported
+  ): CompilationTypesIO[Seq[ClassFile]] =
+    parameters match {
+      case Seq()           =>
+        compilerAbort[Seq[ClassFile]](body.as("Lambda with no parameters cannot be generated.")).liftToTypes
+      case Seq(definition) =>
+        generateSingleParameterLambda(
+          moduleName,
+          outerClassGenerator,
+          methodGenerator,
+          definition,
+          body,
+          createExpressionCode
+        )
+      case first +: rest   =>
+        // Peel the first parameter into a one-argument closure whose body is the remaining (still curried) lambda.
+        // Each frame stays a single-argument `java.util.function.Function`, so the single-parameter generation below
+        // handles every nesting level recursively, without inventing an N-ary functional interface.
+        val innerType = rest.foldRight(body.value.expressionType) { (parameter, accumulated) =>
+          GroundValue.Structure(
+            WellKnownTypes.functionDataTypeFQN,
+            Seq(parameter.parameterType, accumulated),
+            GroundValue.Type
+          )
+        }
+        val innerBody = body.as(UncurriedMonomorphicExpression(innerType, FunctionLiteral(rest, body)))
+        generateLambda(moduleName, outerClassGenerator, methodGenerator, Seq(first), innerBody, createExpressionCode)
     }
 
-    val definition      = parameters.headOption.getOrElse(???)
+  private def generateSingleParameterLambda(
+      moduleName: ModuleName,
+      outerClassGenerator: ClassGenerator,
+      methodGenerator: MethodGenerator,
+      definition: MonomorphicParameterDefinition,
+      body: Sourced[UncurriedMonomorphicExpression],
+      createExpressionCode: ExpressionCodeFn
+  ): CompilationTypesIO[Seq[ClassFile]] = {
     val closedOverNames = collectParameterReferences(body.value.expression)
       .filter(_ =!= definition.name.value)
     val returnType      = valueType(body.value.expressionType)
@@ -44,7 +75,7 @@ object LambdaGenerator {
       lambdaIndex      <- incLambdaCount
       methodName       <- getMethodName
       lambdaPrefix      = methodName + "$lambda$"
-      lambdaFnParams    = closedOverArgs.get ++ parameters
+      lambdaFnParams    = closedOverArgs.get :+ definition
       // Save outer state and set up a fresh TypeState for the lambda body.
       outerState       <- StateT.get[CompilerIO, TypeState]
       _                <- StateT.set[CompilerIO, TypeState](

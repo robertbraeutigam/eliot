@@ -311,4 +311,60 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
         |def main: IO[Unit] = println(intToString(id(a) + id(big)))""".stripMargin
     ).asserting(_ shouldBe "5000000003")
   }
+
+  // Eliminating a multi-field `data` desugars its `match` into an N-parameter handler (`x -> y -> body`), which the
+  // backend lowers into nested single-argument closures. Extracting the *first* field exercises the outer closure.
+  "multi-field data" should "extract the first field of a two-field constructor" in {
+    compileAndRun(
+      """data Pair(a: String, b: String)
+        |
+        |def first(p: Pair): String = p match {
+        |  case Pair(x, y) -> x
+        |}
+        |
+        |def main: IO[Unit] = println(first(Pair("hello", "world")))""".stripMargin
+    ).asserting(_ shouldBe "hello")
+  }
+
+  // Extracting the *second* field returns the inner closure's parameter, so it checks the captured-variable plumbing
+  // across the peeled frames.
+  it should "extract the second field of a two-field constructor" in {
+    compileAndRun(
+      """data Pair(a: String, b: String)
+        |
+        |def second(p: Pair): String = p match {
+        |  case Pair(x, y) -> y
+        |}
+        |
+        |def main: IO[Unit] = println(second(Pair("hello", "world")))""".stripMargin
+    ).asserting(_ shouldBe "world")
+  }
+
+  // A three-field constructor peels into three nested closures; selecting the middle field confirms more than two
+  // levels of nesting resolve their parameters correctly.
+  it should "extract the middle field of a three-field constructor" in {
+    compileAndRun(
+      """data Triple(a: String, b: String, c: String)
+        |
+        |def middle(t: Triple): String = t match {
+        |  case Triple(x, y, z) -> y
+        |}
+        |
+        |def main: IO[Unit] = println(middle(Triple("one", "two", "three")))""".stripMargin
+    ).asserting(_ shouldBe "two")
+  }
+
+  // A two-field `Int` round-trip: the fields lower to different representations (`Byte`-range and `Long`-range), so
+  // matching them out and summing also exercises cross-representation arithmetic over the peeled closures.
+  it should "match out two integer fields at different representations and sum them" in {
+    compileAndRun(
+      """data IntPair(small: Int[0, 255], large: Int[0, 5000000000])
+        |
+        |def sum(p: IntPair): Int[0, 5000000255] = p match {
+        |  case IntPair(s, l) -> s + l
+        |}
+        |
+        |def main: IO[Unit] = println(intToString(sum(IntPair(200, 5000000000))))""".stripMargin
+    ).asserting(_ shouldBe "5000000200")
+  }
 }
