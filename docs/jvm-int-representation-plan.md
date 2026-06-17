@@ -402,10 +402,14 @@ No representation `switch` in Scala anywhere; every source→target choice is an
 - **Runtime widening across representations** (`ExamplesIntegrationTest`): `Byte`→`Int[0,1000]` (Short) prints
   correctly *(covered)*; an arithmetic result whose operands and result span different representations *(covered)*.
   A `data` type with mixed-width `Int` fields round-tripping is **blocked by a separate, pre-existing backend gap,
-  not a jvm-int issue**: multi-field `data` constructors are unimplemented (`LambdaGenerator.generateLambda` is
-  `???` for `parameters.length > 1`), so *any* two-field `data` — even one with `String` fields — fails codegen
-  with `NotImplementedError`. Single-field `Int` data round-trips fine. Implementing multi-parameter lambdas /
-  multi-field constructors is its own task (general `data` codegen), outside this plan.
+  not a jvm-int issue**. *Constructing* a multi-field `data` value codegens fine; *eliminating* it (pattern match
+  or field accessor — accessors desugar to a `match`) does not: a `match` on an N-field constructor produces an
+  N-parameter handler, which the uncurry pass hands the backend as a multi-parameter lambda, and
+  `LambdaGenerator.generateLambda` is `??? // Multi-parameter lambdas not currently supported` for
+  `parameters.length > 1` (long-standing, since `fc4a3f72`). So matching/accessing *any* two-field `data` — even
+  one with `String` fields — fails codegen with `NotImplementedError`; single-field data works throughout (every
+  `data` in the repo has one value field). Implementing multi-parameter lambdas is its own task (general backend
+  codegen), outside this plan.
 - **Mangling/dedup** *(covered)*: a generic `id[Mn, Mx](x: Int[Mn, Mx])` instantiated at two ranges sharing a
   representation (`Int[0,3]`, `Int[0,5]` → `Byte`) reuses one method, and at two ranges with different
   representations (`Byte` and `Long`) dispatches collision-free distinct methods — both verified at runtime in
