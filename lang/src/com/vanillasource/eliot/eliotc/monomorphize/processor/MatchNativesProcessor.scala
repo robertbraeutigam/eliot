@@ -10,7 +10,8 @@ import com.vanillasource.eliot.eliotc.module.fact.{
   Qualifier,
   UnifiedModuleNames,
   UnifiedModuleValue,
-  ValueFQN
+  ValueFQN,
+  WellKnownTypes
 }
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
@@ -38,18 +39,20 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 class MatchNativesProcessor extends SingleKeyTypeProcessor[NativeBinding.Key] {
 
   override protected def generateFact(key: NativeBinding.Key): CompilerIO[Unit] =
-    if (isHandleCasesImpl(key.vfqn)) buildHandleCases(key.vfqn).flatMap(registerFactIfClear)
-    else if (isTypeMatchImpl(key.vfqn)) buildTypeMatch(key.vfqn).flatMap(registerFactIfClear)
+    if (WellKnownTypes.isPatternMatchHandleCases(key.vfqn)) buildHandleCases(key.vfqn).flatMap(registerFactIfClear)
+    else if (WellKnownTypes.isTypeMatchTypeMatch(key.vfqn)) buildTypeMatch(key.vfqn).flatMap(registerFactIfClear)
     else abort
 
   private def buildHandleCases(vfqn: ValueFQN): CompilerIO[NativeBinding] =
     for {
-      typeName <- requiredTypeName(vfqn, "PatternMatch")
+      typeName <- requiredTypeName(vfqn, WellKnownTypes.patternMatchAbilityName)
       ordered  <- orderedConstructors(vfqn.moduleName, QualifiedName(typeName, Qualifier.Type))
     } yield NativeBinding(vfqn, handleCasesNative(ordered))
 
   private def buildTypeMatch(vfqn: ValueFQN): CompilerIO[NativeBinding] =
-    requiredTypeName(vfqn, "TypeMatch").map(targetName => NativeBinding(vfqn, typeMatchNative(targetName)))
+    requiredTypeName(vfqn, WellKnownTypes.typeMatchAbilityName).map(targetName =>
+      NativeBinding(vfqn, typeMatchNative(targetName))
+    )
 
   private def requiredTypeName(vfqn: ValueFQN, abilityName: String): CompilerIO[String] =
     ImplementationMarkerUtils.firstPatternTypeConstructorName(vfqn, abilityName).flatMap {
@@ -132,18 +135,6 @@ class MatchNativesProcessor extends SingleKeyTypeProcessor[NativeBinding.Key] {
     */
   private def stuck(scrutinee: SemValue): SemValue =
     VNeutral(NeutralHead.VVar(0, "match"), Spine.SNil :+ scrutinee)
-
-  private def isHandleCasesImpl(vfqn: ValueFQN): Boolean =
-    vfqn.name.name === "handleCases" && isAbilityImpl(vfqn, "PatternMatch")
-
-  private def isTypeMatchImpl(vfqn: ValueFQN): Boolean =
-    vfqn.name.name === "typeMatch" && isAbilityImpl(vfqn, "TypeMatch")
-
-  private def isAbilityImpl(vfqn: ValueFQN, abilityName: String): Boolean =
-    vfqn.name.qualifier match {
-      case Qualifier.AbilityImplementation(name, _) => name.value === abilityName
-      case _                                        => false
-    }
 
   /** Placeholder argument supplied to field-less constructor handlers (mirrors the JVM backend passing `null`). */
   private val unitValue: SemValue = VConst(GroundValue.Direct((), GroundValue.Type))

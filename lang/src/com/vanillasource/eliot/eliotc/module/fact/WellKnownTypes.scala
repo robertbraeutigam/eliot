@@ -115,4 +115,47 @@ object WellKnownTypes {
     */
   val integerLiteralFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Runtime"), QualifiedName("integerLiteral", Qualifier.Default))
+
+  /** The `PatternMatch` ability (`eliot.lang.PatternMatch`) drives surface `match`: `matchdesugar` lowers a `match`
+    * into a call to the ability's `handleCases` eliminator, and a backend recognises each implementation by this name
+    * to emit the constructor's pattern-match dispatch. An implementation method carries
+    * `Qualifier.AbilityImplementation(name, index)` with `name.value == patternMatchAbilityName`; the data type it
+    * matches on is recovered from the marker signature via `ImplementationMarkerUtils.firstPatternTypeConstructorName`.
+    */
+  val patternMatchAbilityName: String = "PatternMatch"
+
+  /** The eliminator method of [[patternMatchAbilityName]] — `handleCases(value, cases)`. */
+  val patternMatchHandleCasesName: String = "handleCases"
+
+  /** The `TypeMatch` ability (`eliot.lang.TypeMatch`) drives surface type-pattern matching: an implementation's
+    * `typeMatch` matcher dispatches a `Type` value against one type constructor. Recognised by name the same way as
+    * [[patternMatchAbilityName]].
+    */
+  val typeMatchAbilityName: String = "TypeMatch"
+
+  /** The matcher method of [[typeMatchAbilityName]] — `typeMatch(value, matched, notMatched)`. */
+  val typeMatchMethodName: String = "typeMatch"
+
+  /** The ability name an implementation method belongs to, if its qualifier is an ability implementation. */
+  private def abilityImplementationName(vfqn: ValueFQN): Option[String] =
+    vfqn.name.qualifier match {
+      case Qualifier.AbilityImplementation(name, _) => Some(name.value)
+      case _                                        => None
+    }
+
+  /** True when `vfqn` is any method of a [[patternMatchAbilityName]] implementation. */
+  def isPatternMatchImplementation(vfqn: ValueFQN): Boolean =
+    abilityImplementationName(vfqn).contains(patternMatchAbilityName)
+
+  /** True when `vfqn` is the `handleCases` eliminator of a [[patternMatchAbilityName]] implementation. */
+  def isPatternMatchHandleCases(vfqn: ValueFQN): Boolean =
+    isPatternMatchImplementation(vfqn) && vfqn.name.name == patternMatchHandleCasesName
+
+  /** True when `vfqn` is any method of a [[typeMatchAbilityName]] implementation. */
+  def isTypeMatchImplementation(vfqn: ValueFQN): Boolean =
+    abilityImplementationName(vfqn).contains(typeMatchAbilityName)
+
+  /** True when `vfqn` is the `typeMatch` matcher of a [[typeMatchAbilityName]] implementation. */
+  def isTypeMatchTypeMatch(vfqn: ValueFQN): Boolean =
+    isTypeMatchImplementation(vfqn) && vfqn.name.name == typeMatchMethodName
 }

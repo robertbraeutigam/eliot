@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.convertToNeste
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier, MethodGenerator}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -118,43 +118,39 @@ object ExpressionCodeGenerator {
         )
       case MonomorphicValueReference(sourcedCalledVfqn, typeArgs) =>
         val calledVfqn = sourcedCalledVfqn.value
-        calledVfqn.name.qualifier match {
-          case Qualifier.AbilityImplementation(abilityName, _)
-              if abilityName.value === "PatternMatch" && calledVfqn.name.name === "handleCases" =>
-            generatePatternMatchCall(
-              moduleName,
-              outerClassGenerator,
-              methodGenerator,
-              sourcedCalledVfqn,
-              calledVfqn,
-              typeArgs,
-              arguments,
-              expectedResultType
-            )
-          case Qualifier.AbilityImplementation(abilityName, _)
-              if abilityName.value === "TypeMatch" && calledVfqn.name.name === "typeMatch" =>
-            generateTypeMatchCall(
-              moduleName,
-              outerClassGenerator,
-              methodGenerator,
-              sourcedCalledVfqn,
-              calledVfqn,
-              typeArgs,
-              arguments,
-              expectedResultType
-            )
-          case _ =>
-            generateNormalFunctionCall(
-              moduleName,
-              outerClassGenerator,
-              methodGenerator,
-              sourcedCalledVfqn,
-              calledVfqn,
-              typeArgs,
-              arguments,
-              expectedResultType
-            )
-        }
+        if (WellKnownTypes.isPatternMatchHandleCases(calledVfqn))
+          generatePatternMatchCall(
+            moduleName,
+            outerClassGenerator,
+            methodGenerator,
+            sourcedCalledVfqn,
+            calledVfqn,
+            typeArgs,
+            arguments,
+            expectedResultType
+          )
+        else if (WellKnownTypes.isTypeMatchTypeMatch(calledVfqn))
+          generateTypeMatchCall(
+            moduleName,
+            outerClassGenerator,
+            methodGenerator,
+            sourcedCalledVfqn,
+            calledVfqn,
+            typeArgs,
+            arguments,
+            expectedResultType
+          )
+        else
+          generateNormalFunctionCall(
+            moduleName,
+            outerClassGenerator,
+            methodGenerator,
+            sourcedCalledVfqn,
+            calledVfqn,
+            typeArgs,
+            arguments,
+            expectedResultType
+          )
       case FunctionLiteral(parameters, body)                      => ??? // FIXME: applying lambda immediately
       case FunctionApplication(target, arguments2)                => ??? // FIXME: applying on a result function?
     }
@@ -171,7 +167,7 @@ object ExpressionCodeGenerator {
   ): CompilationTypesIO[Seq[ClassFile]] =
     for {
       typeName             <- ImplementationMarkerUtils
-                                .firstPatternTypeConstructorName(calledVfqn, "PatternMatch")
+                                .firstPatternTypeConstructorName(calledVfqn, WellKnownTypes.patternMatchAbilityName)
                                 .liftToTypes
       dataTypeVfqn          = typeName
                                 .map(n => ValueFQN(calledVfqn.moduleName, QualifiedName(n, Qualifier.Default)))
@@ -201,7 +197,7 @@ object ExpressionCodeGenerator {
     } yield classes
 
   def patternMatchSingletonName(dataTypeVfqn: ValueFQN): String =
-    "PatternMatch$" + dataTypeVfqn.name.name + "$impl"
+    WellKnownTypes.patternMatchAbilityName + "$" + dataTypeVfqn.name.name + "$impl"
 
   /** Emit a backend [[Intrinsics]] call inline. After Phase 3, an `Int[MIN, MAX]` value is carried at the *narrowest*
     * JVM wrapper its range fits (`java.lang.{Byte,Short,Integer,Long}` / `BigInteger`), and the operand/result
@@ -428,7 +424,7 @@ object ExpressionCodeGenerator {
   ): CompilationTypesIO[Seq[ClassFile]] =
     for {
       constructorName <- ImplementationMarkerUtils
-                           .firstPatternTypeConstructorName(calledVfqn, "TypeMatch")
+                           .firstPatternTypeConstructorName(calledVfqn, WellKnownTypes.typeMatchAbilityName)
                            .liftToTypes
       _               <- compilerAbort(
                            sourcedCalledVfqn.as("Could not determine type constructor name for typeMatch.")

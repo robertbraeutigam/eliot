@@ -88,7 +88,20 @@ Each item lists: what is there now, why it is generic, where it should live, a d
 
 ---
 
-### W1 — Promote `PatternMatch`/`TypeMatch` to `WellKnownTypes` constants
+### W1 — Promote `PatternMatch`/`TypeMatch` to `WellKnownTypes` constants — **DONE**
+
+Implemented: `WellKnownTypes` now carries `patternMatchAbilityName` / `patternMatchHandleCasesName` /
+`typeMatchAbilityName` / `typeMatchMethodName` plus the recognition helpers `isPatternMatchImplementation`,
+`isPatternMatchHandleCases`, `isTypeMatchImplementation`, `isTypeMatchTypeMatch`. The backend
+(`JvmClassGenerator`, `ExpressionCodeGenerator`) and the `lang`-side `MatchNativesProcessor` (which duplicated the
+exact same predicates) now reference these instead of literal strings; `MatchNativesProcessor`'s private
+`isHandleCasesImpl`/`isTypeMatchImpl`/`isAbilityImpl` were deleted. The generated-bytecode `handleCases` *method*
+names (`JvmIdentifier.encode("handleCases")`) were intentionally left as backend emit/call artifacts (no
+lang↔backend drift). Whole suite green (`./mill lang.test jvm.test`). Remaining literal `"PatternMatch"`/
+`"TypeMatch"` strings live in the *construction* side (`DataDefinitionDesugarer`, `CoreProcessor`,
+`TypeMatchDesugarer`, `DataMatchDesugarer`, `ModuleName.defaultSystemModules`); routing those through the
+constants is deferred to avoid an object-initialization cycle with `ModuleName` and is not needed for backend
+portability.
 
 **Now.** The backend matches ability implementations by raw strings:
 `abilityName.value === "PatternMatch"`, `vfqn.name.name === "handleCases"`,

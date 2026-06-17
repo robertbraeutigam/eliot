@@ -21,7 +21,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.processor.ExpressionCodeGener
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -54,46 +54,34 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       usedCtorVfqns           = usedValues.filter((vfqn, _) => isConstructor(vfqn)).keySet
       // Find PatternMatch handleCases impls and map to their data types
       handleCasesByDataType  <- usedValues.toSeq.traverseFilter { (vfqn, stats) =>
-                                  vfqn.name.qualifier match {
-                                    case Qualifier.AbilityImplementation(abilityName, _)
-                                        if abilityName.value === "PatternMatch" && vfqn.name.name === "handleCases" =>
-                                      ImplementationMarkerUtils
-                                        .firstPatternTypeConstructorName(vfqn, "PatternMatch")
-                                        .map {
-                                          case Some(typeName) =>
-                                            val dataTypeVfqn = allCtorGroups.keys
-                                              .find(_.name.name === typeName)
-                                              .getOrElse(ValueFQN(key.moduleName, QualifiedName(typeName, Qualifier.Default)))
-                                            Some((dataTypeVfqn, (vfqn, stats)))
-                                          case None           => Option.empty
-                                        }
-                                    case _ =>
-                                      Option.empty.pure[CompilerIO]
+                                  if (WellKnownTypes.isPatternMatchHandleCases(vfqn)) {
+                                    ImplementationMarkerUtils
+                                      .firstPatternTypeConstructorName(vfqn, WellKnownTypes.patternMatchAbilityName)
+                                      .map {
+                                        case Some(typeName) =>
+                                          val dataTypeVfqn = allCtorGroups.keys
+                                            .find(_.name.name === typeName)
+                                            .getOrElse(ValueFQN(key.moduleName, QualifiedName(typeName, Qualifier.Default)))
+                                          Some((dataTypeVfqn, (vfqn, stats)))
+                                        case None           => Option.empty
+                                      }
+                                  } else {
+                                    Option.empty.pure[CompilerIO]
                                   }
                                 }
       handleCasesMap          = handleCasesByDataType.toMap
       _                      <- debug[CompilerIO](s"Module ${key.moduleName.show}: handleCasesMap=${handleCasesMap.keys.map(_.show).mkString(", ")}")
       // Collect ALL PatternMatch impl VFQNs to exclude from normal processing
-      allPatternMatchVfqns    = usedValues.keys.filter { vfqn =>
-                                  vfqn.name.qualifier match {
-                                    case Qualifier.AbilityImplementation(name, _) => name.value === "PatternMatch"
-                                    case _                                        => false
-                                  }
-                                }.toSet
+      allPatternMatchVfqns    = usedValues.keys.filter(WellKnownTypes.isPatternMatchImplementation).toSet
       // Collect ALL TypeMatch impl VFQNs to exclude from normal processing
-      allTypeMatchVfqns       = usedValues.keys.filter { vfqn =>
-                                  vfqn.name.qualifier match {
-                                    case Qualifier.AbilityImplementation(name, _) => name.value === "TypeMatch"
-                                    case _                                        => false
-                                  }
-                                }.toSet
+      allTypeMatchVfqns       = usedValues.keys.filter(WellKnownTypes.isTypeMatchImplementation).toSet
       // Map each typeMatch method VFQN to its corresponding type constructor name (via the marker signature)
       typeMatchByConstructor <- allTypeMatchVfqns
-                                  .filter(_.name.name === "typeMatch")
+                                  .filter(WellKnownTypes.isTypeMatchTypeMatch)
                                   .toSeq
                                   .traverseFilter { tmVfqn =>
                                     ImplementationMarkerUtils
-                                      .firstPatternTypeConstructorName(tmVfqn, "TypeMatch")
+                                      .firstPatternTypeConstructorName(tmVfqn, WellKnownTypes.typeMatchAbilityName)
                                       .map(_.map(_ -> tmVfqn))
                                   }
                                   .map(_.toMap)
