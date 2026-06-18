@@ -137,7 +137,7 @@ The compiler today is one-shot CLI. To make IDE queries cheap:
    - On `reload`, invalidates cached facts whose key references that URI. The
      current `FactGenerator` has no invalidation; the simplest first version throws
      the whole `Ref` away and recompiles. Per-file invalidation is a follow-up that
-     overlaps with `docs/incremental-compilation.md`.
+     overlaps with the incremental fact cache (`IncrementalFactGenerator`).
 2. **Plugin wiring.** A new `IdePlugin` (in a new `ide` Mill module) depends on
    `LangPlugin`, installs the `TypeHintIndexProcessor`, and is selected by the `ide`
    command instead of `JvmPlugin`. This is the clean way to keep IDE-only logic out
@@ -161,7 +161,7 @@ The compiler today is one-shot CLI. To make IDE queries cheap:
    produce.
 6. **Layer D** (`ide` sub-command, plugin, request loop, naive invalidation).
 7. **Per-file fact invalidation** — depends on tagging fact keys with their source
-   URI(s); design separately, in concert with `docs/incremental-compilation.md`.
+   URI(s); design separately, in concert with the incremental fact cache (`IncrementalFactGenerator`).
 
 ## Risks and Open Questions
 

@@ -4,7 +4,7 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 /** A persisted cache entry: the keys a fact directly depended on, plus its value *when storable*.
   *
-  * The entry plays two separate roles with separate serializability needs (see `docs/incremental-compilation.md` §2):
+  * The entry plays two separate roles with separate serializability needs:
   *
   *   - **Change-detection.** `directDeps` is validated recursively to decide whether the fact changed since last run.
   *     This never needs the value — for a non-serializable fact the parent drills *through* this entry's `directDeps`

@@ -9,7 +9,7 @@ import java.nio.file.{Files, Path}
 
 /** Persistence for the incremental-compilation cache, using Java serialization.
   *
-  * Three eliot-specific realities are handled here (see `docs/incremental-compilation.md` §3, §11, §13):
+  * Three eliot-specific realities are handled here:
   *
   *   1. `java.nio.file.Path` is not `Serializable`; the streams below transparently swap any `Path` for a serializable
   *      stand-in on write and back on read, so facts may carry `Path`s freely.

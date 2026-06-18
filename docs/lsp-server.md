@@ -17,9 +17,9 @@ The compiler architecture is well-suited for LSP integration:
 
 ### 1. Incremental Compilation (prerequisite — biggest effort)
 
-The compiler currently does a full rebuild every invocation. For interactive use, sub-second
-feedback on edits is needed. A design doc already exists at `docs/incremental-compilation.md` —
-implementing it is the critical path. Key pieces:
+For interactive use, sub-second feedback on edits is needed. Incremental compilation is now
+implemented (`IncrementalFactGenerator` plus a persistent fact cache): a no-change rebuild does only
+leaf `stat`s, and a changed file invalidates just its dependency cone. Key pieces:
 
 - **File change detection** via `FileStat` / `UpdateTime` facts.
 - **Fact cache invalidation** — when a file changes, invalidate its `SourceContent` and propagate.
