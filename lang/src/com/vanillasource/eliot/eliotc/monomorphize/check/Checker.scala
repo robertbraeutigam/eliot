@@ -734,8 +734,8 @@ class Checker(
       retType
     )
 
-  /** When a function application has reached the bare omittable return of a *calculated-return* producer (W3 of
-    * `docs/implicit-generics-plan.md`), resolve that return from the callee's monomorphized signature rather than the
+  /** When a function application has reached the bare omittable return of a *calculated-return* producer
+    * (implicit-generics, W3), resolve that return from the callee's monomorphized signature rather than the
     * (under-applied) source return left by `saturate`. This is the architectural "back-edge": the callee's concrete
     * type arguments are read off the (instantiated) target value reference, and the caller reads
     * `MonomorphicValue(callee, args).signature`'s deep return type — the body-checked result the callee already
@@ -836,7 +836,7 @@ class Checker(
     )
 
   /** Read the callee's monomorphized return at ground type arguments, first guarding against a recursive
-    * calculated-return chain (Limit 1 of `docs/implicit-generics-plan.md`). If the callee's FQN is already an ancestor
+    * calculated-return chain (Limit 1 of the implicit-generics calculated-return limits). If the callee's FQN is already an ancestor
     * of the fact being checked now, requesting `MonomorphicValue(callee, args)` would re-enter an in-progress
     * computation and dead-lock the fact cache — and, more fundamentally, the callee's return depends (directly,
     * mutually, or through a value-dependent bound) on itself, which monomorphization-by-type cannot ground. A

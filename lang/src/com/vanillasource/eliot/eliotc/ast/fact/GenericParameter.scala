@@ -16,7 +16,7 @@ import com.vanillasource.eliot.eliotc.token.Token
   * @param inferable
   *   True when the binder is marked `auto` (`type Int[auto MIN, auto MAX]`), declaring it *omittable* at use sites: the
   *   compiler may supply it rather than the user spelling it. Surface keyword for the implicit/inferred-generics
-  *   feature (`docs/implicit-generics-plan.md`). Purely informational for now — saturation is a later work item; a bare
+  *   feature. Purely informational for now — saturation is a later work item; a bare
   *   under-applied constructor still errors exactly as before.
   */
 case class GenericParameter(

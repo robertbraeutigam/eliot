@@ -192,8 +192,8 @@ certificate is given up.
 NbE checker decides it exactly. A modular checker would instead reject the definition or demand a constraint; Eliot
 accepts it and verifies each use — the same monomorphize-from-`main` stance already used for codegen and ability
 resolution, extended from compilation to correctness. Applies to the *implicit/calculated layer* (`infer` params,
-calculated returns — `docs/implicit-generics-plan.md` — and abilities); explicit parametric defs still get the
-ordinary abstract check.
+calculated returns — the `auto`/implicit-generics feature, shipped — and abilities); explicit parametric defs still
+get the ordinary abstract check.
 
 **Trade-off** (intentional): more burden on library authors (totality comes from *tests* — generators + probing,
 see `docs/ide-type-hints.md` — not a proof); users may meet a type error "not of their making" (a library's latent partiality surfacing

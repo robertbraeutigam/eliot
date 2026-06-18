@@ -27,7 +27,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   The number of leading `auto`-marked (omittable) parameters of this value, counting its curried binders from the
   *   front and stopping at the first non-`auto` one. So `type Int[auto MIN, auto MAX]` is 2; `type IO[A]` is 0. This is
   *   the count of holes a bare under-applied use of this name would fill once saturation lands; surfaced per FQN as
-  *   `saturate.fact.InferableArity`. Informational only for now (`docs/implicit-generics-plan.md`, W0).
+  *   `saturate.fact.InferableArity`. Informational only for now (implicit-generics, W0).
   */
 case class NamedValue(
     qualifiedName: Sourced[QualifiedName],

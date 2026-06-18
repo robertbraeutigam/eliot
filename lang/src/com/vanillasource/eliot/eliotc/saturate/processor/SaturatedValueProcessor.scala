@@ -25,8 +25,8 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Saturates parameter-position bare references to omittable (`auto`-marked) type constructors (W1 of
-  * `docs/implicit-generics-plan.md`).
+/** Saturates parameter-position bare references to omittable (`auto`-marked) type constructors (implicit-generics,
+  * W1).
   *
   * For each value, the *signature* (type-stack level 0) is walked: every value-parameter type whose head is a bare
   * under-applied omittable constructor (e.g. `Int`, whose leading parameters `MIN`/`MAX` are `auto`) is rewritten into
@@ -110,8 +110,8 @@ class SaturatedValueProcessor
       }
       .map { case (params, _, binders) => (params, binders) }
 
-  /** Whether the value's return position is a bare under-applied omittable reference — a *calculated* return (W3 of
-    * `docs/implicit-generics-plan.md`). The return is the signature's [[SignatureView.returnType]]; it is calculated iff
+  /** Whether the value's return position is a bare under-applied omittable reference — a *calculated* return
+    * (implicit-generics, W3). The return is the signature's [[SignatureView.returnType]]; it is calculated iff
     * that head is an omittable type constructor (W1/W2 arity, via [[inferableInfo]]) applied to fewer arguments than its
     * omittable arity (e.g. a bare `Int`, or a bare W2-grown `Counter`). An explicit `Int[0, 255]`, a fully-applied
     * `IO[Unit]`, a non-omittable head (`String`), or a type-parameter return (`R`, a
@@ -265,7 +265,7 @@ class SaturatedValueProcessor
     */
   private def freshName(fqn: ValueFQN, idx: Int): String = s"$$${fqn.name.name}$$$idx"
 
-  // ----- Implicit / inferred generics: data-field saturation (W2 of docs/implicit-generics-plan.md) -----
+  // ----- Implicit / inferred generics: data-field saturation (W2) -----
   //
   // A bare omittable field (`data Counter(n: Int)`) generalizes like a parameter (W1), but — unlike W1's independent
   // per-occurrence binders — the synthesized bounds must be *shared* across the data type's whole desugared family: the

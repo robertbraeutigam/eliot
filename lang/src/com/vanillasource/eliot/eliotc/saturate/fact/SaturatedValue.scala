@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 /** An [[OperatorResolvedValue]] whose source type stack has been *saturated*: every parameter-position bare reference
   * to an omittable (`auto`-marked) type constructor — e.g. a bare `Int` where `Int[MIN, MAX]` was meant — has been
   * rewritten into an explicit application over fresh generic binders, and those binders prepended to the value's own
-  * generic prefix (see `docs/implicit-generics-plan.md`, W1). The synthesized binders are ordinary generic parameters,
+  * generic prefix (implicit-generics, W1). The synthesized binders are ordinary generic parameters,
   * so the existing "too few explicit type args → infer the rest" machinery solves them from each call's arguments with
   * no new inference.
   *

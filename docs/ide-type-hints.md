@@ -201,14 +201,15 @@ The compiler today is one-shot CLI. To make IDE queries cheap:
 - New `ide/` Mill module with `IdePlugin`.
 - `eliotc/.../compiler/{Main,Compiler}.scala` — `ide` sub-command and request loop.
 
-## Implicit-generics: propagation, display, and explorability (moved from `docs/implicit-generics-plan.md` W5/W6)
+## Implicit-generics: propagation, display, and explorability (the deferred W5/W6 work)
 
-The `auto` / implicit-generics feature (`docs/implicit-generics-plan.md`) is built and shipped through W4: input
-generalization (W1), data-field generalization (W2), calculated returns (W3), and the limit diagnostics (W4) all
-work, and every limit that cannot be crossed **hard-errors at the use site** — it never silently mistypes. What
-remained were two follow-on stages, *propagation / display polish* and *explorability*, which only pay off once
-there is IDE integration. They are therefore parked here, on top of this plan's Layers A/C/D, rather than in the
-implicit-generics plan.
+The `auto` / implicit-generics feature is built and shipped: input generalization (W1), data-field generalization
+(W2), calculated returns (W3), and the limit diagnostics (W4) all work, and every limit that cannot be crossed
+**hard-errors at the use site** — it never silently mistypes. (Its own planning doc was retired once that scope
+shipped; the design rationale lives in the source comments of the `saturate` package and the `monomorphize`
+checker, and the CLAUDE.md "Use-Site Verification" cornerstone.) What remained were two follow-on stages,
+*propagation / display polish* and *explorability*, which only pay off once there is IDE integration. They are
+therefore parked here, on top of this plan's Layers A/C/D.
 
 Two of the parked items are compiler-*completeness* improvements (the `Combine`-join postpone and transitive
 "viral" bounds), not strictly IDE features. They are **fail-safe today** — a hard, actionable error at the use
@@ -242,8 +243,9 @@ back out independently; the design notes are preserved below.
   against the combinable-meta / instantiation-meta machinery — real regression risk against the passing `Combine`
   suite, out of proportion for a limit that is already fail-safe.
 
-- **Symbolic `ElaboratedSignature` fallback** (Architecture §3 of the implicit-generics plan) for *use-independent*
-  producers — a never-called producer, or tooling that wants a principal signature with no concrete driver. Check
+- **Symbolic `ElaboratedSignature` fallback** for *use-independent* producers — a never-called producer, or tooling
+  that wants a principal signature with no concrete driver (the calculated-return path that shipped resolves every
+  *reachable* producer concretely via `MonomorphicValue`; this is the use-independent fallback it left out). Check
   the body with the input binders as **neutral** variables, forward-evaluate (`x + x ⤳ Int[add MIN MIN, add MAX
   MAX]`), and quote the symbolic result into the return. Same convergence/limit criterion as the concrete path
   (`Quoter.quote` succeeds ⇒ calculated; stuck ⇒ a reported Limit). Kept strictly off the driven-from-`main`
@@ -263,8 +265,8 @@ back out independently; the design notes are preserved below.
 Dependent signatures (`Int[add(MIN,MIN), add(MAX,MAX)]`) are precise but illegible. This item makes them legible
 and checkable **by example**, exploiting that whole-program monomorphization already computes worked examples for
 free. Everything here reduces to one primitive — *request more `MonomorphicValue` facts and observe* — which the
-lazy, unordered, cached fact graph already supports (Key Finding 2 above). Gated behind W3 (calculated returns, of
-`docs/implicit-generics-plan.md`) and Layers A (partial facts / `recover`) and C (`TypeHintIndex`) of this plan.
+lazy, unordered, cached fact graph already supports (Key Finding 2 above). Gated behind the implicit-generics
+calculated returns (W3) and Layers A (partial facts / `recover`) and C (`TypeHintIndex`) of this plan.
 
 - **Real-usage examples ("all available examples").** Aggregate the existing `MonomorphicValue(fqn, *)` facts and
   show the in→out set at a definition (`double` used as `Int[0,255]→Int[0,510]`, `Int[0,510]→Int[0,1020]`). Free;
@@ -286,8 +288,9 @@ lazy, unordered, cached fact graph already supports (Key Finding 2 above). Gated
   **lightweight totality testing** of the over-claim that bare-input generalization is total over all bounds: a
   body using a bound-restricted operation (a narrow-only `Coerce`, a fixed-width intermediate, a missing `Combine`
   join) is only *partial*, and probing finds counterexamples that would otherwise surface as a confusing error at
-  a future caller. It is the proactive, example-driven twin of the **Limits** section of the implicit-generics plan
-  — the same failures, found early by sampling rather than late at a use. Honest scope: probing is a counterexample
+  a future caller. It is the proactive, example-driven twin of the implicit-generics **limits** (the calculated-return
+  limits the checker already enforces at the use site) — the same failures, found early by sampling rather than late
+  at a use. Honest scope: probing is a counterexample
   *finder*, not a totality *proof* (sampling is incomplete; the sound version is bound-constraint inference, future
   work — see the CLAUDE.md "Use-Site Verification" cornerstone). It must be **sandboxed**: small samples, a
   per-probe step/time budget, and "probe didn't finish" (e.g. hit the recursion limit) reported as *unknown*, never

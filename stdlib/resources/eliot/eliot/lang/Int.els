@@ -9,9 +9,8 @@ import eliot.lang.Combine
  * layer's `Int.els`), never here — a backend with a single numeric type (such as JavaScript) needs none of that
  * machinery.
  *
- * Both bounds are marked `auto` (omittable): a bare `Int` is meant to leave them to the compiler — generalized in
- * parameter positions, calculated in return positions (`docs/implicit-generics-plan.md`). Until saturation lands a bare
- * `Int` still errors; the markers are presently informational.
+ * Both bounds are marked `auto` (omittable): a bare `Int` leaves them to the compiler — generalized in parameter
+ * positions, calculated in return positions (the `auto`/implicit-generics feature).
  */
 type Int[auto MIN: BigInteger, auto MAX: BigInteger]
 
