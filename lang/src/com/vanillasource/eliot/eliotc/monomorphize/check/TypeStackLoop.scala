@@ -152,26 +152,33 @@ class TypeStackLoop(
       liftF(compilerError(resolvedValue.name.as(message), Seq(hint)) >> abort[Unit])
     } else pure(())
 
-  /** Fail-safe for a calculated return (W3) the body did not pin down: if the return metavariable is still unsolved
-    * after the drain-and-resolve loop, the body's type forward-evaluated to something the result cannot be read from
-    * (an unconstrained result — Limit 2). Report a specific error rather than letting [[defaultUnsolvedMetas]] silently
-    * make the return `Type`. (A return solved to a non-meta but non-quotable form — a surviving neutral — is caught
-    * instead by the strict post-drain quoter, so only the still-unsolved-meta case is handled here.)
+  /** Fail-safe for a calculated return (W3) the body did not pin down (Limit 2). After the drain-and-resolve loop the
+    * return metavariable should have been solved to the body's inferred type; if it is still a bare metavariable the
+    * body left it unconstrained, and if it forced to a stuck neutral the result depends on a variable the inputs do not
+    * determine. Either way report a specific error — naming the producer and, for a neutral, the stuck head — rather
+    * than letting [[defaultUnsolvedMetas]] silently make the return `Type`. (A return solved to some *other*
+    * non-quotable form — an unforced top-level definition, a residual native/lambda — is caught instead by the strict
+    * post-drain quoter, which knows precisely which of those are irreducible, so those are left to it.)
     */
   private def failOnUndeterminedCalculatedReturn(
       returnMeta: SemValue.VMeta,
       resolvedValue: OperatorResolvedValue
   ): CheckIO[Unit] =
     checker.force(returnMeta).flatMap {
-      case _: SemValue.VMeta =>
-        liftF(
-          compilerError(
-            resolvedValue.typeStack.as("Cannot calculate the return type: the body does not determine it."),
-            Seq("Write an explicit return type.")
-          ) >> abort[Unit]
-        )
-      case _                 => pure(())
+      case _: SemValue.VMeta                                       =>
+        reportUncalculableReturn(resolvedValue, "the body leaves it unconstrained")
+      case SemValue.VNeutral(SemValue.NeutralHead.VVar(_, n), _) =>
+        reportUncalculableReturn(resolvedValue, s"the result depends on '$n', which the inputs do not determine")
+      case _                                                       => pure(())
     }
+
+  private def reportUncalculableReturn(resolvedValue: OperatorResolvedValue, reason: String): CheckIO[Unit] =
+    liftF(
+      compilerError(
+        resolvedValue.name.as(s"Cannot calculate the return type of '${resolvedValue.vfqn.name.name}': $reason."),
+        Seq("Write an explicit return type.")
+      ) >> abort[Unit]
+    )
 
   /** Solve every still-unsolved meta to [[VType]], except those allocated as abstract-associated-ability-type stand-ins
     * (see [[CheckState.abstractTypeMetas]]), which must remain unsolved so that constraint-covered refs can stay
