@@ -7,58 +7,79 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import java.io.{FileInputStream, FileOutputStream, InputStream, ObjectInputStream, ObjectOutputStream, OutputStream}
 import java.nio.file.{Files, Path}
 
-/** Persistence for the incremental-compilation cache, using Java serialization of [[FactCacheData]].
+/** Persistence for the incremental-compilation cache, using Java serialization.
   *
-  * Two eliot-specific realities are handled here:
+  * Three eliot-specific realities are handled here (see `docs/incremental-compilation.md` §3, §11, §13):
   *
   *   1. `java.nio.file.Path` is not `Serializable`; the streams below transparently swap any `Path` for a serializable
   *      stand-in on write and back on read, so facts may carry `Path`s freely.
-  *   2. A few facts carry a `SemValue` (the NbE semantic domain), which contains Scala closures and is therefore
-  *      fundamentally non-serializable — by any library, not just Java serialization. Rather than fail the whole cache,
-  *      `save` writes only the entries that successfully serialize and silently drops the rest. A dropped fact simply has
-  *      no prior entry next run and is regenerated, which is always safe under the backward-pull validation: correctness
-  *      is preserved, only some incrementality is lost (facts that transitively depend on a non-serializable fact
-  *      regenerate). See `docs/incremental-compilation.md`.
+  *   2. Some fact *values* are fundamentally non-serializable (a `SemValue` carrying Scala closures). Rather than drop
+  *      such a fact wholesale, `save` keeps its **edges** (`directDeps`) and stores `value = None`, so change-detection
+  *      can still drill *through* it next run. Only the value is dropped, never the dependency structure. (An entry whose
+  *      *key* or `directDeps` cannot serialize is dropped entirely, since its edge is unusable; this is not expected to
+  *      happen — keys are first-order.)
+  *   3. A different compiler or configuration must never be served a stale cache. The on-disk header carries a compiler
+  *      fingerprint and a configuration fingerprint (plus [[CACHE_VERSION]]); `load` returns the cache only if all match.
   *
-  * Both directions are otherwise fail-safe: `load` returns `None` on any problem (missing file, deserialization error,
-  * version mismatch), and `save` warns rather than failing the build if writing is impossible.
+  * Both directions are fail-safe: `load` returns `None` on any problem (missing file, deserialization error, version or
+  * fingerprint mismatch), and `save` warns rather than failing the build if writing is impossible.
   *
   * Bump [[CACHE_VERSION]] whenever a persisted fact's shape changes, so an out-of-date cache is discarded.
   */
 object FactCache extends Logging {
-  val CACHE_VERSION: Int         = 1
+  val CACHE_VERSION: Int         = 2
   private val CACHE_FILE: String = ".eliot-cache"
+
+  /** The complete on-disk image: the cache data plus the header that must match the current run to reuse it. */
+  private case class OnDiskCache(compilerFingerprint: String, configFingerprint: String, data: FactCacheData)
 
   def cacheFile(targetDir: Path): Path = targetDir.resolve(CACHE_FILE)
 
-  def load(targetDir: Path): IO[Option[FactCacheData]] =
+  def load(targetDir: Path, compilerFingerprint: String, configFingerprint: String): IO[Option[FactCacheData]] =
     IO.blocking {
       val file = cacheFile(targetDir)
       if (Files.exists(file)) {
         val in = new FactInputStream(new FileInputStream(file.toFile))
         try {
-          val data = in.readObject().asInstanceOf[FactCacheData]
-          Option.when(data.version == CACHE_VERSION)(data)
+          val onDisk = in.readObject().asInstanceOf[OnDiskCache]
+          Option.when(
+            onDisk.data.version == CACHE_VERSION &&
+              onDisk.compilerFingerprint == compilerFingerprint &&
+              onDisk.configFingerprint == configFingerprint
+          )(onDisk.data)
         } finally in.close()
       } else None
     }.handleErrorWith(t => warn[IO]("Could not read incremental cache; doing a full compilation.", t).as(None))
 
-  def save(targetDir: Path, data: FactCacheData): IO[Unit] =
+  def save(
+      targetDir: Path,
+      compilerFingerprint: String,
+      configFingerprint: String,
+      data: FactCacheData
+  ): IO[Unit] =
     IO.blocking {
       Files.createDirectories(targetDir)
-      val serializable = data.entries.filter(canSerialize)
-      val out          = new FactOutputStream(new FileOutputStream(cacheFile(targetDir).toFile))
-      try out.writeObject(FactCacheData(data.version, serializable))
+      val prepared = data.entries.flatMap { case (key, entry) =>
+        if (canSerialize(key) && canSerialize(entry.directDeps))
+          Some(key -> entry.copy(value = entry.value.filter(canSerialize))) // keep edges; drop a non-serializable value
+        else None                                                            // unusable edge ⇒ drop the whole entry
+      }
+      val onDisk = OnDiskCache(compilerFingerprint, configFingerprint, FactCacheData(data.version, prepared))
+      val out    = new FactOutputStream(new FileOutputStream(cacheFile(targetDir).toFile))
+      try out.writeObject(onDisk)
       finally out.close()
-      data.entries.size - serializable.size
-    }.flatMap(dropped => debug[IO](s"Incremental cache: $dropped non-serializable fact(s) not persisted.").whenA(dropped > 0))
-      .handleErrorWith(t => warn[IO]("Could not write incremental cache; the next build will be a full one.", t))
+      (data.entries.size, prepared.size, prepared.count(_._2.value.isEmpty))
+    }.flatMap { case (total, kept, valueless) =>
+      debug[IO](s"Incremental cache: $kept/$total entries persisted ($valueless edges-only).")
+    }.handleErrorWith(t => warn[IO]("Could not write incremental cache; the next build will be a full one.", t))
 
-  /** True if the (key, entry) pair can be Java-serialized; used to drop facts carrying closures (`SemValue`). */
-  private def canSerialize(entry: (Any, Any)): Boolean =
+  /** True if the object can be Java-serialized (with the `Path` stand-in applied); used to drop non-serializable fact
+    * values (closures inside a `SemValue`) while keeping the rest.
+    */
+  private def canSerialize(value: Any): Boolean =
     try {
       val probe = new FactOutputStream(NullOutputStream)
-      try probe.writeObject(entry)
+      try probe.writeObject(value)
       finally probe.close()
       true
     } catch { case _: Exception => false }

@@ -18,6 +18,7 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   subtractFQN,
   typeFQN
 }
+import com.vanillasource.eliot.eliotc.compiler.cache.UpToDate
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
@@ -51,6 +52,13 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
     VTopDef(fqn, None, args.foldLeft(Spine.SNil: Spine)(_ :+ _))
 
   override def generateSingleFact(key: NativeBinding.Key): CompilerIO[NativeBinding] =
+    // These bindings are input-less compiler constants. Depending on the always-clean `UpToDate` leaf (the value is
+    // immaterial — only the edge matters) lets the incremental cache prove them unchanged on a no-change run instead of
+    // treating them as source leaves and regenerating them every time. Deliberately not `getFactOrAbort`: a bundle
+    // without `UpToDateProcessor` (e.g. a minimal test) just loses incrementality here, never fails.
+    getFact(UpToDate.Key()) >> produceNativeBinding(key)
+
+  private def produceNativeBinding(key: NativeBinding.Key): CompilerIO[NativeBinding] =
     if (key.vfqn === functionDataTypeFQN) {
       createFunctionBinding().pure[CompilerIO]
     } else if (key.vfqn === typeFQN) {

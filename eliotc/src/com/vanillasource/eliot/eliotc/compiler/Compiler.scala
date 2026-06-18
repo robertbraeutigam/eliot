@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.compiler
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.visualization.TrackedCompilerProcessor.wrapProcessor
-import com.vanillasource.eliot.eliotc.compiler.cache.FactCache
+import com.vanillasource.eliot.eliotc.compiler.cache.{CacheFingerprint, FactCache}
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
@@ -27,11 +27,15 @@ object Compiler extends Logging {
       _         <- configOpt match {
                      case None                => IO.unit
                      case Some(configuration) =>
-                       runWithConfiguration(configuration, plugins)
+                       runWithConfiguration(configuration, plugins, args)
                    }
     } yield ()
 
-  private def runWithConfiguration(configuration: Configuration, plugins: Seq[CompilerPlugin]): IO[Unit] =
+  private def runWithConfiguration(
+      configuration: Configuration,
+      plugins: Seq[CompilerPlugin],
+      args: List[String]
+  ): IO[Unit] =
     // Select active plugins
     plugins.find(_.isSelectedBy(configuration)) match {
       case None               =>
@@ -52,10 +56,12 @@ object Compiler extends Logging {
           // Run fact generator / compiler
           _                <- debug[IO]("Compiler starting...")
           targetPath        = newConfiguration.get(targetPathKey).get
-          cacheData        <- FactCache.load(targetPath)
+          compilerFp       <- CacheFingerprint.compiler
+          configFp          = CacheFingerprint.config(args)
+          cacheData        <- FactCache.load(targetPath, compilerFp, configFp)
           generator        <- IncrementalFactGenerator.create(wrappedProcessors, cacheData)
           _                <- targetPlugin.run(newConfiguration, generator)
-          _                <- generator.buildCacheData().flatMap(FactCache.save(targetPath, _))
+          _                <- generator.buildCacheData().flatMap(FactCache.save(targetPath, compilerFp, configFp, _))
           _                <- debug[IO]("Compiler exiting normally.")
           // Print the compiler errors
           errors           <- generator.currentErrors()

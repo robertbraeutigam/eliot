@@ -9,19 +9,22 @@ import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFac
 
 /** Cache-aware fact generator implementing incremental compilation by backward, demand-driven validation.
   *
-  * It keeps the same concurrent core as the non-incremental generator — a [[Deferred]]-per-key map that computes each
-  * fact at most once per run, per-fiber generation, and an [[IOLocal]] ancestor chain for recursion detection — and adds
-  * exactly two behaviors:
+  * It keeps the same concurrent core as a plain generator — a [[Deferred]]-per-key map that computes each fact at most
+  * once per run, per-fiber generation, and an [[IOLocal]] ancestor chain for recursion detection — and decides, per
+  * dependency, whether it changed since last run via [[depUnchanged]]:
   *
-  *   1. before generating a fact, consult the `prior` snapshot: if the fact has a cached entry and every one of its
-  *      recorded direct dependencies still resolves to the value it had last run, accept the cached value without
-  *      re-running the processor;
-  *   2. while generating a fact, record (via [[DependencyTrackingProcess]]) the facts its processor reads, so the trace
-  *      can be persisted for the next run.
+  *   - a dependency with a **stored value** (every leaf, and every serializable derived fact) is recomputed and compared
+  *     by value — this is the equality cutoff: a changed leaf whose derived value recomputes equal stops propagation;
+  *   - a **value-less** dependency (a non-serializable `SemValue`-bearing fact) is validated **structurally** by drilling
+  *     through its recorded `directDeps` to the leaves, *without materialising the value*. Its prior edges-only entry is
+  *     carried forward when the structural check passes, so it stays drillable next run.
+  *
+  * Consequently a no-change run materialises no `SemValue` at all (the whole monomorphize layer is skipped), and a
+  * value-less fact is regenerated only when a genuinely changed dependent actually reads its value.
   *
   * Leaf facts — those whose recorded dependency set is empty, e.g. a `stat` of a source file — are always regenerated,
-  * forming the boundary with the external world. Failures are never cached, so a fact that failed to generate has no
-  * prior entry and is regenerated (re-emitting its error) on every run until fixed.
+  * forming the boundary with the external world. Failures are never cached, so a fact that failed has no prior entry and
+  * is regenerated (re-emitting its error) on every run until fixed.
   *
   * With an empty `prior` (cold start) every fact is regenerated, so behavior matches a non-incremental generator plus
   * harmless dependency recording.
@@ -32,6 +35,9 @@ final class IncrementalFactGenerator(
     errors: Ref[IO, Chain[CompilerError]],
     facts: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]],
     directDependencies: Ref[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]],
+    carriedForward: Ref[IO, Map[CompilerFactKey[?], CacheEntry]],
+    unchangedChecks: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]],
+    regeneratedCount: Ref[IO, Int],
     activeKeys: IOLocal[List[CompilerFactKey[?]]]
 ) extends CompilationProcess
     with Logging {
@@ -54,40 +60,67 @@ final class IncrementalFactGenerator(
 
   /** Satisfy a first-time request: accept the cached value if it is still valid, otherwise regenerate.
     *
-    * An injected fact (registered directly, never produced by a processor) is always accepted — nothing can regenerate
-    * it, and its cached value is authoritative for the build target.
+    *   - An injected fact (registered directly, never produced by a processor) is always accepted — nothing can
+    *     regenerate it, and its cached value is authoritative for the build target.
+    *   - A fact with a stored value and recorded dependencies is accepted iff every dependency is unchanged.
+    *   - Anything else (a value-less fact whose value is now actually needed, a leaf, or a fact with no prior) is
+    *     regenerated.
     */
   private def resolve(key: CompilerFactKey[?], deferred: Deferred[IO, Option[CompilerFact]]): IO[Unit] =
     prior.get(key) match {
-      case Some(entry) if entry.injected            => acceptPrior(key, entry, deferred)
-      case Some(entry) if entry.directDeps.nonEmpty =>
-        depsUnchanged(entry.directDeps).flatMap {
+      case Some(entry) if entry.injected                              => deferred.complete(entry.value).void
+      case Some(entry) if entry.value.isDefined && entry.directDeps.nonEmpty =>
+        entry.directDeps.toList.forallM(depUnchanged).flatMap {
           case true  => acceptPrior(key, entry, deferred)
           case false => regenerate(key)
         }
-      case _ => regenerate(key) // no prior entry, or a generated leaf (empty deps) ⇒ always run
+      case _                                                          => regenerate(key)
     }
 
-  /** Every recorded dependency still resolves to the value it had last run. */
-  private def depsUnchanged(deps: Set[CompilerFactKey[?]]): IO[Boolean] =
-    deps.toList.forallM { dep =>
-      getFactUntyped(dep).map {
-        case Some(current) => prior.get(dep).exists(p => (p.fact eq current) || p.fact == current)
-        case None          => false // dependency no longer producible ⇒ treat as changed
-      }
-    }
-
-  /** Accept the cached fact and carry its trace forward so it re-persists with the right metadata. An injected fact is
-    * intentionally *not* recorded in `directDependencies`, so it is re-classified as injected when the cache is rebuilt
-    * (see [[buildCacheData]]).
+  /** Whether `key`'s value is unchanged since last run, memoized once per run. The validity oracle a parent uses for
+    * each of its dependencies; it never materialises a value-less fact (see class doc).
     */
+  private def depUnchanged(key: CompilerFactKey[?]): IO[Boolean] =
+    for {
+      newDeferred <- Deferred[IO, Boolean]
+      modify      <- unchangedChecks.modify { checks =>
+                       checks.get(key) match
+                         case Some(existing) => (checks, (existing, false))
+                         case None           => (checks.updated(key, newDeferred), (newDeferred, true))
+                     }
+      _           <- computeUnchanged(key)
+                       .handleError(_ => false) // any failure ⇒ treat as changed (regenerate); fail-safe
+                       .flatMap(modify._1.complete)
+                       .void
+                       .whenA(modify._2)
+      result      <- modify._1.get
+    } yield result
+
+  private def computeUnchanged(key: CompilerFactKey[?]): IO[Boolean] =
+    prior.get(key) match {
+      case None                                      => false.pure[IO]   // new / previously failed ⇒ changed
+      case Some(entry) if entry.injected             =>                  // accept on sight; carry forward so a run that
+        carriedForward.update(_.updated(key, entry)).as(true)           // does not re-register it keeps it in the cache
+      case Some(entry) if entry.value.isDefined      =>                  // leaf or serializable derived: recompute & compare
+        getFactUntyped(key).map {
+          case Some(current) => entry.value.exists(v => (v eq current) || v == current)
+          case None          => false // no longer producible ⇒ changed
+        }
+      case Some(entry) if entry.directDeps.nonEmpty  =>                  // value-less derived: drill structurally
+        entry.directDeps.toList
+          .forallM(depUnchanged)
+          .flatTap(unchanged => carriedForward.update(_.updated(key, entry)).whenA(unchanged))
+      case Some(_)                                   => false.pure[IO]   // value-less leaf: cannot validate ⇒ changed
+    }
+
+  /** Accept the cached fact and carry its trace forward so it re-persists with the right metadata. */
   private def acceptPrior(
       key: CompilerFactKey[?],
       entry: CacheEntry,
       deferred: Deferred[IO, Option[CompilerFact]]
   ): IO[Unit] =
-    directDependencies.update(_.updated(key, entry.directDeps)).unlessA(entry.injected) >>
-      deferred.complete(Some(entry.fact)).void
+    directDependencies.update(_.updated(key, entry.directDeps)) >>
+      deferred.complete(entry.value).void
 
   /** Run the processor, recording (via [[DependencyTrackingProcess]]) the facts it reads as this key's direct
     * dependencies. The processor completes the fact's [[Deferred]] itself via [[registerFact]]; the caller's safety net
@@ -98,7 +131,8 @@ final class IncrementalFactGenerator(
     * accumulate into the same entry as they happen, before the fact becomes observable.
     */
   private def regenerate(key: CompilerFactKey[?]): IO[Unit] =
-    directDependencies.update(deps => deps.updated(key, deps.getOrElse(key, Set.empty))) >>
+    regeneratedCount.update(_ + 1) >>
+      directDependencies.update(deps => deps.updated(key, deps.getOrElse(key, Set.empty))) >>
       generator
         .generate(key)
         .run(new DependencyTrackingProcess(this, key, directDependencies))
@@ -129,38 +163,52 @@ final class IncrementalFactGenerator(
 
   def currentErrors(): IO[Seq[CompilerError]] = errors.get.map(_.toList)
 
-  /** Build the cache to persist after this run. Only facts that successfully generated (resolved to a value) are
-    * included, so failures are never cached and re-surface on the next run.
+  /** Build the cache to persist after this run. Two sources are merged:
     *
-    * A fact that a processor generated has an entry in `directDependencies` (its recorded reads, possibly empty for a
-    * leaf). A fact that was only registered directly — injected (e.g. a dynamic source) — has none, and is marked so it
-    * is accepted rather than (unsuccessfully) regenerated next run.
+    *   - facts **materialised** this run (regenerated or accepted) — a fresh entry with their value and recorded
+    *     dependencies. Only facts that resolved to a value are included, so failures are never cached and re-surface.
+    *   - facts **validated structurally but not materialised** (value-less facts proven unchanged) — their prior
+    *     edges-only entry, carried forward so the graph stays drillable. A fact neither materialised nor carried (no
+    *     longer reachable, or removed) drops out, so the cache self-prunes.
+    *
+    * A materialised fact that a processor generated has an entry in `directDependencies`; one that was only registered
+    * directly — injected — has none, and is marked so it is accepted rather than (unsuccessfully) regenerated next run.
     */
   def buildCacheData(): IO[FactCacheData] =
     for {
-      factMap <- currentFacts()
-      deps    <- directDependencies.get
-    } yield FactCacheData(
-      FactCache.CACHE_VERSION,
-      factMap.map { case (key, fact) =>
-        key -> CacheEntry(fact, deps.getOrElse(key, Set.empty), injected = !deps.contains(key))
+      factMap     <- currentFacts()
+      deps        <- directDependencies.get
+      carried     <- carriedForward.get
+      regenerated <- regeneratedCount.get
+      _           <- debug[IO](s"Incremental run: regenerated $regenerated fact(s); ${factMap.size} materialised, " +
+                       s"${carried.size} validated unchanged without recompute.")
+    } yield {
+      val fresh = factMap.map { case (key, fact) =>
+        key -> CacheEntry(Some(fact), deps.getOrElse(key, Set.empty), injected = !deps.contains(key))
       }
-    )
+      FactCacheData(FactCache.CACHE_VERSION, fresh ++ carried.view.filterKeys(k => !fresh.contains(k)).toMap)
+    }
 }
 
 object IncrementalFactGenerator {
   def create(generator: CompilerProcessor, prior: Option[FactCacheData]): IO[IncrementalFactGenerator] =
     for {
-      errors     <- Ref.of[IO, Chain[CompilerError]](Chain.empty)
-      facts      <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]](Map.empty)
-      deps       <- Ref.of[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]](Map.empty)
-      activeKeys <- IOLocal[List[CompilerFactKey[?]]](Nil)
+      errors          <- Ref.of[IO, Chain[CompilerError]](Chain.empty)
+      facts           <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]](Map.empty)
+      deps            <- Ref.of[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]](Map.empty)
+      carriedForward  <- Ref.of[IO, Map[CompilerFactKey[?], CacheEntry]](Map.empty)
+      unchangedChecks <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]](Map.empty)
+      regenerated     <- Ref.of[IO, Int](0)
+      activeKeys      <- IOLocal[List[CompilerFactKey[?]]](Nil)
     } yield new IncrementalFactGenerator(
       generator,
       prior.map(_.entries).getOrElse(Map.empty),
       errors,
       facts,
       deps,
+      carriedForward,
+      unchangedChecks,
+      regenerated,
       activeKeys
     )
 }

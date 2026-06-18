@@ -128,7 +128,7 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
       run   <- runBuild(proc, None)(_.getFact(NumberKey("derived")))
     } yield run._2.entries
     test.asserting { entries =>
-      entries(NumberKey("derived")) shouldBe CacheEntry(NumberFact("derived", 20), Set(NumberKey("leaf")))
+      entries(NumberKey("derived")) shouldBe CacheEntry(Some(NumberFact("derived", 20)), Set(NumberKey("leaf")))
     }
   }
 
@@ -139,7 +139,7 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
       proc   = graph(Map("leaf" -> Leaf(src), "derived" -> Derived("leaf", _ * 2)), counts)
       run   <- runBuild(proc, None)(_.getFact(NumberKey("derived")))
     } yield run._2.entries(NumberKey("leaf"))
-    test.asserting(_ shouldBe CacheEntry(NumberFact("leaf", 10), Set.empty))
+    test.asserting(_ shouldBe CacheEntry(Some(NumberFact("leaf", 10)), Set.empty))
   }
 
   it should "keep accepting a derived fact across many unchanged runs (deps carried forward)" in {
@@ -159,7 +159,7 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
   it should "always regenerate a fact whose cached entry has no recorded dependencies" in {
     // A hand-built prior in which 'derived' has empty deps must be treated as a leaf (always regenerated),
     // never accepted — this is the conservative safety rule for side-effect-registered facts.
-    val staleEntry = CacheEntry(NumberFact("derived", 999), Set.empty)
+    val staleEntry = CacheEntry(Some(NumberFact("derived", 999)), Set.empty)
     val test = for {
       src      <- Ref.of[IO, Int](10)
       counts   <- counters("leaf", "derived")
@@ -176,7 +176,7 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
     // served from the cache. 'derived' reads it, so a successful result proves the injected fact was accepted.
     val priorInjected = FactCacheData(
       FactCache.CACHE_VERSION,
-      Map(NumberKey("injected") -> CacheEntry(NumberFact("injected", 42), Set.empty, injected = true))
+      Map(NumberKey("injected") -> CacheEntry(Some(NumberFact("injected", 42)), Set.empty, injected = true))
     )
     val test = for {
       counts <- counters("derived")
@@ -187,7 +187,7 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
   }
 
   it should "re-persist an accepted injected fact as injected" in {
-    val injectedEntry = CacheEntry(NumberFact("injected", 42), Set.empty, injected = true)
+    val injectedEntry = CacheEntry(Some(NumberFact("injected", 42)), Set.empty, injected = true)
     val priorInjected = FactCacheData(FactCache.CACHE_VERSION, Map(NumberKey("injected") -> injectedEntry))
     val test = for {
       counts <- counters("derived")
@@ -195,6 +195,45 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
       run    <- runBuild(proc, Some(priorInjected))(_.getFact(NumberKey("derived")))
     } yield run._2.entries.get(NumberKey("injected"))
     test.asserting(_ shouldBe Some(injectedEntry))
+  }
+
+  it should "validate a dependent through a value-less dependency without materialising it" in {
+    // top -> mid -> leaf, where 'mid' is value-less in the prior (models a dropped, non-serializable SemValue fact).
+    // With the leaf unchanged, 'top' is accepted without 'mid' ever being regenerated, and 'mid' is carried forward
+    // (its edges kept) so it stays drillable next run.
+    val test = for {
+      src    <- Ref.of[IO, Int](10)
+      counts <- counters("leaf", "mid", "top")
+      proc    = graph(Map("leaf" -> Leaf(src), "mid" -> Derived("leaf", _ + 1), "top" -> Derived("mid", _ + 1)), counts)
+      prior   = Map[CompilerFactKey[?], CacheEntry](
+                  NumberKey("leaf") -> CacheEntry(Some(NumberFact("leaf", 10)), Set.empty),
+                  NumberKey("mid")  -> CacheEntry(None, Set(NumberKey("leaf"))),
+                  NumberKey("top")  -> CacheEntry(Some(NumberFact("top", 12)), Set(NumberKey("mid")))
+                )
+      run    <- runBuild(proc, Some(FactCacheData(FactCache.CACHE_VERSION, prior)))(_.getFact(NumberKey("top")))
+      midN   <- counts("mid").get
+      topN   <- counts("top").get
+    } yield (run._1, midN, topN, run._2.entries.get(NumberKey("mid")))
+    // top served from cache, mid and top never recomputed, mid carried forward as edges-only
+    test.asserting(_ shouldBe (Some(NumberFact("top", 12)), 0, 0, Some(CacheEntry(None, Set(NumberKey("leaf"))))))
+  }
+
+  it should "carry an injected fact forward on a run that validates but does not re-register it" in {
+    // Models the JVM dynamic 'main' source: an injected fact plus a fact reading it. When the reader is accepted from
+    // cache, the injected fact is only validated (never re-registered), yet must stay in the cache — otherwise it drops
+    // out and the graph oscillates between full and incremental rebuilds.
+    val injected = CacheEntry(Some(NumberFact("injected", 7)), Set.empty, injected = true)
+    val test     = for {
+      counts  <- counters("derived")
+      proc     = graph(Map("derived" -> Derived("injected", _ + 1)), counts)
+      prior    = Map[CompilerFactKey[?], CacheEntry](
+                   NumberKey("injected") -> injected,
+                   NumberKey("derived")  -> CacheEntry(Some(NumberFact("derived", 8)), Set(NumberKey("injected")))
+                 )
+      run     <- runBuild(proc, Some(FactCacheData(FactCache.CACHE_VERSION, prior)))(_.getFact(NumberKey("derived")))
+      derivedN <- counts("derived").get
+    } yield (derivedN, run._2.entries.get(NumberKey("injected")))
+    test.asserting(_ shouldBe (0, Some(injected)))
   }
 
   it should "not cache a failed fact and re-run it (re-emitting its error) on the next run" in {

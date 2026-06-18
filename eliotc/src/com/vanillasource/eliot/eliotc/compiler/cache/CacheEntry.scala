@@ -2,20 +2,24 @@ package com.vanillasource.eliot.eliotc.compiler.cache
 
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
-/** A persisted fact together with the keys it directly depended on when it was produced.
+/** A persisted cache entry: the keys a fact directly depended on, plus its value *when storable*.
   *
-  * `directDeps` is the metadata the incremental engine needs: validating a cached fact means re-resolving each of these
-  * keys and checking that it still has the value it had last run (see
-  * [[com.vanillasource.eliot.eliotc.compiler.IncrementalFactGenerator]]). An empty `directDeps` marks a generated leaf /
-  * "starting point" (a fact a processor produces with no dependencies, e.g. a `stat` of a source file) which is always
-  * regenerated.
+  * The entry plays two separate roles with separate serializability needs (see `docs/incremental-compilation.md` §2):
   *
-  * `injected` distinguishes a fact that was *registered directly* (via `registerFact`, e.g. the dynamic main source a
-  * backend injects) from one a processor *generates*. No processor can reproduce an injected fact, so it must be
-  * accepted from the cache rather than regenerated; its cached value is authoritative for the build target.
+  *   - **Change-detection.** `directDeps` is validated recursively to decide whether the fact changed since last run.
+  *     This never needs the value — for a non-serializable fact the parent drills *through* this entry's `directDeps`
+  *     down to the leaves. An empty `directDeps` marks a *generated leaf* / starting point (e.g. a `FileStat`), which is
+  *     always recomputed.
+  *   - **Reconstruction.** `value` supplies the fact to a dependent that must recompute. It is `Some` for serializable
+  *     facts (also used for the equality cutoff), and `None` when the value cannot be stored (a `SemValue`-bearing fact)
+  *     or was never materialised this run (validated structurally and carried forward).
+  *
+  * `injected` distinguishes a fact *registered directly* (via `registerFact`, e.g. the dynamic `main` source a backend
+  * injects) from one a processor *generates*. No processor can reproduce an injected fact, so it is accepted from the
+  * cache on sight rather than regenerated.
   */
 case class CacheEntry(
-    fact: CompilerFact,
+    value: Option[CompilerFact],
     directDeps: Set[CompilerFactKey[?]],
     injected: Boolean = false
 )
