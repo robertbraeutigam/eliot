@@ -11,10 +11,19 @@ import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIfAll, atLeastOnc
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 
+/** A generic-parameter binder, e.g. `MIN: BigInteger` in `type Int[MIN: BigInteger, MAX: BigInteger]`.
+  *
+  * @param inferable
+  *   True when the binder is marked `auto` (`type Int[auto MIN, auto MAX]`), declaring it *omittable* at use sites: the
+  *   compiler may supply it rather than the user spelling it. Surface keyword for the implicit/inferred-generics
+  *   feature (`docs/implicit-generics-plan.md`). Purely informational for now — saturation is a later work item; a bare
+  *   under-applied constructor still errors exactly as before.
+  */
 case class GenericParameter(
     name: Sourced[String],
     typeRestriction: Sourced[Expression],
-    abilityConstraints: Seq[AbilityConstraint]
+    abilityConstraints: Seq[AbilityConstraint],
+    inferable: Boolean = false
 )
 
 object GenericParameter {
@@ -38,6 +47,9 @@ object GenericParameter {
 
     override def parser: Parser[Sourced[Token], GenericParameter] =
       for {
+        // `auto` is a soft keyword (a plain lowercase identifier, like `opaque`/`left`), unambiguous here because a
+        // generic-parameter name is always upper-case: a lowercase `auto` can only be the marker.
+        inferable          <- identifierWith("auto").as(true).optional().map(_.getOrElse(false))
         name               <- acceptIfAll(isUpperCase, isIdentifier)("generic type parameter")
         typeRestriction    <- (arityAsTypeRestriction(name.map(_.content)) or explicitTypeRestriction)
                                 .optional()
@@ -46,7 +58,8 @@ object GenericParameter {
       } yield GenericParameter(
         name.map(_.content),
         typeRestriction,
-        abilityConstraints.map(ac => extendWithDefault(ac, name.map(_.content)))
+        abilityConstraints.map(ac => extendWithDefault(ac, name.map(_.content))),
+        inferable
       )
 
     /** When an ability constraint is defined [A ~ Show] (with no parameters), we add the generic parameter its declared

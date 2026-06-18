@@ -624,6 +624,18 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
+  it should "mark an auto generic parameter inferable, leaving unmarked ones not" in {
+    runEngineForFunctionGenericInferable("def f[auto A, B]: A").asserting(_ shouldBe Seq(("f", Seq(true, false))))
+  }
+
+  it should "carry the auto marker onto the args a type constructor's parameters become" in {
+    runEngineForFunctionArgInferable("type Int[auto MIN, auto MAX]").asserting(_ shouldBe Seq(("Int", Seq(true, true))))
+  }
+
+  it should "leave unmarked type-constructor parameters non-inferable" in {
+    runEngineForFunctionArgInferable("type IO[A]").asserting(_ shouldBe Seq(("IO", Seq(false))))
+  }
+
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
     runGenerator(source, SourceAST.Key(file)).map(_._2)
 
@@ -697,6 +709,30 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results.values
         .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
           functions.map(f => (f.name.value.name, f.opaque))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctionGenericInferable(source: String): IO[Seq[(String, Seq[Boolean])]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.genericParameters.map(_.inferable)))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctionArgInferable(source: String): IO[Seq[(String, Seq[Boolean])]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.args.map(_.inferable)))
         }
         .toSeq
         .flatten

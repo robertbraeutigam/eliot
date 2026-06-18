@@ -127,7 +127,7 @@ object ProcessorTest {
     * `Int` type and the `integerLiteral` constructor; the richer `Coerce`/`Combine`/arithmetic environment lives in the
     * `Int` tests' own import lists.
     */
-  val intStubContent: String     = "type Int[MIN: BigInteger, MAX: BigInteger]"
+  val intStubContent: String     = "type Int[auto MIN: BigInteger, auto MAX: BigInteger]"
   val runtimeStubContent: String = "def integerLiteral[V: BigInteger]: Int[V, V]"
 
   /** The auto-imported system modules minus the Phase-6 ambient `Int`/`Runtime`. Tests that use `Int` (or

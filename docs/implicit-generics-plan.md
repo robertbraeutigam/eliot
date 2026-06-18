@@ -1,4 +1,4 @@
-# Implicit / Inferred Generic Parameters (`infer`)
+# Implicit / Inferred Generic Parameters (`auto`)
 
 Status: **Proposed.** Nothing implemented yet. This document records the theory, the surface design, the
 architectural change it requires, a staged implementation that is closed and testable at each step, and — equally
@@ -104,11 +104,11 @@ signatures normalized at use sites); Eliot's source re-read is the anomaly.
 
 ### Cornerstone fit
 
-- `infer` is a **visibility tag** on a parameter — *sanctioned sugar*, the same flavour as the
+- `auto` is a **visibility tag** on a parameter — *sanctioned sugar*, the same flavour as the
   `Qualifier.Type`/`Default` namespaces and `[]` vs `()`. It controls *elaboration* (may this argument be
   omitted?), not type equality, and applies uniformly to type-level and value-level binders. It introduces **no**
   type/value stratification.
-- The number of holes to fill for a bare `Int` is the count of **leading `infer`-marked binders in `Int`'s
+- The number of holes to fill for a bare `Int` is the count of **leading `auto`-marked binders in `Int`'s
   declaration**, read structurally from the declaration the user wrote — **never** `RoleHint.TypeConstructor.
   typeParamCount` (`core/fact/RoleHint.scala`, which stays write-only). Arity-to-saturate is an *elaboration*
   read of user-written markers, never a *typing* input.
@@ -117,13 +117,17 @@ signatures normalized at use sites); Eliot's source re-read is the anomaly.
 ## The marker
 
 A keyword on a generic-parameter binder declares it **omittable**: at any use of the enclosing name that
-parameter may be left out and the compiler supplies it. Working spelling — `infer` (bikeshed; alternatives
-`implicit`, `auto`, or a sigil like `~MIN`):
+parameter may be left out and the compiler supplies it. The surface keyword is **`auto`** — chosen for Eliot's
+embedded/microcontroller audience (many from C/C++, where `auto` already reads as "the compiler fills this in")
+and because the marker's actual contract is *omittable*, not *inferred*: it is mechanism-neutral and so covers
+both the parameter (generalize) and return (calculate) halves honestly. The internal/spec vocabulary stays
+"inferred input / calculated return"; the keyword need not equal the mechanism name. (Rejected: `implicit` —
+collides with abilities; the `~MIN` sigil — illegible to exactly this audience and easy to miss.)
 
 ```eliot
-type Int[infer MIN: BigInteger, infer MAX: BigInteger]   -- bounds omittable
-type IO[A]                                               -- A mandatory: bare `IO` is an error
-type Byte = Int[-128, 127]                               -- explicit supply still allowed everywhere
+type Int[auto MIN: BigInteger, auto MAX: BigInteger]   -- bounds omittable
+type IO[A]                                             -- A mandatory: bare `IO` is an error
+type Byte = Int[-128, 127]                             -- explicit supply still allowed everywhere
 ```
 
 Rules:
@@ -168,15 +172,26 @@ Each stage is independently mergeable and testable; later stages depend only on 
 
 ### W0 — Marker surface + plumbing (no behaviour change)
 
-- **What:** parse `infer` on generic-parameter binders; carry an `inferable: Boolean` on the binder through
+- **What:** parse `auto` on generic-parameter binders; carry an `inferable: Boolean` on the binder through
   `ast` → `resolve` → `core` (`ArgumentDefinition` / generic-parameter structures); expose, per value FQN, its
   *leading inferable-binder count* as a derivable fact for later stages.
 - **Where:** `ast/fact/Expression.scala` and the generic-parameter parser; `resolve` + `core` parameter
   structures; a small `InferableArity` (or a field on an existing core fact).
 - **How:** purely additive. Bare under-applied constructors still error exactly as today (no saturation yet).
-- **Test:** `infer` parses and round-trips to core; an `InferableArity(IntFQN) == 2`-style fact is produced;
+- **Test:** `auto` parses and round-trips to core; an `InferableArity(IntFQN) == 2`-style fact is produced;
   existing suite unchanged; bare `Int` in a signature still produces today's "type mismatch".
-- **Status:** TODO.
+- **Status:** DONE. `auto` is a **soft keyword** (a plain lowercase identifier, like `opaque`/`left`; unambiguous
+  because generic-parameter names are always upper-case) — no tokenizer reservation. Threaded as `inferable: Boolean`
+  on `ast.GenericParameter` and `ast.ArgumentDefinition` (a `type X[..]`/`data` type-constructor's params become value
+  *args*, so the marker rides both); the leading-inferable count is computed in `CoreProcessor` (leading run over
+  `genericParameters ++ args`) and stored as the field `NamedValue.inferableArity`. That **is** the per-FQN derivable
+  fact: `NamedValue` rides through `ModuleValue`/`UnifiedModuleValue` (both keyed by `ValueFQN`), so a consumer reads
+  `UnifiedModuleValue(fqn).namedValue.inferableArity` — no separate `InferableArity` fact/processor (it would only copy
+  one field). `ResolvedValue` drops it, so W1's consumer either reads `UnifiedModuleValue` directly (resolution-
+  independent) or threads the field onto the fact it already reads — decide when the consumer exists, not now. Both
+  base `stdlib` and `jvm` `Int.els` declare `Int[auto MIN, auto MAX]`. Tests: `ASTParserTest` (marker round-trip) +
+  `UnifiedModuleValueProcessorTest` (per-FQN counts, incl. leading-run-only). `signatureEquality` deliberately ignores
+  `inferable`, so the marker never affects layer unification.
 
 ### W1 — Input-position generalization for functions (the cheap, no-back-edge win)
 
@@ -337,9 +352,9 @@ detector.
      is not a limit — branching producers just work.)
 
 4. **Omission of a non-inferable parameter.** A bare reference whose declaration's omitted parameters are **not**
-   `infer`-marked (`IO`, a container element type).
+   `auto`-marked (`IO`, a container element type).
    - *Detect:* in `SaturatedValue`, an omitted parameter without the marker.
-   - *Report:* "`IO` requires its parameter `A`; it is not `infer`. Supply it explicitly." This is the IO
+   - *Report:* "`IO` requires its parameter `A`; it is not `auto`. Supply it explicitly." This is the IO
      guardrail, enforced at the use site, body-free.
 
 5. **Calculated return in a body-less declaration.** An abstract layer declaration (`def readByte(): Int`, no
@@ -398,4 +413,4 @@ boundary it cannot cross.
 - **Refinement-type or range-analysis foundations.** Considered and rejected: refinement types move bounds out of
   the type system into a separate (often SMT) inference — a *second mechanism*, contradicting the cornerstone;
   range-analysis demotes bounds from a typed guarantee to a best-effort optimization, abandoning the
-  microcontroller resource bet. This plan keeps bounds as ordinary, typed, `infer`-marked generic parameters.
+  microcontroller resource bet. This plan keeps bounds as ordinary, typed, `auto`-marked generic parameters.

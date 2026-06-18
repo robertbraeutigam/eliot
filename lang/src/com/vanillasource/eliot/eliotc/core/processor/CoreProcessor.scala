@@ -104,6 +104,12 @@ class CoreProcessor
       )
       .filter(_._2.nonEmpty)
       .toMap
+    // Leading `auto`-marked binder count, scanning curried binders front-to-back (generic-parameter prefix first, then
+    // value args) and stopping at the first non-`auto`. For `type Int[auto MIN, auto MAX]` (whose params are value
+    // args) this is 2; for `type IO[A]` it is 0.
+    val inferableArity = (function.genericParameters.map(_.inferable) ++ function.args.map(_.inferable))
+      .takeWhile(identity)
+      .size
     NamedValue(
       function.name,
       curriedValue,
@@ -113,7 +119,8 @@ class CoreProcessor
       function.precedence.map(convertPrecedenceDeclaration),
       function.visibility,
       roleHint,
-      function.opaque
+      function.opaque,
+      inferableArity
     )
   }
 }

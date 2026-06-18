@@ -8,8 +8,12 @@ import eliot.lang.Combine
  * operators are actually computed, is platform-specific and therefore lives in a platform layer (e.g. the `jvm`
  * layer's `Int.els`), never here — a backend with a single numeric type (such as JavaScript) needs none of that
  * machinery.
+ *
+ * Both bounds are marked `auto` (omittable): a bare `Int` is meant to leave them to the compiler — generalized in
+ * parameter positions, calculated in return positions (`docs/implicit-generics-plan.md`). Until saturation lands a bare
+ * `Int` still errors; the markers are presently informational.
  */
-type Int[MIN: BigInteger, MAX: BigInteger]
+type Int[auto MIN: BigInteger, auto MAX: BigInteger]
 
 // Some common aliases
 type Byte            = Int[-128, 127]

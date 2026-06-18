@@ -23,6 +23,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   Advisory metadata about how this value was declared. Populated for compiler-synthesized values that need to be
   *   recognized structurally later (e.g. data constructors). Defaults to [[RoleHint.NoHint]] for parsed user code.
   *   Semantic phases must not read this; see [[RoleHint]].
+  * @param inferableArity
+  *   The number of leading `auto`-marked (omittable) parameters of this value, counting its curried binders from the
+  *   front and stopping at the first non-`auto` one. So `type Int[auto MIN, auto MAX]` is 2; `type IO[A]` is 0. This is
+  *   the count of holes a bare under-applied use of this name would fill once saturation lands; surfaced per FQN as
+  *   `saturate.fact.InferableArity`. Informational only for now (`docs/implicit-generics-plan.md`, W0).
   */
 case class NamedValue(
     qualifiedName: Sourced[QualifiedName],
@@ -33,7 +38,8 @@ case class NamedValue(
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     visibility: Visibility = Visibility.Public,
     roleHint: RoleHint = RoleHint.NoHint,
-    opaque: Boolean = false
+    opaque: Boolean = false,
+    inferableArity: Int = 0
 )
 
 object NamedValue {

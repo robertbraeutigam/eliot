@@ -39,7 +39,7 @@ type JvmBigInteger
  * Type namespace even though it sits in the value-argument position of `fold` (where a plain `JvmByte` would default
  * to a — here non-existent — value constructor).
  */
-opaque type Int[MIN: BigInteger, MAX: BigInteger] =
+opaque type Int[auto MIN: BigInteger, auto MAX: BigInteger] =
   fold(fitsIn[-128, 127, MIN, MAX], JvmByte[],
   fold(fitsIn[-32768, 32767, MIN, MAX], JvmShort[],
   fold(fitsIn[-2147483648, 2147483647, MIN, MAX], JvmInt[],
