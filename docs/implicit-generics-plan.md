@@ -1,12 +1,15 @@
 # Implicit / Inferred Generic Parameters (`auto`)
 
-Status: **W0–W4 implemented; W5–W6 remain.** Input generalization (W1), data-field generalization (W2),
-calculated returns (W3), and the limit diagnostics (W4) are built and tested; what is left is propagation /
-display polish (W5, including the two W4-deferred *completeness* items — the `Combine`-join postpone and transitive
-"viral" bounds) and IDE explorability (W6, including the symbolic `ElaboratedSignature` fallback). This document
-records the theory, the surface design, the architectural change it requires, a staged implementation that is
-closed and testable at each step, and — equally important — exactly where the system stops working and how it must
-say so out loud.
+Status: **W0–W4 implemented and shipped; W5–W6 moved to the IDE plan.** Input generalization (W1), data-field
+generalization (W2), calculated returns (W3), and the limit diagnostics (W4) are built and tested. The remaining
+propagation / display polish (was W5, including the two W4-deferred *completeness* items — the `Combine`-join
+postpone and transitive "viral" bounds) and the IDE explorability (was W6, including the symbolic
+`ElaboratedSignature` fallback) have been **moved to `docs/ide-type-hints.md`**: they only pay off once there is
+IDE integration, and W6 already builds on that plan's Layers A/C/D. None of this is a soundness gap — every moved
+item is either pure display/explorability or a *completeness* improvement that is fail-safe today (a hard error at
+the use site, never a wrong type). This document records the theory, the surface design, the architectural change
+it requires, a staged implementation that is closed and testable at each step, and — equally important — exactly
+where the system stops working and how it must say so out loud.
 
 ## Goal
 
@@ -168,7 +171,7 @@ Rules:
    return is needed with no concrete driver — a never-called producer, or tooling that wants a principal signature —
    check the body with the input binders as neutral variables, forward-evaluate, and quote the symbolic result into the
    return level. Kept strictly off the driven-from-`main` path; the concrete reuse in (2) handles all reachable code, so
-   this fallback is unnecessary for compilation and is left for the tooling work (W6).
+   this fallback is unnecessary for compilation and is left for the tooling work (`docs/ide-type-hints.md`).
 
 Input/data saturation is body-free and lives at the core boundary; return calculation needs the body and lives in
 monomorphize — and, on the primary path, *is already computed there* by ordinary monomorphization.
@@ -342,7 +345,7 @@ Each stage is independently mergeable and testable; later stages depend only on 
        W3.** W3 (now built) handles the *function-producer* output-bound case by calculating from the body and reading
        the callee's `MonomorphicValue` — but a *union constructor* has no single body to calculate from (each
        constructor leaves the others' slots free), so it remains the same free-binder problem, not a mechanical
-       completion. Revisit alongside W4/W5 once the calculated-return limits are wired.
+       completion. Revisit alongside the IDE-plan propagation work (`docs/ide-type-hints.md`).
     2. **`typeMatch` over an auto-bounded record — DONE.** The `TypeMatch` matcher's `matchCase` handler is now rebuilt
        (`SaturatedValueProcessor.rebuildTypeMatchHandler`) from the grown generic kinds — `Function[Unit, R]` (or the
        explicit-generic prefix) becomes `Function[explicit-kinds.., BigInteger, …, R]` — so a type-level
@@ -387,7 +390,8 @@ Each stage is independently mergeable and testable; later stages depend only on 
     applied to fewer than its omittable arity. The arity oracle `inferableInfo` was widened to include **W2-grown**
     record arity (`recordGrowth`/`recordPlanFor`), so a bare `Counter` return (raw type-ctor arity 0, fields add 2) is
     recognised; `fieldContribution` keeps using the *raw* arity (`rawInferableInfo`) so bounds still don't propagate
-    transitively through nested records (W5) and the growth lookup stays non-recursive. The gotcha that drove the
+    transitively through nested records (the "viral bounds" moved to `docs/ide-type-hints.md`) and the growth lookup
+    stays non-recursive. The gotcha that drove the
     design: a bare under-applied return is **kind-ill-formed** (`Function[Int[lo,hi], Int]` — the codomain `Int` has
     kind `BigInteger → … → Type`, not `Type`), so `TypeStackLoop.walkTypeStack`'s kind-check rejects it. Fix:
     `saturate` rewrites the bare return to the kind-correct `Type` **placeholder** (`replaceReturn`); the real
@@ -408,7 +412,7 @@ Each stage is independently mergeable and testable; later stages depend only on 
     wider published contract). Reuse-not-projection: the callee FQN + type args come straight off the instantiated
     target value reference; the existing `MonomorphicValue` fact is the back-edge.
   - *Deferred (all fail-safe — a hard error or an ordinary mismatch at the use site, never a silently-wrong type;
-    catalogued for W4 / W5 / W6):*
+    catalogued for W4 and the IDE plan, `docs/ide-type-hints.md`):*
     1. **Calculated-return value not at a direct application site** — *RESOLVED in W4 for the complete-value case.* A
        calculated-return value referenced as a complete value (no parameters left — a **no-parameter producer**
        `def y: Int = x`) is now resolved at the `ValueReference` read (`Checker.resolveCompleteCalculatedReturn`, sharing
@@ -418,20 +422,23 @@ Each stage is independently mergeable and testable; later stages depend only on 
        calculated-return-over-`Combine`): *DIAGNOSED in W4* — `readMonomorphicReturn` now reports a specific, actionable
        error at the call instead of leaking the `Type` placeholder into a confusing `Coerce` mismatch. **Making it
        *compile*** (postponing the calc-return resolution into the drain-and-resolve loop so a `Combine`-joined argument
-       grounds first, as ability resolution is) remains a *completeness* improvement carried to **W5** — the deferred
-       upper-bound path leaves the callee's instantiation metas unsolved, so the postpone requires reordering against the
-       combinable-meta machinery (real regression risk against the passing `Combine` suite).
+       grounds first, as ability resolution is) remains a *completeness* improvement carried to the IDE plan
+       (`docs/ide-type-hints.md`) — the deferred upper-bound path leaves the callee's instantiation metas unsolved, so
+       the postpone requires reordering against the combinable-meta machinery (real regression risk against the passing
+       `Combine` suite).
     3. **Symbolic `ElaboratedSignature` fallback** (Architecture §3) for *use-independent* producers — a never-called
        producer, or tooling that wants a principal signature with no concrete driver. Not built: unreachable producers
        are never monomorphized from `main`, so they are never checked on the compile path; this is purely the IDE/tooling
-       concern of **W6** (show a producer's principal calculated return by symbolic forward-evaluation on neutral binders).
+       concern of the IDE plan, `docs/ide-type-hints.md` (show a producer's principal calculated return by symbolic
+       forward-evaluation on neutral binders).
     4. **Bare calculated return on a body-less abstract declaration** (Limit 5) — *RESOLVED in W4.*
        `TypeStackLoop.failOnAbstractCalculatedReturn` detects `calculatedReturn && checkingRuntime.isEmpty` and reports at
        the definition ("Abstract declaration `f` must state its return type explicitly…"), also covering the `opaque`
        sub-case (latent silent-`Type` gap, not reachable in the current stdlib but now guarded).
-    5. **Transitive / "viral" bounds through nested records** (W5): `inferableInfo`'s W2-growth read is deliberately
-       *non-transitive* (`fieldContribution` uses the raw arity), so a `data Outer(inner: Counter)` does not grow `Outer`
-       by `Counter`'s bounds. Same fail-safe deferral as W2 follow-up 1.
+    5. **Transitive / "viral" bounds through nested records** (moved to `docs/ide-type-hints.md`): `inferableInfo`'s
+       W2-growth read is deliberately *non-transitive* (`fieldContribution` uses the raw arity), so a
+       `data Outer(inner: Counter)` does not grow `Outer` by `Counter`'s bounds. Same fail-safe deferral as W2
+       follow-up 1.
   - Tests: `MonomorphicTypeCheckTest` "calculated return positions (W3)" (caller observation, direct callee
     monomorphization, reject-too-narrow, chained `double(double(b))`, `Coerce` widening, explicit-return unchanged,
     bare `data` return) + `ExamplesIntegrationTest` two end-to-end cases (`def double(x: Int): Int = x + x` prints
@@ -444,7 +451,8 @@ Each stage is independently mergeable and testable; later stages depend only on 
 See the dedicated section below for the catalogue. This stage wires each limit to a specific, actionable error
 and proves (by test) that none of them silently degrades to a wrong or `Type` result.
 
-- **Status:** DONE (the diagnostic + soundness mandate; two *completeness* items explicitly carried to W5/W6). Every
+- **Status:** DONE (the diagnostic + soundness mandate; two *completeness* items explicitly carried to the IDE plan,
+  `docs/ide-type-hints.md`). Every
   W4-listed limit now either works or hard-errors with a specific, actionable message at the use site; none silently
   degrades to a wrong or `Type` result. Tests live in `MonomorphicTypeCheckTest` ("calculated return limits (W4)").
   - **Limit 1 (recursion / value-dependent bound) — DONE.** A recursive calculated-return producer used to drive the
@@ -462,16 +470,18 @@ and proves (by test) that none of them silently degrades to a wrong or `Type` re
     names the producer in all cases and, when the return forces to a stuck `VNeutral`, names the stuck variable head;
     other non-quotable forms stay with the strict post-drain quoter. Detection is unchanged (still hard-errors, no
     silent `Type`). The unconstrained-meta / neutral cases are **not reachable on the concrete monomorphization path** —
-    they need the symbolic forward-evaluation fallback (Architecture §3, deferred to W6) — so this is a defensive
-    refinement with no minimal trigger to unit-test.
-  - **Limit 3 (branch join, args unground) — DONE (diagnostic); completeness deferred to W5.** A calculated return over
+    they need the symbolic forward-evaluation fallback (Architecture §3, deferred to `docs/ide-type-hints.md`) — so
+    this is a defensive refinement with no minimal trigger to unit-test.
+  - **Limit 3 (branch join, args unground) — DONE (diagnostic); completeness deferred to `docs/ide-type-hints.md`.** A
+    calculated return over
     a `Combine`-joined argument (`double(pick(a, b))`) cannot ground the callee's type args at the call — `pick`'s
     combinable result is resolved only at drain — so the eager resolution used to leak the `Type` placeholder into a
     confusing `Coerce(Type, Int)` mismatch. `readMonomorphicReturn` now reports a specific, actionable error at the call
     ("argument bounds are not determined at this call site … annotate the argument, or give the value an explicit return
     type"). The program was rejected either way; this only fixes the message. **Making such a call *compile*** — the
     planned postpone of the calc-return resolution into the drain loop so the join grounds first — is a *completeness*
-    improvement carried to **W5**: it requires reordering against the combinable-meta / instantiation-meta machinery
+    improvement carried to the IDE plan (`docs/ide-type-hints.md`): it requires reordering against the combinable-meta
+    / instantiation-meta machinery
     (the deferred upper-bound path leaves the callee's instantiation metas unsolved), which is real regression risk
     against the passing `Combine` suite and out of proportion for a limit that is already fail-safe.
   - **Limit 5 (calculated return in a body-less / opaque value) — DONE.** `TypeStackLoop.failOnAbstractCalculatedReturn`
@@ -488,63 +498,26 @@ and proves (by test) that none of them silently degrades to a wrong or `Type` re
   - **Limit 4 (omission of a non-inferable parameter) — already built in W1.** Bare `IO` (unmarked) errors at the use
     site, body-free; covered by the W1 bare-`IO` guardrail test.
 
-### W5 — Propagation, ergonomics, display
+### W5–W6 — Propagation, display, and explorability — **moved to `docs/ide-type-hints.md`**
 
-- **What:** confirm composition (a saturated `data` used bare in a function re-saturates transitively — "viral
-  bounds"); give synthesized binders readable, stable names for diagnostics and IDE hints
-  (`docs/ide-type-hints.md`); document the explicit-supply / partial-application interactions.
-- **Test:** transitive propagation across two `data` layers and a function; rendered signatures show calculated
-  returns; hover shows synthesized binders.
-- **Status:** TODO.
+W5 (propagation / display polish) and W6 (explorability: examples, generators, probing) have been **moved out of
+this plan** into `docs/ide-type-hints.md` ("Implicit-generics: propagation, display, and explorability"). They only
+pay off once there is IDE integration, and W6 already builds directly on that plan's Layers A/C/D — so the design
+notes now live alongside the IDE work that will pick them up.
 
-### W6 — Explorability: examples, generators, and probing (IDE)
+This is not a soundness gap. Everything moved is either pure display/explorability or a compiler-*completeness*
+improvement that is **fail-safe today** (a hard, actionable error at the use site, never a wrong type). The two
+completeness items in particular:
 
-Dependent signatures (`Int[add(MIN,MIN), add(MAX,MAX)]`) are precise but illegible. This item makes them legible
-and checkable **by example**, exploiting that whole-program monomorphization already computes worked examples for
-free. Everything here reduces to one primitive — *request more `MonomorphicValue` facts and observe* — which the
-lazy, unordered, cached fact graph already supports (`docs/ide-type-hints.md`, finding 2). Gated behind W3
-(calculated returns) and the IDE plan's Layers A (partial facts / `recover`) and C (`TypeHintIndex`).
+- **Transitive / "viral" bounds through nested records.** `inferableInfo`'s W2-growth read is non-transitive
+  (`fieldContribution` uses the *raw* arity), so `data Outer(inner: Counter)` does not grow `Outer` by `Counter`'s
+  bounds. Identical to writing the bare bound explicitly — it just does not *gain* bound-tracking through the nesting.
+- **`Combine`-join postpone** (the W4-deferred Limit 3 completeness item). `double(pick(a, b))` reports a specific
+  error today (`reportUngroundCalculatedReturn`); making it *compile* needs the calc-return resolution postponed
+  into the drain loop, reordered against the combinable-meta machinery.
 
-- **Real-usage examples ("all available examples").** Aggregate the existing `MonomorphicValue(fqn, *)` facts and
-  show the in→out set at a definition (`double` used as `Int[0,255]→Int[0,510]`, `Int[0,510]→Int[0,1020]`). Free;
-  the only change is letting `TypeHintIndex` hold a *set* of hints per definition range. An unused producer has no
-  such facts — which is exactly when generators take over.
-
-- **Generators (only for type-position types).** A generator for a type `T` is a finite enumeration of
-  representative *bound instantiations*. Primitive for `Int`: a **boundary-focused** canonical set (`Int[0,0]`,
-  `Int[0,255]`, `Int[-128,127]`, `Int[0,65535]`, `Int[0,2^31-1]`, `Int[0,2^63-1]`, `Int[0,2^64]`) hitting each
-  `Jvm*` tier and the cross-tier edges. Structurally derived for `data`: `Counter[lo,hi]`'s generator is
-  `{ Counter[i] | i ∈ Int-generator }` — composed from its components, like deriving `Arbitrary` but at the bound
-  level. The set of types needing a generator is derivable: the type-position constructors of every
-  `SaturatedValue` signature (a `data` used only as a runtime value needs none). Examples are produced by
-  *speculatively requesting* `MonomorphicValue(fqn, generatedArgs)`.
-
-- **Probing ("error on a bad parameter combination").** Each generated (or real) instantiation either monomorphizes
-  to an example or *registers an error* — a counterexample. Surface those at the definition ("`double` does not
-  type-check for `Int[0,2^63]`: the intermediate overflows `JvmLong` with no wider `Coerce`"). This is
-  **lightweight totality testing** of the over-claim that bare-input generalization is total over all bounds: a
-  body using a bound-restricted operation (a narrow-only `Coerce`, a fixed-width intermediate, a missing `Combine`
-  join) is only *partial*, and probing finds counterexamples that would otherwise surface as a confusing error at
-  a future caller. It is the proactive, example-driven twin of the **Limits** section — the same failures, found
-  early by sampling rather than late at a use. Honest scope: probing is a counterexample *finder*, not a totality
-  *proof* (sampling is incomplete; the sound version is bound-constraint inference, future work — see the CLAUDE.md
-  "Use-Site Verification" cornerstone). It must be **sandboxed**: small samples, a per-probe step/time budget, and
-  "probe didn't finish" (e.g. hit the recursion limit) reported as *unknown*, never a false-positive error.
-
-- **Presentation (creative affordances).** A differential inlay on a bare return (`: Int ⟨[0,255]→[0,510],
-  [0,65535]→[0,131070]⟩` — the relationship, not the formula); "view-through" an instantiation (pin a bound, drive
-  one speculative monomorphization, feed its per-node types into `TypeHintIndex` so every body node shows its type
-  at that width); a totality CodeLens (`7/7 sampled bounds ✓` / `⚠ partial above 2^62` — an empirically-derived
-  precondition); a representation-transition view marking where the output crosses a `Jvm*` tier (silent widening
-  before it costs memory on a small target).
-
-- **Where:** extends `lang/.../ide` — `TypeHintIndex` → set-per-range; a `GeneratorProcessor` deriving generators
-  from `SaturatedValue` signatures; a probing driver issuing budgeted speculative `MonomorphicValue` requests.
-  Reuses IDE Layers A/C/D wholesale; the only genuinely new code is generator derivation and probing/aggregation.
-- **Test:** a `double` definition with two real call sites shows both; an unused producer shows generated examples;
-  a deliberately bound-partial helper yields a counterexample at a representation boundary; a recursive producer's
-  probe reports *unknown*, not an error.
-- **Status:** TODO.
+If a concrete program ever needs one of these before the IDE exists, it can be lifted back out independently. See
+`docs/ide-type-hints.md` for the full design.
 
 ## Limits, and how the system says so out loud
 
@@ -612,9 +585,9 @@ detector.
   and monomorphize away.
 - **IDE hints / explorability.** Dependent signatures are precise but illegible, so the IDE makes them legible
   *by example* — real-usage examples (free from `MonomorphicValue`), generated examples, and probing for bad bound
-  combinations. See **W6** and `docs/ide-type-hints.md`. This is also the practical answer to the
-  "Use-Site Verification" trade-off (CLAUDE.md): generators + probing substitute automated coverage for the
-  modular totality proof the type no longer provides.
+  combinations. See `docs/ide-type-hints.md` ("Implicit-generics: propagation, display, and explorability"). This is
+  also the practical answer to the "Use-Site Verification" trade-off (CLAUDE.md): generators + probing substitute
+  automated coverage for the modular totality proof the type no longer provides.
 
 ## Sequencing
 
@@ -623,9 +596,10 @@ W0  marker plumbing
  └─ W1  input generalization (functions)         ── ships alone (all Int consumers)
      ├─ W2  data/type field generalization        ── ships alone (generic data)
      └─ W3  calculated returns (back-edge)         ── reuse MonomorphicValue; symbolic fallback
-         └─ W4  limits + diagnostics               ── hardens W1–W3; gate before broad use
-             ├─ W5  propagation / display polish
-             └─ W6  explorability / IDE            ── needs W3 + ide-type-hints Layer A/C
+         └─ W4  limits + diagnostics               ── hardens W1–W3; gate before broad use  ← shipped here
+
+   (was W5 propagation / display polish, was W6 explorability / IDE)
+       └─ moved to docs/ide-type-hints.md         ── needs IDE integration + that plan's Layers A/C
 ```
 
 W1 and W2 are body-free and independently useful (every Int-*consuming* function and every Int-holding `data`).

@@ -200,3 +200,112 @@ The compiler today is one-shot CLI. To make IDE queries cheap:
 - New `lang/.../ide/{TypeHint,TypeHintIndex,TypeHintIndexProcessor}.scala`.
 - New `ide/` Mill module with `IdePlugin`.
 - `eliotc/.../compiler/{Main,Compiler}.scala` — `ide` sub-command and request loop.
+
+## Implicit-generics: propagation, display, and explorability (moved from `docs/implicit-generics-plan.md` W5/W6)
+
+The `auto` / implicit-generics feature (`docs/implicit-generics-plan.md`) is built and shipped through W4: input
+generalization (W1), data-field generalization (W2), calculated returns (W3), and the limit diagnostics (W4) all
+work, and every limit that cannot be crossed **hard-errors at the use site** — it never silently mistypes. What
+remained were two follow-on stages, *propagation / display polish* and *explorability*, which only pay off once
+there is IDE integration. They are therefore parked here, on top of this plan's Layers A/C/D, rather than in the
+implicit-generics plan.
+
+Two of the parked items are compiler-*completeness* improvements (the `Combine`-join postpone and transitive
+"viral" bounds), not strictly IDE features. They are **fail-safe today** — a hard, actionable error at the use
+site, never a wrong type — so they are off the critical path. They are kept here because there is no driver to
+prioritize them ahead of the IDE work, and the IDE's by-example presentation is the natural place the same partiality
+surfaces early (probing, below). If a concrete program ever needs one of them before the IDE exists, it can be lifted
+back out independently; the design notes are preserved below.
+
+### Propagation, ergonomics, display (was W5)
+
+- **Transitive / "viral" bounds through nested records** *(completeness; fail-safe today)*. The saturation oracle
+  `SaturatedValueProcessor.inferableInfo`'s W2-growth read is deliberately **non-transitive**:
+  `fieldContribution` uses the *raw* arity (`rawInferableInfo`), so a `data Outer(inner: Counter)` does **not**
+  grow `Outer` by `Counter`'s bounds — `Outer` stays bound-opaque and `Counter`'s field generalizes only
+  per-occurrence (W1). Making bounds propagate transitively means having `fieldContribution` read the *grown* arity
+  (`inferableInfo`) and guarding the now-recursive growth lookup against cycles (so a `data` family whose fields
+  reference other auto-bounded `data` terminates). Same fail-safe deferral as the multi-constructor-union W2
+  follow-up (`Maybe = Nothing | Just(value: Int)`), whose free-binder ambiguity ties it to the calculated-return
+  machinery — both are "does not *gain* bound-tracking", never "accepts a wrong type".
+
+- **`Combine`-join postpone (calc-return over a branch join)** *(completeness; fail-safe today)*. A calculated
+  return over a `Combine`-joined argument — `double(pick(a, b))` — cannot ground the callee's type args at the call:
+  `pick`'s combinable result is resolved only at *drain* (its check records an upper bound), so `double`'s
+  instantiation metas are still unsolved when the eager calc-return resolution runs. Today
+  `Checker.readMonomorphicReturn`'s not-ground branch reports a specific, actionable error
+  (`reportUngroundCalculatedReturn`) instead of leaking the `Type` placeholder into a confusing `Coerce(Type, Int)`
+  mismatch. **Making such a call *compile*** means postponing the calc-return resolution into the
+  `drainAndResolveLoop` (the same way ability resolution and `resolveUpperBounds` are deferred), so the join grounds
+  *first* and the callee's type args become ground before the return is read. The risk that kept it out of W4: the
+  deferred upper-bound path leaves the callee's instantiation metas unsolved, so the postpone has to be reordered
+  against the combinable-meta / instantiation-meta machinery — real regression risk against the passing `Combine`
+  suite, out of proportion for a limit that is already fail-safe.
+
+- **Symbolic `ElaboratedSignature` fallback** (Architecture §3 of the implicit-generics plan) for *use-independent*
+  producers — a never-called producer, or tooling that wants a principal signature with no concrete driver. Check
+  the body with the input binders as **neutral** variables, forward-evaluate (`x + x ⤳ Int[add MIN MIN, add MAX
+  MAX]`), and quote the symbolic result into the return. Same convergence/limit criterion as the concrete path
+  (`Quoter.quote` succeeds ⇒ calculated; stuck ⇒ a reported Limit). Kept strictly off the driven-from-`main`
+  compile path — unreachable producers are never monomorphized from `main`, so this is purely the IDE/tooling
+  concern of showing a producer's principal calculated return.
+
+- **Readable, stable binder names.** Synthesized binders are currently mechanical (`$Int$0`, `$Counter$1`; see
+  `SaturatedValueProcessor.freshName` / `TypePlan.binderName`). Give them readable, stable names for diagnostics
+  and hover, and document the explicit-supply / partial-application interactions (bare = tightest calculated;
+  explicit annotation = stable published contract widened via `Coerce`).
+
+- **Test:** transitive propagation across two `data` layers and a function; `double(pick(a, b))` compiles to the
+  `Combine` join; rendered signatures show calculated returns; hover shows synthesized binders by readable name.
+
+### Explorability: examples, generators, and probing (was W6)
+
+Dependent signatures (`Int[add(MIN,MIN), add(MAX,MAX)]`) are precise but illegible. This item makes them legible
+and checkable **by example**, exploiting that whole-program monomorphization already computes worked examples for
+free. Everything here reduces to one primitive — *request more `MonomorphicValue` facts and observe* — which the
+lazy, unordered, cached fact graph already supports (Key Finding 2 above). Gated behind W3 (calculated returns, of
+`docs/implicit-generics-plan.md`) and Layers A (partial facts / `recover`) and C (`TypeHintIndex`) of this plan.
+
+- **Real-usage examples ("all available examples").** Aggregate the existing `MonomorphicValue(fqn, *)` facts and
+  show the in→out set at a definition (`double` used as `Int[0,255]→Int[0,510]`, `Int[0,510]→Int[0,1020]`). Free;
+  the only change is letting `TypeHintIndex` hold a *set* of hints per definition range. An unused producer has no
+  such facts — which is exactly when generators take over.
+
+- **Generators (only for type-position types).** A generator for a type `T` is a finite enumeration of
+  representative *bound instantiations*. Primitive for `Int`: a **boundary-focused** canonical set (`Int[0,0]`,
+  `Int[0,255]`, `Int[-128,127]`, `Int[0,65535]`, `Int[0,2^31-1]`, `Int[0,2^63-1]`, `Int[0,2^64]`) hitting each
+  `Jvm*` tier and the cross-tier edges. Structurally derived for `data`: `Counter[lo,hi]`'s generator is
+  `{ Counter[i] | i ∈ Int-generator }` — composed from its components, like deriving `Arbitrary` but at the bound
+  level. The set of types needing a generator is derivable: the type-position constructors of every
+  `SaturatedValue` signature (a `data` used only as a runtime value needs none). Examples are produced by
+  *speculatively requesting* `MonomorphicValue(fqn, generatedArgs)`.
+
+- **Probing ("error on a bad parameter combination").** Each generated (or real) instantiation either monomorphizes
+  to an example or *registers an error* — a counterexample. Surface those at the definition ("`double` does not
+  type-check for `Int[0,2^63]`: the intermediate overflows `JvmLong` with no wider `Coerce`"). This is
+  **lightweight totality testing** of the over-claim that bare-input generalization is total over all bounds: a
+  body using a bound-restricted operation (a narrow-only `Coerce`, a fixed-width intermediate, a missing `Combine`
+  join) is only *partial*, and probing finds counterexamples that would otherwise surface as a confusing error at
+  a future caller. It is the proactive, example-driven twin of the **Limits** section of the implicit-generics plan
+  — the same failures, found early by sampling rather than late at a use. Honest scope: probing is a counterexample
+  *finder*, not a totality *proof* (sampling is incomplete; the sound version is bound-constraint inference, future
+  work — see the CLAUDE.md "Use-Site Verification" cornerstone). It must be **sandboxed**: small samples, a
+  per-probe step/time budget, and "probe didn't finish" (e.g. hit the recursion limit) reported as *unknown*, never
+  a false-positive error.
+
+- **Presentation (creative affordances).** A differential inlay on a bare return (`: Int ⟨[0,255]→[0,510],
+  [0,65535]→[0,131070]⟩` — the relationship, not the formula); "view-through" an instantiation (pin a bound, drive
+  one speculative monomorphization, feed its per-node types into `TypeHintIndex` so every body node shows its type
+  at that width); a totality CodeLens (`7/7 sampled bounds ✓` / `⚠ partial above 2^62` — an empirically-derived
+  precondition); a representation-transition view marking where the output crosses a `Jvm*` tier (silent widening
+  before it costs memory on a small target).
+
+- **Where:** extends `lang/.../ide` — `TypeHintIndex` → set-per-range; a `GeneratorProcessor` deriving generators
+  from `SaturatedValue` signatures; a probing driver issuing budgeted speculative `MonomorphicValue` requests.
+  Reuses Layers A/C/D wholesale; the only genuinely new code is generator derivation and probing/aggregation.
+- **Test:** a `double` definition with two real call sites shows both; an unused producer shows generated examples;
+  a deliberately bound-partial helper yields a counterexample at a representation boundary; a recursive producer's
+  probe reports *unknown*, not an error.
+
+This explorability work is also the practical answer to the "Use-Site Verification" trade-off (CLAUDE.md):
+generators + probing substitute automated coverage for the modular totality proof the type no longer provides.

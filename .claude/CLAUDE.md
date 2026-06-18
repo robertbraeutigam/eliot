@@ -196,7 +196,7 @@ calculated returns — `docs/implicit-generics-plan.md` — and abilities); expl
 ordinary abstract check.
 
 **Trade-off** (intentional): more burden on library authors (totality comes from *tests* — generators + probing,
-plan W6 — not a proof); users may meet a type error "not of their making" (a library's latent partiality surfacing
+see `docs/ide-type-hints.md` — not a proof); users may meet a type error "not of their making" (a library's latent partiality surfacing
 at the use site, which the IDE should surface at the definition first); completely **safe** (every manifest use is
 checked); far more **powerful** (full dependent/computed types — bounds, costs, resources — at near-zero
 annotation, zero type-level proof obligations, no inversion, accepting functions a modular system would reject).
