@@ -6,7 +6,7 @@
 |---|---|
 | Incremental compilation | ✅ done (`IncrementalFactGenerator` + persistent fact cache) |
 | Persistent compile lifecycle (`CompilationSession`) | ✅ done — the seam a server loops |
-| Server loop + file watching | ⬜ todo |
+| Cancel-restart server loop (`CompilationServer`) | ✅ done — file watching still todo |
 | LSP protocol layer + entry point | ⬜ todo |
 | Reverse position index | ⬜ todo |
 | Diagnostics / Hover / Go-to-Definition / Completion | ⬜ todo |
@@ -14,7 +14,8 @@
 
 The fact-based architecture and pervasive source tracking mean most of the *data* is already there.
 The remaining work is making the *lifecycle* interactive (incremental, persistent, error-tolerant)
-rather than batch — and the first two lifecycle pieces are now in place.
+rather than batch — and the resident-engine lifecycle (incremental compilation, a persistent
+`CompilationSession`, and a cancel-restart `CompilationServer`) is now in place.
 
 ## Existing Infrastructure
 
@@ -53,7 +54,7 @@ only leaf `stat`s, and a changed file invalidates just its dependency cone. Key 
 (The standalone incremental-compilation design doc has been retired; the design now lives in the
 code's doc-comments and commit history.)
 
-### 2. Long-Running Server Mode — 🚧 lifecycle seam done, loop/protocol remain
+### 2. Long-Running Server Mode — 🚧 engine + loop done, watching/protocol remain
 
 The compile lifecycle has been factored out of the one-shot CLI driver into **`CompilationSession`**
 (`eliotc/.../compiler/CompilationSession.scala`, commit `16292d61`) — the persistent-generator seam a
@@ -74,17 +75,28 @@ server needs:
 
 The CLI now drives `create → compileOnce → persist` with identical batch behavior.
 
+The **cancel-restart server loop** is also built — `CompilationServer`
+(`eliotc/.../compiler/CompilationServer.scala`). A single worker loop drives `compileOnce` with
+latest-wins semantics:
+
+- `requestCompile` is a non-blocking, coalescing trigger; the worker races the running compile against
+  the arrival of a newer request (`IO.race(runOnce, requests.take)`), cancelling and restarting on a
+  newer request and committing the result otherwise. It idles until the first request.
+- Results are pushed (`onResult` callback, e.g. publish diagnostics) and pullable (`latestResult`,
+  e.g. answer a hover from the live generator). The commit is uncancelable, so a finished result is
+  published atomically or not at all.
+- `start(session, onResult)` runs the worker as a background fiber and, on release, cancels it
+  (cancelling any in-flight compile) and flushes the cache to disk for a warm next start.
+
 Still required:
 
-- **The server loop** — cancel-restart over `compileOnce`: hold the in-flight fiber, cancel it on a
-  newer edit, publish `result.errors` as diagnostics, answer queries from the latest
-  `result.generator`.
-- **File watching** — detect on-disk changes (and, with the VFS below, editor `didChange`) and
-  trigger a recompile.
+- **File watching** — detect on-disk changes (and, with the VFS below, editor `didChange`) and call
+  `requestCompile`. The loop itself is done; this is the trigger source.
 - **An LSP protocol layer** — either an existing Scala LSP library (e.g., `lsp4j`, which Metals uses)
   or a lighter JSON-RPC wrapper for message parsing and lifecycle.
 - **An entry point** — a new `LspPlugin` used as the session's target, or a standalone driver that
-  constructs a `CompilationSession` directly (see *Key Architectural Decision* below).
+  constructs a `CompilationSession` + `CompilationServer` directly (see *Key Architectural Decision*
+  below).
 
 ### 3. Reverse Index: Position → Fact — ⬜ todo
 
@@ -139,8 +151,8 @@ The compiler reads files from disk via `FileContentReader`. For LSP:
 ## Suggested Implementation Order
 
 1. ✅ **Incremental compilation** — done (`IncrementalFactGenerator` + persistent cache).
-2. 🚧 **Persistent server mode** — `CompilationSession` lifecycle seam done; remaining: the
-   cancel-restart compile loop, file watching, and an entry point.
+2. 🚧 **Persistent server mode** — `CompilationSession` lifecycle and the cancel-restart
+   `CompilationServer` loop done; remaining: file watching and an entry point.
 3. **LSP scaffolding** — new module, `lsp4j` dependency, protocol handling, virtual file system.
 4. **Diagnostics** — easiest LSP feature, just stream `CompilationResult.errors` as
    `textDocument/publishDiagnostics`.
@@ -183,6 +195,6 @@ batch build, and `CompilationSession` already provides exactly the resident, que
 
 The fact-based architecture and pervasive source tracking mean most of the *data* is already there.
 The lifecycle work — making it incremental, persistent, and error-tolerant rather than batch — is now
-two steps in: incremental compilation and a resident `CompilationSession`. What remains is wiring that
-engine to the LSP protocol (loop, watching, JSON-RPC), a reverse position index, and graceful error
-recovery.
+well underway: incremental compilation, a resident `CompilationSession`, and a cancel-restart
+`CompilationServer` loop are built. What remains is wiring that engine to editors — file watching, an
+LSP protocol layer (JSON-RPC), a reverse position index, and graceful error recovery.
