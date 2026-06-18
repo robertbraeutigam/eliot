@@ -45,6 +45,15 @@ class TypeStackLoop(
       appliedSig   <- applyTypeArgs(signature, key.typeArguments, resolvedValue.typeStack)
       instantiated <- instantiateRemaining(appliedSig)
 
+      // W3 (calculated returns): a calculated-return value's bare omittable return is filled from its *body*. Replace
+      // the return position with a fresh metavariable so that checking the body against this signature solves the meta
+      // (by ordinary unification) to the body's inferred type; the solved meta is then quoted into the published
+      // signature. An abstract (body-less) calculated return cannot calculate — it is left untouched (a limit, W4).
+      calcReturn             = resolvedValue.calculatedReturn && resolvedValue.checkingRuntime.isDefined
+      checkResult           <- if (calcReturn) checker.installReturnMeta(instantiated).map { case (sig, m) => (sig, Some(m)) }
+                               else pure((instantiated, Option.empty[SemValue.VMeta]))
+      (checkSig, returnMeta) = checkResult
+
       // Capture the env of erased type-stack parameters now, before `check` binds the runtime value parameters as
       // `FunctionLiteral` binders. Each erased explicit type arg is converted from its `VConst(ground)` form to the
       // evaluable `groundToSem` form (so a data value reads as a constructor `VTopDef`, which accessors / `match` can
@@ -62,13 +71,13 @@ class TypeStackLoop(
       // Check runtime body if present — produces SemExpression with SemValue slots. An `opaque` value presents as
       // body-less here (`checkingRuntime`), so its body is neither checked nor emitted during checking; post-checking
       // representation lowering unfolds it separately.
-      runtime    <- resolvedValue.checkingRuntime.traverse { body =>
-                      checker.check(body, instantiated).map(expr => body.as(expr))
-                    }
+      runtime      <- resolvedValue.checkingRuntime.traverse { body =>
+                        checker.check(body, checkSig).map(expr => body.as(expr))
+                      }
 
       // Collect all ability-qualified value references from the output trees (runtime + signature levels). These
       // drive the drain-and-resolve loop below.
-      abilityRefs = (runtime.toSeq ++ levelExprs).flatMap(collectAbilityRefs)
+      abilityRefs   = (runtime.toSeq ++ levelExprs).flatMap(collectAbilityRefs)
 
       // Drain-and-resolve loop: repeatedly drain the unifier, then try to resolve each pending ability reference;
       // on success, record the resolution and inject the impl's concrete associated-type values into their
@@ -78,6 +87,10 @@ class TypeStackLoop(
       // Discharge deferred result-against-expected checks now that every combinable meta has its final solution (a
       // Combine join or its single candidate) — the join, not the first candidate, must fit a narrower declared type.
       _ <- checker.resolveUpperBounds
+
+      // W3: a calculated return the body did not determine (Limit 2 — a stuck/under-constrained result) must not
+      // silently default to `Type` below. Report it as a hard error here, before `defaultUnsolvedMetas` masks it.
+      _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
 
       // Default any still-unsolved metas to VType. Type parameters that were never constrained (phantom types) and
       // implicit domain/codomain metas from non-VPi application paths are all treated uniformly here: if unification
@@ -100,7 +113,7 @@ class TypeStackLoop(
                      monoEnv,
                      fqn => state.bindingCache.getOrElse(fqn, None)
                    )
-      groundSig <- liftF(quoter.quoteSem(instantiated, resolvedValue.typeStack))
+      groundSig <- liftF(quoter.quoteSem(checkSig, resolvedValue.typeStack))
       monoBody  <- runtime.traverse(srcSem => liftF(quoter.quoteSourced(srcSem)))
     } yield MonomorphicValue(
       key.vfqn,
@@ -109,6 +122,27 @@ class TypeStackLoop(
       groundSig,
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
+
+  /** Fail-safe for a calculated return (W3) the body did not pin down: if the return metavariable is still unsolved
+    * after the drain-and-resolve loop, the body's type forward-evaluated to something the result cannot be read from
+    * (an unconstrained result — Limit 2). Report a specific error rather than letting [[defaultUnsolvedMetas]] silently
+    * make the return `Type`. (A return solved to a non-meta but non-quotable form — a surviving neutral — is caught
+    * instead by the strict post-drain quoter, so only the still-unsolved-meta case is handled here.)
+    */
+  private def failOnUndeterminedCalculatedReturn(
+      returnMeta: SemValue.VMeta,
+      resolvedValue: OperatorResolvedValue
+  ): CheckIO[Unit] =
+    checker.force(returnMeta).flatMap {
+      case _: SemValue.VMeta =>
+        liftF(
+          compilerError(
+            resolvedValue.typeStack.as("Cannot calculate the return type: the body does not determine it."),
+            Seq("Write an explicit return type.")
+          ) >> abort[Unit]
+        )
+      case _                 => pure(())
+    }
 
   /** Solve every still-unsolved meta to [[VType]], except those allocated as abstract-associated-ability-type stand-ins
     * (see [[CheckState.abstractTypeMetas]]), which must remain unsolved so that constraint-covered refs can stay

@@ -297,6 +297,26 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "7")
   }
 
+  // W3: a bare `Int` return is *calculated* from the body. `double`'s return bounds come from `x + x`, not from the
+  // (omitted) source annotation; the caller observes them off `double`'s monomorphized signature and runs it.
+  it should "calculate a bare Int return from the body and run it (W3)" in {
+    compileAndRun(
+      """def double(x: Int): Int = x + x
+        |
+        |def main: IO[Unit] = println(intToString(double(21)))""".stripMargin
+    ).asserting(_ shouldBe "42")
+  }
+
+  it should "calculate a bare data return from the body and run it (W3)" in {
+    compileAndRun(
+      """data Counter(n: Int)
+        |
+        |def mk(v: Int): Counter = Counter(v)
+        |
+        |def main: IO[Unit] = println(intToString(n(mk(42))))""".stripMargin
+    ).asserting(_ shouldBe "42")
+  }
+
   // Phase 3: representation selection. Each range below lowers to a different JVM wrapper (Short/Integer/Long); a wrong
   // width would overflow and print the wrong number, so these assert the chosen representation is wide enough.
   "integer representation selection" should "carry an Int[0, 70000] value at the 32-bit representation" in {

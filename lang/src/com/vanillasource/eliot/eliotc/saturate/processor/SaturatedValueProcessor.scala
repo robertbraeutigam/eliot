@@ -58,15 +58,74 @@ class SaturatedValueProcessor
 
   private def saturate(value: OperatorResolvedValue): CompilerIO[OperatorResolvedValue] = {
     val pos = value.name
-    rewriteSignature(value.typeStack.value.signature, 0, pos).map { case (newSignature, _, binders) =>
-      if (binders.isEmpty) value
-      // Only the type stack changes. The runtime body is left exactly as-is — its value-parameter lambdas are
-      // unannotated (a value's type stack is the single source of truth for parameter types; see
-      // `CoreExpressionConverter.buildCurriedBody`), so the body-against-signature check takes each parameter's type
-      // from the saturated `VPi` domain with nothing to keep in sync. No walking or counting of body structure.
-      else prependBinders(value, newSignature, binders, pos)
+    for {
+      rewritten                    <- rewriteSignature(value.typeStack.value.signature, 0, pos)
+      (newSignature, _, binders)    = rewritten
+      // The return position is left untouched by the parameter rewrite, so detect on the original signature: a bare
+      // under-applied omittable return is *calculated* (W3), filled from the body rather than the source type stack.
+      calculatedReturn             <- detectCalculatedReturn(value.typeStack.value.signature)
+      // A bare under-applied omittable return (e.g. `Int`, kind `BigInteger → … → Type`) is kind-ill-formed in the
+      // codomain of `Function`, which the type-stack kind-check requires to be `Type`. Replace it with the kind-correct
+      // `Type` placeholder; the monomorphize checker swaps that placeholder for a fresh metavariable the callee's body
+      // solves, and the caller recognises it (a `VType` return on a calculated-return producer) to read the callee's
+      // monomorphized return instead. The real (computed) return never lives in the source type stack — that is the
+      // whole point of "calculated".
+      finalSignature                = if (calculatedReturn) replaceReturn(newSignature, typeRef(pos)) else newSignature
+      saturated                     =
+        if (binders.isEmpty && !calculatedReturn) value
+        // Only the type stack changes. The runtime body is left exactly as-is — its value-parameter lambdas are
+        // unannotated (a value's type stack is the single source of truth for parameter types; see
+        // `CoreExpressionConverter.buildCurriedBody`), so the body-against-signature check takes each parameter's type
+        // from the saturated `VPi` domain with nothing to keep in sync. No walking or counting of body structure.
+        // (`prependBinders` with an empty binder list rewrites only the signature level — used here to install the
+        // `Type` placeholder of a no-parameter calculated-return producer.)
+        else prependBinders(value, finalSignature, binders, pos)
+    } yield saturated.copy(calculatedReturn = calculatedReturn)
+  }
+
+  /** Whether the value's return position is a bare under-applied omittable reference — a *calculated* return (W3 of
+    * `docs/implicit-generics-plan.md`). The return is the final non-`Function` head beneath the signature's leading
+    * generic binders and curried `Function` chain (see [[returnExpr]]); it is calculated iff that head is an omittable
+    * type constructor (W1/W2 arity, via [[inferableInfo]]) applied to fewer arguments than its omittable arity (e.g. a
+    * bare `Int`, or a bare W2-grown `Counter`). An explicit `Int[0, 255]`, a fully-applied `IO[Unit]`, a non-omittable
+    * head (`String`), or a type-parameter return (`R`, a [[OperatorResolvedExpression.ParameterReference]]) is not.
+    */
+  private def detectCalculatedReturn(signature: OperatorResolvedExpression): CompilerIO[Boolean] = {
+    val (head, args) = spineOf(returnExpr(signature))
+    head match {
+      case _: OperatorResolvedExpression.ValueReference if !isFunctionRef(head) =>
+        inferableInfo(headFqn(head)).map(_.exists { case (arity, _) => args.length < arity })
+      case _                                                                    => false.pure[CompilerIO]
     }
   }
+
+  /** The return-position type expression of a signature: walk past the leading generic binders
+    * ([[OperatorResolvedExpression.FunctionLiteral]]s) and the curried `Function[dom, cod]` chain to the final
+    * non-`Function` codomain.
+    */
+  private def returnExpr(expr: OperatorResolvedExpression): OperatorResolvedExpression =
+    expr match {
+      case OperatorResolvedExpression.FunctionLiteral(_, _, body)                                       =>
+        returnExpr(body.value)
+      case OperatorResolvedExpression.FunctionApplication(target, cod) if isFunctionChain(target.value) =>
+        returnExpr(cod.value)
+      case other                                                                                        => other
+    }
+
+  /** Replace the return-position type expression (see [[returnExpr]]) with `replacement`, preserving the leading
+    * generic binders and the curried `Function` chain. Used to swap a bare calculated return for the `Type` placeholder.
+    */
+  private def replaceReturn(
+      expr: OperatorResolvedExpression,
+      replacement: OperatorResolvedExpression
+  ): OperatorResolvedExpression =
+    expr match {
+      case OperatorResolvedExpression.FunctionLiteral(name, paramType, body)                            =>
+        OperatorResolvedExpression.FunctionLiteral(name, paramType, body.as(replaceReturn(body.value, replacement)))
+      case OperatorResolvedExpression.FunctionApplication(target, cod) if isFunctionChain(target.value) =>
+        OperatorResolvedExpression.FunctionApplication(target, cod.as(replaceReturn(cod.value, replacement)))
+      case _                                                                                            => replacement
+    }
 
   /** Prepend `binders` as leading generic `FunctionLiteral`s to `signature` and synthesize/extend the value's kind
     * level to `binder.kind → … → existingKind`, returning the value with the rewritten two-level type stack.
@@ -181,10 +240,44 @@ class SaturatedValueProcessor
   }
 
   /** Look up an omittable reference's leading-`auto` arity and the kinds (type restrictions) of those leading
-    * parameters, read off the referenced value's own operator-resolved signature. [[None]] for a non-omittable or
-    * unresolvable reference (treated as not saturable, so the ordinary check still rejects a bare under-applied use).
+    * parameters, including the binders a W2-grown record data type carries (so a bare reference to `Counter` — whose
+    * raw type-constructor arity is 0, the field bounds being added by W2 — is still recognised as omittable here, with
+    * arity 2 and kinds `BigInteger, BigInteger`). [[None]] for a non-omittable or unresolvable reference (treated as
+    * not saturable, so the ordinary check still rejects a bare under-applied use).
+    *
+    * This is the omittability oracle for *function-signature* positions — W1 parameter saturation ([[saturateType]])
+    * and the W3 calculated-return detection ([[detectCalculatedReturn]]). Data-field contributions ([[fieldContribution]])
+    * deliberately use the *raw* arity instead, so bounds do not yet propagate transitively through nested records
+    * (the "viral bounds" of W5); that also keeps this growth lookup non-recursive (it reads only raw field arities).
     */
   private def inferableInfo(fqn: ValueFQN): CompilerIO[Option[(Int, Seq[OperatorResolvedExpression])]] =
+    getFact(OperatorResolvedValue.Key(fqn)).flatMap {
+      case Some(orv) =>
+        recordGrowth(fqn).map { case (extraArity, extraKinds) =>
+          val arity = orv.inferableArity + extraArity
+          val kinds = leadingBinderKinds(orv.typeStack.value.signature) ++ extraKinds
+          Option.when(arity > 0)((arity, kinds))
+        }
+      case None      => none[(Int, Seq[OperatorResolvedExpression])].pure[CompilerIO]
+    }
+
+  /** The W2 growth of a *type-constructor* reference: the binders (and their kinds) a record data type gains from its
+    * bare omittable fields, mirroring [[growTypeConstructor]]. `(0, empty)` for a non-type-constructor reference or a
+    * non-record (abstract `type`, no value constructor). Reads only the value constructor's *raw* field arities (via
+    * [[recordPlanFor]] ⟶ [[fieldContribution]]), never another value's growth, so it cannot recurse.
+    */
+  private def recordGrowth(fqn: ValueFQN): CompilerIO[(Int, Seq[OperatorResolvedExpression])] =
+    if (fqn.name.qualifier == Qualifier.Type)
+      recordPlanFor(fqn.moduleName, fqn.name.name).map {
+        case Some(plan) => (plan.total, plan.allKinds)
+        case None       => (0, Seq.empty)
+      }
+    else (0, Seq.empty[OperatorResolvedExpression]).pure[CompilerIO]
+
+  /** The *raw* leading-`auto` arity and kinds of a reference — its own operator-resolved markers only, with no W2
+    * record growth. Used by [[fieldContribution]] so a record field's bounds do not propagate transitively (W5).
+    */
+  private def rawInferableInfo(fqn: ValueFQN): CompilerIO[Option[(Int, Seq[OperatorResolvedExpression])]] =
     getFact(OperatorResolvedValue.Key(fqn)).map {
       case Some(orv) if orv.inferableArity > 0 =>
         Some((orv.inferableArity, leadingBinderKinds(orv.typeStack.value.signature)))
@@ -407,7 +500,7 @@ class SaturatedValueProcessor
     val (head, args) = spineOf(fieldType)
     head match {
       case _: OperatorResolvedExpression.ValueReference if !isFunctionRef(head) =>
-        inferableInfo(headFqn(head)).map {
+        rawInferableInfo(headFqn(head)).map {
           case Some((arity, kinds)) if args.length < arity =>
             FieldContribution(arity - args.length, kinds.slice(args.length, arity), Some(headFqn(head)))
           case _                                           => FieldContribution(0, Seq.empty, None)

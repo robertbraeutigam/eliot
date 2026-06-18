@@ -15,7 +15,12 @@ case class OperatorResolvedValue(
     paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
     opaque: Boolean = false,
     inferableArity: Int = 0,
-    roleHint: RoleHint = RoleHint.NoHint
+    roleHint: RoleHint = RoleHint.NoHint,
+    // True when the return position is a bare under-applied omittable (`auto`) reference (e.g. a bare `Int` or a
+    // W2-grown `Counter` return), so the return is *calculated* from the body rather than read from the source type
+    // stack (W3 of `docs/implicit-generics-plan.md`). Set by `SaturatedValueProcessor`; consumed by the monomorphize
+    // checker — the callee infers the return from its body, the caller reads it off the callee's `MonomorphicValue`.
+    calculatedReturn: Boolean = false
 ) extends CompilerFact {
   override def key(): CompilerFactKey[OperatorResolvedValue] = OperatorResolvedValue.Key(vfqn)
 

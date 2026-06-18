@@ -1,0 +1,9 @@
+/**
+ * Implicit / inferred generic calculated returns (W3). The bare `Int` return of `double` is *calculated* from its
+ * body: `x + x` at `Int[21, 21]` has type `Int[42, 42]`, so `double`'s return bounds are recovered from the body
+ * rather than spelled out — and the caller reads them off `double`'s monomorphized signature. The call `double(21)`
+ * is therefore typed `Int[42, 42]`. Prints `42`.
+ */
+def double(x: Int): Int = x + x
+
+def main: IO[Unit] = println(intToString(double(21)))

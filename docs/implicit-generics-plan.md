@@ -145,24 +145,26 @@ Rules:
 
 1. **`SaturatedValue`** (body-free rewrite; **W1 — built**). For each value, rewrite its source type stack so every
    *input-position* bare inferable reference becomes explicit (`Int` → `Int[$lo,$hi]`) with the fresh binders
-   added to the enclosing definition's generic prefix; every *return-position* bare inferable reference is left
-   untouched, to be *calculated* at the use site (§2; W3 — not yet built, so no `calculated` marker exists today).
-   Monomorphize and the `ValueReference` read consume `SaturatedValue` instead of `OperatorResolvedValue`. (We cannot
+   added to the enclosing definition's generic prefix; every *return-position* bare inferable reference is rewritten to
+   the kind-correct `Type` placeholder and the value flagged `calculatedReturn` (§2; **W3 — built**), to be *calculated*
+   at the use site. Monomorphize and the `ValueReference` read consume `SaturatedValue` instead of `OperatorResolvedValue`. (We cannot
    rewrite `OperatorResolvedValue` itself — it is produced upstream by the `operator` phase, so feeding monomorphize's
    results back would be a fact cycle.) `SaturatedValue` carries the callee's **domain** body-free, which is what lets
    a caller infer the callee's concrete type args without its body.
 
-2. **Calculated returns reuse `MonomorphicValue`** (no new fact, primary path; **W3 — not yet built**). A `calculated`
-   return is filled by the callee's existing per-instantiation body-check: the caller infers concrete type args from
-   `SaturatedValue`'s domain and reads `MonomorphicValue(callee, args).signature`'s return. The `ValueReference` read
-   (`Checker.scala`, the `ValueReference` case — already consuming `SaturatedValue` after W1) is redirected from
-   "evaluate the source return level" to "read the callee's monomorphized return" when the return is calculated. This
-   is the entire hot path; it rides the monomorphization the compiler performs anyway.
+2. **Calculated returns reuse `MonomorphicValue`** (no new fact, primary path; **W3 — built**). A `calculatedReturn`
+   value is filled by the callee's existing per-instantiation body-check: the caller infers concrete type args from
+   `SaturatedValue`'s domain and reads `MonomorphicValue(callee, args).signature`'s deep return. On the callee side the
+   `Type` placeholder is swapped for a fresh metavariable the body solves (`Checker.installReturnMeta`); on the caller
+   side the `ValueReference`-application codomain (the `VType` placeholder) triggers `Checker.resolveCalculatedReturn`,
+   redirected from "evaluate the source return level" to "read the callee's monomorphized return". This is the entire
+   hot path; it rides the monomorphization the compiler performs anyway.
 
-3. **`ElaboratedSignature`** (fallback, symbolic, use-independent only). When a producer's return is needed with no
-   concrete driver — a never-called producer, or tooling that wants a principal signature — check the body with the
-   input binders as neutral variables, forward-evaluate, and quote the symbolic result into the return level. Kept
-   strictly off the driven-from-`main` path; the concrete reuse in (2) handles all reachable code.
+3. **`ElaboratedSignature`** (fallback, symbolic, use-independent only; **not yet built — deferred**). When a producer's
+   return is needed with no concrete driver — a never-called producer, or tooling that wants a principal signature —
+   check the body with the input binders as neutral variables, forward-evaluate, and quote the symbolic result into the
+   return level. Kept strictly off the driven-from-`main` path; the concrete reuse in (2) handles all reachable code, so
+   this fallback is unnecessary for compilation and is left for the tooling work (W6).
 
 Input/data saturation is body-free and lives at the core boundary; return calculation needs the body and lives in
 monomorphize — and, on the primary path, *is already computed there* by ordinary monomorphization.
@@ -332,8 +334,11 @@ Each stage is independently mergeable and testable; later stages depend only on 
        Growing the union type to `Maybe[lo, hi]` (correlated, per-constructor binders on a shared type constructor, the
        other constructors' slots left free in each constructor's result) is the open design point: the free-binder
        ambiguity (`Nothing : Maybe[lo, hi]` leaves both slots unconstrained — a *producer* polymorphic in its own output
-       bound, which §Theory's variance rule forbids) ties it to W3's calculated-return machinery. **Recommend deferring
-       until W3 lands**; it is not a mechanical completion.
+       bound, which §Theory's variance rule forbids) ties it to W3's calculated-return machinery. **Still deferred after
+       W3.** W3 (now built) handles the *function-producer* output-bound case by calculating from the body and reading
+       the callee's `MonomorphicValue` — but a *union constructor* has no single body to calculate from (each
+       constructor leaves the others' slots free), so it remains the same free-binder problem, not a mechanical
+       completion. Revisit alongside W4/W5 once the calculated-return limits are wired.
     2. **`typeMatch` over an auto-bounded record — DONE.** The `TypeMatch` matcher's `matchCase` handler is now rebuilt
        (`SaturatedValueProcessor.rebuildTypeMatchHandler`) from the grown generic kinds — `Function[Unit, R]` (or the
        explicit-generic prefix) becomes `Function[explicit-kinds.., BigInteger, …, R]` — so a type-level
@@ -370,14 +375,86 @@ Each stage is independently mergeable and testable; later stages depend only on 
   W3 generalizes this to arbitrary producers and removes the need to *spell* a bare reference's return bounds: it is
   why W2's record-producer tests must annotate the return (`def field(c: Counter[7,7]): Int[7,7]`) rather than write
   bare `: Int`, and W3 is what lets such a return be left bare and calculated from the body.
-- **Status:** TODO.
+- **Status:** DONE (concrete-first path; symbolic `ElaboratedSignature` fallback deferred). The back-edge **reuses
+  `MonomorphicValue`** with no new fact, exactly as planned; the only addition is a boolean `calculatedReturn` on
+  `OperatorResolvedValue` (set by `saturate`, forwarded into monomorphize).
+  - *Detection + kind-correct placeholder (`SaturatedValueProcessor`).* `saturate` detects a calculated return —
+    `detectCalculatedReturn`: the signature's final non-`Function` head (`returnExpr`) is a bare omittable reference
+    applied to fewer than its omittable arity. The arity oracle `inferableInfo` was widened to include **W2-grown**
+    record arity (`recordGrowth`/`recordPlanFor`), so a bare `Counter` return (raw type-ctor arity 0, fields add 2) is
+    recognised; `fieldContribution` keeps using the *raw* arity (`rawInferableInfo`) so bounds still don't propagate
+    transitively through nested records (W5) and the growth lookup stays non-recursive. The gotcha that drove the
+    design: a bare under-applied return is **kind-ill-formed** (`Function[Int[lo,hi], Int]` — the codomain `Int` has
+    kind `BigInteger → … → Type`, not `Type`), so `TypeStackLoop.walkTypeStack`'s kind-check rejects it. Fix:
+    `saturate` rewrites the bare return to the kind-correct `Type` **placeholder** (`replaceReturn`); the real
+    (computed) return never lives in the source type stack — the point of "calculated".
+  - *Callee side (`TypeStackLoop` + `Checker.installReturnMeta`).* When `calculatedReturn` and a body is present, the
+    `Type`-placeholder codomain of the (instantiated) signature is swapped for a **fresh metavariable**
+    (`substituteReturn` descends the value-parameter `VPi` arrows); checking the body against that signature solves the
+    meta — by ordinary unification — to the body's inferred type (`x + x` at `Int[0,255]` ⟹ `$ret := Int[0,510]`). The
+    solved-meta signature is what gets quoted, so `MonomorphicValue(double,[0,255]).signature` is
+    `Function[Int[0,255], Int[0,510]]`. A still-unsolved return meta after drain is a hard error
+    (`failOnUndeterminedCalculatedReturn`) — Limit 2, never a silent `Type`.
+  - *Caller side (`Checker.applyInferred` ⟶ `resolveCalculatedReturn`).* When an application's codomain forces to the
+    `VType` placeholder and the callee's `SaturatedValue.calculatedReturn` is set, read the callee's body-checked
+    return off `MonomorphicValue(callee, groundArgs).signature.deepReturnType` (`readMonomorphicReturn`), where
+    `groundArgs` are the (now-solved) instantiation-meta type arguments quoted to ground. Returns a concrete `SemValue`
+    — so chaining works inside-out (`double(double(b))`: inner resolves to `Int[0,510]` and flows into the outer's
+    domain), and bound-of-record widening still rides the ordinary check-mode `Coerce` (bare = tightest, explicit =
+    wider published contract). Reuse-not-projection: the callee FQN + type args come straight off the instantiated
+    target value reference; the existing `MonomorphicValue` fact is the back-edge.
+  - *Deferred (all fail-safe — a hard error or an ordinary mismatch at the use site, never a silently-wrong type;
+    catalogued for W4 / W5 / W6):*
+    1. **Calculated-return value not at a direct application site** — only the `applyInferred` path resolves the `VType`
+       placeholder. A bare calculated-return value *referenced without being applied* therefore reads as `VType`: a
+       **no-parameter producer** (`def x: Int = 5`) used as `def y: Int = x`, or a producer **passed higher-order**
+       (`map(double, xs)`). Its callee monomorphization is correct (the meta is solved from the body); only the
+       non-applying *read* is unresolved, so it surfaces as a `Type`-vs-expected mismatch at the use site. To lift,
+       resolve the placeholder at the `ValueReference` read too (when the value's type args are already complete).
+    2. **Calculated-return argument whose bounds aren't ground at the call site** (`double(pick(...))` —
+       calculated-return-over-`Combine`): the type args can't be quoted to ground when the resolution runs, so the bare
+       return is left for the ordinary check to reject. A `Combine`-deferred argument needs the calc-return resolution to
+       be postponed into the drain-and-resolve loop (like ability resolution) rather than run eagerly in `applyInferred`.
+    3. **Symbolic `ElaboratedSignature` fallback** (Architecture §3) for *use-independent* producers — a never-called
+       producer, or tooling that wants a principal signature with no concrete driver. Not built: unreachable producers
+       are never monomorphized from `main`, so they are never checked on the compile path; this is purely the IDE/tooling
+       concern of **W6** (show a producer's principal calculated return by symbolic forward-evaluation on neutral binders).
+    4. **Bare calculated return on a body-less abstract declaration** (Limit 5) is left untouched — `calculatedReturn` is
+       set but `installReturnMeta` only runs with a body, so the `Type` placeholder survives and the use site mismatches.
+       Cannot arise in the current stdlib (no body-less `def` returns a bare omittable constructor); W4 should turn this
+       into the specific "abstract declaration must state its return bounds explicitly" diagnostic at the definition.
+    5. **Transitive / "viral" bounds through nested records** (W5): `inferableInfo`'s W2-growth read is deliberately
+       *non-transitive* (`fieldContribution` uses the raw arity), so a `data Outer(inner: Counter)` does not grow `Outer`
+       by `Counter`'s bounds. Same fail-safe deferral as W2 follow-up 1.
+  - Tests: `MonomorphicTypeCheckTest` "calculated return positions (W3)" (caller observation, direct callee
+    monomorphization, reject-too-narrow, chained `double(double(b))`, `Coerce` widening, explicit-return unchanged,
+    bare `data` return) + `ExamplesIntegrationTest` two end-to-end cases (`def double(x: Int): Int = x + x` prints
+    `42`; `def mk(v: Int): Counter` prints `42`) + `examples/src/ImplicitIntReturn.els`. `intImports` in
+    `MonomorphicTypeCheckTest` was corrected to declare `type Int[auto MIN, auto MAX]` (it had lost the markers,
+    diverging from the real stdlib).
 
 ### W4 — Limits: positive detection and explicit diagnostics
 
 See the dedicated section below for the catalogue. This stage wires each limit to a specific, actionable error
 and proves (by test) that none of them silently degrades to a wrong or `Type` result.
 
-- **Status:** TODO.
+- **Status:** TODO. Concrete work inherited from W3 (each currently fail-safe but with a generic/ordinary error rather
+  than the specific diagnostic):
+  - **Limit 1 (recursion / value-dependent bound):** detect a non-stabilising `MonomorphicValue` request chain (the
+    callee's calculated return keeps re-requesting the callee at a changing arg) and report "Cannot calculate the return
+    type of recursive value `f` … write an explicit return type." Today a recursive calculated-return producer would
+    drive the back-edge into a fact cycle / non-termination rather than this message.
+  - **Limit 2 (stuck/under-constrained result):** *partially built* — `TypeStackLoop.failOnUndeterminedCalculatedReturn`
+    already hard-errors an unsolved return meta ("Cannot calculate the return type: the body does not determine it."),
+    and the strict post-drain quoter catches a surviving neutral. W4 should refine the message to *name the stuck head*.
+  - **Limit 3 (branch join with no `Combine`):** ties to deferred item 2 above (calculated-return-over-`Combine`) —
+    postpone the calc-return resolution into the drain loop so a `Combine`-joined argument grounds first, and report
+    "branches yield `X` and `Y` with no `Combine`" when the join genuinely fails.
+  - **Limit 5 (calculated return in a body-less declaration):** turn deferred item 4 above into the specific
+    "abstract declaration `f` must state its return bounds explicitly" error at the definition (detect
+    `calculatedReturn && runtime.isEmpty` in monomorphize, before the placeholder reaches a use site).
+  - **Non-applied calculated-return read** (deferred item 1 above): either resolve the `VType` placeholder at the
+    `ValueReference` read when type args are complete, or report a clear "cannot use a calculated-return value here".
 
 ### W5 — Propagation, ergonomics, display
 

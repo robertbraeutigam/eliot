@@ -771,6 +771,60 @@ class MonomorphicTypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Implicit / inferred generic calculated returns: bare `Int` returns (W3) ---
+
+  "calculated return positions (W3)" should "calculate a bare Int return from the body and observe it at a caller" in {
+    // `double`'s bare `Int` return is *calculated*: `x + x` at `Int[0, 255]` yields `Int[0, 510]`, which the caller
+    // reads off `double`'s monomorphized signature rather than the (under-applied) source return.
+    runInt("def double(x: Int): Int = x + x\ndef test(b: Int[0, 255]): Int[0, 510] = double(b)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "monomorphize a bare-Int-return producer itself at concrete bounds" in {
+    // The callee side in isolation: monomorphizing `double` at `[0, 255]` fills the calculated return from the body.
+    runInt(
+      "def double(x: Int): Int = x + x",
+      name = "double",
+      typeArgs = Seq(GroundValue.Direct(BigInt(0), intType), GroundValue.Direct(BigInt(255), intType))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject a calculated return that does not fit a narrower declared type" in {
+    // The tightest calculated return `Int[0, 510]` does not `Coerce` into `Int[0, 100]`.
+    runInt("def double(x: Int): Int = x + x\ndef test(b: Int[0, 255]): Int[0, 100] = double(b)")
+      .asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "ground a chained calculated return through both instantiations" in {
+    // `double(double(b))` grounds the inner call at `[0, 255]` (→ `Int[0, 510]`) and the outer at `[0, 510]`
+    // (→ `Int[0, 1020]`); each producer's monomorphized return drives the next.
+    runInt("def double(x: Int): Int = x + x\ndef test(b: Int[0, 255]): Int[0, 1020] = double(double(b))")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "widen a bare calculated return into a broader declared type via Coerce" in {
+    // Bare return = the tightest calculated type (`Int[0, 510]`); the explicit caller annotation `Int[0, 1000]` is a
+    // wider published contract, reached by the existing check-mode `Coerce`.
+    runInt("def double(x: Int): Int = x + x\ndef test(b: Int[0, 255]): Int[0, 1000] = double(b)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "leave an explicit return (not calculated) widened from the body, unchanged" in {
+    // An explicit `Int[0, 1000]` return is *not* calculated: the body `x + x` (`Int[0, 510]`) is widened to it via
+    // `Coerce` in the callee, and the caller reads `Int[0, 1000]` directly.
+    runInt("def double(x: Int): Int[0, 1000] = x + x\ndef test(b: Int[0, 255]): Int[0, 1000] = double(b)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "calculate a bare data return (saturated record) from the body" in {
+    // `mk`'s bare `Counter` return is calculated: constructing `Counter(n)` at `Int[0, 255]` yields `Counter[0, 255]`,
+    // which the caller observes — a producer returning a W2-grown `data`.
+    runForErrors(
+      "data Counter(n: Int)\ndef mk(n: Int): Counter = Counter(n)\ndef test(b: Int[0, 255]): Counter[0, 255] = mk(b)",
+      name = "test"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: GroundValue =
@@ -877,7 +931,7 @@ class MonomorphicTypeCheckTest
         |import eliot.lang.Coerce
         |import eliot.lang.Combine
         |import eliot.lang.Option
-        |type Int[MIN: BigInteger, MAX: BigInteger]
+        |type Int[auto MIN: BigInteger, auto MAX: BigInteger]
         |type Byte = Int[-128, 127]
         |def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger](value: Int[Smin, Smax]): Int[Tmin, Tmax]
         |implement[Smin, Smax, Tmin, Tmax] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] { def coerce(value: Int[Smin, Smax]): Option[Int[Tmin, Tmax]] = fold(lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax), some(nativeWiden(value)), none) }
@@ -897,10 +951,14 @@ class MonomorphicTypeCheckTest
   private val intPrelude: String =
     "import eliot.lang.Coerce\nimport eliot.lang.Option\n"
 
-  private def runInt(source: String, name: String = "test"): IO[Seq[TestError]] =
+  private def runInt(
+      source: String,
+      name: String = "test",
+      typeArgs: Seq[GroundValue] = Seq.empty
+  ): IO[Seq[TestError]] =
     runGenerator(
       intPrelude + source,
-      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty),
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
       intImports
     ).map(result => toTestErrors(result._1))
 

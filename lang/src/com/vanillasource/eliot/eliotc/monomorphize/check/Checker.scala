@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
@@ -201,9 +201,9 @@ class Checker(
 
   /** Try to resolve and apply a `Coerce[actual, expected]` instance. Returns the coerced expression on success (the
     * resolved `coerce`'s `some` payload spliced around the term — see [[buildCoercedExpr]]), or `None` when no coercion
-    * applies (no instance, a `none` result, or bounds too abstract to decide). Only fires for leaf positions (argument /
-    * binding / return); coercing inside a constructor (e.g. `List[Int[0,5]] → List[Int[0,10]]`) needs variance reasoning
-    * and is not handled here.
+    * applies (no instance, a `none` result, or bounds too abstract to decide). Only fires for leaf positions (argument
+    * / binding / return); coercing inside a constructor (e.g. `List[Int[0,5]] → List[Int[0,10]]`) needs variance
+    * reasoning and is not handled here.
     */
   private def tryCoerce(
       tm: Sourced[OperatorResolvedExpression],
@@ -712,7 +712,11 @@ class Checker(
       rawRetType               = vpi.codomain(argSem)
       retType                 <- rawRetType match {
                                    case _: VMeta => pure(rawRetType)
-                                   case other    => renormalize(other)
+                                   case other    =>
+                                     resolveCalculatedReturn(updatedTarget, other).flatMap {
+                                       case Some(resolved) => pure(resolved)
+                                       case None           => renormalize(other)
+                                     }
                                  }
     } yield (
       SemExpression(
@@ -721,6 +725,91 @@ class Checker(
       ),
       retType
     )
+
+  /** When a function application has reached the bare omittable return of a *calculated-return* producer (W3 of
+    * `docs/implicit-generics-plan.md`), resolve that return from the callee's monomorphized signature rather than the
+    * (under-applied) source return left by `saturate`. This is the architectural "back-edge": the callee's concrete
+    * type arguments are read off the (instantiated) target value reference, and the caller reads
+    * `MonomorphicValue(callee, args).signature`'s deep return type — the body-checked result the callee already
+    * produced when monomorphized at those arguments — re-entering it as a [[SemValue]]. It reuses the monomorphization
+    * the compiler performs anyway; no symbolic quoting on this path.
+    *
+    * Returns [[None]] (so the ordinary codomain stands) when this is not a reached calculated return: the target is not
+    * a value reference, the return is still a function (an intermediate `VPi` of a partial application), or the callee
+    * is not a calculated-return producer. Also [[None]] when the type arguments are not yet ground or no
+    * monomorphization exists — the caller then keeps the bare return, which fails the ordinary check downstream rather
+    * than being silently mistyped.
+    */
+  private def resolveCalculatedReturn(
+      targetExpr: SemExpression,
+      rawReturn: SemValue
+  ): CheckIO[Option[SemValue]] =
+    force(rawReturn).flatMap {
+      // The calculated-return placeholder evaluates to `VType` (saturate replaced the bare omittable return with the
+      // kind-correct `Type`). A bare `VType` return here therefore means either a reached calculated return or an
+      // ordinary type-level function — confirm with the callee's `calculatedReturn` flag before reading its
+      // monomorphized return. An intermediate `VPi` (partial application) or any concrete return falls through to the
+      // ordinary codomain, so the SaturatedValue fact is fetched only at the rare `VType`-return application.
+      case VType =>
+        innermostValueRef(targetExpr) match {
+          case Some((fqn, typeArgs)) =>
+            liftF(getFact(SaturatedValue.Key(fqn.value))).flatMap {
+              case Some(sv) if sv.value.calculatedReturn => readMonomorphicReturn(fqn, typeArgs)
+              case _                                     => pure(None)
+            }
+          case None                  => pure(None)
+        }
+      case _     => pure(None)
+    }
+
+  /** The innermost [[SemExpression.ValueReference]] of a (possibly curried) application target, with its accumulated
+    * type arguments — the callee whose calculated return is being resolved.
+    */
+  private def innermostValueRef(expr: SemExpression): Option[(Sourced[ValueFQN], Seq[SemValue])] =
+    expr.expression match {
+      case SemExpression.ValueReference(fqn, typeArgs)  => Some((fqn, typeArgs))
+      case SemExpression.FunctionApplication(target, _) => innermostValueRef(target.value)
+      case _                                            => None
+    }
+
+  /** Read the callee's body-checked return at the concrete type arguments: quote the (instantiation-meta) type args to
+    * ground and read `MonomorphicValue(callee, args).signature`'s deep return type as a [[SemValue]]. [[None]] when the
+    * args are not yet ground (left as a bare return for the ordinary check to reject) or no monomorphization exists.
+    */
+  private def readMonomorphicReturn(
+      fqn: Sourced[ValueFQN],
+      typeArgs: Seq[SemValue]
+  ): CheckIO[Option[SemValue]] =
+    for {
+      s          <- get
+      groundArgsE = typeArgs.toList.traverse(a => Quoter.quote(0, a, s.unifier.metaStore))
+      result     <- groundArgsE match {
+                      case Left(_)           => pure(None)
+                      case Right(groundArgs) =>
+                        liftF(getFact(MonomorphicValue.Key(fqn.value, groundArgs)))
+                          .map(_.map(mv => Evaluator.groundToSem(mv.signature.deepReturnType)))
+                    }
+    } yield result
+
+  /** Replace the return position of a calculated-return signature with a fresh metavariable, returning the rewritten
+    * signature and the meta's id (W3 callee side). The signature is a chain of value-parameter `VPi` arrows ending in
+    * the bare omittable return left by `saturate`; the meta stands in for that return so that *checking the body*
+    * against this signature solves it (by ordinary unification) to the body's inferred type. A no-parameter producer
+    * (`def x: Int = 5`) has no arrows, so the signature *is* the return and is replaced directly. The descent reads a
+    * snapshot of the metastore to tell a `VPi` arrow from the return; that is stable, because the arrows come from the
+    * (meta-independent) `Function` native, not from any meta solution.
+    */
+  private[check] def installReturnMeta(sig: SemValue): CheckIO[(SemValue, VMeta)] =
+    for {
+      meta <- freshMeta
+      s    <- get
+    } yield (substituteReturn(sig, meta, s.unifier.metaStore), meta)
+
+  private def substituteReturn(sig: SemValue, meta: SemValue, metaStore: MetaStore): SemValue =
+    Evaluator.force(sig, metaStore) match {
+      case VPi(domain, codomain) => VPi(domain, arg => substituteReturn(codomain(arg), meta, metaStore))
+      case _                     => meta
+    }
 
   /** Peel leading `VLam` closures from an inferred type with fresh metas, baking the metas as implicit type arguments
     * onto the expression's [[SemExpression.ValueReference]] and updating its `expressionType`. Returns the updated
