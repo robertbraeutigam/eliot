@@ -166,6 +166,20 @@ Rules:
 Input/data saturation is body-free and lives at the core boundary; return calculation needs the body and lives in
 monomorphize — and, on the primary path, *is already computed there* by ordinary monomorphization.
 
+### Fact-flow discipline: forward, don't project
+
+Keep the fact flow **as lean as possible**. When a later stage needs a piece of information, **forward it onto the
+follow-up fact that already flows to that stage** — add the field to the fact the consumer already reads — rather than
+minting a separate projection fact (a processor that only copies one field) or making the consumer reach back across
+phases to an earlier fact. A new fact earns its place only when it carries *new* information (a genuine
+derivation/merge, like `SaturatedValue`'s rewrite or `MonomorphicValue`'s body-check), never when it merely re-exposes
+a field that an existing fact in the chain could have carried.
+
+This was learned the hard way in W0 (see its status): a dedicated `InferableArity` fact + `InferableArityProcessor`
+was built, then removed — it only copied `NamedValue.inferableArity` out of the per-FQN `UnifiedModuleValue` that
+already carries it. The count now lives solely as that field and is forwarded along the chain to wherever a consumer
+needs it.
+
 ## Work items
 
 Each stage is independently mergeable and testable; later stages depend only on earlier ones.
@@ -184,14 +198,18 @@ Each stage is independently mergeable and testable; later stages depend only on 
   because generic-parameter names are always upper-case) — no tokenizer reservation. Threaded as `inferable: Boolean`
   on `ast.GenericParameter` and `ast.ArgumentDefinition` (a `type X[..]`/`data` type-constructor's params become value
   *args*, so the marker rides both); the leading-inferable count is computed in `CoreProcessor` (leading run over
-  `genericParameters ++ args`) and stored as the field `NamedValue.inferableArity`. That **is** the per-FQN derivable
-  fact: `NamedValue` rides through `ModuleValue`/`UnifiedModuleValue` (both keyed by `ValueFQN`), so a consumer reads
-  `UnifiedModuleValue(fqn).namedValue.inferableArity` — no separate `InferableArity` fact/processor (it would only copy
-  one field). `ResolvedValue` drops it, so W1's consumer either reads `UnifiedModuleValue` directly (resolution-
-  independent) or threads the field onto the fact it already reads — decide when the consumer exists, not now. Both
-  base `stdlib` and `jvm` `Int.els` declare `Int[auto MIN, auto MAX]`. Tests: `ASTParserTest` (marker round-trip) +
-  `UnifiedModuleValueProcessorTest` (per-FQN counts, incl. leading-run-only). `signatureEquality` deliberately ignores
-  `inferable`, so the marker never affects layer unification.
+  `genericParameters ++ args`) and stored as the field `NamedValue.inferableArity`. That field **is** the per-FQN
+  derivable fact — `NamedValue` rides through `ModuleValue`/`UnifiedModuleValue` (both keyed by `ValueFQN`).
+  - *What happened (kept as a lesson — see "Fact-flow discipline" above).* A dedicated `InferableArity` fact +
+    `InferableArityProcessor` were first built and then **removed**: the processor only copied the count out of the
+    `UnifiedModuleValue` that already carries it — a projection fact earning nothing.
+  - *Consumption rule going forward.* Don't reach back to `UnifiedModuleValue` from a later phase. **Forward** the
+    count along the existing chain: when W1's consumer exists, add the field it needs to the follow-up fact it already
+    reads (`ResolvedValue` currently drops it; `SaturatedValue` is the natural carrier into monomorphize), keeping the
+    flow lean and linear.
+  - Both base `stdlib` and `jvm` `Int.els` declare `Int[auto MIN, auto MAX]`. Tests: `ASTParserTest` (marker
+    round-trip) + `UnifiedModuleValueProcessorTest` (per-FQN counts, incl. leading-run-only). `signatureEquality`
+    deliberately ignores `inferable`, so the marker never affects layer unification.
 
 ### W1 — Input-position generalization for functions (the cheap, no-back-edge win)
 
