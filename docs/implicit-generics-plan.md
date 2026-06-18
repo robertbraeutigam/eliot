@@ -301,8 +301,14 @@ Each stage is independently mergeable and testable; later stages depend only on 
       its slice.
     - **match impls** (`PatternMatch`/`TypeMatch` by qualifier; data type via `ImplementationMarkerUtils`): a uniform
       walk applies `T ⇒ T[all]` and slices each successive embedded field type in `handleCases`'s Church selector; the
-      shared binders are prepended in front of the member's `R`. (`typeMatch`'s `matchCase` over the *grown* generic
-      kinds is left as `Function[Unit, R]` — only matters for type-level matching of an auto-bounded record, deferred.)
+      shared binders are prepended in front of the member's `R`. The `typeMatch` matcher additionally has its `matchCase`
+      handler *rebuilt* from the grown generic kinds (`rebuildTypeMatchHandler`): the desugarer built it from the
+      desugar-time generics only (`Function[Unit, R]` for a record that had none), so it is replaced with a curried
+      `Function[explicit-kinds.., BigInteger, …, R]` over the explicit-generic kinds (recovered from the matcher's own
+      leading binders) followed by the W2 binder kinds — letting a type-level `case T[g.., lo, hi]` bind the synthesized
+      bounds (the native already applies the handler across the matched value's whole spine, so only the handler's *type*
+      needed growing). The abstract `Fields` associated type needs nothing: the match desugarer resolves a surface type
+      match straight to this concrete matcher, never through `Fields[R]`.
   - *Fact-flow (forward, don't project).* `RoleHint` now rides `ResolvedValue` → `MatchDesugaredValue` →
     `OperatorResolvedValue` (mirroring W1's `inferableArity` forwarding) so the saturate phase can read it without
     reaching back to `UnifiedModuleValue`. `recordPlanFor` guards its value-constructor lookup with `UnifiedModuleNames`
@@ -314,19 +320,27 @@ Each stage is independently mergeable and testable; later stages depend only on 
     (W2)" (construct / reject / four-binder `Pair` / explicit unchanged / access / match) + `ExamplesIntegrationTest`
     end-to-end (`data Counter(n: Int)`, construct+access prints `42`, explicit match prints `7`) +
     `examples/src/ImplicitIntField.els`.
-  - *Deferred from W2 (tracked follow-ups; both fail-safe — they degrade or hard-error, never silently mis-type):*
-    1. **Multi-constructor unions with bare `auto` fields** (`data Maybe = Nothing | Just(value: Int)`). A constructor is
-       only treated as a record when its local name equals the data type's, so union constructors fall through to W1:
-       the field generalizes per-occurrence but the *type* does not grow (`Just(5) : Maybe`, bounds not threaded onto
-       `Maybe`). Correlated, per-constructor binders on a shared type constructor (with the other constructors' slots
-       free in each constructor's result) is the open design point — note the free-binder ambiguity (`Just(5)` would
-       leave `Nothing`'s slots unconstrained) that makes it genuinely harder than the record case.
-    2. **`typeMatch` over an auto-bounded record.** The `TypeMatch` impl's `matchCase` handler is built over the data
-       type's generic-parameter *kinds*; for a W2-grown record it is left as `Function[Unit, R]` rather than rebuilt to
-       `Function[BigInteger, … , R]`, so type-*level* matching cannot bind the synthesized bounds (a handler that tries
-       fails the arity check loudly; it never returns wrong bounds). Value `match` (PatternMatch / `handleCases`) is
-       fully supported — this is only the type-matching path. Rebuild `matchCase`/`Fields` from the grown binder kinds
-       to lift it.
+  - *W2 follow-ups:*
+    1. **Multi-constructor unions with bare `auto` fields** (`data Maybe = Nothing | Just(value: Int)`) — **still
+       deferred (open design point); fail-safe today.** A constructor is only treated as a record when its local name
+       equals the data type's, so union constructors fall through to W1: the field generalizes per-occurrence but the
+       *type* does not grow (`Just(5) : Maybe`, bounds not threaded onto `Maybe`). This is *exactly* equivalent to
+       writing the bound explicitly — `Just(value: Int)` and `Just(value: Int[0, 255])` produce identical behaviour
+       (construct type-checks at the bare union type; supplying `Maybe[0, 255]` hard-errors loudly; field extraction is
+       gated by the same `Combine`/`Coerce` as any union) — so the auto deferral introduces no new partiality, it just
+       does not *gain* bound-tracking through the union. Verified by two guardrail tests in `MonomorphicTypeCheckTest`.
+       Growing the union type to `Maybe[lo, hi]` (correlated, per-constructor binders on a shared type constructor, the
+       other constructors' slots left free in each constructor's result) is the open design point: the free-binder
+       ambiguity (`Nothing : Maybe[lo, hi]` leaves both slots unconstrained — a *producer* polymorphic in its own output
+       bound, which §Theory's variance rule forbids) ties it to W3's calculated-return machinery. **Recommend deferring
+       until W3 lands**; it is not a mechanical completion.
+    2. **`typeMatch` over an auto-bounded record — DONE.** The `TypeMatch` matcher's `matchCase` handler is now rebuilt
+       (`SaturatedValueProcessor.rebuildTypeMatchHandler`) from the grown generic kinds — `Function[Unit, R]` (or the
+       explicit-generic prefix) becomes `Function[explicit-kinds.., BigInteger, …, R]` — so a type-level
+       `case Counter[lo, hi] -> …` binds both synthesized bounds. The abstract `Fields` associated type needed nothing
+       (it is bypassed: surface type matches resolve straight to the concrete matcher). Tests: `MonomorphicTypeCheckTest`
+       "type-level match over an auto-bounded record" (type-check) + `ExamplesIntegrationTest` "type-level match over an
+       auto-bounded record (W2 follow-up)" (end-to-end, prints `counter`).
 
 ### W3 — Calculated return positions (the back-edge), concrete-first
 

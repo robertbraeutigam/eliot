@@ -521,9 +521,86 @@ class SaturatedValueProcessor
   private def saturateImplMember(value: OperatorResolvedValue, plan: TypePlan): OperatorResolvedValue = {
     val pos          = value.name
     val dataTypeFqn  = ValueFQN(value.vfqn.moduleName, QualifiedName(plan.typeName, Qualifier.Type))
-    val newSignature = applyPlanUnderBinders(value.typeStack.value.signature, plan, dataTypeFqn, pos)
+    val applied      = applyPlanUnderBinders(value.typeStack.value.signature, plan, dataTypeFqn, pos)
+    val newSignature =
+      if (WellKnownTypes.isTypeMatchTypeMatch(value.vfqn)) rebuildTypeMatchHandler(applied, plan, pos) else applied
     prependBinders(value, newSignature, plan.binders, pos)
   }
+
+  /** Rebuild the `typeMatch` matcher's `matchCase` handler so a type-level match `case T[g.., lo, hi] -> ...` can bind
+    * the W2-synthesized bounds. The desugarer built that handler from only the desugar-time generic params (a record
+    * with none yields `Function[Unit, R]`); W2 grows the type constructor by the field bounds, so the handler must take
+    * one curried argument per *grown* generic param — the explicit generics' kinds (recovered from the matcher's own
+    * leading binders) followed by the W2 binder kinds — ending in the result `R`. The native applies the handler across
+    * the whole spine of the matched type value, so its arity must equal the grown type constructor's.
+    *
+    * Only this matcher needs it: the abstract `Fields` associated type is bypassed — the match desugarer resolves a
+    * surface type match straight to this concrete matcher, never through `Fields[R]`.
+    */
+  private def rebuildTypeMatchHandler(
+      sig: OperatorResolvedExpression,
+      plan: TypePlan,
+      pos: Sourced[?]
+  ): OperatorResolvedExpression = {
+    val binders       = leadingBinderNamesAndKinds(sig)
+    val explicitKinds = binders.dropRight(1).map(_._2)
+    val resultRef     = OperatorResolvedExpression.ParameterReference(pos.as(binders.last._1))
+    val newHandler    = (explicitKinds ++ plan.allKinds)
+      .foldRight(resultRef: OperatorResolvedExpression)((k, acc) => functionType(k, acc, pos))
+    replaceMatchCaseDomain(sig, newHandler, pos)
+  }
+
+  /** The (name, kind) of each leading generic [[OperatorResolvedExpression.FunctionLiteral]] binder of a `def`'s
+    * signature, in declaration order (the `typeMatch` matcher's are the data type's generic params, then the result
+    * `R`). A binder without an explicit kind annotation defaults to `Type`.
+    */
+  private def leadingBinderNamesAndKinds(
+      expr: OperatorResolvedExpression
+  ): Seq[(String, OperatorResolvedExpression)] =
+    expr match {
+      case OperatorResolvedExpression.FunctionLiteral(name, paramType, body) =>
+        (name.value, paramType.map(_.value.signature).getOrElse(typeRef(name))) +:
+          leadingBinderNamesAndKinds(body.value)
+      case _                                                                 => Seq.empty
+    }
+
+  /** Replace the `matchCase` parameter type (the second curried domain, after `obj: Type`) of the matcher's signature,
+    * preserving its leading generic binders and the rest of the curried chain.
+    */
+  private def replaceMatchCaseDomain(
+      expr: OperatorResolvedExpression,
+      newDomain: OperatorResolvedExpression,
+      pos: Sourced[?]
+  ): OperatorResolvedExpression =
+    expr match {
+      case OperatorResolvedExpression.FunctionLiteral(name, paramType, body) =>
+        OperatorResolvedExpression
+          .FunctionLiteral(name, paramType, body.as(replaceMatchCaseDomain(body.value, newDomain, pos)))
+      case _                                                                 =>
+        replaceDomainAt(expr, 1, newDomain, pos)
+    }
+
+  /** Replace the `idx`-th curried domain (0-based) of a `Function[dom, cod]` chain. */
+  private def replaceDomainAt(
+      expr: OperatorResolvedExpression,
+      idx: Int,
+      newDomain: OperatorResolvedExpression,
+      pos: Sourced[?]
+  ): OperatorResolvedExpression =
+    expr match {
+      case OperatorResolvedExpression.FunctionApplication(target, cod) =>
+        target.value match {
+          case OperatorResolvedExpression.FunctionApplication(fn, dom) if isFunctionRef(fn.value) =>
+            if (idx == 0)
+              OperatorResolvedExpression
+                .FunctionApplication(target.as(OperatorResolvedExpression.FunctionApplication(fn, dom.as(newDomain))), cod)
+            else
+              OperatorResolvedExpression
+                .FunctionApplication(target, cod.as(replaceDomainAt(cod.value, idx - 1, newDomain, pos)))
+          case _                                                                                  => expr
+        }
+      case _                                                           => expr
+    }
 
   /** Apply the data plan beneath any leading generic binders of an implementation member's signature, leaving the
     * binders themselves untouched (the shared binders are prepended separately).

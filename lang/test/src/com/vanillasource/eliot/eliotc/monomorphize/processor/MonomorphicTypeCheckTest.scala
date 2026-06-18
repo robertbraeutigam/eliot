@@ -748,6 +748,29 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
+  // Follow-up 1 (multi-constructor unions with bare `auto` fields) is deferred as an open design point; these two
+  // lock in that the deferral is *fail-safe*. A union constructor's bare field still generalizes per-occurrence (W1),
+  // so constructing one type-checks — but the union type does not grow, so it stays bare `Maybe` (the bound is not
+  // tracked through the union)...
+  it should "construct a multi-constructor union with a bare Int field as the bare union type" in {
+    runForErrors("data Maybe = Nothing | Just(value: Int)\ndef test(b: Int[0, 255]): Maybe = Just(b)", name = "test")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  // ...and supplying bounds to it explicitly (`Maybe[0, 255]`) is rejected loudly, never silently accepted.
+  it should "reject supplying generic bounds to an un-grown multi-constructor union type" in {
+    runForErrors("data Maybe = Nothing | Just(value: Int)\ndef test(b: Int[0, 255]): Maybe[0, 255] = Just(b)", name = "test")
+      .asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "type-level match over an auto-bounded record, binding both synthesized bounds" in {
+    // The grown `Counter[lo, hi]` makes the `typeMatch` matcher's handler `Function[BigInteger, BigInteger, R]`, so a
+    // type-level `case Counter[lo, hi]` binds both bounds (it stayed `Function[Unit, R]` before this follow-up).
+    runMatch(
+      "data Counter(n: Int)\ndef test(t: Type): String = t match { case Counter[lo, hi] -> \"c\"\ncase _ -> \"n\" }"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: GroundValue =

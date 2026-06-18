@@ -274,6 +274,21 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "7")
   }
 
+  // W2 follow-up: type-level matching over an auto-bounded record. `Counter`'s bare `Int` field grows the type to
+  // `Counter[lo, hi]`, so the `typeMatch` matcher's handler must bind both synthesized bounds (`case Counter[lo, hi]`).
+  it should "type-level match over an auto-bounded record (W2 follow-up)" in {
+    compileAndRun(
+      """data Counter(n: Int)
+        |
+        |def describe(t: Type): String = t match {
+        |   case Counter[lo, hi] -> "counter"
+        |   case _               -> "<other>"
+        |}
+        |
+        |def main: IO[Unit] = println(describe(Counter[0, 255]))""".stripMargin
+    ).asserting(_ shouldBe "counter")
+  }
+
   it should "widen an arithmetic result into a broader declared range at runtime" in {
     compileAndRun(
       """def total: Int[0, 1000] = 3 + 4
