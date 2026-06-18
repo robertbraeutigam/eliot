@@ -88,10 +88,11 @@ is precisely a Limit (below) and must be reported, never papered over.
 ### The architectural consequence
 
 The caller must read the callee's **body-checked** return, not its **source** type stack. Today the checker
-re-reads source: at a `ValueReference` it fetches `OperatorResolvedValue.Key(vfqn)` and evaluates
-`orv.typeStack.value.signature` (`monomorphize/check/Checker.scala:632-649`). A bare-`Int` return there evaluates
-to an under-applied `VTopDef(IntFQN, None, SNil)` — the body's `add(…)` relationship is nowhere in it, because it
-was produced while checking the *callee's body* and is not written back.
+re-reads source: at a `ValueReference` it fetches the callee's `SaturatedValue` (switched from `OperatorResolvedValue`
+in W1) and evaluates its `typeStack.value.signature` (`monomorphize/check/Checker.scala`, the `ValueReference` case).
+A bare-`Int` *return* there still evaluates to an under-applied `VTopDef(IntFQN, None, SNil)` — W1 saturates only
+*parameter* positions, so returns are left untouched — and the body's `add(…)` relationship is nowhere in it, because
+it was produced while checking the *callee's body* and is not written back.
 
 The fix follows directly from the concrete model above: that body-checked return **already exists** as
 `MonomorphicValue(callee, concreteArgs).signature`, produced when the callee is monomorphized. So the caller, when
@@ -142,21 +143,21 @@ Rules:
 
 ## Architecture: one new fact, plus a fallback
 
-1. **`SaturatedValue`** (core-phase rewrite, body-free). For each value, rewrite its source type stack so every
+1. **`SaturatedValue`** (body-free rewrite; **W1 — built**). For each value, rewrite its source type stack so every
    *input-position* bare inferable reference becomes explicit (`Int` → `Int[$lo,$hi]`) with the fresh binders
-   added to the enclosing definition's generic prefix; every *return-position* bare inferable reference is left as
-   a `calculated` marker. Monomorphize and the `ValueReference` read consume `SaturatedValue` instead of
-   `OperatorResolvedValue`. (We cannot rewrite `OperatorResolvedValue` itself — it is produced upstream by the
-   `operator` phase, so feeding monomorphize's results back would be a fact cycle.) `SaturatedValue` carries the
-   callee's **domain** body-free, which is what lets a caller infer the callee's concrete type args without its
-   body.
+   added to the enclosing definition's generic prefix; every *return-position* bare inferable reference is left
+   untouched, to be *calculated* at the use site (§2; W3 — not yet built, so no `calculated` marker exists today).
+   Monomorphize and the `ValueReference` read consume `SaturatedValue` instead of `OperatorResolvedValue`. (We cannot
+   rewrite `OperatorResolvedValue` itself — it is produced upstream by the `operator` phase, so feeding monomorphize's
+   results back would be a fact cycle.) `SaturatedValue` carries the callee's **domain** body-free, which is what lets
+   a caller infer the callee's concrete type args without its body.
 
-2. **Calculated returns reuse `MonomorphicValue`** (no new fact, primary path). A `calculated` return is filled by
-   the callee's existing per-instantiation body-check: the caller infers concrete type args from `SaturatedValue`'s
-   domain and reads `MonomorphicValue(callee, args).signature`'s return. The `ValueReference` read
-   (`Checker.scala:632-649`) is redirected from "evaluate the source return level" to "read the callee's
-   monomorphized return" when the return is marked `calculated`. This is the entire hot path; it rides the
-   monomorphization the compiler performs anyway.
+2. **Calculated returns reuse `MonomorphicValue`** (no new fact, primary path; **W3 — not yet built**). A `calculated`
+   return is filled by the callee's existing per-instantiation body-check: the caller infers concrete type args from
+   `SaturatedValue`'s domain and reads `MonomorphicValue(callee, args).signature`'s return. The `ValueReference` read
+   (`Checker.scala`, the `ValueReference` case — already consuming `SaturatedValue` after W1) is redirected from
+   "evaluate the source return level" to "read the callee's monomorphized return" when the return is calculated. This
+   is the entire hot path; it rides the monomorphization the compiler performs anyway.
 
 3. **`ElaboratedSignature`** (fallback, symbolic, use-independent only). When a producer's return is needed with no
    concrete driver — a never-called producer, or tooling that wants a principal signature — check the body with the
@@ -216,12 +217,14 @@ Each stage is independently mergeable and testable; later stages depend only on 
 - **What:** in `SaturatedValue`, rewrite every *parameter*-position bare inferable reference to an explicit
   application over fresh binders, prepended to the function's own generic prefix. Each occurrence is **independent**
   (matching how `+` is hand-written: left/right ranges differ).
-- **Where:** new core-phase `SaturatedValueProcessor`; `monomorphize` entry + `Checker.scala:632-649`
-  `ValueReference` read switch from `OperatorResolvedValue.Key` to `SaturatedValue.Key`.
+- **Where:** new `SaturatedValueProcessor` (body-free); `monomorphize` entry + the `Checker` `ValueReference` read
+  switch from `OperatorResolvedValue.Key` to `SaturatedValue.Key`.
 - **How:** because callers read the *rewritten* signature, the synthesized binders are ordinary generic params;
   the existing "too few explicit type args → infer the rest" machinery
-  (`Checker.peelLams` :573-595 / `instantiatePolymorphic` :722-734 / `TypeStackLoop.instantiateRemaining`) solves
-  them from the argument with no new inference. No body needed; no elaborated-signature fact needed.
+  (`Checker.peelLams` / `instantiatePolymorphic` / `TypeStackLoop.instantiateRemaining`) solves them from the
+  argument with no new inference. No body *rewriting* needed — the type stack is the single source of truth for
+  parameter types (body lambdas are emitted unannotated; see Status), so saturating the signature suffices; no
+  elaborated-signature fact needed.
 - **Test (end-to-end):** Int *consumers* fully work — `def isEven(x: Int): Bool`, `def store(x: Int): IO[Unit]`;
   a caller `isEven(b)` with `b : Int[0,255]` checks and monomorphizes; bare `IO` (unmarked) still errors;
   `Int[0,255]` explicit still works; two bare `Int` params get independent ranges.
@@ -286,10 +289,11 @@ Each stage is independently mergeable and testable; later stages depend only on 
   args, **reusing `MonomorphicValue`** — not a new symbolic fact on the hot path. When checking `double(b)`: infer
   `double`'s concrete type args from `b` against `SaturatedValue`'s body-free domain, then read
   `MonomorphicValue(double, args).signature`'s return.
-- **Where:** `Checker.scala:632-649` — when the `ValueReference`'s return level is marked `calculated`, redirect
-  from "evaluate the source return level" (which yields an under-applied `Int`) to "read the callee's monomorphized
-  return". The callee body-check that produces it already runs at concrete args because monomorphization is driven
-  from `main`; `renormalize` (`Checker.scala:709-713`) already grounds `add(0,0) ⤳ 0` inside it.
+- **Where:** `Checker.scala`, the `ValueReference` case (the read that W1 already pointed at `SaturatedValue`) — when
+  the `ValueReference`'s return level is calculated, redirect from "evaluate the source return level" (which yields an
+  under-applied `Int`) to "read the callee's monomorphized return". The callee body-check that produces it already
+  runs at concrete args because monomorphization is driven from `main`; `Checker.renormalize` (the codomain re-fire in
+  `applyInferred`) already grounds `add(0,0) ⤳ 0` inside it.
 - **How:** the caller triggers/depends on `MonomorphicValue(callee, args)` (a normal cross-value fact edge; the
   DAG is acyclic for non-recursive producers — recursion is a Limit, W4). No symbolic quoting on this path.
 - **Fallback (use-independent):** if a producer must be given a return with no concrete driver (never called, or
