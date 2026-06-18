@@ -785,11 +785,42 @@ class Checker(
       groundArgsE = typeArgs.toList.traverse(a => Quoter.quote(0, a, s.unifier.metaStore))
       result     <- groundArgsE match {
                       case Left(_)           => pure(None)
-                      case Right(groundArgs) =>
-                        liftF(getFact(MonomorphicValue.Key(fqn.value, groundArgs)))
-                          .map(_.map(mv => Evaluator.groundToSem(mv.signature.deepReturnType)))
+                      case Right(groundArgs) => readMonomorphicReturnGround(fqn, groundArgs)
                     }
     } yield result
+
+  /** Read the callee's monomorphized return at ground type arguments, first guarding against a recursive
+    * calculated-return chain (Limit 1 of `docs/implicit-generics-plan.md`). If the callee's FQN is already an ancestor
+    * of the fact being checked now, requesting `MonomorphicValue(callee, args)` would re-enter an in-progress
+    * computation and dead-lock the fact cache — and, more fundamentally, the callee's return depends (directly,
+    * mutually, or through a value-dependent bound) on itself, which monomorphization-by-type cannot ground. A
+    * non-recursive program has an acyclic producer call graph, so a repeated FQN on the active chain is exactly the
+    * recursion signal; report it as a specific error rather than blocking forever or defaulting to `Type`.
+    */
+  private def readMonomorphicReturnGround(
+      fqn: Sourced[ValueFQN],
+      groundArgs: Seq[GroundValue]
+  ): CheckIO[Option[SemValue]] =
+    liftF(activeFactKeys).flatMap { active =>
+      val recursing = active.exists {
+        case MonomorphicValue.Key(vfqn, _) => vfqn == fqn.value
+        case _                             => false
+      }
+      if (recursing) liftF(reportRecursiveCalculatedReturn(fqn) >> abort[Option[SemValue]])
+      else
+        liftF(getFact(MonomorphicValue.Key(fqn.value, groundArgs)))
+          .map(_.map(mv => Evaluator.groundToSem(mv.signature.deepReturnType)))
+    }
+
+  private def reportRecursiveCalculatedReturn(fqn: Sourced[ValueFQN]): CompilerIO[Unit] =
+    compilerError(
+      fqn.as(s"Cannot calculate the return type of recursive value '${fqn.value.name.name}'."),
+      Seq(
+        "Its result type depends on itself — directly, mutually, or through a value-dependent bound — which " +
+          "monomorphization cannot ground.",
+        "Write an explicit return type."
+      )
+    )
 
   /** Replace the return position of a calculated-return signature with a fresh metavariable, returning the rewritten
     * signature and the meta's id (W3 callee side). The signature is a chain of value-parameter `VPi` arrows ending in

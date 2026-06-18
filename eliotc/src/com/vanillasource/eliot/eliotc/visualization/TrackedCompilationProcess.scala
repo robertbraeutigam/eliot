@@ -23,4 +23,6 @@ final class TrackedCompilationProcess(
       _ <- tracker.recordFactProduction(processorName, value.key())
       _ <- underlying.registerFact(value)
     } yield ()
+
+  override def activeFactKeys: IO[List[CompilerFactKey[?]]] = underlying.activeFactKeys
 }

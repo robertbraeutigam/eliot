@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.compiler
 
 import cats.data.Chain
-import cats.effect.{Deferred, IO, Ref}
+import cats.effect.{Deferred, IO, IOLocal, Ref}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
@@ -9,20 +9,29 @@ import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFac
 final class FactGenerator(
     generator: CompilerProcessor,
     errors: Ref[IO, Chain[CompilerError]],
-    facts: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]]
+    facts: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]],
+    activeKeys: IOLocal[List[CompilerFactKey[?]]]
 ) extends CompilationProcess
     with Logging {
+
+  /** The ancestor request chain on the current fiber. Each fact computation runs in its own fiber (started below) that
+    * prepends its key; child fibers inherit a copy of the parent's chain at fork time, so the chain is exactly the set
+    * of in-progress ancestors of whatever is being computed now.
+    */
+  override def activeFactKeys: IO[List[CompilerFactKey[?]]] = activeKeys.get
+
   override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] = {
     for {
       _            <- debug[IO](s"Getting (${key.getClass.getName}) $key")
       modifyResult <- modifyAtomicallyFor(key)
-      _            <- (generator
-                        .generate(key)
-                        .run(this)
-                        .runS(Chain.empty)
-                        .fold(identity, identity)
-                        .flatMap(es => errors.update(_ ++ es))
-                        .recoverWith(t => error[IO](s"Getting (${key.getClass.getName}) $key failed.", t)) >>
+      _            <- (activeKeys.update(key :: _) >>
+                        generator
+                          .generate(key)
+                          .run(this)
+                          .runS(Chain.empty)
+                          .fold(identity, identity)
+                          .flatMap(es => errors.update(_ ++ es))
+                          .recoverWith(t => error[IO](s"Getting (${key.getClass.getName}) $key failed.", t)) >>
                         modifyResult._1.complete(None)).start
                         .whenA(modifyResult._2) // Only if we are first
       result       <- modifyResult._1.get
@@ -63,7 +72,8 @@ final class FactGenerator(
 object FactGenerator {
   def create(generator: CompilerProcessor): IO[FactGenerator] =
     for {
-      errors <- Ref.of[IO, Chain[CompilerError]](Chain.empty)
-      facts  <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]](Map.empty)
-    } yield new FactGenerator(generator, errors, facts)
+      errors     <- Ref.of[IO, Chain[CompilerError]](Chain.empty)
+      facts      <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Option[CompilerFact]]]](Map.empty)
+      activeKeys <- IOLocal[List[CompilerFactKey[?]]](Nil)
+    } yield new FactGenerator(generator, errors, facts, activeKeys)
 }

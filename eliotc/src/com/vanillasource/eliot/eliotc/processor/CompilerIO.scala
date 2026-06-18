@@ -35,6 +35,18 @@ object CompilerIO {
       case None       => abort[V]
     }
 
+  /** The keys of the fact computations currently in progress on this request chain (the ancestors of the fact being
+    * generated now). See [[CompilationProcess.activeFactKeys]]; a processor reads this to detect a cyclic fact-request
+    * chain before it dead-locks on the [[cats.effect.Deferred]]-based fact cache.
+    */
+  def activeFactKeys: CompilerIO[List[CompilerFactKey[?]]] =
+    for {
+      process <- ReaderT.ask[StateStage, CompilationProcess]
+      keys    <- ReaderT.liftF[StateStage, CompilationProcess, List[CompilerFactKey[?]]](
+                   StateT.liftF(EitherT.liftF(process.activeFactKeys))
+                 )
+    } yield keys
+
   /** Register an error.
     */
   def registerCompilerError(error: CompilerError): CompilerIO[Unit] =
