@@ -1,0 +1,9 @@
+/**
+ * Implicit / inferred generic data fields (W2). The bare `Int` field of `Counter` is generalized: its omitted
+ * `MIN`/`MAX` bounds become generic parameters of the data type, shared by the constructor, the accessor and the
+ * match implementation. Constructing `Counter(42)` yields `Counter[42, 42]`; the accessor `n` recovers the field as
+ * `Int[42, 42]`. Prints `42`.
+ */
+data Counter(n: Int)
+
+def main: IO[Unit] = println(intToString(n(Counter(42))))

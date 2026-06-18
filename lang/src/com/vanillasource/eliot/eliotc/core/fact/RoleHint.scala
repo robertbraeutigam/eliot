@@ -49,4 +49,19 @@ object RoleHint {
     *   syntactic/desugaring use only; per the cornerstone invariant above no semantic phase may consult it.
     */
   case class TypeConstructor(typeParamCount: Int) extends RoleHint
+
+  /** A field accessor synthesized from a single-constructor `data` declaration (`data Counter(n: Int)` ⇒ `def
+    * n(obj: Counter): Int`). Records which field of which data type the accessor projects, so the implicit-generics
+    * data-field saturation (`docs/implicit-generics-plan.md`, W2) can correlate the accessor's return bounds with the
+    * data type's synthesized binders — the field order is not otherwise recoverable from the (abstract, name-less)
+    * value-constructor signature. This is an '''elaboration''' read (it shapes which bounds are filled in, never a
+    * typing decision), the same flavour as the sanctioned [[ValueConstructor]] reads in match-shape reconstruction.
+    *
+    * @param dataType
+    *   The local qualified name of the data type this accessor belongs to (with
+    *   [[com.vanillasource.eliot.eliotc.module.fact.Qualifier.Type]]).
+    * @param fieldIndex
+    *   Zero-based position of the projected field in the constructor's declaration order.
+    */
+  case class FieldAccessor(dataType: QualifiedName, fieldIndex: Int) extends RoleHint
 }

@@ -65,7 +65,8 @@ class ValueResolver
       namedValue.fixity,
       resolvedPrecedence,
       namedValue.opaque,
-      namedValue.inferableArity
+      namedValue.inferableArity,
+      namedValue.roleHint
     )
 
     resolveProgram.runA(scope)

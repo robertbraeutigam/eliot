@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.operator.fact
 
-import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
@@ -14,7 +14,8 @@ case class OperatorResolvedValue(
     typeStack: Sourced[TypeStack[OperatorResolvedExpression]],
     paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
     opaque: Boolean = false,
-    inferableArity: Int = 0
+    inferableArity: Int = 0,
+    roleHint: RoleHint = RoleHint.NoHint
 ) extends CompilerFact {
   override def key(): CompilerFactKey[OperatorResolvedValue] = OperatorResolvedValue.Key(vfqn)
 

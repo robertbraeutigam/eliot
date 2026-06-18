@@ -712,6 +712,42 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Implicit / inferred generic data fields: bare `Int` fields (W2) ---
+
+  "implicit generic data fields (W2)" should "construct a record carrying a bare Int field's bounds" in {
+    // `Counter`'s bare `Int` field generalizes the data type to `Counter[lo, hi]`; constructing at `Int[0, 255]`
+    // produces `Counter[0, 255]`.
+    runForErrors("data Counter(n: Int)\ndef test(b: Int[0, 255]): Counter[0, 255] = Counter(b)", name = "test")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject constructing a record at bounds the field argument does not satisfy" in {
+    runForErrors("data Counter(n: Int)\ndef test(b: Int[0, 1000]): Counter[0, 255] = Counter(b)", name = "test")
+      .asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "give a mixed-field record four independent binders" in {
+    runForErrors(
+      "data Pair(a: Int, b: Int)\ndef test(x: Int[0, 255], y: Int[0, 1000]): Pair[0, 255, 0, 1000] = Pair(x, y)",
+      name = "test"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "leave an explicit Int[0, 255] field unchanged" in {
+    runForErrors("data SmallInt(v: Int[0, 255])\ndef test(b: Int[0, 255]): SmallInt = SmallInt(b)", name = "test")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "access a record field with the field's bounds" in {
+    runMatch("data Counter(n: Int)\ndef test(c: Counter[0, 255]): Int[0, 255] = n(c)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "round-trip a record field through a match with the field's bounds" in {
+    runMatch("data Counter(n: Int)\ndef test(c: Counter[0, 255]): Int[0, 255] = c match { case Counter(x) -> x }")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: GroundValue =
@@ -741,6 +777,28 @@ class MonomorphicTypeCheckTest
       source,
       MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
       systemImports
+    ).map(result => toTestErrors(result._1))
+
+  /** Like [[systemImports]] but with `PatternMatch`/`TypeMatch` declared as real abilities (the inherited stubs are
+    * empty), so a surface `match` / field accessor — which resolves to the auto-generated `handleCases` implementation —
+    * type-checks. Used by the W2 access/match tests.
+    */
+  private val matchImports: Seq[SystemImport] = systemImports.map {
+    case SystemImport("PatternMatch", _) =>
+      SystemImport("PatternMatch", "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}")
+    case SystemImport("TypeMatch", _)    =>
+      SystemImport(
+        "TypeMatch",
+        "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
+      )
+    case other                           => other
+  }
+
+  private def runMatch(source: String, name: String = "test"): IO[Seq[TestError]] =
+    runGenerator(
+      source,
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), Seq.empty),
+      matchImports
     ).map(result => toTestErrors(result._1))
 
   /** Like the ambient [[systemImports]] but with a *parameterized* `IO[A]` (its parameter is deliberately not `auto`),

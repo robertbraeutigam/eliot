@@ -281,7 +281,39 @@ Each stage is independently mergeable and testable; later stages depend only on 
 - **Test:** `data Counter(n: Int)` desugars to a generic `Counter[lo,hi]`; construct/access/match round-trip with
   the field's bounds; a mixed-field `data Pair(a: Int, b: Int)` yields four independent binders; explicit
   `data SmallInt(v: Int[0,255])` is unchanged.
-- **Status:** TODO.
+- **Status:** DONE (single-constructor records; multi-constructor unions deferred). **Implemented in the `saturate`
+  phase, not the desugarer** — the planned "augment `definition.genericParameters` before desugaring" is *infeasible*:
+  the field's leading-`auto` arity needs name resolution (`Int` → FQN → `inferableArity`), and resolution depends on
+  `ModuleNames` ← `CoreAST` of every file, so the (pre-resolution) `DataDefinitionDesugarer` cannot obtain arity without
+  a hard fact cycle. So the saturation runs post-resolution and transforms the already-split, already-resolved family
+  coordinately (the "re-derives desugarer structural knowledge" trade-off, accepted over restructuring desugaring to be
+  arity-aware).
+  - *Mechanism (`saturate/processor/SaturatedValueProcessor.scala`, `dataSaturate`).* Each value is classified into a
+    data role and rewritten with a **shared binder plan** (`TypePlan`) computed once from the value constructor's
+    bare-`auto` fields:
+    - **type constructor** (identified by `Type` qualifier + a value constructor of the same name exists — *not* by
+      `RoleHint.TypeConstructor`, whose count stays cornerstone-write-only): its kind chain grows `… → Type` ⇒
+      `BigInteger → … → Type` and `inferableArity += total`, so bare references to it elsewhere saturate via W1.
+    - **value constructor** (`RoleHint.ValueConstructor`, record = ctor name equals type name): each bare field gains
+      its binder slice and the result type is applied to *all* the binders (`Counter` ⇒ `Counter[lo,hi]`).
+    - **accessor** (new `RoleHint.FieldAccessor(dataType, fieldIndex)`, since field order is not recoverable from the
+      abstract, name-less value-constructor signature): `obj` takes `T[all binders]`, the return is the field type at
+      its slice.
+    - **match impls** (`PatternMatch`/`TypeMatch` by qualifier; data type via `ImplementationMarkerUtils`): a uniform
+      walk applies `T ⇒ T[all]` and slices each successive embedded field type in `handleCases`'s Church selector; the
+      shared binders are prepended in front of the member's `R`. (`typeMatch`'s `matchCase` over the *grown* generic
+      kinds is left as `Function[Unit, R]` — only matters for type-level matching of an auto-bounded record, deferred.)
+  - *Fact-flow (forward, don't project).* `RoleHint` now rides `ResolvedValue` → `MatchDesugaredValue` →
+    `OperatorResolvedValue` (mirroring W1's `inferableArity` forwarding) so the saturate phase can read it without
+    reaching back to `UnifiedModuleValue`. `recordPlanFor` guards its value-constructor lookup with `UnifiedModuleNames`
+    (requesting a missing `Default` value aborts with "Could not find", which would otherwise fire for every abstract
+    `Type`).
+  - *Reuse.* No new threading in the desugarer — the grown-arity generic-data shape is exactly what the existing
+    desugarer already produces for explicit generics, and the `handleCases` native is unaffected (it reads `fieldCount`
+    from `RoleHint`, independent of generic arity). Tests: `MonomorphicTypeCheckTest` "implicit generic data fields
+    (W2)" (construct / reject / four-binder `Pair` / explicit unchanged / access / match) + `ExamplesIntegrationTest`
+    end-to-end (`data Counter(n: Int)`, construct+access prints `42`, explicit match prints `7`) +
+    `examples/src/ImplicitIntField.els`.
 
 ### W3 — Calculated return positions (the back-edge), concrete-first
 

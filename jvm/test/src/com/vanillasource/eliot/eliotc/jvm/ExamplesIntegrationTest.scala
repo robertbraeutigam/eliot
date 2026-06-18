@@ -254,6 +254,26 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "42")
   }
 
+  it should "construct and access a record with a bare Int field (W2)" in {
+    // `Counter`'s bare `Int` field generalizes the type to `Counter[lo, hi]`; the accessor `n` (a match under the hood)
+    // recovers the field. Exercises construct + accessor + handleCases end-to-end at runtime.
+    compileAndRun(
+      """data Counter(n: Int)
+        |
+        |def main: IO[Unit] = println(intToString(n(Counter(42))))""".stripMargin
+    ).asserting(_ shouldBe "42")
+  }
+
+  it should "round-trip a record field through an explicit match (W2)" in {
+    compileAndRun(
+      """data Counter(n: Int)
+        |
+        |def field(c: Counter[7, 7]): Int[7, 7] = c match { case Counter(x) -> x }
+        |
+        |def main: IO[Unit] = println(intToString(field(Counter(7))))""".stripMargin
+    ).asserting(_ shouldBe "7")
+  }
+
   it should "widen an arithmetic result into a broader declared range at runtime" in {
     compileAndRun(
       """def total: Int[0, 1000] = 3 + 4

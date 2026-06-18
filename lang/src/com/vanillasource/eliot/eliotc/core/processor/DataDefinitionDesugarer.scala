@@ -83,7 +83,14 @@ object DataDefinitionDesugarer {
     definition.constructors
       .filter(_.size === 1)
       .getOrElse(Seq.empty)
-      .flatMap(ctor => ctor.fields.map(field => (createAccessor(definition, ctor, field), RoleHint.NoHint)))
+      .flatMap(ctor =>
+        ctor.fields.zipWithIndex.map { case (field, fieldIndex) =>
+          (
+            createAccessor(definition, ctor, field),
+            RoleHint.FieldAccessor(QualifiedName(definition.name.value, Qualifier.Type), fieldIndex)
+          )
+        }
+      )
 
   private def createAccessor(
       definition: DataDefinition,

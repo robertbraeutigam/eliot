@@ -30,7 +30,8 @@ class OperatorResolverProcessor
       resolvedTypeStack,
       resolvedConstraints,
       desugaredValue.opaque,
-      desugaredValue.inferableArity
+      desugaredValue.inferableArity,
+      desugaredValue.roleHint
     )
 
   private def resolveInExpression(expr: MatchDesugaredExpression): CompilerIO[OperatorResolvedExpression] =
