@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
@@ -632,13 +633,15 @@ class Checker(
     case OperatorResolvedExpression.ValueReference(vfqn, typeArgs) =>
       for {
         _      <- ensureBinding(vfqn.value)
-        orvOpt <- liftF(getFact(OperatorResolvedValue.Key(vfqn.value)))
-        result <- orvOpt match {
-                    case Some(orv) =>
-                      // Signatures reference only their own parameters or top-level values, so they evaluate under an
-                      // empty env — outer-session bindings are not in scope.
+        svOpt  <- liftF(getFact(SaturatedValue.Key(vfqn.value)))
+        result <- svOpt match {
+                    case Some(sv) =>
+                      // Read the *saturated* signature, so a callee's parameter-position bare omittable references
+                      // (e.g. bare `Int`) present as ordinary leading generic binders that the instantiation machinery
+                      // solves from this call's arguments. Signatures reference only their own parameters or top-level
+                      // values, so they evaluate under an empty env — outer-session bindings are not in scope.
                       for {
-                        sig              <- evalExpr(orv.typeStack.value.signature, env = Some(Env.empty))
+                        sig              <- evalExpr(sv.value.typeStack.value.signature, env = Some(Env.empty))
                         explicitTypeArgs <- typeArgs.traverse(ta => evalExpr(ta.value))
                       } yield {
                         val appliedSig = explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)
@@ -647,7 +650,7 @@ class Checker(
                           appliedSig
                         )
                       }
-                    case None      =>
+                    case None     =>
                       liftF(compilerError(tm.as("Name not defined.")) >> abort)
                   }
       } yield result

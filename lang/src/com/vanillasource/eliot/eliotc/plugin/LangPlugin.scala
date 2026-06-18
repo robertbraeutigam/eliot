@@ -26,6 +26,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   UserValueNativesProcessor
 }
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.pathKey
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
@@ -78,6 +79,7 @@ class LangPlugin extends CompilerPlugin {
             ValueResolver(),
             MatchDesugaringProcessor(),
             OperatorResolverProcessor(),
+            SaturatedValueProcessor(),
             AbilityImplementationProcessor(),
             AbilityImplementationCheckProcessor(),
             ModuleAbilityOverlapCheckProcessor(),

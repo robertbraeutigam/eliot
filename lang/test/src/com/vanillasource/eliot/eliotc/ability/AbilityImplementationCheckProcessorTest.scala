@@ -25,6 +25,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   UserValueNativesProcessor
 }
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -41,6 +42,7 @@ class AbilityImplementationCheckProcessorTest
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
+      SaturatedValueProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
       ModuleAbilityOverlapCheckProcessor(),

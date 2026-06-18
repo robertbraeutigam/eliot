@@ -13,7 +13,8 @@ case class OperatorResolvedValue(
     runtime: Option[Sourced[OperatorResolvedExpression]],
     typeStack: Sourced[TypeStack[OperatorResolvedExpression]],
     paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]] = Map.empty,
-    opaque: Boolean = false
+    opaque: Boolean = false,
+    inferableArity: Int = 0
 ) extends CompilerFact {
   override def key(): CompilerFactKey[OperatorResolvedValue] = OperatorResolvedValue.Key(vfqn)
 

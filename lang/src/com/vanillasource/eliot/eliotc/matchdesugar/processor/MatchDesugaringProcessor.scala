@@ -33,7 +33,8 @@ class MatchDesugaringProcessor
       convertParamConstraints(resolvedValue.paramConstraints),
       resolvedValue.fixity,
       resolvedValue.precedence,
-      resolvedValue.opaque
+      resolvedValue.opaque,
+      resolvedValue.inferableArity
     )
 
   private def convertParamConstraints(

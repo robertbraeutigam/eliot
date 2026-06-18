@@ -17,6 +17,7 @@ import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -42,6 +43,7 @@ class MonomorphicTypeCheckProcessorTest
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
+      SaturatedValueProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
       ModuleAbilityOverlapCheckProcessor(),

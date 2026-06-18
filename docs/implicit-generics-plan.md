@@ -225,7 +225,35 @@ Each stage is independently mergeable and testable; later stages depend only on 
 - **Test (end-to-end):** Int *consumers* fully work — `def isEven(x: Int): Bool`, `def store(x: Int): IO[Unit]`;
   a caller `isEven(b)` with `b : Int[0,255]` checks and monomorphizes; bare `IO` (unmarked) still errors;
   `Int[0,255]` explicit still works; two bare `Int` params get independent ranges.
-- **Status:** TODO.
+- **Status:** DONE. New `saturate` package: `fact/SaturatedValue` (wraps an `OperatorResolvedValue` carrying the
+  rewritten type stack) + `processor/SaturatedValueProcessor` (consumes `OperatorResolvedValue`, emits one
+  `SaturatedValue` per value — a no-op pass-through when nothing saturates). Registered in `LangPlugin` right after
+  `OperatorResolverProcessor`. `MonomorphicTypeCheckProcessor`'s input key and the `Checker` `ValueReference` read
+  (now ~636) switched from `OperatorResolvedValue.Key` to `SaturatedValue.Key`; the ability-impl reads
+  (`coercionPayload`/`combinePair`) stay on `OperatorResolvedValue` (their signatures are explicit, so saturation is a
+  no-op there).
+  - *Forwarded, not projected* (per "Fact-flow discipline"): `inferableArity` now rides `ResolvedValue` →
+    `MatchDesugaredValue` → `OperatorResolvedValue` (each had the field + threading added), so the processor reads a
+    *referenced* constructor's leading-`auto` count straight off its `OperatorResolvedValue` — no reach-back to
+    `UnifiedModuleValue`, no new projection fact.
+  - *What the rewrite does.* Walk the signature: preserve existing leading generic `FunctionLiteral`s, then walk the
+    curried `Function[dom, cod]` chain. Every domain is a contravariant **parameter position** (the param/return split
+    is pure variance — the syntactic arg-count is irrelevant, so no arg-count needs threading); the final non-`Function`
+    head is the **return** and is left for W3. In each `dom`, a bare under-applied `auto` reference (`Int`, args < its
+    `inferableArity`) has its omitted leading params filled with fresh binders (`Int` → `Int[$Int$0, $Int$1]`), which
+    are prepended to the generic prefix; the kind level is synthesized/extended to match. Recurses into ordinary applied
+    constructors (`List[Int]`) but **not** into `Function` arrows (cost-in-arrow, Limit 6). Non-`auto` references
+    (`inferableArity == 0`, e.g. `IO`) are left bare, so the ordinary check still rejects them (the use-site guardrail).
+  - *Two gotchas that bit, kept as lessons.* (1) The **runtime body's** leading value-lambda parameter annotations
+    still carried the *un*-saturated type (a bare `Int` vs the saturated `Int[$lo,$hi]` domain) → "Type mismatch."
+    Fix: strip those annotations (`Some` → `None`), capped at the function-chain depth, so each param takes its type
+    from the saturated `VPi` domain (the authoritative declared type). (2) An abstract type-constructor's signature
+    **is its kind-chain** `Function[BigInteger, …, Type]` (a `FunctionApplication` chain), *not* a `FunctionLiteral`
+    chain like a `def`-with-generics — so the binder-kind extraction must read curried *domains* there, not
+    `FunctionLiteral` paramTypes, or the fresh binders wrongly get kind `Type` instead of `BigInteger`.
+  - Tests: `MonomorphicTypeCheckTest` "implicit generic inputs (W1)" (caller inference, direct callee monomorphization
+    at bound args, two independent ranges, fully-applied `IO[Unit]` return, the bare-`IO` guardrail, explicit unchanged)
+    + the `examples/src/ImplicitIntParam.els` end-to-end (`def describe(x: Int): String = intToString(x)`, prints `42`).
 
 ### W2 — Data / type-definition field positions (correlated params)
 

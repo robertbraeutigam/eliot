@@ -16,6 +16,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -33,6 +34,7 @@ class MonomorphicTypeCheckTest
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
+      SaturatedValueProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
       ModuleAbilityOverlapCheckProcessor(),
@@ -665,6 +667,51 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq.empty)
   }
 
+  // --- Implicit / inferred generic inputs: bare `Int` parameters (W1) ---
+
+  "implicit generic inputs (W1)" should "let a caller pass a concrete Int into a bare-Int parameter" in {
+    // `Int` is `auto`-marked, so `isEven`'s bare `Int` parameter generalizes; the caller infers the bounds from `b`.
+    runW1("type Bool\ndef isEven(x: Int): Bool\ndef main(b: Int[0, 255]): Bool = isEven(b)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "let a bodied consumer with a bare Int parameter type-check at a call" in {
+    runW1("def f(x: Int): String = \"x\"\ndef main(b: Int[0, 255]): String = f(b)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "monomorphize the saturated consumer itself at concrete bounds" in {
+    // The synthesized binders are ordinary generic parameters, so `f` monomorphizes given the two bound type arguments.
+    runW1(
+      "def f(x: Int): String = \"x\"",
+      name = "f",
+      typeArgs = Seq(GroundValue.Direct(BigInt(0), intType), GroundValue.Direct(BigInt(255), intType))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "let a bare Int parameter coexist with a fully-applied IO return" in {
+    runW1("def store(x: Int): IO[Unit]\ndef main(b: Int[0, 255]): IO[Unit] = store(b)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "give two bare Int parameters independent ranges" in {
+    // Shared binders would force `Int[0,255]` and `Int[0,1000]` to unify and conflict; independence makes this check.
+    runW1(
+      "type Bool\ndef add2(x: Int, y: Int): Bool\ndef main(b: Int[0, 255], c: Int[0, 1000]): Bool = add2(b, c)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "still reject a bare reference to an unmarked (non-auto) parameterized type" in {
+    // `IO`'s parameter is not `auto`, so bare `IO` is not saturated and the ordinary check rejects the call.
+    runW1("type Bool\ndef bad(x: IO): Bool\ndef main(thing: IO[Unit]): Bool = bad(thing)")
+      .asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "leave an explicit Int[0, 255] parameter unchanged" in {
+    runW1("def f(x: Int[0, 255]): String = \"x\"\ndef main(b: Int[0, 255]): String = f(b)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: GroundValue =
@@ -694,6 +741,26 @@ class MonomorphicTypeCheckTest
       source,
       MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
       systemImports
+    ).map(result => toTestErrors(result._1))
+
+  /** Like the ambient [[systemImports]] but with a *parameterized* `IO[A]` (its parameter is deliberately not `auto`),
+    * so the W1 tests can exercise both a fully-applied `IO[Unit]` and the bare-`IO` guardrail. `Bool` is declared
+    * locally in each snippet (it is not an ambient module).
+    */
+  private val w1Imports: Seq[SystemImport] = systemImports.map {
+    case SystemImport("IO", _) => SystemImport("IO", "type IO[A]")
+    case other                 => other
+  }
+
+  private def runW1(
+      source: String,
+      name: String = "main",
+      typeArgs: Seq[GroundValue] = Seq.empty
+  ): IO[Seq[TestError]] =
+    runGenerator(
+      source,
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
+      w1Imports
     ).map(result => toTestErrors(result._1))
 
   /** Imports providing the full ambient `Int` environment for the `Coerce`/`Combine`/arithmetic tests. As of the

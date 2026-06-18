@@ -6,28 +6,27 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.TypeStackLoop
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue, NativeBinding}
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
+import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 
 /** Entry point for NbE-based type checking (monomorphize). Delegates to TypeStackLoop for the actual type checking
-  * work.
+  * work. Reads the [[SaturatedValue]] (the operator-resolved value with parameter-position bare omittable references
+  * generalized into explicit generic binders), not the raw `OperatorResolvedValue`.
   */
 class MonomorphicTypeCheckProcessor
-    extends TransformationProcessor[OperatorResolvedValue.Key, MonomorphicValue.Key](key =>
-      OperatorResolvedValue.Key(key.vfqn)
-    ) {
+    extends TransformationProcessor[SaturatedValue.Key, MonomorphicValue.Key](key => SaturatedValue.Key(key.vfqn)) {
 
   private def fetchBinding(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
     getFact(NativeBinding.Key(vfqn)).map(_.map(_.semValue))
 
   override protected def generateFromKeyAndFact(
       key: MonomorphicValue.Key,
-      resolvedValue: OperatorResolvedValue
+      saturatedValue: SaturatedValue
   ): CompilerIO[MonomorphicValue] =
     TypeStackLoop.process(
       key,
-      resolvedValue,
+      saturatedValue.value,
       fetchBinding = fetchBinding,
       resolveAbility = resolveAbilityImpl
     )

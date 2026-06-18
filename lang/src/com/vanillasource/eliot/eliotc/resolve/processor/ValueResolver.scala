@@ -64,7 +64,8 @@ class ValueResolver
       resolvedConstraints,
       namedValue.fixity,
       resolvedPrecedence,
-      namedValue.opaque
+      namedValue.opaque,
+      namedValue.inferableArity
     )
 
     resolveProgram.runA(scope)

@@ -1,0 +1,8 @@
+/**
+ * Implicit / inferred generic inputs (W1). The bare `Int` parameter of `describe` is generalized: its omitted
+ * `MIN`/`MAX` bounds become inferred generic inputs, so `describe` works for any integer width and the bounds are
+ * recovered from each call's argument. Here the call `describe(42)` instantiates it at `Int[42, 42]`. Prints `42`.
+ */
+def describe(x: Int): String = intToString(x)
+
+def main: IO[Unit] = println(describe(42))

@@ -16,6 +16,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -39,6 +40,7 @@ class ReificationTest
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
+      SaturatedValueProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
       ModuleAbilityOverlapCheckProcessor(),
