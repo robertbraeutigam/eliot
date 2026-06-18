@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.jvm.jargen
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.compiler.cache.OutputFileStat
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
@@ -27,6 +28,8 @@ class JvmProgramGenerator(targetDir: Path, sourceDir: Path)
       // Add dynamic main and generate everything if user's code did not fail
       _          <- addDynamicSource(Path.of("main.els"), generateMainSource(key.vfqn))
       allModules <- generateModulesFrom(ValueFQN(ModuleName(Seq(), "main"), QualifiedName("main", Qualifier.Default)))
+      // Depend on the output JAR's presence (a leaf), so a deleted JAR forces a rewrite under incremental compilation
+      _          <- getFactOrAbort(OutputFileStat.Key(jarFilePath(key.vfqn).toFile))
       _          <- generateJarFile(key.vfqn, allModules).to[CompilerIO]
     } yield GenerateExecutableJar(key.vfqn)
 

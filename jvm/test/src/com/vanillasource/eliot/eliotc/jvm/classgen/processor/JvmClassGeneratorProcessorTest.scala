@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
-import com.vanillasource.eliot.eliotc.compiler.FactGenerator
+import com.vanillasource.eliot.eliotc.compiler.IncrementalFactGenerator
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
@@ -74,7 +74,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       trigger: CompilerFactKey[? <: CompilerFact]
   ): IO[(Seq[CompilerError], Map[CompilerFactKey[?], CompilerFact])] =
     for {
-      generator <- FactGenerator.create(processors)
+      generator <- IncrementalFactGenerator.create(processors, None)
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
       _         <- Seq("Function" -> "type Function[A, B]", "Type" -> "type Type", "Unit" -> "type Unit", "PatternMatch" -> "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}", "TypeMatch" -> "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}").traverse { (module, content) =>

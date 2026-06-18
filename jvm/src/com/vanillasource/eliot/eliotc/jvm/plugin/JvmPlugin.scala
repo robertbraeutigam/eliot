@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.plugin.LangPlugin
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
 import com.vanillasource.eliot.eliotc.jvm.jargen.{GenerateExecutableJar, JvmProgramGenerator}
 import com.vanillasource.eliot.eliotc.compiler.Compiler
+import com.vanillasource.eliot.eliotc.compiler.cache.OutputFileStatProcessor
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.JvmClassGenerator
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
@@ -44,6 +45,7 @@ class JvmPlugin extends CompilerPlugin {
         SequentialCompilerProcessors(
           Seq(
             superProcessor,
+            OutputFileStatProcessor(),
             JvmClassGenerator(),
             JvmProgramGenerator(
               configuration.get(Compiler.targetPathKey).get,

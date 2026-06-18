@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.compiler
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.visualization.TrackedCompilerProcessor.wrapProcessor
+import com.vanillasource.eliot.eliotc.compiler.cache.FactCache
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
@@ -50,8 +51,11 @@ object Compiler extends Logging {
           wrappedProcessors = processor.wrapWith(wrapProcessor(_, tracker))
           // Run fact generator / compiler
           _                <- debug[IO]("Compiler starting...")
-          generator        <- FactGenerator.create(wrappedProcessors)
+          targetPath        = newConfiguration.get(targetPathKey).get
+          cacheData        <- FactCache.load(targetPath)
+          generator        <- IncrementalFactGenerator.create(wrappedProcessors, cacheData)
           _                <- targetPlugin.run(newConfiguration, generator)
+          _                <- generator.buildCacheData().flatMap(FactCache.save(targetPath, _))
           _                <- debug[IO]("Compiler exiting normally.")
           // Print the compiler errors
           errors           <- generator.currentErrors()

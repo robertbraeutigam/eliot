@@ -22,8 +22,8 @@ trait CompilationProcess {
     * of the fact being generated right now. A processor reads this to detect a cyclic / non-stabilising fact-request
     * chain: requesting a key that is already an ancestor would dead-lock the [[Deferred]]-based fact cache (the
     * in-progress computation would end up waiting on itself), so a processor can instead report a specific error. The
-    * default is empty (no tracking); [[com.vanillasource.eliot.eliotc.compiler.FactGenerator]] maintains the real
-    * chain.
+    * default is empty (no tracking); [[com.vanillasource.eliot.eliotc.compiler.IncrementalFactGenerator]] maintains the
+    * real chain.
     */
   def activeFactKeys: IO[List[CompilerFactKey[?]]] = IO.pure(Nil)
 }

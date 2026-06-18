@@ -49,7 +49,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 /** A persisted fact together with the keys it directly depended on when produced. */
 case class CacheEntry(
     fact: CompilerFact,
-    directDeps: Set[CompilerFactKey[?]]
+    directDeps: Set[CompilerFactKey[?]],
+    injected: Boolean = false
 )
 
 case class FactCacheData(
@@ -63,7 +64,8 @@ That is the entire metadata: the fact value, and its direct dependency keys. No 
 | Field | Purpose |
 |-------|---------|
 | `fact` | The cached value. Compared by `==` for cutoff, and returned to callers when accepted. |
-| `directDeps` | The keys this fact's processor read via `getFact`. Validated recursively to decide accept-vs-regenerate. An **empty** set marks a leaf / "starting point" that is always regenerated. |
+| `directDeps` | The keys this fact's processor read via `getFact`. Validated recursively to decide accept-vs-regenerate. An **empty** set marks a *generated* leaf / "starting point" that is always regenerated. |
+| `injected` | `true` for a fact that was **registered directly** (via `registerFact`), not produced by a processor — e.g. the dynamic main source a backend injects (`addDynamicSource`). No processor can reproduce it, so it must be *accepted* from the cache, never regenerated (see §13). Distinguished from a generated leaf because an injected fact was never the target of a `regenerate` and so has no entry in the `directDeps` map when the cache is built. |
 
 ## 4. The Algorithm
 
@@ -82,11 +84,12 @@ getFact(key)
 
 resolve(key, deferred)
   │
-  ├─ prior entry for key exists AND has non-empty deps?
+  ├─ prior entry is injected?            → ACCEPT (nothing can regenerate it)
+  ├─ prior entry exists AND has non-empty deps?
   │     ├─ Yes → depsUnchanged(entry.directDeps)?
   │     │          ├─ true  → ACCEPT: complete deferred with entry.fact, carry deps forward
   │     │          └─ false → REGENERATE
-  │     └─ No (no prior, or a leaf with empty deps) → REGENERATE
+  │     └─ No (no prior, or a generated leaf with empty deps) → REGENERATE
   │
 depsUnchanged(deps) = for every dep: getFact(dep) resolves to the same value
                       it had last run (prior.fact eq/== current)
@@ -113,15 +116,17 @@ final class IncrementalFactGenerator(
       result       <- modifyResult._1.get
     } yield result.map(_.asInstanceOf[V])
 
-  /** First-time request: accept the prior value if still valid, otherwise regenerate. */
+  /** First-time request: accept the prior value if still valid, otherwise regenerate. An injected fact (registered
+    * directly, never produced by a processor) is always accepted — nothing can regenerate it. */
   private def resolve(key: CompilerFactKey[?], deferred: Deferred[IO, Option[CompilerFact]]): IO[Unit] =
     prior.get(key) match {
+      case Some(entry) if entry.injected            => acceptPrior(key, entry, deferred)
       case Some(entry) if entry.directDeps.nonEmpty =>
         depsUnchanged(entry.directDeps).flatMap {
           case true  => acceptPrior(key, entry, deferred)
-          case false => regenerate(key, deferred)
+          case false => regenerate(key)
         }
-      case _ => regenerate(key, deferred)   // no prior entry, or a leaf (empty deps) → always run
+      case _ => regenerate(key)   // no prior entry, or a generated leaf (empty deps) → always run
     }
 
   /** Every recorded dependency still resolves to the value it had last run. */
@@ -133,28 +138,21 @@ final class IncrementalFactGenerator(
       }
     }
 
-  private def acceptPrior(
-      key: CompilerFactKey[?],
-      entry: CacheEntry,
-      deferred: Deferred[IO, Option[CompilerFact]]
-  ): IO[Unit] =
-    directDeps.update(_.updated(key, entry.directDeps)) >>   // carry the trace forward to re-persist
+  /** Accept the cached fact. An injected fact is intentionally NOT recorded in `directDeps`, so it is re-classified as
+    * injected when the cache is rebuilt; a generated fact carries its trace forward to re-persist. */
+  private def acceptPrior(key, entry, deferred): IO[Unit] =
+    directDeps.update(_.updated(key, entry.directDeps)).unlessA(entry.injected) >>
       deferred.complete(Some(entry.fact)).void
 
-  /** Run the processor, recording the facts it reads as this key's direct dependencies. */
-  private def regenerate(key: CompilerFactKey[?], deferred: Deferred[IO, Option[CompilerFact]]): IO[Unit] =
-    for {
-      depRef  <- Ref.of[IO, Set[CompilerFactKey[?]]](Set.empty)
-      tracking = new DependencyTrackingProcess(this, depRef)
-      _       <- (activeKeys.update(key :: _) >>
-                   generator.generate(key).run(tracking).runS(Chain.empty)
-                     .fold(identity, identity)
-                     .flatMap(es => errors.update(_ ++ es))
-                     .recoverWith(t => error[IO](s"Generating (${key.getClass.getName}) $key failed.", t)))
-      deps    <- depRef.get
-      _       <- directDeps.update(_.updated(key, deps))
-      _       <- deferred.complete(None).void   // no-op if the processor already registered the fact
-    } yield ()
+  /** Run the processor. `key` is marked present in `directDeps` up front (so a generated leaf is not mistaken for an
+    * injected fact), and reads accumulate into that entry *as they happen* — before the fact's Deferred is completed by
+    * `registerFact` — so the dependency set is complete the moment the fact becomes observable (no race with the
+    * end-of-run cache build). The Deferred completion is reordered into `getFact`'s post-resolve safety net. */
+  private def regenerate(key: CompilerFactKey[?]): IO[Unit] =
+    directDeps.update(d => d.updated(key, d.getOrElse(key, Set.empty))) >>
+      generator.generate(key).run(new DependencyTrackingProcess(this, key, directDeps)).runS(Chain.empty)
+        .fold(identity, identity)
+        .flatMap(es => errors.update(_ ++ es))
 
   override def registerFact(fact: CompilerFact): IO[Unit] =
     modifyAtomicallyFor(fact.key()).flatMap(_._1.complete(Some(fact)).void)
@@ -165,9 +163,9 @@ final class IncrementalFactGenerator(
 
 Notes:
 
-- **`acceptPrior` carries the trace forward.** An accepted fact re-persists with the *same* `directDeps` it had before, so it stays incremental across arbitrarily many no-change runs.
-- **`regenerate` records deps via the wrapper, not a shared stack.** Each generation gets its own `depRef`; the `DependencyTrackingProcess` (§6) records the generator's `getFact` calls into it. Because this is per-generation, the `getFact` calls made during *validation* (`depsUnchanged`) are **not** attributed to any fact — there is no shared scope to pollute, so the "throwaway scope" hack the sequential `tally` design needs is unnecessary here.
-- **`activeKeys` is updated only inside `regenerate`** — i.e. exactly when a fact is actually being generated — preserving today's recursion-detection semantics for the implicit-generics phase.
+- **`acceptPrior` carries the trace forward** for generated facts (re-persists with the same `directDeps`), but not for injected facts (so they stay classified injected).
+- **`regenerate` records deps incrementally, before the fact is observable.** The wrapper writes each read into `directDeps(key)` as it happens; because a processor reads its inputs before registering its output, the set is complete by the time `registerFact` completes the Deferred. Recording is per-generation, so `getFact` calls made during *validation* (`depsUnchanged`) are not attributed to any fact — no shared scope to pollute.
+- **`activeKeys` is updated for the whole of `resolve`** (in `getFact`, around `resolve`) — covering both validation and generation, since `key`'s Deferred is pending throughout, so any in-progress re-request of `key` is correctly visible to recursion detection.
 
 ## 5. Equality-Based Cutoff
 
@@ -192,16 +190,16 @@ package com.vanillasource.eliot.eliotc.compiler.cache
 import cats.effect.{IO, Ref}
 import com.vanillasource.eliot.eliotc.processor.*
 
-/** Wraps the compilation process so every getFact made while generating one fact is recorded
-  * as that fact's direct dependency. A fresh instance (with a fresh Ref) is used per generation,
-  * so recording is per-fiber and concurrency-safe — no shared scope stack. */
+/** Wraps the compilation process so every getFact made while generating `key` is recorded into `directDeps(key)` — as
+  * it happens, before the fact is observable. A fresh instance is used per generation, so recording is per-fiber. */
 final class DependencyTrackingProcess(
     underlying: CompilationProcess,
-    deps: Ref[IO, Set[CompilerFactKey[?]]]
+    key: CompilerFactKey[?],
+    directDeps: Ref[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]]
 ) extends CompilationProcess {
 
-  override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] =
-    deps.update(_ + key) >> underlying.getFact(key)
+  override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](dep: K): IO[Option[V]] =
+    directDeps.update(d => d.updated(key, d.getOrElse(key, Set.empty) + dep)) >> underlying.getFact(dep)
 
   override def registerFact(value: CompilerFact): IO[Unit] = underlying.registerFact(value)
 
@@ -219,13 +217,14 @@ def buildCacheData(): IO[FactCacheData] =
   } yield FactCacheData(
     version = FactCache.CACHE_VERSION,
     entries = factMap.map { case (key, fact) =>
-      key -> CacheEntry(fact, deps.getOrElse(key, Set.empty))
+      key -> CacheEntry(fact, deps.getOrElse(key, Set.empty), injected = !deps.contains(key))
     }
   )
 ```
 
-Two properties fall out for free:
+Three properties fall out for free:
 
+- **Generated vs injected is read off `directDeps`.** A fact a processor generated was the target of a `regenerate`, which marks it present in `directDeps` (empty for a leaf). A fact that was only `registerFact`'d — injected — never was, so `!deps.contains(key)` classifies it. (For this to be race-free the dependency set is recorded *before* the fact becomes observable; see §4.)
 - **Only reachable facts are kept.** A fact in the prior snapshot that was never requested this run (e.g. a source file removed from the build) is simply absent from `factMap` and drops out of the new cache. The cache self-prunes.
 - **Facts registered as a side-effect** (a multi-fact processor that registers facts other than the requested key) get no `directDeps` entry → empty set → treated as a leaf next run → always regenerated. This is conservative but **safe**: it can only cost incrementality, never correctness. (A future refinement could attribute the generation's deps to every fact it co-registered.)
 
@@ -234,7 +233,7 @@ Two properties fall out for free:
 The existing `FactGenerator` resolves facts concurrently: `getFact` forks a fiber per first-time key and blocks all requesters on a shared `Deferred`. This design preserves that exactly:
 
 - **Memoization / single-computation** is the existing `Deferred` map — untouched.
-- **Dependency recording** is per-generation (`depRef` per `regenerate`), so concurrent generations never interleave their recordings. This is the crucial adaptation over the `tally` reference, which uses a single shared scope stack that is only correct because `tally` runs sequentially.
+- **Dependency recording** is per-generation: each `DependencyTrackingProcess` records only into its own `key`'s entry, and does so *before* the fact's `Deferred` completes (see §4), so concurrent generations never interleave their recordings and no consumer can observe a fact with an incomplete dependency set. This is the crucial adaptation over the `tally` reference, which uses a single shared scope stack that is only correct because `tally` runs sequentially.
 - **Validation** (`depsUnchanged`) calls `getFact`, which is itself guarded by the `Deferred` map, so a dependency validated/regenerated concurrently by two paths is still computed once.
 - **Shared mutable state** is only `errors`, `facts`, and `directDeps` — all `Ref`s updated atomically. The `prior` snapshot is immutable after load.
 
@@ -337,10 +336,18 @@ object FactCache {
     }.handleErrorWith(t => warn[IO]("Could not write incremental cache; next build will be full.", t))
 ```
 
-- **Format: Java serialization.** Chosen for simplicity — eliot facts are Scala 3 case classes (`Product with Serializable`) with structural `==`, so this works with zero per-type code. Cache location: `target/.eliot-cache`.
+The implemented `FactCache` (see `eliotc/.../compiler/cache/FactCache.scala`) is the sketch above plus two eliot-specific realities discovered in practice:
+
+- **Format: Java serialization.** Most eliot facts are Scala 3 case classes (`Product with Serializable`) with structural `==`, so this works with almost zero per-type code. Cache location: `target/.eliot-cache`.
+- **`java.nio.file.Path` is not `Serializable`.** Its implementations (`sun.nio.fs.UnixPath`) don't implement `Serializable`, and several facts carry `Path`s. `FactCache` handles this generically with custom streams: `ObjectOutputStream.replaceObject` swaps every `Path` for a small serializable stand-in on write, and `ObjectInputStream.resolveObject` restores it on read. No per-fact code.
+- **Some facts are *fundamentally* non-serializable, and that is fine.** A handful of facts (`NativeBinding`, `TransparentBinding`) carry a `SemValue` — the NbE semantic domain, whose `VLam`/`VPi`/`VNative`/`Lazy` variants hold **Scala closures**. No serializer (Java, circe, anything) can persist a closure. Rather than fail the whole cache, `save` **serializes each entry independently and drops the ones that can't** (probing each with a throwaway stream first, then writing the survivors in one shared-structure pass). A dropped fact simply has no prior entry next run and is **regenerated** — always safe under backward-pull (correctness is preserved; only some incrementality is lost: a fact that transitively depends on a non-serializable fact will regenerate because the dependency has no prior to compare against). In practice this means the front-end (read → tokenize → parse → resolve) and the ground codegen facts cache and accept across runs, while the `SemValue`-bearing monomorphize facts and their dependents regenerate.
 - **Version + discard-on-failure.** A `CACHE_VERSION` bump (or any deserialization error after a compiler change) discards the whole cache → one full recompile. Bump `CACHE_VERSION` whenever a persisted fact's shape changes.
-- **Save is fail-safe.** If some fact's transitive fields are not serializable, `save` warns and the build still succeeds (just without caching). This degrades silently to "no incrementality," never to a crash or wrong output.
-- **Alternative if/when needed:** an explicit per-type codec registry (e.g. circe with `"type"` tags, as in `tally`'s `ArtifactCodecs`) trades the zero-boilerplate of Java serialization for a debuggable, refactor-robust on-disk format. Switch to it if Java serialization proves fragile against non-serializable fact fields or if inspecting the cache becomes useful. The algorithm is identical either way — only `FactCache` changes.
+- **Both directions are fail-safe.** `load` returns `None` on any problem; `save` warns and the build still succeeds even if writing is impossible. Degrades to "no incrementality," never to a crash or wrong output.
+- **Why not circe?** An explicit per-type codec registry (as in `tally`'s `ArtifactCodecs`) would be more debuggable on disk, but it would *not* solve the `SemValue` problem — closures can't be encoded to JSON either. The drop-non-serializable approach is needed regardless of the library, so Java serialization (least boilerplate) is kept.
+
+### Injected facts
+
+A backend can inject a fact directly with `registerFact` rather than have a processor produce it — the JVM backend's `addDynamicSource` registers a synthetic `SourceContent`/`PathScan` for the generated `main` entry point. No processor can (re)produce such a fact, so on a warm build the engine must **accept it from the cache, not regenerate it** (regenerating would invoke `PathScanner`, which fails to find the synthetic path, aborting the whole build). The `injected` flag on `CacheEntry` (§3) carries this: a fact that was the target of a `regenerate` is *generated* and recorded in `directDeps`; one that was only `registerFact`'d is *injected* and accepted on sight. The cached value is authoritative for a given build target; changing the target (e.g. a different `-m` main) is a configuration change handled by a clean build, not by source-mtime invalidation.
 
 ## 13. Integration with `Compiler.scala`
 
@@ -410,6 +417,8 @@ No prior entry anywhere along its chain → everything regenerates fresh → add
 
 The no-change cost is **O(V + E)** in the requested fact's transitive graph (every fact visited once thanks to `Deferred` memoization; every edge a cheap comparison) plus **O(files)** stat calls and one full cache deserialization. For codebases up to ~hundreds of files this is comfortably fast; it is deliberately *not* optimized to O(files) yet (§16).
 
+**Caveat from the `SemValue` reality (§12):** facts carrying closures (`NativeBinding`/`TransparentBinding`) are not persisted, so they — and any fact that depends on them — regenerate every run. In practice the incremental savings are concentrated in the front-end (skip re-reading/-tokenizing/-parsing/-resolving unchanged files) and the no-change codegen accept; the monomorphize type-checking is largely re-run. Full monomorphize-phase caching would require those facts to be quoted to a ground, serializable form (or a fundamentally different persistence strategy for the NbE domain).
+
 ## 16. Future Enhancements
 
 1. **O(files) no-change fast path** (the real scaling fix, when thousands of files arrive): split the cache into a tiny, separately-loadable *source-fingerprint index* (file → mtime) and the bulk fact payloads. On a no-change run, load only the index, `stat` the files, and short-circuit *without* deserializing the fact graph or walking it — making the no-change cost scale with file count, not fact count. The backward-pull algorithm below is unchanged; this is purely a fast-path gate in front of it.
@@ -421,24 +430,27 @@ The no-change cost is **O(V + E)** in the requested fact's transitive graph (eve
 ## 17. Required Changes Summary
 
 ### New files (`eliotc` module, under `compiler/cache/`)
-1. `CacheEntry.scala` — `CacheEntry` + `FactCacheData`
-2. `FactCache.scala` — load/save
-3. `DependencyTrackingProcess.scala` — per-generation dependency recording
-4. `OutputFileStat.scala` — `OutputFileStat` fact + processor *(optional; for JAR-deletion handling)*
+1. `CacheEntry.scala` — `CacheEntry` (fact + `directDeps` + `injected`)
+2. `FactCacheData.scala` — `FactCacheData` (version + entries)
+3. `FactCache.scala` — load/save (Java serialization + `Path` stand-in + drop-non-serializable)
+4. `DependencyTrackingProcess.scala` — per-generation, race-free dependency recording into `directDeps(key)`
+5. `OutputFileStat.scala` + `OutputFileStatProcessor.scala` — `OutputFileStat` fact + leaf processor *(for JAR-deletion handling)*
 
 ### New / replaced
-5. `compiler/IncrementalFactGenerator.scala` — replaces `FactGenerator` (keeps its `Deferred` core + `IOLocal` chain, adds prior-snapshot consultation and dep recording)
+6. `compiler/IncrementalFactGenerator.scala` — replaces `FactGenerator` everywhere (keeps its `Deferred` core + `IOLocal` chain; `FactGenerator` is deleted). With `prior = None` it behaves identically, so the existing test base classes pass `None`.
 
 ### Modified
 | File | Change |
 |------|--------|
 | `eliotc/.../compiler/Compiler.scala` | Load/save cache; use `IncrementalFactGenerator` |
+| `eliotc/.../processor/CompilationProcess.scala` | Doc reference `FactGenerator` → `IncrementalFactGenerator` |
 | `lang/.../source/file/FileContentReader.scala` | `getFactOrAbort(FileStat.Key(key.file))` before reading |
-| `jvm/.../jargen/JvmProgramGenerator.scala` | `getFactOrAbort(OutputFileStat.Key(jarFile))` before writing *(optional)* |
-| `jvm/.../plugin/JvmPlugin.scala` | Register `OutputFileStatProcessor` *(optional)* |
+| `jvm/.../jargen/JvmProgramGenerator.scala` | `getFactOrAbort(OutputFileStat.Key(jarFile))` before writing the JAR |
+| `jvm/.../plugin/JvmPlugin.scala` | Register `OutputFileStatProcessor` |
+| `lang`/`jvm` test base classes | `FactGenerator.create(p)` → `IncrementalFactGenerator.create(p, None)` |
 
 ### No changes required
 - No other processor implementations.
-- No fact types (already `Serializable` case classes).
+- No fact types changed. (Most are `Serializable` case classes; `SemValue`-carrying facts are simply not persisted — §12.)
 - No changes to `CompilerIO`, `CompilerFact`/`CompilerFactKey`, `CompilationProcess`, `CompilerPlugin`, or plugin configuration.
 - No `FileStatProcessor` change (already a leaf).

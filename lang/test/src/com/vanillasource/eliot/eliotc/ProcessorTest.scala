@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{
   QualifiedName as ResolveQualifiedName,
   Qualifier as ResolveQualifier
 }
-import com.vanillasource.eliot.eliotc.compiler.FactGenerator
+import com.vanillasource.eliot.eliotc.compiler.IncrementalFactGenerator
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -54,9 +54,9 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
       }
     )
 
-  def createGenerator(facts: Seq[CompilerFact]): IO[FactGenerator] =
+  def createGenerator(facts: Seq[CompilerFact]): IO[IncrementalFactGenerator] =
     for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(processors))
+      generator <- IncrementalFactGenerator.create(SequentialCompilerProcessors(processors), None)
       _         <- generator.registerFact(sourceContent)
       _         <- facts.traverse_(generator.registerFact)
     } yield generator
@@ -77,7 +77,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
       imports: Seq[SystemImport] = Seq.empty
   ): IO[(Seq[CompilerError], Map[CompilerFactKey[?], CompilerFact])] =
     for {
-      generator <- FactGenerator.create(SequentialCompilerProcessors(processors))
+      generator <- IncrementalFactGenerator.create(SequentialCompilerProcessors(processors), None)
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
       _         <- imports.traverse { imp =>
