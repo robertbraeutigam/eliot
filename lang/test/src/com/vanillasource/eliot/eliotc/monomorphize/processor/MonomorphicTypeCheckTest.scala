@@ -869,6 +869,23 @@ class MonomorphicTypeCheckTest
     )
   }
 
+  it should "observe a no-argument calculated-return producer referenced by name" in {
+    // Deferred W3 item 1: `five`'s bare `Int` return is calculated (`5 : Int[5, 5]`); referencing it by name in `y`
+    // (no application) now resolves that return at the read instead of leaking the `Type` placeholder into a mismatch.
+    runInt("def five: Int = 5\ndef y: Int[5, 5] = five", name = "y").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject a no-argument calculated-return producer that does not fit the declared type" in {
+    // `five`'s calculated `Int[5, 5]` does not `Coerce` into `Int[0, 3]`, so the by-name read is still checked.
+    runInt("def five: Int = 5\ndef y: Int[0, 3] = five", name = "y").asserting(_.nonEmpty shouldBe true)
+  }
+
+  it should "report a self-recursive no-argument calculated-return producer" in {
+    // The read-site resolution shares the recursion guard: `loopv` referencing itself is detected, not dead-locked.
+    runInt("def loopv: Int = loopv", name = "loopv")
+      .asserting(_.map(_.message) shouldBe Seq("Cannot calculate the return type of recursive value 'loopv'."))
+  }
+
   it should "still accept a body-less abstract declaration with an explicit return type" in {
     // The guard targets only *calculated* (bare) returns; an explicit abstract signature (the platform-layer norm) is
     // unaffected — it type-checks as a signature with no body.

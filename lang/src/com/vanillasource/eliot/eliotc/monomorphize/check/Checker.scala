@@ -643,13 +643,21 @@ class Checker(
                       for {
                         sig              <- evalExpr(sv.value.typeStack.value.signature, env = Some(Env.empty))
                         explicitTypeArgs <- typeArgs.traverse(ta => evalExpr(ta.value))
-                      } yield {
-                        val appliedSig = explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)
-                        (
-                          SemExpression(appliedSig, SemExpression.ValueReference(vfqn, explicitTypeArgs)),
-                          appliedSig
-                        )
-                      }
+                        appliedSig        = explicitTypeArgs.foldLeft(sig)(Evaluator.applyValue)
+                        // W4 (deferred W3 item 1): a calculated-return value referenced as a *complete* value — no
+                        // parameters left to apply, so its whole type forced to the `Type` placeholder `saturate`
+                        // installed — is resolved from its monomorphized return here, so a no-argument producer used by
+                        // name (`def y: Int = x`) works instead of leaking `Type` into a mismatch. The applied case
+                        // keeps a `VPi` here (resolved by `applyInferred`); a calculated-return *function* passed
+                        // unapplied keeps the placeholder inside its codomain (the higher-order limit, out of scope).
+                        calcReturn       <- if (sv.value.calculatedReturn)
+                                              resolveCompleteCalculatedReturn(vfqn, explicitTypeArgs, appliedSig)
+                                            else pure(Option.empty[SemValue])
+                        resultType        = calcReturn.getOrElse(appliedSig)
+                      } yield (
+                        SemExpression(resultType, SemExpression.ValueReference(vfqn, explicitTypeArgs)),
+                        resultType
+                      )
                     case None     =>
                       liftF(compilerError(tm.as("Name not defined.")) >> abort)
                   }
@@ -759,6 +767,23 @@ class Checker(
             }
           case None                  => pure(None)
         }
+      case _     => pure(None)
+    }
+
+  /** Resolve the return of a *complete* (fully applied) calculated-return value referenced by name — the read-site twin
+    * of the [[applyInferred]] back-edge (W4, deferred W3 item 1). The value is complete iff its type forced to the
+    * `Type` placeholder `saturate` installed, i.e. no parameter `VPi` remains to apply; then its body-checked return is
+    * read from `MonomorphicValue(value, args)` exactly as in the applied path, sharing [[readMonomorphicReturn]]'s
+    * recursion guard. Returns [[None]] when a `VPi` still remains (the value is applied later, or passed higher-order
+    * with the placeholder buried in its codomain) so the ordinary signature stands.
+    */
+  private def resolveCompleteCalculatedReturn(
+      vfqn: Sourced[ValueFQN],
+      typeArgs: Seq[SemValue],
+      appliedSig: SemValue
+  ): CheckIO[Option[SemValue]] =
+    force(appliedSig).flatMap {
+      case VType => readMonomorphicReturn(vfqn, typeArgs)
       case _     => pure(None)
     }
 
