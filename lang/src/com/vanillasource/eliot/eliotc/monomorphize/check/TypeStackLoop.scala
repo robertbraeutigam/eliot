@@ -38,6 +38,11 @@ class TypeStackLoop(
       resolvedValue: OperatorResolvedValue
   ): CheckIO[MonomorphicValue] =
     for {
+      // W4 (Limit 5): a calculated return needs a body to calculate from. Reject a body-less calculated return at the
+      // definition before its `Type` placeholder reaches a use site (where it would otherwise surface as a confusing
+      // mismatch — or, worse, a silent `Type`).
+      _ <- failOnAbstractCalculatedReturn(resolvedValue)
+
       // Walk type stack levels top-down — returns the final SemValue plus one kind-check SemExpression per level
       (signature, levelExprs) <- walkTypeStack(resolvedValue.typeStack)
 
@@ -122,6 +127,30 @@ class TypeStackLoop(
       groundSig,
       monoBody.map(sourcedMono => sourcedMono.as(sourcedMono.value.expression))
     )
+
+  /** W4 (Limit 5): a calculated return is *calculated from the body*; a value with no body the checker can see cannot
+    * calculate it, and an output position must not quantify it instead, so the bare return must be stated explicitly.
+    * Two body-less cases: a truly abstract declaration (`runtime` is `None` — e.g. a platform-layer signature awaiting
+    * an implementation) and an `opaque` value (whose body is deliberately hidden from the checker, `checkingRuntime` is
+    * `None`). Either way [[installReturnMeta]] would not run, leaving the `Type` placeholder in the signature, so this
+    * is reported at the definition rather than letting that placeholder escape.
+    */
+  private def failOnAbstractCalculatedReturn(resolvedValue: OperatorResolvedValue): CheckIO[Unit] =
+    if (resolvedValue.calculatedReturn && resolvedValue.checkingRuntime.isEmpty) {
+      val name            = resolvedValue.vfqn.name.name
+      val (message, hint) =
+        if (resolvedValue.runtime.isEmpty)
+          (
+            s"Abstract declaration '$name' must state its return type explicitly; there is no body to calculate it from.",
+            "Add an explicit return type, or provide a concrete implementation."
+          )
+        else
+          (
+            s"Opaque value '$name' must state its return type explicitly; its body is hidden from the type checker.",
+            "Add an explicit return type."
+          )
+      liftF(compilerError(resolvedValue.name.as(message), Seq(hint)) >> abort[Unit])
+    } else pure(())
 
   /** Fail-safe for a calculated return (W3) the body did not pin down: if the return metavariable is still unsolved
     * after the drain-and-resolve loop, the body's type forward-evaluated to something the result cannot be read from

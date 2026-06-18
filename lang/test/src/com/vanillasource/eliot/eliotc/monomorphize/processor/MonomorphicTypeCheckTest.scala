@@ -854,6 +854,31 @@ class MonomorphicTypeCheckTest
     ).asserting(_.map(_.message) should contain("Cannot calculate the return type of recursive value 'f'."))
   }
 
+  it should "report a calculated return on a body-less abstract declaration" in {
+    // Limit 5: `readByte` is abstract (no body) but its bare `Int` return is calculated — there is nothing to calculate
+    // it from, and an output position cannot quantify it, so the bound must be stated explicitly. Reported at the
+    // definition, not deferred to a confusing use-site `Type` mismatch.
+    runInt(
+      "def readByte(x: Int): Int",
+      name = "readByte",
+      typeArgs = Seq(GroundValue.Direct(BigInt(0), intType), GroundValue.Direct(BigInt(255), intType))
+    ).asserting(
+      _.map(_.message) shouldBe Seq(
+        "Abstract declaration 'readByte' must state its return type explicitly; there is no body to calculate it from."
+      )
+    )
+  }
+
+  it should "still accept a body-less abstract declaration with an explicit return type" in {
+    // The guard targets only *calculated* (bare) returns; an explicit abstract signature (the platform-layer norm) is
+    // unaffected — it type-checks as a signature with no body.
+    runInt(
+      "def readByte(x: Int): Int[0, 255]",
+      name = "readByte",
+      typeArgs = Seq(GroundValue.Direct(BigInt(0), intType), GroundValue.Direct(BigInt(255), intType))
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: GroundValue =
