@@ -1,8 +1,12 @@
 # Implicit / Inferred Generic Parameters (`auto`)
 
-Status: **Proposed.** Nothing implemented yet. This document records the theory, the surface design, the
-architectural change it requires, a staged implementation that is closed and testable at each step, and — equally
-important — exactly where the system stops working and how it must say so out loud.
+Status: **W0–W4 implemented; W5–W6 remain.** Input generalization (W1), data-field generalization (W2),
+calculated returns (W3), and the limit diagnostics (W4) are built and tested; what is left is propagation /
+display polish (W5, including the two W4-deferred *completeness* items — the `Combine`-join postpone and transitive
+"viral" bounds) and IDE explorability (W6, including the symbolic `ElaboratedSignature` fallback). This document
+records the theory, the surface design, the architectural change it requires, a staged implementation that is
+closed and testable at each step, and — equally important — exactly where the system stops working and how it must
+say so out loud.
 
 ## Goal
 
@@ -405,24 +409,26 @@ Each stage is independently mergeable and testable; later stages depend only on 
     target value reference; the existing `MonomorphicValue` fact is the back-edge.
   - *Deferred (all fail-safe — a hard error or an ordinary mismatch at the use site, never a silently-wrong type;
     catalogued for W4 / W5 / W6):*
-    1. **Calculated-return value not at a direct application site** — only the `applyInferred` path resolves the `VType`
-       placeholder. A bare calculated-return value *referenced without being applied* therefore reads as `VType`: a
-       **no-parameter producer** (`def x: Int = 5`) used as `def y: Int = x`, or a producer **passed higher-order**
-       (`map(double, xs)`). Its callee monomorphization is correct (the meta is solved from the body); only the
-       non-applying *read* is unresolved, so it surfaces as a `Type`-vs-expected mismatch at the use site. To lift,
-       resolve the placeholder at the `ValueReference` read too (when the value's type args are already complete).
+    1. **Calculated-return value not at a direct application site** — *RESOLVED in W4 for the complete-value case.* A
+       calculated-return value referenced as a complete value (no parameters left — a **no-parameter producer**
+       `def y: Int = x`) is now resolved at the `ValueReference` read (`Checker.resolveCompleteCalculatedReturn`, sharing
+       the Limit-1 recursion guard). A producer **passed higher-order** (`map(double, xs)`) still keeps the placeholder
+       buried in its codomain — the higher-order limit (Limit 6, out of scope).
     2. **Calculated-return argument whose bounds aren't ground at the call site** (`double(pick(...))` —
-       calculated-return-over-`Combine`): the type args can't be quoted to ground when the resolution runs, so the bare
-       return is left for the ordinary check to reject. A `Combine`-deferred argument needs the calc-return resolution to
-       be postponed into the drain-and-resolve loop (like ability resolution) rather than run eagerly in `applyInferred`.
+       calculated-return-over-`Combine`): *DIAGNOSED in W4* — `readMonomorphicReturn` now reports a specific, actionable
+       error at the call instead of leaking the `Type` placeholder into a confusing `Coerce` mismatch. **Making it
+       *compile*** (postponing the calc-return resolution into the drain-and-resolve loop so a `Combine`-joined argument
+       grounds first, as ability resolution is) remains a *completeness* improvement carried to **W5** — the deferred
+       upper-bound path leaves the callee's instantiation metas unsolved, so the postpone requires reordering against the
+       combinable-meta machinery (real regression risk against the passing `Combine` suite).
     3. **Symbolic `ElaboratedSignature` fallback** (Architecture §3) for *use-independent* producers — a never-called
        producer, or tooling that wants a principal signature with no concrete driver. Not built: unreachable producers
        are never monomorphized from `main`, so they are never checked on the compile path; this is purely the IDE/tooling
        concern of **W6** (show a producer's principal calculated return by symbolic forward-evaluation on neutral binders).
-    4. **Bare calculated return on a body-less abstract declaration** (Limit 5) is left untouched — `calculatedReturn` is
-       set but `installReturnMeta` only runs with a body, so the `Type` placeholder survives and the use site mismatches.
-       Cannot arise in the current stdlib (no body-less `def` returns a bare omittable constructor); W4 should turn this
-       into the specific "abstract declaration must state its return bounds explicitly" diagnostic at the definition.
+    4. **Bare calculated return on a body-less abstract declaration** (Limit 5) — *RESOLVED in W4.*
+       `TypeStackLoop.failOnAbstractCalculatedReturn` detects `calculatedReturn && checkingRuntime.isEmpty` and reports at
+       the definition ("Abstract declaration `f` must state its return type explicitly…"), also covering the `opaque`
+       sub-case (latent silent-`Type` gap, not reachable in the current stdlib but now guarded).
     5. **Transitive / "viral" bounds through nested records** (W5): `inferableInfo`'s W2-growth read is deliberately
        *non-transitive* (`fieldContribution` uses the raw arity), so a `data Outer(inner: Counter)` does not grow `Outer`
        by `Counter`'s bounds. Same fail-safe deferral as W2 follow-up 1.
@@ -438,23 +444,49 @@ Each stage is independently mergeable and testable; later stages depend only on 
 See the dedicated section below for the catalogue. This stage wires each limit to a specific, actionable error
 and proves (by test) that none of them silently degrades to a wrong or `Type` result.
 
-- **Status:** TODO. Concrete work inherited from W3 (each currently fail-safe but with a generic/ordinary error rather
-  than the specific diagnostic):
-  - **Limit 1 (recursion / value-dependent bound):** detect a non-stabilising `MonomorphicValue` request chain (the
-    callee's calculated return keeps re-requesting the callee at a changing arg) and report "Cannot calculate the return
-    type of recursive value `f` … write an explicit return type." Today a recursive calculated-return producer would
-    drive the back-edge into a fact cycle / non-termination rather than this message.
-  - **Limit 2 (stuck/under-constrained result):** *partially built* — `TypeStackLoop.failOnUndeterminedCalculatedReturn`
-    already hard-errors an unsolved return meta ("Cannot calculate the return type: the body does not determine it."),
-    and the strict post-drain quoter catches a surviving neutral. W4 should refine the message to *name the stuck head*.
-  - **Limit 3 (branch join with no `Combine`):** ties to deferred item 2 above (calculated-return-over-`Combine`) —
-    postpone the calc-return resolution into the drain loop so a `Combine`-joined argument grounds first, and report
-    "branches yield `X` and `Y` with no `Combine`" when the join genuinely fails.
-  - **Limit 5 (calculated return in a body-less declaration):** turn deferred item 4 above into the specific
-    "abstract declaration `f` must state its return bounds explicitly" error at the definition (detect
-    `calculatedReturn && runtime.isEmpty` in monomorphize, before the placeholder reaches a use site).
-  - **Non-applied calculated-return read** (deferred item 1 above): either resolve the `VType` placeholder at the
-    `ValueReference` read when type args are complete, or report a clear "cannot use a calculated-return value here".
+- **Status:** DONE (the diagnostic + soundness mandate; two *completeness* items explicitly carried to W5/W6). Every
+  W4-listed limit now either works or hard-errors with a specific, actionable message at the use site; none silently
+  degrades to a wrong or `Type` result. Tests live in `MonomorphicTypeCheckTest` ("calculated return limits (W4)").
+  - **Limit 1 (recursion / value-dependent bound) — DONE.** A recursive calculated-return producer used to drive the
+    back-edge into a fact-cache **dead-lock** (the callee re-requests its own in-progress `MonomorphicValue` `Deferred`
+    and waits on itself) — verified empirically (the compiler hung). Fixed by tracking the **active fact-request chain**
+    (the in-progress ancestors of the fact being generated): `FactGenerator` owns an `IOLocal[List[CompilerFactKey[?]]]`
+    that each fact's started fiber prepends its key to (child fibers inherit a copy at fork), exposed via
+    `CompilationProcess.activeFactKeys` → `CompilerIO.activeFactKeys`. In the back-edge (`Checker.readMonomorphicReturn`),
+    before requesting `MonomorphicValue(callee, args)`, check whether the callee's FQN is already on that chain: a
+    non-recursive program has an **acyclic producer call graph**, so a repeated FQN is exactly the recursion signal —
+    and it catches the *value-dependent growth* flavour (`f(x + x)`, keys never repeat exactly) at the **first** FQN
+    repeat, no arbitrary depth cap. Reports "Cannot calculate the return type of recursive value `f`." Covers self,
+    mutual, and growth (three tests).
+  - **Limit 2 (stuck/under-constrained result) — DONE (message refinement).** `failOnUndeterminedCalculatedReturn` now
+    names the producer in all cases and, when the return forces to a stuck `VNeutral`, names the stuck variable head;
+    other non-quotable forms stay with the strict post-drain quoter. Detection is unchanged (still hard-errors, no
+    silent `Type`). The unconstrained-meta / neutral cases are **not reachable on the concrete monomorphization path** —
+    they need the symbolic forward-evaluation fallback (Architecture §3, deferred to W6) — so this is a defensive
+    refinement with no minimal trigger to unit-test.
+  - **Limit 3 (branch join, args unground) — DONE (diagnostic); completeness deferred to W5.** A calculated return over
+    a `Combine`-joined argument (`double(pick(a, b))`) cannot ground the callee's type args at the call — `pick`'s
+    combinable result is resolved only at drain — so the eager resolution used to leak the `Type` placeholder into a
+    confusing `Coerce(Type, Int)` mismatch. `readMonomorphicReturn` now reports a specific, actionable error at the call
+    ("argument bounds are not determined at this call site … annotate the argument, or give the value an explicit return
+    type"). The program was rejected either way; this only fixes the message. **Making such a call *compile*** — the
+    planned postpone of the calc-return resolution into the drain loop so the join grounds first — is a *completeness*
+    improvement carried to **W5**: it requires reordering against the combinable-meta / instantiation-meta machinery
+    (the deferred upper-bound path leaves the callee's instantiation metas unsolved), which is real regression risk
+    against the passing `Combine` suite and out of proportion for a limit that is already fail-safe.
+  - **Limit 5 (calculated return in a body-less / opaque value) — DONE.** `TypeStackLoop.failOnAbstractCalculatedReturn`
+    detects `calculatedReturn && checkingRuntime.isEmpty` at the start of processing and reports at the definition,
+    distinguishing the truly abstract case (`runtime.isEmpty` — a platform-layer signature awaiting an implementation)
+    from the `opaque` case (body hidden from the checker — a latent silent-`Type` gap, not reachable in the current
+    stdlib but now guarded). Explicit abstract signatures (`calculatedReturn = false`) are unaffected.
+  - **Non-applied calculated-return read (deferred W3 item 1) — DONE.** A calculated-return value referenced *as a
+    complete value* (no parameters left to apply — a no-argument producer used by name, `def y: Int = x`) is now
+    resolved at the `ValueReference` read (`Checker.resolveCompleteCalculatedReturn`, the read-site twin of the
+    `applyInferred` back-edge, sharing the Limit-1 recursion guard) instead of leaking the `Type` placeholder into a
+    mismatch. A calculated-return *function* passed unapplied still keeps the placeholder buried in its codomain — the
+    higher-order limit (Limit 6, out of scope).
+  - **Limit 4 (omission of a non-inferable parameter) — already built in W1.** Bare `IO` (unmarked) errors at the use
+    site, body-free; covered by the W1 bare-`IO` guardrail test.
 
 ### W5 — Propagation, ergonomics, display
 
