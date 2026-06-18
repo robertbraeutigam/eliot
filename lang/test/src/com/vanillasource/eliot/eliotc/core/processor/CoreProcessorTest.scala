@@ -33,8 +33,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   it should "transform a single-parameter function body into lambda" in {
+    // Body parameters are unannotated: the type stack (signature) is the single source of truth for parameter types
+    // (the body is always checked against it), so the value lambda carries no redundant type annotation.
     namedValue("def f(x: X): R = y").asserting { nv =>
-      nv.runtimeStructure shouldBe Some(Lambda("x", Ref("X", T), Ref("y")))
+      nv.runtimeStructure shouldBe Some(Lambda("x", Empty, Ref("y")))
     }
   }
 
@@ -47,14 +49,14 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "transform a two-parameter function body into nested lambdas" in {
     namedValue("def f(x: X, y: Y): R = z").asserting { nv =>
-      nv.runtimeStructure shouldBe Some(Lambda("x", Ref("X", T), Lambda("y", Ref("Y", T), Ref("z"))))
+      nv.runtimeStructure shouldBe Some(Lambda("x", Empty, Lambda("y", Empty, Ref("z"))))
     }
   }
 
   it should "transform three-parameter function body into deeply nested lambdas" in {
     namedValue("def f(a: A, b: B, c: C): R = r").asserting { nv =>
       nv.runtimeStructure shouldBe
-        Some(Lambda("a", Ref("A", T), Lambda("b", Ref("B", T), Lambda("c", Ref("C", T), Ref("r")))))
+        Some(Lambda("a", Empty, Lambda("b", Empty, Lambda("c", Empty, Ref("r")))))
     }
   }
 
@@ -79,7 +81,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "keep function args only in the value" in {
     namedValue("def f[A](x: X): R = y").asserting { nv =>
-      nv.runtimeStructure shouldBe Some(Lambda("x", Ref("X", T), Ref("y")))
+      nv.runtimeStructure shouldBe Some(Lambda("x", Empty, Ref("y")))
     }
   }
 
@@ -100,7 +102,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   it should "nest function args in value for generic functions" in {
     namedValue("def f[A, B](x: X, y: Y): R = z").asserting { nv =>
-      nv.runtimeStructure shouldBe Some(Lambda("x", Ref("X", T), Lambda("y", Ref("Y", T), Ref("z"))))
+      nv.runtimeStructure shouldBe Some(Lambda("x", Empty, Lambda("y", Empty, Ref("z"))))
     }
   }
 

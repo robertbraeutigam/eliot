@@ -244,13 +244,19 @@ Each stage is independently mergeable and testable; later stages depend only on 
     are prepended to the generic prefix; the kind level is synthesized/extended to match. Recurses into ordinary applied
     constructors (`List[Int]`) but **not** into `Function` arrows (cost-in-arrow, Limit 6). Non-`auto` references
     (`inferableArity == 0`, e.g. `IO`) are left bare, so the ordinary check still rejects them (the use-site guardrail).
-  - *Two gotchas that bit, kept as lessons.* (1) The **runtime body's** leading value-lambda parameter annotations
-    still carried the *un*-saturated type (a bare `Int` vs the saturated `Int[$lo,$hi]` domain) → "Type mismatch."
-    Fix: strip those annotations (`Some` → `None`), capped at the function-chain depth, so each param takes its type
-    from the saturated `VPi` domain (the authoritative declared type). (2) An abstract type-constructor's signature
-    **is its kind-chain** `Function[BigInteger, …, Type]` (a `FunctionApplication` chain), *not* a `FunctionLiteral`
-    chain like a `def`-with-generics — so the binder-kind extraction must read curried *domains* there, not
-    `FunctionLiteral` paramTypes, or the fresh binders wrongly get kind `Type` instead of `BigInteger`.
+  - *`saturate` rewrites only the type stack — never the runtime body.* The body's value-parameter lambdas were a
+    snag: their parameter-type annotations carried the *un*-saturated type (a bare `Int` vs the saturated
+    `Int[$lo,$hi]` domain) → "Type mismatch." The wrong fix (and an explicit non-goal) is to walk/count the body's
+    leading lambdas and strip them — that re-introduces a "classify body structure" assumption the uniform model
+    forbids. The right fix is upstream and structure-free: `CoreExpressionConverter.buildCurriedBody` now emits the
+    value lambdas **unannotated** (`parameterType = None`). The *type stack* is the single source of truth for parameter
+    types — the body is always *checked* against it, and the `check(FunctionLiteral, VPi)` case already takes an
+    unannotated param's type from the `VPi` domain — so the annotation was pure redundancy. `saturate` therefore copies
+    `runtime` through verbatim.
+  - *Gotcha that bit, kept as a lesson.* An abstract type-constructor's signature **is its kind-chain**
+    `Function[BigInteger, …, Type]` (a `FunctionApplication` chain), *not* a `FunctionLiteral` chain like a
+    `def`-with-generics — so the binder-kind extraction must read curried *domains* there, not `FunctionLiteral`
+    paramTypes, or the fresh binders wrongly get kind `Type` instead of `BigInteger`.
   - Tests: `MonomorphicTypeCheckTest` "implicit generic inputs (W1)" (caller inference, direct callee monomorphization
     at bound args, two independent ranges, fully-applied `IO[Unit]` return, the bare-`IO` guardrail, explicit unchanged)
     + the `examples/src/ImplicitIntParam.els` end-to-end (`def describe(x: Int): String = intToString(x)`, prints `42`).

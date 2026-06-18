@@ -119,6 +119,12 @@ object CoreExpressionConverter {
   }
 
   /** Converts the body into core expression and embeds it as a lambda with the "function" parameters.
+    *
+    * The parameters are left *unannotated*: a value's type stack (signature) is the single source of truth for its
+    * parameter types, and the body is always *checked* against that signature, so each parameter takes its type from the
+    * signature's corresponding `Function` domain (see the `check(FunctionLiteral, VPi)` case in the monomorphize
+    * `Checker`). Re-stating the type on the body lambda would only duplicate it — and would force later passes that
+    * refine the signature (e.g. `auto`-parameter saturation) to keep a redundant body copy in sync.
     */
   def buildCurriedBody(
       args: Seq[SourceArgument],
@@ -126,13 +132,7 @@ object CoreExpressionConverter {
       typeContext: Boolean = false
   ): Sourced[Expression] =
     args.foldRight(convertExpression(value, typeContext)) { (arg, acc) =>
-      arg.name.as(
-        FunctionLiteral(
-          arg.name,
-          Some(TypeStack.of(convertExpression(arg.typeExpression, typeContext = true).value)),
-          acc.map(TypeStack.of)
-        )
-      )
+      arg.name.as(FunctionLiteral(arg.name, None, acc.map(TypeStack.of)))
     }
 
   def toPattern(pattern: SourcePattern): Pattern =

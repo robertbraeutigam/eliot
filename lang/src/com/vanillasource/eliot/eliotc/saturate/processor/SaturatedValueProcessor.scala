@@ -60,52 +60,14 @@ class SaturatedValueProcessor
             pos.as(acc)
           )
         }
-        // The runtime body's leading value-parameter lambdas still annotate their parameters with the *un*-saturated
-        // type (a bare `Int` where the saturated signature now wants `Int[$lo,$hi]`). Strip those annotations: in the
-        // body-against-signature check each parameter takes its type from the saturated `VPi` domain instead, which is
-        // the authoritative declared type. Capped at the function-type chain depth so a returned-lambda tail is left
-        // to infer normally.
-        val newRuntime   = value.runtime.map { body =>
-          body.as(stripLeadingParamAnnotations(body.value, functionChainDepth(value.typeStack.value.signature)))
-        }
-        value.copy(
-          typeStack = value.typeStack.as(TypeStack(NonEmptySeq.of(withBinders, newKind))),
-          runtime = newRuntime
-        )
+        // Only the type stack changes. The runtime body is left exactly as-is — its value-parameter lambdas are
+        // unannotated (a value's type stack is the single source of truth for parameter types; see
+        // `CoreExpressionConverter.buildCurriedBody`), so the body-against-signature check takes each parameter's type
+        // from the saturated `VPi` domain with nothing to keep in sync. No walking or counting of body structure.
+        value.copy(typeStack = value.typeStack.as(TypeStack(NonEmptySeq.of(withBinders, newKind))))
       }
     }
   }
-
-  /** The number of curried `Function[_, _]` links in a signature, after skipping its leading generic binders — i.e. the
-    * count of contravariant parameter positions, one per runtime-body value lambda.
-    */
-  private def functionChainDepth(expr: OperatorResolvedExpression): Int =
-    expr match {
-      case OperatorResolvedExpression.FunctionLiteral(_, _, body) => functionChainDepth(body.value)
-      case OperatorResolvedExpression.FunctionApplication(target, cod) =>
-        target.value match {
-          case OperatorResolvedExpression.FunctionApplication(fn, _) if isFunctionRef(fn.value) =>
-            1 + functionChainDepth(cod.value)
-          case _                                                                                => 0
-        }
-      case _                                                      => 0
-    }
-
-  /** Drop the parameter-type annotation of the first `count` leading [[OperatorResolvedExpression.FunctionLiteral]]s,
-    * stopping early at the first non-lambda. The dropped annotations are redundant with the (saturated) signature.
-    */
-  private def stripLeadingParamAnnotations(expr: OperatorResolvedExpression, count: Int): OperatorResolvedExpression =
-    if (count <= 0) expr
-    else
-      expr match {
-        case OperatorResolvedExpression.FunctionLiteral(paramName, _, body) =>
-          OperatorResolvedExpression.FunctionLiteral(
-            paramName,
-            None,
-            body.as(stripLeadingParamAnnotations(body.value, count - 1))
-          )
-        case other                                                          => other
-      }
 
   /** Walk the signature: preserve existing leading generic binders ([[OperatorResolvedExpression.FunctionLiteral]]s),
     * then rewrite the function-type chain underneath them. Returns the rewritten signature body (without the new
