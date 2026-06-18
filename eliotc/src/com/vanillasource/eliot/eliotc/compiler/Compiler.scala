@@ -2,12 +2,9 @@ package com.vanillasource.eliot.eliotc.compiler
 
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.visualization.TrackedCompilerProcessor.wrapProcessor
-import com.vanillasource.eliot.eliotc.compiler.cache.{CacheFingerprint, FactCache}
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
-import com.vanillasource.eliot.eliotc.processor.common.NullProcessor
 import com.vanillasource.eliot.eliotc.visualization.FactVisualizationTracker
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
 
@@ -41,39 +38,29 @@ object Compiler extends Logging {
       case None               =>
         User.compilerGlobalError("No target plugin selected.")
       case Some(targetPlugin) =>
+        val activatedPlugins = collectActivatedPlugins(targetPlugin, configuration, plugins)
         for {
-          _                <- debug[IO](s"Selected target plugin: ${targetPlugin.getClass.getSimpleName}")
-          activatedPlugins  = collectActivatedPlugins(targetPlugin, configuration, plugins)
-          _                <-
+          _       <- debug[IO](s"Selected target plugin: ${targetPlugin.getClass.getSimpleName}")
+          _       <-
             debug[IO](s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}")
-          // Give plugins a chance to configure each other
-          newConfiguration <- activatedPlugins.traverse_(_.configure()).runS(configuration)
-          // Collect all processors
-          processor        <- activatedPlugins.traverse_(_.initialize(newConfiguration)).runS(NullProcessor())
-          // Create visualization tracker if requested
-          tracker          <- FactVisualizationTracker.create()
-          wrappedProcessors = processor.wrapWith(wrapProcessor(_, tracker))
-          // Run fact generator / compiler
-          _                <- debug[IO]("Compiler starting...")
-          targetPath        = newConfiguration.get(targetPathKey).get
-          compilerFp       <- CacheFingerprint.compiler
-          configFp          = CacheFingerprint.config(args)
-          cacheData        <- FactCache.load(targetPath, compilerFp, configFp)
-          generator        <- IncrementalFactGenerator.create(wrappedProcessors, cacheData)
-          _                <- targetPlugin.run(newConfiguration, generator)
-          _                <- generator.buildCacheData().flatMap(FactCache.save(targetPath, compilerFp, configFp, _))
-          _                <- debug[IO]("Compiler exiting normally.")
+          // One-time setup: configure plugins, collect processors, seed the cache from disk
+          session <- CompilationSession.create(targetPlugin, activatedPlugins, configuration, args)
+          tracker <- FactVisualizationTracker.create()
+          // Run the (single, for the CLI) compilation and flush the resulting cache back to disk
+          _       <- debug[IO]("Compiler starting...")
+          result  <- session.compileOnce(Some(tracker))
+          _       <- session.persist()
+          _       <- debug[IO]("Compiler exiting normally.")
           // Print the compiler errors
-          errors           <- generator.currentErrors()
-          _                <- errors.traverse_(_.print())
+          _       <- result.errors.traverse_(_.print())
           // Generate visualization if requested
-          _                <- tracker.generateVisualization(
-                                newConfiguration
-                                  .get(visualizeFactsKey)
-                                  .getOrElse(
-                                    newConfiguration.get(targetPathKey).get.resolve("fact-visualization.html")
-                                  )
-                              )
+          _       <- tracker.generateVisualization(
+                       session.effectiveConfiguration
+                         .get(visualizeFactsKey)
+                         .getOrElse(
+                           session.effectiveConfiguration.get(targetPathKey).get.resolve("fact-visualization.html")
+                         )
+                     )
         } yield ()
     }
 
