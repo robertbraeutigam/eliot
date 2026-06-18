@@ -314,6 +314,19 @@ Each stage is independently mergeable and testable; later stages depend only on 
     (W2)" (construct / reject / four-binder `Pair` / explicit unchanged / access / match) + `ExamplesIntegrationTest`
     end-to-end (`data Counter(n: Int)`, construct+access prints `42`, explicit match prints `7`) +
     `examples/src/ImplicitIntField.els`.
+  - *Deferred from W2 (tracked follow-ups; both fail-safe — they degrade or hard-error, never silently mis-type):*
+    1. **Multi-constructor unions with bare `auto` fields** (`data Maybe = Nothing | Just(value: Int)`). A constructor is
+       only treated as a record when its local name equals the data type's, so union constructors fall through to W1:
+       the field generalizes per-occurrence but the *type* does not grow (`Just(5) : Maybe`, bounds not threaded onto
+       `Maybe`). Correlated, per-constructor binders on a shared type constructor (with the other constructors' slots
+       free in each constructor's result) is the open design point — note the free-binder ambiguity (`Just(5)` would
+       leave `Nothing`'s slots unconstrained) that makes it genuinely harder than the record case.
+    2. **`typeMatch` over an auto-bounded record.** The `TypeMatch` impl's `matchCase` handler is built over the data
+       type's generic-parameter *kinds*; for a W2-grown record it is left as `Function[Unit, R]` rather than rebuilt to
+       `Function[BigInteger, … , R]`, so type-*level* matching cannot bind the synthesized bounds (a handler that tries
+       fails the arity check loudly; it never returns wrong bounds). Value `match` (PatternMatch / `handleCases`) is
+       fully supported — this is only the type-matching path. Rebuild `matchCase`/`Fields` from the grown binder kinds
+       to lift it.
 
 ### W3 — Calculated return positions (the back-edge), concrete-first
 
@@ -338,6 +351,11 @@ Each stage is independently mergeable and testable; later stages depend only on 
   `data` (`def mk(n: Int): Counter`); the *bound-of-record* case still distinguishes bare (tightest calculated)
   from explicit `: Int[0,1000]` (widened via `Coerce`); a never-called producer still gets a checkable return via
   the symbolic fallback.
+- **Relation to W2 (accessors).** W2 already publishes a record accessor's return *explicitly* — `n(obj: Counter): Int`
+  becomes `n[lo,hi](obj: Counter[lo,hi]): Int[lo,hi]` by slicing the field's binders, so access does not wait on W3.
+  W3 generalizes this to arbitrary producers and removes the need to *spell* a bare reference's return bounds: it is
+  why W2's record-producer tests must annotate the return (`def field(c: Counter[7,7]): Int[7,7]`) rather than write
+  bare `: Int`, and W3 is what lets such a return be left bare and calculated from the body.
 - **Status:** TODO.
 
 ### W4 — Limits: positive detection and explicit diagnostics
