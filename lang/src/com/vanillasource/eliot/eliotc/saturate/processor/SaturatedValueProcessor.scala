@@ -12,6 +12,13 @@ import com.vanillasource.eliot.eliotc.module.fact.{
   ValueFQN,
   WellKnownTypes
 }
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
+  SignatureView,
+  applyChain,
+  arrow,
+  isFunctionReference,
+  spine
+}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -26,6 +33,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * an explicit application over fresh binders (`Int` → `Int[$Int$0, $Int$1]`), and those binders are prepended to the
   * value's generic prefix with the matching kind level synthesized/extended. Each bare occurrence mints *independent*
   * binders (matching the hand-written `+`, whose left/right ranges differ).
+  *
+  * The signature's curried-arrow structure is read and rebuilt through [[OperatorResolvedExpression.SignatureView]] (the
+  * shared leading-binders / `Function`-domains / return-position view), so this processor only expresses *what* changes
+  * per position, not how to walk the arrow chain.
   *
   * Scope of W1:
   *   - Only *parameter* positions generalize. The final return position is left untouched (it is *calculated* — W3).
@@ -57,75 +68,63 @@ class SaturatedValueProcessor
   private case class FreshBinder(name: String, kind: OperatorResolvedExpression)
 
   private def saturate(value: OperatorResolvedValue): CompilerIO[OperatorResolvedValue] = {
-    val pos = value.name
+    val pos       = value.name
+    val signature = value.typeStack.as(value.typeStack.value.signature)
+    val view      = SignatureView.of(signature)
     for {
-      rewritten                    <- rewriteSignature(value.typeStack.value.signature, 0, pos)
-      (newSignature, _, binders)    = rewritten
+      (newParams, binders) <- saturateParams(view.parameters, pos)
       // The return position is left untouched by the parameter rewrite, so detect on the original signature: a bare
       // under-applied omittable return is *calculated* (W3), filled from the body rather than the source type stack.
-      calculatedReturn             <- detectCalculatedReturn(value.typeStack.value.signature)
+      calculatedReturn     <- detectCalculatedReturn(signature)
       // A bare under-applied omittable return (e.g. `Int`, kind `BigInteger → … → Type`) is kind-ill-formed in the
       // codomain of `Function`, which the type-stack kind-check requires to be `Type`. Replace it with the kind-correct
       // `Type` placeholder; the monomorphize checker swaps that placeholder for a fresh metavariable the callee's body
       // solves, and the caller recognises it (a `VType` return on a calculated-return producer) to read the callee's
       // monomorphized return instead. The real (computed) return never lives in the source type stack — that is the
       // whole point of "calculated".
-      finalSignature                = if (calculatedReturn) replaceReturn(newSignature, typeRef(pos)) else newSignature
-      saturated                     =
+      rewritten             = view.withParameters(newParams)
+      finalView             = if (calculatedReturn) rewritten.withReturnType(typeRef(pos)) else rewritten
+      saturated             =
         if (binders.isEmpty && !calculatedReturn) value
         // Only the type stack changes. The runtime body is left exactly as-is — its value-parameter lambdas are
         // unannotated (a value's type stack is the single source of truth for parameter types; see
         // `CoreExpressionConverter.buildCurriedBody`), so the body-against-signature check takes each parameter's type
         // from the saturated `VPi` domain with nothing to keep in sync. No walking or counting of body structure.
-        // (`prependBinders` with an empty binder list rewrites only the signature level — used here to install the
-        // `Type` placeholder of a no-parameter calculated-return producer.)
-        else prependBinders(value, finalSignature, binders, pos)
+        else prependBinders(value, finalView.toExpression, binders, pos)
     } yield saturated.copy(calculatedReturn = calculatedReturn)
   }
 
-  /** Whether the value's return position is a bare under-applied omittable reference — a *calculated* return (W3 of
-    * `docs/implicit-generics-plan.md`). The return is the final non-`Function` head beneath the signature's leading
-    * generic binders and curried `Function` chain (see [[returnExpr]]); it is calculated iff that head is an omittable
-    * type constructor (W1/W2 arity, via [[inferableInfo]]) applied to fewer arguments than its omittable arity (e.g. a
-    * bare `Int`, or a bare W2-grown `Counter`). An explicit `Int[0, 255]`, a fully-applied `IO[Unit]`, a non-omittable
-    * head (`String`), or a type-parameter return (`R`, a [[OperatorResolvedExpression.ParameterReference]]) is not.
+  /** Saturate each parameter-position type in turn, threading the running fresh-binder index and accumulating the fresh
+    * binders minted across all parameters.
     */
-  private def detectCalculatedReturn(signature: OperatorResolvedExpression): CompilerIO[Boolean] = {
-    val (head, args) = spineOf(returnExpr(signature))
+  private def saturateParams(
+      parameters: Seq[Sourced[OperatorResolvedExpression]],
+      pos: Sourced[?]
+  ): CompilerIO[(Seq[Sourced[OperatorResolvedExpression]], Seq[FreshBinder])] =
+    parameters
+      .foldLeftM((Seq.empty[Sourced[OperatorResolvedExpression]], 0, Seq.empty[FreshBinder])) {
+        case ((accParams, idx, accBinders), param) =>
+          saturateType(param.value, idx, pos).map { case (newDom, idx2, binders) =>
+            (accParams :+ param.as(newDom), idx2, accBinders ++ binders)
+          }
+      }
+      .map { case (params, _, binders) => (params, binders) }
+
+  /** Whether the value's return position is a bare under-applied omittable reference — a *calculated* return (W3 of
+    * `docs/implicit-generics-plan.md`). The return is the signature's [[SignatureView.returnType]]; it is calculated iff
+    * that head is an omittable type constructor (W1/W2 arity, via [[inferableInfo]]) applied to fewer arguments than its
+    * omittable arity (e.g. a bare `Int`, or a bare W2-grown `Counter`). An explicit `Int[0, 255]`, a fully-applied
+    * `IO[Unit]`, a non-omittable head (`String`), or a type-parameter return (`R`, a
+    * [[OperatorResolvedExpression.ParameterReference]]) is not.
+    */
+  private def detectCalculatedReturn(signature: Sourced[OperatorResolvedExpression]): CompilerIO[Boolean] = {
+    val (head, args) = spine(SignatureView.of(signature).returnType.value)
     head match {
-      case _: OperatorResolvedExpression.ValueReference if !isFunctionRef(head) =>
+      case _: OperatorResolvedExpression.ValueReference if !isFunctionReference(head) =>
         inferableInfo(headFqn(head)).map(_.exists { case (arity, _) => args.length < arity })
-      case _                                                                    => false.pure[CompilerIO]
+      case _                                                                          => false.pure[CompilerIO]
     }
   }
-
-  /** The return-position type expression of a signature: walk past the leading generic binders
-    * ([[OperatorResolvedExpression.FunctionLiteral]]s) and the curried `Function[dom, cod]` chain to the final
-    * non-`Function` codomain.
-    */
-  private def returnExpr(expr: OperatorResolvedExpression): OperatorResolvedExpression =
-    expr match {
-      case OperatorResolvedExpression.FunctionLiteral(_, _, body)                                       =>
-        returnExpr(body.value)
-      case OperatorResolvedExpression.FunctionApplication(target, cod) if isFunctionChain(target.value) =>
-        returnExpr(cod.value)
-      case other                                                                                        => other
-    }
-
-  /** Replace the return-position type expression (see [[returnExpr]]) with `replacement`, preserving the leading
-    * generic binders and the curried `Function` chain. Used to swap a bare calculated return for the `Type` placeholder.
-    */
-  private def replaceReturn(
-      expr: OperatorResolvedExpression,
-      replacement: OperatorResolvedExpression
-  ): OperatorResolvedExpression =
-    expr match {
-      case OperatorResolvedExpression.FunctionLiteral(name, paramType, body)                            =>
-        OperatorResolvedExpression.FunctionLiteral(name, paramType, body.as(replaceReturn(body.value, replacement)))
-      case OperatorResolvedExpression.FunctionApplication(target, cod) if isFunctionChain(target.value) =>
-        OperatorResolvedExpression.FunctionApplication(target, cod.as(replaceReturn(cod.value, replacement)))
-      case _                                                                                            => replacement
-    }
 
   /** Prepend `binders` as leading generic `FunctionLiteral`s to `signature` and synthesize/extend the value's kind
     * level to `binder.kind → … → existingKind`, returning the value with the rewritten two-level type stack.
@@ -138,58 +137,12 @@ class SaturatedValueProcessor
   ): OperatorResolvedValue = {
     val existingKind = value.typeStack.value.levels.tail.headOption
       .getOrElse(OperatorResolvedExpression.ValueReference(pos.as(WellKnownTypes.typeFQN)))
-    val newKind      = binders.foldRight(existingKind)((b, acc) => functionType(b.kind, acc, pos))
+    val newKind      = binders.foldRight(existingKind)((b, acc) => arrow(pos.as(b.kind), pos.as(acc)))
     val withBinders  = binders.foldRight(signature) { (b, acc) =>
       OperatorResolvedExpression.FunctionLiteral(pos.as(b.name), Some(pos.as(TypeStack.of(b.kind))), pos.as(acc))
     }
     value.copy(typeStack = value.typeStack.as(TypeStack(NonEmptySeq.of(withBinders, newKind))))
   }
-
-  /** Walk the signature: preserve existing leading generic binders ([[OperatorResolvedExpression.FunctionLiteral]]s),
-    * then rewrite the function-type chain underneath them. Returns the rewritten signature body (without the new
-    * binders — they are prepended by [[saturate]]), the running fresh-binder index, and the collected fresh binders.
-    */
-  private def rewriteSignature(
-      expr: OperatorResolvedExpression,
-      idx: Int,
-      pos: Sourced[?]
-  ): CompilerIO[(OperatorResolvedExpression, Int, Seq[FreshBinder])] =
-    expr match {
-      case OperatorResolvedExpression.FunctionLiteral(paramName, paramType, body) =>
-        rewriteSignature(body.value, idx, pos).map { case (newBody, idx2, binders) =>
-          (OperatorResolvedExpression.FunctionLiteral(paramName, paramType, body.as(newBody)), idx2, binders)
-        }
-      case other                                                                  =>
-        rewriteFunctionChain(other, idx, pos)
-    }
-
-  /** Walk the curried `Function[dom, cod]` chain of a signature, saturating each *parameter* type (`dom`) and recursing
-    * into the codomain. The final non-`Function` head is the return position and is left untouched (W3).
-    */
-  private def rewriteFunctionChain(
-      expr: OperatorResolvedExpression,
-      idx: Int,
-      pos: Sourced[?]
-  ): CompilerIO[(OperatorResolvedExpression, Int, Seq[FreshBinder])] =
-    expr match {
-      case OperatorResolvedExpression.FunctionApplication(target, cod) =>
-        target.value match {
-          case OperatorResolvedExpression.FunctionApplication(fn, dom) if isFunctionRef(fn.value) =>
-            for {
-              (newDom, idx1, domBinders) <- saturateType(dom.value, idx, pos)
-              (newCod, idx2, codBinders) <- rewriteFunctionChain(cod.value, idx1, pos)
-            } yield (
-              OperatorResolvedExpression
-                .FunctionApplication(target.as(OperatorResolvedExpression.FunctionApplication(fn, dom.as(newDom))), cod.as(newCod)),
-              idx2,
-              domBinders ++ codBinders
-            )
-          case _                                                                                  =>
-            (expr, idx, Seq.empty[FreshBinder]).pure[CompilerIO]
-        }
-      case _                                                           =>
-        (expr, idx, Seq.empty[FreshBinder]).pure[CompilerIO]
-    }
 
   /** Saturate bare omittable references inside one parameter type. Recurses into applied constructors (`List[Int]`) but
     * not into function arrows (cost-in-arrow is out of scope). Under-applied omittable references get their omitted
@@ -200,9 +153,9 @@ class SaturatedValueProcessor
       idx: Int,
       pos: Sourced[?]
   ): CompilerIO[(OperatorResolvedExpression, Int, Seq[FreshBinder])] = {
-    val (head, args) = spineOf(expr)
+    val (head, args) = spine(expr)
     head match {
-      case ref: OperatorResolvedExpression.ValueReference if !isFunctionRef(head) =>
+      case ref: OperatorResolvedExpression.ValueReference if !isFunctionReference(head) =>
         for {
           infoOpt                              <- inferableInfo(ref.valueName.value)
           (saturatedArgsRev, idxA, argBinders) <- args.foldLeftM(
@@ -229,12 +182,12 @@ class SaturatedValueProcessor
                                                             i + 1
                                                           )
                                                         }
-                                                      (applyAll(head, saturatedArgs ++ freshRefs, pos), idxF, argBinders ++ freshBinders)
+                                                      (applyChain(pos.as(head), saturatedArgs ++ freshRefs), idxF, argBinders ++ freshBinders)
                                                     case _                                            =>
-                                                      (applyAll(head, saturatedArgs, pos), idxA, argBinders)
+                                                      (applyChain(pos.as(head), saturatedArgs), idxA, argBinders)
                                                   }
         } yield result
-      case _                                                                     =>
+      case _                                                                           =>
         (expr, idx, Seq.empty[FreshBinder]).pure[CompilerIO]
     }
   }
@@ -255,7 +208,7 @@ class SaturatedValueProcessor
       case Some(orv) =>
         recordGrowth(fqn).map { case (extraArity, extraKinds) =>
           val arity = orv.inferableArity + extraArity
-          val kinds = leadingBinderKinds(orv.typeStack.value.signature) ++ extraKinds
+          val kinds = leadingBinderKinds(signatureOf(orv)) ++ extraKinds
           Option.when(arity > 0)((arity, kinds))
         }
       case None      => none[(Int, Seq[OperatorResolvedExpression])].pure[CompilerIO]
@@ -279,79 +232,33 @@ class SaturatedValueProcessor
     */
   private def rawInferableInfo(fqn: ValueFQN): CompilerIO[Option[(Int, Seq[OperatorResolvedExpression])]] =
     getFact(OperatorResolvedValue.Key(fqn)).map {
-      case Some(orv) if orv.inferableArity > 0 =>
-        Some((orv.inferableArity, leadingBinderKinds(orv.typeStack.value.signature)))
+      case Some(orv) if orv.inferableArity > 0 => Some((orv.inferableArity, leadingBinderKinds(signatureOf(orv))))
       case _                                   => None
     }
 
-  /** The kinds of a referenced value's leading generic binders, in declaration order. Two signature shapes carry these:
+  /** The kinds of a value's leading generic binders, in declaration order. Two signature shapes carry these:
     *
-    *   - a value `def`-with-generics signature is a [[OperatorResolvedExpression.FunctionLiteral]] chain, where each
-    *     binder's parameter-type annotation is its kind (`A: Type` → `Type`);
-    *   - an abstract type-constructor (`type Int[MIN: BigInteger, ...]`) signature *is* its kind-chain
-    *     `Function[BigInteger, Function[..., Type]]`, where each curried *domain* is the corresponding parameter's kind.
+    *   - a value `def`-with-generics signature is a [[SignatureView.binders]] chain, where each binder's parameter-type
+    *     annotation is its kind (`A: Type` → `Type`);
+    *   - an abstract type-constructor (`type Int[MIN: BigInteger, ...]`) signature *is* its kind chain
+    *     `Function[BigInteger, …, Type]`, where each [[SignatureView.parameters]] domain is the corresponding
+    *     parameter's kind.
     *
-    * Handling both lets the saturated binders carry the correct kind (`BigInteger` for `Int`'s bounds), not a `Type`
-    * fallback.
+    * Appending the binder kinds and the parameter-domain kinds covers both uniformly (one list is always empty), so the
+    * saturated binders carry the correct kind (`BigInteger` for `Int`'s bounds), not a `Type` fallback.
     */
-  private def leadingBinderKinds(sig: OperatorResolvedExpression): Seq[OperatorResolvedExpression] =
-    sig match {
-      case OperatorResolvedExpression.FunctionLiteral(_, paramType, body) =>
-        paramType
-          .map(_.value.signature)
-          .getOrElse(OperatorResolvedExpression.ValueReference(body.as(WellKnownTypes.typeFQN))) +:
-          leadingBinderKinds(body.value)
-      case OperatorResolvedExpression.FunctionApplication(target, cod)    =>
-        target.value match {
-          case OperatorResolvedExpression.FunctionApplication(fn, dom) if isFunctionRef(fn.value) =>
-            dom.value +: leadingBinderKinds(cod.value)
-          case _                                                                                  => Seq.empty
-        }
-      case _                                                              => Seq.empty
-    }
+  private def leadingBinderKinds(sig: Sourced[OperatorResolvedExpression]): Seq[OperatorResolvedExpression] = {
+    val view = SignatureView.of(sig)
+    view.binders.map(b => b.parameterType.map(_.value.signature).getOrElse(typeRef(b.name))) ++
+      view.parameters.map(_.value)
+  }
 
-  /** Decompose a curried application into its head and argument list (left to right). */
-  private def spineOf(
-      expr: OperatorResolvedExpression
-  ): (OperatorResolvedExpression, Seq[Sourced[OperatorResolvedExpression]]) =
-    expr match {
-      case OperatorResolvedExpression.FunctionApplication(target, arg) =>
-        val (head, args) = spineOf(target.value)
-        (head, args :+ arg)
-      case other                                                       => (other, Seq.empty)
-    }
-
-  /** Re-apply a head to a list of arguments via left-associated [[OperatorResolvedExpression.FunctionApplication]]s. */
-  private def applyAll(
-      head: OperatorResolvedExpression,
-      args: Seq[Sourced[OperatorResolvedExpression]],
-      pos: Sourced[?]
-  ): OperatorResolvedExpression =
-    args.foldLeft(head)((acc, arg) => OperatorResolvedExpression.FunctionApplication(pos.as(acc), arg))
-
-  /** `Function[dom, cod]` as an operator-resolved type expression. */
-  private def functionType(
-      dom: OperatorResolvedExpression,
-      cod: OperatorResolvedExpression,
-      pos: Sourced[?]
-  ): OperatorResolvedExpression =
-    OperatorResolvedExpression.FunctionApplication(
-      pos.as(
-        OperatorResolvedExpression.FunctionApplication(
-          pos.as(OperatorResolvedExpression.ValueReference(pos.as(WellKnownTypes.functionDataTypeFQN))),
-          pos.as(dom)
-        )
-      ),
-      pos.as(cod)
-    )
+  /** A value's signature (type-stack level 0) carried with its source position, for [[SignatureView.of]]. */
+  private def signatureOf(value: OperatorResolvedValue): Sourced[OperatorResolvedExpression] =
+    value.typeStack.as(value.typeStack.value.signature)
 
   private def typeRef(pos: Sourced[?]): OperatorResolvedExpression =
     OperatorResolvedExpression.ValueReference(pos.as(WellKnownTypes.typeFQN))
-
-  private def isFunctionRef(expr: OperatorResolvedExpression): Boolean = expr match {
-    case OperatorResolvedExpression.ValueReference(name, _) => name.value == WellKnownTypes.functionDataTypeFQN
-    case _                                                  => false
-  }
 
   /** A synthesized binder name, unique within the value (the running index disambiguates repeated references). The `$`
     * prefix cannot collide with user-written parameter names.
@@ -462,7 +369,7 @@ class SaturatedValueProcessor
       case Some(names) if names.names.contains(ctorName) =>
         getFact(OperatorResolvedValue.Key(ValueFQN(module, ctorName))).flatMap {
           case Some(ctor) if isRecordConstructor(ctor, typeName) =>
-            fieldTypes(ctor.typeStack.value.signature).traverse(fieldContribution).map { fields =>
+            SignatureView.of(signatureOf(ctor)).parameters.map(_.value).traverse(fieldContribution).map { fields =>
               val plan = TypePlan(typeName, fields)
               Option.when(plan.total > 0)(plan)
             }
@@ -478,34 +385,19 @@ class SaturatedValueProcessor
       case _                                      => false
     }
 
-  /** The curried `Function` domains of a value constructor's signature (its fields), skipping the leading generic
-    * binders. The final non-`Function` head is the result type and is excluded.
-    */
-  private def fieldTypes(expr: OperatorResolvedExpression): Seq[OperatorResolvedExpression] =
-    expr match {
-      case OperatorResolvedExpression.FunctionLiteral(_, _, body)      => fieldTypes(body.value)
-      case OperatorResolvedExpression.FunctionApplication(target, cod) =>
-        target.value match {
-          case OperatorResolvedExpression.FunctionApplication(fn, dom) if isFunctionRef(fn.value) =>
-            dom.value +: fieldTypes(cod.value)
-          case _                                                                                  => Seq.empty
-        }
-      case _                                                          => Seq.empty
-    }
-
   /** The omittable-bound contribution of one field type: its head's omitted leading `auto` count and their kinds. A
     * directly-bare omittable head (`Int`) contributes; an explicit or non-omittable head contributes nothing.
     */
   private def fieldContribution(fieldType: OperatorResolvedExpression): CompilerIO[FieldContribution] = {
-    val (head, args) = spineOf(fieldType)
+    val (head, args) = spine(fieldType)
     head match {
-      case _: OperatorResolvedExpression.ValueReference if !isFunctionRef(head) =>
+      case _: OperatorResolvedExpression.ValueReference if !isFunctionReference(head) =>
         rawInferableInfo(headFqn(head)).map {
           case Some((arity, kinds)) if args.length < arity =>
             FieldContribution(arity - args.length, kinds.slice(args.length, arity), Some(headFqn(head)))
           case _                                           => FieldContribution(0, Seq.empty, None)
         }
-      case _                                                                    => FieldContribution(0, Seq.empty, None).pure[CompilerIO]
+      case _                                                                          => FieldContribution(0, Seq.empty, None).pure[CompilerIO]
     }
   }
 
@@ -514,35 +406,18 @@ class SaturatedValueProcessor
     case _                                                  => WellKnownTypes.typeFQN
   }
 
-  /** Grow the record type constructor's arity by the plan's binders: its single-level signature `… → Type` gains
+  /** Grow the record type constructor's arity by the plan's binders: its single-level kind chain `… → Type` gains
     * `kind → … → Type` slots (a type constructor's params are value arguments, see `DataDefinitionDesugarer`), and its
     * `inferableArity` is bumped so bare references to it elsewhere saturate via the ordinary W1 path.
     */
   private def growTypeConstructor(value: OperatorResolvedValue, plan: TypePlan): OperatorResolvedValue = {
     val pos          = value.name
-    val newSignature = appendKinds(value.typeStack.value.signature, plan.allKinds, pos)
+    val view         = SignatureView.of(signatureOf(value))
+    val newSignature = view.withParameters(view.parameters ++ plan.allKinds.map(pos.as)).toExpression
     value.copy(
       typeStack = value.typeStack.as(TypeStack.of(newSignature)),
       inferableArity = value.inferableArity + plan.total
     )
-  }
-
-  /** Insert `kinds` as additional curried domains just before the trailing `Type` of a type constructor's kind chain. */
-  private def appendKinds(
-      expr: OperatorResolvedExpression,
-      kinds: Seq[OperatorResolvedExpression],
-      pos: Sourced[?]
-  ): OperatorResolvedExpression =
-    expr match {
-      case OperatorResolvedExpression.FunctionApplication(target, cod) if isFunctionChain(target.value) =>
-        OperatorResolvedExpression.FunctionApplication(target, cod.as(appendKinds(cod.value, kinds, pos)))
-      case result                                                                                       =>
-        kinds.foldRight(result)((k, acc) => functionType(k, acc, pos))
-    }
-
-  private def isFunctionChain(expr: OperatorResolvedExpression): Boolean = expr match {
-    case OperatorResolvedExpression.FunctionApplication(fn, _) => isFunctionRef(fn.value)
-    case _                                                     => false
   }
 
   /** Saturate a record value constructor: each directly-bare omittable field gains its slice of the shared binders, the
@@ -551,57 +426,25 @@ class SaturatedValueProcessor
     * args" inference), exactly as for W1's synthesized parameter binders.
     */
   private def saturateValueConstructor(value: OperatorResolvedValue, plan: TypePlan): OperatorResolvedValue = {
-    val pos          = value.name
-    val newSignature = rewriteConstructorBody(value.typeStack.value.signature, 0, plan, pos)
-    prependBinders(value, newSignature, plan.binders, pos)
-  }
-
-  private def rewriteConstructorBody(
-      expr: OperatorResolvedExpression,
-      fieldIndex: Int,
-      plan: TypePlan,
-      pos: Sourced[?]
-  ): OperatorResolvedExpression =
-    expr match {
-      case OperatorResolvedExpression.FunctionLiteral(name, paramType, body) =>
-        OperatorResolvedExpression
-          .FunctionLiteral(name, paramType, body.as(rewriteConstructorBody(body.value, fieldIndex, plan, pos)))
-      case OperatorResolvedExpression.FunctionApplication(target, cod)       =>
-        target.value match {
-          case OperatorResolvedExpression.FunctionApplication(fn, dom) if isFunctionRef(fn.value) =>
-            val newDom = applyAll(dom.value, plan.sliceRefs(fieldIndex, pos), pos)
-            OperatorResolvedExpression.FunctionApplication(
-              target.as(OperatorResolvedExpression.FunctionApplication(fn, dom.as(newDom))),
-              cod.as(rewriteConstructorBody(cod.value, fieldIndex + 1, plan, pos))
-            )
-          case _                                                                                  =>
-            applyAll(expr, plan.allRefs(pos), pos) // the result type: apply the data type to all shared binders
-        }
-      case result                                                           =>
-        applyAll(result, plan.allRefs(pos), pos)
+    val pos       = value.name
+    val view      = SignatureView.of(signatureOf(value))
+    val newParams = view.parameters.zipWithIndex.map { case (dom, i) =>
+      dom.as(applyChain(dom, plan.sliceRefs(i, pos)))
     }
+    val newReturn = applyChain(view.returnType, plan.allRefs(pos))
+    prependBinders(value, view.withParameters(newParams).withReturnType(newReturn).toExpression, plan.binders, pos)
+  }
 
   /** Saturate a single field accessor: its `obj` parameter takes the data type applied to *all* binders and its result
     * is the projected field's type applied to *that field's* binder slice (`n(obj: Counter): Int` ⇒
     * `n(obj: Counter[lo, hi]): Int[lo, hi]`).
     */
   private def saturateAccessor(value: OperatorResolvedValue, plan: TypePlan, fieldIndex: Int): OperatorResolvedValue = {
-    val pos          = value.name
-    val newSignature = value.typeStack.value.signature match {
-      case OperatorResolvedExpression.FunctionApplication(target, cod) =>
-        target.value match {
-          case OperatorResolvedExpression.FunctionApplication(fn, dom) if isFunctionRef(fn.value) =>
-            val newDom = applyAll(dom.value, plan.allRefs(pos), pos)
-            val newCod = applyAll(cod.value, plan.sliceRefs(fieldIndex, pos), pos)
-            OperatorResolvedExpression.FunctionApplication(
-              target.as(OperatorResolvedExpression.FunctionApplication(fn, dom.as(newDom))),
-              cod.as(newCod)
-            )
-          case _                                                                                  => value.typeStack.value.signature
-        }
-      case other                                                      => other
-    }
-    prependBinders(value, newSignature, plan.binders, pos)
+    val pos       = value.name
+    val view      = SignatureView.of(signatureOf(value))
+    val newParams = view.parameters.map(dom => dom.as(applyChain(dom, plan.allRefs(pos))))
+    val newReturn = applyChain(view.returnType, plan.sliceRefs(fieldIndex, pos))
+    prependBinders(value, view.withParameters(newParams).withReturnType(newReturn).toExpression, plan.binders, pos)
   }
 
   /** Saturate one auto-generated `PatternMatch`/`TypeMatch` implementation member (marker, `Cases`/`Fields`, the
@@ -625,7 +468,8 @@ class SaturatedValueProcessor
     * with none yields `Function[Unit, R]`); W2 grows the type constructor by the field bounds, so the handler must take
     * one curried argument per *grown* generic param — the explicit generics' kinds (recovered from the matcher's own
     * leading binders) followed by the W2 binder kinds — ending in the result `R`. The native applies the handler across
-    * the whole spine of the matched type value, so its arity must equal the grown type constructor's.
+    * the whole spine of the matched type value, so its arity must equal the grown type constructor's. The handler is the
+    * `matchCase` parameter, i.e. the second curried domain (after `obj: Type`).
     *
     * Only this matcher needs it: the abstract `Fields` associated type is bypassed — the match desugarer resolves a
     * surface type match straight to this concrete matcher, never through `Fields[R]`.
@@ -635,65 +479,16 @@ class SaturatedValueProcessor
       plan: TypePlan,
       pos: Sourced[?]
   ): OperatorResolvedExpression = {
-    val binders       = leadingBinderNamesAndKinds(sig)
-    val explicitKinds = binders.dropRight(1).map(_._2)
-    val resultRef     = OperatorResolvedExpression.ParameterReference(pos.as(binders.last._1))
+    val view          = SignatureView.of(pos.as(sig))
+    val explicitKinds = view.binders.dropRight(1).map(b => b.parameterType.map(_.value.signature).getOrElse(typeRef(b.name)))
+    val resultRef     = OperatorResolvedExpression.ParameterReference(view.binders.last.name)
     val newHandler    = (explicitKinds ++ plan.allKinds)
-      .foldRight(resultRef: OperatorResolvedExpression)((k, acc) => functionType(k, acc, pos))
-    replaceMatchCaseDomain(sig, newHandler, pos)
+      .foldRight(resultRef: OperatorResolvedExpression)((k, acc) => arrow(pos.as(k), pos.as(acc)))
+    val newParameters =
+      if (view.parameters.sizeIs > 1) view.parameters.updated(1, view.parameters(1).as(newHandler))
+      else view.parameters
+    view.withParameters(newParameters).toExpression
   }
-
-  /** The (name, kind) of each leading generic [[OperatorResolvedExpression.FunctionLiteral]] binder of a `def`'s
-    * signature, in declaration order (the `typeMatch` matcher's are the data type's generic params, then the result
-    * `R`). A binder without an explicit kind annotation defaults to `Type`.
-    */
-  private def leadingBinderNamesAndKinds(
-      expr: OperatorResolvedExpression
-  ): Seq[(String, OperatorResolvedExpression)] =
-    expr match {
-      case OperatorResolvedExpression.FunctionLiteral(name, paramType, body) =>
-        (name.value, paramType.map(_.value.signature).getOrElse(typeRef(name))) +:
-          leadingBinderNamesAndKinds(body.value)
-      case _                                                                 => Seq.empty
-    }
-
-  /** Replace the `matchCase` parameter type (the second curried domain, after `obj: Type`) of the matcher's signature,
-    * preserving its leading generic binders and the rest of the curried chain.
-    */
-  private def replaceMatchCaseDomain(
-      expr: OperatorResolvedExpression,
-      newDomain: OperatorResolvedExpression,
-      pos: Sourced[?]
-  ): OperatorResolvedExpression =
-    expr match {
-      case OperatorResolvedExpression.FunctionLiteral(name, paramType, body) =>
-        OperatorResolvedExpression
-          .FunctionLiteral(name, paramType, body.as(replaceMatchCaseDomain(body.value, newDomain, pos)))
-      case _                                                                 =>
-        replaceDomainAt(expr, 1, newDomain, pos)
-    }
-
-  /** Replace the `idx`-th curried domain (0-based) of a `Function[dom, cod]` chain. */
-  private def replaceDomainAt(
-      expr: OperatorResolvedExpression,
-      idx: Int,
-      newDomain: OperatorResolvedExpression,
-      pos: Sourced[?]
-  ): OperatorResolvedExpression =
-    expr match {
-      case OperatorResolvedExpression.FunctionApplication(target, cod) =>
-        target.value match {
-          case OperatorResolvedExpression.FunctionApplication(fn, dom) if isFunctionRef(fn.value) =>
-            if (idx == 0)
-              OperatorResolvedExpression
-                .FunctionApplication(target.as(OperatorResolvedExpression.FunctionApplication(fn, dom.as(newDomain))), cod)
-            else
-              OperatorResolvedExpression
-                .FunctionApplication(target, cod.as(replaceDomainAt(cod.value, idx - 1, newDomain, pos)))
-          case _                                                                                  => expr
-        }
-      case _                                                           => expr
-    }
 
   /** Apply the data plan beneath any leading generic binders of an implementation member's signature, leaving the
     * binders themselves untouched (the shared binders are prepended separately).
@@ -724,23 +519,23 @@ class SaturatedValueProcessor
       pos: Sourced[?],
       consumed: Int
   ): (OperatorResolvedExpression, Int) = {
-    val (head, args)         = spineOf(expr)
-    val (newArgsRev, idx)    = args.foldLeft((List.empty[Sourced[OperatorResolvedExpression]], consumed)) {
+    val (head, args)      = spine(expr)
+    val (newArgsRev, idx) = args.foldLeft((List.empty[Sourced[OperatorResolvedExpression]], consumed)) {
       case ((acc, i), arg) =>
         val (rewritten, i2) = applyPlan(arg.value, plan, dataTypeFqn, pos, i)
         (arg.as(rewritten) :: acc, i2)
     }
-    val newArgs              = newArgsRev.reverse
-    val autoFields           = plan.autoFieldIndices
+    val newArgs           = newArgsRev.reverse
+    val autoFields        = plan.autoFieldIndices
     head match {
       case OperatorResolvedExpression.ValueReference(name, _) if name.value == dataTypeFqn =>
-        (applyAll(head, newArgs ++ plan.allRefs(pos), pos), idx)
+        (applyChain(pos.as(head), newArgs ++ plan.allRefs(pos)), idx)
       case OperatorResolvedExpression.ValueReference(name, _)
           if idx < autoFields.length && plan.fields(autoFields(idx)).fqn.contains(name.value) =>
         val fieldIndex = autoFields(idx)
-        (applyAll(head, newArgs ++ plan.sliceRefs(fieldIndex, pos), pos), idx + 1)
+        (applyChain(pos.as(head), newArgs ++ plan.sliceRefs(fieldIndex, pos)), idx + 1)
       case _                                                                               =>
-        (applyAll(head, newArgs, pos), idx)
+        (applyChain(pos.as(head), newArgs), idx)
     }
   }
 }

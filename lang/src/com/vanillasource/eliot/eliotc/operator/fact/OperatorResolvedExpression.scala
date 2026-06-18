@@ -4,7 +4,7 @@ import cats.{Applicative, Monad, Show}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.MatchDesugaredExpression
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 sealed trait OperatorResolvedExpression
@@ -119,6 +119,116 @@ object OperatorResolvedExpression {
         typeArgs.traverse(ta => f(ta.value).map(ta.as)).map(ValueReference(name, _))
       case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr.pure[F]
     }
+  }
+
+  /** True iff `expr` is a reference to the built-in `Function` type constructor (the arrow former). */
+  def isFunctionReference(expr: OperatorResolvedExpression): Boolean = expr match {
+    case ValueReference(name, _) => name.value == WellKnownTypes.functionDataTypeFQN
+    case _                       => false
+  }
+
+  /** View an expression as a curried `Function[dom, cod]` arrow
+    * (`FunctionApplication(FunctionApplication(Function, dom), cod)`), returning its domain and codomain, or [[None]] if
+    * it is not an arrow. Mirrors `GroundValue.asFunctionType` at the operator-resolved level.
+    */
+  def asArrow(
+      expr: OperatorResolvedExpression
+  ): Option[(Sourced[OperatorResolvedExpression], Sourced[OperatorResolvedExpression])] = expr match {
+    case FunctionApplication(target, cod) =>
+      target.value match {
+        case FunctionApplication(fn, dom) if isFunctionReference(fn.value) => Some((dom, cod))
+        case _                                                             => None
+      }
+    case _                                => None
+  }
+
+  /** Build a curried `Function[dom, cod]` arrow, attributing the synthesized nodes to `dom`'s source position. */
+  def arrow(
+      dom: Sourced[OperatorResolvedExpression],
+      cod: Sourced[OperatorResolvedExpression]
+  ): OperatorResolvedExpression =
+    FunctionApplication(
+      dom.as(FunctionApplication(dom.as(ValueReference(dom.as(WellKnownTypes.functionDataTypeFQN))), dom)),
+      cod
+    )
+
+  /** Decompose a curried application into its head and left-to-right argument list. */
+  def spine(
+      expr: OperatorResolvedExpression
+  ): (OperatorResolvedExpression, Seq[Sourced[OperatorResolvedExpression]]) = expr match {
+    case FunctionApplication(target, arg) =>
+      val (head, args) = spine(target.value)
+      (head, args :+ arg)
+    case other                            => (other, Seq.empty)
+  }
+
+  /** Re-apply a head to arguments via left-associated [[FunctionApplication]]s, attributing each wrapper to that
+    * argument's source position.
+    */
+  def applyChain(
+      head: Sourced[OperatorResolvedExpression],
+      args: Seq[Sourced[OperatorResolvedExpression]]
+  ): OperatorResolvedExpression =
+    args.foldLeft(head)((acc, arg) => arg.as(FunctionApplication(acc, arg))).value
+
+  /** A structural view of a value signature (one type-stack level): its leading generic binders, its curried `Function`
+    * parameter domains, and its final non-arrow return position. Round-trips via [[SignatureView.toExpression]]; this is
+    * the shared curried-arrow view used by the implicit-generics saturation rewrites, mirroring
+    * `GroundValue.extractParamAndReturnTypes` at the operator-resolved level.
+    *
+    * Note an abstract type constructor's signature *is* its kind chain (`Function[BigInteger, …, Type]`), so it has no
+    * [[binders]] and its parameter kinds appear as [[parameters]].
+    */
+  case class SignatureView(
+      binders: Seq[SignatureView.Binder],
+      parameters: Seq[Sourced[OperatorResolvedExpression]],
+      returnType: Sourced[OperatorResolvedExpression]
+  ) {
+    def withReturnType(replacement: OperatorResolvedExpression): SignatureView =
+      copy(returnType = returnType.as(replacement))
+
+    def withParameters(newParameters: Seq[Sourced[OperatorResolvedExpression]]): SignatureView =
+      copy(parameters = newParameters)
+
+    /** Reconstruct the signature: wrap the parameters back into a curried `Function` chain ending in the return
+      * position, then prepend the generic binders as [[FunctionLiteral]]s.
+      */
+    def toExpression: OperatorResolvedExpression = {
+      val arrows = parameters.foldRight(returnType)((dom, acc) => acc.as(arrow(dom, acc)))
+      binders.foldRight(arrows.value)((b, body) => FunctionLiteral(b.name, b.parameterType, b.name.as(body)))
+    }
+  }
+
+  object SignatureView {
+
+    /** One leading generic binder of a signature: its parameter name and optional kind annotation (its type stack). */
+    case class Binder(
+        name: Sourced[String],
+        parameterType: Option[Sourced[TypeStack[OperatorResolvedExpression]]]
+    )
+
+    /** Decompose a signature into its leading generic [[FunctionLiteral]] binders, its curried `Function` parameter
+      * domains, and its final non-arrow return position.
+      */
+    def of(signature: Sourced[OperatorResolvedExpression]): SignatureView =
+      signature.value match {
+        case FunctionLiteral(name, parameterType, body) =>
+          val rest = of(body)
+          rest.copy(binders = Binder(name, parameterType) +: rest.binders)
+        case _                                          =>
+          val (parameters, returnType) = arrowChain(signature)
+          SignatureView(Seq.empty, parameters, returnType)
+      }
+
+    private def arrowChain(
+        expr: Sourced[OperatorResolvedExpression]
+    ): (Seq[Sourced[OperatorResolvedExpression]], Sourced[OperatorResolvedExpression]) =
+      asArrow(expr.value) match {
+        case Some((dom, cod)) =>
+          val (rest, returnType) = arrowChain(cod)
+          (dom +: rest, returnType)
+        case None             => (Seq.empty, expr)
+      }
   }
 
   def fromExpression(expr: MatchDesugaredExpression): OperatorResolvedExpression = expr match {
