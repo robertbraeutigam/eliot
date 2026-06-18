@@ -809,10 +809,31 @@ class Checker(
       s          <- get
       groundArgsE = typeArgs.toList.traverse(a => Quoter.quote(0, a, s.unifier.metaStore))
       result     <- groundArgsE match {
-                      case Left(_)           => pure(None)
+                      case Left(_)           => reportUngroundCalculatedReturn(fqn)
                       case Right(groundArgs) => readMonomorphicReturnGround(fqn, groundArgs)
                     }
     } yield result
+
+  /** W4 (Limit 3 / deferred W3 item 2): a calculated return is read off `MonomorphicValue(callee, args)`, so the
+    * callee's type arguments must be ground at the call. They are not when an argument's bounds come from a branch join
+    * (a `Combine`) that is resolved only later, in the drain loop — `double(pick(a, b))` instantiates `double`'s bounds
+    * from `pick`'s combinable result, which is deferred. Reading the return eagerly here would leave the bare `Type`
+    * placeholder, which then leaks into a confusing `Coerce` mismatch downstream. Report a specific, actionable error
+    * instead. (Resolving such a call by postponing the calculation past the join — making it *compile* — is a
+    * completeness improvement deferred to W5; it requires reordering against the combinable-meta machinery.)
+    */
+  private def reportUngroundCalculatedReturn(fqn: Sourced[ValueFQN]): CheckIO[Option[SemValue]] =
+    liftF(
+      compilerError(
+        fqn.as(
+          s"Cannot calculate the return type of '${fqn.value.name.name}' here: its argument bounds are not determined at this call site."
+        ),
+        Seq(
+          "This happens when an argument's bounds come from a branch join (a `Combine`) not yet resolved when the call is checked.",
+          "Annotate the argument's type, or give the value an explicit return type."
+        )
+      ) >> abort[Option[SemValue]]
+    )
 
   /** Read the callee's monomorphized return at ground type arguments, first guarding against a recursive
     * calculated-return chain (Limit 1 of `docs/implicit-generics-plan.md`). If the callee's FQN is already an ancestor

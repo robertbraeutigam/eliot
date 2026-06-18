@@ -896,6 +896,19 @@ class MonomorphicTypeCheckTest
     ).asserting(_ shouldBe Seq.empty)
   }
 
+  it should "report a calculated return over a Combine-joined argument it cannot ground" in {
+    // Limit 3 / deferred W3 item 2: `pick`'s result is a `Combine` join resolved only at drain, so `double`'s
+    // instantiation bounds are not ground when its calculated return is read. Report a specific, actionable error
+    // rather than leaking the `Type` placeholder into a confusing `Coerce` mismatch.
+    runInt(
+      "def double(x: Int): Int = x + x\ndef pick[A](first: A, second: A): A\ndef test: Int[6, 14] = double(pick(integerLiteral[3], integerLiteral[7]))"
+    ).asserting(
+      _.map(_.message) shouldBe Seq(
+        "Cannot calculate the return type of 'double' here: its argument bounds are not determined at this call site."
+      )
+    )
+  }
+
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)
 
   private val intType: GroundValue =
