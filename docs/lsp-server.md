@@ -6,12 +6,12 @@
 |---|---|
 | Incremental compilation | ✅ done (`IncrementalFactGenerator` + persistent fact cache) |
 | Persistent compile lifecycle (`CompilationSession`) | ✅ done — the seam a server loops |
-| Cancel-restart server loop (`CompilationServer`) | ✅ done — file watching still todo |
+| Cancel-restart server loop (`CompilationServer`) | ✅ done |
 | Whole-workspace diagnostics driver (`LspPlugin`) | ✅ done — checks every workspace name, no `main` needed |
 | LSP protocol layer + entry point (`ide/lsp` module, lsp4j) | ✅ done — `LspMain` stdio loop, verified end-to-end |
 | Diagnostics (`publishDiagnostics`) | ✅ done — grouped by URI, clears now-clean files |
 | IntelliJ editor adapter (LSP4IJ) | ✅ done — `ide/lsp/package.sh` dist + importable template; `ide/lsp/intellij/README.md` |
-| File watching trigger | 🚧 partial — `didChangeWatchedFiles` + `didSave` wired; no internal watcher |
+| File watching trigger | ✅ editor-driven done — server registers `**/*.els` watchers so `didChangeWatchedFiles` actually fires (+ `didSave`); in-process watcher intentionally not added |
 | Reverse position index | ✅ done (`ide/lsp/.../index/PositionIndex.scala`), rebuilt per compile |
 | Hover / Go-to-Definition | ✅ done — answered from the index; verified end-to-end |
 | Completion | ⬜ todo |
@@ -101,14 +101,22 @@ runs an `LSPLauncher` stdio loop; `EliotLanguageServer` reads `workspaceFolders`
 lsp4j bridge (constructs the `CompilationSession`, holds the `CompilationServer` open via `allocated`,
 runs `requestCompile`/`shutdown` on an `IORuntime`); `EliotDiagnostics` maps `CompilerError` →
 `publishDiagnostics`. The document services trigger `requestCompile` on `didOpen`/`didSave`, and
-`didChangeWatchedFiles` is wired for on-disk watching. Verified end-to-end over real stdio JSON-RPC
-(diagnostics appear for a broken file and clear on fix). Logs go to **stderr** (stdout is the protocol
-channel) via `ide/lsp/resources/log4j2.xml`.
+`didChangeWatchedFiles` drives on-disk watching. Crucially, that notification is **registration-only**
+in LSP (no static `ServerCapabilities` flag exists for it), so on `initialized` the server now sends a
+`client/registerCapability` for `workspace/didChangeWatchedFiles` with a `**/*.els` `FileSystemWatcher`
+— gated on the client's `didChangeWatchedFiles.dynamicRegistration` capability — which is what makes the
+editor actually emit those notifications (`EliotCompilationService.registerFileWatchers`). Verified
+end-to-end over real stdio JSON-RPC (diagnostics appear for a broken file and clear on fix). Logs go to
+**stderr** (stdout is the protocol channel) via `ide/lsp/resources/log4j2.xml`.
 
-Still required (trigger source + live edits):
+Trigger source is now editor-driven and complete; what remains is live edits:
 
-- **Internal file watching** — `didChangeWatchedFiles` and `didSave` already drive `requestCompile`,
-  but there is no in-process filesystem watcher; refreshes are editor-notification-driven.
+- **In-process file watching — intentionally not added.** With the watcher registration above, the
+  editor's own filesystem watcher already relays *all* on-disk changes, including external ones (`git
+  checkout`, codegen, another tool), so a redundant in-process NIO `WatchService` buys little for a
+  client-spawned server and carries real cost (recursive subdir registration, debouncing, a background
+  fiber lifecycle, and the JDK's slow ~10s polling fallback on macOS). It would only matter for a
+  headless/no-editor host or a client lacking watch-registration support — neither a current target.
 - **Live (unsaved-buffer) checking** — the Virtual File System below (`textDocument/didChange`);
   `didChange` is currently a deliberate no-op so diagnostics never disagree with an unsaved buffer.
 
@@ -333,6 +341,7 @@ verified end-to-end:
 - **Editor** — IntelliJ wired via LSP4IJ (`ide/lsp/package.sh` + `ide/lsp/intellij/`); proven over real stdio.
 
 What remains is depth, not spine: a **virtual file system** for live (unsaved-buffer) checking,
-**completion**, **error recovery** in the parser and checker for broken code, and an optional in-process
-**file watcher** and a **shipped IntelliJ plugin**. None of these block the others; the highest-value next
-step is the virtual file system (live edits) or completion.
+**completion**, and **error recovery** in the parser and checker for broken code. (On-disk file watching
+is done — the server registers `**/*.els` watchers so the editor relays disk changes; an in-process
+watcher is intentionally skipped, see §2.) None of these block the others; the highest-value next step is
+the virtual file system (live edits) or completion.

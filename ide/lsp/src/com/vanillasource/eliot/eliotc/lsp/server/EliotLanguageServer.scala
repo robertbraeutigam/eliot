@@ -27,12 +27,14 @@ import scala.jdk.CollectionConverters.*
   * from this process's classpath); see `docs/lsp-server.md`.
   */
 final class EliotLanguageServer(service: EliotCompilationService) extends LanguageServer with LanguageClientAware {
-  private val textDocumentService        = new EliotTextDocumentService(service)
-  private val workspaceService           = new EliotWorkspaceService(service)
-  @volatile private var roots: Seq[Path] = Seq.empty
+  private val textDocumentService           = new EliotTextDocumentService(service)
+  private val workspaceService              = new EliotWorkspaceService(service)
+  @volatile private var roots: Seq[Path]    = Seq.empty
+  @volatile private var canRegisterWatchers = false
 
   override def initialize(params: InitializeParams): CompletableFuture[InitializeResult] = {
     roots = workspaceRoots(params)
+    canRegisterWatchers = supportsWatchedFileRegistration(params)
     val capabilities = new ServerCapabilities()
     capabilities.setTextDocumentSync(TextDocumentSyncKind.Full)
     capabilities.setDefinitionProvider(true)
@@ -40,7 +42,10 @@ final class EliotLanguageServer(service: EliotCompilationService) extends Langua
     CompletableFuture.completedFuture(new InitializeResult(capabilities))
   }
 
-  override def initialized(params: InitializedParams): Unit = service.startWorkspace(roots)
+  override def initialized(params: InitializedParams): Unit = {
+    service.startWorkspace(roots)
+    if (canRegisterWatchers) service.registerFileWatchers()
+  }
 
   override def shutdown(): CompletableFuture[Object] = {
     service.shutdown()
@@ -54,6 +59,14 @@ final class EliotLanguageServer(service: EliotCompilationService) extends Langua
   override def getWorkspaceService: WorkspaceService = workspaceService
 
   override def connect(client: LanguageClient): Unit = service.connect(client)
+
+  // `workspace/didChangeWatchedFiles` is registration-only in LSP, and registration requires the client to support
+  // dynamic registration for it. Default to off when the capability tree is absent (older/minimal clients).
+  private def supportsWatchedFileRegistration(params: InitializeParams): Boolean =
+    Option(params.getCapabilities)
+      .flatMap(caps => Option(caps.getWorkspace))
+      .flatMap(ws => Option(ws.getDidChangeWatchedFiles))
+      .exists(dcwf => java.lang.Boolean.TRUE == dcwf.getDynamicRegistration)
 
   // getRootUri is deprecated in LSP in favour of workspaceFolders, but remains the correct fallback for older clients.
   @nowarn("cat=deprecation")

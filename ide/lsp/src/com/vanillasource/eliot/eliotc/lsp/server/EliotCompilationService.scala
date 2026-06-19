@@ -9,7 +9,15 @@ import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
-import org.eclipse.lsp4j.PublishDiagnosticsParams
+import org.eclipse.lsp4j.jsonrpc.messages.Either as JEither
+import org.eclipse.lsp4j.{
+  DidChangeWatchedFilesRegistrationOptions,
+  FileSystemWatcher,
+  PublishDiagnosticsParams,
+  RelativePattern,
+  Registration,
+  RegistrationParams
+}
 import org.eclipse.lsp4j.services.LanguageClient
 
 import java.nio.file.Path
@@ -33,6 +41,20 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
 
   /** Remember the remote client so finished compiles can push diagnostics to it. */
   def connect(client: LanguageClient): Unit = clientRef.set(Some(client))
+
+  /** Ask the editor to watch `.els` files across the workspace and notify us of on-disk changes via
+    * `workspace/didChangeWatchedFiles` (handled by [[EliotWorkspaceService.didChangeWatchedFiles]] →
+    * [[requestCompile]]). Per the LSP spec this notification is *registration-only* — a client sends it only for globs
+    * the server registers — so without this the wired handler never fires. The caller gates on the client's
+    * dynamic-registration capability; this is a no-op if no client is connected.
+    */
+  def registerFileWatchers(): Unit =
+    clientRef.get.foreach { client =>
+      val watcher      = new FileSystemWatcher(JEither.forLeft[String, RelativePattern]("**/*.els"))
+      val options      = new DidChangeWatchedFilesRegistrationOptions(List(watcher).asJava)
+      val registration = new Registration("eliot-watched-els", "workspace/didChangeWatchedFiles", options)
+      val _            = client.registerCapability(new RegistrationParams(List(registration).asJava))
+    }
 
   /** The reverse position index from the latest finished compile, for position-based features (definition, hover).
     * Empty until the first compile completes.
