@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.lsp.server
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.lsp.index.CompletionIndex
+import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, GroundValueRenderer}
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import org.eclipse.lsp4j.jsonrpc.messages.Either as JEither
 import org.eclipse.lsp4j.services.TextDocumentService
@@ -86,14 +86,23 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
     )
   }
 
+  /** Prefer the concrete monomorphic type at the hovered node (the type-hint index), which shows the type the
+    * expression was actually checked at — `Int[0, 255]`, `IO[Unit]`. Fall back to the referenced value's declared
+    * signature (the position index) when the node was never monomorphized (no reachable `main`, or code the `main` does
+    * not reach).
+    */
   override def hover(params: HoverParams): CompletableFuture[Hover] = {
     val uri      = URI.create(params.getTextDocument.getUri)
     val position = LspPositions.toCompilerPosition(params.getPosition)
-    val hover    = service.positionIndex.hoverAt(uri, position).map { (reference, value) =>
+    val typeHint = service.typeHintIndex.typeHintsAt(uri, position).map { (range, types) =>
+      val text = types.map(GroundValueRenderer.render).mkString("\n")
+      new Hover(new MarkupContent(MarkupKind.PLAINTEXT, text), LspPositions.toRange(range))
+    }
+    val fallback = service.positionIndex.hoverAt(uri, position).map { (reference, value) =>
       val contents = new MarkupContent(MarkupKind.PLAINTEXT, EliotTextDocumentService.signatureOf(value))
       new Hover(contents, LspPositions.toRange(reference.range))
     }
-    CompletableFuture.completedFuture(hover.orNull)
+    CompletableFuture.completedFuture(typeHint.orElse(fallback).orNull)
   }
 }
 

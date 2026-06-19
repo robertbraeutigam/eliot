@@ -70,10 +70,13 @@ Everything editor/IDE-related lives under the top-level **`ide/`** directory:
   - `ide/lsp/intellij/` - manual *user-defined server* setup for LSP4IJ (zero-build fallback): setup
     guide + importable template. Superseded for normal use by the shipped plugin in `ide/intellij/`.
   - Status: the spine is built & verified — whole-workspace diagnostics, hover/go-to-def (reverse
-    `PositionIndex`), live-edit VFS overlay, in-scope-name completion, IntelliJ via LSP4IJ. The one
-    remaining design item, parser/checker **error recovery** (compiler tolerance for broken code), is
-    tracked in `docs/ide-type-hints.md` (Layers A/B); the rest (find-refs, rename, semantic tokens,
-    signature help) are routine additive features on the existing index.
+    `PositionIndex`), live-edit VFS overlay, in-scope-name completion, **concrete-type hover hints**
+    (`TypeHintIndex` built from `MonomorphicValue` facts; `LspPlugin` monomorphizes each file's own `main`
+    via `UsedNames`, so hover shows `Int[0,255]`/`A -> B` — first step only, no error recovery yet so it is
+    empty on a broken buffer, never wrong), IntelliJ via LSP4IJ. The one remaining design item,
+    parser/checker **error recovery** (compiler tolerance for broken code), is tracked in
+    `docs/ide-type-hints.md` (Layers A/B) and is what makes type hints work on in-progress code; the rest
+    (find-refs, rename, semantic tokens, signature help) are routine additive features on the existing index.
 - **`ide/textmate/`** - TextMate grammar for `.els` syntax highlighting (VS Code extension layout;
   consumable by IntelliJ TextMate Bundles and VS Code). Static editor files, *not* a build module.
 - **`ide/intellij/`** - the shipped IntelliJ plugin: one install gives `.els` highlighting (bundles

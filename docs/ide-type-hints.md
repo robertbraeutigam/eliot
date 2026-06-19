@@ -1,5 +1,13 @@
 # IDE Type Hints for Incomplete Expressions
 
+> **Status (2026-06-19): first step shipped for *complete* programs.** Hover in the `ide/lsp` server now shows the
+> concrete **monomorphic** type a node was checked at (`Int[0, 255]`, `String -> IO[Unit]`), driven per-file from each
+> file's own `main`. This realises a slice of **Layer C** (`TypeHintIndex` built from `MonomorphicValue` facts, in
+> `ide/lsp/.../index/`) and **Layer D** (driver: `LspPlugin` demands `UsedNames.Key(main)` so the reachable graph is
+> monomorphized). It does **not** include **Layer A** (partial facts / `recover`) or **Layer B** (parser tolerance), so a
+> node only gets a hint when its whole monomorphization cone is error-free — hover is empty (never wrong) while the buffer
+> is broken. Layers A/B below remain the follow-up that makes hints work on the in-progress / incomplete expression.
+
 ## Goal
 
 Allow an IDE client to query "what is the type at position `(uri, line, col)`?"

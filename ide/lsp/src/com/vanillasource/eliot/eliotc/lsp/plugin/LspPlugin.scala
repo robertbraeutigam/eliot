@@ -9,12 +9,13 @@ import com.vanillasource.eliot.eliotc.lsp.virtual.{
   VirtualFileStatProcessor,
   VirtualFileSystem
 }
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
+import com.vanillasource.eliot.eliotc.used.UsedNames
 
 import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
@@ -63,13 +64,37 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
       _       <- modules.traverse_(checkModule(compilation, _))
     } yield ()
 
-  /** Demand a front-end fact for every name the module declares, so each one's diagnostics are produced. */
+  /** Demand a front-end fact for every name the module declares, so each one's diagnostics are produced; then, if the
+    * module declares its own `main`, drive monomorphization from it.
+    */
   private def checkModule(compilation: CompilationProcess, moduleName: ModuleName): IO[Unit] =
     compilation.getFact(UnifiedModuleNames.Key(moduleName)).flatMap {
       case None        => IO.unit // unification itself failed; its error is already reported
       case Some(names) =>
-        names.names.keys.toList.traverse_(qn => compilation.getFact(SaturatedValue.Key(ValueFQN(moduleName, qn))).void)
+        names.names.keys.toList
+          .traverse_(qn => compilation.getFact(SaturatedValue.Key(ValueFQN(moduleName, qn))).void) >>
+          monomorphizeMain(compilation, moduleName, names)
     }
+
+  /** Drive whole-program monomorphization from a file's own `main`, so its reachable code is type-checked at concrete
+    * types and the per-node ground types behind hover type hints exist.
+    *
+    * [[UsedNames]] walks the reachable monomorphic graph from the root, forcing a
+    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]] (carrying per-node ground types) for every
+    * reachable instantiation — exactly the facts the type-hint index reads. The trigger is **per file**: each
+    * `examples/` source is its own module with its own `main`, so every such file becomes an independent
+    * monomorphization root. Modules without a `main` (libraries) are left to use-site verification, as a batch build
+    * would. A `main` that fails to monomorphize simply yields no [[UsedNames]] fact; whatever did monomorphize is still
+    * cached, so hints degrade rather than disappear.
+    */
+  private def monomorphizeMain(
+      compilation: CompilationProcess,
+      moduleName: ModuleName,
+      names: UnifiedModuleNames
+  ): IO[Unit] = {
+    val mainName = QualifiedName("main", Qualifier.Default)
+    compilation.getFact(UsedNames.Key(ValueFQN(moduleName, mainName))).void.whenA(names.names.contains(mainName))
+  }
 
   /** Walk the filesystem source roots for `.els` files and derive each one's module name from its path relative to the
     * root it was found under. Classpath resources (the bundled stdlib) are intentionally excluded — the editor

@@ -4,10 +4,11 @@ import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 import com.vanillasource.eliot.eliotc.compiler.{CompilationResult, CompilationServer, CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, PositionIndex}
+import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, PositionIndex, TypeHintIndex}
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
 import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.module.fact.ModuleValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
@@ -41,6 +42,7 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
   private val publishedRef  = new AtomicReference[Set[String]](Set.empty)
   private val indexRef      = new AtomicReference[PositionIndex](PositionIndex.empty)
   private val completionRef = new AtomicReference[CompletionIndex](CompletionIndex.empty)
+  private val typeHintRef   = new AtomicReference[TypeHintIndex](TypeHintIndex.empty)
   private val vfs           = new VirtualFileSystem
 
   /** The overlay of unsaved editor buffers. The document service writes live edits here (on open/change/close) before
@@ -73,6 +75,11 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
   /** The in-scope-name index from the latest finished compile, for completion. Empty until the first compile completes.
     */
   def completionIndex: CompletionIndex = completionRef.get
+
+  /** The position → concrete-type index from the latest finished compile, for hover type hints. Empty until the first
+    * compile that monomorphized a `main` completes.
+    */
+  def typeHintIndex: TypeHintIndex = typeHintRef.get
 
   /** Build a session over the workspace source roots, start the cancel-restart server, and trigger the first compile.
     * Stdlib + platform layers come from this process's classpath (as for the CLI), so only the user's roots are needed.
@@ -110,18 +117,22 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
   private def publishResult(result: CompilationResult): IO[Unit] =
     rebuildIndices(result) >> publishDiagnostics(result)
 
-  /** Rebuild both indices from the facts this compile materialised: the [[PositionIndex]] from [[ResolvedValue]]s
+  /** Rebuild all indices from the facts this compile materialised: the [[PositionIndex]] from [[ResolvedValue]]s
     * (definition + reference sites), the [[CompletionIndex]] from [[ModuleValue]]s (in-scope dictionaries) plus those
-    * same [[ResolvedValue]]s (signatures). The whole-workspace driver ([[LspPlugin]]) demands every name, so every
-    * workspace value's resolved form and its module dictionary are present.
+    * same [[ResolvedValue]]s (signatures), and the [[TypeHintIndex]] from [[MonomorphicValue]]s (per-node concrete
+    * types). The whole-workspace driver ([[LspPlugin]]) demands every name — so every workspace value's resolved form
+    * and module dictionary are present — and additionally monomorphizes each file's own `main`, so the reachable
+    * monomorphic values exist for hover type hints.
     */
   private def rebuildIndices(result: CompilationResult): IO[Unit] =
     result.generator.currentFacts().flatMap { facts =>
       val resolved     = facts.values.collect { case value: ResolvedValue => value }.toSeq
       val moduleValues = facts.values.collect { case value: ModuleValue => value }.toSeq
+      val monomorphic  = facts.values.collect { case value: MonomorphicValue => value }.toSeq
       IO {
         indexRef.set(PositionIndex.build(resolved))
         completionRef.set(CompletionIndex.build(moduleValues, resolved))
+        typeHintRef.set(TypeHintIndex.build(monomorphic))
       }
     }
 
