@@ -69,7 +69,11 @@ Everything editor/IDE-related lives under the top-level **`ide/`** directory:
     drops a layer. See the script header and [[gotcha_assembly_jar_breaks_layers]].
   - `ide/lsp/intellij/` - manual *user-defined server* setup for LSP4IJ (zero-build fallback): setup
     guide + importable template. Superseded for normal use by the shipped plugin in `ide/intellij/`.
-  - Full design/status: `docs/lsp-server.md`.
+  - Status: the spine is built & verified — whole-workspace diagnostics, hover/go-to-def (reverse
+    `PositionIndex`), live-edit VFS overlay, in-scope-name completion, IntelliJ via LSP4IJ. The one
+    remaining design item, parser/checker **error recovery** (compiler tolerance for broken code), is
+    tracked in `docs/ide-type-hints.md` (Layers A/B); the rest (find-refs, rename, semantic tokens,
+    signature help) are routine additive features on the existing index.
 - **`ide/textmate/`** - TextMate grammar for `.els` syntax highlighting (VS Code extension layout;
   consumable by IntelliJ TextMate Bundles and VS Code). Static editor files, *not* a build module.
 - **`ide/intellij/`** - the shipped IntelliJ plugin: one install gives `.els` highlighting (bundles

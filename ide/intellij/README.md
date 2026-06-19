@@ -76,7 +76,7 @@ LSP4IJ works on all JetBrains IDEs and editions, so the platform baseline can be
 
 ## Current capabilities & limits
 
-Inherited from the server (see [`../../docs/lsp-server.md`](../../docs/lsp-server.md)):
+Inherited from the server (the `ide/lsp` module):
 
 - ✅ **Syntax highlighting** for `.els` (TextMate) and **whole-workspace diagnostics** (every name is
   checked even without a `main`; fixed errors clear once corrected).

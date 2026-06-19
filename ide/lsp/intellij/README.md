@@ -8,7 +8,7 @@ Studio, etc. — using Red Hat's **LSP4IJ** plugin.
 > Why LSP4IJ and not IntelliJ's built-in LSP API? LSP4IJ is free, open source, and works on *all*
 > JetBrains IDEs and editions with no plugin to build — a `*.els` mapping plus a launch command is
 > enough. The native API (free for IntelliJ IDEA users since 2025.2) is an option for a shipped
-> plugin later. See `docs/lsp-server.md`.
+> plugin later.
 
 ## 1. Build the server distribution
 
@@ -69,7 +69,7 @@ You can watch traffic under **Language Servers → Eliot → (right-click) → �
 - ✅ **Diagnostics** for the whole workspace — every `.els` name is checked even without a `main`,
   and fixed errors clear once corrected.
 - ✅ **Live diagnostics** on every keystroke — the virtual-file-system overlay (`textDocument/didChange`)
-  type-checks the unsaved buffer, not just saved/on-disk content; see `docs/lsp-server.md`.
+  type-checks the unsaved buffer, not just saved/on-disk content.
 - ✅ **Hover**, **Go-to-Definition**, and **Completion** (in-scope names) — from the server's reverse
   position index and in-scope-name index. Deeper type errors inside generic bodies surface at their use
   sites, by design.

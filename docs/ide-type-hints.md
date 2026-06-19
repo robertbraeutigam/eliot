@@ -8,7 +8,8 @@ elsewhere — and ideally even within a partially-written expression.
 
 This is the core capability that makes hover info, signature help, and
 "expected type here" work in an editor. It is a prerequisite for the LSP server
-described in `docs/lsp-server.md` (which mostly focuses on driver concerns).
+(the `ide/lsp` module, whose driver/protocol spine is already built); the
+error-recovery work below (Layers A/B) is the remaining piece that server needs.
 
 ## Key Findings From the Codebase
 
@@ -143,7 +144,7 @@ The compiler today is one-shot CLI. To make IDE queries cheap:
    command instead of `JvmPlugin`. This is the clean way to keep IDE-only logic out
    of the JVM backend.
 3. **LSP layer** (out of scope for this plan, but the JSON-RPC loop is meant to be
-   wrapped by a thin LSP shim later — see `docs/lsp-server.md`).
+   wrapped by a thin LSP shim later — now built as the `ide/lsp` module).
 
 ## Suggested Implementation Order
 
