@@ -512,6 +512,33 @@ class MonomorphicTypeCheckTest
     ).asserting(_.nonEmpty shouldBe true)
   }
 
+  // --- Carrier-meta kind soundness (effects M0, gap #2) ---
+  // A `[F[_]]` instantiation meta must respect its `Type -> Type` kind: the unifier's direct empty-spine solve would
+  // otherwise equate it with a proper type. `verifyCarrierKinds` (post-drain) rejects both wrong-kind shapes below.
+
+  // `bad`'s signature uses the `Type -> Type` parameter `F` as a proper value type (`x: F`). Inferring `?F := Box[String]`
+  // (kind `Type`) at the call must be rejected — the `[F[_]]` kind says `?F` ranges over `Type -> Type` constructors.
+  it should "reject a higher-kinded carrier inferred as a fully-applied proper type" in {
+    runForErrors(
+      "data Box[A]\ndef bad[F[_]](x: F): F = x\ndef someBox: Box[String]\ndef f: Box[String] = bad(someBox)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
+  // `?F[String] ~ String` has no injective type-constructor solution (only a non-injective constant lambda would fit,
+  // which a carrier never is). It must be rejected rather than silently dropped from the postponement queue.
+  it should "reject a higher-kinded carrier applied where a mismatched-arity rigid type is required" in {
+    runForErrors(
+      "def id[F[_]](x: F[String]): F[String] = x\ndef someString: String\ndef f: String = id(someString)"
+    ).asserting(_.nonEmpty shouldBe true)
+  }
+
+  // The positive direction must still hold: `?F[String] ~ Box[String]` decomposes to the well-kinded `?F := Box`.
+  it should "accept a higher-kinded carrier inferred as a Type -> Type constructor" in {
+    runForErrors(
+      "data Box[A]\ndef id[F[_]](x: F[String]): F[String] = x\ndef someBox: Box[String]\ndef f: Box[String] = id(someBox)"
+    ).asserting(_ shouldBe Seq.empty)
+  }
+
   // --- Explicit type restrictions (Step 6) ---
 
   "explicit type restrictions" should "type check with explicit Type restriction like implicit" in {

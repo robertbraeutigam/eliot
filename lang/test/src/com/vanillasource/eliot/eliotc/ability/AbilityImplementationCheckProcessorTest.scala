@@ -450,6 +450,49 @@ class AbilityImplementationCheckProcessorTest
     """).asserting(errors => errors.exists(_.message.contains("Container")) shouldBe true)
   }
 
+  // --- Higher-kinded ability *constraint on a function parameter* ([F[_] ~ Cap]) — effects M0 ---
+
+  it should "resolve a higher-kinded ability constraint on a function parameter" in {
+    // The net-new M0 piece: a `[F[_] ~ Monad]` constraint whose constrained parameter is itself higher-kinded. The
+    // `flatMap` call is constraint-covered at the abstract definition and resolved to `Monad[Box]` at the concrete
+    // use site (F := Box), mirroring the existing `Container[F[_]]` tests but driving dispatch through a param.
+    runEngineForErrors("""
+        ability Monad[F[_]] {
+          def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
+        }
+
+        data Box[A](content: A)
+
+        implement Monad[Box] {
+          def flatMap[A, B](fa: Box[A], f: Function[A, Box[B]]): Box[B] = f(content(fa))
+        }
+
+        def someBox: Box[String]
+        def runTwice[F[_] ~ Monad](fa: F[String]): F[String] = flatMap(fa, ignore -> fa)
+        def f: Box[String] = runTwice(someBox)
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "fail a higher-kinded ability constraint when the carrier type has no implementation" in {
+    // `Bag` implements no `Monad`, so resolving `flatMap` at F := Bag must fail at the concrete use site.
+    runEngineForErrors("""
+        ability Monad[F[_]] {
+          def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
+        }
+
+        data Box[A](content: A)
+        data Bag[A](content: A)
+
+        implement Monad[Box] {
+          def flatMap[A, B](fa: Box[A], f: Function[A, Box[B]]): Box[B] = f(content(fa))
+        }
+
+        def someBag: Bag[String]
+        def runTwice[F[_] ~ Monad](fa: F[String]): F[String] = flatMap(fa, ignore -> fa)
+        def f: Bag[String] = runTwice(someBag)
+    """).asserting(_.nonEmpty shouldBe true)
+  }
+
   private val intType: GroundValue =
     GroundValue.Structure(
       ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type)),

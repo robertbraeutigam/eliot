@@ -34,6 +34,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   join — is not known until drain, so the check against the expected type is deferred here instead of being
   *   committed against the meta's first candidate. Discharged by [[Checker.resolveUpperBounds]] after combine
   *   resolution: the *final* solution must coerce into the expected type, otherwise a mismatch is reported.
+  * @param carrierKinds
+  *   For each *higher-kinded* type-parameter instantiation metavariable (a `[F[_]]` carrier, kind `Type -> Type` etc.,
+  *   never an ordinary `[A]` of kind `Type`), the metavariable's expected kind and the call-site context for an error.
+  *   Recorded when a polytype is instantiated ([[Checker.instantiatePolymorphic]]) and verified post-drain
+  *   ([[Checker.verifyCarrierKinds]]): a carrier solved to a value of the wrong kind (e.g. a fully-applied proper type
+  *   `Box[String]` where a `Type -> Type` constructor `Box` is required) is rejected rather than silently accepted.
+  *   Without this the unifier would solve `?F := Box[String]` directly (empty spine), ignoring the `[F[_]]` kind.
   */
 case class CheckState(
     env: Env,
@@ -43,8 +50,13 @@ case class CheckState(
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
     combineResolved: Set[Int],
     pendingUpperBounds: List[(MetaId, SemValue, Sourced[String])],
-    typeStackValueParams: Set[String]
+    typeStackValueParams: Set[String],
+    carrierKinds: Map[Int, (SemValue, Sourced[String])]
 ) {
+
+  /** Record a higher-kinded type-parameter instantiation meta with its expected kind, for post-drain verification. */
+  def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): CheckState =
+    copy(carrierKinds = carrierKinds + (id.value -> (expectedKind, context)))
 
   def recordCombineResolved(id: MetaId): CheckState =
     copy(combineResolved = combineResolved + id.value)
@@ -109,6 +121,7 @@ object CheckState {
     Map.empty,
     Set.empty,
     Nil,
-    Set.empty
+    Set.empty,
+    Map.empty
   )
 }

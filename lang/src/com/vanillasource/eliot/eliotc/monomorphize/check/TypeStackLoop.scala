@@ -93,6 +93,11 @@ class TypeStackLoop(
       // Combine join or its single candidate) — the join, not the first candidate, must fit a narrower declared type.
       _ <- checker.resolveUpperBounds
 
+      // Kind-check higher-kinded type-parameter instantiation metas (`[F[_]]` carriers): a carrier solved to a
+      // wrong-kind value (e.g. a proper type `Box[String]` where a `Type -> Type` constructor is required) is rejected
+      // here, since the unifier's direct empty-spine solve does not see the binder's declared kind.
+      _ <- checker.verifyCarrierKinds
+
       // W3: a calculated return the body did not determine (Limit 2 — a stuck/under-constrained result) must not
       // silently default to `Type` below. Report it as a hard error here, before `defaultUnsolvedMetas` masks it.
       _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
