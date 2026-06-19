@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LSP server logging MUST go to stderr: stdout is the JSON-RPC channel and any stray byte on it
+     corrupts the protocol and silently breaks the editor connection. -->
+<Configuration status="WARN">
+    <Appenders>
+        <Console name="Console" target="SYSTEM_ERR">
+            <PatternLayout>
+                <Pattern>[%5p] %m%n</Pattern>
+            </PatternLayout>
+        </Console>
+    </Appenders>
+    <Loggers>
+        <Root level="info">
+            <AppenderRef ref="Console"/>
+        </Root>
+        <Logger name="com.vanillasource.eliot.eliotc.compiler.FactGenerator" level="error"/>
+    </Loggers>
+</Configuration>

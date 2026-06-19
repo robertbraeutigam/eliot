@@ -7,10 +7,13 @@
 | Incremental compilation | ✅ done (`IncrementalFactGenerator` + persistent fact cache) |
 | Persistent compile lifecycle (`CompilationSession`) | ✅ done — the seam a server loops |
 | Cancel-restart server loop (`CompilationServer`) | ✅ done — file watching still todo |
-| LSP protocol layer + entry point | ⬜ todo |
+| Whole-workspace diagnostics driver (`LspPlugin`) | ✅ done — checks every workspace name, no `main` needed |
+| LSP protocol layer + entry point (`lsp` module, lsp4j) | ✅ done — `LspMain` stdio loop, verified end-to-end |
+| Diagnostics (`publishDiagnostics`) | ✅ done — grouped by URI, clears now-clean files |
+| File watching trigger | 🚧 partial — `didChangeWatchedFiles` wired; no internal watcher |
 | Reverse position index | ⬜ todo |
-| Diagnostics / Hover / Go-to-Definition / Completion | ⬜ todo |
-| Error recovery, virtual file system | ⬜ todo |
+| Hover / Go-to-Definition / Completion | ⬜ todo |
+| Error recovery, virtual file system (`didChange`) | ⬜ todo |
 
 The fact-based architecture and pervasive source tracking mean most of the *data* is already there.
 The remaining work is making the *lifecycle* interactive (incremental, persistent, error-tolerant)
@@ -135,6 +138,72 @@ The compiler reads files from disk via `FileContentReader`. For LSP:
   that are re-read every compile anyway, so they are precisely the override point — a buffer change
   simply makes the leaf report new content, and the dependency cone invalidates normally.
 
+## Server Startup, Editor Integration & Project Model
+
+### Who starts the server
+
+LSP is **client-spawned**: the editor launches the server as a child process and speaks JSON-RPC
+over its stdin/stdout. The server is not a daemon the IDE connects to and does not start itself — the
+editor owns the lifecycle (`initialize` → `initialized` → … → `shutdown`/`exit`). The deliverable is
+therefore a single server binary (`java -jar eliot-lsp.jar`, our `LspMain` over an lsp4j stdio loop),
+plus a *thin per-editor adapter* whose only jobs are to know the launch command and that `.els` files
+belong to it. The server is identical across editors; only the adapter differs.
+
+### IntelliJ integration (the first target)
+
+IntelliJ has a first-party LSP API (since 2023.2). The historical blocker — it was **Ultimate-only,
+paid** — was lifted in late 2025:
+
+- **2025.2**: the LSP API works in IntelliJ IDEA Ultimate even with **no active subscription**.
+- **2025.3+**: the separate Community Edition is retired; there is one unified IntelliJ IDEA
+  distribution where Ultimate features need a subscription, but **LSP support is available to
+  everyone**.
+
+So a plugin built on the native API now reaches essentially all IntelliJ IDEA users for free. The
+native path is a small Kotlin/Java plugin declaring `LspServerSupportProvider` + `LspServerDescriptor`
+(file type = `.els`, plus the server launch command). Remaining caveats: still **not** in Android
+Studio or open-source builds, the implementation is closed-source, and you must build/publish the
+plugin (target 2025.2.1+ for the no-subscription behaviour).
+
+The portable alternative is **LSP4IJ** (Red Hat, open source): an LSP client plugin that works on
+*all* JetBrains IDEs — every edition, older versions, and Android Studio. It has a **zero-plugin**
+mode (the user installs LSP4IJ and points a *user-defined server* at our jar + `*.els`), which is the
+fastest route to a working IntelliJ demo, and a plugin mode for one-click install.
+
+We do **not** need the heavyweight fallback — a native PSI language plugin (custom lexer/parser/PSI) —
+which would duplicate the compiler's analysis inside IntelliJ's model. LSP is available; the compiler
+*is* the language server.
+
+Recommended sequencing (both sit on the identical server, so this does not gate server work):
+1. **MVP/demo** → LSP4IJ user-defined server (no IntelliJ plugin code; also covers Android Studio).
+2. **Shipped plugin** → native LSP API (now free for IntelliJ IDEA) *or* an LSP4IJ-backed plugin if
+   Android-Studio / older-IDE reach matters. The native-vs-LSP4IJ choice for the shipped plugin is a
+   reach-vs-integration trade-off and is deferred — it does not block the server.
+
+### Project model — source roots & classpath without a build file
+
+Eliot has no build file, so the "project model" is implicit and small. The CLI supplies it as:
+
+- **source roots** = positional `<path>...` args → `LangPlugin.pathKey` → `PathScanner(rootPaths)`;
+- **stdlib + platform layers** = the **JVM launch classpath** — `PathScanner` reads
+  `getClassLoader.getResources("eliot/…")`, so the standard library travels as classpath *resources*,
+  not as source directories;
+- **compiler plugins/backends** = the JVM launch classpath (`ServiceLoader`);
+- **target/output** = `-o` + a target command word.
+
+The consequence for a server launched from the shipped jar: the stdlib and platform layers are
+already on its classpath with **zero** configuration, exactly as for the CLI. The only genuinely
+project-specific input is *where the user's source is* — and LSP hands that over for free in the
+`initialize` handshake as `rootUri` / `workspaceFolders`, which maps straight onto `pathKey`. So the
+v1 project model is: **`workspaceFolders` → source roots, bundled classpath → stdlib**, no manifest.
+
+A small **shared CLI/LSP manifest** (e.g. `eliot.toml`) becomes necessary only for multiple source
+roots, extra layers (third-party jars adding `CompilerPlugin`s or `eliot/` resources), or a non-default
+target. It is deliberately deferred; when it lands it should be read by *both* the CLI and the server,
+not special-cased per editor adapter. (Caching reinforces this: `CacheFingerprint.config(args)` and the
+compiler-classpath fingerprint already key `.eliot-cache`, so the project model must be stable/normalized
+— a declared manifest normalizes naturally, ad-hoc argv does not.)
+
 ## LSP Feature → Existing Infrastructure Mapping
 
 | LSP Feature | What Exists | What's Missing |
@@ -151,16 +220,20 @@ The compiler reads files from disk via `FileContentReader`. For LSP:
 ## Suggested Implementation Order
 
 1. ✅ **Incremental compilation** — done (`IncrementalFactGenerator` + persistent cache).
-2. 🚧 **Persistent server mode** — `CompilationSession` lifecycle and the cancel-restart
-   `CompilationServer` loop done; remaining: file watching and an entry point.
-3. **LSP scaffolding** — new module, `lsp4j` dependency, protocol handling, virtual file system.
-4. **Diagnostics** — easiest LSP feature, just stream `CompilationResult.errors` as
-   `textDocument/publishDiagnostics`.
+2. ✅ **Persistent server mode engine** — `CompilationSession` lifecycle and the cancel-restart
+   `CompilationServer` loop done; remaining trigger source: file watching / editor `didChange`.
+3. ✅ **LSP scaffolding** — `lsp` module, `lsp4j` dependency, `LspMain` stdio loop, the
+   whole-workspace diagnostics driver (`LspPlugin`), language/document/workspace services.
+4. ✅ **Diagnostics** — `CompilationResult.errors` streamed as `textDocument/publishDiagnostics`,
+   grouped by URI, clearing now-clean files. Verified end-to-end over real stdio JSON-RPC.
 5. **Reverse position index** — enables all position-based features.
 6. **Hover + Go to Definition** — highest-value features for developers.
 7. **Completion** — requires understanding partial/broken input contexts.
 8. **Error recovery** — parser and type checker resilience for broken code.
 9. **Remaining features** — references, rename, semantic tokens, signature help.
+
+The first editor adapter is **IntelliJ** (see *Server Startup, Editor Integration & Project Model*):
+LSP4IJ user-defined server for the demo, a native-API or LSP4IJ-backed plugin for the shipped build.
 
 ## Module Structure
 
@@ -170,26 +243,35 @@ The incremental generator and the resident compile lifecycle already live in `el
 `CompilationSession`:
 
 ```
-lsp/          (new module, depends on lang + eliotc)
-  ├── server/         LSP protocol handling (lsp4j), the cancel-restart compile loop
-  ├── index/          Reverse position index
-  └── virtual/        Virtual file system overlay (VirtualSourceContent processor)
+lsp/          (new module, depends on lang + stdlib; lang already depends on eliotc)
+  ├── plugin/         LspPlugin — the whole-workspace diagnostics driver (target plugin)
+  ├── server/         LSP protocol handling (lsp4j): LspMain stdio loop, language/document services
+  ├── index/          Reverse position index            (todo)
+  └── virtual/        Virtual file system overlay        (todo: VirtualSourceContent processor)
 ```
 
-## Key Architectural Decision
+The diagnostics driver (`LspPlugin`) is the one genuinely new compiler-side piece. A batch build is
+driven *from `main`* (`UsedNamesProcessor` walks the reachable monomorphized graph); an editor must
+instead check **every** name in the workspace, including unreferenced and generic ones. `LspPlugin.run`
+therefore walks the filesystem roots for `.els` files, derives each file's `ModuleName` from its
+path-relative-to-root, and for every `(ModuleName, QualifiedName)` demands `SaturatedValue` — which
+forces tokenize → parse → core → resolve → matchdesugar → operator and surfaces the bulk of
+diagnostics **without** use-site instantiation. Deeper type errors inside generic bodies remain
+use-site-verified per the cornerstone (they surface where the value is instantiated, future work via
+the reverse index / a richer driver), not at the definition.
 
-The LSP server needs to decide: **plugin or separate composition?**
+## Key Architectural Decision — resolved: separate composition
 
-- **As a plugin**: Add `LspPlugin` alongside `JvmPlugin`, used as the `CompilationSession` target.
-  Reuses the existing `Compiler` orchestration and plugin discovery.
-- **As a separate composition**: The LSP server constructs a `CompilationSession` directly (its own
-  target driver demanding the facts LSP needs), giving full control over the long-running, per-edit
-  lifecycle.
-
-`CompilationSession` is plugin-agnostic — it takes a target plugin and the activated plugins and just
-loops the compilation — so either path is now cheap. The separate-composition path is likely better,
-since the server's lifecycle (cancel-restart, per-edit, query-after-run) differs fundamentally from a
-batch build, and `CompilationSession` already provides exactly the resident, queryable engine it needs.
+The server constructs a `CompilationSession` **directly** rather than going through CLI arg parsing /
+`ServiceLoader` selection: it news up `LspPlugin` (target) + `LangPlugin` + `StdlibPlugin` and passes
+them to `CompilationSession.create(targetPlugin, activatedPlugins, configuration, args)`. `LspPlugin` is
+its own `CompilerPlugin` whose `initialize` adds no processors (the front end comes from `LangPlugin`)
+and whose `run` is the whole-workspace diagnostics driver above. This was chosen over registering
+`LspPlugin` as a ServiceLoader target because the server's lifecycle (cancel-restart, per-edit,
+query-after-run) differs fundamentally from a batch build, and direct composition keeps the editor
+launch path free of the CLI's positional-arg/target-word conventions — the roots come from
+`workspaceFolders`, not argv. `JvmPlugin` is intentionally absent: diagnostics need the front end and
+the monomorphize layer, never codegen.
 
 ## Summary
 

@@ -26,6 +26,15 @@ object `package` extends Module {
      )
    }
 
+   object lsp extends DefaultScalaModule {
+     override def moduleDeps = Seq(lang, stdlib)
+     override def mainClass = Some("com.vanillasource.eliot.eliotc.lsp.server.LspMain")
+
+     override def extraDeps = Seq(
+       mvn"org.eclipse.lsp4j:org.eclipse.lsp4j:0.23.1",
+     )
+   }
+
    object examples extends DefaultScalaModule {
      override def moduleDeps = Seq(eliotc, jvm)
      override def mainClass = Some("com.vanillasource.eliot.eliotc.compiler.Main")
