@@ -67,12 +67,19 @@ Everything editor/IDE-related lives under the top-level **`ide/`** directory:
     deliberately produces a `lib/` of **separate per-module jars**, never a fat assembly jar — a fat jar
     collapses same-path layer resources (e.g. `String.els` in both `lang` and `stdlib`) and silently
     drops a layer. See the script header and [[gotcha_assembly_jar_breaks_layers]].
-  - `ide/lsp/intellij/` - IntelliJ (LSP4IJ) setup guide + importable template.
+  - `ide/lsp/intellij/` - manual *user-defined server* setup for LSP4IJ (zero-build fallback): setup
+    guide + importable template. Superseded for normal use by the shipped plugin in `ide/intellij/`.
   - Full design/status: `docs/lsp-server.md`.
 - **`ide/textmate/`** - TextMate grammar for `.els` syntax highlighting (VS Code extension layout;
   consumable by IntelliJ TextMate Bundles and VS Code). Static editor files, *not* a build module.
+- **`ide/intellij/`** - the shipped IntelliJ plugin: one install gives `.els` highlighting (bundles
+  `ide/textmate`) + diagnostics (launches the `ide/lsp` server via LSP4IJ). It is a **self-contained
+  Gradle build** (the IntelliJ Platform Gradle Plugin has no Mill equivalent), *not* part of the Mill
+  build; its `prepareSandbox` shells out to `ide/lsp/package.sh` for the per-module server jars (never
+  a fat jar — [[gotcha_assembly_jar_breaks_layers]]) and runs the server out-of-process via the IDE's
+  JBR. Build with `cd ide/intellij && ./gradlew runIde|buildPlugin`. See `ide/intellij/README.md`.
 
-When adding new editor integrations (e.g. a shipped IntelliJ plugin), place them under `ide/`.
+When adding new editor integrations, place them under `ide/`.
 
 ## Architecture
 

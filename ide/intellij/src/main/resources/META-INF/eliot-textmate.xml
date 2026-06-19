@@ -1,0 +1,7 @@
+<idea-plugin>
+    <!-- Loaded only when the bundled TextMate plugin (org.jetbrains.plugins.textmate) is present.
+         Registers the Eliot TextMate grammar so .els files are highlighted with no manual setup. -->
+    <extensions defaultExtensionNs="com.intellij">
+        <textmate.bundleProvider implementation="com.vanillasource.eliot.intellij.EliotTextMateBundleProvider"/>
+    </extensions>
+</idea-plugin>

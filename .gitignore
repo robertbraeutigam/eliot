@@ -4,3 +4,6 @@ target
 .bsp
 ide/lsp/dist
 .eliot-lsp
+ide/intellij/.gradle
+ide/intellij/build
+ide/intellij/.intellijPlatform
