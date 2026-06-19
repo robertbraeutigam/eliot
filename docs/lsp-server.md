@@ -14,15 +14,16 @@
 | File watching trigger | ✅ editor-driven done — server registers `**/*.els` watchers so `didChangeWatchedFiles` actually fires (+ `didSave`); in-process watcher intentionally not added |
 | Reverse position index | ✅ done (`ide/lsp/.../index/PositionIndex.scala`), rebuilt per compile |
 | Hover / Go-to-Definition | ✅ done — answered from the index; verified end-to-end |
+| Virtual file system (`didChange`, live unsaved-buffer checking) | ✅ done — `ide/lsp/.../virtual/`; verified end-to-end through the incremental path |
 | Completion | ⬜ todo |
-| Error recovery, virtual file system (`didChange`) | ⬜ todo |
+| Error recovery | ⬜ todo |
 
 The fact-based architecture and pervasive source tracking mean most of the *data* is already there.
 The resident-engine lifecycle (incremental compilation, a persistent `CompilationSession`, a
 cancel-restart `CompilationServer`), the `lsp4j` protocol layer, the whole-workspace diagnostics
-driver, the IntelliJ (LSP4IJ) adapter, and now the reverse position index with **hover** and
-**go-to-definition** on top of it are built and verified end-to-end. What remains is depth: a virtual
-file system for live edits, completion, and error recovery for broken code.
+driver, the IntelliJ (LSP4IJ) adapter, the reverse position index with **hover** and
+**go-to-definition**, and now a **virtual file system** that type-checks unsaved editor buffers live
+are built and verified end-to-end. What remains is depth: completion, and error recovery for broken code.
 
 ## Existing Infrastructure
 
@@ -61,7 +62,7 @@ only leaf `stat`s, and a changed file invalidates just its dependency cone. Key 
 (The standalone incremental-compilation design doc has been retired; the design now lives in the
 code's doc-comments and commit history.)
 
-### 2. Long-Running Server Mode — ✅ engine + loop + protocol done; internal watcher/VFS remain
+### 2. Long-Running Server Mode — ✅ engine + loop + protocol + triggers (watch + live edits) done
 
 The compile lifecycle has been factored out of the one-shot CLI driver into **`CompilationSession`**
 (`eliotc/.../compiler/CompilationSession.scala`, commit `16292d61`) — the persistent-generator seam a
@@ -109,7 +110,7 @@ editor actually emit those notifications (`EliotCompilationService.registerFileW
 end-to-end over real stdio JSON-RPC (diagnostics appear for a broken file and clear on fix). Logs go to
 **stderr** (stdout is the protocol channel) via `ide/lsp/resources/log4j2.xml`.
 
-Trigger source is now editor-driven and complete; what remains is live edits:
+Both trigger sources are now wired — on-disk watching and live unsaved edits:
 
 - **In-process file watching — intentionally not added.** With the watcher registration above, the
   editor's own filesystem watcher already relays *all* on-disk changes, including external ones (`git
@@ -117,8 +118,9 @@ Trigger source is now editor-driven and complete; what remains is live edits:
   client-spawned server and carries real cost (recursive subdir registration, debouncing, a background
   fiber lifecycle, and the JDK's slow ~10s polling fallback on macOS). It would only matter for a
   headless/no-editor host or a client lacking watch-registration support — neither a current target.
-- **Live (unsaved-buffer) checking** — the Virtual File System below (`textDocument/didChange`);
-  `didChange` is currently a deliberate no-op so diagnostics never disagree with an unsaved buffer.
+- **Live (unsaved-buffer) checking** — done via the Virtual File System (§5 below). `didChange`/`didOpen`
+  push the buffer's full text into the overlay and `didClose` drops it; each recompile then checks what
+  the user sees, not stale disk content.
 
 ### 3. Reverse Index: Position → Fact — ✅ done
 
@@ -161,17 +163,40 @@ Currently, errors abort the pipeline for that value (via `compilerAbort`). For L
   more aggressively.
 - Goal: always produce *something* useful, even for broken code.
 
-### 5. Virtual File System — ⬜ todo
+### 5. Virtual File System — ✅ done
 
-The compiler reads files from disk via `FileContentReader`. For LSP:
+The compiler reads files from disk via `FileContentReader`; the server must instead check the
+**editor's buffer content** (unsaved changes). Built as `ide/lsp/.../virtual/`:
 
-- The server needs to use the **editor's buffer content** (unsaved changes), not the on-disk file.
-- Add a `VirtualSourceContent` layer that intercepts `SourceContent` facts with in-memory overrides
-  from `textDocument/didChange` notifications.
-- This slots naturally into the existing fact system — just a new processor that takes priority over
-  `FileContentReader`. It also fits the incremental model: `SourceContent` / `FileStat` are leaf facts
-  that are re-read every compile anyway, so they are precisely the override point — a buffer change
-  simply makes the leaf report new content, and the dependency cone invalidates normally.
+- **`VirtualFileSystem`** — a thread-safe in-memory overlay (`AtomicReference[Map[Path, Document]]`),
+  keyed by normalised absolute file path so the editor's `file:///…` URIs match the compiler's scanned
+  `File`s. The document service writes to it: `didOpen`/`didChange` `update(uri, fullText)` (the server
+  negotiates `TextDocumentSyncKind.Full`, so every change carries the whole document), `didClose`
+  `remove(uri)`. Non-`file:` URIs (untitled buffers) are ignored. Each override carries a strictly
+  increasing monotonic `stamp`.
+- **Two override processors, ordered ahead of the on-disk readers.** Rather than intercept the derived
+  `SourceContent` fact, the overlay overrides at the two facts that actually drive incremental
+  invalidation:
+  - `VirtualFileStatProcessor` reports the buffer's `stamp` as the file's modification time (`FileStat`).
+    `FileStat` is the **leaf** the whole source chain hangs off and is regenerated every compile, so this
+    is the precise point where a buffer change becomes visible: a new stamp makes the leaf differ, and the
+    equality cutoff invalidates exactly the edited file's dependency cone. Stamps start near zero, so they
+    never collide with a real on-disk mtime — dropping an override flips `FileStat` back to the disk time
+    and re-reads from disk.
+  - `VirtualFileContentReader` serves the buffer's text as `FileContent`, depending on `FileStat` exactly
+    as the on-disk reader does (so it re-derives only when the stamp changes).
+- **Why the leaf, not `SourceContent`.** `SourceContent`/`FileContent` are *derived*, not leaves; under
+  incremental compilation a derived fact whose dependencies are unchanged is served from cache without
+  any processor running, so overriding it alone would be ignored on a no-disk-change rebuild. Invalidation
+  must originate at the one leaf — `FileStat` — which is why the overlay drives it.
+- **Composition.** `LspPlugin.initialize` inserts the two processors; because `LspPlugin` is the first
+  activated plugin, its processor ends up *innermost-first* in the assembled chain, so its registrations
+  win (first-registration-wins via `registerFactIfClear`) over the on-disk
+  `FileStatProcessor`/`FileContentReader` that `LangPlugin` adds. The overlay is therefore entirely in the
+  `ide/lsp` layer — no core changes — and fully transparent to the CLI, which never populates it.
+- Verified end-to-end through the *incremental* path the server uses (`VirtualFileSystemCompileTest`): a
+  broken buffer over a clean disk file produces diagnostics, correcting the buffer clears them without a
+  save, and dropping the override reverts to the on-disk file.
 
 ## Server Startup, Editor Integration & Project Model
 
@@ -280,9 +305,11 @@ compiler-classpath fingerprint already key `.eliot-cache`, so the project model 
    grouped by URI, clearing now-clean files. Verified end-to-end over real stdio JSON-RPC.
 5. ✅ **Reverse position index** — `PositionIndex`, rebuilt per compile; enables position-based features.
 6. ✅ **Hover + Go to Definition** — answered from the index; verified end-to-end over real stdio JSON-RPC.
-7. **Completion** — requires understanding partial/broken input contexts.
-8. **Error recovery** — parser and type checker resilience for broken code.
-9. **Remaining features** — references, rename, semantic tokens, signature help.
+7. ✅ **Virtual file system** — `ide/lsp/.../virtual/`; unsaved buffers override the on-disk leaf facts,
+   verified end-to-end through the incremental compile path.
+8. **Completion** — requires understanding partial/broken input contexts.
+9. **Error recovery** — parser and type checker resilience for broken code.
+10. **Remaining features** — references, rename, semantic tokens, signature help.
 
 The first editor adapter is **IntelliJ** (see *Server Startup, Editor Integration & Project Model*):
 LSP4IJ user-defined server for the demo, a native-API or LSP4IJ-backed plugin for the shipped build.
@@ -300,7 +327,8 @@ ide/lsp/      (module ide.lsp, depends on lang + stdlib; lang already depends on
   ├── server/         LSP protocol handling (lsp4j): LspMain stdio loop, language/document services,
   │                   definition/hover handlers, LspPositions (1-based ⇄ 0-based) shared with diagnostics
   ├── index/          PositionIndex — reverse position index (done)
-  └── virtual/        Virtual file system overlay            (todo: VirtualSourceContent processor)
+  └── virtual/        Virtual file system overlay (done): VirtualFileSystem + VirtualFileStatProcessor
+                      + VirtualFileContentReader, overriding the on-disk leaf readers for unsaved buffers
 ```
 
 The diagnostics driver (`LspPlugin`) is the one genuinely new compiler-side piece. A batch build is
@@ -318,8 +346,8 @@ the reverse index / a richer driver), not at the definition.
 The server constructs a `CompilationSession` **directly** rather than going through CLI arg parsing /
 `ServiceLoader` selection: it news up `LspPlugin` (target) + `LangPlugin` + `StdlibPlugin` and passes
 them to `CompilationSession.create(targetPlugin, activatedPlugins, configuration, args)`. `LspPlugin` is
-its own `CompilerPlugin` whose `initialize` adds no processors (the front end comes from `LangPlugin`)
-and whose `run` is the whole-workspace diagnostics driver above. This was chosen over registering
+its own `CompilerPlugin` whose `initialize` adds only the virtual-file-system overlay processors (the rest
+of the front end comes from `LangPlugin`) and whose `run` is the whole-workspace diagnostics driver above. This was chosen over registering
 `LspPlugin` as a ServiceLoader target because the server's lifecycle (cancel-restart, per-edit,
 query-after-run) differs fundamentally from a batch build, and direct composition keeps the editor
 launch path free of the CLI's positional-arg/target-word conventions — the roots come from
@@ -338,10 +366,12 @@ verified end-to-end:
   the whole-workspace diagnostics driver (`LspPlugin`), and `publishDiagnostics` that clears on fix.
 - **Position features** — a `PositionIndex` (reverse position → fact map) rebuilt per compile, driving
   **go-to-definition** and **hover** over the workspace's resolved values.
+- **Live edits** — a **virtual file system** (`ide/lsp/.../virtual/`) overrides the on-disk leaf facts
+  (`FileStat`/`FileContent`) with unsaved buffer content, so the checker tracks what the user sees;
+  invalidation rides the existing incremental machinery via the buffer's monotonic stamp.
 - **Editor** — IntelliJ wired via LSP4IJ (`ide/lsp/package.sh` + `ide/lsp/intellij/`); proven over real stdio.
 
-What remains is depth, not spine: a **virtual file system** for live (unsaved-buffer) checking,
-**completion**, and **error recovery** in the parser and checker for broken code. (On-disk file watching
-is done — the server registers `**/*.els` watchers so the editor relays disk changes; an in-process
-watcher is intentionally skipped, see §2.) None of these block the others; the highest-value next step is
-the virtual file system (live edits) or completion.
+What remains is depth, not spine: **completion**, and **error recovery** in the parser and checker for
+broken code. (On-disk file watching is done — the server registers `**/*.els` watchers so the editor relays
+disk changes; an in-process watcher is intentionally skipped, see §2.) Neither blocks the other; the
+highest-value next step is completion.

@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.compiler.{CompilationResult, CompilationSe
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.lsp.index.PositionIndex
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
+import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
@@ -38,6 +39,12 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
   private val serverRef    = new AtomicReference[Option[(CompilationServer, IO[Unit])]](None)
   private val publishedRef = new AtomicReference[Set[String]](Set.empty)
   private val indexRef     = new AtomicReference[PositionIndex](PositionIndex.empty)
+  private val vfs          = new VirtualFileSystem
+
+  /** The overlay of unsaved editor buffers. The document service writes live edits here (on open/change/close) before
+    * triggering a recompile; the compile's source readers consult it ahead of the on-disk files.
+    */
+  def virtualFileSystem: VirtualFileSystem = vfs
 
   /** Remember the remote client so finished compiles can push diagnostics to it. */
   def connect(client: LanguageClient): Unit = clientRef.set(Some(client))
@@ -65,7 +72,7 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     * Stdlib + platform layers come from this process's classpath (as for the CLI), so only the user's roots are needed.
     */
   def startWorkspace(roots: Seq[Path]): Unit = {
-    val lspPlugin     = LspPlugin()
+    val lspPlugin     = LspPlugin(vfs)
     val configuration = Configuration()
       .set(Compiler.targetPathKey, roots.headOption.getOrElse(Path.of(".")).resolve(".eliot-lsp"))
       .set(LangPlugin.pathKey, roots)

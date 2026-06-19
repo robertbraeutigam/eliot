@@ -25,21 +25,34 @@ import scala.jdk.CollectionConverters.*
 
 /** Document lifecycle notifications and position-based requests.
   *
-  * Opening or saving a document triggers a recompile of the whole workspace (the cancel-restart server coalesces
-  * bursts). `didChange` is intentionally a no-op until the virtual file system lands: without it, recompiling on every
-  * keystroke would type-check the *on-disk* content, producing diagnostics that disagree with the unsaved buffer —
-  * misleading rather than helpful.
+  * Edits are kept live through the virtual file system: `didOpen` and `didChange` push the buffer's full text into the
+  * overlay (the server negotiates [[TextDocumentSyncKind.Full]], so each change carries the whole document), and
+  * `didClose` drops the override so the compiler reverts to the on-disk file. Every notification then triggers a
+  * recompile of the whole workspace (the cancel-restart server coalesces keystroke bursts); because the overlay already
+  * holds the latest buffer, the recompile type-checks what the user sees, not stale disk content. `didSave` only needs
+  * to recompile — the saved text equals the override already recorded by the preceding `didChange`.
   *
   * Definition and hover are answered synchronously from the [[com.vanillasource.eliot.eliotc.lsp.index.PositionIndex]]
   * of the latest finished compile. The editor's 0-based positions are converted to the compiler's 1-based domain via
   * [[LspPositions]] before querying, and the resulting compiler ranges converted back.
   */
 final class EliotTextDocumentService(service: EliotCompilationService) extends TextDocumentService {
-  override def didOpen(params: DidOpenTextDocumentParams): Unit = service.requestCompile()
+  override def didOpen(params: DidOpenTextDocumentParams): Unit = {
+    val document = params.getTextDocument
+    service.virtualFileSystem.update(URI.create(document.getUri), document.getText)
+    service.requestCompile()
+  }
 
-  override def didChange(params: DidChangeTextDocumentParams): Unit = () // awaits the VFS overlay; see class doc
+  override def didChange(params: DidChangeTextDocumentParams): Unit =
+    params.getContentChanges.asScala.lastOption.foreach { change =>
+      service.virtualFileSystem.update(URI.create(params.getTextDocument.getUri), change.getText)
+      service.requestCompile()
+    }
 
-  override def didClose(params: DidCloseTextDocumentParams): Unit = ()
+  override def didClose(params: DidCloseTextDocumentParams): Unit = {
+    service.virtualFileSystem.remove(URI.create(params.getTextDocument.getUri))
+    service.requestCompile()
+  }
 
   override def didSave(params: DidSaveTextDocumentParams): Unit = service.requestCompile()
 
