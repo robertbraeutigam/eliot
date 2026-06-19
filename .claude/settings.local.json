@@ -3,7 +3,9 @@
     "allow": [
       "Bash(*)",
       "mcp__ide__getDiagnostics",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:plugins.jetbrains.com)",
+      "WebFetch(domain:plugins.gradle.org)"
     ]
   },
   "enabledPlugins": {
