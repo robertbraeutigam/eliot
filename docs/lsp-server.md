@@ -176,9 +176,20 @@ which would duplicate the compiler's analysis inside IntelliJ's model. LSP is av
 
 Recommended sequencing (both sit on the identical server, so this does not gate server work):
 1. **MVP/demo** → LSP4IJ user-defined server (no IntelliJ plugin code; also covers Android Studio).
+   *Built and working* — `./lsp/package.sh` produces the launcher + an importable LSP4IJ template; see
+   `lsp/intellij/README.md`. Diagnostics light up in IntelliJ end-to-end.
 2. **Shipped plugin** → native LSP API (now free for IntelliJ IDEA) *or* an LSP4IJ-backed plugin if
    Android-Studio / older-IDE reach matters. The native-vs-LSP4IJ choice for the shipped plugin is a
    reach-vs-integration trade-off and is deferred — it does not block the server.
+
+**Packaging constraint — distribute per-module jars, never a fat assembly jar.** The platform-layer
+mechanism relies on *multiple files at the same resource path* across classpath roots (e.g.
+`eliot/lang/String.els` exists in both the `lang` layer — `type String`, for literal typing — and the
+`stdlib` layer — adding `def println`), discovered together via `ClassLoader.getResources`. A fat jar
+(`mill lsp.assembly`) collapses same-path entries into one and *silently drops a layer*, so e.g.
+`println` becomes "Name not defined." `lsp/package.sh` therefore keeps each module in its own jar on a
+`-cp "lib/*"` classpath, which preserves the multiple-resources-per-path semantics. This is a general
+consequence of the layered design, not LSP-specific.
 
 ### Project model — source roots & classpath without a build file
 

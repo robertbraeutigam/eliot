@@ -1,0 +1,13 @@
+{
+  "id": "eliot",
+  "name": "Eliot",
+  "programArgs": {
+    "default": "sh -c \"$PROJECT_DIR$/lsp/dist/eliot-lsp\""
+  },
+  "fileTypeMappings": [
+    {
+      "fileType": { "name": "Eliot", "patterns": ["*.els"] },
+      "languageId": "eliot"
+    }
+  ]
+}
