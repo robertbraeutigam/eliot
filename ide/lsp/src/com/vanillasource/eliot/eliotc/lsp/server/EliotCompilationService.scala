@@ -4,8 +4,10 @@ import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 import com.vanillasource.eliot.eliotc.compiler.{CompilationResult, CompilationServer, CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.lsp.index.PositionIndex
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
+import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
 import org.eclipse.lsp4j.PublishDiagnosticsParams
 import org.eclipse.lsp4j.services.LanguageClient
@@ -27,9 +29,15 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
   private val clientRef    = new AtomicReference[Option[LanguageClient]](None)
   private val serverRef    = new AtomicReference[Option[(CompilationServer, IO[Unit])]](None)
   private val publishedRef = new AtomicReference[Set[String]](Set.empty)
+  private val indexRef     = new AtomicReference[PositionIndex](PositionIndex.empty)
 
   /** Remember the remote client so finished compiles can push diagnostics to it. */
   def connect(client: LanguageClient): Unit = clientRef.set(Some(client))
+
+  /** The reverse position index from the latest finished compile, for position-based features (definition, hover).
+    * Empty until the first compile completes.
+    */
+  def positionIndex: PositionIndex = indexRef.get
 
   /** Build a session over the workspace source roots, start the cancel-restart server, and trigger the first compile.
     * Stdlib + platform layers come from this process's classpath (as for the CLI), so only the user's roots are needed.
@@ -60,8 +68,23 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
   def shutdown(): Unit =
     serverRef.getAndSet(None).foreach((_, release) => release.unsafeRunSync()(using runtime))
 
-  /** Publish the result's diagnostics, clearing files that were reported last time but are now clean. */
+  /** Rebuild the reverse position index from the result, then publish its diagnostics. The index is built off the
+    * request path (once per finished compile) so position-based requests are answered synchronously from memory.
+    */
   private def publishResult(result: CompilationResult): IO[Unit] =
+    rebuildIndex(result) >> publishDiagnostics(result)
+
+  /** Rebuild the position index from the [[ResolvedValue]] facts materialised by this compile. The whole-workspace
+    * driver ([[LspPlugin]]) demands every name, so every workspace value's resolved form is present.
+    */
+  private def rebuildIndex(result: CompilationResult): IO[Unit] =
+    result.generator
+      .currentFacts()
+      .map(facts => PositionIndex.build(facts.values.collect { case value: ResolvedValue => value }.toSeq))
+      .flatMap(index => IO(indexRef.set(index)))
+
+  /** Publish the result's diagnostics, clearing files that were reported last time but are now clean. */
+  private def publishDiagnostics(result: CompilationResult): IO[Unit] =
     clientRef.get match {
       case None         => IO.unit
       case Some(client) =>

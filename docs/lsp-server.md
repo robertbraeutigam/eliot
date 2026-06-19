@@ -12,16 +12,17 @@
 | Diagnostics (`publishDiagnostics`) | ✅ done — grouped by URI, clears now-clean files |
 | IntelliJ editor adapter (LSP4IJ) | ✅ done — `ide/lsp/package.sh` dist + importable template; `ide/lsp/intellij/README.md` |
 | File watching trigger | 🚧 partial — `didChangeWatchedFiles` + `didSave` wired; no internal watcher |
-| Reverse position index | ⬜ todo |
-| Hover / Go-to-Definition / Completion | ⬜ todo |
+| Reverse position index | ✅ done (`ide/lsp/.../index/PositionIndex.scala`), rebuilt per compile |
+| Hover / Go-to-Definition | ✅ done — answered from the index; verified end-to-end |
+| Completion | ⬜ todo |
 | Error recovery, virtual file system (`didChange`) | ⬜ todo |
 
 The fact-based architecture and pervasive source tracking mean most of the *data* is already there.
 The resident-engine lifecycle (incremental compilation, a persistent `CompilationSession`, a
 cancel-restart `CompilationServer`), the `lsp4j` protocol layer, the whole-workspace diagnostics
-driver, and the IntelliJ (LSP4IJ) adapter are now built and verified end-to-end. What remains is depth:
-a virtual file system for live edits, a reverse position index for position-based features, and error
-recovery for broken code.
+driver, the IntelliJ (LSP4IJ) adapter, and now the reverse position index with **hover** and
+**go-to-definition** on top of it are built and verified end-to-end. What remains is depth: a virtual
+file system for live edits, completion, and error recovery for broken code.
 
 ## Existing Infrastructure
 
@@ -111,19 +112,35 @@ Still required (trigger source + live edits):
 - **Live (unsaved-buffer) checking** — the Virtual File System below (`textDocument/didChange`);
   `didChange` is currently a deliberate no-op so diagnostics never disagree with an unsaved buffer.
 
-### 3. Reverse Index: Position → Fact — ⬜ todo
+### 3. Reverse Index: Position → Fact — ✅ done
 
-The compiler currently works **name → fact** (forward). LSP needs **position → fact** (reverse):
+The compiler works **name → fact** (forward); LSP needs **position → fact** (reverse). Built as
+`ide/lsp/.../index/PositionIndex.scala`:
 
-- "What's at line 5, column 12?" → find the `Sourced[ValueFQN]` or `Sourced[Expression]` whose
-  range contains that position.
-- This requires building a **position index** — a spatial data structure (interval tree or sorted
-  list) per file, mapping `PositionRange → Sourced[T]` for all interesting nodes.
-- Could be built as a post-processing pass after monomorphic type checking, collecting all `Sourced`
-  wrappers from the typed AST.
+- It is rebuilt after every compile in `EliotCompilationService.publishResult`, from the
+  `ResolvedValue` facts the compile materialised (`generator.currentFacts()`). The whole-workspace
+  driver (`LspPlugin`) demands every workspace name, so every workspace value's resolved form is
+  present — no extra walk.
+- For each resolved value it collects, from the body (`runtime`) and type signature (`typeStack`),
+  every `Sourced[ValueFQN]` — i.e. each value/constructor reference, with the *precise range of the
+  referenced name* (also constructor names in `match` patterns). It separately records each value's
+  own definition site keyed by `ValueFQN`.
+- A lookup (`referenceAt(uri, position)`) returns the **most specific** reference whose range contains
+  the position (innermost wins — later `from`, then earlier `to`); `definitionAt`/`hoverAt` compose it
+  with the `ValueFQN → ResolvedValue` map. Positions are the compiler's 1-based domain; the protocol
+  layer (`LspPositions`, shared with diagnostics) converts to/from LSP's 0-based positions. URIs are
+  normalised to a path key so the editor's `file:///…` matches the compiler's `file:/…`.
+- Chosen as a **post-compile in-memory index in the LSP layer** rather than a compiler fact: the index
+  spans the whole workspace (it must aggregate across values to answer per-file queries), it is cheap
+  to rebuild from already-materialised facts, and keeping it out of the fact graph avoids a
+  non-serializable, whole-workspace fact. Lookups are synchronous off an `AtomicReference`.
 - Note: `MonomorphicValue` is keyed by `(vfqn, typeArguments)` — a value can have several
-  specializations. Hover may want the generic `ResolvedValue` signature, or to pick a representative
-  specialization; the index should map a position to the `ValueFQN`, then decide how to present types.
+  specializations. Hover currently shows the generic `ResolvedValue` signature (always available,
+  instantiation-independent); presenting a representative specialization is future work.
+- Known limitation: references that resolve into the **bundled stdlib / platform layers** (classpath
+  `jar:` resources) are not navigable — those `ResolvedValue`s are not workspace facts and their
+  definition URIs aren't openable files. `definitionAt` simply returns nothing (fail-safe). Navigation
+  among the user's own workspace files works in full, including cross-file.
 
 ### 4. Error Recovery in Parsing/Type Checking — ⬜ todo
 
@@ -236,8 +253,8 @@ compiler-classpath fingerprint already key `.eliot-cache`, so the project model 
 | LSP Feature | What Exists | What's Missing |
 |---|---|---|
 | **Diagnostics** | `CompilerError` with positions, messages, descriptions; `CompilationResult.errors` | ✅ done — streamed as `publishDiagnostics`, grouped by URI, cleared on fix |
-| **Hover** (type info) | `MonomorphicValue.signature` | Position → value lookup (reverse index) |
-| **Go to Definition** | `Sourced[ValueFQN]` in expressions → definition `Sourced[QualifiedName]` in `ResolvedValue` | Reverse index, cross-file navigation |
+| **Hover** (type info) | `ResolvedValue.typeStack` signature | ✅ done — `PositionIndex.hoverAt` renders `name : type` |
+| **Go to Definition** | `Sourced[ValueFQN]` in expressions → definition `Sourced[QualifiedName]` in `ResolvedValue` | ✅ done — `PositionIndex.definitionAt`; workspace + cross-file (stdlib jar resources excluded) |
 | **Completion** | `ModuleValue.dictionary` has in-scope names | Partial-name matching, context-aware filtering, triggering on incomplete input |
 | **Find References** | `UsedNames` tracks which values are used | Full reverse reference index |
 | **Rename** | All references are `Sourced[ValueFQN]` | Collect all occurrences project-wide |
@@ -253,8 +270,8 @@ compiler-classpath fingerprint already key `.eliot-cache`, so the project model 
    whole-workspace diagnostics driver (`LspPlugin`), language/document/workspace services.
 4. ✅ **Diagnostics** — `CompilationResult.errors` streamed as `textDocument/publishDiagnostics`,
    grouped by URI, clearing now-clean files. Verified end-to-end over real stdio JSON-RPC.
-5. **Reverse position index** — enables all position-based features.
-6. **Hover + Go to Definition** — highest-value features for developers.
+5. ✅ **Reverse position index** — `PositionIndex`, rebuilt per compile; enables position-based features.
+6. ✅ **Hover + Go to Definition** — answered from the index; verified end-to-end over real stdio JSON-RPC.
 7. **Completion** — requires understanding partial/broken input contexts.
 8. **Error recovery** — parser and type checker resilience for broken code.
 9. **Remaining features** — references, rename, semantic tokens, signature help.
@@ -272,9 +289,10 @@ The incremental generator and the resident compile lifecycle already live in `el
 ```
 ide/lsp/      (module ide.lsp, depends on lang + stdlib; lang already depends on eliotc)
   ├── plugin/         LspPlugin — the whole-workspace diagnostics driver (target plugin)
-  ├── server/         LSP protocol handling (lsp4j): LspMain stdio loop, language/document services
-  ├── index/          Reverse position index            (todo)
-  └── virtual/        Virtual file system overlay        (todo: VirtualSourceContent processor)
+  ├── server/         LSP protocol handling (lsp4j): LspMain stdio loop, language/document services,
+  │                   definition/hover handlers, LspPositions (1-based ⇄ 0-based) shared with diagnostics
+  ├── index/          PositionIndex — reverse position index (done)
+  └── virtual/        Virtual file system overlay            (todo: VirtualSourceContent processor)
 ```
 
 The diagnostics driver (`LspPlugin`) is the one genuinely new compiler-side piece. A batch build is
@@ -310,9 +328,11 @@ verified end-to-end:
   persistent `CompilationSession`, and a cancel-restart `CompilationServer` loop.
 - **LSP server** — the `ide/lsp` module: an `lsp4j` stdio protocol layer (`LspMain`/`EliotLanguageServer`),
   the whole-workspace diagnostics driver (`LspPlugin`), and `publishDiagnostics` that clears on fix.
+- **Position features** — a `PositionIndex` (reverse position → fact map) rebuilt per compile, driving
+  **go-to-definition** and **hover** over the workspace's resolved values.
 - **Editor** — IntelliJ wired via LSP4IJ (`ide/lsp/package.sh` + `ide/lsp/intellij/`); proven over real stdio.
 
-What remains is depth, not spine: a **virtual file system** for live (unsaved-buffer) checking, a
-**reverse position index** to unlock hover / go-to-definition / completion, **error recovery** in the
-parser and checker for broken code, and an optional in-process **file watcher** and a **shipped IntelliJ
-plugin**. None of these block the others; the highest-value next step is the reverse index.
+What remains is depth, not spine: a **virtual file system** for live (unsaved-buffer) checking,
+**completion**, **error recovery** in the parser and checker for broken code, and an optional in-process
+**file watcher** and a **shipped IntelliJ plugin**. None of these block the others; the highest-value next
+step is the virtual file system (live edits) or completion.

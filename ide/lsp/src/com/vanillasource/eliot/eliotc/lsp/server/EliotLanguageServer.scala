@@ -35,6 +35,8 @@ final class EliotLanguageServer(service: EliotCompilationService) extends Langua
     roots = workspaceRoots(params)
     val capabilities = new ServerCapabilities()
     capabilities.setTextDocumentSync(TextDocumentSyncKind.Full)
+    capabilities.setDefinitionProvider(true)
+    capabilities.setHoverProvider(true)
     CompletableFuture.completedFuture(new InitializeResult(capabilities))
   }
 
