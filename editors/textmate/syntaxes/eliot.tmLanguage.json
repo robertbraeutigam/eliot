@@ -1,0 +1,149 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Eliot",
+  "scopeName": "source.eliot",
+  "fileTypes": ["els"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#imports" },
+    { "include": "#fixity" },
+    { "include": "#modifiers" },
+    { "include": "#definitions" },
+    { "include": "#declaration-keywords" },
+    { "include": "#control-keywords" },
+    { "include": "#numbers" },
+    { "include": "#types" },
+    { "include": "#functions" },
+    { "include": "#wildcard" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.documentation.eliot",
+          "begin": "/\\*\\*",
+          "end": "\\*/",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.eliot" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.eliot" } }
+        },
+        {
+          "name": "comment.block.eliot",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.eliot" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.eliot" } }
+        },
+        {
+          "name": "comment.line.double-slash.eliot",
+          "begin": "//",
+          "end": "$",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.eliot" } }
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.eliot",
+      "begin": "\"",
+      "end": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.eliot" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.eliot" } },
+      "patterns": [
+        {
+          "name": "constant.character.escape.eliot",
+          "match": "\\\\(?:[btnfr\"'\\\\]|u[0-9A-Fa-f]{4}|x[0-9A-Fa-f]+|[0-9]+)"
+        },
+        {
+          "name": "invalid.illegal.unknown-escape.eliot",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "imports": {
+      "match": "\\b(import)\\b[ \\t]+([\\p{L}][\\p{L}\\p{N}.]*)",
+      "captures": {
+        "1": { "name": "keyword.control.import.eliot" },
+        "2": { "name": "entity.name.namespace.eliot" }
+      }
+    },
+    "fixity": {
+      "match": "\\b(infix|prefix|postfix)\\b(?:[ \\t]+(left|right))?(?:[ \\t]+(at|above|below)\\b)?",
+      "captures": {
+        "1": { "name": "storage.modifier.fixity.eliot" },
+        "2": { "name": "storage.modifier.associativity.eliot" },
+        "3": { "name": "storage.modifier.precedence.eliot" }
+      }
+    },
+    "modifiers": {
+      "name": "storage.modifier.eliot",
+      "match": "\\b(opaque|auto)\\b"
+    },
+    "definitions": {
+      "patterns": [
+        {
+          "match": "\\b(def)\\b[ \\t]+((?![\\p{Lu}])[\\p{L}][\\p{L}\\p{N}]*|[-!#$%&*+./<=>?@\\\\^|~;]+)",
+          "captures": {
+            "1": { "name": "keyword.other.def.eliot" },
+            "2": { "name": "entity.name.function.eliot" }
+          }
+        },
+        {
+          "match": "\\b(data)\\b[ \\t]+(\\p{Lu}[\\p{L}\\p{N}]*)",
+          "captures": {
+            "1": { "name": "keyword.other.data.eliot" },
+            "2": { "name": "entity.name.type.eliot" }
+          }
+        },
+        {
+          "match": "\\b(type)\\b[ \\t]+(\\p{Lu}[\\p{L}\\p{N}]*)",
+          "captures": {
+            "1": { "name": "keyword.other.type.eliot" },
+            "2": { "name": "entity.name.type.eliot" }
+          }
+        }
+      ]
+    },
+    "declaration-keywords": {
+      "name": "keyword.other.eliot",
+      "match": "\\b(ability|implement|data|def|type)\\b"
+    },
+    "control-keywords": {
+      "name": "keyword.control.eliot",
+      "match": "\\b(match|case)\\b"
+    },
+    "numbers": {
+      "name": "constant.numeric.integer.eliot",
+      "match": "(?<![\\p{L}\\p{N}])-?\\d+"
+    },
+    "types": {
+      "name": "entity.name.type.eliot",
+      "match": "(?<![\\p{L}\\p{N}])\\p{Lu}[\\p{L}\\p{N}]*"
+    },
+    "functions": {
+      "name": "entity.name.function.call.eliot",
+      "match": "(?<![\\p{L}\\p{N}])(?![\\p{Lu}])\\p{L}[\\p{L}\\p{N}]*(?=[ \\t]*[\\(\\[])"
+    },
+    "wildcard": {
+      "name": "variable.language.wildcard.eliot",
+      "match": "(?<![\\p{L}\\p{N}])_(?![\\p{L}\\p{N}])"
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.arrow.eliot", "match": "->" },
+        { "name": "keyword.operator.constraint.eliot", "match": "~(?![-!#$%&*+./<=>?@\\\\^|~;])" },
+        { "name": "keyword.operator.type-annotation.eliot", "match": "::|:" },
+        { "name": "keyword.operator.eliot", "match": "[-!#$%&*+./<=>?@\\\\^|~;]+" }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.section.braces.eliot", "match": "[{}]" },
+        { "name": "punctuation.section.brackets.eliot", "match": "[\\[\\]]" },
+        { "name": "punctuation.section.parens.eliot", "match": "[()]" },
+        { "name": "punctuation.separator.comma.eliot", "match": "," }
+      ]
+    }
+  }
+}

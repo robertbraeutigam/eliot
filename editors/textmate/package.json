@@ -1,0 +1,26 @@
+{
+  "name": "eliot",
+  "displayName": "Eliot",
+  "description": "Syntax highlighting for the Eliot programming language (.els)",
+  "version": "1.0.0",
+  "publisher": "vanillasource",
+  "engines": { "vscode": "*" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "eliot",
+        "aliases": ["Eliot", "eliot"],
+        "extensions": [".els"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "eliot",
+        "scopeName": "source.eliot",
+        "path": "./syntaxes/eliot.tmLanguage.json"
+      }
+    ]
+  }
+}
