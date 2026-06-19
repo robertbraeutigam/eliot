@@ -6,7 +6,7 @@ extension layout, which both **IntelliJ IDEA** (via its built-in *TextMate Bundl
 support) and **VS Code** can consume directly.
 
 ```
-editors/textmate/
+ide/textmate/
 ├── package.json                  # bundle manifest (language + grammar contributions)
 ├── language-configuration.json   # comments, brackets, auto-closing pairs
 └── syntaxes/
@@ -18,7 +18,7 @@ editors/textmate/
 IntelliJ understands TextMate bundles out of the box — no plugin needed.
 
 1. Open **Settings/Preferences** → **Editor** → **TextMate Bundles**.
-2. Click **+** and select this folder: `editors/textmate`.
+2. Click **+** and select this folder: `ide/textmate`.
 3. Click **OK**. Any file ending in `.els` is now highlighted.
 
 If `.els` files are not picked up automatically, map the extension:
@@ -33,7 +33,7 @@ Colors follow the active editor theme; the grammar assigns standard TextMate sco
 Copy or symlink this folder into your extensions directory and reload:
 
 ```bash
-ln -s "$PWD/editors/textmate" ~/.vscode/extensions/eliot-textmate
+ln -s "$PWD/ide/textmate" ~/.vscode/extensions/eliot-textmate
 ```
 
 (or run `code --install-extension` after packaging with `vsce package`).

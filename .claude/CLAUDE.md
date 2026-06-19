@@ -48,12 +48,31 @@ java -jar target/HelloWorld.jar
 
 ### Module Structure
 
-The project is organized into four main modules (defined in `build.mill`):
+The project is organized into these compiler/runtime modules (defined in `build.mill`):
 
 1. **eliotc** - Core compiler infrastructure (plugins, processors, feedback, utilities)
 2. **lang** - Base compiler/language components (parsing, AST, type system, module system, resolution)
-3. **jvm** - JVM backend (bytecode generation using ASM, JAR generation)
-4. **examples** - Example ELIOT programs
+3. **stdlib** - The platform-independent base standard library (abstract `type`/`def` signatures only)
+4. **jvm** - JVM backend (bytecode generation using ASM, JAR generation)
+5. **examples** - Example ELIOT programs
+
+### IDE Tooling (`ide/`)
+
+Everything editor/IDE-related lives under the top-level **`ide/`** directory:
+
+- **`ide/lsp/`** - The LSP language server. This is a Mill module nested under `ide`, so its build
+  target is **`ide.lsp`** (e.g. `./mill ide.lsp.compile`, `./mill ide.lsp.test`, `./mill ide.lsp.jar`);
+  its build output lands under `out/ide/lsp/`. Depends on `lang` + `stdlib`; main class is `LspMain`.
+  - `ide/lsp/package.sh` builds a runnable distribution under `ide/lsp/dist/` (git-ignored). It
+    deliberately produces a `lib/` of **separate per-module jars**, never a fat assembly jar — a fat jar
+    collapses same-path layer resources (e.g. `String.els` in both `lang` and `stdlib`) and silently
+    drops a layer. See the script header and [[gotcha_assembly_jar_breaks_layers]].
+  - `ide/lsp/intellij/` - IntelliJ (LSP4IJ) setup guide + importable template.
+  - Full design/status: `docs/lsp-server.md`.
+- **`ide/textmate/`** - TextMate grammar for `.els` syntax highlighting (VS Code extension layout;
+  consumable by IntelliJ TextMate Bundles and VS Code). Static editor files, *not* a build module.
+
+When adding new editor integrations (e.g. a shipped IntelliJ plugin), place them under `ide/`.
 
 ## Architecture
 

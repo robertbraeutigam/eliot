@@ -8,9 +8,9 @@
 | Persistent compile lifecycle (`CompilationSession`) | ✅ done — the seam a server loops |
 | Cancel-restart server loop (`CompilationServer`) | ✅ done — file watching still todo |
 | Whole-workspace diagnostics driver (`LspPlugin`) | ✅ done — checks every workspace name, no `main` needed |
-| LSP protocol layer + entry point (`lsp` module, lsp4j) | ✅ done — `LspMain` stdio loop, verified end-to-end |
+| LSP protocol layer + entry point (`ide/lsp` module, lsp4j) | ✅ done — `LspMain` stdio loop, verified end-to-end |
 | Diagnostics (`publishDiagnostics`) | ✅ done — grouped by URI, clears now-clean files |
-| IntelliJ editor adapter (LSP4IJ) | ✅ done — `lsp/package.sh` dist + importable template; `lsp/intellij/README.md` |
+| IntelliJ editor adapter (LSP4IJ) | ✅ done — `ide/lsp/package.sh` dist + importable template; `ide/lsp/intellij/README.md` |
 | File watching trigger | 🚧 partial — `didChangeWatchedFiles` + `didSave` wired; no internal watcher |
 | Reverse position index | ⬜ todo |
 | Hover / Go-to-Definition / Completion | ⬜ todo |
@@ -102,7 +102,7 @@ runs `requestCompile`/`shutdown` on an `IORuntime`); `EliotDiagnostics` maps `Co
 `publishDiagnostics`. The document services trigger `requestCompile` on `didOpen`/`didSave`, and
 `didChangeWatchedFiles` is wired for on-disk watching. Verified end-to-end over real stdio JSON-RPC
 (diagnostics appear for a broken file and clear on fix). Logs go to **stderr** (stdout is the protocol
-channel) via `lsp/resources/log4j2.xml`.
+channel) via `ide/lsp/resources/log4j2.xml`.
 
 Still required (trigger source + live edits):
 
@@ -161,8 +161,8 @@ belong to it. The server is identical across editors; only the adapter differs.
 
 ### IntelliJ integration (the first target) — ✅ MVP wired via LSP4IJ
 
-> **Status:** the LSP4IJ user-defined-server path is **built and verified**. `./lsp/package.sh`
-> produces the `lsp/dist/` launcher + an importable LSP4IJ template; `lsp/intellij/README.md` is the
+> **Status:** the LSP4IJ user-defined-server path is **built and verified**. `./ide/lsp/package.sh`
+> produces the `lsp/dist/` launcher + an importable LSP4IJ template; `ide/lsp/intellij/README.md` is the
 > step-by-step setup (install LSP4IJ → import template → open a project with `.els` files →
 > diagnostics on save). A native-API or LSP4IJ-backed *shipped plugin* is the deferred next step
 > (sequencing below).
@@ -192,8 +192,8 @@ which would duplicate the compiler's analysis inside IntelliJ's model. LSP is av
 
 Recommended sequencing (both sit on the identical server, so this does not gate server work):
 1. **MVP/demo** → LSP4IJ user-defined server (no IntelliJ plugin code; also covers Android Studio).
-   *Built and working* — `./lsp/package.sh` produces the launcher + an importable LSP4IJ template; see
-   `lsp/intellij/README.md`. Diagnostics light up in IntelliJ end-to-end.
+   *Built and working* — `./ide/lsp/package.sh` produces the launcher + an importable LSP4IJ template; see
+   `ide/lsp/intellij/README.md`. Diagnostics light up in IntelliJ end-to-end.
 2. **Shipped plugin** → native LSP API (now free for IntelliJ IDEA) *or* an LSP4IJ-backed plugin if
    Android-Studio / older-IDE reach matters. The native-vs-LSP4IJ choice for the shipped plugin is a
    reach-vs-integration trade-off and is deferred — it does not block the server.
@@ -202,8 +202,8 @@ Recommended sequencing (both sit on the identical server, so this does not gate 
 mechanism relies on *multiple files at the same resource path* across classpath roots (e.g.
 `eliot/lang/String.els` exists in both the `lang` layer — `type String`, for literal typing — and the
 `stdlib` layer — adding `def println`), discovered together via `ClassLoader.getResources`. A fat jar
-(`mill lsp.assembly`) collapses same-path entries into one and *silently drops a layer*, so e.g.
-`println` becomes "Name not defined." `lsp/package.sh` therefore keeps each module in its own jar on a
+(`mill ide.lsp.assembly`) collapses same-path entries into one and *silently drops a layer*, so e.g.
+`println` becomes "Name not defined." `ide/lsp/package.sh` therefore keeps each module in its own jar on a
 `-cp "lib/*"` classpath, which preserves the multiple-resources-per-path semantics. This is a general
 consequence of the layered design, not LSP-specific.
 
@@ -270,7 +270,7 @@ The incremental generator and the resident compile lifecycle already live in `el
 `CompilationSession`:
 
 ```
-lsp/          (new module, depends on lang + stdlib; lang already depends on eliotc)
+ide/lsp/      (module ide.lsp, depends on lang + stdlib; lang already depends on eliotc)
   ├── plugin/         LspPlugin — the whole-workspace diagnostics driver (target plugin)
   ├── server/         LSP protocol handling (lsp4j): LspMain stdio loop, language/document services
   ├── index/          Reverse position index            (todo)
@@ -308,9 +308,9 @@ verified end-to-end:
 
 - **Resident engine** — incremental compilation (`IncrementalFactGenerator` + persistent cache), a
   persistent `CompilationSession`, and a cancel-restart `CompilationServer` loop.
-- **LSP server** — the `lsp` module: an `lsp4j` stdio protocol layer (`LspMain`/`EliotLanguageServer`),
+- **LSP server** — the `ide/lsp` module: an `lsp4j` stdio protocol layer (`LspMain`/`EliotLanguageServer`),
   the whole-workspace diagnostics driver (`LspPlugin`), and `publishDiagnostics` that clears on fix.
-- **Editor** — IntelliJ wired via LSP4IJ (`lsp/package.sh` + `lsp/intellij/`); proven over real stdio.
+- **Editor** — IntelliJ wired via LSP4IJ (`ide/lsp/package.sh` + `ide/lsp/intellij/`); proven over real stdio.
 
 What remains is depth, not spine: a **virtual file system** for live (unsaved-buffer) checking, a
 **reverse position index** to unlock hover / go-to-definition / completion, **error recovery** in the

@@ -2,5 +2,5 @@ out
 target
 *.bin
 .bsp
-lsp/dist
+ide/lsp/dist
 .eliot-lsp

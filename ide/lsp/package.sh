@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Build a runnable distribution of the Eliot LSP server under lsp/dist/.
+# Build a runnable distribution of the Eliot LSP server under ide/lsp/dist/.
 #
-# IMPORTANT — why this is NOT `mill lsp.assembly` (a fat jar):
+# IMPORTANT — why this is NOT `mill ide.lsp.assembly` (a fat jar):
 #   Eliot's platform-layer design relies on *multiple files at the same resource path* being
 #   discovered together via ClassLoader.getResources. For example eliot/eliot/lang/String.els exists
 #   in BOTH the `lang` layer (declaring `type String`, needed for string-literal typing) and the
@@ -12,25 +12,27 @@
 #   each layer's copy, so getResources still returns all of them. Hence: a lib/ of per-module jars.
 #
 set -euo pipefail
-cd "$(dirname "$0")/.."   # repo root
+cd "$(dirname "$0")/../.."   # repo root (script lives at ide/lsp/package.sh)
 
-DIST="lsp/dist"
+DIST="ide/lsp/dist"
 LIB="$DIST/lib"
 LAUNCHER="$DIST/eliot-lsp"
 rm -rf "$DIST"
 mkdir -p "$LIB"
 
 echo "Building module jars..."
-./mill lsp.jar lang.jar stdlib.jar eliotc.jar >/dev/null
+./mill ide.lsp.jar lang.jar stdlib.jar eliotc.jar >/dev/null
 
 # Per-module jars keep each layer's own resources (the whole point — see header).
-for module in lsp lang stdlib eliotc; do
+# The lsp module is nested (ide.lsp), so its jar lands under out/ide/lsp/.
+cp "out/ide/lsp/jar.dest/out.jar" "$LIB/eliot-lsp.jar"
+for module in lang stdlib eliotc; do
   cp "out/$module/jar.dest/out.jar" "$LIB/eliot-$module.jar"
 done
 
 # Third-party dependency jars (cats-effect, lsp4j, parsley, log4j, ...) from the run classpath.
 # Entries are Mill PathRef strings ("qref:v1:HASH:/abs/path.jar"); take the absolute path part.
-./mill show lsp.runClasspath 2>/dev/null \
+./mill show ide.lsp.runClasspath 2>/dev/null \
   | python3 -c "import sys, json; [print(p[p.index('/'):]) for p in json.load(sys.stdin) if p.endswith('.jar')]" \
   | while read -r jar; do cp "$jar" "$LIB/"; done
 
@@ -66,4 +68,4 @@ EOF
 echo
 echo "Built $LAUNCHER ($(ls "$LIB" | wc -l | tr -d ' ') jars in $LIB/)"
 echo "Ready-to-import LSP4IJ template: $TEMPLATE/"
-echo "See lsp/intellij/README.md for IntelliJ setup."
+echo "See ide/lsp/intellij/README.md for IntelliJ setup."
