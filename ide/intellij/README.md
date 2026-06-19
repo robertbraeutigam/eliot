@@ -79,11 +79,11 @@ LSP4IJ works on all JetBrains IDEs and editions, so the platform baseline can be
 Inherited from the server (see [`../../docs/lsp-server.md`](../../docs/lsp-server.md)):
 
 - ✅ **Syntax highlighting** for `.els` (TextMate) and **whole-workspace diagnostics** (every name is
-  checked even without a `main`; fixed errors clear on the next save).
-- ⏳ Diagnostics refresh on **save / on-disk change**, not every keystroke (awaits the server's
-  virtual-file-system overlay).
-- ⏳ **Hover / Go-to-Definition / Completion** are not implemented yet (await the server's reverse
-  position index). The plugin gains them for free once the server does.
+  checked even without a `main`; fixed errors clear once corrected).
+- ✅ **Live diagnostics** as you type — the server's virtual-file-system overlay type-checks the unsaved
+  buffer, so errors update on every keystroke, not only on save.
+- ✅ **Hover**, **Go-to-Definition**, and **Completion** (in-scope names) — answered from the server's
+  reverse position index and in-scope-name index. The plugin gets them for free from the server.
 
 ## Troubleshooting
 

@@ -67,11 +67,12 @@ You can watch traffic under **Language Servers → Eliot → (right-click) → �
 ## Current capabilities & limits
 
 - ✅ **Diagnostics** for the whole workspace — every `.els` name is checked even without a `main`,
-  and fixed errors clear on the next save.
-- ⏳ Diagnostics refresh on **save / on-disk change**, not on every keystroke. Live (unsaved-buffer)
-  checking awaits the virtual-file-system overlay (`textDocument/didChange`); see `docs/lsp-server.md`.
-- ⏳ **Hover / Go-to-Definition / Completion** are not implemented yet (they need the reverse position
-  index). Deeper type errors inside generic bodies surface at their use sites, by design.
+  and fixed errors clear once corrected.
+- ✅ **Live diagnostics** on every keystroke — the virtual-file-system overlay (`textDocument/didChange`)
+  type-checks the unsaved buffer, not just saved/on-disk content; see `docs/lsp-server.md`.
+- ✅ **Hover**, **Go-to-Definition**, and **Completion** (in-scope names) — from the server's reverse
+  position index and in-scope-name index. Deeper type errors inside generic bodies surface at their use
+  sites, by design.
 
 ## Troubleshooting
 

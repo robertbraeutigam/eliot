@@ -15,15 +15,16 @@
 | Reverse position index | ✅ done (`ide/lsp/.../index/PositionIndex.scala`), rebuilt per compile |
 | Hover / Go-to-Definition | ✅ done — answered from the index; verified end-to-end |
 | Virtual file system (`didChange`, live unsaved-buffer checking) | ✅ done — `ide/lsp/.../virtual/`; verified end-to-end through the incremental path |
-| Completion | ⬜ todo |
+| Completion | ✅ in-scope-name completion done (`ide/lsp/.../index/CompletionIndex.scala`); context-aware filtering (type vs value position) + locals/parameters are future work |
 | Error recovery | ⬜ todo |
 
 The fact-based architecture and pervasive source tracking mean most of the *data* is already there.
 The resident-engine lifecycle (incremental compilation, a persistent `CompilationSession`, a
 cancel-restart `CompilationServer`), the `lsp4j` protocol layer, the whole-workspace diagnostics
 driver, the IntelliJ (LSP4IJ) adapter, the reverse position index with **hover** and
-**go-to-definition**, and now a **virtual file system** that type-checks unsaved editor buffers live
-are built and verified end-to-end. What remains is depth: completion, and error recovery for broken code.
+**go-to-definition**, a **virtual file system** that type-checks unsaved editor buffers live, and
+**in-scope-name completion** are built and verified end-to-end. What remains is depth: deeper
+completion (context-aware filtering, locals/parameters), and error recovery for broken code.
 
 ## Existing Infrastructure
 
@@ -198,6 +199,39 @@ The compiler reads files from disk via `FileContentReader`; the server must inst
   broken buffer over a clean disk file produces diagnostics, correcting the buffer clears them without a
   save, and dropping the override reverts to the on-disk file.
 
+### 6. Completion — ✅ in-scope names done
+
+The editor's built-in word/"hippie" completion only suggests words already present in open buffers — it has
+no idea what is actually in scope and happily offers misspelled or out-of-scope words. Real semantic
+completion offers the names the user *may write at this point*, which the module system already computes:
+`ModuleValue.dictionary` is the per-file map of every in-scope `QualifiedName` (the file's own definitions,
+the public names of imported modules, and the ambient system modules — `Int`, `String`, `IO`, …) to its
+`ValueFQN`. Built as `ide/lsp/.../index/CompletionIndex.scala`:
+
+- **Built per compile, like the position index.** `EliotCompilationService.rebuildIndices` now collects both
+  `ResolvedValue` *and* `ModuleValue` facts from the finished compile and builds the `PositionIndex` and a
+  `CompletionIndex` together. The whole-workspace driver (`LspPlugin`) demands every name, so every file's
+  dictionary is materialised (`UnifiedModuleValue` → `ModuleValue`), and the imported modules' public names
+  are present because importing them is what populates the dictionary.
+- **The index groups dictionaries by document URI** (all values in a file share one dictionary), and for each
+  in-scope name pairs it with the signature of its `ResolvedValue` when one was materialised — rendered as the
+  completion item's `detail`. URIs are normalised to a path key exactly as in `PositionIndex` so the editor's
+  `file:///…` matches the compiler's `file:/…`.
+- **`completionsAt(uri)`** returns one entry per distinct *written* name (a `data` type's type- and
+  value-constructor collapse to a single `Counter`), dropping synthetic ability-implementation marker
+  functions. Each entry carries a broad `Kind` (type / ability-method / value) for the icon
+  (`CompletionItemKind.Class`/`Method`/`Function`). The protocol layer (`EliotTextDocumentService.completion`)
+  maps entries to lsp4j `CompletionItem`s and returns the whole in-scope list once
+  (`CompletionList(isIncomplete = false, …)`); the client filters it against the typed prefix, which is what
+  gives partial-name matching. The server advertises `setCompletionProvider` with no trigger characters.
+- Verified end-to-end (`CompletionIndexCompileTest`, built from a real compile): a file that calls `println`
+  is offered `println`, its own `main`, and ambient type names it never writes (`Int`/`String`/`IO`), and is
+  *not* offered an out-of-scope word. `CompletionIndexTest` covers the pure index logic (dedup, marker
+  filtering, kind classification, signature detail, URI normalisation).
+- **Not yet:** context-aware filtering (type position vs value position — today both namespaces are offered
+  everywhere, resolved by the user's `[]`/`()`), and local function parameters / lambda binders (the
+  dictionary is module-level scope; locals live in the resolve phase). Both are additive refinements.
+
 ## Server Startup, Editor Integration & Project Model
 
 ### Who starts the server
@@ -288,7 +322,7 @@ compiler-classpath fingerprint already key `.eliot-cache`, so the project model 
 | **Diagnostics** | `CompilerError` with positions, messages, descriptions; `CompilationResult.errors` | ✅ done — streamed as `publishDiagnostics`, grouped by URI, cleared on fix |
 | **Hover** (type info) | `ResolvedValue.typeStack` signature | ✅ done — `PositionIndex.hoverAt` renders `name : type` |
 | **Go to Definition** | `Sourced[ValueFQN]` in expressions → definition `Sourced[QualifiedName]` in `ResolvedValue` | ✅ done — `PositionIndex.definitionAt`; workspace + cross-file (stdlib jar resources excluded) |
-| **Completion** | `ModuleValue.dictionary` has in-scope names | Partial-name matching, context-aware filtering, triggering on incomplete input |
+| **Completion** | `ModuleValue.dictionary` has in-scope names | ✅ in-scope names done (`CompletionIndex`); partial-name matching via client-side filtering. Missing: context-aware filtering (type vs value position), locals/parameters |
 | **Find References** | `UsedNames` tracks which values are used | Full reverse reference index |
 | **Rename** | All references are `Sourced[ValueFQN]` | Collect all occurrences project-wide |
 | **Signature Help** | `FunctionDefinition.args` has parameter types | Cursor-position-aware parameter highlighting |
@@ -307,7 +341,9 @@ compiler-classpath fingerprint already key `.eliot-cache`, so the project model 
 6. ✅ **Hover + Go to Definition** — answered from the index; verified end-to-end over real stdio JSON-RPC.
 7. ✅ **Virtual file system** — `ide/lsp/.../virtual/`; unsaved buffers override the on-disk leaf facts,
    verified end-to-end through the incremental compile path.
-8. **Completion** — requires understanding partial/broken input contexts.
+8. ✅ **Completion** — in-scope-name completion (`CompletionIndex`), built per compile from the module
+   dictionaries; the client filters by typed prefix. Verified end-to-end. Context-aware filtering and
+   locals/parameters are additive refinements.
 9. **Error recovery** — parser and type checker resilience for broken code.
 10. **Remaining features** — references, rename, semantic tokens, signature help.
 
@@ -325,8 +361,8 @@ The incremental generator and the resident compile lifecycle already live in `el
 ide/lsp/      (module ide.lsp, depends on lang + stdlib; lang already depends on eliotc)
   ├── plugin/         LspPlugin — the whole-workspace diagnostics driver (target plugin)
   ├── server/         LSP protocol handling (lsp4j): LspMain stdio loop, language/document services,
-  │                   definition/hover handlers, LspPositions (1-based ⇄ 0-based) shared with diagnostics
-  ├── index/          PositionIndex — reverse position index (done)
+  │                   definition/hover/completion handlers, LspPositions (1-based ⇄ 0-based) shared with diagnostics
+  ├── index/          PositionIndex — reverse position index (done); CompletionIndex — in-scope-name index (done)
   └── virtual/        Virtual file system overlay (done): VirtualFileSystem + VirtualFileStatProcessor
                       + VirtualFileContentReader, overriding the on-disk leaf readers for unsaved buffers
 ```
@@ -366,12 +402,14 @@ verified end-to-end:
   the whole-workspace diagnostics driver (`LspPlugin`), and `publishDiagnostics` that clears on fix.
 - **Position features** — a `PositionIndex` (reverse position → fact map) rebuilt per compile, driving
   **go-to-definition** and **hover** over the workspace's resolved values.
+- **Completion** — a `CompletionIndex` (per-document in-scope names, from the module dictionaries) rebuilt
+  per compile alongside the position index, returning the whole in-scope list for the client to prefix-filter.
 - **Live edits** — a **virtual file system** (`ide/lsp/.../virtual/`) overrides the on-disk leaf facts
   (`FileStat`/`FileContent`) with unsaved buffer content, so the checker tracks what the user sees;
   invalidation rides the existing incremental machinery via the buffer's monotonic stamp.
 - **Editor** — IntelliJ wired via LSP4IJ (`ide/lsp/package.sh` + `ide/lsp/intellij/`); proven over real stdio.
 
-What remains is depth, not spine: **completion**, and **error recovery** in the parser and checker for
-broken code. (On-disk file watching is done — the server registers `**/*.els` watchers so the editor relays
-disk changes; an in-process watcher is intentionally skipped, see §2.) Neither blocks the other; the
-highest-value next step is completion.
+What remains is depth, not spine: **deeper completion** (context-aware filtering of type vs value position,
+locals/parameters), and **error recovery** in the parser and checker for broken code. (On-disk file watching
+is done — the server registers `**/*.els` watchers so the editor relays disk changes; an in-process watcher
+is intentionally skipped, see §2.) Neither blocks the other; the highest-value next step is error recovery.

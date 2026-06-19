@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.lsp.server
 
 import org.eclipse.lsp4j.{
+  CompletionOptions,
   InitializeParams,
   InitializeResult,
   InitializedParams,
@@ -39,6 +40,9 @@ final class EliotLanguageServer(service: EliotCompilationService) extends Langua
     capabilities.setTextDocumentSync(TextDocumentSyncKind.Full)
     capabilities.setDefinitionProvider(true)
     capabilities.setHoverProvider(true)
+    // No trigger characters: the editor invokes completion on identifier input / explicit request, and the whole
+    // in-scope list is returned at once (`isIncomplete = false`) for the client to filter by the typed prefix.
+    capabilities.setCompletionProvider(new CompletionOptions(false, java.util.Collections.emptyList()))
     CompletableFuture.completedFuture(new InitializeResult(capabilities))
   }
 

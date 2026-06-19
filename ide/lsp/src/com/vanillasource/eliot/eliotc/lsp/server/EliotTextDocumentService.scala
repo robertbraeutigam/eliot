@@ -1,10 +1,15 @@
 package com.vanillasource.eliot.eliotc.lsp.server
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.lsp.index.CompletionIndex
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import org.eclipse.lsp4j.jsonrpc.messages.Either as JEither
 import org.eclipse.lsp4j.services.TextDocumentService
 import org.eclipse.lsp4j.{
+  CompletionItem,
+  CompletionItemKind,
+  CompletionList,
+  CompletionParams,
   DefinitionParams,
   DidChangeTextDocumentParams,
   DidCloseTextDocumentParams,
@@ -70,6 +75,17 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
     )
   }
 
+  override def completion(
+      params: CompletionParams
+  ): CompletableFuture[JEither[util.List[CompletionItem], CompletionList]] = {
+    val uri   = URI.create(params.getTextDocument.getUri)
+    val items = service.completionIndex.completionsAt(uri).map(EliotTextDocumentService.toCompletionItem).asJava
+    // `isIncomplete = false`: the full in-scope list is returned once and the client filters it as the user types.
+    CompletableFuture.completedFuture(
+      JEither.forRight[util.List[CompletionItem], CompletionList](new CompletionList(false, items))
+    )
+  }
+
   override def hover(params: HoverParams): CompletableFuture[Hover] = {
     val uri      = URI.create(params.getTextDocument.getUri)
     val position = LspPositions.toCompilerPosition(params.getPosition)
@@ -88,4 +104,20 @@ object EliotTextDocumentService {
     */
   private def signatureOf(value: ResolvedValue): String =
     s"${value.name.value.show} : ${value.typeStack.value.signature.show}"
+
+  /** Map an in-scope-name entry to an lsp4j completion item: the bare name is both label and insert text, the kind
+    * drives the icon, and the rendered signature (when known) becomes the detail shown alongside.
+    */
+  private def toCompletionItem(entry: CompletionIndex.Entry): CompletionItem = {
+    val item = new CompletionItem(entry.name)
+    item.setKind(completionKind(entry.kind))
+    entry.detail.foreach(item.setDetail)
+    item
+  }
+
+  private def completionKind(kind: CompletionIndex.Kind): CompletionItemKind = kind match {
+    case CompletionIndex.Kind.Value         => CompletionItemKind.Function
+    case CompletionIndex.Kind.Type          => CompletionItemKind.Class
+    case CompletionIndex.Kind.AbilityMethod => CompletionItemKind.Method
+  }
 }
