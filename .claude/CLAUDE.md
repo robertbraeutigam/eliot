@@ -66,25 +66,40 @@ Everything editor/IDE-related lives under the top-level **`ide/`** directory:
   - `ide/lsp/package.sh` builds a runnable distribution under `ide/lsp/dist/` (git-ignored). It
     deliberately produces a `lib/` of **separate per-module jars**, never a fat assembly jar — a fat jar
     collapses same-path layer resources (e.g. `String.els` in both `lang` and `stdlib`) and silently
-    drops a layer. See the script header and [[gotcha_assembly_jar_breaks_layers]].
+    drops a layer. See the script header and [[gotcha_assembly_jar_breaks_layers]]. It also stages a
+    second classpath dir `compiler-lib/` (the `jvm` backend jar + ASM) — the extra jars the "Run main"
+    feature needs to *build* an executable jar; kept out of `lib/` so the resident server still type-checks
+    the abstract (platform-independent) workspace.
   - `ide/lsp/intellij/` - manual *user-defined server* setup for LSP4IJ (zero-build fallback): setup
     guide + importable template. Superseded for normal use by the shipped plugin in `ide/intellij/`.
   - Status: the spine is built & verified — whole-workspace diagnostics, hover/go-to-def (reverse
     `PositionIndex`), live-edit VFS overlay, in-scope-name completion, **concrete-type hover hints**
     (`TypeHintIndex` built from `MonomorphicValue` facts; `LspPlugin` monomorphizes each file's own `main`
     via `UsedNames`, so hover shows `Int[0,255]`/`A -> B` — first step only, no error recovery yet so it is
-    empty on a broken buffer, never wrong), IntelliJ via LSP4IJ. The one remaining design item,
+    empty on a broken buffer, never wrong), **"Run main" code lens** (server advertises `codeLensProvider`;
+    `MainIndex` — built per compile from `ResolvedValue`s named `main` — yields a `▶ Run main` lens carrying
+    the `eliot.runMain` command with `[sourceRoot, moduleName]`; handled client-side, see `ide/intellij`),
+    IntelliJ via LSP4IJ. The one remaining design item,
     parser/checker **error recovery** (compiler tolerance for broken code), is tracked in
     `docs/ide-type-hints.md` (Layers A/B) and is what makes type hints work on in-progress code; the rest
     (find-refs, rename, semantic tokens, signature help) are routine additive features on the existing index.
 - **`ide/textmate/`** - TextMate grammar for `.els` syntax highlighting (VS Code extension layout;
   consumable by IntelliJ TextMate Bundles and VS Code). Static editor files, *not* a build module.
 - **`ide/intellij/`** - the shipped IntelliJ plugin: one install gives `.els` highlighting (bundles
-  `ide/textmate`) + diagnostics (launches the `ide/lsp` server via LSP4IJ). It is a **self-contained
-  Gradle build** (the IntelliJ Platform Gradle Plugin has no Mill equivalent), *not* part of the Mill
-  build; its `prepareSandbox` shells out to `ide/lsp/package.sh` for the per-module server jars (never
-  a fat jar — [[gotcha_assembly_jar_breaks_layers]]) and runs the server out-of-process via the IDE's
-  JBR. Build with `cd ide/intellij && ./gradlew runIde|buildPlugin`. See `ide/intellij/README.md`.
+  `ide/textmate`) + diagnostics (launches the `ide/lsp` server via LSP4IJ) + a **native "Eliot Application"
+  run configuration**. It is a **self-contained Gradle build** (the IntelliJ Platform Gradle Plugin has no
+  Mill equivalent), *not* part of the Mill build; its `prepareSandbox` shells out to `ide/lsp/package.sh`
+  for the per-module server jars (never a fat jar — [[gotcha_assembly_jar_breaks_layers]]) and the
+  `compiler-lib/` jars, and runs the server out-of-process via the IDE's JBR. Build with
+  `cd ide/intellij && ./gradlew runIde|buildPlugin`. See `ide/intellij/README.md`.
+  - **Run main** (`src/main/kotlin/.../run/`): the server's `▶ Run main` code lens fires the `eliot.runMain`
+    command, which LSP4IJ dispatches client-side to `EliotRunMainCommandAction` (an `LSPCommandAction`
+    registered as the IntelliJ action id `eliot.runMain` — the id MUST equal the command). It creates/reuses
+    an `EliotRunConfiguration` (`ConfigurationType`/`Factory`/`Options`/`SettingsEditor`) with a before-run
+    `EliotBuildBeforeRunTaskProvider` that runs the compiler CLI (`java -cp server/lib+compiler/lib …Main jvm
+    exe-jar <root> -m <module> -o <out>`) to build `<out>/<module>.jar`, then the run config does
+    `java -jar`. The build step gates on the compiler's exit code — `Main` now returns `ExitCode.Error` when
+    `CompilationResult` has errors (`Compiler.runCompiler: IO[Boolean]`), so a stale jar is never run.
 
 When adding new editor integrations, place them under `ide/`.
 

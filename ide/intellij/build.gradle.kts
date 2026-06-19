@@ -82,13 +82,18 @@ val packageServer by tasks.registering(Exec::class) {
     inputs.dir(file("../../lang/src"))
     inputs.dir(file("../../stdlib/src"))
     inputs.dir(file("../../eliotc/src"))
+    inputs.dir(file("../../jvm/src")) // the JVM backend is bundled in compiler-lib for the "Run main" feature
     outputs.dir(file("../lsp/dist/lib"))
+    outputs.dir(file("../lsp/dist/compiler-lib"))
 }
 
 tasks.withType<org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask> {
     dependsOn(packageServer)
     // "eliot" must match rootProject.name (the sandbox/installation plugin directory name).
     from(file("../lsp/dist/lib")) { into("eliot/server/lib") }
+    // The JVM backend + ASM, used by the "Run main" run configuration to build an executable jar (the
+    // resident LSP server does NOT load these — see EliotConnectionProvider vs. the run config's command).
+    from(file("../lsp/dist/compiler-lib")) { into("eliot/compiler/lib") }
     from(file("../textmate")) {
         into("eliot/textmate")
         exclude("README.md")

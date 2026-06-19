@@ -6,6 +6,9 @@ import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import org.eclipse.lsp4j.jsonrpc.messages.Either as JEither
 import org.eclipse.lsp4j.services.TextDocumentService
 import org.eclipse.lsp4j.{
+  CodeLens,
+  CodeLensParams,
+  Command,
   CompletionItem,
   CompletionItemKind,
   CompletionList,
@@ -103,6 +106,24 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
       new Hover(contents, LspPositions.toRange(reference.range))
     }
     CompletableFuture.completedFuture(typeHint.orElse(fallback).orNull)
+  }
+
+  /** Offer a "Run main" lens above each runnable `main`. A lens is emitted only when the document declares a `main`
+    * ([[com.vanillasource.eliot.eliotc.lsp.index.MainIndex]]) *and* the file sits under a known workspace source root —
+    * the root paired with the module name is exactly what the JVM backend needs to build the program (`exe-jar <root>
+    * -m <module>`). Both are carried as command arguments so the client (the IntelliJ plugin) can launch a native run
+    * configuration; the command itself is handled client-side (no `executeCommandProvider` is advertised).
+    */
+  override def codeLens(params: CodeLensParams): CompletableFuture[util.List[? <: CodeLens]] = {
+    val uri    = URI.create(params.getTextDocument.getUri)
+    val lenses = for {
+      entry <- service.mainIndex.mainAt(uri).toList
+      root  <- service.sourceRootFor(uri).toList
+    } yield {
+      val arguments = List[Object](root.toString, entry.moduleName.show).asJava
+      new CodeLens(LspPositions.toRange(entry.range), new Command("▶ Run main", "eliot.runMain", arguments), null)
+    }
+    CompletableFuture.completedFuture(lenses.asJava)
   }
 }
 

@@ -17,18 +17,22 @@ ide/intellij/                              ← self-contained Gradle build (not 
     │   ├── EliotPlugin.kt                  locates bundled files via the plugin's own install path
     │   ├── EliotLanguageServerFactory.kt   LSP4IJ entry point (server EP)
     │   ├── EliotConnectionProvider.kt      launches the server as a child JVM
-    │   └── EliotTextMateBundleProvider.kt  registers the TextMate grammar
+    │   ├── EliotTextMateBundleProvider.kt  registers the TextMate grammar
+    │   └── run/                            native "Eliot Application" run configuration (see "Running a main")
     └── resources/META-INF/
-        ├── plugin.xml                      server + *.els mapping; depends on LSP4IJ
+        ├── plugin.xml                      server + *.els mapping; run config + action; depends on LSP4IJ
         └── eliot-textmate.xml              optional: the textmate.bundleProvider EP
 ```
 
-At **build time**, `prepareSandbox` bundles two things into the plugin distribution as loose files:
+At **build time**, `prepareSandbox` bundles these into the plugin distribution as loose files:
 
 - **`<plugin>/server/lib/*.jar`** — the language-server jars produced by [`../lsp/package.sh`](../lsp/package.sh).
   These are the **separate per-module jars** (lang, stdlib, eliotc, lsp + deps), *never a fat jar* — a fat
   jar collapses same-path layer resources (e.g. `String.els` in both `lang` and `stdlib`) and silently
   drops a layer. `package.sh` is the single source of truth for that jar set.
+- **`<plugin>/compiler/lib/*.jar`** — the extra jars the JVM backend needs to *build* a runnable jar
+  (`eliot-jvm.jar` + ASM), also from `package.sh`. Kept separate from `server/lib` so the resident server
+  keeps type-checking the abstract, platform-independent workspace; only the "Run main" build adds them.
 - **`<plugin>/textmate/`** — a copy of [`../textmate/`](../textmate/), the VS Code-layout TextMate bundle.
 
 At **run time**, `EliotConnectionProvider` launches the server out-of-process:
@@ -46,6 +50,28 @@ the runtime, so no separately installed JDK is required.
 The server reads its workspace roots from the LSP `initialize` handshake (`workspaceFolders`/`rootUri`),
 which LSP4IJ fills in from the open project — so the open folder *is* the project model, and the standard
 library travels inside the bundled jars. No build file or configuration is needed.
+
+## Running a `main`
+
+Any module that declares a `def main` gets a **`▶ Run main`** code lens above it. Clicking it builds an
+executable jar and runs it, using a real IntelliJ run configuration (Run console, Stop, re-run — all
+native). The pieces, under `src/main/kotlin/.../run/`:
+
+1. The **server** reports the lens (LSP `textDocument/codeLens`) with the command `eliot.runMain` and
+   arguments `[sourceRoot, moduleName]` — exactly the `<root>` and `-m <module>` the backend needs.
+2. LSP4IJ dispatches a code-lens command **client-side** by looking up an IntelliJ action whose id equals
+   the command (`ActionManager.getAction("eliot.runMain")`). `EliotRunMainCommandAction` (an
+   `LSPCommandAction`, registered under that exact id in `plugin.xml`) reads the arguments and
+   creates/reuses an **`EliotRunConfiguration`** named `Run <module>`.
+3. A before-run step (`EliotBuildBeforeRunTaskProvider`) runs the **compiler CLI** as a child JVM —
+   `java -cp "<plugin>/server/lib/*:<plugin>/compiler/lib/*" …compiler.Main jvm exe-jar <root> -m <module>
+   -o <out>` — producing `<out>/<module>.jar` (default `<out>` is `<project>/target`). It gates on the
+   compiler's exit code; on failure the launch is aborted and the compiler's diagnostics are shown as an
+   error notification, so a stale jar is never run.
+4. The run configuration's own process is the program: `java -jar <out>/<module>.jar`.
+
+You can also create an "Eliot Application" configuration manually (**Run → Edit Configurations… → +**) and
+set the source root, main module, and (optionally) output directory.
 
 ## Build & run
 
@@ -85,6 +111,11 @@ Inherited from the server (the `ide/lsp` module):
 - ✅ **Hover**, **Go-to-Definition**, and **Completion** (in-scope names) — answered from the server's
   reverse position index and in-scope-name index. The plugin gets them for free from the server.
 
+Added by this plugin:
+
+- ✅ **Run main** — a `▶ Run main` code lens on every `def main` builds and runs it through a native run
+  configuration (see "Running a `main`").
+
 ## Troubleshooting
 
 - **Everything shows "Name not defined" (e.g. `println`)** — a layer was dropped, which means a fat jar
@@ -94,3 +125,9 @@ Inherited from the server (the `ide/lsp` module):
   installed plugin directory.
 - **No highlighting** — ensure the bundled TextMate plugin is enabled (it is by default); the grammar is
   registered through it.
+- **No `▶ Run main` lens** — the lens needs (a) the file to declare a `def main` that the server has
+  type-checked, and (b) IntelliJ code-vision/lenses enabled (Settings → Editor → Inlay Hints → Code
+  vision). The lens only appears once the latest compile has finished.
+- **`Run main` aborts with "Eliot build failed"** — the program didn't compile; the notification carries
+  the compiler's diagnostics. Fix the errors (they also show inline) and re-run. Confirm
+  `<plugin>/compiler/lib/` (the `jvm` backend jar + ASM) is present in the installed plugin.

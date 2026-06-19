@@ -2,10 +2,8 @@ package com.vanillasource.eliot.intellij
 
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.SystemInfo
 import com.redhat.devtools.lsp4ij.server.OSProcessStreamConnectionProvider
 import java.io.File
-import java.nio.file.Path
 
 /**
  * Launches the bundled Eliot language server as a child JVM and speaks LSP over its stdin/stdout.
@@ -27,7 +25,7 @@ class EliotConnectionProvider(project: Project) : OSProcessStreamConnectionProvi
     val serverLib = pluginPath.resolve("server").resolve("lib")
 
     val command = GeneralCommandLine(
-      javaExecutable(),
+      EliotPlugin.javaExecutable(),
       "-cp",
       serverLib.toString() + File.separator + "*",
       EliotPlugin.SERVER_MAIN_CLASS,
@@ -35,8 +33,4 @@ class EliotConnectionProvider(project: Project) : OSProcessStreamConnectionProvi
     project.basePath?.let { command.withWorkDirectory(it) }
     super.setCommandLine(command)
   }
-
-  /** Path to the `java` of the IDE's own runtime (JBR). */
-  private fun javaExecutable(): String =
-    Path.of(System.getProperty("java.home"), "bin", if (SystemInfo.isWindows) "java.exe" else "java").toString()
 }

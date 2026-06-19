@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.effect.unsafe.IORuntime
 import com.vanillasource.eliot.eliotc.compiler.{CompilationResult, CompilationServer, CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, PositionIndex, TypeHintIndex}
+import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, MainIndex, PositionIndex, TypeHintIndex}
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
 import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.module.fact.ModuleValue
@@ -23,6 +23,7 @@ import org.eclipse.lsp4j.{
 }
 import org.eclipse.lsp4j.services.LanguageClient
 
+import java.net.URI
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicReference
 import scala.jdk.CollectionConverters.*
@@ -43,6 +44,8 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
   private val indexRef      = new AtomicReference[PositionIndex](PositionIndex.empty)
   private val completionRef = new AtomicReference[CompletionIndex](CompletionIndex.empty)
   private val typeHintRef   = new AtomicReference[TypeHintIndex](TypeHintIndex.empty)
+  private val mainRef       = new AtomicReference[MainIndex](MainIndex.empty)
+  private val rootsRef      = new AtomicReference[Seq[Path]](Seq.empty)
   private val vfs           = new VirtualFileSystem
 
   /** The overlay of unsaved editor buffers. The document service writes live edits here (on open/change/close) before
@@ -81,10 +84,26 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     */
   def typeHintIndex: TypeHintIndex = typeHintRef.get
 
+  /** The document → runnable-`main` index from the latest finished compile, for the "Run main" code lens. Empty until
+    * the first compile completes.
+    */
+  def mainIndex: MainIndex = mainRef.get
+
+  /** The workspace source root that contains the given document, if any — the longest matching root prefix. This is the
+    * root a `main`'s [[ModuleName]] was derived against, so it is the `<path>` the backend must be given (alongside
+    * `-m <module>`) to locate and build that module the same way the resident compile did.
+    */
+  def sourceRootFor(uri: URI): Option[Path] =
+    try {
+      val file = Path.of(uri)
+      rootsRef.get.filter(file.startsWith).maxByOption(_.getNameCount)
+    } catch { case _: IllegalArgumentException | _: java.nio.file.FileSystemNotFoundException => None }
+
   /** Build a session over the workspace source roots, start the cancel-restart server, and trigger the first compile.
     * Stdlib + platform layers come from this process's classpath (as for the CLI), so only the user's roots are needed.
     */
   def startWorkspace(roots: Seq[Path]): Unit = {
+    rootsRef.set(roots)
     val lspPlugin     = LspPlugin(vfs)
     val configuration = Configuration()
       .set(Compiler.targetPathKey, roots.headOption.getOrElse(Path.of(".")).resolve(".eliot-lsp"))
@@ -119,10 +138,11 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
 
   /** Rebuild all indices from the facts this compile materialised: the [[PositionIndex]] from [[ResolvedValue]]s
     * (definition + reference sites), the [[CompletionIndex]] from [[ModuleValue]]s (in-scope dictionaries) plus those
-    * same [[ResolvedValue]]s (signatures), and the [[TypeHintIndex]] from [[MonomorphicValue]]s (per-node concrete
-    * types). The whole-workspace driver ([[LspPlugin]]) demands every name — so every workspace value's resolved form
-    * and module dictionary are present — and additionally monomorphizes each file's own `main`, so the reachable
-    * monomorphic values exist for hover type hints.
+    * same [[ResolvedValue]]s (signatures), the [[TypeHintIndex]] from [[MonomorphicValue]]s (per-node concrete types),
+    * and the [[MainIndex]] from those same [[ResolvedValue]]s (documents declaring a runnable `main`). The
+    * whole-workspace driver ([[LspPlugin]]) demands every name — so every workspace value's resolved form and module
+    * dictionary are present — and additionally monomorphizes each file's own `main`, so the reachable monomorphic values
+    * exist for hover type hints.
     */
   private def rebuildIndices(result: CompilationResult): IO[Unit] =
     result.generator.currentFacts().flatMap { facts =>
@@ -133,6 +153,7 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
         indexRef.set(PositionIndex.build(resolved))
         completionRef.set(CompletionIndex.build(moduleValues, resolved))
         typeHintRef.set(TypeHintIndex.build(monomorphic))
+        mainRef.set(MainIndex.build(resolved))
       }
     }
 

@@ -29,4 +29,22 @@
              owning syntax coloration while LSP4IJ provides language features for the same files. -->
         <fileNamePatternMapping patterns="*.els" serverId="eliot" languageId="eliot"/>
     </extensions>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Native "Eliot Application" run configuration: builds a `main` into an executable jar and runs it. -->
+        <configurationType implementation="com.vanillasource.eliot.intellij.run.EliotRunConfigurationType"/>
+        <!-- The build-the-jar step attached before the run (compiler CLI off the bundled server+compiler jars). -->
+        <stepsBeforeRunProvider implementation="com.vanillasource.eliot.intellij.run.EliotBuildBeforeRunTaskProvider"/>
+        <!-- Surfaces compiler errors when the before-run build fails. -->
+        <notificationGroup id="Eliot" displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <!-- The id MUST equal the LSP code-lens command ("eliot.runMain"): LSP4IJ dispatches a code-lens
+             command client-side via ActionManager.getAction(commandId). -->
+        <action id="eliot.runMain"
+                class="com.vanillasource.eliot.intellij.run.EliotRunMainCommandAction"
+                text="Run Eliot Main"
+                description="Build and run the Eliot main reported by the language server."/>
+    </actions>
 </idea-plugin>

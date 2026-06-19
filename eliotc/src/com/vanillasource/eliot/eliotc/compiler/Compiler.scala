@@ -16,27 +16,31 @@ object Compiler extends Logging {
   val targetPathKey: Configuration.Key[Path]     = namedKey[Path]("targetPath")
   val visualizeFactsKey: Configuration.Key[Path] = namedKey[Path]("visualizeFacts")
 
-  def runCompiler(args: List[String]): IO[Unit] =
+  /** Run the compiler, returning whether the compilation produced any errors. The CLI ([[Main]]) maps that to a
+    * non-zero exit code so callers (scripts, CI, the IntelliJ before-run build task) can gate on success. Help/parse
+    * termination is not an error here (`--help` must still exit 0); a missing target plugin is.
+    */
+  def runCompiler(args: List[String]): IO[Boolean] =
     for {
       plugins   <- allLayers()
       // Run command line parsing with all options from all layers
       configOpt <- parseCommandLine(args, plugins.map(_.commandLineParser()))
-      _         <- configOpt match {
-                     case None                => IO.unit
+      hadErrors <- configOpt match {
+                     case None                => IO.pure(false)
                      case Some(configuration) =>
                        runWithConfiguration(configuration, plugins, args)
                    }
-    } yield ()
+    } yield hadErrors
 
   private def runWithConfiguration(
       configuration: Configuration,
       plugins: Seq[CompilerPlugin],
       args: List[String]
-  ): IO[Unit] =
+  ): IO[Boolean] =
     // Select active plugins
     plugins.find(_.isSelectedBy(configuration)) match {
       case None               =>
-        User.compilerGlobalError("No target plugin selected.")
+        User.compilerGlobalError("No target plugin selected.").as(true)
       case Some(targetPlugin) =>
         val activatedPlugins = collectActivatedPlugins(targetPlugin, configuration, plugins)
         for {
@@ -61,7 +65,7 @@ object Compiler extends Logging {
                            session.effectiveConfiguration.get(targetPathKey).get.resolve("fact-visualization.html")
                          )
                      )
-        } yield ()
+        } yield result.errors.nonEmpty
     }
 
   private def collectActivatedPlugins(

@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.lsp.server
 
 import org.eclipse.lsp4j.{
+  CodeLensOptions,
   CompletionOptions,
   InitializeParams,
   InitializeResult,
@@ -43,6 +44,9 @@ final class EliotLanguageServer(service: EliotCompilationService) extends Langua
     // No trigger characters: the editor invokes completion on identifier input / explicit request, and the whole
     // in-scope list is returned at once (`isIncomplete = false`) for the client to filter by the typed prefix.
     capabilities.setCompletionProvider(new CompletionOptions(false, java.util.Collections.emptyList()))
+    // Code lenses surface a "Run main" affordance above each runnable `main`; the lenses are returned fully resolved
+    // (command attached), so no separate resolve step is advertised.
+    capabilities.setCodeLensProvider(new CodeLensOptions(false))
     CompletableFuture.completedFuture(new InitializeResult(capabilities))
   }
 
