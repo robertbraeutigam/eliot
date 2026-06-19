@@ -25,22 +25,17 @@
         {
           "name": "comment.block.documentation.eliot",
           "begin": "/\\*\\*",
-          "end": "\\*/",
-          "beginCaptures": { "0": { "name": "punctuation.definition.comment.eliot" } },
-          "endCaptures": { "0": { "name": "punctuation.definition.comment.eliot" } }
+          "end": "\\*/"
         },
         {
           "name": "comment.block.eliot",
           "begin": "/\\*",
-          "end": "\\*/",
-          "beginCaptures": { "0": { "name": "punctuation.definition.comment.eliot" } },
-          "endCaptures": { "0": { "name": "punctuation.definition.comment.eliot" } }
+          "end": "\\*/"
         },
         {
           "name": "comment.line.double-slash.eliot",
           "begin": "//",
-          "end": "$",
-          "beginCaptures": { "0": { "name": "punctuation.definition.comment.eliot" } }
+          "end": "$"
         }
       ]
     },
