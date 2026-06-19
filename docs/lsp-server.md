@@ -10,15 +10,18 @@
 | Whole-workspace diagnostics driver (`LspPlugin`) | ✅ done — checks every workspace name, no `main` needed |
 | LSP protocol layer + entry point (`lsp` module, lsp4j) | ✅ done — `LspMain` stdio loop, verified end-to-end |
 | Diagnostics (`publishDiagnostics`) | ✅ done — grouped by URI, clears now-clean files |
-| File watching trigger | 🚧 partial — `didChangeWatchedFiles` wired; no internal watcher |
+| IntelliJ editor adapter (LSP4IJ) | ✅ done — `lsp/package.sh` dist + importable template; `lsp/intellij/README.md` |
+| File watching trigger | 🚧 partial — `didChangeWatchedFiles` + `didSave` wired; no internal watcher |
 | Reverse position index | ⬜ todo |
 | Hover / Go-to-Definition / Completion | ⬜ todo |
 | Error recovery, virtual file system (`didChange`) | ⬜ todo |
 
 The fact-based architecture and pervasive source tracking mean most of the *data* is already there.
-The remaining work is making the *lifecycle* interactive (incremental, persistent, error-tolerant)
-rather than batch — and the resident-engine lifecycle (incremental compilation, a persistent
-`CompilationSession`, and a cancel-restart `CompilationServer`) is now in place.
+The resident-engine lifecycle (incremental compilation, a persistent `CompilationSession`, a
+cancel-restart `CompilationServer`), the `lsp4j` protocol layer, the whole-workspace diagnostics
+driver, and the IntelliJ (LSP4IJ) adapter are now built and verified end-to-end. What remains is depth:
+a virtual file system for live edits, a reverse position index for position-based features, and error
+recovery for broken code.
 
 ## Existing Infrastructure
 
@@ -57,7 +60,7 @@ only leaf `stat`s, and a changed file invalidates just its dependency cone. Key 
 (The standalone incremental-compilation design doc has been retired; the design now lives in the
 code's doc-comments and commit history.)
 
-### 2. Long-Running Server Mode — 🚧 engine + loop done, watching/protocol remain
+### 2. Long-Running Server Mode — ✅ engine + loop + protocol done; internal watcher/VFS remain
 
 The compile lifecycle has been factored out of the one-shot CLI driver into **`CompilationSession`**
 (`eliotc/.../compiler/CompilationSession.scala`, commit `16292d61`) — the persistent-generator seam a
@@ -91,15 +94,22 @@ latest-wins semantics:
 - `start(session, onResult)` runs the worker as a background fiber and, on release, cancels it
   (cancelling any in-flight compile) and flushes the cache to disk for a warm next start.
 
-Still required:
+**The LSP protocol layer and entry point are now built** (`lsp` module, `lsp4j` 0.23.1). `LspMain`
+runs an `LSPLauncher` stdio loop; `EliotLanguageServer` reads `workspaceFolders`/`rootUri` on
+`initialize` and starts the engine on `initialized`; `EliotCompilationService` is the cats-effect ↔
+lsp4j bridge (constructs the `CompilationSession`, holds the `CompilationServer` open via `allocated`,
+runs `requestCompile`/`shutdown` on an `IORuntime`); `EliotDiagnostics` maps `CompilerError` →
+`publishDiagnostics`. The document services trigger `requestCompile` on `didOpen`/`didSave`, and
+`didChangeWatchedFiles` is wired for on-disk watching. Verified end-to-end over real stdio JSON-RPC
+(diagnostics appear for a broken file and clear on fix). Logs go to **stderr** (stdout is the protocol
+channel) via `lsp/resources/log4j2.xml`.
 
-- **File watching** — detect on-disk changes (and, with the VFS below, editor `didChange`) and call
-  `requestCompile`. The loop itself is done; this is the trigger source.
-- **An LSP protocol layer** — either an existing Scala LSP library (e.g., `lsp4j`, which Metals uses)
-  or a lighter JSON-RPC wrapper for message parsing and lifecycle.
-- **An entry point** — a new `LspPlugin` used as the session's target, or a standalone driver that
-  constructs a `CompilationSession` + `CompilationServer` directly (see *Key Architectural Decision*
-  below).
+Still required (trigger source + live edits):
+
+- **Internal file watching** — `didChangeWatchedFiles` and `didSave` already drive `requestCompile`,
+  but there is no in-process filesystem watcher; refreshes are editor-notification-driven.
+- **Live (unsaved-buffer) checking** — the Virtual File System below (`textDocument/didChange`);
+  `didChange` is currently a deliberate no-op so diagnostics never disagree with an unsaved buffer.
 
 ### 3. Reverse Index: Position → Fact — ⬜ todo
 
@@ -149,7 +159,13 @@ therefore a single server binary (`java -jar eliot-lsp.jar`, our `LspMain` over 
 plus a *thin per-editor adapter* whose only jobs are to know the launch command and that `.els` files
 belong to it. The server is identical across editors; only the adapter differs.
 
-### IntelliJ integration (the first target)
+### IntelliJ integration (the first target) — ✅ MVP wired via LSP4IJ
+
+> **Status:** the LSP4IJ user-defined-server path is **built and verified**. `./lsp/package.sh`
+> produces the `lsp/dist/` launcher + an importable LSP4IJ template; `lsp/intellij/README.md` is the
+> step-by-step setup (install LSP4IJ → import template → open a project with `.els` files →
+> diagnostics on save). A native-API or LSP4IJ-backed *shipped plugin* is the deferred next step
+> (sequencing below).
 
 IntelliJ has a first-party LSP API (since 2023.2). The historical blocker — it was **Ultimate-only,
 paid** — was lifted in late 2025:
@@ -219,7 +235,7 @@ compiler-classpath fingerprint already key `.eliot-cache`, so the project model 
 
 | LSP Feature | What Exists | What's Missing |
 |---|---|---|
-| **Diagnostics** | `CompilerError` with positions, messages, descriptions; `CompilationResult.errors` | Server loop + streaming as `publishDiagnostics` |
+| **Diagnostics** | `CompilerError` with positions, messages, descriptions; `CompilationResult.errors` | ✅ done — streamed as `publishDiagnostics`, grouped by URI, cleared on fix |
 | **Hover** (type info) | `MonomorphicValue.signature` | Position → value lookup (reverse index) |
 | **Go to Definition** | `Sourced[ValueFQN]` in expressions → definition `Sourced[QualifiedName]` in `ResolvedValue` | Reverse index, cross-file navigation |
 | **Completion** | `ModuleValue.dictionary` has in-scope names | Partial-name matching, context-aware filtering, triggering on incomplete input |
@@ -286,8 +302,17 @@ the monomorphize layer, never codegen.
 
 ## Summary
 
-The fact-based architecture and pervasive source tracking mean most of the *data* is already there.
-The lifecycle work — making it incremental, persistent, and error-tolerant rather than batch — is now
-well underway: incremental compilation, a resident `CompilationSession`, and a cancel-restart
-`CompilationServer` loop are built. What remains is wiring that engine to editors — file watching, an
-LSP protocol layer (JSON-RPC), a reverse position index, and graceful error recovery.
+The fact-based architecture and pervasive source tracking meant most of the *data* was already there;
+the work has been making the *lifecycle* interactive rather than batch. That spine is now built and
+verified end-to-end:
+
+- **Resident engine** — incremental compilation (`IncrementalFactGenerator` + persistent cache), a
+  persistent `CompilationSession`, and a cancel-restart `CompilationServer` loop.
+- **LSP server** — the `lsp` module: an `lsp4j` stdio protocol layer (`LspMain`/`EliotLanguageServer`),
+  the whole-workspace diagnostics driver (`LspPlugin`), and `publishDiagnostics` that clears on fix.
+- **Editor** — IntelliJ wired via LSP4IJ (`lsp/package.sh` + `lsp/intellij/`); proven over real stdio.
+
+What remains is depth, not spine: a **virtual file system** for live (unsaved-buffer) checking, a
+**reverse position index** to unlock hover / go-to-definition / completion, **error recovery** in the
+parser and checker for broken code, and an optional in-process **file watcher** and a **shipped IntelliJ
+plugin**. None of these block the others; the highest-value next step is the reverse index.
