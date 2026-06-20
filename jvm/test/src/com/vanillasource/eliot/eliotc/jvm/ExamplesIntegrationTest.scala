@@ -204,6 +204,118 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("Overlapping ability implementation"))
   }
 
+  // --- Effects M5: structural-effect discharge — Abort -> Option via the OptionT transformer ---
+
+  // A completed `{Abort}` computation discharges, via `runAbort`, to `Some` — the `Option` is born only here, at the
+  // discharge edge, not in the `{Abort} String` signature. `main` pins the residual carrier `G := IO`.
+  "the Abort effect" should "discharge a completed computation to Some via runAbort" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |import eliot.lang.Abort
+        |import eliot.lang.Option
+        |import eliot.lang.OptionT
+        |
+        |def safe: {Abort} String = "config-value"
+        |
+        |def main: IO[Unit] = flatMap(runAbort(safe), o -> println(foldOption(o, "<absent>", s -> s)))""".stripMargin
+    ).asserting(_ shouldBe "config-value")
+  }
+
+  // A short-circuiting `{Abort}` computation discharges to `None`. `abort` resolves to `Abort[OptionT[IO]]` after the
+  // carrier is refined to `OptionT[G]` by partial-application injectivity at the `runAbort` call.
+  it should "discharge an aborted computation to None via runAbort" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |import eliot.lang.Abort
+        |import eliot.lang.Option
+        |import eliot.lang.OptionT
+        |
+        |def giveUp: {Abort} String = abort
+        |
+        |def main: IO[Unit] = flatMap(runAbort(giveUp), o -> println(foldOption(o, "gave up!", s -> s)))""".stripMargin
+    ).asserting(_ shouldBe "gave up!")
+  }
+
+  // The Decision-10 acceptance: a `{Console, Abort}` program. `Console` rides the `OptionT[IO]` stack via the single
+  // `Sync[OptionT[G]]` base lift (no per-effect lifting), so the print runs; then `abort` short-circuits the result to
+  // `None`. Proves the constrained-HKT instance + base-Sync-lift path end to end.
+  "a {Console, Abort} program" should "run Console through the OptionT[IO] stack via the Sync lift, then short-circuit" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |import eliot.lang.Abort
+        |import eliot.lang.Option
+        |import eliot.lang.OptionT
+        |
+        |def andThen[A](first: Unit, second: A): A = second
+        |
+        |def loud: {Console, Abort} String = andThen(println("trying"), abort)
+        |
+        |def main: IO[Unit] = flatMap(runAbort(loud), o -> println(foldOption(o, "stopped", s -> s)))""".stripMargin
+    ).asserting(_ shouldBe "trying\nstopped")
+  }
+
+  // Throw[E] is the typed-error sibling of Abort, discharging to Either[E, _] via the EitherT transformer — proving the
+  // structural-discharge pattern generalises to a two-type-parameter effect and a two-constructor result.
+  "the Throw effect" should "discharge a completed computation to Right via runThrow" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |import eliot.lang.Throw
+        |import eliot.lang.Either
+        |import eliot.lang.EitherT
+        |
+        |def parseOk: {Throw[String]} String = "parsed-value"
+        |
+        |def main: IO[Unit] = flatMap(runThrow(parseOk), e -> println(foldEither(e, err -> err, v -> v)))""".stripMargin
+    ).asserting(_ shouldBe "parsed-value")
+  }
+
+  it should "discharge a failed computation to Left, carrying the typed error" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |import eliot.lang.Throw
+        |import eliot.lang.Either
+        |import eliot.lang.EitherT
+        |
+        |def parseBad: {Throw[String]} String = raise("malformed input")
+        |
+        |def main: IO[Unit] = flatMap(runThrow(parseBad), e -> println(foldEither(e, err -> err, v -> v)))""".stripMargin
+    ).asserting(_ shouldBe "malformed input")
+  }
+
+  // Static testability (M5): the SAME carrier-polymorphic {Abort} business logic runs under a pure `Id` test carrier
+  // (G := Id), with no production IO — the effect discharges to a plain Option the test inspects. main only does IO to
+  // print the already-computed pure results.
+  "a carrier-polymorphic {Abort} program" should "run under a pure Id test carrier with no IO and discharge to Option" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |import eliot.lang.Applicative
+        |import eliot.lang.Abort
+        |import eliot.lang.Option
+        |import eliot.lang.OptionT
+        |
+        |data Id[A](runId: A)
+        |
+        |implement Monad[Id] {
+        |   def pure[A](a: A): Id[A] = Id(a)
+        |   def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
+        |}
+        |
+        |implement Applicative[Id] {
+        |   def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
+        |}
+        |
+        |def allowed: {Abort} String = "granted"
+        |def denied: {Abort} String = abort
+        |
+        |def testAllowed: Option[String] = runId(runAbort(allowed))
+        |def testDenied: Option[String] = runId(runAbort(denied))
+        |
+        |def main: IO[Unit] = flatMap(
+        |   println(foldOption(testAllowed, "DENIED", s -> s)),
+        |   ignored -> println(foldOption(testDenied, "DENIED", s -> s)))""".stripMargin
+    ).asserting(_ shouldBe "granted\nDENIED")
+  }
+
   "ability" should "dispatch to correct implementation" in {
     compileAndRun(
       """ability Show[A] {

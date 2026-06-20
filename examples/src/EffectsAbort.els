@@ -1,0 +1,18 @@
+import eliot.lang.Monad
+import eliot.lang.Abort
+import eliot.lang.Option
+import eliot.lang.OptionT
+
+// A computation that may abort. Returning a value: pure path; calling `abort`: short-circuit.
+def lookup(key: String): {Abort} String = abort
+
+def greetOrGiveUp: {Console, Abort} String = andThen(println("looking up config..."), abort)
+
+def andThen[A](first: Unit, second: A): A = second
+
+// `runAbort` discharges {Abort} into an Option, born only here. `main` pins the carrier G := IO.
+def main: IO[Unit] = flatMap(
+   flatMap(runAbort(safe), o -> println(foldOption(o, "<absent>", s -> s))),
+   ignored -> flatMap(runAbort(greetOrGiveUp), o -> println(foldOption(o, "gave up!", s -> s))))
+
+def safe: {Abort} String = "config-value"

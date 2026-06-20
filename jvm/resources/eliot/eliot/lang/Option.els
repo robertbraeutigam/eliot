@@ -1,0 +1,23 @@
+/**
+ * The concrete JVM representation of the optional value the base layer declares abstractly (`type Option[A]` in the
+ * lang layer, used by the `Coerce` type-checking ability). Per the platform-independence-via-layers cornerstone the
+ * concrete `data` form lives in a platform layer; the module merge prefers this concrete redefinition over the abstract
+ * one.
+ *
+ * Two constructors — `None` (absent) and `Some` (present) — plus the eliminator `foldOption`. This is what the effects
+ * discharge `runAbort` (in `OptionT`) reflects an `{Abort}` computation into: an `Option[A]` the caller can inspect.
+ *
+ * The lang-layer body-less `some`/`none` functions are left untouched (they stay abstract, stuck constructors the
+ * `Coerce` checker inspects by name); `Some`/`None`/`foldOption` here are the ordinary runtime constructors and eliminator.
+ */
+data Option[A] = None | Some(value: A)
+
+/**
+ * Eliminate an `Option`: `foldOption(o, ifNone, ifSome)` returns `ifNone` when `o` is `None`, or `ifSome(value)` when it is
+ * `Some(value)`. The total, branch-explicit eliminator the effects discharge code and user code use to consume a
+ * discharged `{Abort}` result.
+ */
+def foldOption[A, B](o: Option[A], ifNone: B, ifSome: Function[A, B]): B = o match {
+   case None -> ifNone
+   case Some(v) -> ifSome(v)
+}

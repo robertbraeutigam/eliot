@@ -586,7 +586,39 @@ effects-specific; they bite any multi-instance ability whose methods share an er
   miscompiles (a `NoSuchMethodError` on the `Box` constructor) — a separate generic-data codegen issue. `Dep`'s
   instances construct *concrete* types (`pure(Database(..))`), so they are unaffected.
 
-### M5 — Structural-effect discharge, ordering, testability, Dep erasure
+### M5 — Structural-effect discharge, ordering, testability, Dep dictionary erasure
+
+**Status (2026-06-20): partially implemented.** `Abort`⟹`Option` (via `OptionT`) and `Throw[E]`⟹`Either[E,_]` (via
+`EitherT`) are built end-to-end — abilities (stdlib `Abort`/`Throw`, import-required, not ambient, to avoid a
+`get`/`Dep.get` clash and the test-harness stub ripple), concrete `Option`/`Either` + transformers + `Monad`/
+`Applicative`/`Sync`/effect instances + `runAbort`/`runThrow` discharge (jvm layer), all running and covered by
+`ExamplesIntegrationTest` + `examples/src/Effects{Abort,Throw,Testable}.els`. The `{Console, Abort}` acceptance (Console
+riding `OptionT[IO]` via the single `Sync[OptionT[G]]` base lift) **works**. **Static testability works** (the same
+`{Abort}` logic runs under a pure `Id` carrier, no IO, discharging to a plain `Option`). **Dep dictionary erasure
+verified** by `javap`: no `Dep` class in the jar, `get` is a direct `invokestatic`, no environment threaded (only the
+dependency *value* allocates, per the reframed item).
+
+This required **four compiler fixes** (all general, all with the full suite green): (1) *partial-application
+injectivity* in `Unifier.decomposeSpines` — `?F[a..] ~ C[prefix.., a..] ⟹ ?F := C[prefix..]`, the foundational
+`?F := OptionT[G]` solve (this, not a codegen bug, was the real blocker the M4 note mis-attributed); and three
+`EffectDesugaringProcessor` refinements to the bind/storage rule: (2) a parameter whose type *mentions the callee's
+carrier binder* is storage (`runAbort(p : OptionT[G,A])`); (3) bind only into **un-applied** positions (scalar /
+bare type var) — an applied type ctor (`Id[A]`, `OptionT[G,A]`) is storage; (4) never auto-bind an *author-written*
+machinery call (`pure(None)` inside a transformer instance), distinguished from the pass's *own* synthesized
+`flatMap`/`map` via a `synthesizedBind` flag.
+
+**Deferred (the remaining M5 sub-items):**
+- **`State[S]`⟹`(_, S)` and ordering-at-the-edge.** `State`/`StateT`/`getState`/`putState`/`runState` all *type-check*
+  (partial-app injectivity handles `StateT[S,G]`), but `State` discharges into a **two-field generic `Pair[A,S]`**,
+  which hits a **pre-existing generic-data codegen bug** (the M4-flagged limitation): `Pair` is monomorphized at
+  inconsistent type-arg erasures, so the single generated factory `Pair(Object, String)` mismatches per-call-site
+  descriptors `(String,String)`/`(Void,String)` ⟹ `NoSuchMethodError`. Single-field constructors (`Some`/`Left`/
+  `Right`/`Id`) are uniformly erased and unaffected — which is exactly why `Abort`/`Throw`/testability work and
+  `State` does not. The fix belongs in monomorphize/jvm codegen (align data-class field erasure with call sites), not
+  in the effects machinery. Ordering-at-the-edge additionally needs the cross-lifting instances `State[OptionT[G]]` /
+  `Abort[StateT[G]]` (the n² mtl matrix), unblocked once `State` runs.
+
+**Original M5 plan (for reference):**
 
 - Add effects whose discharge reflects a **data structure**: `Abort` (⟹ `Option`), `Throw[E]` (⟹
   `Either[E, _]`), `State[S]` (⟹ `(_, S)`), each with its discharge function (Part C), implemented
@@ -603,12 +635,30 @@ effects-specific; they bite any multi-instance ability whose methods share an er
   (fake `Database`), asserting on output — no production `IO`. The test carrier supplies its own *direct*
   `implement Console[TestF]` (not via `Sync`), so `{Console}` logic runs with no `IO` — coherent because
   it is a different carrier type (Decision 10).
-- **Dep erasure:** confirm monomorphization collapses a compile-time-singleton dependency to a direct
-  reference; document the pattern.
-- **Acceptance:** the order-sensitive pair above; a prod-vs-test run of one logic; a codegen check that
-  a singleton dependency leaves no allocation; and a `{Console, Abort}` program type-checks — the fine
-  effect resolving through the `OptionT[IO]` stack via the base `Sync` lift, confirming the
-  constrained-HKT-instance + lifting path of Decision 10.
+- **Dep *dictionary* erasure (not value erasure).** "Erasure" here is about the *dictionary /
+  indirection*, never the dependency *value*. Three things live in a singleton `get =
+  pure(Database("…"))`, and only the first erases:
+  1. **The `Dep` dictionary / indirection — erased, already, for free.** There is no `Dep` value, no DI
+     container, no reader environment threaded through signatures: `get` resolves statically at
+     monomorphize to the one impl method (M4's `get$Dep$impl$0`) and the call site is a direct
+     `invokestatic`. This is ordinary Eliot ability erasure and it is the property worth proving.
+  2. **The `IO(_ -> …)` wrapper** allocates an IO record + thunk closure — the cost of the IO-monad
+     *encoding*, not of `Dep`. Eliminating it is IO fusion, a general optimization.
+  3. **The `Database("…")` value** is *real runtime data* (it holds the URL); it cannot be erased,
+     because a dependency that carries data is data. Currently re-allocated per `get` call (a nullary
+     def recomputes).
+  So erasure is a property of the **compile-time-singleton instance pattern** (dictionary gone, constant
+  value still present), not of `Dep` in general: a future runtime `runDep(p, env)` (ReaderT-style
+  discharge) keeps `env` as a genuine runtime value *by design* — itself dictionary-free, collapsing to
+  a plain extra positional parameter after mono. M5's job is to **document this pattern and prove the
+  dictionary is gone**, not to chase "no allocation."
+- **Acceptance:** the order-sensitive pair above; a prod-vs-test run of one logic; a `{Console, Abort}`
+  program type-checks — the fine effect resolving through the `OptionT[IO]` stack via the base `Sync`
+  lift, confirming the constrained-HKT-instance + lifting path of Decision 10; and a codegen check that
+  a singleton dependency leaves **no `Dep` dictionary / no reader-environment indirection** — `get`
+  compiles to a direct static reference to the impl (the dependency *value* itself still allocates; a
+  once-allocated static-field hoist and IO fusion are separate, optional, non-effects optimizations,
+  out of scope here).
 
 ### Cross-cutting (fold into the milestones)
 

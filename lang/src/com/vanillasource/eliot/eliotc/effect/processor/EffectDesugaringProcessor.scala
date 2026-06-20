@@ -106,7 +106,7 @@ class EffectDesugaringProcessor
 
     for {
       _                                 <- checkDeclaredEffects(value, inner, carrier)
-      Desugared(newInner, effectful, _) <- desugar(inner, env, carrier, 0)
+      Desugared(newInner, effectful, _, _) <- desugar(inner, env, carrier, 0)
       finalInner                        <-
         if (effectful && !canHostEffects)
           compilerError(
@@ -221,7 +221,7 @@ class EffectDesugaringProcessor
       case ValueReference(fqn, _)               =>
         calleeInfo(fqn).map(info => Desugared(expr, resultEffectful(info, 0), idx))
       case FunctionLiteral(name, paramType, lambdaBody)  =>
-        desugar(lambdaBody, env - name.value, carrier, idx).map { case Desugared(newBody, _, idx2) =>
+        desugar(lambdaBody, env - name.value, carrier, idx).map { case Desugared(newBody, _, idx2, _) =>
           // The lambda *value* is pure (a function); its body may be effectful (e.g. a `flatMap` continuation).
           Desugared(expr.as(FunctionLiteral(name, paramType, newBody)), effectful = false, idx2)
         }
@@ -270,11 +270,34 @@ class EffectDesugaringProcessor
   ): (Seq[Sourced[OperatorResolvedExpression]], Seq[Bind], Int) =
     argResults.zipWithIndex.foldLeft((Seq.empty[Sourced[OperatorResolvedExpression]], Seq.empty[Bind], idx)) {
       case ((coreArgs, binds, i), (arg, pos)) =>
-        if (arg.effectful && isBindPosition(info, pos)) {
+        if (arg.effectful && isBindPosition(info, pos) && !isAuthorMachineryCall(arg)) {
           val name = freshName(i)
           (coreArgs :+ arg.expr.as(ParameterReference(arg.expr.as(name))), binds :+ Bind(name, arg.expr), i + 1)
         } else (coreArgs :+ arg.expr, binds, i)
     }
+
+  /** Whether an argument is an *author-written* explicit machinery call — a `pure`/`flatMap`/`map`/`sync` application
+    * that this pass did **not** itself synthesize. Such a value is already lifted into the carrier by the author (it is
+    * how transformer instances and hand-written monadic code are written), so it must never be auto-bound: binding it
+    * would un-lift it. This keeps a transformer instance body like
+    * `OptionT(flatMap(runOptionT(fa), o -> foldOpt(o, pure(Absent), a -> runOptionT(f(a)))))` untouched — `pure(Absent)`
+    * flows into `foldOpt`'s generic `ifAbsent` slot (instantiated to the carrier here), and without this guard the
+    * carrier-headed result would be wrongly bound into that pure-looking position.
+    *
+    * The `synthesizedBind` guard is essential: a `flatMap`/`map` this pass *created* while lowering an effectful
+    * sub-term (e.g. `url(get)` ⟹ `flatMap(get, x -> url(x))`) represents that effectful sub-term and must still bind
+    * when it flows into a pure value position (`log(url(get))`). Only machinery the author placed is left alone. (A
+    * genuine effect like `abort`/`readLine` is not machinery and always binds.)
+    */
+  private def isAuthorMachineryCall(arg: Desugared): Boolean =
+    !arg.synthesizedBind && (spine(arg.expr.value)._1 match {
+      case ValueReference(fqn, _) =>
+        fqn.value.name.qualifier match {
+          case Qualifier.Ability(name) => isMachineryAbility(name)
+          case _                       => false
+        }
+      case _                      => false
+    })
 
   /** Fold the binds around the core, innermost first: the bind nearest the core uses `map` if the core is pure (lifting
     * it into the carrier) and `flatMap` if it is effectful; every outer bind wraps an effectful continuation, so it is
@@ -294,7 +317,7 @@ class EffectDesugaringProcessor
         val combinator = pos.as(ValueReference(pos.as(if (accEffectful) flatMapFQN else mapFQN)))
         (pos.as(applyChain(combinator, Seq(bind.action, lambda))), true)
       }
-      Desugared(folded, effectful = true, idx)
+      Desugared(folded, effectful = true, idx, synthesizedBind = true)
     }
 
   /** Lift a pure body into the carrier with `Monad.pure`. */
@@ -353,16 +376,46 @@ class EffectDesugaringProcessor
       case _                     => false
     })
 
-  /** Whether argument position `pos` auto-binds an effectful argument: the callee's parameter there must be a concrete,
-    * non-`Function` named type. Carrier-typed (`F[A]`, a [[ParameterReference]] head) and function-typed parameters are
-    * storage positions that take the effectful value directly.
+  /** Whether argument position `pos` auto-binds an effectful argument: the callee's parameter there must be a *pure
+    * value* position — a concrete named type (`String`) or a bare generic type parameter (`second : A`, kind `Type`) —
+    * that is not function-typed and does **not** mention any of the callee's own higher-kinded (carrier) binders.
+    *
+    * Storage positions take the effectful value directly instead of binding it:
+    *   - a carrier-typed parameter (`fa : F[A]`, headed by a carrier binder) — `flatMap`'s first argument;
+    *   - a function-typed parameter (`Function[..]`) — a continuation;
+    *   - a parameter whose type *applies one of the callee's carrier binders* (`p : OptionT[G, A]`, `G` higher-kinded) —
+    *     a **discharge / transformer** position. `runAbort(p : OptionT[G, A])` wants the effectful action itself, not
+    *     its bound result, so passing `getConfig : {Abort} String` there must store, not unwrap, it.
+    *
+    * A bind position is an **un-applied** type — a concrete scalar (`String`, `Unit`, `Database`) or a bare type
+    * variable (`second : A` in `andThen[A](first : Unit, second : A) : A`). An *applied* type constructor is always a
+    * storage position, whether it mentions a carrier (`fa : F[A]`, `p : OptionT[G, A]`) or not (`x : Id[A]` in a
+    * discharge like `runId(x : Id[A])`): an applied type is a container/carrier shape that takes the effectful value
+    * directly. So `andThen(println(..), abort)` binds `abort` into the bare `A`, but `runId(runAbort(p))` passes the
+    * carrier value into `Id[A]` unbound. Both a [[ValueReference]] and a [[ParameterReference]] head can be a pure value
+    * position; a `Function`-headed type, an applied type, and a carrier-mentioning type are storage.
     */
   private def isBindPosition(info: CalleeInfo, pos: Int): Boolean =
     info.valueParamTypes.lift(pos).exists { paramType =>
-      spine(paramType)._1 match {
+      val (head, args)     = spine(paramType)
+      val notFunctionTyped = head match {
         case ref: ValueReference => !isFunctionReference(ref)
-        case _                   => false
+        case _                   => true
       }
+      notFunctionTyped && args.isEmpty && !mentionsAnyBinder(paramType, info.carrierBinders)
+    }
+
+  /** Whether a type expression mentions any of `binders` anywhere (head or nested argument), e.g. `OptionT[G, A]`
+    * mentions the carrier binder `G`. Used to classify a parameter whose type *contains* (not merely is headed by) a
+    * carrier as a storage position.
+    */
+  private def mentionsAnyBinder(tpe: OperatorResolvedExpression, binders: Set[String]): Boolean =
+    tpe match {
+      case ParameterReference(n)            => binders.contains(n.value)
+      case FunctionApplication(target, arg) =>
+        mentionsAnyBinder(target.value, binders) || mentionsAnyBinder(arg.value, binders)
+      case FunctionLiteral(_, _, body)      => mentionsAnyBinder(body.value, binders)
+      case _                                => false
     }
 }
 
@@ -380,10 +433,18 @@ object EffectDesugaringProcessor {
   /** One pending sequencing point: the effectful action and the fresh variable its result binds to. */
   private case class Bind(name: String, action: Sourced[OperatorResolvedExpression])
 
-  /** A desugared sub-expression: the rewritten expression, whether its static result is effectful, and the next fresh
-    * variable index (threaded so synthesized binders are unique within the body).
+  /** A desugared sub-expression: the rewritten expression, whether its static result is effectful, the next fresh
+    * variable index (threaded so synthesized binders are unique within the body), and whether the expression is a
+    * `flatMap`/`map` this pass *synthesized* while lowering an effectful sub-term (as opposed to an author-written
+    * machinery call). The latter distinction lets [[EffectDesugaringProcessor.isAuthorMachineryCall]] leave authored
+    * machinery in place while still binding the pass's own lowerings.
     */
-  private case class Desugared(expr: Sourced[OperatorResolvedExpression], effectful: Boolean, nextIdx: Int)
+  private case class Desugared(
+      expr: Sourced[OperatorResolvedExpression],
+      effectful: Boolean,
+      nextIdx: Int,
+      synthesizedBind: Boolean = false
+  )
 
   /** A callee's signature reduced to what the auto-lift reads, plus the user-facing effects it performs. */
   private case class CalleeInfo(

@@ -1,0 +1,14 @@
+import eliot.lang.Monad
+import eliot.lang.Throw
+import eliot.lang.Either
+import eliot.lang.EitherT
+
+// A parser that fails with a typed error on bad input. `parseOk` succeeds; `parseBad` raises.
+def parseOk: {Throw[String]} String = "parsed-value"
+
+def parseBad: {Throw[String]} String = raise("malformed input")
+
+// `runThrow` discharges {Throw[String]} into an Either[String, String], born only here. main pins G := IO.
+def main: IO[Unit] = flatMap(
+   flatMap(runThrow(parseOk), e -> println(foldEither(e, err -> err, v -> v))),
+   ignored -> flatMap(runThrow(parseBad), e -> println(foldEither(e, err -> err, v -> v))))

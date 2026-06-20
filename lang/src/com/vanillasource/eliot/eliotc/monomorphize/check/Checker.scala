@@ -1022,8 +1022,11 @@ class Checker(
     } yield ()
 
   /** True when `applied` forces to this carrier meta applied to a non-empty spine, and `other` forces to a rigid head
-    * (a body-less [[VTopDef]] type constructor or a [[VNeutral]] bound variable) whose spine arity differs — the
-    * unsatisfiable shape `?F[a..] ~ H r..` with `arity(H) != arity(F's spine)`.
+    * (a body-less [[VTopDef]] type constructor or a [[VNeutral]] bound variable) that is *under-applied* relative to the
+    * meta — the unsatisfiable shape `?F[a..] ~ H r..` with `arity(H) < arity(F's spine)`: no injective `F` makes `F`
+    * applied to *more* args equal `H` applied to *fewer*. (`arity(H) >= arity(F)` is satisfiable by partial-application
+    * injectivity — `?F := H` applied to the leading prefix — and is solved in [[Unifier.decomposeSpines]], so it never
+    * reaches here as a postponed constraint.)
     */
   private def unsatisfiableApplication(
       id: SemValue.MetaId,
@@ -1034,8 +1037,8 @@ class Checker(
     Evaluator.force(applied, store) match {
       case VMeta(mid, spine) if mid.value == id.value && spine.toList.nonEmpty =>
         Evaluator.force(other, store) match {
-          case VTopDef(_, None, rhsSpine) => rhsSpine.toList.length != spine.toList.length
-          case VNeutral(_, rhsSpine)      => rhsSpine.toList.length != spine.toList.length
+          case VTopDef(_, None, rhsSpine) => rhsSpine.toList.length < spine.toList.length
+          case VNeutral(_, rhsSpine)      => rhsSpine.toList.length < spine.toList.length
           case _                          => false
         }
       case _                                                                   => false

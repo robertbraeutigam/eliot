@@ -156,17 +156,26 @@ case class Unifier(
         }
     }
 
-  /** Injectivity-based decomposition of `?id s1..sn ~ H r1..rn`, mirroring what GHC and Scala 3 do for applied types:
-    * type constructor application is treated as injective, so the decomposition into `?id := H` (unapplied) plus
-    * pointwise spine unification is unique.
+  /** Injectivity-based decomposition of `?id s1..sm ~ H r1..rn`, mirroring what GHC and Scala 3 do for applied types:
+    * type constructor application is treated as injective, so the decomposition is unique.
     *
-    * Fires only when the rhs's head is rigid and the arities match:
+    * Two arity regimes, both sound because the rhs head is rigid (a type constructor or bound variable, never a
+    * projection/constant lambda):
+    *   - **Equal arity** (`m == n`): `?id := H` (unapplied) plus pointwise spine unification `s_i ~ r_i`.
+    *   - **Partial application** (`n > m`): `?id := H r1..r(n-m)` (the head applied to the leading prefix) plus
+    *     pointwise unification of the trailing `m` args `s_i ~ r(n-m+i)`. This is what lets a *carrier* meta solve to a
+    *     type constructor partially applied to a prefix — `?F[A] ~ OptionT[G, A] ⟹ ?F := OptionT[G]` (the effects
+    *     discharge path) — exactly as `?F[A] ~ Box[A] ⟹ ?F := Box` works for the equal-arity case. The solution is
+    *     unique: with `H` injective, only `?F = H r1..r(n-m)` makes `?F s1..sm = H r1..rn` hold for all the trailing
+    *     args.
+    *
+    * Fires only when the rhs's head is rigid and `n >= m`:
     *   - [[VTopDef]] with no cached body — data-type constructors are bound this way and never β-reduce. Cached
     *     VTopDefs (user-defined type aliases) would have been unfolded by the ambient [[Evaluator.force]] before
     *     reaching here, so we should not see them; the `None` guard is a belt-and-braces check.
     *   - [[VNeutral]] — rigid bound variables with a spine.
     *
-    * Arity mismatches and non-rigid rhs shapes return `None`, leaving the caller to postpone. Cases like `?A [?B] ~
+    * `n < m` and non-rigid rhs shapes return `None`, leaving the caller to postpone. Cases like `?A [?B] ~
     * Function [Int, String]` have multiple valid solutions and correctly postpone.
     */
   private def tryDecomposeApplied(
@@ -176,24 +185,31 @@ case class Unifier(
       context: Sourced[String]
   ): Option[Unifier] = rhs match {
     case VTopDef(fqn, None, rhsSpine) =>
-      decomposeSpines(id, metaSpine, rhsSpine, VTopDef(fqn, None, Spine.SNil), context)
+      decomposeSpines(id, metaSpine, rhsSpine, prefix => VTopDef(fqn, None, prefix), context)
     case VNeutral(head, rhsSpine)     =>
-      decomposeSpines(id, metaSpine, rhsSpine, VNeutral(head, Spine.SNil), context)
+      decomposeSpines(id, metaSpine, rhsSpine, prefix => VNeutral(head, prefix), context)
     case _                            => None
   }
 
+  /** Decompose `?id metaSpine ~ head rhsSpine` by injectivity. `rebuildHead` reattaches the leading prefix of
+    * `rhsSpine` (everything beyond the trailing `metaSpine.length` args) to the rigid head, which becomes `?id`'s
+    * solution; the trailing args unify pointwise against `metaSpine`. Returns `None` when the rhs is under-applied
+    * relative to the meta (`n < m`), which has no injective solution.
+    */
   private def decomposeSpines(
       id: MetaId,
       metaSpine: List[SemValue],
       rhsSpine: Spine,
-      bareHead: SemValue,
+      rebuildHead: Spine => SemValue,
       context: Sourced[String]
   ): Option[Unifier] = {
     val rhsList = rhsSpine.toList
-    if (rhsList.length != metaSpine.length) None
+    if (rhsList.length < metaSpine.length) None
     else {
-      val solvedMeta = copy(metaStore = metaStore.solve(id, bareHead))
-      Some(metaSpine.zip(rhsList).foldLeft(solvedMeta) { case (u, (l, r)) => u.unify(l, r, context) })
+      val (prefix, suffix) = rhsList.splitAt(rhsList.length - metaSpine.length)
+      val headWithPrefix   = rebuildHead(prefix.foldLeft(Spine.SNil: Spine)(_ :+ _))
+      val solvedMeta       = copy(metaStore = metaStore.solve(id, headWithPrefix))
+      Some(metaSpine.zip(suffix).foldLeft(solvedMeta) { case (u, (l, r)) => u.unify(l, r, context) })
     }
   }
 

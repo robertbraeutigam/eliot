@@ -1,0 +1,19 @@
+/**
+ * The throw effect: a computation that may fail with an error value of type `E`.
+ *
+ * `Throw[E]` is the typed-error sibling of `Abort` (which discards the reason). A function that may fail writes
+ * `{Throw[String]}` (or any error type) and calls `raise` to fail. Performing `raise` yields a plain value of any type
+ * — the effect floats into the caller's set; nothing wraps the result. The `Either[E, _]` that records success-or-error
+ * is born only at the *discharge* edge, by `runThrow` (in the platform layer): `result = runThrow(parse(s)) :
+ * Either[String, Tree]`.
+ *
+ * Declared abstract here; the discharge transformer `EitherT` and the instance `Throw[E, EitherT[E, G]]` live with that
+ * transformer in the platform layer. The ability is parameterised by the error type `E` and the carrier `F[_]`.
+ */
+ability Throw[E, F[_]] {
+   /**
+    * Fail with error value `err`, producing a value of any type `A` (control does not return). The effect floats into
+    * the caller's declared `{Throw[E]}` set; `runThrow` reflects it into an `Either[E, A]`.
+    */
+   def raise[A](err: E): F[A]
+}

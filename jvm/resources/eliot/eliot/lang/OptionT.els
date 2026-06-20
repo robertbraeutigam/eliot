@@ -1,0 +1,63 @@
+import eliot.lang.Monad
+import eliot.lang.Applicative
+import eliot.lang.Sync
+import eliot.lang.Abort
+import eliot.lang.Option
+
+/**
+ * The option monad transformer — the concrete carrier that discharges the `Abort` effect (effects plan, M5). A value of
+ * `OptionT[G, A]` is a `G`-computation that produces an `Option[A]`: running it either yields `Some(a)` or short-circuits
+ * to `None`. It is the only place the `Option` structure meets the effect carrier; it never appears in a business
+ * signature (those say `{Abort}`), only inside this library and the discharge function `runAbort`.
+ *
+ * All instances are generic over the base carrier `G`, constrained only by the machinery it needs (`Monad`/`Applicative`/
+ * `Sync`) — never pinned to `IO`. So `OptionT[IO]`, `OptionT[OptionT[IO]]`, … all work, and a fine I/O effect like
+ * `Console` rides through via the `Sync[OptionT[G]]` lift below: that is what lets a `{Console, Abort}` program run on
+ * the `OptionT[IO]` stack (the n-not-n×m lifting of Decision 10 — only the base `Sync`/`Monad` is lifted per transformer).
+ */
+data OptionT[G[_], A](runOptionT: G[Option[A]])
+
+/**
+ * `OptionT` is a monad whenever its base `G` is: `pure` injects via `G`'s `pure` and a `Some`; `flatMap` runs the inner
+ * `G[Option[A]]`, and on `Some(a)` continues with `f`, on `None` short-circuits (the `Abort` semantics). The author-written
+ * `pure(None)` stays put — the effect-desugar phase does not bind an explicit machinery call.
+ */
+implement[G[_] ~ Monad] Monad[OptionT[G]] {
+   def pure[A](a: A): OptionT[G, A] = OptionT(pure(Some(a)))
+   def flatMap[A, B](fa: OptionT[G, A], f: Function[A, OptionT[G, B]]): OptionT[G, B] =
+      OptionT(flatMap(runOptionT(fa), o -> foldOption(o, pure(None), a -> runOptionT(f(a)))))
+}
+
+/**
+ * Mapping over `OptionT`: transform a present value, propagate `None`. Derivable from the monad but given directly so it
+ * needs no `pure` round-trip.
+ */
+implement[G[_] ~ Applicative] Applicative[OptionT[G]] {
+   def map[A, B](fa: OptionT[G, A], f: Function[A, B]): OptionT[G, B] =
+      OptionT(map(runOptionT(fa), o -> foldOption(o, None, a -> Some(f(a)))))
+}
+
+/**
+ * The base-effect lift: `OptionT[G]` is `Sync` whenever `G` is, by running the inner sync action and wrapping its result
+ * in `Some`. This single per-transformer lift is what carries every `Sync`-keyed fine effect (`Console`, `Log`, …)
+ * through the `OptionT` layer for free.
+ */
+implement[G[_] ~ Sync & Applicative] Sync[OptionT[G]] {
+   def sync[A](thunk: Function[Unit, A]): OptionT[G, A] = OptionT(map(sync(thunk), a -> Some(a)))
+}
+
+/**
+ * The `Abort` instance: `abort` is the short-circuit — an `OptionT` whose inner computation purely yields `None`.
+ */
+implement[G[_] ~ Monad] Abort[OptionT[G]] {
+   def abort[A]: OptionT[G, A] = OptionT(pure(None))
+}
+
+/**
+ * Discharge the `Abort` effect, reflecting it into an `Option`: `runAbort(p)` turns a `{Abort}`-using computation (typed
+ * `OptionT[G, A]` after the carrier is refined to `OptionT[G]`) into a plain `G[Option[A]]` — `Some(a)` if it completed,
+ * `None` if it aborted. This is the only place `Option` appears as a result; the residual effects stay polymorphic in
+ * `G`. The parameter is a storage position (its type mentions the carrier `G`), so the effect-desugar phase passes the
+ * effectful action in directly rather than binding it.
+ */
+def runAbort[G[_], A](p: OptionT[G, A]): G[Option[A]] = runOptionT(p)
