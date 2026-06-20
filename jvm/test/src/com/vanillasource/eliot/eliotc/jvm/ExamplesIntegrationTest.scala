@@ -51,6 +51,49 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
       .asserting(_ should include("Name is private."))
   }
 
+  // --- Effects M3: body auto-lift (the headline) — direct-style code, no hand-written flatMap ---
+
+  // THE headline: a direct-style program. `readLine` is effectful (`F[String]`) but flows into `println`, which expects
+  // a plain `String`; the effect-desugar phase binds it, producing `flatMap(readLine, x -> println(x))`, with the
+  // carrier pinned to `IO` by `main`'s return. No `import eliot.lang.Monad`, no hand-written `flatMap`.
+  "effect auto-lift" should "sequence a direct-style println(readLine) at a concrete IO main" in {
+    compileAndRun("""def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
+      .asserting(_ shouldBe "echoed line")
+  }
+
+  // The same direct-style body in a carrier-polymorphic `{Console}` business function, pinned to `IO` at the call site.
+  it should "sequence a direct-style {Console} business function pinned to IO" in {
+    compileAndRun(
+      """def echo: {Console} Unit = println(readLine)
+        |
+        |def main: IO[Unit] = echo""".stripMargin,
+      stdin = "carrier line\n"
+    ).asserting(_ shouldBe "carrier line")
+  }
+
+  // Already-monadic code is left untouched (the rewrite is idempotent): the hand-written `flatMap` still compiles and
+  // runs exactly as before, proving auto-lift does not double-bind a stored effect action.
+  it should "leave already-monadic flatMap code unchanged" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |
+        |def echo: {Console} Unit = flatMap(readLine, s -> println(s))
+        |
+        |def main: IO[Unit] = echo""".stripMargin,
+      stdin = "still works\n"
+    ).asserting(_ shouldBe "still works")
+  }
+
+  // Fail-safe: a value that performs an effect but is declared with a non-carrier (pure) return type is rejected at the
+  // effect-desugar phase, not silently miscompiled.
+  "an effectful body under a pure return" should "be rejected" in {
+    compileForErrors(
+      """def helper: String = println(readLine)
+        |
+        |def main: IO[Unit] = println(helper)""".stripMargin
+    ).asserting(_ should include("performs an effect but is declared pure"))
+  }
+
   "ability" should "dispatch to correct implementation" in {
     compileAndRun(
       """ability Show[A] {

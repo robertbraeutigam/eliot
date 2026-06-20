@@ -4,6 +4,7 @@ import cats.data.NonEmptySeq
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
+import com.vanillasource.eliot.eliotc.effect.fact.EffectDesugaredValue
 import com.vanillasource.eliot.eliotc.module.fact.{
   ModuleName,
   QualifiedName,
@@ -49,18 +50,20 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * A value with no parameter-position bare omittable reference passes its [[OperatorResolvedValue]] through unchanged.
   */
 class SaturatedValueProcessor
-    extends TransformationProcessor[OperatorResolvedValue.Key, SaturatedValue.Key](key =>
-      OperatorResolvedValue.Key(key.vfqn)
+    extends TransformationProcessor[EffectDesugaredValue.Key, SaturatedValue.Key](key =>
+      EffectDesugaredValue.Key(key.vfqn)
     ) {
 
   override protected def generateFromKeyAndFact(
       key: SaturatedValue.Key,
-      value: OperatorResolvedValue
-  ): CompilerIO[SaturatedValue] =
+      effectDesugared: EffectDesugaredValue
+  ): CompilerIO[SaturatedValue] = {
+    val value = effectDesugared.value
     dataSaturate(value).flatMap {
       case Some(rewritten) => rewritten.pure[CompilerIO]
       case None            => saturate(value)
     }.map(SaturatedValue.apply)
+  }
 
   /** Fresh generic binder synthesized for one omitted, omittable parameter: its (unique within the value) name and its
     * kind (the referenced parameter's type restriction, e.g. `BigInteger` for `Int`'s bounds).

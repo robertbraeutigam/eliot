@@ -492,16 +492,44 @@ Original M2 plan (for reference):
   `printlnInternal` directly fails to resolve (`private` boundary), and a backend test that registering a
   non-`private` impure native hard-errors.
 
-### M3 — Body auto-lift (Part B, the headline)
+### M3 — Body auto-lift (Part B, the headline) ✅ DONE
 
-- New `effect` package + `EffectDesugaringProcessor` (after operator, before saturate); repoint
-  saturate's input to `EffectDesugaredValue`.
-- Implement carrier/effect inference, the bind-insertion algorithm (flatMap/map/pure, boundaries,
-  left-to-right; **no lift**), and the effect-set ⊆ declared check.
-- **Acceptance:** `def main: {Console} Unit = println(readLine())` compiles and runs (prints the line).
-  `def foo: Unit = println(readLine())` is rejected with "uses {Console} but is declared pure" (and is
-  *also* caught by monomorphize as a backstop). Tests: a new `effect` suite over desugaring shapes +
-  end-to-end `examples/src/Effects.els`.
+Implemented (2026-06-20). New `effect` package: `EffectDesugaredValue` (wraps `OperatorResolvedValue`, body-only
+rewrite) + `EffectDesugaringProcessor` placed after `OperatorResolverProcessor`, before `SaturatedValueProcessor`
+(whose primary input key is repointed to `EffectDesugaredValue`; its cross-value signature reads stay on
+`OperatorResolvedValue`, unchanged by the body-only rewrite). The bind-insertion algorithm is a single recursive
+bottom-up pass that returns, per sub-expression, `(rewritten, effectful?)`; an effectful argument flowing into a
+*concrete (non-`Function`) value position* is bound with `Monad.flatMap` (or `Applicative.map` when the continuation
+is pure), left to right; a pure body under a carrier-binder return is `Monad.pure`-wrapped. `flatMap`/`map`/`pure`
+are inserted by fully-qualified `eliot.lang.Monad`/`eliot.lang.Applicative` name (no user import). **No lift** (one
+carrier). The rewrite is **idempotent** — `flatMap(readLine, s -> println(s))` passes through untouched (a carrier-typed
+`F[A]` parameter, like `flatMap`'s first arg, is a *storage* position, never bound).
+
+"Effectful" is decided structurally (this runs before monomorphize, which stays the sole arbiter/backstop): a callee
+result is effectful iff, fully applied, it is headed by one of the callee's own higher-kinded binders (`readLine : F[String]`);
+a parameter reference is effectful iff its type is headed by the *current value's* ability-constrained higher-kinded
+carrier (`fa : F[String]`, so `println(fa)` lifts). The value's ambient carrier is an **ability-constrained** HKT binder
+(the M1 `{E...}` carrier or a hand-written `[F[_] ~ Monad]`) — a bare HKT generic (`C[_, _]`) is *not* a carrier, so
+`f[A, B, C[_, _]](c) = id(c)` is never spuriously `pure`-wrapped. The value-param count is the body's leading-lambda
+count (NOT the type's arrow arity), so a function-*valued* def (`def f : Function[A, B] = g`) is not mis-read as a
+1-parameter `String`-returning function.
+
+Fail-safe: a value with a nullary (pure) return whose body performs an effect is rejected here ("performs an effect but
+is declared pure"); a no-carrier value whose body is *not* effectful, or one with no binding to insert, passes through.
+
+**Acceptance met:** `def main : IO[Unit] = println(readLine)` compiles and echoes stdin (auto-lifted to
+`flatMap(readLine, x -> println(x))`, carrier pinned `F := IO` by the return); the carrier-polymorphic
+`def echo : {Console} Unit = println(readLine)` + `def main : IO[Unit] = echo` does too. `def helper : String =
+println(readLine)` (reachable) is rejected with the fail-safe error. Tests: `effect.processor.EffectDesugaringProcessorTest`
+(structural: bind shape, idempotency, pure-body no-op, fail-safe) + `jvm.ExamplesIntegrationTest` end-to-end +
+`examples/src/Effects.els`. Full suite green.
+
+Deviations from the literal acceptance line: (1) `readLine()` with parens does not parse (`()` is not empty-application
+syntax) — direct style uses `readLine` (no parens); (2) `def main : {Console} Unit = ...` still does not *run* (the
+generated entry wrapper does not pin `main`'s inferable carrier to `IO`, the M2 Decision-8 entry-point issue), so the
+runnable headline pins the carrier via `IO[Unit]` — either on `main` directly or at the `main = echo` call site; (3) the
+"declared pure" error fires only for *reachable* values (demand-driven compilation = use-site verification), so an
+*unused* `def foo : Unit = println(readLine)` is simply never checked.
 
 ### M4 — Multi-effect composition + propagation + `Dep`
 

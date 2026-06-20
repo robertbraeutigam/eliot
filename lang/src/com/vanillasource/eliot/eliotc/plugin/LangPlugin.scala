@@ -11,6 +11,7 @@ import com.vanillasource.eliot.eliotc.ability.processor.{
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDateProcessor
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
+import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.processor.{
   ModuleNamesProcessor,
   ModuleValueProcessor,
@@ -81,6 +82,7 @@ class LangPlugin extends CompilerPlugin {
             ValueResolver(),
             MatchDesugaringProcessor(),
             OperatorResolverProcessor(),
+            EffectDesugaringProcessor(),
             SaturatedValueProcessor(),
             AbilityImplementationProcessor(),
             AbilityImplementationCheckProcessor(),

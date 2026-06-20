@@ -19,6 +19,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   UserValueNativesProcessor
 }
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
 import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -55,6 +56,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
+      EffectDesugaringProcessor(),
       SaturatedValueProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
