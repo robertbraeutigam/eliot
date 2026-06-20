@@ -27,6 +27,7 @@ object NativeImplementation {
     Seq(
       (systemLangValueFQN("Console", "printlnInternal"), eliot_lang_Console_printlnInternal),
       (systemLangValueFQN("Console", "readLineInternal"), eliot_lang_Console_readLineInternal),
+      (systemLangValueFQN("Log", "logInternal"), eliot_lang_Log_logInternal),
       (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit)
     )
   )
@@ -114,6 +115,56 @@ object NativeImplementation {
               "()Ljava/lang/String;",
               false
             )
+          }
+        }
+    }
+  }
+
+  private def eliot_lang_Log_logInternal: NativeImplementation = new NativeImplementation {
+    override val impure: Boolean = true
+
+    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
+      classGenerator
+        .createMethod[CompilerIO](JvmIdentifier("logInternal"), Seq(systemLangType("String")), systemLangType("Unit"))
+        .use { methodGenerator =>
+          methodGenerator.runNative { methodVisitor =>
+            // System.out.println("[LOG] " + s) — emit a tagged diagnostic line to standard output (captured by the
+            // integration tests, and visually distinct from a plain Console `println`).
+            methodVisitor.visitFieldInsn(Opcodes.GETSTATIC, "java/lang/System", "out", "Ljava/io/PrintStream;")
+            methodVisitor.visitTypeInsn(Opcodes.NEW, "java/lang/StringBuilder")
+            methodVisitor.visitInsn(Opcodes.DUP)
+            methodVisitor.visitMethodInsn(Opcodes.INVOKESPECIAL, "java/lang/StringBuilder", "<init>", "()V", false)
+            methodVisitor.visitLdcInsn("[LOG] ")
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEVIRTUAL,
+              "java/lang/StringBuilder",
+              "append",
+              "(Ljava/lang/String;)Ljava/lang/StringBuilder;",
+              false
+            )
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEVIRTUAL,
+              "java/lang/StringBuilder",
+              "append",
+              "(Ljava/lang/String;)Ljava/lang/StringBuilder;",
+              false
+            )
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEVIRTUAL,
+              "java/lang/StringBuilder",
+              "toString",
+              "()Ljava/lang/String;",
+              false
+            )
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEVIRTUAL,
+              "java/io/PrintStream",
+              "println",
+              "(Ljava/lang/String;)V",
+              false
+            )
+            methodVisitor.visitInsn(Opcodes.ACONST_NULL)
           }
         }
     }

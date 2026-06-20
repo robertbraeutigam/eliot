@@ -19,6 +19,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
   spine
 }
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -103,8 +104,10 @@ class EffectDesugaringProcessor
     // can — only an effectful body in the former case is the "declared pure" error.
     val canHostEffects        = retArgs.nonEmpty
 
-    desugar(inner, env, carrier, 0).flatMap { case Desugared(newInner, effectful, _) =>
-      val finalInner =
+    for {
+      _                                 <- checkDeclaredEffects(value, inner, carrier)
+      Desugared(newInner, effectful, _) <- desugar(inner, env, carrier, 0)
+      finalInner                        <-
         if (effectful && !canHostEffects)
           compilerError(
             value.name.as(
@@ -114,10 +117,70 @@ class EffectDesugaringProcessor
           ).as(newInner)
         else if (!effectful && returnIsCarrierBinder) pureWrap(newInner).pure[CompilerIO]
         else newInner.pure[CompilerIO]
-
-      finalInner.map(fi => Some(rewrapParameters(body, paramNames, fi)))
-    }
+    } yield Some(rewrapParameters(body, paramNames, finalInner))
   }
+
+  /** Effect propagation (Decision 6): the user-facing effects a carrier-polymorphic body actually performs must be a
+    * subset of the effects it declares; an undeclared effect is rejected here with a precise error. Checked only for a
+    * value with an abstract effect carrier (a `{...}` set or hand-written `[F[_] ~ ...]`) — a value committing to a
+    * concrete carrier (`main : IO[Unit]`) or a pure return has no declared set to honour (the concrete carrier provides
+    * every effect; the pure-return case is the separate fail-safe above).
+    *
+    * The check is at *ability* granularity: declaring `{Dep[Database]}` covers any `Dep` use; a finer type-argument
+    * mismatch (`Dep[Logger]` where only `Dep[Database]` is declared) is left to monomorphization at the concrete use
+    * site, per the use-site-verification cornerstone. This is a structural, definition-local well-formedness check on
+    * the effect annotation, not an instantiation-dependent typing obligation.
+    */
+  private def checkDeclaredEffects(
+      value: OperatorResolvedValue,
+      inner: Sourced[OperatorResolvedExpression],
+      carrier: Set[String]
+  ): CompilerIO[Unit] =
+    if (carrier.isEmpty) ().pure[CompilerIO]
+    else {
+      val declared = carrier.flatMap(c => value.paramConstraints.getOrElse(c, Seq.empty).map(_.abilityFQN))
+      collectUsedEffects(inner).flatMap { used =>
+        val undeclared = used.diff(declared).toSeq.sortBy(_.abilityName)
+        if (undeclared.isEmpty) ().pure[CompilerIO]
+        else
+          compilerError(
+            value.name.as(
+              s"This value performs the ${effectWord(undeclared.size)} " +
+                undeclared.map(a => s"'${a.abilityName}'").mkString(", ") +
+                s" but does not declare ${pronoun(undeclared.size)}; add ${pronoun(undeclared.size)} to its { ... } " +
+                "effect set."
+            )
+          )
+      }
+    }
+
+  /** Collect every user-facing effect a body performs: for each effectful callee (one whose result, fully applied, is
+    * headed by its own carrier — an ability method or a `{E...}` function), its [[effectAbilitiesOf]]. Descends through
+    * the whole expression (including continuation lambdas and nested arguments); parameter references are plumbed
+    * effect *values*, not new effect performances, so they contribute nothing.
+    */
+  private def collectUsedEffects(expr: Sourced[OperatorResolvedExpression]): CompilerIO[Set[AbilityFQN]] =
+    expr.value match {
+      case _: IntegerLiteral | _: StringLiteral | _: ParameterReference =>
+        Set.empty[AbilityFQN].pure[CompilerIO]
+      case ValueReference(fqn, _)                                       =>
+        calleeInfo(fqn).map(info => if (resultEffectful(info, 0)) info.effectAbilities else Set.empty)
+      case FunctionLiteral(_, _, lambdaBody)                            =>
+        collectUsedEffects(lambdaBody)
+      case _: FunctionApplication                                      =>
+        val (head, args) = sourcedSpine(expr)
+        head.value match {
+          case ValueReference(fqn, _) =>
+            for {
+              info       <- calleeInfo(fqn)
+              argEffects <- args.foldMapM(collectUsedEffects)
+            } yield (if (resultEffectful(info, args.size)) info.effectAbilities else Set.empty) ++ argEffects
+          case _                      => (head +: args).foldMapM(collectUsedEffects)
+        }
+    }
+
+  private def effectWord(n: Int): String = if (n == 1) "effect" else "effects"
+  private def pronoun(n: Int): String    = if (n == 1) "it" else "them"
 
   /** Peel `count` leading value-parameter [[FunctionLiteral]]s off a body, returning their names and the inner body. */
   private def peelParameters(
@@ -245,14 +308,40 @@ class EffectDesugaringProcessor
   private def calleeInfo(fqn: Sourced[ValueFQN]): CompilerIO[CalleeInfo] =
     getFact(OperatorResolvedValue.Key(fqn.value)).map {
       case Some(orv) =>
-        val view = SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature))
+        val view           = SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature))
+        val carrierBinders = view.binders.filter(isHktBinder).map(_.name.value).toSet
         CalleeInfo(
           view.parameters.map(_.value),
           view.returnType.value,
-          view.binders.filter(isHktBinder).map(_.name.value).toSet
+          carrierBinders,
+          effectAbilitiesOf(fqn.value, orv, carrierBinders)
         )
       case None      =>
-        CalleeInfo(Seq.empty, ValueReference(fqn.as(WellKnownTypes.typeFQN)), Set.empty)
+        CalleeInfo(Seq.empty, ValueReference(fqn.as(WellKnownTypes.typeFQN)), Set.empty, Set.empty)
+    }
+
+  /** The user-facing effects performing this callee contributes to the *caller's* effect set (Decision 6, propagation):
+    *   - an ability method (`println`, `log`, `get`) performs its *owning* ability (read off the FQN's
+    *     [[Qualifier.Ability]]), e.g. `Console`/`Log`/`Dep`;
+    *   - an ordinary `{E...}` function propagates the effects declared on its own carrier binder(s).
+    *
+    * The internal machinery abilities (`Monad`/`Applicative`/`Sync`) are excluded — they are inserted by the compiler
+    * and never named by users, so a hand-written or auto-inserted `flatMap`/`pure`/`sync` does not pollute the set.
+    */
+  private def effectAbilitiesOf(
+      fqn: ValueFQN,
+      orv: OperatorResolvedValue,
+      carrierBinders: Set[String]
+  ): Set[AbilityFQN] =
+    fqn.name.qualifier match {
+      case Qualifier.Ability(abilityName) if !isMachineryAbility(abilityName) =>
+        Set(AbilityFQN(fqn.moduleName, abilityName))
+      case _: Qualifier.Ability                                               =>
+        Set.empty // Monad/Applicative/Sync method — internal machinery, not a user effect
+      case _                                                                  =>
+        carrierBinders
+          .flatMap(b => orv.paramConstraints.getOrElse(b, Seq.empty).map(_.abilityFQN))
+          .filterNot(a => isMachineryAbility(a.abilityName))
     }
 
   /** Whether a callee applied to `appliedCount` value arguments yields an effectful result: it must be fully applied and
@@ -296,12 +385,19 @@ object EffectDesugaringProcessor {
     */
   private case class Desugared(expr: Sourced[OperatorResolvedExpression], effectful: Boolean, nextIdx: Int)
 
-  /** A callee's signature reduced to what the auto-lift reads. */
+  /** A callee's signature reduced to what the auto-lift reads, plus the user-facing effects it performs. */
   private case class CalleeInfo(
       valueParamTypes: Seq[OperatorResolvedExpression],
       returnType: OperatorResolvedExpression,
-      carrierBinders: Set[String]
+      carrierBinders: Set[String],
+      effectAbilities: Set[AbilityFQN]
   )
+
+  /** The internal effect machinery, never a user-facing effect: a `flatMap`/`pure`/`map`/`sync` call (hand-written or
+    * inserted by this phase) must not be counted as "using an effect" by the declared-effect check.
+    */
+  private def isMachineryAbility(abilityName: String): Boolean =
+    abilityName == "Monad" || abilityName == "Applicative" || abilityName == "Sync"
 
   private def freshName(idx: Int): String = s"$$eff$$$idx"
 

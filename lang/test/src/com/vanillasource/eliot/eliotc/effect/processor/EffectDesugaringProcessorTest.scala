@@ -65,6 +65,15 @@ class EffectDesugaringProcessorTest
       .asserting(_.map(_.message) should contain("This value performs an effect but is declared pure; declare an effect set with { ... } or return an effect carrier."))
   }
 
+  it should "reject an effect performed but not declared in the effect set (propagation/subset check)" in {
+    runEffectDesugarErrors("def bad: {Console} Unit = log(readLine)")
+      .asserting(_.map(_.message) should contain("This value performs the effect 'Log' but does not declare it; add it to its { ... } effect set."))
+  }
+
+  it should "accept a body whose performed effects are all declared" in {
+    runEffectDesugarErrors("def ok: {Console, Log} Unit = log(readLine)").asserting(_ shouldBe Seq.empty)
+  }
+
   // The Monad ability stub (matching `stdlib/.../Monad.els`), so the idempotency case's hand-written `flatMap` resolves.
   private val monadStub  =
     SystemImport("Monad", "ability Monad[F[_]] {\ndef flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]\ndef pure[A](a: A): F[A]\n}")

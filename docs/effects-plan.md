@@ -531,16 +531,60 @@ runnable headline pins the carrier via `IO[Unit]` — either on `main` directly 
 "declared pure" error fires only for *reachable* values (demand-driven compilation = use-site verification), so an
 *unused* `def foo : Unit = println(readLine)` is simply never checked.
 
-### M4 — Multi-effect composition + propagation + `Dep`
+### M4 — Multi-effect composition + propagation + `Dep` ✅ DONE
 
-- Multiple effects in one signature (`{Dep[Database], Log, Console} A`); carrier unification across
-  callees; effect propagation (calling a `{Log}` function makes the caller need `{Log}` unless
-  discharged) — all set union/subset, no nesting.
-- Add `Dep[X, F[_]]` (`get[X]` dispatched by type; coherence rejects a duplicate same-type `Dep`) and
-  `Log`, with JVM instances.
-- **Acceptance:** a small `{Dep[Database], Log, Console}` program compiles, runs, and rejects
-  undeclared-effect cases with precise errors; two distinct-typed `Dep`s resolve `get` correctly and a
-  same-type-`Dep` overlap is rejected.
+Implemented (2026-06-20). Multiple effects in one signature, carrier-unified across callees; effect propagation as a
+set-subset check; the `Log` and `Dep[X, F[_]]` effects with JVM instances. Two general compiler bugs that `Dep`
+exposed were fixed along the way.
+
+- **`Log` — a second public fine effect**, a clean mirror of `Console`: stdlib abstract `ability Log[F[_]] { def
+  log(s: String): F[Unit] }` (ambient); jvm `Log.els` re-declares it + the constrained HKT instance `implement[F[_] ~
+  Sync] Log[F] { def log(s) = sync(_ -> logInternal(s)) }` + `private def logInternal`; backend native writes a
+  `[LOG] `-tagged line to stdout (impure, asserted `private`). `Dep` was also made ambient.
+- **`Dep[X, F[_]]` — the dependency (reader) effect.** Abstract stdlib `ability Dep[X, F[_]] { def get: F[X] }`
+  (ambient). The application supplies a per-dependency-type instance (a compile-time singleton, `implement
+  Dep[Database, IO] { def get = pure(theDatabase) }`, colocated with the user's type); monomorphization collapses it
+  to a direct reference. `get` is dispatched by the dependency type at the use site, and same-type-`Dep` overlap is
+  rejected by the ordinary ability-overlap check.
+- **Multi-effect composition + carrier unification** already fell out of M1+M3: a `{Dep[Database], Log, Console}` body
+  threads every effect through the one carrier `F`, the auto-lift inserting the binds; `{Sync, Abort}` ≡ `{Abort,
+  Sync}` set semantics hold. Type-arg'd effects (`Dep[Database]`) desugar to `Dep[Database, F]` (M1's carrier-append).
+- **Effect propagation = a definition-local subset check** (Decision 6), added to `EffectDesugaringProcessor`: a
+  carrier-polymorphic body's *used* effects must be ⊆ its *declared* set. Used effects come from its effectful callees
+  (an ability method → its owning ability via the FQN's `Qualifier.Ability`; an ordinary `{E...}` function → the
+  effects on its carrier binder), excluding the machinery `Monad`/`Applicative`/`Sync`. At *ability granularity*
+  (declaring `{Dep[Database]}` covers any `Dep` use; a `Dep[Logger]`-vs-`Dep[Database]` mismatch is left to the use
+  site, per use-site verification). A concrete-carrier value (`main : IO[Unit]`) has no declared set and is exempt.
+  Undeclared effect ⟹ hard error at the definition. This is a structural well-formedness check on the effect
+  annotation, not an instantiation-dependent typing obligation.
+
+**Two general compiler bugs `Dep` exposed, both fixed** (both pre-existing, both *silent miscompiles* — neither
+effects-specific; they bite any multi-instance ability whose methods share an erased descriptor):
+
+1. **Backend method-name collision (codegen).** The JVM method name was `vfqn.name.name + mangleSuffix(typeArgs)`,
+   dropping the impl-distinguishing qualifier. Two *concrete* impl methods of one ability that also share an erased
+   descriptor — `Dep[Database, IO].get` and `Dep[Logger, IO].get`, both `() -> IO` — collided into one method
+   (`ClassFormatError`, or one call binding to the wrong impl). (`Show[Hello]`/`Show[World]` escaped only because their
+   value-arg descriptors differ.) Fix: `CommonPatterns.mangledMethodName` folds an `AbilityImplementation` index into
+   the name (`get$Dep$impl$0`), applied uniformly at the definition, the dedup key, and the call site.
+2. **Monomorphize ability mis-dispatch (NbE checker).** Two distinct `Dep`s' `get` in one body both resolved to the
+   *first* impl (the Logger method was never even generated). Root cause: the covered-path resolution
+   `findConstraintTypeArgs(paramConstraints, abilityName)` matched a constraint by *ability name only* and returned the
+   first, so with two `Dep` constraints every `get` ref used the first. Fix (`TypeStackLoop.tryResolveOne`): prefer the
+   *reference's own* fully-ground type args (they pin the exact impl), falling back to the constraint only while the
+   ref's args are still unsolved metas. The drain loop solves those metas before resolution, so both explicit
+   (`get[Database]`) and return-dispatched (`url(get)`) forms now dispatch correctly.
+
+- **Acceptance met:** `examples/src/EffectsMulti.els` — a `{Dep[Database], Log, Console}` program — compiles and runs
+  end to end (`[LOG] jdbc://app-db` then the echoed line); the undeclared-effect (`{Console}` calling a `{Log}`
+  function) is rejected with a precise propagation error; two distinct-typed `Dep`s in one body resolve `get` to their
+  *correct distinct* values (`the-db` / `the-logger`); a same-type `Dep` overlap is rejected. Tests:
+  `effect.processor.EffectDesugaringProcessorTest` (subset check) + `jvm.ExamplesIntegrationTest` (M4 section). Full
+  suite green.
+- **Known pre-existing limitation (NOT exercised by `Dep` or effects, out of M4 scope):** a *generic-data*
+  constructor inside a *generic* ability impl (`implement Provide[Aaa] { def give: Box[Aaa] = Box(Aaa(..)) }`) still
+  miscompiles (a `NoSuchMethodError` on the `Box` constructor) — a separate generic-data codegen issue. `Dep`'s
+  instances construct *concrete* types (`pure(Database(..))`), so they are unaffected.
 
 ### M5 — Structural-effect discharge, ordering, testability, Dep erasure
 

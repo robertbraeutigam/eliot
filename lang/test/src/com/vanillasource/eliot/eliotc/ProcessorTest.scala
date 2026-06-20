@@ -37,7 +37,9 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("TypeMatch", ""),
     SystemImport("Int", ProcessorTest.intStubContent),
     SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    SystemImport("Console", ProcessorTest.consoleStubContent)
+    SystemImport("Console", ProcessorTest.consoleStubContent),
+    SystemImport("Log", ProcessorTest.logStubContent),
+    SystemImport("Dep", ProcessorTest.depStubContent)
   )
 
   def sourced[T](value: T): Sourced[T] = Sourced(file, PositionRange.zero, value)
@@ -122,8 +124,8 @@ object ProcessorTest {
   val boolImportContent: String =
     "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool"
 
-  /** Minimal ambient `Int`/`Runtime` stubs. As of the Phase-6 literal desugar every value-position integer literal
-    * `n` is rewritten to `integerLiteral[n] : Int[n, n]`, so `Int` and `Runtime` are in `defaultSystemModules` (always
+  /** Minimal ambient `Int`/`Runtime` stubs. As of the Phase-6 literal desugar every value-position integer literal `n`
+    * is rewritten to `integerLiteral[n] : Int[n, n]`, so `Int` and `Runtime` are in `defaultSystemModules` (always
     * auto-imported) and the test harness must register matching stubs. These minimal versions only declare the abstract
     * `Int` type and the `integerLiteral` constructor; the richer `Coerce`/`Combine`/arithmetic environment lives in the
     * `Int` tests' own import lists.
@@ -135,13 +137,24 @@ object ProcessorTest {
     * `defaultSystemModules` (the one user-facing effect ability that resolves with no import), so the harness must
     * register a matching stub. The concrete JVM instance lives in the real jvm layer, not here.
     */
-  val consoleStubContent: String = "ability Console[F[_]] {\ndef println(s: String): F[Unit]\ndef readLine: F[String]\n}"
+  val consoleStubContent: String =
+    "ability Console[F[_]] {\ndef println(s: String): F[Unit]\ndef readLine: F[String]\n}"
 
-  /** The auto-imported system modules minus the Phase-6 ambient `Int`/`Runtime` and the ambient `Console` effect.
-    * Tests that use `Int`/`integerLiteral` as a *local* declaration name (and never write a value-position integer
-    * literal), or that declare their own local `Console` ability, pass this to `ModuleValueProcessor` so the ambient
-    * versions do not shadow their local ones.
+  /** Ambient `Log` effect stub, mirroring `stdlib/resources/eliot/eliot/lang/Log.els`. `Log` is in
+    * `defaultSystemModules`; the concrete JVM instance lives in the real jvm layer.
+    */
+  val logStubContent: String = "ability Log[F[_]] {\ndef log(s: String): F[Unit]\n}"
+
+  /** Ambient `Dep` effect stub, mirroring `stdlib/resources/eliot/eliot/lang/Dep.els`. `Dep` is in
+    * `defaultSystemModules`; application/layer code supplies the concrete instances per dependency type.
+    */
+  val depStubContent: String = "ability Dep[X, F[_]] {\ndef get: F[X]\n}"
+
+  /** The auto-imported system modules minus the Phase-6 ambient `Int`/`Runtime` and the ambient effect abilities
+    * (`Console`/`Log`/`Dep`). Tests that use `Int`/`integerLiteral` as a *local* declaration name (and never write a
+    * value-position integer literal), or that declare their own local effect ability, pass this to
+    * `ModuleValueProcessor` so the ambient versions do not shadow their local ones.
     */
   val systemModulesWithoutInt: Seq[ModuleName] =
-    ModuleName.defaultSystemModules.filterNot(m => m.name == "Int" || m.name == "Runtime" || m.name == "Console")
+    ModuleName.defaultSystemModules.filterNot(m => Set("Int", "Runtime", "Console", "Log", "Dep").contains(m.name))
 }

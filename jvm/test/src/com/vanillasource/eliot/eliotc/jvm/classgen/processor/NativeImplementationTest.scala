@@ -29,6 +29,6 @@ class NativeImplementationTest extends AnyFlatSpec with Matchers {
     val impureNames = NativeImplementation.implementations.collect {
       case (vfqn, impl) if impl.impure => vfqn.name.name
     }.toSet
-    impureNames shouldBe Set("printlnInternal", "readLineInternal")
+    impureNames shouldBe Set("printlnInternal", "readLineInternal", "logInternal")
   }
 }

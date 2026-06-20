@@ -94,6 +94,116 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("performs an effect but is declared pure"))
   }
 
+  // --- Effects M4: multi-effect composition + propagation + Dep ---
+
+  // The `Log` effect mirrors `Console` (a fine effect riding the `Sync` base): `log` writes a tagged line. A `{Log}`
+  // business function pinned to `IO` at the call site runs through the JVM `Log` instance.
+  "log effect" should "emit a tagged diagnostic line through the Log -> Sync -> IO layering" in {
+    compileAndRun(
+      """def announce: {Log} Unit = log("starting up")
+        |
+        |def main: IO[Unit] = announce""".stripMargin
+    ).asserting(_ shouldBe "[LOG] starting up")
+  }
+
+  // Multiple effects in one signature, carrier-unified across callees: `log` (Log) and `readLine` (Console) share the
+  // one carrier `F`, auto-lifted into a single `flatMap` chain.
+  "multiple effects in one signature" should "carrier-unify Log and Console in a direct-style body" in {
+    compileAndRun(
+      """def echoLog: {Log, Console} Unit = log(readLine)
+        |
+        |def main: IO[Unit] = echoLog""".stripMargin,
+      stdin = "from stdin\n"
+    ).asserting(_ shouldBe "[LOG] from stdin")
+  }
+
+  // Effect propagation is a plain set-subset check: a body may only perform effects it declares. Calling a `{Log}`
+  // function from a `{Console}`-only function leaks `Log`, rejected at the definition with a precise message.
+  "an undeclared effect" should "be rejected with a precise propagation error" in {
+    compileForErrors(
+      """def doLog: {Log} Unit = log("hi")
+        |
+        |def caller: {Console} Unit = doLog
+        |
+        |def main: IO[Unit] = caller""".stripMargin
+    ).asserting(_ should include("performs the effect 'Log' but does not declare it"))
+  }
+
+  // The headline M4 program: three effects (`Dep[Database]`, `Log`, `Console`) composed in one direct-style body, run
+  // end to end. `get` is dispatched by the dependency type and collapses to the injected singleton.
+  "a multi-effect Dep/Log/Console program" should "compile and run end to end" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |
+        |data Database(url: String)
+        |
+        |implement Dep[Database, IO] {
+        |   def get: IO[Database] = pure(Database("jdbc://app-db"))
+        |}
+        |
+        |def run: {Dep[Database], Log, Console} Unit = andThen(log(url(get)), println(readLine))
+        |
+        |def andThen(first: Unit, second: Unit): Unit = second
+        |
+        |def main: IO[Unit] = run""".stripMargin,
+      stdin = "echoed\n"
+    ).asserting(_ shouldBe "[LOG] jdbc://app-db\nechoed")
+  }
+
+  // Two distinct-typed `Dep`s in one body each resolve `get` to their own instance and yield the correct distinct value
+  // (the first dependency's url, then the second's name) — proving by-type dispatch does not collapse the two.
+  "two distinct-typed Deps" should "each resolve get to its own instance in one body" in {
+    val program =
+      """import eliot.lang.Monad
+        |
+        |data Database(url: String)
+        |data Logger(name: String)
+        |
+        |implement Dep[Database, IO] { def get: IO[Database] = pure(Database("the-db")) }
+        |implement Dep[Logger, IO] { def get: IO[Logger] = pure(Logger("the-logger")) }
+        |
+        |def first: {Dep[Database], Dep[Logger]} String = pick(url(get), name(get))
+        |
+        |def main: IO[Unit] = println(first)""".stripMargin
+    compileAndRun(program + "\n\ndef pick(a: String, b: String): String = a")
+      .asserting(_ shouldBe "the-db")
+  }
+
+  it should "resolve the second distinct Dep to its own value" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |
+        |data Database(url: String)
+        |data Logger(name: String)
+        |
+        |implement Dep[Database, IO] { def get: IO[Database] = pure(Database("the-db")) }
+        |implement Dep[Logger, IO] { def get: IO[Logger] = pure(Logger("the-logger")) }
+        |
+        |def second: {Dep[Database], Dep[Logger]} String = pick(url(get), name(get))
+        |
+        |def pick(a: String, b: String): String = b
+        |
+        |def main: IO[Unit] = println(second)""".stripMargin
+    ).asserting(_ shouldBe "the-logger")
+  }
+
+  // Coherence: two implementations of `Dep` for the same dependency type overlap and are rejected (at most one `Dep`
+  // per type), via the ordinary ability overlap check.
+  "two same-type Dep implementations" should "be rejected as overlapping" in {
+    compileForErrors(
+      """import eliot.lang.Monad
+        |
+        |data Database(url: String)
+        |
+        |implement Dep[Database, IO] { def get: IO[Database] = pure(Database("one")) }
+        |implement Dep[Database, IO] { def get: IO[Database] = pure(Database("two")) }
+        |
+        |def useDb: {Dep[Database]} String = url(get)
+        |
+        |def main: IO[Unit] = println(useDb)""".stripMargin
+    ).asserting(_ should include("Overlapping ability implementation"))
+  }
+
   "ability" should "dispatch to correct implementation" in {
     compileAndRun(
       """ability Show[A] {

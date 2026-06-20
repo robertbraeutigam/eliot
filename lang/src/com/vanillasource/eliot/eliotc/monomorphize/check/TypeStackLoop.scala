@@ -170,11 +170,11 @@ class TypeStackLoop(
       resolvedValue: OperatorResolvedValue
   ): CheckIO[Unit] =
     checker.force(returnMeta).flatMap {
-      case _: SemValue.VMeta                                       =>
+      case _: SemValue.VMeta                                     =>
         reportUncalculableReturn(resolvedValue, "the body leaves it unconstrained")
       case SemValue.VNeutral(SemValue.NeutralHead.VVar(_, n), _) =>
         reportUncalculableReturn(resolvedValue, s"the result depends on '$n', which the inputs do not determine")
-      case _                                                       => pure(())
+      case _                                                     => pure(())
     }
 
   private def reportUncalculableReturn(resolvedValue: OperatorResolvedValue, reason: String): CheckIO[Unit] =
@@ -273,34 +273,44 @@ class TypeStackLoop(
     abilityVfqn.value.name.qualifier match {
       case Qualifier.Ability(abilityName) =>
         for {
-          state        <- get
+          state      <- get
           // The ability query must carry ONLY the ability-level type arguments. A method reference's own type args are
-          // `[abilityParams ++ methodParams]` (the ability's params are prepended to every method signature), so for an
-          // uncovered ref (e.g. `flatMap` of `Monad[F[_]]` called where `Monad` is not a constraint) we slice off the
-          // method-level params, keeping the leading `abilityArity`. The covered path already gets exactly the
-          // constraint's args. Without this, `flatMap` would query `Monad[F, A, B]` (3 args) and never match the
-          // single-param `Monad` impl pattern.
-          constraintArgs = state.findConstraintTypeArgs(paramConstraints, abilityName)
-          effectiveArgs <- constraintArgs match {
-                              case Some(args) => pure(args)
-                              case None       => abilityArity(abilityVfqn.value, abilityName).map(refTypeArgs.take)
+          // `[abilityParams ++ methodParams]` (the ability's params are prepended to every method signature), so we
+          // slice off the method-level params, keeping the leading `abilityArity` (e.g. `flatMap` of `Monad[F[_]]`
+          // queries `Monad[F]`, not `Monad[F, A, B]`).
+          arity      <- abilityArity(abilityVfqn.value, abilityName)
+          refSliced   = refTypeArgs.take(arity)
+          refGroundE  = refSliced.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore))
+          // Prefer the reference's OWN type arguments once they are fully ground: they pin the exact implementation.
+          // This is essential when several constraints share one ability — e.g. `Dep[Database]` and `Dep[Logger]` in a
+          // single body are both `Dep`, so the by-name constraint lookup would always return the first and every `get`
+          // would mis-dispatch to it. The constraint path remains the fallback *while the ref's args are still unsolved
+          // metas* (its original rationale: at the use site the caller has already instantiated the constraint to
+          // concrete types, whereas the reference's implicit metas are solved only once unification connects them).
+          groundArgsE = refGroundE match {
+                          case Right(ground) => Right(ground)
+                          case Left(_)       =>
+                            state.findConstraintTypeArgs(paramConstraints, abilityName) match {
+                              case Some(cArgs) =>
+                                cArgs.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore))
+                              case None        => refGroundE
                             }
-          groundArgsE   = effectiveArgs.toList.traverse(a => Quoter.quote(0, a, state.unifier.metaStore))
-          progressed   <- groundArgsE match {
-                            case Right(groundArgs) =>
-                              for {
-                                resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs))
-                                stepped  <- resolved match {
-                                              case Some(impl) =>
-                                                for {
-                                                  _ <- modify(_.recordAbilityResolution(abilityVfqn, impl))
-                                                  _ <- injectForImpl(abilityName, impl._1, abilityVfqn)
-                                                } yield true
-                                              case None       => pure(false)
-                                            }
-                              } yield stepped
-                            case Left(_)           => pure(false)
-                          }
+                        }
+          progressed <- groundArgsE match {
+                          case Right(groundArgs) =>
+                            for {
+                              resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs))
+                              stepped  <- resolved match {
+                                            case Some(impl) =>
+                                              for {
+                                                _ <- modify(_.recordAbilityResolution(abilityVfqn, impl))
+                                                _ <- injectForImpl(abilityName, impl._1, abilityVfqn)
+                                              } yield true
+                                            case None       => pure(false)
+                                          }
+                            } yield stepped
+                          case Left(_)           => pure(false)
+                        }
         } yield progressed
       case _                              => pure(false)
     }
@@ -308,8 +318,8 @@ class TypeStackLoop(
 
   /** The number of ability-level type parameters of the ability owning `methodVfqn` — read off the ability *marker*'s
     * signature (the synthetic value named after the ability, sharing the method's `Ability(name)` qualifier), whose
-    * leading generic binders are exactly the ability's parameters. Used to slice an ability method reference's full type
-    * args down to the ability-level prefix for the impl query. Falls back to `Int.MaxValue` (slice nothing) if the
+    * leading generic binders are exactly the ability's parameters. Used to slice an ability method reference's full
+    * type args down to the ability-level prefix for the impl query. Falls back to `Int.MaxValue` (slice nothing) if the
     * marker has no resolvable signature, preserving prior behaviour rather than mis-slicing.
     */
   private def abilityArity(methodVfqn: ValueFQN, abilityName: String): CheckIO[Int] = {
@@ -387,16 +397,16 @@ class TypeStackLoop(
     * higher-kinded carrier `IO` passed as `[F[_]] := IO`, or `Int[0,255]`) is converted through
     * [[Evaluator.groundToSem]] into an *applicable* `VTopDef`/`VType`, so that a later `F[A]` in the body reduces to
     * `IO[A]`. A bare `VConst` is inert under `applyValue` (its fallback returns the argument), which would silently
-    * collapse `F[A]` to `A`. A *value-level* argument (a data instance like `Person(...)` passed for `A: Person`, or
-    * a `Direct` literal) stays a `VConst`: it is never applied, and the post-drain reification gate
-    * (`PostDrainQuoter`) recognises the `VConst(ground)` form to materialise it into a runtime constructor tree.
+    * collapse `F[A]` to `A`. A *value-level* argument (a data instance like `Person(...)` passed for `A: Person`, or a
+    * `Direct` literal) stays a `VConst`: it is never applied, and the post-drain reification gate (`PostDrainQuoter`)
+    * recognises the `VConst(ground)` form to materialise it into a runtime constructor tree.
     */
   private def applyTypeArgs(
       signature: SemValue,
       typeArgs: Seq[GroundValue],
       errorSource: Sourced[?]
   ): CheckIO[SemValue] = {
-    def toSemArg(g: GroundValue): SemValue = g match {
+    def toSemArg(g: GroundValue): SemValue                                   = g match {
       case GroundValue.Type                              => VType
       case GroundValue.Structure(_, _, GroundValue.Type) => Evaluator.groundToSem(g)
       case _                                             => VConst(g)

@@ -39,11 +39,13 @@ object ModuleName {
     "TypeMatch",
     "Int",
     "Runtime",
-    // `Console` is the one effect ability users name ambiently: `println`/`readLine` and the `{Console}` sugar must
-    // resolve in every module with no import (the old top-level `println` lived in the ambient `String` module). The
-    // internal effect machinery (`Monad`/`Applicative`/`Sync`) is NOT ambient — it is imported by the platform layer
-    // and referenced by FQN from the effect-desugar phase.
-    "Console"
+    // `Console`/`Log`/`Dep` are the public effect abilities users name ambiently: their operations and the `{...}`
+    // sugar must resolve in every module with no import (the old top-level `println` lived in the ambient `String`
+    // module). The internal effect machinery (`Monad`/`Applicative`/`Sync`) is NOT ambient — it is imported by the
+    // platform layer and referenced by FQN from the effect-desugar phase.
+    "Console",
+    "Log",
+    "Dep"
   ).map(ModuleName(defaultSystemPackage, _))
 
 }

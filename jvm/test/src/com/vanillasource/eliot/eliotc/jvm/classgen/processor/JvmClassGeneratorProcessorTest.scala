@@ -121,7 +121,9 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
                     descriptor: String,
                     isInterface: Boolean
                 ): Unit =
-                  if (opcode == Opcodes.INVOKESTATIC && name == "show")
+                  // The impl method now carries an impl-disambiguator suffix (`show$Show$impl$0`) so that two
+                  // implementations of one ability whose methods share an erased descriptor cannot collide.
+                  if (opcode == Opcodes.INVOKESTATIC && name.startsWith("show"))
                     fCallsShowImpl = true
               }
             else null

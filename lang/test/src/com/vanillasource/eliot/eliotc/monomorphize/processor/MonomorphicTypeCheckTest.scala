@@ -1058,7 +1058,9 @@ class MonomorphicTypeCheckTest
         |""".stripMargin
     ),
     SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    SystemImport("Console", ProcessorTest.consoleStubContent)
+    SystemImport("Console", ProcessorTest.consoleStubContent),
+    SystemImport("Log", ProcessorTest.logStubContent),
+    SystemImport("Dep", ProcessorTest.depStubContent)
   )
 
   /** Imports for the snippet that reference `coerce`/`Option` by name (`Int` itself is ambient). */

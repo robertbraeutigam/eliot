@@ -60,7 +60,9 @@ class MatchNativesProcessorTest
     ),
     SystemImport("Int", ProcessorTest.intStubContent),
     SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    SystemImport("Console", ProcessorTest.consoleStubContent)
+    SystemImport("Console", ProcessorTest.consoleStubContent),
+    SystemImport("Log", ProcessorTest.logStubContent),
+    SystemImport("Dep", ProcessorTest.depStubContent)
   )
 
   "match natives" should "reduce a data-match on nullary constructors (handleCases)" in {

@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{
   constructorArityValue,
   constructorDataTypeValue,
-  mangleSuffix,
+  mangledMethodName,
   valueType
 }
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{convertToNestedClassName, systemAnyValue, systemFunctionValue, systemUnitValue}
@@ -275,7 +275,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     * must be generated once; instantiations with the same name but a different key are valid overloads.
     */
   private def methodSignatureKey(uncurriedValue: UncurriedMonomorphicValue, typeArgs: Seq[GroundValue]): String = {
-    val name       = uncurriedValue.vfqn.name.name + mangleSuffix(typeArgs)
+    val name       = mangledMethodName(uncurriedValue.vfqn, typeArgs)
     val paramTypes = uncurriedValue.parameters.map(p => valueType(p.parameterType).show).mkString(",")
     s"$name($paramTypes):${valueType(uncurriedValue.returnType).show}"
   }
@@ -288,7 +288,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   ): CompilerIO[(Seq[ClassFile], Int)] = {
     uncurriedValue.body match {
       case Some(body) =>
-        val methodName = uncurriedValue.vfqn.name.name + mangleSuffix(typeArgs)
+        val methodName = mangledMethodName(uncurriedValue.vfqn, typeArgs)
         classGenerator
           .createMethod[CompilerIO](
             JvmIdentifier.encode(methodName),

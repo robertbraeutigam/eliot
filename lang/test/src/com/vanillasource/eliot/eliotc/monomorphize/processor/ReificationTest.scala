@@ -70,7 +70,9 @@ class ReificationTest
     ),
     SystemImport("Int", ProcessorTest.intStubContent),
     SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    SystemImport("Console", ProcessorTest.consoleStubContent)
+    SystemImport("Console", ProcessorTest.consoleStubContent),
+    SystemImport("Log", ProcessorTest.logStubContent),
+    SystemImport("Dep", ProcessorTest.depStubContent)
   )
 
   private val personSource = "data Person(name: String, age: BigInteger)\n"

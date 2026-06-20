@@ -1,0 +1,42 @@
+import eliot.lang.Monad
+
+/**
+ * Multi-effect composition (effects plan, M4): a single function that uses THREE effects at once —
+ * `Dep[Database]` (an injected dependency), `Log` (diagnostics), and `Console` (terminal I/O) — written in direct
+ * style. The braces are an *unordered set*: `{Dep[Database], Log, Console}` says "this computation uses these three
+ * capabilities and produces a `Unit`". There is no nesting and no transformer in the signature.
+ *
+ * `get` performs the `Dep[Database]` effect and yields a plain `Database`; `log`/`readLine`/`println` perform `Log`/
+ * `Console`. The effect-desugar phase threads them all through the one shared carrier `F`, inserting the binds, so the
+ * body reads like ordinary code. `main` commits the carrier to the concrete runtime `IO`, and monomorphization resolves
+ * every effect through the JVM layer and erases the whole tower to flat code.
+ *
+ * The effect set is *checked*: `run` may only perform effects it declares (calling a `{Log}` helper without declaring
+ * `Log` is a compile error — propagation is a plain set-subset check). Run it and type a line:
+ *
+ *   ./mill examples.run jvm exe-jar examples/src/ -m EffectsMulti
+ *   echo "hello there" | java -jar target/EffectsMulti.jar
+ *   -- prints:  [LOG] jdbc://app-db
+ *   --          hello there
+ */
+data Database(url: String)
+
+/**
+ * The application's single database dependency, injected as a compile-time singleton. Coherence (the ordinary ability
+ * overlap rule) guarantees at most one `Dep[Database]` instance, so `get` is unambiguous; monomorphization collapses
+ * this to a direct reference.
+ */
+implement Dep[Database, IO] {
+   def get: IO[Database] = pure(Database("jdbc://app-db"))
+}
+
+/**
+ * Logs the injected database url, then echoes a line of input — three effects sequenced left to right by the
+ * auto-lift: `get` (Dep) -> `log` (Log) -> `readLine` (Console) -> `println` (Console).
+ */
+def run: {Dep[Database], Log, Console} Unit = andThen(log(url(get)), println(readLine))
+
+/** Sequence two effectful `Unit` computations, keeping the second result (a stand-in for a `>>` combinator). */
+def andThen(first: Unit, second: Unit): Unit = second
+
+def main: IO[Unit] = run

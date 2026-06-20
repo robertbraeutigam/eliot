@@ -1,0 +1,20 @@
+/**
+ * The dependency effect: read-only access to an injected value of a given type.
+ *
+ * `Dep[X]` is a commuting (reader-like) effect: a function that needs an `X` from the environment writes `{Dep[X]}` in
+ * its effect set and calls `get` to obtain it (`def lookup : {Dep[Database]} Row = query(get)`). The effect carries the
+ * *type* of the dependency, so two distinct dependencies are two distinct effects (`{Dep[Database], Dep[Logger]}`), and
+ * `get` is dispatched by the type expected at its use site.
+ *
+ * The ability is parameterised by both the dependency type `X` and the carrier `F[_]`; an instance `Dep[X, F]` supplies
+ * the value for one concrete dependency type. Coherence (the ordinary ability overlap rule) forbids two instances for
+ * the same `(X, F)`, which is exactly "at most one `Dep` per type". Declared abstract here; a layer or application
+ * supplies the instances (e.g. a compile-time singleton `implement Dep[Database, IO] { def get = pure(theDatabase) }`,
+ * which monomorphization collapses to a direct reference).
+ */
+ability Dep[X, F[_]] {
+   /**
+    * Obtain the injected value of type `X`, dispatched by the type expected at the use site.
+    */
+   def get: F[X]
+}

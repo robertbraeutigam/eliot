@@ -1,0 +1,15 @@
+/**
+ * The logging effect: emitting diagnostic messages.
+ *
+ * `Log` is a public, fine-grained effect alongside [[Console]] — a function that logs writes `{Log}` in its effect set
+ * (`def step : {Log} Unit = log("starting")`). It is declared abstract here (platform-independent); a platform layer
+ * supplies a concrete instance generic over any carrier with a [[Sync]] base (`implement[F[_] ~ Sync] Log[F]`), so the
+ * same logic runs on production `IO` or a pure test carrier. Combined freely with other effects in one signature:
+ * `def run : {Dep[Database], Log, Console} Unit = ...`.
+ */
+ability Log[F[_]] {
+   /**
+    * Emit a diagnostic message. The platform decides the destination (e.g. standard output, a file, a sink).
+    */
+   def log(s: String): F[Unit]
+}

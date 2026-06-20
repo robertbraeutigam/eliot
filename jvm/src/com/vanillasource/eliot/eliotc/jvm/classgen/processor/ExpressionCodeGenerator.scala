@@ -4,7 +4,7 @@ import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
-import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{mangleSuffix, valueType}
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{mangledMethodName, valueType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.convertToNestedClassName
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier, MethodGenerator}
@@ -386,7 +386,7 @@ object ExpressionCodeGenerator {
                               )
                                 calledVfqn.name.name
                               else
-                                calledVfqn.name.name + mangleSuffix(typeArgs)
+                                mangledMethodName(calledVfqn, typeArgs)
                             for {
                               classes <-
                                 arguments.flatTraverse(expression =>
