@@ -208,6 +208,14 @@ keyword, or instance mechanism — co-located definitions of the same qualified 
 (abstract); the `jvm` layer redefines `data IO[A](block: Function[Unit, A])` and
 `def println(s) = IO(_ -> printlnInternal(s))` (concrete). The compiler unifies them into a single value.
 
+**Layers *mix*, they do not *stack*; every file must stand on its own.** Name resolution is per-file (a file's
+dictionary is its own declarations + imports, never names declared in a *sibling* file of the same module). So when one
+file needs a name another file of the same module declares — e.g. a carrier-generic ability instance
+`implement[F[_] ~ Sync] Console[F]`, which must be colocated with its ability and therefore lives in the ability's
+module — that file must **re-declare (copy) what it needs** (here, `ability Console[F[_]]` itself); the merge then
+**verifies the copies agree** (`signatureEquality`) rather than letting them drift. Duplication is the sanctioned
+mechanism here — do *not* "fix" a cross-file reference by widening the resolver to span sibling files.
+
 **How it works mechanically** (the `source` + `module` packages):
 - The compiler is given multiple **root paths** (CLI roots + classpath resources). `PathScanner`
   (`source/scan/PathScanner.scala`) resolves a module path against *all* roots and returns *every*
