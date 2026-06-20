@@ -7,15 +7,15 @@ logging, error, state — composed in **direct style** (no `do`/for-comprehensio
 `flatMap`, no manual `lift`), declared visibly at signatures, and **erased to flat code at runtime**.
 
 **One developer-facing concept: an "effect."** A type may carry a curly-brace list of effects
-*before* the result type — `def readLine: {Sync} String`. There is no second concept: no "monad,"
+*before* the result type — `def readLine: {Console} String`. There is no second concept: no "monad,"
 "transformer," or "ability" appears in a signature — only effects. Inside a body you write in direct
 style and the compiler inserts the monadic plumbing:
 
 ```eliot
-def greet: {Sync} Unit = println(readLine())
+def greet: {Console} Unit = println(readLine())
 ```
 
-`readLine` is `{Sync} String`; its result flows directly into `println`, which expects a plain
+`readLine` is `{Console} String`; its result flows directly into `println`, which expects a plain
 `String`; the compiler binds it and lifts the continuation automatically. The only thing checked is
 that the **effects a body uses are a subset of those declared** in its signature (and nothing is
 hidden).
@@ -95,7 +95,7 @@ library's discharge functions and carrier instances.
    effect set; the body's effects are inferred as the **union of its callees' declared sets**
    (carriers unified to the one `F`) and checked **⊆ the declared set**. Undeclared effect ⟹ error;
    unused declared effects are allowed (they just don't fire). No nesting, no lifting, no join — set
-   union and subset. This reuses the "sound, not modular" cornerstone: a generic `{Sync}` body is
+   union and subset. This reuses the "sound, not modular" cornerstone: a generic `{Console}` body is
    verified at each concrete `F` that manifests, not proven for all `F`.
 
 7. **Structure and ordering are born at discharge; the *order of discharge calls* fixes interaction.**
@@ -122,8 +122,65 @@ library's discharge functions and carrier instances.
    `data IO[A]`, so `main`'s type is the concrete `IO[Unit]` (ordinary type syntax) — the **seed**
    that pins `F := IO` and lets monomorphization specialize the reachable program. Business logic
    stays carrier-polymorphic (`{Sync, Dep[Db], …}`); only the entry point commits, so logic remains
-   reusable and statically testable under another carrier. You never write `{IO}`; `Sync` is the
-   capability the concrete `IO` implements.
+   reusable and statically testable under another carrier. You never write `{IO}` or `{Sync}`; `Sync` is
+   the internal base capability the concrete `IO` implements, and the effects you *do* name are the
+   fine-grained ones (`Console`, `Clock`, `File`, …) keyed on `Sync` (Decision 10).
+
+9. **The I/O boundary is a `private` leaf native wrapped in Eliot — the carrier never appears in a
+   business signature, and the impurity is unreachable.** An effect operation that touches the world
+   bottoms out in a **leaf native** — bytecode with a deliberately pure-looking type, e.g.
+   `private def printlnInternal(s: String): Unit`. This is the single irreducible impure spot (the
+   analogue of a Haskell FFI import). The platform layer *wraps* every such leaf in ordinary Eliot via
+   the carrier's reification member `sync`/`delay`:
+   ```eliot
+   ability Sync[F[_]]    { def sync[A](thunk: Function[Unit, A]): {Sync} A }   -- internal reification tier
+   ability Console[F[_]] { def println(s: String): {Console} Unit }            -- a public fine effect (Decision 10)
+   -- jvm layer:
+   implement Sync[IO]                { def sync(thunk) = IO(thunk) }            -- the only mention of IO
+   implement[F[_] ~ Sync] Console[F] { def println(s) = sync(_ -> printlnInternal(s)) }
+   private def printlnInternal(s: String): Unit                                -- the only impure, opaque spot
+   -- users write:  def greet : {Console} Unit = println("hi")
+   ```
+   So the whole `IO(_ -> …)` structure stays Eliot-visible to monomorphize/the optimizer; only the
+   zero-structure leaf call is opaque (and, being body-less, it is a stuck neutral at compile time —
+   never run by the NbE evaluator). **Safety = the leaf is `private`**, which Eliot already enforces
+   (`ValueResolver` refuses a private name referenced from another module). App code can never *name*
+   the leaf, so it can never do untracked I/O — it reaches I/O only through a `{Console}`-typed
+   operation like `println`, which records the effect honestly. `sync`/`delay` staying a public ability
+   method is harmless: calling it forces the caller into `{Sync}` (it *is* `{Sync} A`), exactly as calling
+   `println` forces `{Console}`, and the only impure thing worth passing it is the `private` leaf; on pure code it is just a
+   redundant `pure`. No access control beyond `private` is needed. This is **Haskell's discipline**
+   (you cannot fabricate a primitive effect from pure code) realized with **mtl/cats-effect's
+   polymorphic-carrier machinery** (the carrier needs `delay` to lift a leaf native into `F`) — possible
+   precisely because Eliot is pure, so there is no impure host expression a user would ever need, or be
+   able, to capture. *Fail-safe enforcement* (the compiler cannot *detect* a native's impurity — it lives
+   in the bytecode): the backend's impure-native registration **asserts the resolved def is
+   `Visibility.Private`** and hard-errors otherwise, so a platform author cannot silently reopen the hole;
+   pure natives (arithmetic, type-level) stay public and are simply not in that registry.
+
+10. **I/O effects are fine-grained and keyed on `Sync`, not on the concrete carrier.** Following
+    cats-effect, world-touching capability is split into small *public* effects — `Console`, `Clock`,
+    `File`, `Random`, … — each an ordinary ability whose operations are its methods, abstract in stdlib.
+    Users name these (`def greet : {Console} Unit`) and **never `{Sync}`**: `Sync` is the internal
+    reification tier (Decision 9), used only inside the platform-layer instances. Each fine effect's
+    instance is **generic over the carrier, constrained by `Sync`** — never specialised to `IO`:
+    ```eliot
+    implement[F[_] ~ Sync] Console[F] { def println(s) = sync(_ -> printlnInternal(s)) }   -- jvm layer
+    ```
+    The *only* place the concrete `IO` is named is the **base `Sync[IO]` instance**; `Console`/`Clock`/
+    `File` mention only `Sync`. (The instance is "platform-specific" merely in *which leaf natives it
+    calls* — hence which layer it physically lives in — not in its carrier.) Consequence: a fine effect is
+    available for **any carrier with `IO` at its base** — `IO`, `OptionT[IO]`, `StateT[OptionT[IO]]`, … —
+    because the base-effect lifting instances (`Sync[OptionT[G]]` from `Sync[G]`, one per transformer; the
+    `MonadIO`-style lift) propagate `Sync` up the whole stack and every `Sync`-keyed fine effect rides it.
+    So lifting is written **once per transformer for the base `Sync`/`Monad`** (n instances) and *all* fine
+    effects work through the entire stack for free — the n×m (effects × transformers) matrix collapses to
+    n. `IO` sits only at the innermost base, pinned by `main` (Decision 8); every layer carries `Sync`.
+    **Testing is the mirror image:** a pure recording carrier supplies its own *direct*
+    `implement Console[TestF]` (not via `Sync`), so `{Console}` logic runs with no `IO` at all — coherent
+    because it is a different carrier type (no overlap). The one net-new mechanism this needs is the
+    **constrained HKT instance** `implement[F[_] ~ Sync] Console[F]` (M0 established the same constraint on
+    a function param; on an instance param it should get its own spike).
 
 ## How it compares (for the reader)
 
@@ -275,7 +332,7 @@ classification, no wrapping:
 > counts toward `inferableArity`); for each brace entry `Ei` add a constraint `F ~ Ei`; rewrite each
 > `{…} A` occurrence to `F[A]`.
 
-So `def readLine: {Sync} String` becomes `def readLine[F[_] ~ Sync]: F[String]`; `def transfer(amt:
+So `def readLine: {Console} String` becomes `def readLine[F[_] ~ Console]: F[String]`; `def transfer(amt:
 Money): {State[Account], Abort, Log} Receipt` becomes `def transfer[F[_] ~ State[Account] ~ Abort ~
 Log](amt: F[Money]?): F[Receipt]` (carrier shared across all `{…}` in the signature). Done at the
 core level (`core/processor/CoreProcessor.scala`, where `data` and `[F[_]]` arity already desugar).
@@ -377,16 +434,33 @@ body. No `EffectfulType` survives into conversion (`CoreExpressionConverter` har
 Verified by the golden equivalence + set-property tests at the core and operator levels, and an end-to-end ability
 test where `{Monad} String` reproduces the M0 `[F[_] ~ Monad]` acceptance program. Next: M2 (library spine + run).
 
-### M2 — Library spine + `Sync` + run (no auto-lift)
+### M2 — Library spine + `Sync` + `Console` + run (no auto-lift)
 
 - `ability Monad[F[_]] { def flatMap[A,B](fa: F[A], f: A -> F[B]): F[B]; def pure[A](a: A): F[A] }` and
   `Applicative`/`map` (stdlib, abstract).
-- One capability, `ability Sync[F[_]] { … }` (or fold `IO` primitives into it), abstract in stdlib.
-- Concrete JVM carrier: `data IO[A](…)` already exists (`jvm/.../IO.els`); add `implement Monad[IO]`,
-  `implement Sync[IO]`, `printlnInternal`-style leaf natives in the `jvm` layer; backend pins `main`'s
-  carrier to JVM `IO` and runs `block`.
-- **Acceptance:** a hand-monadic `def main: {Sync} Unit = flatMap(readLine, s -> println(s))` compiles
-  to a jar and runs end-to-end. Proves library + discharge-to-`IO` without the desugarer.
+- **`Sync` — the internal reification tier** (Decision 9), abstract in stdlib:
+  `ability Sync[F[_]] { def sync[A](thunk: Function[Unit, A]): {Sync} A }`. `sync`/`delay` embeds a
+  deferred leaf native into `F` (it cannot be `pure`, which would force the native at compile time). Not
+  a user-facing effect — users name fine effects, never `{Sync}`.
+- **`Console` — the first public fine effect** (Decision 10), abstract in stdlib:
+  `ability Console[F[_]] { def println(s: String): {Console} Unit; def readLine: {Console} String }`.
+- Concrete JVM layer: `data IO[A](…)` already exists (`jvm/.../IO.els`); add `implement Monad[IO]`, the
+  **base** `implement Sync[IO] { def sync(t) = IO(t) }` (the only place `IO` is named), the **generic,
+  `Sync`-keyed** `implement[F[_] ~ Sync] Console[F] { def println(s) = sync(_ -> printlnInternal(s));
+  def readLine = sync(_ -> readLineInternal()) }`, and the `private` leaf natives. Per Decision 10 the
+  fine-effect instance is carrier-generic (works for any `F` with `Sync`), not pinned to `IO`; per
+  Decision 9 each leaf is `private` and wrapped in Eliot, so the whole `IO(_ -> …)` tree stays
+  Eliot-visible and nothing about carriers leaks into native code. Backend pins `main`'s carrier to JVM
+  `IO` and runs `block`.
+- **Safety check:** the backend's impure-native registration asserts each registered FQN's resolved def
+  is `Visibility.Private`, hard-erroring otherwise (a forgotten `private` is caught at build, never a
+  silent pure-typed-impure hole). Pure natives stay public, outside that registry.
+- **Acceptance:** a hand-monadic `def main: {Console} Unit = flatMap(readLine, s -> println(s))` compiles
+  to a jar and runs end-to-end — proves library + the `Console`→`Sync`→`IO` layering, and that the
+  **constrained HKT instance** `implement[F[_] ~ Sync] Console[F]` resolves at `F := IO` (the net-new
+  case vs. the existing unconstrained `implement Container[Box]`). Plus: a user module referencing
+  `printlnInternal` directly fails to resolve (`private` boundary), and a backend test that registering a
+  non-`private` impure native hard-errors.
 
 ### M3 — Body auto-lift (Part B, the headline)
 
@@ -394,19 +468,19 @@ test where `{Monad} String` reproduces the M0 `[F[_] ~ Monad]` acceptance progra
   saturate's input to `EffectDesugaredValue`.
 - Implement carrier/effect inference, the bind-insertion algorithm (flatMap/map/pure, boundaries,
   left-to-right; **no lift**), and the effect-set ⊆ declared check.
-- **Acceptance:** `def main: {Sync} Unit = println(readLine())` compiles and runs (prints the line).
-  `def foo: Unit = println(readLine())` is rejected with "uses {Sync} but is declared pure" (and is
+- **Acceptance:** `def main: {Console} Unit = println(readLine())` compiles and runs (prints the line).
+  `def foo: Unit = println(readLine())` is rejected with "uses {Console} but is declared pure" (and is
   *also* caught by monomorphize as a backstop). Tests: a new `effect` suite over desugaring shapes +
   end-to-end `examples/src/Effects.els`.
 
 ### M4 — Multi-effect composition + propagation + `Dep`
 
-- Multiple effects in one signature (`{Dep[Database], Log, Sync} A`); carrier unification across
+- Multiple effects in one signature (`{Dep[Database], Log, Console} A`); carrier unification across
   callees; effect propagation (calling a `{Log}` function makes the caller need `{Log}` unless
   discharged) — all set union/subset, no nesting.
 - Add `Dep[X, F[_]]` (`get[X]` dispatched by type; coherence rejects a duplicate same-type `Dep`) and
   `Log`, with JVM instances.
-- **Acceptance:** a small `{Dep[Database], Log, Sync}` program compiles, runs, and rejects
+- **Acceptance:** a small `{Dep[Database], Log, Console}` program compiles, runs, and rejects
   undeclared-effect cases with precise errors; two distinct-typed `Dep`s resolve `get` correctly and a
   same-type-`Dep` overlap is rejected.
 
@@ -415,16 +489,24 @@ test where `{Monad} String` reproduces the M0 `[F[_] ~ Monad]` acceptance progra
 - Add effects whose discharge reflects a **data structure**: `Abort` (⟹ `Option`), `Throw[E]` (⟹
   `Either[E, _]`), `State[S]` (⟹ `(_, S)`), each with its discharge function (Part C), implemented
   over a concrete transformer (`OptionT`/`EitherT`/`StateT`) with the needed `Monad` + lifting
-  instances **inside the library**.
+  instances **inside the library**. The same per-transformer base lifting (`Sync`/`Monad`: e.g.
+  `Sync[OptionT[G]]` from `Sync[G]`, the `MonadIO`-style lift) is what makes the fine I/O effects of
+  Decision 10 work through *any* IO-stack — a `Sync`-keyed `Console`/`Clock`/`File` rides that lift, so
+  lifting is written once per transformer for the base (n instances), never per fine effect (the n×m
+  matrix collapses to n).
 - Demonstrate **ordering at the edge:** `runState(runAbort(p), s0) : (Option[A], S)` vs
   `runAbort(runState(p, s0)) : Option[(A, S)]` — both type-check and give the two expected, different
   results (state-survives-abort vs abort-discards-state).
 - Demonstrate **static testability:** run the same business logic under a test carrier / test `Env`
-  (fake `Database`), asserting on output — no production `IO`.
+  (fake `Database`), asserting on output — no production `IO`. The test carrier supplies its own *direct*
+  `implement Console[TestF]` (not via `Sync`), so `{Console}` logic runs with no `IO` — coherent because
+  it is a different carrier type (Decision 10).
 - **Dep erasure:** confirm monomorphization collapses a compile-time-singleton dependency to a direct
   reference; document the pattern.
 - **Acceptance:** the order-sensitive pair above; a prod-vs-test run of one logic; a codegen check that
-  a singleton dependency leaves no allocation.
+  a singleton dependency leaves no allocation; and a `{Console, Abort}` program type-checks — the fine
+  effect resolving through the `OptionT[IO]` stack via the base `Sync` lift, confirming the
+  constrained-HKT-instance + lifting path of Decision 10.
 
 ### Cross-cutting (fold into the milestones)
 
@@ -449,7 +531,7 @@ test where `{Monad} String` reproduces the M0 `[F[_] ~ Monad]` acceptance progra
   `runAbortOr(d)`. These are different discharge *functions* over the same effect — fine, and the
   intended way to vary observation without dynamic handlers. Decide which observations the stdlib ships
   per effect.
-- **Effects in data/HOF positions.** `F[A]` is an ordinary type, so a field `run: {Sync} Unit`
+- **Effects in data/HOF positions.** `F[A]` is an ordinary type, so a field `run: {Console} Unit`
   (= `F[Unit]`) is representable, but constructing `Handler(readLine())` should **store** the action,
   not bind it. Rule: a data field typed `F[A]` is a **storage** position (no auto-bind); only
   *value-argument positions expecting a pure type* auto-bind. Make explicit and tested.
@@ -457,13 +539,19 @@ test where `{Monad} String` reproduces the M0 `[F[_] ~ Monad]` acceptance progra
   spuriously while `F` is still a meta (defer like other constraint-covered references).
 - **Coherence.** Each concrete carrier needs unique, non-overlapping effect instances; rides on the
   existing ability overlap checks but should be tested for HKT instances. This is what gives "one `Dep`
-  per type" for free (`Dep[Database]` twice = overlapping instances → rejected).
+  per type" for free (`Dep[Database]` twice = overlapping instances → rejected). The specific net-new
+  case to spike is the **constrained HKT instance** (`implement[F[_] ~ Sync] Console[F]`, Decision 10):
+  M0 proved `[F[_] ~ Cap]` as a constraint on a *function* param; on an *instance* param it is unverified
+  (existing HKT-instance evidence, `implement Container[Box]`, is unconstrained).
 - **Part A placement.** Core-level desugar (recommended) vs a dedicated pre-resolve step. Core keeps it
   with the other sugar; confirm `CoreProcessor` can introduce an inferable generic cleanly.
 - **Library lifting strategy.** The one real authoring cost (Part C instances). Decide between explicit
   mtl-style per-pair lifting instances vs a single freer/`Free`-style carrier that interprets a set of
   operations (avoids n² but needs its own fusion story under monomorphization). Start with explicit
-  transformers for a small fixed effect set; revisit if the matrix grows.
+  transformers for a small fixed effect set; revisit if the matrix grows. Note the matrix is already
+  smaller than it looks: fine I/O effects are keyed on `Sync` (Decision 10), so they ride the base
+  `Sync`/`Monad` lift and need no per-effect lifting instances — only the base capabilities are lifted
+  per transformer (n, not effects × transformers).
 
 ## Effects and termination are one mechanism
 
