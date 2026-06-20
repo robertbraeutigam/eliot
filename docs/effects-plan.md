@@ -434,7 +434,37 @@ body. No `EffectfulType` survives into conversion (`CoreExpressionConverter` har
 Verified by the golden equivalence + set-property tests at the core and operator levels, and an end-to-end ability
 test where `{Monad} String` reproduces the M0 `[F[_] ~ Monad]` acceptance program. Next: M2 (library spine + run).
 
-### M2 — Library spine + `Sync` + `Console` + run (no auto-lift)
+### M2 — Library spine + `Sync` + `Console` + run (no auto-lift) ✅ DONE
+
+Implemented (2026-06-20). Stdlib abstract abilities `Monad[F[_]]` (`flatMap`/`pure`), `Applicative[F[_]]` (`map`),
+`Sync[F[_]]` (`sync`), `Console[F[_]]` (`println`/`readLine`); `Console` added to `defaultSystemModules` (the one
+user-facing effect resolves with no import — `println` moved out of `String`); the old top-level `println` removed. JVM
+layer: `IO.els` gains `implement Monad[IO]`/`Applicative[IO]`/`Sync[IO]` (all fully Eliot-visible); a self-complete
+`Console.els` re-declares the `Console` ability (the layer system *mixes* files — a carrier-generic instance must be
+colocated with its ability, so the ability is duplicated and the merge verifies the signatures agree) and provides the
+**constrained HKT instance** `implement[F[_] ~ Sync] Console[F]` plus the `private` leaf natives `printlnInternal` /
+`readLineInternal`. Backend safety check `NativeImplementation.visibilityViolation` hard-errors if an `impure` native is
+not `private`. Acceptance met end-to-end: `def echo : {Console} Unit = flatMap(readLine, s -> println(s))` +
+`def main : IO[Unit] = echo` compiles to a jar and echoes stdin; `def main : IO[Unit] = println("Hello World!")` still
+runs (Console→Sync→IO at `F := IO`); referencing `printlnInternal` cross-module is refused ("Name is private.").
+
+Two general compiler bugs the effect carriers exposed (both fixed in `monomorphize/check/TypeStackLoop`):
+- **Carrier collapse:** `applyTypeArgs` wrapped *every* ground type arg as an inert `VConst`; a higher-kinded carrier
+  arg (`[F[_]] := IO`) must be an *applicable* `VTopDef` or `F[A]` silently reduces to `A` (the `applyValue` fallback
+  returns its argument). Fix: route type-level structures through `Evaluator.groundToSem` (value structures stay `VConst`
+  for reification).
+- **Uncovered ability-method query:** an uncovered ability method (e.g. `flatMap` of `Monad[F[_]]` called where `Monad`
+  is not a constraint) queried `Monad[F, A, B]` (carrier + method params) and never matched the single-param impl. Fix:
+  slice the ref's type args to the ability marker's binder count (`abilityArity`).
+
+Deviation from the literal acceptance line: `main` commits to the concrete `IO[Unit]` (Decision 8) rather than
+`{Console} Unit`. `{Console}` *directly* on `main` does not yet work — the generated entry wrapper (`block(main)`) does
+not pin `main`'s inferable carrier to `IO`, so the Console methods stay abstract; carrier-polymorphic `{Console}` on
+*business* functions works (pinned at the `IO[Unit]` call site). Separately, the LSP type-checks the abstract-only
+workspace, so `println`-using code now reports "does not implement Console" there (no platform impl) — both are tracked
+as IDE/entry-point follow-ups, not M2 blockers.
+
+Original M2 plan (for reference):
 
 - `ability Monad[F[_]] { def flatMap[A,B](fa: F[A], f: A -> F[B]): F[B]; def pure[A](a: A): F[A] }` and
   `Applicative`/`map` (stdlib, abstract).

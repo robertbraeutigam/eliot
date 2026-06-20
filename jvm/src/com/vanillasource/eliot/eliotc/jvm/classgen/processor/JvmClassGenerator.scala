@@ -21,7 +21,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.processor.ExpressionCodeGener
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.NativeImplementation.implementations
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, UnifiedModuleValue, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -209,6 +209,22 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                 )
     } yield ()
 
+  /** Fail-safe enforcement of the I/O boundary: an impure leaf native (e.g. `printlnInternal`) must be declared
+    * `private` so no application module can name it and perform untracked I/O. The compiler cannot detect a native's
+    * impurity from its bytecode, so the registry is the source of truth and this asserts the resolved def's visibility
+    * matches — a forgotten `private` is caught at build time, never a silent pure-typed-impure hole. Pure natives are
+    * unconstrained and skip the fact lookup entirely.
+    */
+  private def verifyNativeVisibility(vfqn: ValueFQN, native: NativeImplementation): CompilerIO[Unit] =
+    if (!native.impure) ().pure[CompilerIO]
+    else
+      getFactOrAbort(UnifiedModuleValue.Key(vfqn)).flatMap { umv =>
+        NativeImplementation.visibilityViolation(vfqn, native.impure, umv.namedValue.visibility) match {
+          case Some(message) => compilerAbort[Unit](umv.namedValue.qualifiedName.as(message))
+          case None          => ().pure[CompilerIO]
+        }
+      }
+
   private def createModuleMethod(
       mainClassGenerator: ClassGenerator,
       vfqn: ValueFQN,
@@ -216,7 +232,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
   ): CompilerIO[Seq[ClassFile]] = {
     implementations.get(vfqn) match {
       case Some(nativeImplementation) =>
-        nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty)
+        verifyNativeVisibility(vfqn, nativeImplementation) >>
+          nativeImplementation.generateMethod(mainClassGenerator).as(Seq.empty)
       case None                       =>
         val distinctTypeArgs = stats.monomorphicTypeParameters.distinct
         val arities          = stats.directCallApplications.keys.toSeq.sorted

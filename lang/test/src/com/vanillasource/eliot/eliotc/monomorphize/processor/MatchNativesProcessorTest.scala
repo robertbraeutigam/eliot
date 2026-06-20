@@ -59,7 +59,8 @@ class MatchNativesProcessorTest
       "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
     ),
     SystemImport("Int", ProcessorTest.intStubContent),
-    SystemImport("Runtime", ProcessorTest.runtimeStubContent)
+    SystemImport("Runtime", ProcessorTest.runtimeStubContent),
+    SystemImport("Console", ProcessorTest.consoleStubContent)
   )
 
   "match natives" should "reduce a data-match on nullary constructors (handleCases)" in {

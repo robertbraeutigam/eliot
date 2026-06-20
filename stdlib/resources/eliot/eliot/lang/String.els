@@ -2,8 +2,3 @@
  * Unicode compatible character Strings. The stored format is implementation dependent.
  */
 type String
-
-/**
- * Print a string to the standard output.
- */
-def println(s: String): IO[Unit]

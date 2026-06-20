@@ -36,7 +36,8 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("PatternMatch", ""),
     SystemImport("TypeMatch", ""),
     SystemImport("Int", ProcessorTest.intStubContent),
-    SystemImport("Runtime", ProcessorTest.runtimeStubContent)
+    SystemImport("Runtime", ProcessorTest.runtimeStubContent),
+    SystemImport("Console", ProcessorTest.consoleStubContent)
   )
 
   def sourced[T](value: T): Sourced[T] = Sourced(file, PositionRange.zero, value)
@@ -130,10 +131,17 @@ object ProcessorTest {
   val intStubContent: String     = "type Int[auto MIN: BigInteger, auto MAX: BigInteger]"
   val runtimeStubContent: String = "def integerLiteral[V: BigInteger]: Int[V, V]"
 
-  /** The auto-imported system modules minus the Phase-6 ambient `Int`/`Runtime`. Tests that use `Int` (or
-    * `integerLiteral`) as a *local* declaration name — and never write a value-position integer literal — pass this to
-    * `ModuleValueProcessor` so the ambient `Int` does not shadow their local one.
+  /** Ambient `Console` effect stub, mirroring `stdlib/resources/eliot/eliot/lang/Console.els`. `Console` is in
+    * `defaultSystemModules` (the one user-facing effect ability that resolves with no import), so the harness must
+    * register a matching stub. The concrete JVM instance lives in the real jvm layer, not here.
+    */
+  val consoleStubContent: String = "ability Console[F[_]] {\ndef println(s: String): F[Unit]\ndef readLine: F[String]\n}"
+
+  /** The auto-imported system modules minus the Phase-6 ambient `Int`/`Runtime` and the ambient `Console` effect.
+    * Tests that use `Int`/`integerLiteral` as a *local* declaration name (and never write a value-position integer
+    * literal), or that declare their own local `Console` ability, pass this to `ModuleValueProcessor` so the ambient
+    * versions do not shadow their local ones.
     */
   val systemModulesWithoutInt: Seq[ModuleName] =
-    ModuleName.defaultSystemModules.filterNot(m => m.name == "Int" || m.name == "Runtime")
+    ModuleName.defaultSystemModules.filterNot(m => m.name == "Int" || m.name == "Runtime" || m.name == "Console")
 }

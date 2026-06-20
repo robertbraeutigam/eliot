@@ -1,0 +1,38 @@
+import eliot.lang.Sync
+
+/**
+ * The `Console` ability, re-declared here so this layer file is self-complete (the layer system mixes files rather than
+ * stacking them: each file declares what it depends on, and the merge verifies the duplicated signature agrees with the
+ * base layer's `stdlib` declaration). A carrier-generic instance has no concrete type to colocate with, so it must live
+ * in the ability's own module — hence the ability is declared again alongside its JVM implementation here.
+ */
+ability Console[F[_]] {
+   def println(s: String): F[Unit]
+
+   def readLine: F[String]
+}
+
+/**
+ * The JVM `Console` instance, generic over any carrier with a `Sync` base (never pinned to `IO`): each operation reifies
+ * a `private` impure leaf native through `sync`. Because it rides `Sync`, the same instance serves `IO`, `OptionT[IO]`,
+ * etc. — the whole `IO(_ -> ...)` tree stays Eliot-visible to monomorphization; only the leaf natives are opaque.
+ */
+implement[F[_] ~ Sync] Console[F] {
+   def println(s: String): F[Unit] = sync(_ -> printlnInternal(s))
+
+   def readLine: F[String] = sync(_ -> readLineInternal)
+}
+
+/**
+ * The single impure spot behind `println`: writes a line to standard output. `private` so that no application module
+ * can name it — app code reaches output only through the `{Console}`-typed `println`, which records the effect
+ * honestly. Being body-less, it is a stuck neutral at compile time (never run by the NbE evaluator); the JVM backend
+ * supplies its bytecode and asserts this def is `private`.
+ */
+private def printlnInternal(s: String): Unit
+
+/**
+ * The single impure spot behind `readLine`: reads a line from standard input. `private` for the same reason as
+ * `printlnInternal`; the backend supplies its bytecode.
+ */
+private def readLineInternal: String

@@ -7,6 +7,50 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
       .asserting(_ shouldBe "Hello World!")
   }
 
+  // --- Effects M2: library spine (Monad/Sync/Console) + the Console -> Sync -> IO layering, run end-to-end ---
+
+  // The headline M2 acceptance: a hand-monadic `{Console}` computation reading a line and echoing it. `flatMap` is a
+  // `Monad[IO]` op resolved at the concrete use site (the carrier is not in `echo`'s declared effect set); `readLine`
+  // and `println` resolve through the constrained HKT instance `implement[F[_] ~ Sync] Console[F]` at `F := IO`, which
+  // in turn discharges `Sync[IO]`. `main` commits to the concrete runnable carrier `IO[Unit]` (Decision 8).
+  "console effect" should "read a line and echo it through the Console -> Sync -> IO layering" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |
+        |def echo: {Console} Unit = flatMap(readLine, s -> println(s))
+        |
+        |def main: IO[Unit] = echo""".stripMargin,
+      stdin = "echoed line\n"
+    ).asserting(_ shouldBe "echoed line")
+  }
+
+  // `println` is now the `Console` effect's method, generic over any `Sync` carrier — yet a plain `main : IO[Unit]`
+  // still resolves it at `F := IO` (the `Console[IO]` instance rides the base `Sync[IO]`), so the original HelloWorld
+  // keeps working unchanged.
+  it should "still print a literal via the Console effect at a concrete IO main" in {
+    compileAndRun("""def main: IO[Unit] = println("Hello World!")""")
+      .asserting(_ shouldBe "Hello World!")
+  }
+
+  // A `{Console}` business function is carrier-polymorphic; pinning it at the call site (`main : IO[Unit] = greet`)
+  // infers `F := IO` and resolves both effect operations through the layering.
+  it should "run a carrier-polymorphic {Console} function pinned to IO at the call site" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |
+        |def greet: {Console} Unit = flatMap(println("a"), ignore -> println("b"))
+        |
+        |def main: IO[Unit] = greet""".stripMargin
+    ).asserting(_ shouldBe "a\nb")
+  }
+
+  // The `private` leaf native behind `println` is unreachable from application code: naming it across the module
+  // boundary is refused by the resolver (the fail-safe that keeps untracked I/O impossible).
+  "the private I/O leaf" should "be unreachable from application code" in {
+    compileForErrors("""def main: IO[Unit] = IO(_ -> eliot.lang.Console::printlnInternal("x"))""")
+      .asserting(_ should include("Name is private."))
+  }
+
   "ability" should "dispatch to correct implementation" in {
     compileAndRun(
       """ability Show[A] {

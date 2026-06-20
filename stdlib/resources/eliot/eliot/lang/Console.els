@@ -1,0 +1,20 @@
+/**
+ * The console effect: reading from and writing to the standard text streams.
+ *
+ * `Console` is the first public, fine-grained I/O effect (the `println`/`readLine` users name, e.g.
+ * `def greet : {Console} Unit = println("hi")`). It is declared abstract here (platform-independent); a platform layer
+ * supplies a concrete instance — and, per the I/O-effects-keyed-on-`Sync` design, that instance is generic over the
+ * carrier and constrained only by [[Sync]] (`implement[F[_] ~ Sync] Console[F]`), never pinned to a concrete carrier.
+ * So `{Console}` logic runs on any carrier whose base is a `Sync` runtime (production `IO`, or a pure test carrier).
+ */
+ability Console[F[_]] {
+   /**
+    * Print a string to the standard output, followed by a line separator.
+    */
+   def println(s: String): F[Unit]
+
+   /**
+    * Read a single line from the standard input (without the trailing line separator).
+    */
+   def readLine: F[String]
+}

@@ -515,6 +515,76 @@ class AbilityImplementationCheckProcessorTest
     """).asserting(_ shouldBe Seq.empty)
   }
 
+  // --- constrained HKT instance `implement[F[_] ~ Sync] Console[F]` (effects M2) ---
+
+  it should "resolve a constrained higher-kinded instance through a recursive carrier constraint" in {
+    // The net-new M2 case: a fine effect `Console[F]` whose instance is generic over the carrier and constrained by
+    // a base effect (`F ~ Sync`), never pinned to a concrete carrier. Resolving `cprintln` at `F := Mio` must match
+    // the `[F[_] ~ Sync] Console[F]` instance and, in turn, discharge its own `Sync[Mio]` obligation from the body's
+    // `sync` call — the `Console → Sync → carrier` layering of Decisions 9/10, type-checked end-to-end.
+    runEngineForErrors("""
+        ability Sync[F[_]] {
+          def sync[A](thunk: Function[Unit, A]): F[A]
+        }
+
+        ability Console[F[_]] {
+          def cprintln(s: String): F[String]
+        }
+
+        data Mio[A](block: Function[Unit, A])
+
+        implement Sync[Mio] {
+          def sync[A](thunk: Function[Unit, A]): Mio[A] = Mio(thunk)
+        }
+
+        implement[F[_] ~ Sync] Console[F] {
+          def cprintln(s: String): F[String] = sync(_ -> s)
+        }
+
+        def program[F[_] ~ Console](s: String): F[String] = cprintln(s)
+        def f: Mio[String] = program("hello")
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "defer an uncovered carrier ability call to the concrete use site (M2 main shape)" in {
+    // `program` is constrained only by `Console[F]`, yet its body calls `flatMap` (a `Monad[F]` op) on the same
+    // carrier. `Monad[F]` is NOT covered by a constraint, so it must be DEFERRED to the concrete use site (the M2
+    // `main : {Console} Unit = flatMap(...)` shape, where the only declared effect is Console). At `F := Mio`,
+    // `Monad[Mio]` exists, so the deferred call resolves. This is the use-site-verification cornerstone applied to
+    // a carrier capability the signature does not name.
+    runEngineForErrors("""
+        ability Monad[F[_]] {
+          def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
+        }
+
+        ability Sync[F[_]] {
+          def sync[A](thunk: Function[Unit, A]): F[A]
+        }
+
+        ability Console[F[_]] {
+          def cprintln(s: String): F[String]
+        }
+
+        data Mio[A](block: Function[Unit, A])
+
+        implement Monad[Mio] {
+          def flatMap[A, B](fa: Mio[A], f: Function[A, Mio[B]]): Mio[B] = f(apply(block(fa), miounit))
+        }
+
+        implement Sync[Mio] {
+          def sync[A](thunk: Function[Unit, A]): Mio[A] = Mio(thunk)
+        }
+
+        implement[F[_] ~ Sync] Console[F] {
+          def cprintln(s: String): F[String] = sync(_ -> s)
+        }
+
+        def miounit: Unit
+        def program[F[_] ~ Console](s: String): F[String] = flatMap(cprintln(s), x -> cprintln(x))
+        def f: Mio[String] = program("hello")
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
   private val intType: GroundValue =
     GroundValue.Structure(
       ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type)),

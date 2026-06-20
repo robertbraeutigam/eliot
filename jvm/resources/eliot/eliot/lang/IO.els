@@ -1,1 +1,37 @@
+import eliot.lang.Monad
+import eliot.lang.Applicative
+import eliot.lang.Sync
+
+/**
+ * The concrete JVM runtime carrier: a side-effectful computation reified as a deferred `block`. The base layer declares
+ * `type IO[A]` abstractly; this layer redefines the same name with a body (a `data` with one field), so the module
+ * merge prefers this concrete form. `main` pins the program's effect carrier `F := IO`, and the backend runs a value
+ * of this type by applying its `block` to `unit`.
+ */
 data IO[A](block: Function[Unit, A])
+
+/**
+ * Sequencing for `IO`: `flatMap` runs `fa`, feeds its result to `f`, then runs the resulting `IO`; `pure` wraps a value
+ * in a no-op thunk. Both stay fully Eliot-visible (no native), so monomorphization erases the whole tower to flat code.
+ */
+implement Monad[IO] {
+   def flatMap[A, B](fa: IO[A], f: Function[A, IO[B]]): IO[B] = IO(_ -> apply(block(f(apply(block(fa), unit))), unit))
+
+   def pure[A](a: A): IO[A] = IO(_ -> a)
+}
+
+/**
+ * Mapping a pure function over an `IO`: run `fa`, transform its result. Derivable from `Monad[IO]`, given directly here
+ * so it needs no `flatMap`/`pure` round-trip.
+ */
+implement Applicative[IO] {
+   def map[A, B](fa: IO[A], f: Function[A, B]): IO[B] = IO(_ -> f(apply(block(fa), unit)))
+}
+
+/**
+ * The base reification instance — the ONLY place the concrete carrier `IO` is named in the effect machinery. Wrapping a
+ * deferred thunk as `IO` is the bridge that lets every `Sync`-keyed fine effect (`Console`, ...) run on `IO`.
+ */
+implement Sync[IO] {
+   def sync[A](thunk: Function[Unit, A]): IO[A] = IO(thunk)
+}

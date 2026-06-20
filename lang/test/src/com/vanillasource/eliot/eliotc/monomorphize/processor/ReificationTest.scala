@@ -67,7 +67,8 @@ class ReificationTest
       "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
     ),
     SystemImport("Int", ProcessorTest.intStubContent),
-    SystemImport("Runtime", ProcessorTest.runtimeStubContent)
+    SystemImport("Runtime", ProcessorTest.runtimeStubContent),
+    SystemImport("Console", ProcessorTest.consoleStubContent)
   )
 
   private val personSource = "data Person(name: String, age: BigInteger)\n"

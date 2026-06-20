@@ -1055,7 +1055,8 @@ class MonomorphicTypeCheckTest
         |def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]
         |""".stripMargin
     ),
-    SystemImport("Runtime", ProcessorTest.runtimeStubContent)
+    SystemImport("Runtime", ProcessorTest.runtimeStubContent),
+    SystemImport("Console", ProcessorTest.consoleStubContent)
   )
 
   /** Imports for the snippet that reference `coerce`/`Option` by name (`Int` itself is ambient). */
