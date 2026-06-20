@@ -83,6 +83,13 @@ object CoreExpressionConverter {
             )
           )
         )
+      case _: SourceExpression.EffectfulType                                           =>
+        // EffectSugarDesugarer rewrites every `{…} A` to `F[A]` across the whole function before conversion, so an
+        // EffectfulType reaching here means it was written somewhere the desugarer does not reach (only signature and
+        // body positions are handled). Fail loudly rather than mis-convert it.
+        throw IllegalStateException(
+          s"Effect braces `{…}` are only supported in function signature positions: ${expr.value.show}"
+        )
     }
 
   /** Builds a curried function type. So f[A, B](d: D, e: E): F type becomes: A -> B -> Function^Type(D,
@@ -121,8 +128,8 @@ object CoreExpressionConverter {
   /** Converts the body into core expression and embeds it as a lambda with the "function" parameters.
     *
     * The parameters are left *unannotated*: a value's type stack (signature) is the single source of truth for its
-    * parameter types, and the body is always *checked* against that signature, so each parameter takes its type from the
-    * signature's corresponding `Function` domain (see the `check(FunctionLiteral, VPi)` case in the monomorphize
+    * parameter types, and the body is always *checked* against that signature, so each parameter takes its type from
+    * the signature's corresponding `Function` domain (see the `check(FunctionLiteral, VPi)` case in the monomorphize
     * `Checker`). Re-stating the type on the body lambda would only duplicate it — and would force later passes that
     * refine the signature (e.g. `auto`-parameter saturation) to keep a redundant body copy in sync.
     */

@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.operator.processor
 
 import cats.effect.IO
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
@@ -284,6 +285,49 @@ class OperatorResolverProcessorTest
         case x                                => fail(s"unexpected: $x")
       }
   }
+
+  // --- effect-set sugar `{E} A` (effects M1) ---
+
+  "effect-set sugar" should "resolve {E} A to the same signature as the hand-written carrier form" in {
+    val source =
+      "data Str\ndata Unt\nability Sync[F[_]] { def delay(value: Str): F[Str] }\n" +
+        "def sugar(x: {Sync} Str): {Sync} Unt\ndef hand[F[_] ~ Sync](x: F[Str]): F[Unt]"
+    (runEngineForResolvedValue(source, "sugar"), runEngineForResolvedValue(source, "hand")).mapN { (sugar, hand) =>
+      (signatureShow(sugar), constraintShow(sugar)) shouldBe (signatureShow(hand), constraintShow(hand))
+    }
+  }
+
+  it should "resolve {Sync, Abort} and {Abort, Sync} to the same signature and effect set" in {
+    val source =
+      "data Str\nability Sync[F[_]] { def s(value: Str): F[Str] }\nability Abort[F[_]] { def a(value: Str): F[Str] }\n" +
+        "def ab(x: {Sync, Abort} Str): Str\ndef ba(x: {Abort, Sync} Str): Str"
+    (runEngineForResolvedValue(source, "ab"), runEngineForResolvedValue(source, "ba")).mapN { (ab, ba) =>
+      (signatureShow(ab), constraintShow(ab).view.mapValues(_.toSet).toMap) shouldBe
+        (signatureShow(ba), constraintShow(ba).view.mapValues(_.toSet).toMap)
+    }
+  }
+
+  private def signatureShow(rv: OperatorResolvedValue): String =
+    rv.typeStack.value.signature.show
+
+  private def constraintShow(rv: OperatorResolvedValue): Map[String, Seq[(String, Seq[String])]] =
+    rv.paramConstraints.view
+      .mapValues(_.map(c => (c.abilityFQN.abilityName, c.typeArgs.map(_.show))))
+      .toMap
+
+  private def runEngineForResolvedValue(source: String, name: String): IO[OperatorResolvedValue] =
+    runGenerator(
+      source,
+      OperatorResolvedValue.Key(ValueFQN(testModuleName2, QualifiedName(name, Qualifier.Default))),
+      systemImports
+    ).map { case (errors, facts) =>
+      if (errors.nonEmpty) throw new Exception(s"Compilation errors: ${errors.map(_.message).mkString(", ")}")
+      facts.values
+        .collectFirst {
+          case rv: OperatorResolvedValue if rv.vfqn.name == QualifiedName(name, Qualifier.Default) => rv
+        }
+        .getOrElse(throw new Exception(s"No OperatorResolvedValue for $name"))
+    }
 
   private def vfqn(name: String): ValueFQN =
     ValueFQN(testModuleName2, QualifiedName(name, Qualifier.Default))

@@ -493,6 +493,28 @@ class AbilityImplementationCheckProcessorTest
     """).asserting(_.nonEmpty shouldBe true)
   }
 
+  // --- effect-set sugar `{E} A` desugaring to the HKT carrier (effects M1) ---
+
+  it should "resolve a higher-kinded ability constraint introduced by effect-set sugar" in {
+    // The `{Monad} String` sugar desugars to exactly the M0 `[F[_] ~ Monad]` carrier form, so this is the M0
+    // acceptance program written in surface syntax: it must type-check and resolve `flatMap` at F := Box end-to-end.
+    runEngineForErrors("""
+        ability Monad[F[_]] {
+          def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
+        }
+
+        data Box[A](content: A)
+
+        implement Monad[Box] {
+          def flatMap[A, B](fa: Box[A], f: Function[A, Box[B]]): Box[B] = f(content(fa))
+        }
+
+        def someBox: Box[String]
+        def runTwice(fa: {Monad} String): {Monad} String = flatMap(fa, ignore -> fa)
+        def f: Box[String] = runTwice(someBox)
+    """).asserting(_ shouldBe Seq.empty)
+  }
+
   private val intType: GroundValue =
     GroundValue.Structure(
       ValueFQN(testModuleName, QualifiedName("Int", Qualifier.Type)),

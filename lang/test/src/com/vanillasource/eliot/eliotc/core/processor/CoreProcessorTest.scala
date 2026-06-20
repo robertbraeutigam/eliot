@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.effect.IO
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
@@ -486,6 +487,60 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
+  "effect-set sugar" should "desugar a single effect into one carrier-applied signature" in {
+    namedValue("def f(x: {Sync} String): {Sync} Unit").asserting { nv =>
+      nv.typeStack.signatureStructure shouldBe Lambda(
+        "F",
+        App(App(Ref("Function", T), Ref("Type", T)), Ref("Type", T)),
+        App(App(Ref("Function", T), App(Ref("F", T), Ref("String", T))), App(Ref("F", T), Ref("Unit", T)))
+      )
+    }
+  }
+
+  it should "mark the synthesized carrier inferable" in {
+    namedValue("def f(x: {Sync} String): {Sync} Unit").asserting(_.inferableArity shouldBe 1)
+  }
+
+  it should "add one constraint per distinct effect on the carrier, deduplicating repeats" in {
+    namedValue("def f(x: {Sync} String): {Sync} Unit").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("F" -> Seq(("Sync", Seq(Ref("F", T)))))
+    }
+  }
+
+  it should "append the carrier as the final argument of a parameterized effect" in {
+    namedValue("def f(x: {State[Account]} String): String").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("F" -> Seq(("State", Seq(Ref("Account", T), Ref("F", T)))))
+    }
+  }
+
+  it should "carry every distinct effect of a multi-effect set" in {
+    namedValue("def f(x: {Sync, Abort} String): String").asserting { nv =>
+      constraintShapes(nv) shouldBe Map("F" -> Seq(("Sync", Seq(Ref("F", T))), ("Abort", Seq(Ref("F", T)))))
+    }
+  }
+
+  it should "produce the same signature as the hand-written carrier form" in {
+    (namedValue("def f(x: {Sync} String): {Sync} Unit"), namedValue("def f[auto F[_] ~ Sync](x: F[String]): F[Unit]"))
+      .mapN { (sugar, hand) =>
+        (sugar.typeStack.signatureStructure, constraintShapes(sugar), sugar.inferableArity) shouldBe
+          (hand.typeStack.signatureStructure, constraintShapes(hand), hand.inferableArity)
+      }
+  }
+
+  it should "treat the effect set as unordered" in {
+    (namedValue("def f(x: {Sync, Abort} String): String"), namedValue("def f(x: {Abort, Sync} String): String"))
+      .mapN { (ab, ba) =>
+        (ab.typeStack.signatureStructure, constraintShapes(ab).view.mapValues(_.toSet).toMap) shouldBe
+          (ba.typeStack.signatureStructure, constraintShapes(ba).view.mapValues(_.toSet).toMap)
+      }
+  }
+
+  it should "avoid clashing the carrier name with an existing generic parameter" in {
+    namedValue("def f[F](x: {Sync} F): F").asserting { nv =>
+      constraintShapes(nv).keySet shouldBe Set("F0")
+    }
+  }
+
   "flat expressions" should "pass through as FlatExpression in core" in {
     namedValue("def f: T = b + c").asserting { nv =>
       nv.runtimeStructure shouldBe Some(Flat(Seq(Ref("b"), Ref("+"), Ref("c"))))
@@ -596,6 +651,11 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       case FlatExpression(parts)                    => Flat(parts.map(_.value.signature.structure))
     }
   }
+
+  private def constraintShapes(nv: NamedValue): Map[String, Seq[(String, Seq[ExprStructure])]] =
+    nv.paramConstraints.view
+      .mapValues(_.map(c => (c.abilityName.value, c.typeArgs.map(_.structure))))
+      .toMap
 
   private def findByNameAndImplQualifier(nvs: Seq[NamedValue], name: String): Seq[NamedValue] =
     nvs.filter { nv =>

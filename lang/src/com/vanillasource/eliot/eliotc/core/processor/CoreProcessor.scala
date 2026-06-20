@@ -51,7 +51,9 @@ class CoreProcessor
     val allFunctions  = sourceAstData.functionDefinitions.map(_ -> RoleHint.NoHint) ++ desugaredFromData
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
-      allFunctions.map { case (fd, hint) => transformFunction(fd, hint) }
+      // Effect-set sugar (`{E} A`) is collapsed onto a single inferable carrier before the function is converted, so
+      // everything downstream sees ordinary HKT-constrained generics (see EffectSugarDesugarer).
+      allFunctions.map { case (fd, hint) => transformFunction(EffectSugarDesugarer.desugar(fd), hint) }
     )
 
     debug[CompilerIO](
