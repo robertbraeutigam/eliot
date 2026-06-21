@@ -2,8 +2,10 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
 import cats.effect.Sync
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
+import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{ParameterReference, SignatureView}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.{ClassGenerator, JvmIdentifier}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.CommonPatterns.{addMonomorphicDataFieldsAndCtor, valueType}
 import com.vanillasource.eliot.eliotc.jvm.classgen.asm.ClassGenerator.createInterfaceGenerator
@@ -25,6 +27,41 @@ object DataClassGenerator {
 
   def isTypeConstructor(valueFQN: ValueFQN): Boolean =
     valueFQN.name.qualifier === Qualifier.Type && valueFQN.name.name.charAt(0).isUpper
+
+  /** The opaque `Any` carrier (`java.lang.Object`) a polymorphic data field erases to. */
+  private val erasedFieldCarrier: GroundValue =
+    GroundValue.Structure(WellKnownTypes.anyFQN, Seq.empty, GroundValue.Type)
+
+  /** Replace the type of every field whose *declared* type is a bare type-parameter with the opaque `Any` carrier
+    * (`java.lang.Object`).
+    *
+    * A data constructor is emitted exactly once — one JVM class plus one factory method per data type, shared by every
+    * monomorphic instantiation (constructors are intentionally not name-mangled, so there is a single class per data
+    * type). A field declared as a bare type-parameter (`first: A`) therefore has a JVM carrier that differs per
+    * instantiation (`Pair[String, Box]` stores `String`/`Box`, `Pair[Box, String]` stores `Box`/`String`), so the
+    * single shared descriptor must erase it to `Object` — exactly as the JVM erases Java generics. Concrete fields
+    * (`String`, `Int[..]`, `List[A]`, whose carrier does not depend on the type arguments) keep their precise type.
+    * Both the definition side and every call site read this same generic signature, so the descriptors always agree.
+    *
+    * A field whose carrier still varies after this erasure (e.g. `Int[0, N]` with a type-parameter bound) is not
+    * representable by a single descriptor; [[JvmClassGenerator]] verifies the instantiations agree and errors rather
+    * than miscompiling.
+    */
+  def erasePolymorphicFields(
+      resolvedConstructor: OperatorResolvedValue,
+      fields: Seq[MonomorphicParameterDefinition]
+  ): Seq[MonomorphicParameterDefinition] = {
+    val view        = SignatureView.of(resolvedConstructor.typeStack.map(_.signature))
+    val binderNames = view.binders.map(_.name.value).toSet
+    val polymorphic = view.parameters.map(_.value match {
+      case ParameterReference(name) => binderNames.contains(name.value)
+      case _                        => false
+    })
+    fields.zipWithIndex.map { case (field, index) =>
+      if (polymorphic.lift(index).contains(true)) field.copy(parameterType = erasedFieldCarrier)
+      else field
+    }
+  }
 
   /** Single-constructor data: generates a concrete class, factory method, and optional handleCases. */
   def createSingleConstructorData[F[_]: Sync](

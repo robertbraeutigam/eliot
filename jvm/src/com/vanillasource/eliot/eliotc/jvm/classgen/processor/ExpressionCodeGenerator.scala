@@ -12,6 +12,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.TypeState.*
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
@@ -377,9 +378,8 @@ object ExpressionCodeGenerator {
       uncurriedMaybe <- getFact(UncurriedMonomorphicValue.Key(calledVfqn, typeArgs, arguments.length)).liftToTypes
       resultClasses  <- uncurriedMaybe match
                           case Some(uncurriedValue) =>
-                            val parameterTypes = uncurriedValue.parameters.map(p => valueType(p.parameterType))
-                            val returnType     = valueType(uncurriedValue.returnType)
-                            val methodName     =
+                            val returnType = valueType(uncurriedValue.returnType)
+                            val methodName =
                               if (
                                 DataClassGenerator
                                   .isConstructor(calledVfqn) || DataClassGenerator.isTypeConstructor(calledVfqn)
@@ -388,21 +388,30 @@ object ExpressionCodeGenerator {
                               else
                                 mangledMethodName(calledVfqn, typeArgs)
                             for {
-                              classes <-
+                              // A value constructor is emitted once and shared by every instantiation, so its bare
+                              // type-parameter fields erase to `Object` here exactly as on the definition side — the call
+                              // descriptor must match the single shared factory (DataClassGenerator.erasePolymorphicFields).
+                              parameters    <-
+                                if (DataClassGenerator.isConstructor(calledVfqn))
+                                  getFactOrAbort(OperatorResolvedValue.Key(calledVfqn)).liftToTypes
+                                    .map(DataClassGenerator.erasePolymorphicFields(_, uncurriedValue.parameters))
+                                else uncurriedValue.parameters.pure[CompilationTypesIO]
+                              parameterTypes = parameters.map(p => valueType(p.parameterType))
+                              classes       <-
                                 arguments.flatTraverse(expression =>
                                   createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
                                 )
-                              _       <- methodGenerator.addCallTo[CompilationTypesIO](
-                                           calledVfqn,
-                                           parameterTypes,
-                                           returnType,
-                                           Some(methodName)
-                                         )
-                              _       <- methodGenerator
-                                           .addCastTo[CompilationTypesIO](
-                                             valueType(expectedResultType)
-                                           )
-                                           .whenA(valueType(expectedResultType) =!= returnType)
+                              _             <- methodGenerator.addCallTo[CompilationTypesIO](
+                                                 calledVfqn,
+                                                 parameterTypes,
+                                                 returnType,
+                                                 Some(methodName)
+                                               )
+                              _             <- methodGenerator
+                                                 .addCastTo[CompilationTypesIO](
+                                                   valueType(expectedResultType)
+                                                 )
+                                                 .whenA(valueType(expectedResultType) =!= returnType)
                             } yield classes
                           case None                 =>
                             compilerError(

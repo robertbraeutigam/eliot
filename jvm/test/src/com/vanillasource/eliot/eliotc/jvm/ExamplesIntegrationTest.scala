@@ -731,4 +731,35 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
         |def main: IO[Unit] = println(intToString(sum(IntPair(200, 5000000000))))""".stripMargin
     ).asserting(_ shouldBe "5000000200")
   }
+
+  // A *generic* multi-field constructor is emitted once (one class + factory per data type) but used at two
+  // instantiations whose bare type-parameter fields have different JVM carriers (`Pair[Box[String], String]` stores a
+  // `Box`, `Pair[String, String]` stores a `String`). Both the factory and every call site must erase the polymorphic
+  // fields to `Object`, or the single shared `Pair(..)` descriptor mismatches the call site (a runtime
+  // `NoSuchMethodError`). This is the generic-multi-field codegen bug that previously blocked two-field generic data.
+  it should "construct and match a generic two-field constructor at two distinct instantiations" in {
+    compileAndRun(
+      """data Box[A](item: A)
+        |
+        |data Pair[A, B](first: A, second: B)
+        |
+        |def secondOf[A, B](p: Pair[A, B]): B = p match {
+        |  case Pair(x, y) -> y
+        |}
+        |
+        |def main: IO[Unit] = println(secondOf(Pair(Box("boxed"), secondOf(Pair("c", "plain")))))""".stripMargin
+    ).asserting(_ shouldBe "plain")
+  }
+
+  // The same erasure, but with a *mixed* constructor: a concrete `tag: String` field beside a polymorphic `value: A`
+  // field, used at `Tagged[String]` and `Tagged[Tagged[String]]`. The concrete field must keep its `String` descriptor
+  // (only the polymorphic field erases), and the two instantiations must still agree on the shared factory. Exercised
+  // through the auto-generated single-constructor field accessor (`value`), i.e. the pattern-match codegen path.
+  it should "construct and access a generic constructor mixing a concrete and a polymorphic field" in {
+    compileAndRun(
+      """data Tagged[A](tag: String, value: A)
+        |
+        |def main: IO[Unit] = println(value(value(Tagged("outer", Tagged("inner", "deep")))))""".stripMargin
+    ).asserting(_ shouldBe "deep")
+  }
 }

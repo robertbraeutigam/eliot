@@ -100,13 +100,33 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                       .headOption
                                       .getOrElse(Seq.empty)
                                     for {
-                                      // Fetch UncurriedMonomorphicValue for each constructor
+                                      // Fetch UncurriedMonomorphicValue for each constructor. The constructor is emitted
+                                      // once (one class + factory per data type), so bare type-parameter fields are erased
+                                      // to the opaque `Any` carrier — matching every monomorphic call site, which erases
+                                      // the same way (DataClassGenerator.erasePolymorphicFields). A field whose carrier
+                                      // still varies across instantiations after erasure is not representable by the single
+                                      // shared descriptor; verify they agree and error rather than silently miscompile.
                                       ctorsWithInfo   <- ctorVfqns.traverse { vfqn =>
-                                                           val stats    = usedValues.getOrElse(vfqn, UsageStats(Seq(defaultTypeArgs), Map(0 -> 1)))
-                                                           val typeArgs = stats.monomorphicTypeParameters.headOption.getOrElse(defaultTypeArgs)
-                                                           val arity    = stats.highestArity.getOrElse(0)
-                                                           getFactOrAbort(UncurriedMonomorphicValue.Key(vfqn, typeArgs, arity))
-                                                             .map(umv => (vfqn, stats, umv))
+                                                           val stats        = usedValues.getOrElse(vfqn, UsageStats(Seq(defaultTypeArgs), Map(0 -> 1)))
+                                                           val typeArgsList = stats.monomorphicTypeParameters.distinct match {
+                                                             case Seq() => Seq(defaultTypeArgs)
+                                                             case xs    => xs
+                                                           }
+                                                           val arity        = stats.highestArity.getOrElse(0)
+                                                           for {
+                                                             resolved  <- getFactOrAbort(OperatorResolvedValue.Key(vfqn))
+                                                             instances <- typeArgsList.traverse(ta =>
+                                                                            getFactOrAbort(UncurriedMonomorphicValue.Key(vfqn, ta, arity))
+                                                                          )
+                                                             erasedAll  = instances.map(umv =>
+                                                                            DataClassGenerator.erasePolymorphicFields(resolved, umv.parameters)
+                                                                          )
+                                                             _         <- compilerAbort[Unit](
+                                                                            resolved.name.as(
+                                                                              "Constructor has a field whose machine representation differs across instantiations and cannot be erased to a single representation."
+                                                                            )
+                                                                          ).whenA(erasedAll.map(_.map(p => valueType(p.parameterType))).distinct.size > 1)
+                                                           } yield (vfqn, stats, instances.head.copy(parameters = erasedAll.head))
                                                          }
                                       sortedCtors      = ctorsWithInfo.sortBy { case (_, _, umv) =>
                                                            (umv.name.range.from.line, umv.name.range.from.col)
