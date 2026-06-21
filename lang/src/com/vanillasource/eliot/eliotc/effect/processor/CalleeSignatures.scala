@@ -1,0 +1,102 @@
+package com.vanillasource.eliot.eliotc.effect.processor
+
+import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
+  ParameterReference,
+  SignatureView,
+  ValueReference,
+  isFunctionReference,
+  spine
+}
+import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
+import com.vanillasource.eliot.eliotc.source.content.Sourced
+
+/** Reads a callee's operator-resolved signature into the [[CalleeSignatures.CalleeInfo]] the body auto-lift needs: its
+  * value-parameter types, its return type, the names of its higher-kinded (carrier) generic binders, and the
+  * user-facing effects it performs. An unresolvable callee is treated as a zero-parameter pure value (conservative;
+  * monomorphization remains the backstop).
+  */
+class CalleeSignatures {
+  import CalleeSignatures.*
+
+  def infoFor(fqn: Sourced[ValueFQN]): CompilerIO[CalleeInfo] =
+    getFact(OperatorResolvedValue.Key(fqn.value)).map {
+      case Some(orv) =>
+        val view           = SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature))
+        val carrierBinders = view.binders.filter(EffectCarriers.isHktBinder).map(_.name.value).toSet
+        CalleeInfo(
+          view.parameters.map(_.value),
+          view.returnType.value,
+          carrierBinders,
+          effectAbilitiesOf(fqn.value, orv, carrierBinders)
+        )
+      case None      =>
+        CalleeInfo(Seq.empty, ValueReference(fqn.as(WellKnownTypes.typeFQN)), Set.empty, Set.empty)
+    }
+
+  /** The user-facing effects performing this callee contributes to the *caller's* effect set (Decision 6, propagation):
+    *   - an ability method (`println`, `log`, `get`) performs its *owning* ability (read off the FQN's
+    *     [[Qualifier.Ability]]), e.g. `Console`/`Log`/`Dep`;
+    *   - an ordinary `{E...}` function propagates the effects declared on its own carrier binder(s).
+    *
+    * The internal machinery abilities (`Monad`/`Applicative`/`Sync`) are excluded — they are inserted by the compiler
+    * and never named by users, so a hand-written or auto-inserted `flatMap`/`pure`/`sync` does not pollute the set.
+    */
+  private def effectAbilitiesOf(
+      fqn: ValueFQN,
+      orv: OperatorResolvedValue,
+      carrierBinders: Set[String]
+  ): Set[AbilityFQN] =
+    fqn.name.qualifier match {
+      // An ability method performs its owning ability — unless it is internal machinery (Monad/Applicative/Sync).
+      case Qualifier.Ability(abilityName) =>
+        if (EffectMachinery.isMachineryAbility(abilityName)) Set.empty
+        else Set(AbilityFQN(fqn.moduleName, abilityName))
+      // An ordinary `{E...}` function propagates the (non-machinery) effects declared on its own carrier binder(s).
+      case _                              =>
+        carrierBinders
+          .flatMap(b => orv.paramConstraints.getOrElse(b, Seq.empty).map(_.abilityFQN))
+          .filterNot(a => EffectMachinery.isMachineryAbility(a.abilityName))
+    }
+}
+
+object CalleeSignatures {
+
+  /** A callee's signature reduced to what the auto-lift reads, plus the user-facing effects it performs. */
+  case class CalleeInfo(
+      valueParamTypes: Seq[OperatorResolvedExpression],
+      returnType: OperatorResolvedExpression,
+      carrierBinders: Set[String],
+      effectAbilities: Set[AbilityFQN]
+  ) {
+
+    /** Whether this callee applied to `appliedCount` value arguments yields an effectful result: it must be fully
+      * applied and its result type headed by one of the callee's own carrier binders.
+      */
+    def resultEffectful(appliedCount: Int): Boolean =
+      appliedCount >= valueParamTypes.size && EffectCarriers.carrierHeaded(returnType, carrierBinders)
+
+    /** Whether argument position `pos` auto-binds an effectful argument. It does iff the callee's parameter there is a
+      * *pure value* position: an **un-applied** type (`args.isEmpty`) that is neither function-typed nor one of the
+      * callee's own higher-kinded carrier binders — i.e. a concrete scalar (`String`, `Unit`) or a bare type variable
+      * (`second : A`).
+      *
+      * Everything else is a *storage* position that takes the effectful action directly, unbound: a function-typed
+      * parameter (a continuation), and any *applied* type constructor — whether it mentions a carrier (`fa : F[A]`,
+      * `p : OptionT[G, A]`, a discharge/transformer slot) or not (`x : Id[A]`). So `andThen(println(..), abort)` binds
+      * `abort` into the bare `A`, but `runId(runAbort(p))` passes the carrier value into `Id[A]` unbound.
+      */
+    def isBindPosition(pos: Int): Boolean =
+      valueParamTypes.lift(pos).exists { paramType =>
+        val (head, args) = spine(paramType)
+        args.isEmpty && (head match {
+          case ref: ValueReference   => !isFunctionReference(ref)
+          case ParameterReference(n) => !carrierBinders.contains(n.value)
+          case _                     => true
+        })
+      }
+  }
+}
