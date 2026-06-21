@@ -5,7 +5,8 @@
       "mcp__ide__getDiagnostics",
       "WebSearch",
       "WebFetch(domain:plugins.jetbrains.com)",
-      "WebFetch(domain:plugins.gradle.org)"
+      "WebFetch(domain:plugins.gradle.org)",
+      "Skill(code-review)"
     ]
   },
   "enabledPlugins": {
