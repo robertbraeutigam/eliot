@@ -95,14 +95,10 @@ class EffectDesugaringProcessor
     val env                   = paramNames.map(_.value).zip(view.parameters.map(_.value)).toMap
     val effectiveReturn       =
       view.parameters.drop(paramNames.size).foldRight(view.returnType)((dom, cod) => cod.as(arrow(dom, cod)))
-    val (retHead, retArgs)    = spine(effectiveReturn.value)
-    val returnIsCarrierBinder = retHead match {
-      case ParameterReference(n) => carrier.contains(n.value)
-      case _                     => false
-    }
+    val returnIsCarrierBinder = carrierHeaded(effectiveReturn.value, carrier)
     // A nullary return type (`Unit`, `String`) cannot host effects; an applied one (`F[Unit]`, `IO[Unit]`, `Box[A]`)
     // can — only an effectful body in the former case is the "declared pure" error.
-    val canHostEffects        = retArgs.nonEmpty
+    val canHostEffects        = spine(effectiveReturn.value)._2.nonEmpty
 
     for {
       d          <- desugar(inner, env, carrier, 0)
@@ -193,18 +189,14 @@ class EffectDesugaringProcessor
         Desugared(expr, effectful = false, idx).pure[CompilerIO]
       case ParameterReference(name)                     =>
         Desugared(expr, effectful = env.get(name.value).exists(carrierHeaded(_, carrier)), idx).pure[CompilerIO]
-      case ValueReference(fqn, _)                       =>
-        calleeInfo(fqn).map { info =>
-          val effectful = resultEffectful(info, 0)
-          Desugared(expr, effectful, idx, usedEffects = if (effectful) info.effectAbilities else Set.empty)
-        }
       case FunctionLiteral(name, paramType, lambdaBody) =>
         desugar(lambdaBody, env - name.value, carrier, idx).map { body =>
           // The lambda *value* is pure (a function); its body may be effectful (e.g. a `flatMap` continuation), and its
           // performed effects still propagate to the enclosing value.
           body.copy(expr = expr.as(FunctionLiteral(name, paramType, body.expr)), effectful = false, synthesizedBind = false)
         }
-      case _: FunctionApplication                       =>
+      // A bare value reference is just a zero-argument application; `desugarApplication` handles it (no args to bind).
+      case _: ValueReference | _: FunctionApplication   =>
         desugarApplication(expr, env, carrier, idx)
     }
 
@@ -345,11 +337,11 @@ class EffectDesugaringProcessor
       carrierBinders: Set[String]
   ): Set[AbilityFQN] =
     fqn.name.qualifier match {
-      case Qualifier.Ability(abilityName) if !isMachineryAbility(abilityName) =>
-        Set(AbilityFQN(fqn.moduleName, abilityName))
-      case _: Qualifier.Ability                                               =>
-        Set.empty // Monad/Applicative/Sync method — internal machinery, not a user effect
-      case _                                                                  =>
+      // An ability method performs its owning ability — unless it is internal machinery (Monad/Applicative/Sync).
+      case Qualifier.Ability(abilityName) =>
+        if (isMachineryAbility(abilityName)) Set.empty else Set(AbilityFQN(fqn.moduleName, abilityName))
+      // An ordinary `{E...}` function propagates the (non-machinery) effects declared on its own carrier binder(s).
+      case _                              =>
         carrierBinders
           .flatMap(b => orv.paramConstraints.getOrElse(b, Seq.empty).map(_.abilityFQN))
           .filterNot(a => isMachineryAbility(a.abilityName))
@@ -359,10 +351,7 @@ class EffectDesugaringProcessor
     * its result type headed by one of the callee's own carrier binders.
     */
   private def resultEffectful(info: CalleeInfo, appliedCount: Int): Boolean =
-    appliedCount >= info.valueParamTypes.size && (spine(info.returnType)._1 match {
-      case ParameterReference(n) => info.carrierBinders.contains(n.value)
-      case _                     => false
-    })
+    appliedCount >= info.valueParamTypes.size && carrierHeaded(info.returnType, info.carrierBinders)
 
   /** Whether argument position `pos` auto-binds an effectful argument. It does iff the callee's parameter there is a
     * *pure value* position: an **un-applied** type (`args.isEmpty`) that is neither function-typed nor one of the
