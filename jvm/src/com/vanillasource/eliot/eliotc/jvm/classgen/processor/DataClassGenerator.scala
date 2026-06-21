@@ -63,22 +63,30 @@ object DataClassGenerator {
     }
   }
 
-  /** Single-constructor data: generates a concrete class, factory method, and optional handleCases. */
+  /** Single-constructor data: generates a concrete class, factory method, and optional handleCases.
+    *
+    * The class is named after the *data type* ([[typeVfqn]]), not the constructor, so a single-constructor union whose
+    * constructor name differs from the type (`data Unit2 = MkUnit`) is handled as a record (where the two names
+    * coincide). The rest of the backend — the factory's declared return, the accessor/match parameter types, and the
+    * `PatternMatch$<Type>$impl` singleton — all refer to the data type, so the class must too, or the factory and call
+    * sites disagree (a runtime `NoSuchMethodError`). The factory method itself keeps the constructor's name.
+    */
   def createSingleConstructorData[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
-      valueFQN: ValueFQN,
+      constructorVfqn: ValueFQN,
+      typeVfqn: ValueFQN,
       parameters: Seq[MonomorphicParameterDefinition],
       generateHandleCases: Boolean
   ): F[Seq[ClassFile]] =
     for {
       cs <- createDataClass(
               outerClassGenerator,
-              valueFQN.name.name,
+              typeVfqn.name.name,
               parameters,
               Seq.empty,
               if (generateHandleCases) Some((0, 1)) else None
             )
-      _  <- createFactoryMethod(outerClassGenerator, valueFQN, parameters, valueFQN)
+      _  <- createFactoryMethod(outerClassGenerator, constructorVfqn, typeVfqn, parameters, typeVfqn)
     } yield cs
 
   /** Multi-constructor (union) data: generates an interface + implementation classes + factory methods. */
@@ -116,14 +124,24 @@ object DataClassGenerator {
                                     Seq(interfaceName),
                                     if (generateHandleCases) Some((ctorIndex, totalCtors)) else None
                                   )
-                            _  <- createFactoryMethod(outerClassGenerator, vfqn, params, typeVFQ)
+                            _  <- createFactoryMethod(outerClassGenerator, vfqn, vfqn, params, typeVFQ)
                           } yield cs
                         }
     } yield Seq(interfaceClass) ++ implClasses
 
+  /** Emit the static factory method for a constructor.
+    *
+    * The three class identities are kept separate because they only coincide for records: [[constructorVfqn]] names the
+    * static method (the constructor's source name, the call-site name), [[instantiatedClassVfqn]] is the concrete class
+    * actually `new`-ed and `<init>`-ed, and [[returnType]] is the declared result. For a single-constructor union
+    * (`data Unit2 = MkUnit`) the constructor name (`MkUnit`) differs from the data type, so the instantiated class and
+    * the return are the *type* class (`Unit2`), not a `MkUnit` class; for a multi-constructor union the instantiated
+    * class is the per-constructor impl class while the return is the data-type interface.
+    */
   private def createFactoryMethod[F[_]: Sync](
       outerClassGenerator: ClassGenerator,
       constructorVfqn: ValueFQN,
+      instantiatedClassVfqn: ValueFQN,
       parameters: Seq[MonomorphicParameterDefinition],
       returnType: ValueFQN
   ): F[Unit] =
@@ -135,12 +153,12 @@ object DataClassGenerator {
       )
       .use { methodGenerator =>
         for {
-          _ <- methodGenerator.addNew[F](constructorVfqn)
+          _ <- methodGenerator.addNew[F](instantiatedClassVfqn)
           _ <- parameters.zipWithIndex.traverse_ { (fieldDef, index) =>
                  methodGenerator.addLoadVar[F](valueType(fieldDef.parameterType), index)
                }
           _ <- methodGenerator.addCallToCtor[F](
-                 constructorVfqn,
+                 instantiatedClassVfqn,
                  parameters.map(_.parameterType).map(valueType)
                )
         } yield ()
@@ -396,7 +414,7 @@ object DataClassGenerator {
               Seq(typeInterfaceName),
               None
             )
-      _  <- createFactoryMethod(outerClassGenerator, constructorVfqn, parameters, systemAnyValue)
+      _  <- createFactoryMethod(outerClassGenerator, constructorVfqn, constructorVfqn, parameters, systemAnyValue)
     } yield cs
   }
 

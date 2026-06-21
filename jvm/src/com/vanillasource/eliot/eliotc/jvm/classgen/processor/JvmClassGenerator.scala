@@ -134,7 +134,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                       classes          <- if (ctorsWithInfo.size === 1) {
                                                             val (vfqn, _, umv) = ctorsWithInfo.head
                                                             DataClassGenerator.createSingleConstructorData[CompilerIO](
-                                                              mainClassGenerator, vfqn, umv.parameters, handleCasesUsed
+                                                              mainClassGenerator, vfqn, typeVFQ, umv.parameters, handleCasesUsed
                                                             )
                                                           } else {
                                                             DataClassGenerator.createMultiConstructorData[CompilerIO](

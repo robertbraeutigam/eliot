@@ -762,4 +762,32 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
         |def main: IO[Unit] = println(value(value(Tagged("outer", Tagged("inner", "deep")))))""".stripMargin
     ).asserting(_ shouldBe "deep")
   }
+
+  // A single-constructor *union* whose constructor name differs from the type name (`data Color = Red`). The data class
+  // must be named after the *type* (`Color`), not the constructor (`Red`): the factory's declared return, the match
+  // parameter type, and the `PatternMatch$Color$impl` singleton all refer to `Color`, so naming the class `Red` made the
+  // factory `Red()` return a `Red` while every call site expected a `Color` (a runtime `NoSuchMethodError`). Records
+  // (constructor name = type name) always coincided and were never affected.
+  it should "construct and match a single-constructor union whose constructor name differs from the type" in {
+    compileAndRun(
+      """data Color = Red
+        |
+        |def name(c: Color): String = c match {
+        |  case Red -> "red"
+        |}
+        |
+        |def main: IO[Unit] = println(name(Red))""".stripMargin
+    ).asserting(_ shouldBe "red")
+  }
+
+  // The same single-constructor-union naming, but with a field and a generic parameter, so it also rides the
+  // bare-type-parameter erasure: `Box[A] = Wrap(item: A)` (constructor `Wrap` ≠ type `Box`) accessed via the
+  // auto-generated `item` accessor.
+  it should "construct and access a generic single-constructor union whose constructor name differs from the type" in {
+    compileAndRun(
+      """data Box[A] = Wrap(item: A)
+        |
+        |def main: IO[Unit] = println(item(Wrap("wrapped")))""".stripMargin
+    ).asserting(_ shouldBe "wrapped")
+  }
 }
