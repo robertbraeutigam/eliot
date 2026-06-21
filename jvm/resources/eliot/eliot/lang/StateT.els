@@ -2,6 +2,7 @@ import eliot.lang.Monad
 import eliot.lang.Applicative
 import eliot.lang.Sync
 import eliot.lang.State
+import eliot.lang.Abort
 import eliot.lang.Pair
 
 /**
@@ -51,6 +52,18 @@ implement[S, G[_] ~ Sync & Applicative] Sync[StateT[S, G]] {
 implement[S, G[_] ~ Monad] State[S, StateT[S, G]] {
    def getState: StateT[S, G, S] = StateT(s -> pure(Pair(s, s)))
    def putState(newS: S): StateT[S, G, Unit] = StateT(s -> pure(Pair(unit, newS)))
+}
+
+/**
+ * Cross-lift: `Abort` rides through the `StateT` layer (the order-sensitive counterpart to `State[S, OptionT[G]]` in
+ * `OptionT`). When a `{State[S], Abort}` program discharges `State` *first* (`runAbort(runState(p, s0))`), the carrier
+ * is refined to `StateT[S, G]` with `G` still carrying `Abort`, so the residual `abort` must run at `StateT[S, G]`. It
+ * delegates to the inner `G`'s `abort` for any paired result, ignoring the incoming state `s` — so the abort discards
+ * the threaded state. Because `StateT` sits *outside* the (inner) `OptionT`, the abort tears down the whole pair:
+ * discharging in this order yields `Option[Pair[A, S]]` (vs. `Pair[Option[A], S]` for the other order).
+ */
+implement[S, G[_] ~ Abort] Abort[StateT[S, G]] {
+   def abort[A]: StateT[S, G, A] = StateT(s -> abort)
 }
 
 /**

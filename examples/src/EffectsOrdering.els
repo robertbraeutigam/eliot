@@ -1,0 +1,42 @@
+import eliot.lang.Monad
+import eliot.lang.Applicative
+import eliot.lang.State
+import eliot.lang.Abort
+import eliot.lang.Option
+import eliot.lang.Pair
+import eliot.lang.OptionT
+import eliot.lang.StateT
+
+// A pure carrier (the identity monad), so the two discharge orders below are plain values with no I/O.
+data Id[A](runId: A)
+
+implement Monad[Id] {
+   def pure[A](a: A): Id[A] = Id(a)
+   def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
+}
+
+implement Applicative[Id] {
+   def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
+}
+
+// ONE carrier-polymorphic {State, Abort} program: install a new state, THEN abort. The interaction question
+// — "does the abort roll back the state?" — is deliberately left open in the flat effect set, decided only by
+// the ORDER the effects are discharged below.
+def modifyThenAbort: {State[String], Abort} String =
+   flatMap(putState("modified"), ignored -> abort)
+
+// Discharge Abort first (inner), State second (outer): State SURVIVES the abort. Result Pair[Option[String], S] —
+// the value is None (it aborted) but the final state "modified" is still threaded out.
+def stateSurvives: Pair[Option[String], String] =
+   runId(runState(runAbort(modifyThenAbort), "initial"))
+
+// Discharge State first (inner), Abort second (outer): the abort DISCARDS the state. Result Option[Pair[String, S]] —
+// the whole pair is gone (None), so there is no surviving state at all.
+def stateDiscarded: Option[Pair[String, String]] =
+   runId(runAbort(runState(modifyThenAbort, "initial")))
+
+def main: IO[Unit] = flatMap(
+   println(foldOption(first(stateSurvives), "<no value>", s -> s)),
+   ignored -> flatMap(
+      println(second(stateSurvives)),
+      ignored2 -> println(foldOption(stateDiscarded, "<no state>", p -> second(p)))))

@@ -586,9 +586,9 @@ effects-specific; they bite any multi-instance ability whose methods share an er
   miscompiles (a `NoSuchMethodError` on the `Box` constructor) — a separate generic-data codegen issue. `Dep`'s
   instances construct *concrete* types (`pure(Database(..))`), so they are unaffected.
 
-### M5 — Structural-effect discharge, ordering, testability, Dep dictionary erasure
+### M5 — Structural-effect discharge, ordering, testability, Dep dictionary erasure ✅ DONE
 
-**Status (2026-06-20): partially implemented.** `Abort`⟹`Option` (via `OptionT`) and `Throw[E]`⟹`Either[E,_]` (via
+**Status (2026-06-21): COMPLETE — the effects plan is fully implemented.** `Abort`⟹`Option` (via `OptionT`) and `Throw[E]`⟹`Either[E,_]` (via
 `EitherT`) are built end-to-end — abilities (stdlib `Abort`/`Throw`, import-required, not ambient, to avoid a
 `get`/`Dep.get` clash and the test-harness stub ripple), concrete `Option`/`Either` + transformers + `Monad`/
 `Applicative`/`Sync`/effect instances + `runAbort`/`runThrow` discharge (jvm layer), all running and covered by
@@ -598,7 +598,36 @@ riding `OptionT[IO]` via the single `Sync[OptionT[G]]` base lift) **works**. **S
 verified** by `javap`: no `Dep` class in the jar, `get` is a direct `invokestatic`, no environment threaded (only the
 dependency *value* allocates, per the reframed item).
 
-This required **four compiler fixes** (all general, all with the full suite green): (1) *partial-application
+**`State[S]`⟹`Pair[A,S]` (revived 2026-06-21)** runs end-to-end on `Id`/`IO`/`{State, Console}` once the two
+generic-data codegen blockers were fixed (`project_generic_multifield_codegen_fix`: generic-multi-field erasure +
+single-ctor-union type-naming).
+
+**Ordering-at-the-edge — the last open item — is now DONE (2026-06-21).** One carrier-polymorphic `{State[String],
+Abort}` program (install a new state, then `abort`) discharges in **both** orders, giving two genuinely different
+results *and* result types:
+- `runState(runAbort(p), s0) : Pair[Option[A], S]` — **state survives the abort** (value `None`, final state still
+  `"modified"`); `State` rides through the outer `OptionT` via the `State[S, OptionT[G]]` cross-lift.
+- `runAbort(runState(p, s0)) : Option[Pair[A, S]]` — **the abort discards the state** (the whole pair torn down to
+  `None`); `Abort` rides through the outer `StateT` via the `Abort[StateT[S, G]]` cross-lift.
+
+These two cross-lifting instances are the n² mtl matrix made concrete (two cells, both written *once* by the library
+author, erased by monomorphization): `State[S, OptionT[G]]` lives with `OptionT`, `Abort[StateT[S, G]]` with `StateT`.
+Each lifts one effect's operations through the *other's* transformer (`getState`/`putState` wrap in `Some`; `abort`
+delegates to the inner carrier's `abort`, ignoring the threaded state). Legal discharge orders = available lifting
+instances (Decision 7): with both cells present, both orders type-check and run; an order lacking its cross-lift is a
+plain missing-instance error at the concrete use site (fail-safe, never a miscompile). Covered by
+`examples/src/EffectsOrdering.els` + two `ExamplesIntegrationTest` cases (`"ordering at the discharge edge"`).
+
+**One general compiler fix this required** (full suite green, 811 tests): the JVM data-field erasure
+(`DataClassGenerator.erasePolymorphicFields`) only erased a **bare** type-parameter field (`first: A`) to `Object`; a
+field **headed by a binder applied to arguments** (`runOptionT: G[Option[A]]`) was left precise and so disagreed
+across `OptionT[Id]` vs `OptionT[StateT[S, Id]]` — caught (fail-safe) by `JvmClassGenerator`'s representation check.
+Fix: erase a field whose type-spine *head* is a type-parameter binder, whether bare or applied — such a field is always
+a reference type on the JVM (a higher-kinded binder applied to a `Type` arg can never be a primitive `Int[..]`, which
+needs `BigInteger` args), so erasing it to `Object` is sound. A concrete-headed field that still varies (`Int[0, N]`)
+keeps the existing abort.
+
+This required, earlier, **four other compiler fixes** (all general, all with the full suite green): (1) *partial-application
 injectivity* in `Unifier.decomposeSpines` — `?F[a..] ~ C[prefix.., a..] ⟹ ?F := C[prefix..]`, the foundational
 `?F := OptionT[G]` solve (this, not a codegen bug, was the real blocker the M4 note mis-attributed); and three
 `EffectDesugaringProcessor` refinements to the bind/storage rule: (2) a parameter whose type *mentions the callee's
@@ -606,17 +635,6 @@ carrier binder* is storage (`runAbort(p : OptionT[G,A])`); (3) bind only into **
 bare type var) — an applied type ctor (`Id[A]`, `OptionT[G,A]`) is storage; (4) never auto-bind an *author-written*
 machinery call (`pure(None)` inside a transformer instance), distinguished from the pass's *own* synthesized
 `flatMap`/`map` via a `synthesizedBind` flag.
-
-**Deferred (the remaining M5 sub-items):**
-- **`State[S]`⟹`(_, S)` and ordering-at-the-edge.** `State`/`StateT`/`getState`/`putState`/`runState` all *type-check*
-  (partial-app injectivity handles `StateT[S,G]`), but `State` discharges into a **two-field generic `Pair[A,S]`**,
-  which hits a **pre-existing generic-data codegen bug** (the M4-flagged limitation): `Pair` is monomorphized at
-  inconsistent type-arg erasures, so the single generated factory `Pair(Object, String)` mismatches per-call-site
-  descriptors `(String,String)`/`(Void,String)` ⟹ `NoSuchMethodError`. Single-field constructors (`Some`/`Left`/
-  `Right`/`Id`) are uniformly erased and unaffected — which is exactly why `Abort`/`Throw`/testability work and
-  `State` does not. The fix belongs in monomorphize/jvm codegen (align data-class field erasure with call sites), not
-  in the effects machinery. Ordering-at-the-edge additionally needs the cross-lifting instances `State[OptionT[G]]` /
-  `Abort[StateT[G]]` (the n² mtl matrix), unblocked once `State` runs.
 
 **Original M5 plan (for reference):**
 

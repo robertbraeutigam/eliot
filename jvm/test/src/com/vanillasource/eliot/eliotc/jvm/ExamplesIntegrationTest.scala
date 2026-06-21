@@ -385,6 +385,65 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "running step\nstart\ndone")
   }
 
+  // Ordering-at-the-edge (M5, the last open item): ONE carrier-polymorphic `{State[String], Abort}` program —
+  // install a new state, then `abort` — discharged in the TWO possible orders, giving two genuinely different
+  // results (and result *types*). The interaction "does the abort roll back the state?" is left open in the flat
+  // effect set and decided only by the order the `run*` calls are nested, via the n² cross-lifting instances
+  // `State[OptionT[G]]` (in `OptionT`) and `Abort[StateT[S, G]]` (in `StateT`). Run on a pure `Id` carrier.
+  private val orderingPrelude =
+    """import eliot.lang.Monad
+      |import eliot.lang.Applicative
+      |import eliot.lang.State
+      |import eliot.lang.Abort
+      |import eliot.lang.Option
+      |import eliot.lang.Pair
+      |import eliot.lang.OptionT
+      |import eliot.lang.StateT
+      |
+      |data Id[A](runId: A)
+      |
+      |implement Monad[Id] {
+      |   def pure[A](a: A): Id[A] = Id(a)
+      |   def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
+      |}
+      |
+      |implement Applicative[Id] {
+      |   def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
+      |}
+      |
+      |def modifyThenAbort: {State[String], Abort} String =
+      |   flatMap(putState("modified"), ignored -> abort)
+      |
+      |""".stripMargin
+
+  // Discharge Abort first (inner), State second (outer) ⟹ `Pair[Option[A], S]`: the state SURVIVES the abort, so the
+  // final state is the installed "modified" even though the value aborted to None. State rides through `OptionT` via
+  // the `State[OptionT[G]]` cross-lift.
+  "ordering at the discharge edge" should "let state survive an abort when State is discharged outermost" in {
+    compileAndRun(
+      orderingPrelude +
+        """def stateSurvives: Pair[Option[String], String] =
+          |   runId(runState(runAbort(modifyThenAbort), "initial"))
+          |
+          |def main: IO[Unit] = flatMap(
+          |   println(foldOption(first(stateSurvives), "<no value>", s -> s)),
+          |   ignored -> println(second(stateSurvives)))""".stripMargin
+    ).asserting(_ shouldBe "<no value>\nmodified")
+  }
+
+  // Discharge State first (inner), Abort second (outer) ⟹ `Option[Pair[A, S]]`: the abort DISCARDS the state — the
+  // whole pair is torn down to None, so there is no surviving state at all. Abort rides through `StateT` via the
+  // `Abort[StateT[S, G]]` cross-lift. The opposite result from the same program: ordering decides interaction.
+  it should "discard state on an abort when Abort is discharged outermost" in {
+    compileAndRun(
+      orderingPrelude +
+        """def stateDiscarded: Option[Pair[String, String]] =
+          |   runId(runAbort(runState(modifyThenAbort, "initial")))
+          |
+          |def main: IO[Unit] = println(foldOption(stateDiscarded, "<no state>", p -> second(p)))""".stripMargin
+    ).asserting(_ shouldBe "<no state>")
+  }
+
   "ability" should "dispatch to correct implementation" in {
     compileAndRun(
       """ability Show[A] {

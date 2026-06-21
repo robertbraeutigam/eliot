@@ -2,6 +2,7 @@ import eliot.lang.Monad
 import eliot.lang.Applicative
 import eliot.lang.Sync
 import eliot.lang.Abort
+import eliot.lang.State
 import eliot.lang.Option
 
 /**
@@ -51,6 +52,20 @@ implement[G[_] ~ Sync & Applicative] Sync[OptionT[G]] {
  */
 implement[G[_] ~ Monad] Abort[OptionT[G]] {
    def abort[A]: OptionT[G, A] = OptionT(pure(None))
+}
+
+/**
+ * Cross-lift: `State[S]` rides through the `OptionT` layer (one cell of the n² mtl lifting matrix). When a
+ * `{State[S], Abort}` program discharges `Abort` *first* (`runState(runAbort(p), s0)`), the carrier is refined to
+ * `OptionT[G]` with `G` still carrying `State`, so the residual `getState`/`putState` must run at `OptionT[G]`. They
+ * delegate to the inner `G`'s state and wrap the result in `Some` — state is never *absent* here; only the eventual
+ * `abort` makes the discharged *value* `None`. Because `OptionT` sits *outside* the (inner) `StateT`, the threaded
+ * state survives an abort: discharging in this order yields `Pair[Option[A], S]`. Its order-sensitive counterpart is
+ * `Abort[StateT[S, G]]` (in `StateT`), where the abort instead discards the state.
+ */
+implement[S, G[_] ~ State[S] & Applicative] State[S, OptionT[G]] {
+   def getState: OptionT[G, S] = OptionT(map(getState, s -> Some(s)))
+   def putState(newS: S): OptionT[G, Unit] = OptionT(map(putState(newS), u -> Some(u)))
 }
 
 /**
