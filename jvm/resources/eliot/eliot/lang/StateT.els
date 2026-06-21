@@ -1,0 +1,63 @@
+import eliot.lang.Monad
+import eliot.lang.Applicative
+import eliot.lang.Sync
+import eliot.lang.State
+import eliot.lang.Pair
+
+/**
+ * The state monad transformer — the concrete carrier that discharges the `State[S]` effect (effects plan, M5). A value
+ * of `StateT[S, G, A]` is a function `S -> G[Pair[A, S]]`: given the current state it produces a `G`-computation
+ * yielding the result paired with the new state. It is the only place the `Pair` state-threading structure meets the
+ * effect carrier; it never appears in a business signature (those say `{State[S]}`), only inside this library and the
+ * discharge function `runState`.
+ *
+ * Generic over the base carrier `G` (constrained only by the machinery it needs — `Monad`/`Applicative`/`Sync`), never
+ * pinned to `IO`. So `StateT[S, IO]`, `StateT[S, OptionT[IO]]`, … all work, and a `Sync`-keyed fine effect like
+ * `Console` rides through via the `Sync[StateT[S, G]]` lift below.
+ */
+data StateT[S, G[_], A](runStateT: Function[S, G[Pair[A, S]]])
+
+/**
+ * `StateT[S, G]` is a monad whenever its base `G` is: `pure` produces the value without touching the state; `flatMap`
+ * runs the first computation from the incoming state, then runs the continuation from the resulting state — threading
+ * the state through, the `State` semantics.
+ */
+implement[S, G[_] ~ Monad] Monad[StateT[S, G]] {
+   def pure[A](a: A): StateT[S, G, A] = StateT(s -> pure(Pair(a, s)))
+   def flatMap[A, B](fa: StateT[S, G, A], f: Function[A, StateT[S, G, B]]): StateT[S, G, B] =
+      StateT(s -> flatMap(apply(runStateT(fa), s), p -> apply(runStateT(f(first(p))), second(p))))
+}
+
+/**
+ * Mapping over `StateT`: transform the result, leave the threaded state untouched.
+ */
+implement[S, G[_] ~ Applicative] Applicative[StateT[S, G]] {
+   def map[A, B](fa: StateT[S, G, A], f: Function[A, B]): StateT[S, G, B] =
+      StateT(s -> map(apply(runStateT(fa), s), p -> Pair(f(first(p)), second(p))))
+}
+
+/**
+ * The base-effect lift: `StateT[S, G]` is `Sync` whenever `G` is, running the inner sync action and pairing its result
+ * with the unchanged state. Carries every `Sync`-keyed fine effect through the `StateT` layer.
+ */
+implement[S, G[_] ~ Sync & Applicative] Sync[StateT[S, G]] {
+   def sync[A](thunk: Function[Unit, A]): StateT[S, G, A] = StateT(s -> map(sync(thunk), a -> Pair(a, s)))
+}
+
+/**
+ * The `State` instance: `getState` returns the current state as the result while keeping it; `putState(newS)` discards
+ * the incoming state, installs `newS`, and yields `unit`.
+ */
+implement[S, G[_] ~ Monad] State[S, StateT[S, G]] {
+   def getState: StateT[S, G, S] = StateT(s -> pure(Pair(s, s)))
+   def putState(newS: S): StateT[S, G, Unit] = StateT(s -> pure(Pair(unit, newS)))
+}
+
+/**
+ * Discharge the `State[S]` effect, reflecting it into a `Pair[A, S]`: `runState(p, initial)` turns a `{State[S]}`
+ * computation (typed `StateT[S, G, A]` after the carrier is refined to `StateT[S, G]`) into a plain `G[Pair[A, S]]` —
+ * the result paired with the final state, started from `initial`. This is the only place `Pair` appears as a result;
+ * the residual effects stay polymorphic in `G`. `p` is a storage position (its type mentions the carrier `G`), so the
+ * effect-desugar phase passes the effectful action in directly rather than binding it.
+ */
+def runState[S, G[_], A](p: StateT[S, G, A], initial: S): G[Pair[A, S]] = apply(runStateT(p), initial)

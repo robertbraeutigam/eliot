@@ -316,6 +316,75 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "granted\nDENIED")
   }
 
+  // The State effect (M5): a `{State[S]}` computation discharges to a `Pair[A, S]` (result + final state) via the
+  // `StateT` transformer, born only at the `runState` edge. `getState`/`putState` resolve to `State[StateT[S, IO]]`
+  // after the carrier is refined to `StateT[S, G]` by partial-application injectivity at the `runState` call. `swap`
+  // reads the state, installs a new one, and returns the previous value; discharged on IO from initial "before".
+  "the State effect" should "thread state through a {State} computation and discharge to a Pair via runState" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |import eliot.lang.State
+        |import eliot.lang.Pair
+        |import eliot.lang.StateT
+        |
+        |def swap(next: String): {State[String]} String =
+        |   flatMap(getState, old -> flatMap(putState(next), ignored -> pure(old)))
+        |
+        |def prog: IO[Pair[String, String]] = runState(swap("after"), "before")
+        |
+        |def main: IO[Unit] = flatMap(prog, p -> flatMap(println(first(p)), ignored -> println(second(p))))""".stripMargin
+    ).asserting(_ shouldBe "before\nafter")
+  }
+
+  // Static testability for State: the SAME carrier-polymorphic {State} logic runs under a pure `Id` carrier (G := Id),
+  // discharging to a plain `Pair` with no IO. This is the State→Pair discharge the generic-multi-field-data codegen
+  // bug previously blocked (a two-field generic `Pair` at the `Unit`/`String` mix of `getState`/`putState`).
+  "a carrier-polymorphic {State} program" should "run under a pure Id carrier with no IO and discharge to a Pair" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |import eliot.lang.Applicative
+        |import eliot.lang.State
+        |import eliot.lang.Pair
+        |import eliot.lang.StateT
+        |
+        |data Id[A](runId: A)
+        |
+        |implement Monad[Id] {
+        |   def pure[A](a: A): Id[A] = Id(a)
+        |   def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
+        |}
+        |
+        |implement Applicative[Id] {
+        |   def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
+        |}
+        |
+        |def swap(next: String): {State[String]} String =
+        |   flatMap(getState, old -> flatMap(putState(next), ignored -> pure(old)))
+        |
+        |def demo: Pair[String, String] = runId(runState(swap("second"), "first"))
+        |
+        |def main: IO[Unit] = flatMap(println(first(demo)), ignored -> println(second(demo)))""".stripMargin
+    ).asserting(_ shouldBe "first\nsecond")
+  }
+
+  // A {State, Console} program: Console rides the `StateT[S, IO]` stack via the single `Sync[StateT[S, G]]` base lift
+  // (the n-not-n×m lifting), so the print runs while the state threads through and discharges to a Pair.
+  "a {State, Console} program" should "run Console through the StateT[String, IO] stack via the Sync lift" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |import eliot.lang.State
+        |import eliot.lang.Pair
+        |import eliot.lang.StateT
+        |
+        |def step: {State[String], Console} String =
+        |   flatMap(println("running step"),
+        |      ignored -> flatMap(getState, old -> flatMap(putState("done"), ignored2 -> pure(old))))
+        |
+        |def main: IO[Unit] = flatMap(runState(step, "start"),
+        |   p -> flatMap(println(first(p)), ignored -> println(second(p))))""".stripMargin
+    ).asserting(_ shouldBe "running step\nstart\ndone")
+  }
+
   "ability" should "dispatch to correct implementation" in {
     compileAndRun(
       """ability Show[A] {
