@@ -7,7 +7,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Desugars the effect-set sugar `{ E1, E2, … } A` ([[Expression.EffectfulType]]) in a function signature into ordinary
-  * higher-kinded-constrained generics, by the one uniform rule of `docs/effects-plan.md`, Part A:
+  * higher-kinded-constrained generics, by one uniform rule:
   *
   *   - introduce **one** shared inferable higher-kinded carrier `F[_]` per signature (marked `auto`, so it counts
   *     toward `inferableArity` and is omittable at use sites),

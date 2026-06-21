@@ -33,7 +33,7 @@ object Expression {
     * (capabilities, each an ability reference) carried by a computation that produces a plain `resultType`. Pure,
     * type-information-free sugar — it never survives past the core processor, where [[core.processor.EffectSugarDesugarer]]
     * collapses every `{…} A` occurrence in a signature to `F[A]` under one shared inferable carrier `F[_]` (the effects
-    * becoming `F ~ Ei` constraints). See `docs/effects-plan.md`, Part A.
+    * becoming `F ~ Ei` constraints).
     */
   case class EffectfulType(effects: Seq[GenericParameter.AbilityConstraint], resultType: Sourced[Expression])
       extends Expression
