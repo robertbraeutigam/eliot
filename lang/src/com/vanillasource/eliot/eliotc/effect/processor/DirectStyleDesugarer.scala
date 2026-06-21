@@ -2,7 +2,6 @@ package com.vanillasource.eliot.eliotc.effect.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.effect.processor.CalleeSignatures.CalleeInfo
-import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
   FunctionApplication,
@@ -144,11 +143,7 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
     */
   private def isAuthorMachineryCall(arg: Desugared): Boolean =
     !arg.synthesizedBind && (spine(arg.expr.value)._1 match {
-      case ValueReference(fqn, _) =>
-        fqn.value.name.qualifier match {
-          case Qualifier.Ability(name) => EffectMachinery.isMachineryAbility(name)
-          case _                       => false
-        }
+      case ValueReference(fqn, _) => EffectMachinery.abilityNameOf(fqn.value).exists(EffectMachinery.isMachineryAbility)
       case _                      => false
     })
 

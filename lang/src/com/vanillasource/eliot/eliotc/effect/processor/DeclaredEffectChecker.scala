@@ -27,7 +27,7 @@ class DeclaredEffectChecker {
   ): CompilerIO[Unit] =
     if (carrier.isEmpty) ().pure[CompilerIO]
     else {
-      val declared   = carrier.flatMap(c => value.paramConstraints.getOrElse(c, Seq.empty).map(_.abilityFQN))
+      val declared   = EffectCarriers.declaredEffects(carrier, value.paramConstraints)
       val undeclared = used.diff(declared).toSeq.sortBy(_.abilityName)
       if (undeclared.isEmpty) ().pure[CompilerIO]
       else

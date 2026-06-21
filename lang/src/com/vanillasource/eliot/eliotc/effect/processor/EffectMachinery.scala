@@ -29,11 +29,23 @@ object EffectMachinery {
   private val pureFQN: ValueFQN    = ValueFQN(monadModule, QualifiedName("pure", Qualifier.Ability("Monad")))
   private val mapFQN: ValueFQN     = ValueFQN(applicativeModule, QualifiedName("map", Qualifier.Ability("Applicative")))
 
+  /** The abilities the compiler inserts and recognises but the user never names. */
+  private val machineryAbilities: Set[String] = Set("Monad", "Applicative", "Sync")
+
   /** The internal effect machinery, never a user-facing effect: a `flatMap`/`pure`/`map`/`sync` call (hand-written or
     * inserted by this phase) must not be counted as "using an effect" by the declared-effect check.
     */
-  def isMachineryAbility(abilityName: String): Boolean =
-    abilityName == "Monad" || abilityName == "Applicative" || abilityName == "Sync"
+  def isMachineryAbility(abilityName: String): Boolean = machineryAbilities.contains(abilityName)
+
+  /** The ability a value reference belongs to, if it is an ability method (`println` → `Console`, `flatMap` → `Monad`);
+    * `None` for an ordinary (non-ability) value. Lets callers ask "which ability does this call name?" without
+    * re-matching on [[Qualifier]].
+    */
+  def abilityNameOf(fqn: ValueFQN): Option[String] =
+    fqn.name.qualifier match {
+      case Qualifier.Ability(name) => Some(name)
+      case _                       => None
+    }
 
   /** Lift a pure expression into the carrier with `Monad.pure`. */
   def pureWrap(expr: Sourced[OperatorResolvedExpression]): Sourced[OperatorResolvedExpression] =

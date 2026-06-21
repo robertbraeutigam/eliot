@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.effect.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
   ParameterReference,
   SignatureView,
@@ -26,7 +26,7 @@ class CalleeSignatures {
     getFact(OperatorResolvedValue.Key(fqn.value)).map {
       case Some(orv) =>
         val view           = SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature))
-        val carrierBinders = view.binders.filter(EffectCarriers.isHktBinder).map(_.name.value).toSet
+        val carrierBinders = EffectCarriers.carrierBinders(view)
         CalleeInfo(
           view.parameters.map(_.value),
           view.returnType.value,
@@ -50,16 +50,13 @@ class CalleeSignatures {
       orv: OperatorResolvedValue,
       carrierBinders: Set[String]
   ): Set[AbilityFQN] =
-    fqn.name.qualifier match {
+    EffectMachinery.abilityNameOf(fqn) match {
       // An ability method performs its owning ability — unless it is internal machinery (Monad/Applicative/Sync).
-      case Qualifier.Ability(abilityName) =>
+      case Some(abilityName) =>
         if (EffectMachinery.isMachineryAbility(abilityName)) Set.empty
         else Set(AbilityFQN(fqn.moduleName, abilityName))
       // An ordinary `{E...}` function propagates the (non-machinery) effects declared on its own carrier binder(s).
-      case _                              =>
-        carrierBinders
-          .flatMap(b => orv.paramConstraints.getOrElse(b, Seq.empty).map(_.abilityFQN))
-          .filterNot(a => EffectMachinery.isMachineryAbility(a.abilityName))
+      case None              => EffectCarriers.declaredEffects(carrierBinders, orv.paramConstraints)
     }
 }
 

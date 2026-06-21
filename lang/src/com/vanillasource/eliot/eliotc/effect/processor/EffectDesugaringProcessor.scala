@@ -65,11 +65,7 @@ class EffectDesugaringProcessor
     // The value's own ambient effect carrier(s): a higher-kinded binder that carries an ability constraint — the M1
     // `{E...}` carrier (`[F[_] ~ E...]`) or a hand-written `[F[_] ~ Monad]`. A bare higher-kinded generic (`C[_, _]`
     // in `f[A, B, C[_, _]]`) is NOT a carrier, so a body like `id(c)` is never spuriously `pure`-wrapped.
-    val carrier               =
-      view.binders
-        .filter(b => EffectCarriers.isHktBinder(b) && value.paramConstraints.contains(b.name.value))
-        .map(_.name.value)
-        .toSet
+    val carrier               = EffectCarriers.carrierBinders(view).filter(value.paramConstraints.contains)
 
     // The number of value parameters is the count of leading lambdas the *body* actually has, NOT the arrow-arity of
     // the declared type: a function-*valued* def (`def f : Function[A, B] = g`) has 0 parameters but a 2-arrow type, so
