@@ -120,12 +120,22 @@ type-checking, not only by codegen dedup.
 Ordered so the cheap, high-value, low-risk items land first and de-risk the larger ones. Each is independently
 valuable.
 
-### D1 — Name the post-check resolution pipeline (low risk, do first)
+### D1 — Name the post-check resolution pipeline ✅ DONE (commit `7ed0c67b`)
 
-Make `TypeStackLoop.processIO`'s tail an **explicit ordered list of named passes**, each with a documented
-pre/postcondition, terminating in an assertion "every meta is resolved-or-explicitly-defaulted." No semantic
-change. Payoff: the ordering becomes auditable, and the next feature has exactly one place to plug in instead of
-being threaded by hand through a comment-documented sequence.
+Made `TypeStackLoop.processIO`'s tail an explicit, named structure terminating in an assertion "every meta is
+resolved-or-explicitly-defaulted." No semantic change; suite green.
+
+**Refinement learned from building it:** the tail is **tiered, not a flat ordered list** as predicted here. The
+one hard ordering is a *phase boundary* — `resolveUpperBounds` may assume saturation has reached its fixed point
+(every `Combine` meta is joined) — which no pairwise `runsAfter` can express. So the passes split into a
+**saturation fixed-point loop** (drain-interleaved ability + `Combine` resolution) and a **linear finalization
+tier**, then the finalizer (`defaultUnsolvedMetas`), then the assertion. `drain` is the equality core settling
+*between* feature passes — deliberately not a pass. This is the concrete answer to the hook-architecture question:
+the plug-in *mechanism* is real (named `PostDrainPass`es, a closed `PassContext` input that no pass reaches
+past), but any registry must be **two-level (phase, then order)**, and the features stay coupled through the
+shared metastore — D1 makes that coupling explicit rather than dissolving it. The postcondition is the seam **D2**
+plugs into (`assertEveryMetaResolvedOrAbstract`; verified live by neutering the finalizer and confirming it
+fires, so a forgotten role in D2 cannot silently default to `Type` — the F2 cure, prepared).
 
 ### D2 — Replace the meta side-sets with one `Map[MetaId, MetaRole]` ADT (highest structural payoff)
 
