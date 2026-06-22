@@ -58,13 +58,65 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
         body.map { b =>
           Lazy {
             val evaluator = new Evaluator(ref => bodyBindings.get(ref))
-            evaluator.eval(Env.empty, b.value)
+            evaluator.eval(Env.empty, reifyingWrap(b.value, fact))
           }
         },
         Spine.SNil
       )
       buildFact(vfqn, semValue)
     }
+  }
+
+  /** Wrap a runtime body in [[FunctionLiteral]] binders for the leading type-stack (generic) parameters it reifies — the
+    * ones it references in *value* position — so that applying the value's explicit type arguments substitutes them.
+    *
+    * A type-stack parameter is a binder of the value's '''signature''' (a leading generic `[N]`), but it is '''not''' a
+    * lambda of the '''runtime body''': `def bigOf[V] = V` has signature `(V: BigInteger) -> BigInteger` yet runtime body
+    * just `V` (a bare reference, the reification of the erased `V`). Evaluated as-is under the empty env, that `V` becomes
+    * a free [[SemValue.VNeutral]], so a later `bigOf[1]` only appends `1` to the neutral's spine instead of reducing to
+    * `1` — and any computed type argument flowing through such a value (e.g. `h[subtract(N, bigOf[1])]`) stays a stuck
+    * term that fails read-back ("Cannot resolve type."). Wrapping the reified binders as leading lambdas makes the spine
+    * application substitute them, exactly as the checker does for the value's own monomorphization via
+    * `bindTypeStackParam`.
+    *
+    * Only binders actually reified (referenced where [[Evaluator.eval]] would visit them: value positions and nested
+    * value-reference type arguments, never `FunctionLiteral` parameter-type annotations, which `eval` ignores) are
+    * candidates. To keep explicit-type-argument threading positionally aligned, the wrap covers the contiguous prefix of
+    * the signature binders up to and including the last reified one (any non-reified binder inside that prefix is wrapped
+    * as an unused binder, harmless because its type argument is still threaded). When nothing is reified the body is
+    * returned unchanged, so ordinary generics (e.g. `id[A](x: A) = x`, whose `A` never appears in value position) keep
+    * their existing cached shape and implicit-type-argument application is unaffected.
+    */
+  private def reifyingWrap(
+      body: OperatorResolvedExpression,
+      fact: OperatorResolvedValue
+  ): OperatorResolvedExpression = {
+    val binders   = OperatorResolvedExpression.SignatureView
+      .of(fact.typeStack.as(fact.typeStack.value.signature))
+      .binders
+    val reified   = valuePositionRefs(body)
+    val lastIndex = binders.lastIndexWhere(b => reified.contains(b.name.value))
+    if (lastIndex < 0) body
+    else
+      binders
+        .take(lastIndex + 1)
+        .foldRight(fact.name.as(body)) { (binder, accBody) =>
+          binder.name.as(OperatorResolvedExpression.FunctionLiteral(binder.name, None, accBody))
+        }
+        .value
+  }
+
+  /** The set of parameter names referenced in positions [[Evaluator.eval]] actually visits: value-position references,
+    * and the type arguments of nested value references (which `eval` evaluates into the spine). A `FunctionLiteral`'s
+    * parameter-type annotation is deliberately '''not''' walked — `eval` ignores it — and the literal's own bound name is
+    * excluded so a shadowing value parameter is not mistaken for a reified type-stack binder.
+    */
+  private def valuePositionRefs(expr: OperatorResolvedExpression): Set[String] = expr match {
+    case OperatorResolvedExpression.ParameterReference(name)    => Set(name.value)
+    case OperatorResolvedExpression.ValueReference(_, typeArgs) => typeArgs.flatMap(ta => valuePositionRefs(ta.value)).toSet
+    case OperatorResolvedExpression.FunctionApplication(t, a)   => valuePositionRefs(t.value) ++ valuePositionRefs(a.value)
+    case OperatorResolvedExpression.FunctionLiteral(pn, _, b)   => valuePositionRefs(b.value) - pn.value
+    case _                                                      => Set.empty
   }
 
   /** Collect [[NativeBinding]]s for every ValueReference transitively reachable from `ore`, skipping FQNs that are

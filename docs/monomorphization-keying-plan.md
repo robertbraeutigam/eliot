@@ -150,13 +150,13 @@ pending/ignored with a note — recording the gap is part of the baseline.
 
 **Scenarios** (each asserts the current count + a comment with the target count):
 
-| # | scenario | predicted | **measured today** | target |
+| # | scenario | predicted | **measured (post read-back fix)** | target |
 |---|---|---|---|---|
-| S1 | recursion over a size-bounded structure (`sum`/`map`, Cat 1 phantom) | explosion / hang | **error** `Cannot resolve type.`†, 0 versions | 1 |
+| S1 | recursion over a size-bounded structure (`sum`/`map`, Cat 1 phantom) | explosion / hang | **4** (`{3,2,1,0}`)† | 1 |
 | S2 | two call sites `Int[0,100]` & `Int[0,50]` (Cat 2, same width) | 2 | **2** | 1 |
 | S3 | `Int[0,100]` & `Int[0,100000]` (Cat 2, different width) | 2 | **2** | 2 (must stay) |
 | S4 | reified value at K finite call sites (Cat 3, recursion-invariant) | K | **K (=3)** | K (correct) |
-| S5 | reified value varying per recursion (Cat 3, recursion-variant) | unbounded / hang | **error** `Cannot resolve type.`†, 0 versions | demote → 1 |
+| S5 | reified value varying per recursion (Cat 3, recursion-variant) | unbounded / hang | **3** (`{3,2,1}`)† | demote → 1 |
 | S6 | two types, same representation, different ability impl (dispatch) | 2 | **2** | 2 (must stay — soundness) |
 | S7 | divergent recursion (no base case) | hang (timeout) | **hang (timeout)** | backstop error |
 | S8 | recursion on a runtime value, invariant type (control) | 1 | **1** | 1 (regression guard) |
@@ -165,29 +165,42 @@ S3, S6, S8 are the **must-not-over-merge** guards; S1, S2, S5 are the wins; S7 m
 backstop. The suite (`lang/test/.../monomorphize/processor/MonomorphizationVersioningTest.scala`) is the acceptance
 gate for Deliverables A and B.
 
-### Baseline findings (measured 2026-06-22) — corrects the S1/S5 prediction
+### Baseline findings (measured 2026-06-22) — corrects the S1/S5 prediction, and the read-back-gap fix (2026-06-22)
 
-The prediction that S1/S5 *explode or hang* today is **wrong, and not because of recursion**. They fail earlier, on a
+The prediction that S1/S5 *explode or hang* was **wrong, and not because of recursion**. They failed earlier, on a
 **prerequisite gap independent of this plan's keying fix**: †a value reference's *computed* type-argument — a
-native/def application such as `subtract(N, 1)` — is **not normalised before read-back**. `PostDrainQuoter` quotes a
-value reference's type-args via `Quoter.quote` *without forcing them* (`PostDrainQuoter.scala:200-203`; contrast the
-value-position path `tryMaterialise`, which *does* `Evaluator.force`, `:214`), so a non-literal index stays a stuck
-term and surfaces as `Cannot resolve type.`. Isolated three ways:
+native/def application such as `subtract(N, 1)` — was **not normalised before read-back** and surfaced as `Cannot
+resolve type.`. Isolated three ways:
 
-- a **non-recursive** `def g[N](…) = h[subtract(N, 1)]` fails identically ⇒ not a recursion problem;
-- a **recursive** call with a **literal** index (`def r[N] = r[2]`, `main = r[3]`) works and terminates at **2**
+- a **non-recursive** `def g[N](…) = h[subtract(N, 1)]` failed identically ⇒ not a recursion problem;
+- a **recursive** call with a **literal** index (`def r[N] = r[2]`, `main = r[3]`) worked and terminated at **2**
   versions via `used`'s visited-key dedup ⇒ recursion itself is fine;
-- the non-recursive `fold`/reification machinery these scenarios rely on works (it underpins S4 and the `Int`
+- the non-recursive `fold`/reification machinery these scenarios rely on worked (it underpins S4 and the `Int`
   arithmetic env).
 
-Size-indexed recursion merely *forces* you to compute the index each step (`N-1`), which is where the gap bites — so
-the O(N) explosion never even starts. **Consequence for sequencing:** S1/S5 cannot reach their targets from the keying
-fix alone; the computed-type-argument read-back must be made to normalise first (force the type-args, or evaluate them
-in the mono `Env`, before `quote`). Until then S1/S5 assert the *current error* as their baseline.
+**Root cause (deeper than the first guess — forcing alone would not have helped).** The stuck term was not a stuck
+native that `Evaluator.force` could re-fire; it was a stuck **reified type-stack parameter**. A reified parameter
+(`def bigOf[V] = V`) is a binder of the value's *signature* but **not** of its runtime body (the body is the bare
+reference `V`). `BindingProcessor` cached the body as `eval(Env.empty, V)` = a free `VNeutral`, so `bigOf[1]` only
+appended `1` to the neutral's spine instead of reducing to `1`; `subtract(N, bigOf[1])` then had a permanently-stuck
+second argument that neither `force` nor `renormalize` could reduce. (The keying-plan scenarios use `bigOf[k]` precisely
+because bare value-position literals desugar to `Int`, not `BigInteger`.)
 
-S7 is the one scenario that genuinely diverges today, precisely because its growing type-argument is a structural
+**Fix (`BindingProcessor.reifyingWrap`, with `ComputedTypeArgumentReadbackTest`).** The cached body is now wrapped in
+lambda binders for the leading type-stack parameters the body *reifies* (references in value position — the positions
+`eval` visits, excluding `FunctionLiteral` parameter-type annotations), covering the contiguous prefix up to the last
+reified binder so explicit type-argument threading stays aligned. Applying the explicit type args then substitutes them,
+exactly as the checker already does for the value's own monomorphization via `bindTypeStackParam`. Ordinary generics
+whose parameter is never reified (`id[A](x: A) = x`) are left unwrapped, so implicit type-argument application is
+unaffected.
+
+**Consequence:** S1/S5 now **unroll** instead of erroring (S1 → 4, S5 → 3 — S5 is one fewer because its arithmetic
+recursive branch reifies the base case to a constant and drops the `gen[0]` reference). The keying dedup/demote
+(Deliverables A and B) takes these to S1 → 1 and S5 → demote → 1.
+
+S7 is the one scenario that still genuinely diverges, precisely because its growing type-argument is a structural
 `Box[…]` *type application* (a ground type structure that quotes fine), not a stuck native — so it unrolls without
-bound instead of erroring.
+bound instead of erroring; the backstop (Deliverable A) converts that into a diagnostic.
 
 ## Deliverable A — non-convergence backstop
 
@@ -284,14 +297,16 @@ annotation** (force the user to choose), i.e. a per-target policy or per-paramet
 Deliverable 0's suite is the gate. After A+B the counts must move: S2 → 1, S3/S6/S8 unchanged, S7 → backstop error
 (not hang). Plus full suite green and a jvm end-to-end check (generated class count) for a recursive `sum`/`map`.
 
-**S1/S5 caveat:** these reach their targets (S1 → 1, S5 → demote→1) only *after* the prerequisite
-computed-type-argument read-back gap (see *Baseline findings*) is fixed — they error before producing any version
-today, so the keying fix alone cannot move them. Their suite assertions currently pin the error and must be updated to
-the target counts once that gap and A+B all land.
+**S1/S5 caveat:** the prerequisite computed-type-argument read-back gap (see *Baseline findings*) is now **fixed**, so
+S1/S5 unroll (S1 = 4, S5 = 3) rather than erroring; their suite assertions now pin those unrolled counts. They reach
+their final targets (S1 → 1, S5 → demote→1) once A+B land — the keying dedup/demote is what collapses the now-visible
+breadth.
 
 ## Order of work
 
-0. **Characterization test suite** (Deliverable 0) — baseline + discovery; the acceptance gate.
+0. **Characterization test suite** (Deliverable 0) — baseline + discovery; the acceptance gate. ✅ done.
+0.5. **Computed-type-argument read-back gap** — prerequisite surfaced by Deliverable 0 (reified type-stack params cached
+   as free neutrals). ✅ done (`BindingProcessor.reifyingWrap` + `ComputedTypeArgumentReadbackTest`); S1/S5 now unroll.
 1. **Backstop** (Deliverable A) — independent, immediately useful, de-risks B and feeds demotion.
 2. **B1** relevance + recursion-variance analysis (start maximally conservative).
 3. **B2/B3** projection + wiring through `used`/`uncurry`/backend, including the demote disposition.

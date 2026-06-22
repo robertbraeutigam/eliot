@@ -38,20 +38,19 @@ import scala.concurrent.duration.*
   * targets. (The plan's optional post-uncurry mirror — counting `UncurriedMonomorphicValue` — is not wired here; that
   * stage lives in the jvm backend and the breadth being deduped is already visible at the `MonomorphicValue` layer.)
   *
-  * Discovery recorded by this baseline (it corrects the plan's guess): the plan anticipated S1/S5 (size-indexed /
-  * reified recursion) would *explode or hang* today. They actually fail earlier, and '''not because of recursion'''.
-  * The real blocker is that passing a *computed* value — a native/def application such as `subtract(N, 1)` — into a
-  * type-argument / erased-parameter position is not normalised before read-back: the monomorphizer's
-  * [[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]] quotes a value reference's type-args via
-  * `Quoter.quote` without forcing them, so a non-literal index stays a stuck term and surfaces as "Cannot resolve
-  * type.". This was isolated three ways: (1) a *non-recursive* `h[subtract(N, 1)]` fails identically; (2) a recursive
-  * call with a *literal* index (`r[N] = r[2]`) works fine and terminates at 2 versions via `used`'s visited-key dedup
-  * (so recursion itself is fine); (3) the non-recursive `fold`/reification machinery these scenarios rely on works
-  * (it underpins S4 and the `Int` arithmetic env). Size-indexed recursion just *forces* you to compute the index each
-  * step (`N-1`), which is where the gap bites, so the O(N) explosion the plan anticipated never even starts. This is a
-  * '''prerequisite gap''', independent of the keying dedup/demote fix. The one scenario that genuinely diverges today
-  * is S7, whose growing type-argument is a structural `Box[...]` type application (not a stuck native), so it quotes
-  * fine and unrolls without bound.
+  * Discovery this baseline recorded (it corrected the plan's guess): the plan anticipated S1/S5 (size-indexed / reified
+  * recursion) would *explode or hang*. They actually failed earlier, and '''not because of recursion''' — a *computed*
+  * value (a native/def application such as `subtract(N, 1)`) passed into a type-argument / erased-parameter position was
+  * not normalised before read-back, because a reified type-stack parameter's runtime body was cached as a free neutral
+  * (`def bigOf[V] = V` ⇒ `bigOf[1]` stuck), so the index stayed a stuck term and surfaced as "Cannot resolve type.".
+  *
+  * That '''prerequisite gap is now fixed''' (`BindingProcessor.reifyingWrap`; see `ComputedTypeArgumentReadbackTest` for
+  * the focused regression tests). Consequently S1 and S5 now '''unroll''' — the recursion proceeds and terminates at the
+  * `fold` base case — instead of erroring: S1 ⇒ 4 versions ({3,2,1,0}), S5 ⇒ 3 versions ({3,2,1}, one fewer because its
+  * arithmetic recursive branch reifies the base case to a constant and drops the `gen[0]` reference). This is the codegen
+  * breadth the keying dedup/demote (Deliverables A and B) targets: S1 → 1, S5 → demote → 1. The one scenario that still
+  * genuinely diverges is S7, whose growing type-argument is a structural `Box[...]` type application (not a stuck native),
+  * so it quotes fine and unrolls without bound until the backstop (Deliverable A) lands.
   */
 class MonomorphizationVersioningTest
     extends ProcessorTest(
@@ -85,17 +84,17 @@ class MonomorphizationVersioningTest
   // recursion + base-case dispatch), so this proxy uses a numeric index with a `fold` base case: `countdown[N]`
   // recurses to `countdown[N-1]` and folds to the base at `N <= 0`. (BigInteger constants are reified via `bigOf[V]`
   // because bare value-position literals desugar to `Int`, not `BigInteger`.)
-  // TODAY: errors with "Cannot resolve type." at the recursive reference, zero versions materialised. The cause is NOT
-  // recursion (a literal-index recursion works) — it is the prerequisite gap noted in the class doc: the recursive
-  // step's *computed* index `subtract(N, bigOf[1])` is not normalised when read back as a type-argument, so the O(N)
-  // explosion never starts. Reaching the target needs that gap fixed AND the keying dedup.
-  // TARGET (gap + fix): 1 (the phantom index is dropped from the codegen key; one body serves every N).
-  "S1 (size-indexed recursion, phantom index)" should "today fail to resolve the computed recursive index (target after fix: 1)" in {
+  // PREREQUISITE GAP NOW FIXED (see `ComputedTypeArgumentReadbackTest`): the recursive step's *computed* index
+  // `subtract(N, bigOf[1])` is normalised when read back as a type-argument, so the recursion now unrolls instead of
+  // erroring. `countdown[3]` materialises the four distinct indices {3, 2, 1, 0} (the base case `fold` selects the
+  // constant at `N <= 0`, so it terminates) ⇒ 4 versions. This is the breadth the keying dedup targets.
+  // TARGET (after keying A+B): 1 (the phantom index is dropped from the codegen key; one body serves every N).
+  "S1 (size-indexed recursion, phantom index)" should "unroll one version per recursive index (target after keying: 1)" in {
     runVersioning(
       "import eliot.lang.Bool\ndef bigOf[V: BigInteger]: BigInteger = V\ndef countdown[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], countdown[subtract(N, bigOf[1])])\ndef main: BigInteger = countdown[3]",
       imports = intImports
     ).asserting { case (errors, counts) =>
-      (errors, countOf(counts, "countdown")) shouldBe (Seq("Cannot resolve type." at "countdown"), 0)
+      (errors, countOf(counts, "countdown")) shouldBe (Seq.empty, 4)
     }
   }
 
@@ -138,15 +137,18 @@ class MonomorphizationVersioningTest
   // Like S1 but the index is also reified into value position each step (`add(N, gen[N-1])`), so every level is
   // genuinely different code — an unbounded, non-collapsible reified family. The plan's disposition is *demote*: keep
   // the per-step value as a runtime parameter (one body, N call-site constants), not N bodies.
-  // TODAY: same as S1 — errors with "Cannot resolve type." on the computed recursive index `subtract(N, bigOf[1])`
-  // (the prerequisite gap, not recursion and not the keying issue), zero versions.
-  // TARGET (gap + fix): demote -> 1 body.
-  "S5 (reified value, recursion-variant)" should "today fail to resolve the computed recursive index (target after fix: demote -> 1)" in {
+  // PREREQUISITE GAP NOW FIXED (see `ComputedTypeArgumentReadbackTest`): the computed recursive index normalises, so the
+  // recursion unrolls instead of erroring. `gen[3]` materialises {3, 2, 1} = 3 versions: each step's value `add(N, gen[N-1])`
+  // is determined entirely by the erased index, so the reification gate folds `gen[1] = add(1, gen[0]) = 1` to a constant
+  // (its `gen[0]` base case fully reduces), dropping the `gen[0]` reference — one fewer version than S1's bare-reference
+  // recursion. (S1's recursive branch is a plain `countdown[0]` reference, which is kept, so S1 reaches index 0.)
+  // TARGET (after keying A+B): demote -> 1 body.
+  "S5 (reified value, recursion-variant)" should "unroll one version per recursive index (target after keying: demote -> 1)" in {
     runVersioning(
       "import eliot.lang.Bool\ndef bigOf[V: BigInteger]: BigInteger = V\ndef gen[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], add(N, gen[subtract(N, bigOf[1])]))\ndef main: BigInteger = gen[3]",
       imports = intImports
     ).asserting { case (errors, counts) =>
-      (errors, countOf(counts, "gen")) shouldBe (Seq("Cannot resolve type." at "gen"), 0)
+      (errors, countOf(counts, "gen")) shouldBe (Seq.empty, 3)
     }
   }
 
