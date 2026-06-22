@@ -133,17 +133,34 @@ Processors emit `NativeBinding` facts that map `ValueFQN → SemValue`:
 
 ### Bidirectional checker
 
+`Checker` is the **definitional-equality-adjacent core only**: the bidirectional `check`/`infer`/`applyInferred`/`peelLams`/`instantiatePolymorphic` walk plus the shared primitives (`force`, `freshMeta`, `doUnify`, `evalExpr`, `ensureBinding`, `prefetchBindings`). Three concerns that are *not* equality-shaped have been factored into collaborator modules (D4/D7/D8) — see **Checker collaborators & hook points** below — so a new lattice / inference / kind feature no longer multiplies inside the checker.
+
 Two modes:
 
-- `check(tm, expected)` — checks a term against a known type. The `check` fallback path calls `infer`, then `instantiatePolymorphic` (peels leading `VLam`s with fresh metas), then unifies.
+- `check(tm, expected)` — checks a term against a known type. The `check` fallback path calls `infer`, then `instantiatePolymorphic` (peels leading `VLam`s with fresh metas), then unifies (via `solver.unifyOrCoerce`).
 - `infer(tm)` — infers a term's type.
 
 Key cases:
 
-- **`ValueReference`**: fetch binding, fetch evaluated signature, apply explicit `typeArgs` via `applyValue`. Resolve ability methods via `tryResolveAbility`.
-- **`FunctionApplication`**: infer target, then `applyInferred`. If target type is `VPi`, extract domain/codomain. If `VLam` (polytype at term level), instantiate with fresh meta and recurse. Otherwise unify against fresh `VPi(?dom, ?cod)`.
+- **`ValueReference`**: fetch binding, fetch evaluated signature, apply explicit `typeArgs` via `applyValue`. Resolve ability methods via `tryResolveAbility`. A calculated-return producer referenced complete defers to `calcReturns.resolveCompleteCalculatedReturn`.
+- **`FunctionApplication`**: infer target, then `applyInferred`. If target type is `VPi`, extract domain/codomain. If `VLam` (polytype at term level), instantiate with fresh meta and recurse. Otherwise unify against fresh `VPi(?dom, ?cod)`. A reached calculated return defers to `calcReturns.resolveCalculatedReturn` before renormalising.
 - **`FunctionLiteral` with annotation**: eval parameter type, bind, check body against return type.
 - **`FunctionLiteral` without annotation, checked against `VPi`**: use `VPi`'s domain directly.
+
+### Checker collaborators & hook points
+
+`Checker` constructs three collaborators at the top of the class, one per non-equality side-car the architecture review (`docs/monomorphize-architecture-review.md`) identified. Each is built with **exactly the Checker primitives it needs, passed as constructor functions** — that narrow, explicit surface *is* the module boundary (the collaborator reaches nothing else on the Checker). Each is exposed as a `checker.<field>` and invoked from a small set of named hook points in `Checker` and `TypeStackLoop`. None of the three is definitional equality; that stays in `Unifier`.
+
+| Collaborator (file) — field | Non-equality concern | Injected primitives | Hook points (call sites) |
+|---|---|---|---|
+| `refine/RefinementSolver` (D4) — `checker.solver` | refinement lattice: `Coerce` widening + `Combine` join + upper-bounds | `resolveAbility`, `evalExpr`, `force`, `freshMeta`, `doUnify` | `Checker.check` → `unifyOrCoerce`; `TypeStackLoop` post-drain passes `resolve-combines` → `resolveCombines`, `upper-bounds` → `resolveUpperBounds` |
+| `check/CalculatedReturnResolver` (D7) — `checker.calcReturns` | non-local inference: fill a bare omittable return from the callee's monomorphized body (re-enters `MonomorphicValue` under an `activeFactKeys` recursion guard) | `force`, `freshMeta` | `Checker.infer` ValueReference → `resolveCompleteCalculatedReturn`; `Checker.applyInferred` → `resolveCalculatedReturn`; `TypeStackLoop.processIO` callee-side → `installReturnMeta` |
+| `check/CarrierKindChecker` (D8) — `checker.carriers` | the HKT kind system: seed + verify `[F[_]]` carrier kinds | `force`, `evalExpr`, `doUnify` | `Checker.instantiatePolymorphic` → `recordCarrierMetas`; `TypeStackLoop` post-drain `carrier-kinds` pass → `verifyCarrierKinds` |
+
+- The *data* each collaborator reads/writes still lives on the shared `CheckState`/`Unifier` — the per-meta `MetaRole` map (D2) carries combinable / candidate / carrier-kind / upper-bound state; the collaborators own the *algorithm*, not a private store. This is the D4 finding: the features stay coupled through the metastore, and the module makes the *algorithm* cohesive rather than dissolving the coupling.
+- The `TypeStackLoop` hook points are the **post-drain resolution pipeline** (D1): a saturation fixed-point tier (drain-interleaved ability + `Combine` resolution) then a linear finalization tier (`upper-bounds`, `carrier-kinds`, the calc-return fail-safe), then the finalizer (`defaultUnsolvedMetas`, a *total* match on `MetaRole` — no catch-all default-to-`Type`) and an `assertEveryMetaResolvedOrAbstract` postcondition. A new finalization concern is a new `PostDrainPass`, not inline code in `processIO`.
+
+**Design rule:** a new non-equality feature — another lattice relation, another inference back-edge, another kind rule — gets its **own collaborator module constructed with injected primitives**, never re-inlined into `Checker` and never folded into `unify`.
 
 ### Unifier
 
@@ -234,6 +251,7 @@ Two quoting paths exist:
 - **Skipping `prefetchBindings` before evaluating.** The evaluator reads from a mutable cache. If bindings aren't pre-fetched, the evaluator produces `VNeutral` for unresolved references, leading to spurious type mismatches.
 - **Forgetting to call `drain()` after the check/infer walk.** Postponed unification constraints accumulate silently. Without `drain()`, metas that depend on other metas being solved first will never be resolved.
 - **Re-introducing assignability/widening into `unify`.** `unify` is pure definitional equality. Directional coercion is the `Coerce` ability's job in the checker's check mode, never a `refinements` map or a same-FQN assignability arm in the unifier.
+- **Re-inlining a non-equality side-car into `Checker`.** The refinement lattice (D4), calculated returns (D7), and carrier kinds (D8) live in collaborator modules (`checker.solver` / `checker.calcReturns` / `checker.carriers`) constructed with injected primitives. A new lattice relation / inference back-edge / kind rule gets its *own* collaborator — do not grow `Checker` with it, and do not let a collaborator reach Checker internals beyond its constructor-injected functions.
 - **Special-casing a concrete type (e.g. `Int`) in the checker/unifier.** Any future coercion path must recognize the *ability protocol* by name (`WellKnownTypes.coerceFQN`, as `MatchNativesProcessor` does for `PatternMatch`/`TypeMatch`); never the type.
 - **Returning `false` (not stuck) from the Bool natives on non-concrete args.** `&&`/`typeEquals`/`lessThanOrEqual` must stay **stuck** (return a stuck `VTopDef`) when an argument isn't fully concrete, so the unifier falls back to `unifySpines` and still solves metavariables. Returning `false` would wrongly reject generic/open comparisons.
 
@@ -246,6 +264,8 @@ Tests live at:
 - `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/processor/MatchNativesProcessorTest.scala` — `match` reduction via `handleCases`/`typeMatch` natives.
 
 (The former `RefinementUnifyTest` was removed with the `TypeRefinement`-in-`unify` hook; the check-mode `Coerce` insertion is covered by `MonomorphicTypeCheckTest`'s "check-mode Coerce insertion" cases via the `coercePrelude`/`coerceImports` helpers. `Bool` is not in `defaultSystemModules`, so tests using it register the module via `ProcessorTest.boolImportContent` and `import eliot.lang.Bool`.)
+
+The collaborator modules have no isolated unit tests — they were *pure moves* of existing logic (like D4), so their behaviour is pinned end-to-end in `MonomorphicTypeCheckTest`: **CalculatedReturnResolver (D7)** by the `"calculated return positions (W3)"` cases (calculate / reject-narrower / chain / Coerce-widen) and `"calculated return limits (W4)"` cases (self-/mutually-recursive + no-arg-producer recursion guards); **CarrierKindChecker (D8)** by the higher-kinded carrier wrong-kind reject / mismatched-arity reject / `Type -> Type` accept cases. When changing one of these modules, extend those named cases rather than adding a mock-`CheckState` unit test.
 
 Run them:
 
