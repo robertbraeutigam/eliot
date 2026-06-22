@@ -246,6 +246,12 @@ Carry the result on `SaturatedValue` (forward onto the existing fact per lean-fa
 `MonomorphicTypeCheckProcessor` already reads `SaturatedValue.Key(vfqn)`
 (`MonomorphicTypeCheckProcessor.scala:18`), so it is available where keys are built.
 
+**R1 already exists** as `SaturatedValue.binderRoles` (`saturate/fact/BinderRoles.scala`), added by the
+architecture review's D6: a per-leading-type-stack-binder `reified` flag, computed once on the saturated signature +
+body. It is the value-position classification R1 needs (and is already exercised by the checker's binding wrap), so
+B1 should *extend* `BinderRoles` (add R2 dispatch / R3 representation / recursion-variance) rather than introduce a
+parallel analysis — the same classification then has its two intended consumers, type-checking and codegen dedup.
+
 ### B2. Projection function
 
 `codegenProject(vfqn, fullArgs): Seq[GroundValue]` — deterministic, shared by all demand sites:

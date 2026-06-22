@@ -4,6 +4,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.NativeBinding
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Emits [[NativeBinding]] facts for user-defined values: the binding used during type checking. Each value becomes a
@@ -18,7 +19,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * instead of the type collapsing to its body.
   */
 class UserValueNativesProcessor
-    extends BindingProcessor[NativeBinding.Key](key => OperatorResolvedValue.Key(key.vfqn)) {
+    extends BindingProcessor[NativeBinding.Key](key => SaturatedValue.Key(key.vfqn)) {
 
   override protected def selfBody(fact: OperatorResolvedValue): Option[Sourced[OperatorResolvedExpression]] =
     fact.checkingRuntime

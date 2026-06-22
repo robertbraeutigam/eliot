@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.ability.processor.{
 }
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
+import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.module.processor.*
@@ -17,6 +18,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 /** Verifies that [[MatchNativesProcessor]] makes the NbE evaluator reduce `match` on a concrete scrutinee to a ground
@@ -34,6 +36,8 @@ class MatchNativesProcessorTest
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
+      EffectDesugaringProcessor(),
+      SaturatedValueProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
       ModuleAbilityOverlapCheckProcessor(),

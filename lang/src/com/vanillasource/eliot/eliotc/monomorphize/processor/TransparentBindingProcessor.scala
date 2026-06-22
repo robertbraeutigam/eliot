@@ -4,6 +4,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.fact.TransparentBinding
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Emits [[TransparentBinding]] facts: the post-checking counterpart of [[UserValueNativesProcessor]] that caches
@@ -14,7 +15,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * definitions therefore have identical bindings here and in [[NativeBinding]].
   */
 class TransparentBindingProcessor
-    extends BindingProcessor[TransparentBinding.Key](key => OperatorResolvedValue.Key(key.vfqn)) {
+    extends BindingProcessor[TransparentBinding.Key](key => SaturatedValue.Key(key.vfqn)) {
 
   override protected def selfBody(fact: OperatorResolvedValue): Option[Sourced[OperatorResolvedExpression]] =
     fact.runtime

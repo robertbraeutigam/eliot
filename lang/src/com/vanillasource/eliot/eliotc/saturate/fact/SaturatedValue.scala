@@ -7,9 +7,9 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 /** An [[OperatorResolvedValue]] whose source type stack has been *saturated*: every parameter-position bare reference
   * to an omittable (`auto`-marked) type constructor — e.g. a bare `Int` where `Int[MIN, MAX]` was meant — has been
   * rewritten into an explicit application over fresh generic binders, and those binders prepended to the value's own
-  * generic prefix (implicit-generics, W1). The synthesized binders are ordinary generic parameters,
-  * so the existing "too few explicit type args → infer the rest" machinery solves them from each call's arguments with
-  * no new inference.
+  * generic prefix (implicit-generics, W1). The synthesized binders are ordinary generic parameters, so the existing
+  * "too few explicit type args → infer the rest" machinery solves them from each call's arguments with no new
+  * inference.
   *
   * This is the fact every checker-phase reader of a value's *type stack* consumes instead of [[OperatorResolvedValue]]
   * (the monomorphize entry point and the `ValueReference` read in `Checker`). We cannot rewrite
@@ -24,6 +24,13 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   */
 case class SaturatedValue(value: OperatorResolvedValue) extends CompilerFact {
   override def key(): CompilerFactKey[SaturatedValue] = SaturatedValue.Key(value.vfqn)
+
+  /** The runtime role of each leading type-stack binder, classified once on this saturated value (D6). Read by the
+    * monomorphize binding cache (`BindingProcessor.reifyingWrap`) to know which binders the runtime body reifies, and
+    * the per-binder analysis the monomorphization-keying plan's B1 codegen-dedup is intended to share. Computed on the
+    * *saturated* signature so the binder indices align with the type arguments the checker applies.
+    */
+  lazy val binderRoles: BinderRoles = BinderRoles.of(value)
 }
 
 object SaturatedValue {

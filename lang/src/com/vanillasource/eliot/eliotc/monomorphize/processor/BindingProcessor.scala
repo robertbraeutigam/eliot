@@ -10,25 +10,31 @@ import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression,
 import com.vanillasource.eliot.eliotc.processor.CompilerFactKey
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
+import com.vanillasource.eliot.eliotc.saturate.fact.{BinderRoles, SaturatedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 import scala.reflect.ClassTag
 
-/** Shared base for the two processors that turn an [[OperatorResolvedValue]] into a binding (a `VTopDef` carrying a lazy
-  * body thunk) for the NbE evaluator. The checker's [[NativeBinding]] and Phase 3's
+/** Shared base for the two processors that turn a [[SaturatedValue]] into a binding (a `VTopDef` carrying a lazy body
+  * thunk) for the NbE evaluator. The checker's [[NativeBinding]] and Phase 3's
   * [[com.vanillasource.eliot.eliotc.monomorphize.fact.TransparentBinding]] differ in exactly one decision — whether an
   * `opaque` definition's body is kept — which subclasses make via [[selfBody]]
   * ([[OperatorResolvedValue.checkingRuntime]] drops it; [[OperatorResolvedValue.runtime]] keeps it).
   *
-  * The subtle, error-prone parts live here once: the concurrent generation guard against mutual-recursion deadlocks, and
-  * the transitive dependency collection. Dependencies are always resolved via [[NativeBinding]] (the checker's
+  * Reads the [[SaturatedValue]] (the same fact the monomorphize checker reads), not the raw [[OperatorResolvedValue]],
+  * for two reasons: the saturated signature carries the binder roles ([[SaturatedValue.binderRoles]]) the wrap
+  * consumes, and its leading binders line up with the type arguments the checker applies (saturation may prepend
+  * binders for omittable `auto` parameters) — keeping the wrap's binder indices aligned (D6).
+  *
+  * The subtle, error-prone parts live here once: the concurrent generation guard against mutual-recursion deadlocks,
+  * and the transitive dependency collection. Dependencies are always resolved via [[NativeBinding]] (the checker's
   * semantics, the bindings the bodies were type-checked against); only the top-level value's own body selection differs
   * between phases.
   */
 abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
-    getInputKey: OutputKey => OperatorResolvedValue.Key
+    getInputKey: OutputKey => SaturatedValue.Key
 )(using ClassTag[OutputKey])
-    extends TransformationProcessor[OperatorResolvedValue.Key, OutputKey](getInputKey) {
+    extends TransformationProcessor[SaturatedValue.Key, OutputKey](getInputKey) {
 
   /** The value's own body as this phase sees it: [[OperatorResolvedValue.checkingRuntime]] for the checker (opaque
     * bodies stay stuck), [[OperatorResolvedValue.runtime]] for representation lowering (opaque bodies unfold).
@@ -44,7 +50,7 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
 
   override protected def generateFromKeyAndFact(key: OutputKey, fact: InputFact): CompilerIO[OutputFact] = {
     val vfqn = getInputKey(key).vfqn
-    val body = selfBody(fact)
+    val body = selfBody(fact.value)
     generating.add(vfqn)
     for {
       bodyBindings <- body match {
@@ -67,57 +73,34 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
     }
   }
 
-  /** Wrap a runtime body in [[FunctionLiteral]] binders for the leading type-stack (generic) parameters it reifies — the
-    * ones it references in *value* position — so that applying the value's explicit type arguments substitutes them.
+  /** Wrap a runtime body in [[FunctionLiteral]] binders for the leading type-stack (generic) parameters it reifies —
+    * the ones it references in *value* position — so that applying the value's explicit type arguments substitutes
+    * them.
     *
     * A type-stack parameter is a binder of the value's '''signature''' (a leading generic `[N]`), but it is '''not''' a
-    * lambda of the '''runtime body''': `def bigOf[V] = V` has signature `(V: BigInteger) -> BigInteger` yet runtime body
-    * just `V` (a bare reference, the reification of the erased `V`). Evaluated as-is under the empty env, that `V` becomes
-    * a free [[SemValue.VNeutral]], so a later `bigOf[1]` only appends `1` to the neutral's spine instead of reducing to
-    * `1` — and any computed type argument flowing through such a value (e.g. `h[subtract(N, bigOf[1])]`) stays a stuck
-    * term that fails read-back ("Cannot resolve type."). Wrapping the reified binders as leading lambdas makes the spine
-    * application substitute them, exactly as the checker does for the value's own monomorphization via
+    * lambda of the '''runtime body''': `def bigOf[V] = V` has signature `(V: BigInteger) -> BigInteger` yet runtime
+    * body just `V` (a bare reference, the reification of the erased `V`). Evaluated as-is under the empty env, that `V`
+    * becomes a free [[SemValue.VNeutral]], so a later `bigOf[1]` only appends `1` to the neutral's spine instead of
+    * reducing to `1` — and any computed type argument flowing through such a value (e.g. `h[subtract(N, bigOf[1])]`)
+    * stays a stuck term that fails read-back ("Cannot resolve type."). Wrapping the reified binders as leading lambdas
+    * makes the spine application substitute them, exactly as the checker does for the value's own monomorphization via
     * `bindTypeStackParam`.
     *
-    * Only binders actually reified (referenced where [[Evaluator.eval]] would visit them: value positions and nested
-    * value-reference type arguments, never `FunctionLiteral` parameter-type annotations, which `eval` ignores) are
-    * candidates. To keep explicit-type-argument threading positionally aligned, the wrap covers the contiguous prefix of
-    * the signature binders up to and including the last reified one (any non-reified binder inside that prefix is wrapped
-    * as an unused binder, harmless because its type argument is still threaded). When nothing is reified the body is
-    * returned unchanged, so ordinary generics (e.g. `id[A](x: A) = x`, whose `A` never appears in value position) keep
-    * their existing cached shape and implicit-type-argument application is unaffected.
+    * Which binders are reified — and the contiguous prefix to wrap (up to and including the last reified one, so
+    * explicit-type-argument threading stays positionally aligned) — is the precomputed [[SaturatedValue.binderRoles]]
+    * (D6). When nothing is reified the body is returned unchanged, so ordinary generics (e.g. `id[A](x: A) = x`, whose
+    * `A` never appears in value position) keep their existing cached shape and implicit-type-argument application is
+    * unaffected.
     */
   private def reifyingWrap(
       body: OperatorResolvedExpression,
-      fact: OperatorResolvedValue
-  ): OperatorResolvedExpression = {
-    val binders   = OperatorResolvedExpression.SignatureView
-      .of(fact.typeStack.as(fact.typeStack.value.signature))
-      .binders
-    val reified   = valuePositionRefs(body)
-    val lastIndex = binders.lastIndexWhere(b => reified.contains(b.name.value))
-    if (lastIndex < 0) body
-    else
-      binders
-        .take(lastIndex + 1)
-        .foldRight(fact.name.as(body)) { (binder, accBody) =>
-          binder.name.as(OperatorResolvedExpression.FunctionLiteral(binder.name, None, accBody))
-        }
-        .value
-  }
-
-  /** The set of parameter names referenced in positions [[Evaluator.eval]] actually visits: value-position references,
-    * and the type arguments of nested value references (which `eval` evaluates into the spine). A `FunctionLiteral`'s
-    * parameter-type annotation is deliberately '''not''' walked — `eval` ignores it — and the literal's own bound name is
-    * excluded so a shadowing value parameter is not mistaken for a reified type-stack binder.
-    */
-  private def valuePositionRefs(expr: OperatorResolvedExpression): Set[String] = expr match {
-    case OperatorResolvedExpression.ParameterReference(name)    => Set(name.value)
-    case OperatorResolvedExpression.ValueReference(_, typeArgs) => typeArgs.flatMap(ta => valuePositionRefs(ta.value)).toSet
-    case OperatorResolvedExpression.FunctionApplication(t, a)   => valuePositionRefs(t.value) ++ valuePositionRefs(a.value)
-    case OperatorResolvedExpression.FunctionLiteral(pn, _, b)   => valuePositionRefs(b.value) - pn.value
-    case _                                                      => Set.empty
-  }
+      fact: SaturatedValue
+  ): OperatorResolvedExpression =
+    fact.binderRoles.reifiedPrefixBinders
+      .foldRight(fact.value.name.as(body)) { (name, accBody) =>
+        name.as(OperatorResolvedExpression.FunctionLiteral(name, None, accBody))
+      }
+      .value
 
   /** Collect [[NativeBinding]]s for every ValueReference transitively reachable from `ore`, skipping FQNs that are
     * currently being generated (`generating` set) or already accumulated in this walk — this prevents mutual-recursion

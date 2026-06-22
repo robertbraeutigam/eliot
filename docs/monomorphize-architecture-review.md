@@ -34,7 +34,7 @@ unifier's metastore and runs as a post-drain pass**:
 | `pick(a,b)` join / `Combine` *(algorithm extracted by D4)* | a **least-upper-bound / lattice** | `combinable` / `candidates` interception stays in the unifier; `resolveCombines` / `resolveUpperBounds` / `pendingUpperBounds` algorithm now in `refine/RefinementSolver` | ~200 |
 | Calculated returns (implicit generics) | **non-local inference** — a caller's type depends on a callee's *monomorphized body* | `readMonomorphicReturn` re-enters `getFact(MonomorphicValue.Key)` + an `activeFactKeys` recursion guard | ~200 |
 | HKT carriers (effects) | a **kind system** | `recordCarrierMetas` / `verifyCarrierKinds` / `unsatisfiableApplication` reconstruct kinds *post-drain* from signatures | ~130 |
-| Reification / erasure | an explicit **phase / staging** analysis | `PostDrainQuoter`'s gate + `eval/SemExpressionEvaluator` + `processor/BindingProcessor.reifyingWrap` re-derive which subterms are erased | ~250 |
+| Reification / erasure *(reified-binder classification extracted by D6)* | an explicit **phase / staging** analysis | `PostDrainQuoter`'s gate + `eval/SemExpressionEvaluator` re-derive which subterms are erased; the value's *reified-binder set* is now the precomputed `saturate.fact.BinderRoles` on `SaturatedValue`, consumed by `BindingProcessor.reifyingWrap` | ~250 |
 
 Two consequences make the resulting bugs *non-obvious* — which is the lived experience of "fixed X while working
 on Y":
@@ -138,6 +138,13 @@ binder's role **once, on `SaturatedValue`, before checking** (the fact already c
 
 One analysis, many consumers — and it de-risks the keying work, because the same classification is exercised by
 type-checking, not only by codegen dedup.
+
+> **D6 outcome (see the deliverable below).** Only the third bullet held: the reified-binder set is a real,
+> precomputable *per-binder* classification, now extracted to `BinderRoles` on `SaturatedValue` and consumed by
+> `reifyingWrap`. The first two were the wrong target — the quoter's `collectParamRefs` is a per-*node* dependency
+> walk over the output `SemExpression` (not a per-binder signature property), and carrier seeding classifies by
+> *kind* and needs the evaluated kind value, so neither reduces to the reified-binder set. The honest "compute the
+> role once, consume it" win here is the reified-binder set plus the saturated-binder alignment it fixes.
 
 ## Deliverables (by leverage and risk)
 
@@ -269,12 +276,46 @@ the helper behind `tryUnify`/`tryUnifyForced`. Pure refactor: full suite green, 
   variant. (`coercionExists` is purely a predicate: it ignores the carried unifier on *both* sides, committing nothing —
   preserving that it never leaks meta solutions into a verification probe.)
 
-### D6 — Make staging/role explicit and thread it (aligns with keying B1)
+### D6 — Make staging/role explicit and thread it ✅ DONE (aligns with keying B1)
 
-Compute the per-binder role classification once on `SaturatedValue` and consume it in `PostDrainQuoter` and
-`BindingProcessor` (and to seed `MetaRole.Carrier` kinds in D2), replacing `collectParamRefs` /
-`valuePositionRefs` / `reifyingWrap`'s re-derivation. Shares the analysis with keying-plan B1; do it jointly with
-that work so the classification has two consumers (checking + codegen dedup) and is exercised by both.
+Extracted the per-binder **value-position (reified) binder** classification into one named analysis,
+`saturate/fact/BinderRoles.scala`, computed once on a value's *saturated* signature + body and carried on
+`SaturatedValue` as a derived `binderRoles` member — the fact the monomorphize checker already reads, and the hook
+keying-plan B1's codegen-dedup is meant to share. The two monomorphize binding processors
+(`UserValueNativesProcessor`, `TransparentBindingProcessor` via the shared `BindingProcessor`) now read
+`SaturatedValue` instead of the raw `OperatorResolvedValue`, so `BindingProcessor.reifyingWrap` *consumes*
+`binderRoles.reifiedPrefixBinders` instead of re-deriving it inline (the inline `valuePositionRefs` walk is deleted,
+its logic now the single `BinderRoles.of`). Suite green (849 tests); covered by the new `saturate/BinderRolesTest`.
+
+**Refinements learned from building it** (the review's "one analysis subsumes `collectParamRefs` /
+`valuePositionRefs` / `reifyingWrap`" was, like several earlier deliverables, partly the wrong target — only one of
+the three was the same classification):
+
+- **`collectParamRefs` (`PostDrainQuoter`) is a different question and was left in place.** It is a per-*node*
+  dependency walk over the *output* `SemExpression` tree — "does this subtree reference an erased parameter with no
+  runtime parameter," threaded with the dynamic `runtimeParams` set — not a per-*binder* property of the value's
+  signature. Its `erasedParams` set is already exact and minimal (every type-stack binder is uniformly erased; there
+  is nothing to classify), so the precomputed reified-binder set neither feeds nor simplifies it. The two walks run
+  on different IRs (output `SemExpression` vs source `OperatorResolvedExpression`) and answer different questions, so
+  they cannot share code.
+- **Carrier-kind seeding (`recordCarrierMetas`) is a different classification too, and was left in place.** It
+  classifies a binder by its *kind* (higher-kindedness), not by value-position reification, and needs the
+  *evaluated* kind value (`VPi`) for the post-drain `verifyCarrierKinds` unify. D2 already moved the carrier kind
+  into the `MetaRole` *storage*; the *seeding* still evaluates the binder's kind at instantiation, which is correct
+  and is not a re-derivation of the reified-binder set. So `MetaRole.Carrier` is not seeded from `BinderRoles`.
+- **`typeStackValueParams` (`CheckState`) was left in place.** It is morally the value-bound (reified) binder set,
+  but its sole use site is already gated on `VConst(ground)`, which makes it exactly correct; rebasing it onto the
+  shared analysis would risk a regression for no soundness gain.
+- **The genuine, sound win is the reified-binder classification *plus* a latent-alignment fix.** Computing it on the
+  *saturated* signature (not the unsaturated `OperatorResolvedValue` the wrap read before) fixes a latent bug: a
+  value that both auto-saturates a value parameter (so `SaturatedValueProcessor` prepends synthesized leading
+  binders) *and* reifies an explicit generic would have had its body wrapped from the *unsaturated* binders — fewer,
+  mis-indexed — while the checker applies the *saturated* type arguments. (`SaturatedValueProcessor` leaves the body
+  untouched, only the signature changes, which is exactly why the binder indices could drift.) Reachable only when
+  such a value is materialised in a type-argument position — not exercised by the suite today — but the analysis is
+  now correct by construction (cf. gaps-must-be-failsafe). `BinderRolesTest` pins the alignment case directly. The
+  second consumer (keying B1's codegen dedup in `used`/`uncurry`) reads the same `binderRoles` member when that work
+  lands; D6 ships the analysis with its checker-side consumer.
 
 ### Minor cleanups (opportunistic)
 
@@ -289,8 +330,12 @@ that work so the classification has two consumers (checking + codegen dedup) and
 The NbE core, the single-evaluator/single-domain cornerstone, the uniform type-stack fold, and pure-definitional
 `unify` all stay. The point of this plan is the opposite of a rewrite: the core is right, and the work is to stop
 the *edges* from multiplying. D1–D3 were cheap and high-value; D4 (done) extracted the refinement lattice into its
-own module; D5 (done) replaced the `errors.size`-delta success protocol with an explicit `UnifyResult`; D6 is the
-remaining structural fix that stops new features from multiplying against old ones.
+own module; D5 (done) replaced the `errors.size`-delta success protocol with an explicit `UnifyResult`; D6 (done)
+gave the reified-binder classification a single home on `SaturatedValue` and fixed the saturated-binder wrap
+alignment. **All six deliverables are complete** — the honest finding across D4/D6 is that the checker's remaining
+edges (the quoter's per-node staging walk, carrier-kind seeding, the `typeStackValueParams` gate) are genuinely
+distinct concerns, not one re-derived classification, so they stay as cohesive local logic rather than being forced
+into a single analysis.
 
 ## Validation
 
@@ -311,7 +356,11 @@ Each deliverable keeps the full suite green and adds a targeted test:
   solution), `Contradiction` on mismatch with the error stripped (non-committing, unlike the committing `unify`), and
   the partial-solve-preserved-but-error-stripped invariant that `drain` relies on. Full suite otherwise green (pure
   refactor).
-- D6: shares the keying plan's `MonomorphizationVersioningTest` gate plus the reification end-to-end checks.
+- D6: ✅ `saturate/BinderRolesTest` pins the binder-role analysis — a reified binder, a non-reified ordinary
+  generic, reification through a nested value-reference type argument, and the saturated-binder alignment case
+  (`tagged[V](x: Int)`, where the roles span the prepended `$Int$0`/`$Int$1` binders before the reified `V`). The
+  existing `ComputedTypeArgumentReadbackTest` and the keying plan's `MonomorphizationVersioningTest` exercise the
+  wrap end-to-end through the new `binderRoles` member, unchanged. Full suite green (849 tests).
 
 ## Cross-refs
 
