@@ -149,7 +149,7 @@ Key cases:
 
 ### Checker collaborators & hook points
 
-`Checker` constructs three collaborators at the top of the class, one per non-equality side-car the architecture review (`docs/monomorphize-architecture-review.md`) identified. Each is built with **exactly the Checker primitives it needs, passed as constructor functions** — that narrow, explicit surface *is* the module boundary (the collaborator reaches nothing else on the Checker). Each is exposed as a `checker.<field>` and invoked from a small set of named hook points in `Checker` and `TypeStackLoop`. None of the three is definitional equality; that stays in `Unifier`.
+`Checker` constructs three collaborators at the top of the class, one per non-equality side-car extracted out of the equality core (the D4/D7/D8 work below). Each is built with **exactly the Checker primitives it needs, passed as constructor functions** — that narrow, explicit surface *is* the module boundary (the collaborator reaches nothing else on the Checker). Each is exposed as a `checker.<field>` and invoked from a small set of named hook points in `Checker` and `TypeStackLoop`. None of the three is definitional equality; that stays in `Unifier`.
 
 | Collaborator (file) — field | Non-equality concern | Injected primitives | Hook points (call sites) |
 |---|---|---|---|
