@@ -19,15 +19,16 @@ identical. This explodes in two ways:
 There is also **no evaluator guard** (`eval/Evaluator.scala` `applyValue`/`unfoldTopDef`): recursion
 is stopped only by *stuckness* (a neutral argument becomes a residual, never unfolds); a recursion
 forced on a concrete argument unfolds without limit. The only existing guard is the
-calculated-return FQN-cycle detector (`check/Checker.scala:851-860`), which hard-errors and is
-correct only for calculated returns.
+calculated-return FQN-cycle detector (`check/CalculatedReturnResolver.scala:176-181`, extracted from
+`Checker` into its own module by the architecture review's D7), which hard-errors and is correct only
+for calculated returns.
 
 ## Key insight — where to cut
 
 `N` is **codegen-irrelevant** (erased at runtime — `map`'s body is a loop over a runtime list,
 `N`-agnostic) but **type-relevant** (it appears in `map`'s signature and in calculated returns a
-caller reads via `signature.deepReturnType`, `check/Checker.scala:859`). The same parameter is
-phantom for *code* and load-bearing for *types* ⇒ **one key cannot serve both**.
+caller reads via `signature.deepReturnType`, `check/CalculatedReturnResolver.scala:184`). The same
+parameter is phantom for *code* and load-bearing for *types* ⇒ **one key cannot serve both**.
 
 Therefore:
 
@@ -36,7 +37,7 @@ Therefore:
 - **Dedup on a codegen-relevant projection at the codegen boundary** (`used` → `uncurry` →
   backend). That is where the explosion lives: checking a recursive call against an *explicit*
   return type does **not** demand the callee's `MonomorphicValue` (recursive *calculated* returns
-  are already rejected at `Checker.scala:856`), so the per-`N` blow-up is driven by the `used`
+  are already rejected at `CalculatedReturnResolver.scala:181`), so the per-`N` blow-up is driven by the `used`
   traversal (`used/UsedNamesProcessor.scala:34`), not the checker. Collapse there and `f[100]`,
   `f[99]`, … fold to one codegen node via a back-edge.
 
@@ -194,6 +195,13 @@ exactly as the checker already does for the value's own monomorphization via `bi
 whose parameter is never reified (`id[A](x: A) = x`) are left unwrapped, so implicit type-argument application is
 unaffected.
 
+> **Subsequently (architecture review D6):** this value-position classification was extracted out of the inline wrap
+> into one named analysis — `SaturatedValue.binderRoles` (`saturate/fact/BinderRoles.scala`, `BinderRoles.of`) — and
+> `reifyingWrap` now *consumes* `binderRoles.reifiedPrefixBinders` instead of re-deriving it. Computing it on the
+> *saturated* signature (rather than the unsaturated `OperatorResolvedValue` the wrap read before) additionally fixed a
+> latent binder-misalignment for a value that both auto-saturates a value parameter and reifies an explicit generic.
+> This is exactly the `R1` classification B1 builds on (below).
+
 **Consequence:** S1/S5 now **unroll** instead of erroring (S1 → 4, S5 → 3 — S5 is one fewer because its arithmetic
 recursive branch reifies the base case to a constant and drops the `gen[0]` reference). The keying dedup/demote
 (Deliverables A and B) takes these to S1 → 1 and S5 → demote → 1.
@@ -212,10 +220,10 @@ path.
   (`monomorphize/processor/MonomorphicTypeCheckProcessor.scala`).
 - **Mechanism:** reuse the active-fact chain (`processor/CompilerIO.scala:42` `activeFactKeys`,
   populated by `compiler/IncrementalFactGenerator.scala:50`). Count *nested* entries on the chain
-  sharing the same `vfqn` (generalizing the FQN match at `Checker.scala:852` from "any repeat =
-  error" to "more than K nested repeats"). Past a generous threshold (configurable; default e.g.
-  500) emit a specific error and `abort`, modelled on `reportRecursiveCalculatedReturn`
-  (`Checker.scala:862`):
+  sharing the same `vfqn` (generalizing the FQN match at `CalculatedReturnResolver.scala:176-181`
+  from "any repeat = error" to "more than K nested repeats"). Past a generous threshold (configurable;
+  default e.g. 500) emit a specific error and `abort`, modelled on `reportRecursiveCalculatedReturn`
+  (`CalculatedReturnResolver.scala:187`):
 
   > Monomorphization of '<name>' is not converging: specialized <N> levels deep with differing type
   > arguments. Argument(s) <diff of consecutive keys> change on every step — make them compile-time
