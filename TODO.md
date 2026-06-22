@@ -41,26 +41,25 @@ notes.
 
 ## Compiler architecture & tooling
 
-- **Monomorphization type-explosion / key on the codegen-relevant form, not the full type.**
-  `MonomorphicValue.Key` is `(vfqn, typeArguments: Seq[GroundValue])` — the *full, unreduced*
-  ground type, so two instantiations that differ only in a compile-time-only index produce
-  *distinct* specializations even when the generated code is identical. This bites: (a) size-indexed
-  recursion (`Rec[N]`: `f[N]` → `f[N-1]` → … is O(N) or unbounded specializations — representation
-  lowering only dedups in `uncurry`, *after* mono has already paid the cost); (b) any compile-time
-  data threaded through type args (a `Map`/complex structure used for resource tracking, analytics,
-  proofs) explodes the key the same way even though it never reaches codegen. The evaluator
-  (`eval/Evaluator.scala` `applyValue`/`unfoldTopDef`) also has **no** depth/fuel/cycle guard —
-  recursion is only stopped by *stuckness* (neutral argument ⇒ residual, no unfold); a recursion
-  forced on a concrete arg unfolds without limit. Wanted: a **generic** mechanism — key mono on the
-  *erased / codegen-relevant* projection (what survives representation-lowering + dispatch
-  resolution + reification), i.e. a relevance / phantom-parameter analysis that collapses the key
-  over positions the generated code does not depend on; this makes `Rec[N]`, analytics data, and
-  phantom indices all collapse for free (the special case "drop `N` before mono" generalized).
-  Plus a **fail-safe backstop** independent of that: reuse the W4 active-fact chain
-  (`CompilationProcess.activeFactKeys`) to detect the same FQN recurring with diverging type args
-  and hard-error ("monomorphization not converging at <fqn>; arg <x> varies per step — erase or
-  bound it") instead of hanging / OOM. Full plan: `docs/monomorphization-keying-plan.md` (grew out
-  of the recursion-as-effect / `Rec[N]` discussion).
+- **Monomorphization keying — demote codegen + policy (the one remaining piece).** The codegen
+  type-explosion fix is largely landed (full plan + history: `docs/monomorphization-keying-plan.md`,
+  grew out of the recursion-as-effect / `Rec[N]` discussion): the `used` codegen driver dedups its
+  `MonomorphicValue` demand on a **codegen-relevant projection** of the type args (B1 per-binder
+  relevance analysis in `saturate/fact/BinderRoles.scala`; B2 projection in
+  `used/CodegenProjection.scala`) — phantoms collapse-erase, width-equivalent bounds collapse to a
+  representation key, dispatch/reified families stay specialized — and a **non-convergence backstop**
+  in `used/UsedNamesProcessor.scala` hard-errors on divergent type-level recursion instead of hanging
+  (it counts repeated `vfqn` frames in the `processValue` DFS; the original "reuse `activeFactKeys`"
+  sketch was wrong — siblings keep that chain flat). The one piece still missing is **demote**: a
+  reified *and* recursion-variant param (size-indexed recursion `f[N]→f[N-1]→…`) is *classified*
+  `Demote` but `codegenProject` treats it as `Specialize` (fail-safe — never mis-merges, just keeps
+  N specializations; S1 stays 4, S5 stays 3 instead of collapsing to 1). Real demote = drop it from
+  the codegen key (one body) and **retain it as a runtime value parameter**, threading each call's
+  constant through. **Blocked on runtime conditionals**: demoting `N` turns the body's compile-time
+  `fold` dispatch into a runtime-`Bool` branch, which `PostDrainQuoter`/the backend cannot lower yet.
+  Then resolve **B4 policy** (demotion trades code size for runtime RAM/ROM, so it must be visible):
+  auto-demote-with-a-diagnostic by default vs. error-and-require-an-explicit-annotation on
+  resource-bounded targets (per-target policy or per-parameter annotation).
 
 - Separate the cache graph from the values, so not everything has to be deserialized.
 - Default imports should not be hardcoded; all of `lang.*` should be imported.
