@@ -150,19 +150,44 @@ pending/ignored with a note — recording the gap is part of the baseline.
 
 **Scenarios** (each asserts the current count + a comment with the target count):
 
-| # | scenario | today (characterize) | target |
-|---|---|---|---|
-| S1 | recursion over a size-bounded structure (`sum`/`map`, Cat 1 phantom) | explosion / hang | 1 |
-| S2 | two call sites `Int[0,100]` & `Int[0,50]` (Cat 2, same width) | 2 | 1 |
-| S3 | `Int[0,100]` & `Int[0,100000]` (Cat 2, different width) | 2 | 2 (must stay) |
-| S4 | reified value at K finite call sites (Cat 3, recursion-invariant) | K | K (correct) |
-| S5 | reified value varying per recursion (Cat 3, recursion-variant) | unbounded / hang | demote → 1 |
-| S6 | two types, same representation, different ability impl (dispatch) | 2 | 2 (must stay — soundness) |
-| S7 | divergent recursion (no base case) | hang (timeout) | backstop error |
-| S8 | recursion on a runtime value, invariant type (control) | 1 | 1 (regression guard) |
+| # | scenario | predicted | **measured today** | target |
+|---|---|---|---|---|
+| S1 | recursion over a size-bounded structure (`sum`/`map`, Cat 1 phantom) | explosion / hang | **error** `Cannot resolve type.`†, 0 versions | 1 |
+| S2 | two call sites `Int[0,100]` & `Int[0,50]` (Cat 2, same width) | 2 | **2** | 1 |
+| S3 | `Int[0,100]` & `Int[0,100000]` (Cat 2, different width) | 2 | **2** | 2 (must stay) |
+| S4 | reified value at K finite call sites (Cat 3, recursion-invariant) | K | **K (=3)** | K (correct) |
+| S5 | reified value varying per recursion (Cat 3, recursion-variant) | unbounded / hang | **error** `Cannot resolve type.`†, 0 versions | demote → 1 |
+| S6 | two types, same representation, different ability impl (dispatch) | 2 | **2** | 2 (must stay — soundness) |
+| S7 | divergent recursion (no base case) | hang (timeout) | **hang (timeout)** | backstop error |
+| S8 | recursion on a runtime value, invariant type (control) | 1 | **1** | 1 (regression guard) |
 
 S3, S6, S8 are the **must-not-over-merge** guards; S1, S2, S5 are the wins; S7 motivates the
-backstop. The suite is the acceptance gate for Deliverables A and B.
+backstop. The suite (`lang/test/.../monomorphize/processor/MonomorphizationVersioningTest.scala`) is the acceptance
+gate for Deliverables A and B.
+
+### Baseline findings (measured 2026-06-22) — corrects the S1/S5 prediction
+
+The prediction that S1/S5 *explode or hang* today is **wrong, and not because of recursion**. They fail earlier, on a
+**prerequisite gap independent of this plan's keying fix**: †a value reference's *computed* type-argument — a
+native/def application such as `subtract(N, 1)` — is **not normalised before read-back**. `PostDrainQuoter` quotes a
+value reference's type-args via `Quoter.quote` *without forcing them* (`PostDrainQuoter.scala:200-203`; contrast the
+value-position path `tryMaterialise`, which *does* `Evaluator.force`, `:214`), so a non-literal index stays a stuck
+term and surfaces as `Cannot resolve type.`. Isolated three ways:
+
+- a **non-recursive** `def g[N](…) = h[subtract(N, 1)]` fails identically ⇒ not a recursion problem;
+- a **recursive** call with a **literal** index (`def r[N] = r[2]`, `main = r[3]`) works and terminates at **2**
+  versions via `used`'s visited-key dedup ⇒ recursion itself is fine;
+- the non-recursive `fold`/reification machinery these scenarios rely on works (it underpins S4 and the `Int`
+  arithmetic env).
+
+Size-indexed recursion merely *forces* you to compute the index each step (`N-1`), which is where the gap bites — so
+the O(N) explosion never even starts. **Consequence for sequencing:** S1/S5 cannot reach their targets from the keying
+fix alone; the computed-type-argument read-back must be made to normalise first (force the type-args, or evaluate them
+in the mono `Env`, before `quote`). Until then S1/S5 assert the *current error* as their baseline.
+
+S7 is the one scenario that genuinely diverges today, precisely because its growing type-argument is a structural
+`Box[…]` *type application* (a ground type structure that quotes fine), not a stuck native — so it unrolls without
+bound instead of erroring.
 
 ## Deliverable A — non-convergence backstop
 
@@ -256,9 +281,13 @@ annotation** (force the user to choose), i.e. a per-target policy or per-paramet
 
 ## Validation
 
-Deliverable 0's suite is the gate. After A+B the counts must move: S1/S2 → 1, S5 → demote→1, S3/S6/S8
-unchanged, S7 → backstop error (not hang). Plus full suite green and a jvm end-to-end check (generated
-class count) for a recursive `sum`/`map`.
+Deliverable 0's suite is the gate. After A+B the counts must move: S2 → 1, S3/S6/S8 unchanged, S7 → backstop error
+(not hang). Plus full suite green and a jvm end-to-end check (generated class count) for a recursive `sum`/`map`.
+
+**S1/S5 caveat:** these reach their targets (S1 → 1, S5 → demote→1) only *after* the prerequisite
+computed-type-argument read-back gap (see *Baseline findings*) is fixed — they error before producing any version
+today, so the keying fix alone cannot move them. Their suite assertions currently pin the error and must be updated to
+the target counts once that gap and A+B all land.
 
 ## Order of work
 
