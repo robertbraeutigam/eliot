@@ -168,23 +168,30 @@ class TypeStackLoop(
       ) >> abort[Unit]
     )
 
-  /** Solve every still-unsolved meta to [[VType]], except those allocated as abstract-associated-ability-type stand-ins
-    * (see [[CheckState.abstractTypeMetas]]), which must remain unsolved so that constraint-covered refs can stay
-    * abstract through quoting. Runs after the drain-and-resolve loop has reached its fixed point, so any meta that
-    * unification could have determined has already been solved.
+  /** Finalize every still-unsolved meta by a **total match on its [[MetaRole]]** (D2) — the structural F2 cure. Runs
+    * after the drain-and-resolve loop has reached its fixed point, so any meta unification could have determined is
+    * already solved. The match has no catch-all: an [[MetaRole.AbstractAssoc]] stays unsolved (so a constraint-covered
+    * ref can quote as abstract), and a [[MetaRole.Plain]] or [[MetaRole.Instantiation]] defaults to [[VType]]. Because
+    * the match is exhaustive over the sealed `MetaRole`, a future role added to the ADT forces an explicit decision
+    * here rather than silently inheriting the old "default everything to `Type`" behaviour — which is exactly the
+    * silent-miscompile path D2 removes.
     */
   private def defaultUnsolvedMetas: CheckIO[Unit] =
     modify { s =>
-      val protectedRawIds = s.abstractTypeMetas.values.map(_.value).toSet
-      val store           = s.unifier.metaStore
-      val solved          = store.entries.foldLeft(store) { case (acc, (rawId, entry)) =>
+      val unifier = s.unifier
+      val store   = unifier.metaStore
+      val solved  = store.entries.foldLeft(store) { case (acc, (rawId, entry)) =>
         entry match {
-          case Some(_)                                 => acc
-          case None if protectedRawIds.contains(rawId) => acc
-          case None                                    => acc.solve(SemValue.MetaId(rawId), VType)
+          case Some(_) => acc // already solved by unification
+          case None    =>
+            unifier.roleOf(rawId) match {
+              case _: MetaRole.AbstractAssoc => acc // stays abstract through quoting
+              case MetaRole.Plain            => acc.solve(SemValue.MetaId(rawId), VType)
+              case _: MetaRole.Instantiation => acc.solve(SemValue.MetaId(rawId), VType)
+            }
         }
       }
-      s.withUnifier(s.unifier.copy(metaStore = solved))
+      s.withUnifier(unifier.copy(metaStore = solved))
     }
 
   /** The named, ordered post-check resolution pipeline (D1). See docs/monomorphize-d1-design.md.
@@ -258,16 +265,16 @@ class TypeStackLoop(
                     }
     } yield progressed
 
-  /** Postcondition of the post-drain pipeline (D1): every metavariable is either solved or a protected abstract
-    * associated-type placeholder ([[CheckState.abstractTypeMetas]]). Today the finalizer ([[defaultUnsolvedMetas]])
-    * makes this hold by construction, so it never fires; it is a forward-looking *compiler-bug* backstop for D2, when
-    * the finalizer becomes a per-role match and a forgotten role would otherwise leave a meta silently unsolved (the
-    * F2 fragility). It [[compilerAbort]]s rather than reporting a user diagnostic because a surviving unsolved meta is
-    * an internal invariant violation, not a type error of the user's making.
+  /** Postcondition of the post-drain pipeline (D1): every metavariable is either solved or a protected
+    * [[MetaRole.AbstractAssoc]] placeholder. The finalizer ([[defaultUnsolvedMetas]]) makes this hold by construction,
+    * so it never fires in normal operation; it is the *compiler-bug* backstop for D2's per-role finalization — were a
+    * future role added to [[MetaRole]] and forgotten in `defaultUnsolvedMetas`'s total match, a meta could survive
+    * unsolved, and this assertion catches it. It [[compilerAbort]]s rather than reporting a user diagnostic because a
+    * surviving unsolved meta is an internal invariant violation, not a type error of the user's making.
     */
   private def assertEveryMetaResolvedOrAbstract(ctx: PassContext): CheckIO[Unit] =
     inspect { s =>
-      val protectedRawIds = s.abstractTypeMetas.values.map(_.value).toSet
+      val protectedRawIds = s.unifier.abstractAssocMetaIds
       s.unifier.metaStore.entries.collect {
         case (rawId, None) if !protectedRawIds.contains(rawId) => rawId
       }.toList
@@ -390,8 +397,9 @@ class TypeStackLoop(
   ): CheckIO[Unit] =
     for {
       state  <- get
-      targets = state.abstractTypeMetas.toSeq.collect {
-                  case (absFqn, metaId) if absFqn.name.qualifier == Qualifier.Ability(abilityName) => (absFqn, metaId)
+      targets = state.unifier.metaRoles.toSeq.collect {
+                  case (rawId, MetaRole.AbstractAssoc(absFqn)) if absFqn.name.qualifier == Qualifier.Ability(abilityName) =>
+                    (absFqn, SemValue.MetaId(rawId))
                 }
       _      <- targets.traverse_ { case (absFqn, metaId) =>
                   val implAssocFqn = ValueFQN(implFqn.moduleName, QualifiedName(absFqn.name.name, implFqn.name.qualifier))

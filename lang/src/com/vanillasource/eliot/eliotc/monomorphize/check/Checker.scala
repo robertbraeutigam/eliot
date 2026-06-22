@@ -139,8 +139,8 @@ class Checker(
                                                     case (VMeta(id, Spine.SNil), exp) if !exp.isInstanceOf[VMeta] =>
                                                       inspect(s =>
                                                         Option.when(
-                                                          s.unifier.combinable.contains(id.value) &&
-                                                            s.unifier.candidates.get(id.value).exists(_.nonEmpty)
+                                                          s.unifier.isCombinable(id.value) &&
+                                                            s.unifier.candidatesOf(id.value).nonEmpty
                                                         )(id)
                                                       )
                                                     case _                                                        => pure(None)
@@ -373,7 +373,7 @@ class Checker(
   def resolveCombines: CheckIO[Boolean] =
     for {
       s          <- get
-      targets     = s.unifier.candidates.toList.filterNot { case (rawId, _) => s.combineResolved.contains(rawId) }
+      targets     = s.unifier.unresolvedCandidateMetas
       progressed <- targets.foldLeftM(false) { case (acc, (rawId, cs)) =>
                       resolveOneCombine(SemValue.MetaId(rawId), cs).map(_ || acc)
                     }
@@ -389,7 +389,7 @@ class Checker(
   def resolveUpperBounds: CheckIO[Unit] =
     for {
       s <- get
-      _ <- s.pendingUpperBounds.traverse_ { case (id, expected, context) =>
+      _ <- s.unifier.pendingUpperBounds.traverse_ { case (id, expected, context) =>
              for {
                solution <- force(VMeta(id, Spine.SNil))
                ok       <- coercionExists(solution, expected, context)
@@ -410,7 +410,7 @@ class Checker(
                     case None                    => pure(false) // a candidate isn't ground yet — retry next round
                     case Some(ds) if ds.size < 2 => modify(_.recordCombineResolved(id)).as(false)
                     case Some(ds)                =>
-                      if (s.unifier.combinable.contains(id.value)) combineCandidates(id, ds)
+                      if (s.unifier.isCombinable(id.value)) combineCandidates(id, ds)
                       else strictReunify(id, ds)
                   }
     } yield result
@@ -992,7 +992,7 @@ class Checker(
   def verifyCarrierKinds: CheckIO[Unit] =
     for {
       s <- get
-      _ <- s.carrierKinds.toList.traverse_ { case (rawId, (expectedKind, context)) =>
+      _ <- s.unifier.carrierMetas.traverse_ { case (rawId, (expectedKind, context)) =>
              for {
                solution <- force(VMeta(SemValue.MetaId(rawId), Spine.SNil))
                _        <- solution match {

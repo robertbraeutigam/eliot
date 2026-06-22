@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.unify
 
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
@@ -23,34 +24,117 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * Directional coercion (e.g. an `Int[0,5]` used where an `Int[0,10]` is expected) is a separate concern handled
   * outside the unifier by a user-defined `Coerce` ability that the checker inserts in check mode.
   *
-  * `combinable`/`candidates` support the Phase 4 `Combine` ability without breaking the purity above. A metavariable
-  * that sits in a covariant position (a `match` result, a result-position type parameter) is registered as
-  * `combinable`; when a *second, definitionally-unequal* type is unified against such a meta, instead of failing the
-  * unification (first-candidate-wins) we accumulate it as a candidate constraint and leave the meta solved to its first
-  * candidate. The checker later resolves these candidates to their `Combine` join at drain time
-  * ([[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.resolveCombines]]). A meta is *un*-registered (tainted)
-  * the moment it appears in a [[VPi]] domain — a contravariant position where joining would be unsound. When no
-  * `Combine` instance applies (or the meta was tainted), the checker re-unifies the candidates strictly, surfacing the
-  * ordinary mismatch — so unification stays first-candidate-wins for everything that has no `Combine` instance.
+  * Per-metavariable metadata lives in [[metaRoles]] — one [[MetaRole]] per meta id (D2), the single map that
+  * subsumes the former scattered side-sets. The combinable/candidates machinery supporting the Phase 4 `Combine`
+  * ability is carried there: a metavariable in a covariant position (a `match` result, a result-position type
+  * parameter) is marked [[MetaRole.Instantiation]] with `combinable = true`; when a *second, definitionally-unequal*
+  * type is unified against such a meta, instead of failing the unification (first-candidate-wins) we accumulate it as
+  * a candidate constraint and leave the meta solved to its first candidate. The checker later resolves these
+  * candidates to their `Combine` join at drain time
+  * ([[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.resolveCombines]]). A meta is tainted (`combinable`
+  * cleared) the moment it appears in a [[VPi]] domain — a contravariant position where joining would be unsound. When
+  * no `Combine` instance applies (or the meta was tainted), the checker re-unifies the candidates strictly, surfacing
+  * the ordinary mismatch — so unification stays first-candidate-wins for everything that has no `Combine` instance.
   *
-  * @param combinable
-  *   Raw ids of metavariables eligible for `Combine`-based multi-candidate resolution (covariant positions only).
-  * @param candidates
-  *   For each combinable meta, the types unified against it (with their source contexts), in arrival order.
+  * @param metaRoles
+  *   Per-meta-id role. Absence ⇒ [[MetaRole.Plain]]. The unifier reads/writes the [[MetaRole.Instantiation]] aspects
+  *   during unification (combinable, candidates); the checker writes the carrier-kind / abstract-assoc / upper-bound /
+  *   combine-resolved aspects through the role-transition methods below.
   */
 case class Unifier(
     metaStore: MetaStore,
     depth: Int,
     postponed: List[(SemValue, SemValue, Sourced[String])],
     errors: List[UnifyError],
-    combinable: Set[Int] = Set.empty,
-    candidates: Map[Int, List[(SemValue, Sourced[String])]] = Map.empty
+    metaRoles: Map[Int, MetaRole] = Map.empty
 ) {
+
+  /** The role of a metavariable, defaulting to [[MetaRole.Plain]] when unclassified. */
+  def roleOf(id: Int): MetaRole = metaRoles.getOrElse(id, MetaRole.Plain)
+
+  /** Replace a metavariable's role. */
+  def setRole(id: Int, role: MetaRole): Unifier = copy(metaRoles = metaRoles.updated(id, role))
+
+  /** Transform a metavariable's role in place (reading its current value, defaulting to [[MetaRole.Plain]]). */
+  def updateRole(id: Int, f: MetaRole => MetaRole): Unifier = setRole(id, f(roleOf(id)))
+
+  /** Whether a metavariable is currently combinable (an un-tainted [[MetaRole.Instantiation]]). */
+  def isCombinable(id: Int): Boolean = roleOf(id) match {
+    case i: MetaRole.Instantiation => i.combinable
+    case _                         => false
+  }
+
+  /** A metavariable's accumulated `Combine` candidates (empty unless it is an [[MetaRole.Instantiation]]). */
+  def candidatesOf(id: Int): List[(SemValue, Sourced[String])] = roleOf(id) match {
+    case i: MetaRole.Instantiation => i.candidates
+    case _                         => Nil
+  }
+
+  /** Every [[MetaRole.Instantiation]] meta with accumulated candidates that combine resolution has not yet consumed,
+    * as `(id, candidates)`. Drives the checker's combine-resolution loop.
+    */
+  def unresolvedCandidateMetas: List[(Int, List[(SemValue, Sourced[String])])] =
+    metaRoles.toList.collect {
+      case (id, i: MetaRole.Instantiation) if i.candidates.nonEmpty && !i.combineResolved => (id, i.candidates)
+    }
+
+  /** All deferred upper-bound obligations across every instantiation meta, as `(id, expected, context)`. */
+  def pendingUpperBounds: List[(MetaId, SemValue, Sourced[String])] =
+    metaRoles.toList.collect { case (id, i: MetaRole.Instantiation) => i.upperBounds.map((MetaId(id), _)) }.flatten
+      .map { case (id, (expected, context)) => (id, expected, context) }
+
+  /** Every higher-kinded carrier meta (an [[MetaRole.Instantiation]] with a recorded `carrierKind`), as
+    * `(id, (expectedKind, context))`. Drives post-drain carrier-kind verification.
+    */
+  def carrierMetas: List[(Int, (SemValue, Sourced[String]))] =
+    metaRoles.toList.collect { case (id, MetaRole.Instantiation(_, _, _, _, Some(carrier))) => (id, carrier) }
+
+  /** The raw ids of all abstract associated-ability-type placeholder metas. These are the metas the post-check
+    * finalizer protects from defaulting to `VType`, so a constraint-covered reference can stay abstract.
+    */
+  def abstractAssocMetaIds: Set[Int] = metaRoles.collect { case (id, _: MetaRole.AbstractAssoc) => id }.toSet
 
   /** Register a metavariable as combinable (covariant). Called by the checker when it allocates an implicit
     * type-parameter instantiation meta (see [[com.vanillasource.eliot.eliotc.monomorphize.check.Checker.peelLams]]).
+    * Promotes a [[MetaRole.Plain]] meta to a combinable [[MetaRole.Instantiation]], preserving any fields already set.
     */
-  def markCombinable(id: MetaId): Unifier = copy(combinable = combinable + id.value)
+  def markCombinable(id: MetaId): Unifier = updateRole(
+    id.value,
+    {
+      case i: MetaRole.Instantiation => i.copy(combinable = true)
+      case _                         => MetaRole.Instantiation(combinable = true)
+    }
+  )
+
+  /** Record a higher-kinded instantiation meta's expected kind (`[F[_]]` carrier). */
+  def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): Unifier = updateRole(
+    id.value,
+    {
+      case i: MetaRole.Instantiation => i.copy(carrierKind = Some((expectedKind, context)))
+      case _                         => MetaRole.Instantiation(carrierKind = Some((expectedKind, context)))
+    }
+  )
+
+  /** Record an abstract associated-ability-type standing placeholder. */
+  def recordAbstractAssoc(id: MetaId, fqn: ValueFQN): Unifier = setRole(id.value, MetaRole.AbstractAssoc(fqn))
+
+  /** Defer a "result fits expected" obligation on an instantiation meta (discharged after combine resolution). */
+  def recordUpperBound(id: MetaId, expected: SemValue, context: Sourced[String]): Unifier = updateRole(
+    id.value,
+    {
+      case i: MetaRole.Instantiation => i.copy(upperBounds = i.upperBounds :+ (expected, context))
+      case other                     => other
+    }
+  )
+
+  /** Mark an instantiation meta's candidates as consumed by combine resolution (resolves at most once). */
+  def recordCombineResolved(id: MetaId): Unifier = updateRole(
+    id.value,
+    {
+      case i: MetaRole.Instantiation => i.copy(combineResolved = true)
+      case other                     => other
+    }
+  )
 
   /** Unify two semantic values, reporting errors with the given context message and source position.
     *
@@ -63,7 +147,7 @@ case class Unifier(
     * through to [[unifyForced]], keeping `unify` pure definitional equality.
     */
   def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = r match {
-    case VMeta(id, Spine.SNil) if combinable.contains(id.value) && metaStore.lookup(id).nonEmpty =>
+    case VMeta(id, Spine.SNil) if isCombinable(id.value) && metaStore.lookup(id).nonEmpty =>
       val solution = metaStore.lookup(id).get
       val trial    = unifyForced(l, solution, context)
       if (trial.errors.size == errors.size) trial
@@ -147,7 +231,7 @@ case class Unifier(
               // Empty spine — solve directly. For a combinable meta also record the first candidate, so the checker's
               // combine resolution sees the full candidate set.
               val solvedU = copy(metaStore = metaStore.solve(id, rhs))
-              if (combinable.contains(id.value)) solvedU.recordCandidate(id, rhs, context) else solvedU
+              if (isCombinable(id.value)) solvedU.recordCandidate(id, rhs, context) else solvedU
             } else {
               // Non-empty spine — try injectivity decomposition first, otherwise postpone.
               tryDecomposeApplied(id, spineList, rhs, context)
@@ -254,13 +338,32 @@ case class Unifier(
     else addMismatch(l, r, context)
   }
 
-  /** Append a candidate type (with its source context) to a combinable meta's accumulated constraints. */
-  private def recordCandidate(id: MetaId, rhs: SemValue, context: Sourced[String]): Unifier =
-    copy(candidates = candidates.updated(id.value, candidates.getOrElse(id.value, Nil) :+ (rhs, context)))
+  /** Append a candidate type (with its source context) to a combinable meta's accumulated constraints. Only an
+    * [[MetaRole.Instantiation]] meta accumulates candidates; any other role is left unchanged (callers guard on
+    * [[isCombinable]], so this is defensive).
+    */
+  private def recordCandidate(id: MetaId, rhs: SemValue, context: Sourced[String]): Unifier = updateRole(
+    id.value,
+    {
+      case i: MetaRole.Instantiation => i.copy(candidates = i.candidates :+ (rhs, context))
+      case other                     => other
+    }
+  )
 
-  /** Remove every metavariable occurring in `sv` from the `combinable` set (taint). Used on [[VPi]] domains. */
+  /** Taint every metavariable occurring in `sv`: clear `combinable` on each one's [[MetaRole.Instantiation]] (its
+    * candidates and other fields are preserved, so a tainted meta still falls to strict re-unification). Used on
+    * [[VPi]] domains.
+    */
   private def taintMetasIn(sv: SemValue): Unifier =
-    copy(combinable = combinable -- metasOf(sv))
+    metasOf(sv).foldLeft(this) { (u, id) =>
+      u.updateRole(
+        id,
+        {
+          case i: MetaRole.Instantiation => i.copy(combinable = false)
+          case other                     => other
+        }
+      )
+    }
 
   /** Collect the ids of all metavariables occurring anywhere in `sv` — including inside spines and under binders.
     * Binders are entered by applying a fresh rigid variable, mirroring [[unify]]'s treatment.

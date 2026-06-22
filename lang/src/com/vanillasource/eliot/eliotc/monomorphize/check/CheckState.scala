@@ -11,58 +11,39 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Immutable state for the bidirectional type checker.
   *
+  * Per-metavariable metadata (combinable / candidates / combine-resolved / upper-bounds / carrier-kinds /
+  * abstract-associated-type placeholders) is **not** held here as separate side-tables (D2): it lives in a single
+  * [[com.vanillasource.eliot.eliotc.monomorphize.domain.MetaRole]] map on the [[unifier]], and the `record*` methods
+  * below delegate into it. This leaves `CheckState` with just the environment, the unifier, the binding cache, the
+  * ability resolutions, and the type-stack-value-param name set.
+  *
   * @param env
   *   The current de Bruijn level environment (bindings + names)
   * @param unifier
-  *   The unifier (carries meta store, depth, postponed, errors)
+  *   The unifier (carries meta store, depth, postponed, errors, and the per-meta role map)
   * @param bindingCache
   *   Cache of fetched NativeBinding SemValues, keyed by ValueFQN.
-  * @param abstractTypeMetas
-  *   For each abstract associated-ability-type (`type X` inside `ability ...`, no body) that has been referenced in
-  *   this session, the fresh [[SemValue.MetaId]] used as its standing placeholder. Looked up at [[bindingCache]] hits;
-  *   solved post-drain by unifying against the concrete impl's associated-type value.
   * @param abilityResolutions
   *   Map from each ability-qualified value reference (by its source-positioned FQN) to its resolved concrete impl.
   *   Filled by the drain-resolution loop; absence means the ref stays abstract (constraint-covered) at quoting time.
-  * @param combineResolved
-  *   Ids of combinable metavariables whose accumulated candidates have already been resolved (joined via `Combine`, or
-  *   re-unified strictly when no instance applied). Bounds the combine-resolution loop — each meta resolves at most
-  *   once. See [[Checker.resolveCombines]].
-  * @param pendingUpperBounds
-  *   Deferred "result fits expected" obligations: when a term's inferred type is a bare combinable metavariable (the
-  *   result of a polymorphic call whose result type is a type parameter), its final solution — possibly a `Combine`
-  *   join — is not known until drain, so the check against the expected type is deferred here instead of being
-  *   committed against the meta's first candidate. Discharged by [[Checker.resolveUpperBounds]] after combine
-  *   resolution: the *final* solution must coerce into the expected type, otherwise a mismatch is reported.
-  * @param carrierKinds
-  *   For each *higher-kinded* type-parameter instantiation metavariable (a `[F[_]]` carrier, kind `Type -> Type` etc.,
-  *   never an ordinary `[A]` of kind `Type`), the metavariable's expected kind and the call-site context for an error.
-  *   Recorded when a polytype is instantiated ([[Checker.instantiatePolymorphic]]) and verified post-drain
-  *   ([[Checker.verifyCarrierKinds]]): a carrier solved to a value of the wrong kind (e.g. a fully-applied proper type
-  *   `Box[String]` where a `Type -> Type` constructor `Box` is required) is rejected rather than silently accepted.
-  *   Without this the unifier would solve `?F := Box[String]` directly (empty spine), ignoring the `[F[_]]` kind.
   */
 case class CheckState(
     env: Env,
     unifier: Unifier,
     bindingCache: Map[ValueFQN, Option[SemValue]],
-    abstractTypeMetas: Map[ValueFQN, MetaId],
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
-    combineResolved: Set[Int],
-    pendingUpperBounds: List[(MetaId, SemValue, Sourced[String])],
-    typeStackValueParams: Set[String],
-    carrierKinds: Map[Int, (SemValue, Sourced[String])]
+    typeStackValueParams: Set[String]
 ) {
 
   /** Record a higher-kinded type-parameter instantiation meta with its expected kind, for post-drain verification. */
   def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): CheckState =
-    copy(carrierKinds = carrierKinds + (id.value -> (expectedKind, context)))
+    withUnifier(unifier.recordCarrierKind(id, expectedKind, context))
 
   def recordCombineResolved(id: MetaId): CheckState =
-    copy(combineResolved = combineResolved + id.value)
+    withUnifier(unifier.recordCombineResolved(id))
 
   def recordUpperBound(id: MetaId, expected: SemValue, context: Sourced[String]): CheckState =
-    copy(pendingUpperBounds = (id, expected, context) :: pendingUpperBounds)
+    withUnifier(unifier.recordUpperBound(id, expected, context))
 
   /** Bind a parameter with the given name and type, extending the env. */
   def bind(name: String, value: SemValue): CheckState =
@@ -82,7 +63,7 @@ case class CheckState(
     copy(bindingCache = bindingCache + (vfqn -> value))
 
   def recordAbstractTypeMeta(vfqn: ValueFQN, metaId: MetaId): CheckState =
-    copy(abstractTypeMetas = abstractTypeMetas + (vfqn -> metaId))
+    withUnifier(unifier.recordAbstractAssoc(metaId, vfqn))
 
   def recordAbilityResolution(
       ref: Sourced[ValueFQN],
@@ -118,10 +99,6 @@ object CheckState {
     Unifier.create(MetaStore.empty, 0),
     Map.empty,
     Map.empty,
-    Map.empty,
-    Set.empty,
-    Nil,
-    Set.empty,
-    Map.empty
+    Set.empty
   )
 }

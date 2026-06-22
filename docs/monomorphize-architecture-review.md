@@ -46,13 +46,18 @@ coercion's bounds can come from a combine join; a *calculated return whose argum
 join* already needed its own diagnosis path (`reportUngroundCalculatedReturn`, `Checker.scala:826`). Every new
 feature multiplies against all existing side-cars, so the count of interaction corners grows combinatorially.
 
-### 2. Meta roles live in side-tables, not in the values
+### 2. Meta roles live in side-tables, not in the values *(resolved by D2)*
 
 A `VMeta` is just an `Int`; *what role it plays* is recovered by membership in one of several `CheckState`
 side-tables: `bindingCache`, `abstractTypeMetas`, `abilityResolutions`, `combineResolved`, `pendingUpperBounds`,
 `typeStackValueParams`, `carrierKinds`, plus `combinable` / `candidates` inside the unifier. The post-check
 section of `TypeStackLoop.processIO` is then an **implicit pipeline of ~8 ordered passes over this shared
 blackboard**:
+
+> **D2 collapsed the role-bearing tables.** `combinable` / `candidates` / `combineResolved` / `pendingUpperBounds`
+> / `carrierKinds` / `abstractTypeMetas` are now one `Map[Int, MetaRole]` on the unifier (`bindingCache`,
+> `abilityResolutions`, `typeStackValueParams` are not per-meta roles and stayed put). The finalizer is a total
+> match on that role — see the D2 deliverable below.
 
 ```
 drainAndResolveLoop → resolveUpperBounds → verifyCarrierKinds
@@ -87,11 +92,14 @@ rather than an error. `renormalize` currently keeps those paths from being hit i
 representation makes "injective constructor," "opaque abstract def," and "non-injective stuck native"
 indistinguishable to the unifier and the quoter.
 
-### F2 — `defaultUnsolvedMetas` masks unresolved obligations as `Type`
+### F2 — `defaultUnsolvedMetas` masks unresolved obligations as `Type` *(fixed by D2)*
 
-Any meta not in the `abstractTypeMetas` protected set is solved to `VType` at the end of checking. A side-car
-that fails to resolve its meta therefore produces a silently mistyped value, not a diagnostic. This is the
-structural reason "gaps must be fail-safe" keeps needing manual enforcement here.
+Any meta not in the `abstractTypeMetas` protected set was solved to `VType` at the end of checking. A side-car
+that failed to resolve its meta therefore produced a silently mistyped value, not a diagnostic. This was the
+structural reason "gaps must be fail-safe" kept needing manual enforcement here. **D2 removed the catch-all:**
+`defaultUnsolvedMetas` is now an exhaustive match over the sealed `MetaRole` (no `case _`), so the only protected
+role is `AbstractAssoc` and a *new* role cannot silently fall through to `Type` — it forces a decision at the
+match, and the `assertEveryMetaResolvedOrAbstract` postcondition backstops a slip.
 
 ## The explicit step to take (and the project is already heading there)
 
@@ -137,14 +145,34 @@ shared metastore — D1 makes that coupling explicit rather than dissolving it. 
 plugs into (`assertEveryMetaResolvedOrAbstract`; verified live by neutering the finalizer and confirming it
 fires, so a forgotten role in D2 cannot silently default to `Type` — the F2 cure, prepared).
 
-### D2 — Replace the meta side-sets with one `Map[MetaId, MetaRole]` ADT (highest structural payoff)
+### D2 — Replace the meta side-sets with one `Map[MetaId, MetaRole]` ADT ✅ DONE (highest structural payoff)
 
-Introduce `MetaRole = Plain | Combinable(candidates) | Carrier(kind) | AbstractAssoc(fqn) | CalculatedReturn`
-and fold `combinable` / `candidates` / `carrierKinds` / `abstractTypeMetas` / `pendingUpperBounds` /
-`combineResolved` into role-keyed state. Then `defaultUnsolvedMetas` becomes a **total match on roles** — a
-`Carrier` left unsolved is an *error by construction*, an `AbstractAssoc` stays, a `Plain` becomes `Type`. This
-deletes F2 outright: an unhandled role cannot silently become `Type`. Medium effort; the single biggest
-reduction in "non-obvious bug" surface.
+Introduced `MetaRole` (`monomorphize/domain/MetaRole.scala`) and folded the six side-sets — `combinable` /
+`candidates` (unifier) and `carrierKinds` / `abstractTypeMetas` / `pendingUpperBounds` / `combineResolved`
+(`CheckState`) — into one `Map[Int, MetaRole]`. `defaultUnsolvedMetas` is now a **total, catch-all-free match on
+roles**: an `AbstractAssoc` stays unsolved, a `Plain` or `Instantiation` defaults to `Type`. F2 is deleted: a
+future role added to the sealed ADT forces an explicit decision at that match (non-exhaustiveness is reported)
+instead of silently inheriting "default everything to `Type`." Suite green; covered by the new
+`unify/UnifierRoleTest` (role lifecycle + the finalizer's protected set is *exactly* the `AbstractAssoc` metas).
+
+**Three refinements learned from building it** (the predicted ADT was close but not exact):
+
+- **The roles are not disjoint, so they are not a flat enum.** A *carrier is a combinable instantiation meta* —
+  `peelLams` marks every peeled binder combinable, and `recordCarrierMetas` additionally tags the higher-kinded
+  ones with a kind. So the review's separate `Combinable(candidates)` and `Carrier(kind)` collapse into one
+  `MetaRole.Instantiation(combinable, candidates, combineResolved, upperBounds, carrierKind)` — the carrier kind is
+  an *optional attribute* of an instantiation meta, and `combineResolved` / `pendingUpperBounds` are its fields
+  too. The role ADT is `Plain | Instantiation(...) | AbstractAssoc(fqn)`.
+- **The map lives on the `Unifier`, not `CheckState`.** The combinable/candidate aspects are read *and written
+  inside* `unify`/`solveMeta`/`taintMetasIn`, so they must sit where the (immutable) unifier can reach them;
+  putting the map there makes the unifier the single per-meta metadata authority next to the `metaStore`.
+  `CheckState`'s `record*` methods are thin delegates into it, so call sites are unchanged.
+- **`CalculatedReturn` is not a stored role, and "Carrier unsolved = error" overstated it.** The return meta is
+  threaded directly (`PassContext.returnMeta`) and is solved-or-aborted *before* finalization, so it never needs a
+  protected role. And an unsolved carrier is **not** an error: a legitimately higher-order carrier (`?F[A,B] ~
+  Function[A,B]`) is intentionally defaulted to `Type` and backstopped when the callee is monomorphized — only the
+  *wrong-kind* and *unsatisfiable-rigid-arity* cases error, and those are caught in `verifyCarrierKinds` before the
+  finalizer. The finalizer's real win is **exhaustiveness**, not a new per-role outcome.
 
 ### D3 — Disambiguate `VTopDef(_, None, _)` (small, removes F1)
 
@@ -195,8 +223,10 @@ features from multiplying against old ones.
 
 Each deliverable keeps the full suite green and adds a targeted test:
 
-- D2: a test that an unresolved meta of each role produces the role-specific outcome (error vs default vs stays
-  abstract) — proving the catch-all default is gone.
+- D2: ✅ `unify/UnifierRoleTest` pins the role lifecycle (Plain → combinable `Instantiation`, candidate
+  accumulation, taint, carrier/upper-bound/combine-resolved transitions) and the finalizer's protected set —
+  `abstractAssocMetaIds` is *exactly* the `AbstractAssoc` metas, not the Plain/combinable/carrier ones — proving
+  the catch-all default is gone.
 - D3: the carrier-vs-stuck-native unification adversarial test (F1).
 - D4: existing `Coerce` / `Combine` coverage (`MonomorphicTypeCheckTest`) must pass unchanged through the new
   module boundary; add a join-as-coerce spike test if D4's collapse is pursued.
