@@ -74,6 +74,9 @@ class MonomorphizationVersioningTest
       MatchNativesProcessor(),
       UserValueNativesProcessor(),
       MonomorphicTypeCheckProcessor(),
+      // The codegen projection (B2/B3) lowers representation-class type arguments via `RepresentationLowering`, which
+      // reads `TransparentBinding` (the cached opaque-type body), so the `used` dedup needs this producer wired in.
+      TransparentBindingProcessor(),
       // A small backstop tolerance keeps the divergent scenario (S7) cheap and deterministic; every converging scenario
       // here nests at most 4 deep (S1's countdown), well under it, so the counts are unaffected.
       UsedNamesProcessor(maxNestedRepeats = 8)
@@ -90,8 +93,13 @@ class MonomorphizationVersioningTest
   // `subtract(N, bigOf[1])` is normalised when read back as a type-argument, so the recursion now unrolls instead of
   // erroring. `countdown[3]` materialises the four distinct indices {3, 2, 1, 0} (the base case `fold` selects the
   // constant at `N <= 0`, so it terminates) ⇒ 4 versions. This is the breadth the keying dedup targets.
-  // TARGET (after keying A+B): 1 (the phantom index is dropped from the codegen key; one body serves every N).
-  "S1 (size-indexed recursion, phantom index)" should "unroll one version per recursive index (target after keying: 1)" in {
+  // DISPOSITION (B1): this concrete proxy references `N` in value position (`lessThanOrEqual(N, ...)`) and recurses on a
+  // changed `N`, so B1 classifies it `Demote`, NOT phantom (the plan's "phantom index" prose describes the idealised
+  // `sum`/`map` where `N` never reaches value position). DEMOTE IS DEFERRED in B2/B3: demoting `N` to a runtime
+  // parameter would turn the compile-time `fold` dispatch into a runtime conditional the backend has no path for, so
+  // `Demote` is treated as `Specialize` (fail-safe -- never mis-merges). Hence this still unrolls 4 versions today.
+  // TARGET (once demote lands): demote -> 1 body (the per-step index becomes a runtime argument).
+  "S1 (size-indexed recursion, reified index)" should "unroll one version per recursive index (demote deferred: stays 4)" in {
     runVersioning(
       "import eliot.lang.Bool\ndef bigOf[V: BigInteger]: BigInteger = V\ndef countdown[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], countdown[subtract(N, bigOf[1])])\ndef main: BigInteger = countdown[3]",
       imports = intImports
@@ -102,22 +110,28 @@ class MonomorphizationVersioningTest
 
   // --- S2: two call sites Int[0,100] & Int[0,50] (Cat 2 representation, same width) -------------------------------
   // A single generic `id` is instantiated at two distinct bounds that share a machine representation (both fit a byte).
-  // TODAY: 2 versions (the full ground type is the key, so the bounds differ). TARGET: 1 (rep-collapse — both bounds
-  // canonicalise to the same width).
-  "S2 (representation, same width)" should "today unroll one version per distinct bound (target after fix: 1)" in {
+  // `id`'s `A` is representation-class (CollapseToRepresentation), so the codegen projection (B2/B3) keys it on the
+  // head-preserving representation: `Int[0, 100]` and `Int[0, 50]` both lower to `JvmByte`, collapsing to one version.
+  // This needs a representation-bearing `Int` (`reprIntImports`) — with the abstract stub `representationOf` is the
+  // identity and the bounds would never collapse.
+  "S2 (representation, same width)" should "collapse to one version per representation (was 2, now 1)" in {
     runVersioning(
-      "def a: Int[0, 100]\ndef b: Int[0, 50]\ndef id[A](x: A): A = x\ndef use[A, B](x: A, y: B): A = x\ndef main: Int[0, 100] = use(id(a), id(b))"
+      "def a: Int[0, 100]\ndef b: Int[0, 50]\ndef id[A](x: A): A = x\ndef use[A, B](x: A, y: B): A = x\ndef main: Int[0, 100] = use(id(a), id(b))",
+      imports = reprIntImports
     ).asserting { case (errors, counts) =>
-      (errors, countOf(counts, "id")) shouldBe (Seq.empty, 2)
+      (errors, countOf(counts, "id")) shouldBe (Seq.empty, 1)
     }
   }
 
   // --- S3: Int[0,100] & Int[0,100000] (Cat 2 representation, different width) -------------------------------------
-  // Same shape as S2 but the second bound needs a wider representation than a byte, so the two instances are genuinely
-  // different code. TODAY: 2. TARGET: 2 (must stay — a must-not-over-merge guard for the rep-collapse projection).
-  "S3 (representation, different width)" should "unroll one version per distinct bound (target: 2, must stay)" in {
+  // Same shape as S2 but the second bound needs a wider representation than a byte (`JvmByte` vs `JvmInt`), so the two
+  // instances are genuinely different code. The projection keys them on distinct representations, so they STAY two —
+  // a must-not-over-merge guard for the rep-collapse projection. (Also uses `reprIntImports`: with the abstract stub
+  // they would stay 2 only by accident of differing bounds, not differing representations.)
+  "S3 (representation, different width)" should "keep one version per distinct representation (stays 2)" in {
     runVersioning(
-      "def a: Int[0, 100]\ndef b: Int[0, 100000]\ndef id[A](x: A): A = x\ndef use[A, B](x: A, y: B): A = x\ndef main: Int[0, 100] = use(id(a), id(b))"
+      "def a: Int[0, 100]\ndef b: Int[0, 100000]\ndef id[A](x: A): A = x\ndef use[A, B](x: A, y: B): A = x\ndef main: Int[0, 100] = use(id(a), id(b))",
+      imports = reprIntImports
     ).asserting { case (errors, counts) =>
       (errors, countOf(counts, "id")) shouldBe (Seq.empty, 2)
     }
@@ -144,8 +158,10 @@ class MonomorphizationVersioningTest
   // is determined entirely by the erased index, so the reification gate folds `gen[1] = add(1, gen[0]) = 1` to a constant
   // (its `gen[0]` base case fully reduces), dropping the `gen[0]` reference — one fewer version than S1's bare-reference
   // recursion. (S1's recursive branch is a plain `countdown[0]` reference, which is kept, so S1 reaches index 0.)
-  // TARGET (after keying A+B): demote -> 1 body.
-  "S5 (reified value, recursion-variant)" should "unroll one version per recursive index (target after keying: demote -> 1)" in {
+  // DEMOTE IS DEFERRED in B2/B3 (same reason as S1): the runtime-parameterization of `N` would need a runtime
+  // conditional for the compile-time `fold`, which the backend has no path for, so `Demote` is treated as `Specialize`
+  // (fail-safe). Hence this still unrolls 3 versions today; demote -> 1 is the target once demote lands.
+  "S5 (reified value, recursion-variant)" should "unroll one version per recursive index (demote deferred: stays 3)" in {
     runVersioning(
       "import eliot.lang.Bool\ndef bigOf[V: BigInteger]: BigInteger = V\ndef gen[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], add(N, gen[subtract(N, bigOf[1])]))\ndef main: BigInteger = gen[3]",
       imports = intImports
@@ -250,6 +266,42 @@ class MonomorphizationVersioningTest
     SystemImport("Log", ProcessorTest.logStubContent),
     SystemImport("Dep", ProcessorTest.depStubContent)
   )
+
+  /** Like [[intImports]] but with a *representation-bearing* `Int`: the `opaque type Int[MIN, MAX]` body that folds a
+    * range down to the narrowest `Jvm*` width (mirroring the real jvm-layer `Int.els`), plus the `JvmByte`/… repr types
+    * and the `fitsIn` predicate the body folds on. This is what makes the representation-collapse projection (S2/S3)
+    * observable: with the abstract `Int` stub `RepresentationLowering.representationOf` is the identity, so the
+    * codegen projection could never tell a same-width pair (`Int[0, 100]`/`Int[0, 50]`, S2 -> 1) from a different-width
+    * pair (`Int[0, 100]`/`Int[0, 100000]`, S3 -> 2).
+    */
+  private val reprIntImports: Seq[SystemImport] = intImports.map {
+    case SystemImport("BigInteger", content) =>
+      SystemImport(
+        "BigInteger",
+        content +
+          "\ndef fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bool = lessThanOrEqual(lo, min) && lessThanOrEqual(max, hi)"
+      )
+    case SystemImport("Int", content)        =>
+      SystemImport(
+        "Int",
+        content.replace(
+          "type Int[auto MIN: BigInteger, auto MAX: BigInteger]\n",
+          """type JvmByte
+            |type JvmShort
+            |type JvmInt
+            |type JvmLong
+            |type JvmBigInteger
+            |opaque type Int[auto MIN: BigInteger, auto MAX: BigInteger] =
+            |  fold(fitsIn[-128, 127, MIN, MAX], JvmByte[],
+            |  fold(fitsIn[-32768, 32767, MIN, MAX], JvmShort[],
+            |  fold(fitsIn[-2147483648, 2147483647, MIN, MAX], JvmInt[],
+            |  fold(fitsIn[-9223372036854775808, 9223372036854775807, MIN, MAX], JvmLong[],
+            |       JvmBigInteger[]))))
+            |""".stripMargin
+        )
+      )
+    case other                               => other
+  }
 
   /** Drive the `used` traversal from a concrete `main` and return both the compilation errors and the per-`vfqn`
     * version counts of every materialised monomorphic specialization.

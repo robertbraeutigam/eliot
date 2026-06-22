@@ -24,16 +24,17 @@ import scala.annotation.tailrec
   * `loop[A] -> loop[Box[A]] -> …`), a divergent type-level recursion makes this DFS materialise specializations without
   * bound — today a hang/OOM. The recursion lives in this processor's own `processValue` descent (not in the global
   * `activeFactKeys` chain, which only reflects *depth* across fact generations and stays flat here, since every
-  * `MonomorphicValue` is requested as a sibling of `used`), so the backstop tracks the chain of enclosing `processValue`
-  * frames (`ancestors`) and, when more than [[maxNestedRepeats]] of them share the same `vfqn` with differing type
-  * arguments, converts the runaway into a specific diagnostic instead of diverging. This is the fail-safe behind the
-  * keying-plan's relevance/variance analysis (Deliverable B): legitimate recursion collapses or demotes and never trips;
-  * the backstop only fires on genuinely divergent type-level recursion or analysis-missed positions.
+  * `MonomorphicValue` is requested as a sibling of `used`), so the backstop tracks the chain of enclosing
+  * `processValue` frames (`ancestors`) and, when more than [[maxNestedRepeats]] of them share the same `vfqn` with
+  * differing type arguments, converts the runaway into a specific diagnostic instead of diverging. This is the
+  * fail-safe behind the keying-plan's relevance/variance analysis (Deliverable B): legitimate recursion collapses or
+  * demotes and never trips; the backstop only fires on genuinely divergent type-level recursion or analysis-missed
+  * positions.
   *
   * @param maxNestedRepeats
   *   How many nested `processValue` frames for one `vfqn` are tolerated before the specialization is declared
-  *   non-converging. Generous on purpose (see [[UsedNamesProcessor.DefaultMaxNestedRepeats]]): a terminating recursion is
-  *   bounded by the program's finite type structure and stays far below it, so only genuine divergence crosses it.
+  *   non-converging. Generous on purpose (see [[UsedNamesProcessor.DefaultMaxNestedRepeats]]): a terminating recursion
+  *   is bounded by the program's finite type structure and stays far below it, so only genuine divergence crosses it.
   */
 class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNestedRepeats)
     extends SingleKeyTypeProcessor[UsedNames.Key]
@@ -41,21 +42,38 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
 
   override protected def generateFact(key: UsedNames.Key): CompilerIO[Unit] =
     for {
-      state <- (recordUsage(key.rootFQN, Seq.empty, 0) >> processValue(key.rootFQN, Seq.empty, Nil)).runS(
+      state <- (recordUsage(key.rootFQN, Seq.empty, 0) >> processValue(key.rootFQN, Seq.empty, Seq.empty, Nil)).runS(
                  UsedNamesState()
                )
       _     <- registerFactIfClear(getUsedNames(key.rootFQN, state)).whenA(!state.failed)
     } yield ()
 
-  /** @param ancestors
+  /** Walk one monomorphic instance, deduping on its **codegen projection** (Deliverable B2/B3): the traversal — the
+    * `visited` set and the [[MonomorphicValue]] demand — is keyed on [[CodegenProjection.codegenProject]] of the type
+    * arguments, so two instances that generate identical code (e.g. `id[Int[0, 100]]` and `id[Int[0, 50]]`, both a
+    * byte) type-check and materialise only one representative `MonomorphicValue` instead of one per exact bound. The
+    * exact `typeArgs` are still used to fetch that representative (the checker's keys stay full and exact) and are
+    * recorded verbatim by [[recordUsage]] (so the backend, which already collapses these cases via its method-signature
+    * dedup, sees the full picture).
+    *
+    * @param typeArgs
+    *   The full, type-checking-exact type arguments — used to fetch the representative `MonomorphicValue`.
+    * @param projected
+    *   The codegen projection of `typeArgs`, used as the dedup identity.
+    * @param ancestors
     *   The `vfqn`s of the enclosing `processValue` frames (the DFS stack of values currently being walked, innermost
     *   first), used by the non-convergence backstop to detect a runaway recursion.
     */
-  private def processValue(vfqn: ValueFQN, typeArgs: Seq[GroundValue], ancestors: List[ValueFQN]): UsedNamesIO[Unit] =
-    isVisited(vfqn, typeArgs).ifM(
+  private def processValue(
+      vfqn: ValueFQN,
+      typeArgs: Seq[GroundValue],
+      projected: Seq[GroundValue],
+      ancestors: List[ValueFQN]
+  ): UsedNamesIO[Unit] =
+    isVisited(vfqn, projected).ifM(
       Monad[CompilerIO].unit.liftToUsedNames,
       for {
-        _                <- markVisited(vfqn, typeArgs)
+        _                <- markVisited(vfqn, projected)
         monomorphicMaybe <- getFact(MonomorphicValue.Key(vfqn, typeArgs)).liftToUsedNames
         _                <- monomorphicMaybe.fold(markFailed()) { mv =>
                               checkConvergence(vfqn, mv.name, ancestors) >>
@@ -64,8 +82,9 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
       } yield ()
     )
 
-  /** Trip the backstop when this `vfqn` already occurs more than [[maxNestedRepeats]] times among its enclosing frames —
-    * a chain of nested specializations of the same value with differing type arguments, i.e. a non-converging recursion.
+  /** Trip the backstop when this `vfqn` already occurs more than [[maxNestedRepeats]] times among its enclosing frames
+    * — a chain of nested specializations of the same value with differing type arguments, i.e. a non-converging
+    * recursion.
     */
   private def checkConvergence(
       vfqn: ValueFQN,
@@ -98,7 +117,7 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
         processApplicationChain(target.value.expression, 1, Seq(argument), ancestors)
 
       case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) =>
-        processValueReference(vfqn.value, typeArgs, 0, ancestors)
+        processValueReference(vfqn, typeArgs, 0, ancestors)
 
       case MonomorphicExpression.FunctionLiteral(_, _, body) =>
         processExpression(body.value.expression, ancestors)
@@ -139,7 +158,7 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
         processApplicationChain(target.value.expression, applicationCount + 1, nestedArguments :+ argument, ancestors)
 
       case MonomorphicExpression.MonomorphicValueReference(vfqn, typeArgs) =>
-        processValueReference(vfqn.value, typeArgs, applicationCount, ancestors) >> processNestedArguments
+        processValueReference(vfqn, typeArgs, applicationCount, ancestors) >> processNestedArguments
 
       case MonomorphicExpression.FunctionLiteral(_, _, body) =>
         processExpression(body.value.expression, ancestors) >> processNestedArguments
@@ -153,22 +172,23 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
   }
 
   private def processValueReference(
-      vfqn: ValueFQN,
+      sourcedVfqn: Sourced[ValueFQN],
       typeArgs: Seq[GroundValue],
       applicationCount: Int,
       ancestors: List[ValueFQN]
   ): UsedNamesIO[Unit] =
     for {
-      _ <- recordUsage(vfqn, typeArgs, applicationCount)
-      _ <- processValue(vfqn, typeArgs, ancestors)
+      _         <- recordUsage(sourcedVfqn.value, typeArgs, applicationCount)
+      projected <- CodegenProjection.codegenProject(sourcedVfqn, typeArgs).liftToUsedNames
+      _         <- processValue(sourcedVfqn.value, typeArgs, projected, ancestors)
     } yield ()
 }
 
 object UsedNamesProcessor {
 
   /** Default nesting tolerance for the non-convergence backstop. 500 is deliberately generous: a terminating recursion
-    * is bounded by the program's finite type structure and stays far below this, while a genuinely divergent recursion is
-    * unbounded and always crosses it. Configurable per the keying plan (Deliverable A).
+    * is bounded by the program's finite type structure and stays far below this, while a genuinely divergent recursion
+    * is unbounded and always crosses it. Configurable per the keying plan (Deliverable A).
     */
   val DefaultMaxNestedRepeats: Int = 500
 }

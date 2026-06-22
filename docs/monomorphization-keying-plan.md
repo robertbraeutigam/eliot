@@ -295,34 +295,65 @@ Demote`; else `reified → Specialize`; else `representation → CollapseToRepre
 **Validated by** `BinderRolesTest` (extended): the reified cases still pin the binding-wrap prefix, and new
 disposition cases pin the keying scenarios directly — `id` (S2/S3) → CollapseToRepresentation, `tag` (S4,
 recursion-invariant reified) → Specialize, `gen` (S5, recursion-variant reified) → Demote, `describe` (S6,
-ability-constrained) → Specialize, and an unused `[P]` → CollapseErase. **No consumer wiring yet** (B2/B3): the
-classification is computed and carried but nothing reads the disposition, so the `MonomorphizationVersioningTest`
-counts are unchanged — B1 is the analysis, B2/B3 are what move S2→1 / S5→1 / S1→1.
+ability-constrained) → Specialize, and an unused `[P]` → CollapseErase. **Consumer wired by B2/B3** (2026-06-22):
+`CodegenProjection.codegenProject` reads these dispositions and the `used` traversal dedups its `MonomorphicValue`
+demand on the projection — moving S2 → 1 while leaving the must-not-over-merge guards (S3/S6/S8) put. (S1/S5 → 1 wait
+on demote, which B2/B3 defers — see B3's demote-deferral note.)
 
-### B2. Projection function
+### B2. Projection function ✅ DONE (2026-06-22)
 
-`codegenProject(vfqn, fullArgs): Seq[GroundValue]` — deterministic, shared by all demand sites:
+`codegenProject(sourcedVfqn, fullArgs): CompilerIO[Seq[GroundValue]]` — deterministic, in
+`used/CodegenProjection.scala`. Reads `SaturatedValue.binderRoles` (B1) and projects each position by its
+disposition:
 
-- **collapse-erase / demote** positions: dropped from the key (demote additionally retains the value
-  as a runtime parameter — see B3);
-- **representation** positions: canonicalized via `RepresentationLowering.representationOf` so
-  width-equivalent bounds collapse, **while preserving the nominal head** for dispatch (do not key
-  purely on the bare representation — see soundness checkpoints);
-- **specialize** positions: kept verbatim.
+- **collapse-erase** positions: dropped from the key (a phantom that reaches no scanned position);
+- **representation** positions: replaced by a **head-preserving** representation key —
+  `Structure(arg.carrierFQN, [representationOf(arg)], Type)` — so width-equivalent bounds collapse
+  (`Int[0,100]`/`Int[0,50]` → both `JvmByte`) **while keying the nominal head separately** so two distinct
+  opaque types sharing a representation (`Money`/`Int` both → `JvmByte`) are *not* merged (soundness
+  checkpoint 2); the synthetic structure is a `visited`-set identity only, never used to fetch a fact;
+- **specialize** positions: kept verbatim;
+- **demote** positions: **treated exactly like specialize (kept verbatim)** — see the demote-deferral note
+  below.
+- a value with no `SaturatedValue` (natives, etc.) keeps all args verbatim (most conservative).
 
-### B3. Wire through the codegen pipeline (checker untouched)
+It is a `CompilerIO` (not a pure `Seq`) because `representationOf` reads `TransparentBinding`.
 
-- `used/UsedNamesProcessor.scala`: dedup the traversal on `(vfqn, codegenProject(args))`; expand a
-  **representative** `MonomorphicValue` for the body. For **demoted** positions, splice the dropped
-  value back as a runtime argument (the demoted value flows from data, not the type key).
-- `uncurry`: key `UncurriedMonomorphicValue` on the projected args
-  (`uncurry/fact/UncurriedMonomorphicValue.scala:39`,
-  `uncurry/processor/MonomorphicUncurryingProcessor.scala:22-23`) and rewrite call-target references
-  in bodies to projected keys (passing demoted values as ordinary arguments).
-- Backend: one class/method per projected key falls out of the above.
+### B3. Wire through the codegen pipeline (checker untouched) ✅ DONE — `used` only (2026-06-22)
 
-`MonomorphicValue` / `Checker` / `TypeStackLoop` are unchanged — they keep producing exact,
-full-args facts for type reasoning.
+- `used/UsedNamesProcessor.scala`: **done.** `processValue` dedups its `visited` set and its
+  `MonomorphicValue` *demand/recursion* on `(vfqn, codegenProject(args))`, so only one representative
+  `MonomorphicValue` per projection class is type-checked (the codegen *breadth* the plan targets), while the
+  **exact** `typeArgs` still fetch that representative and `recordUsage` records them verbatim. The dedup is
+  sound because B1's reification analysis is viral (a binder that flows into a downstream codegen-relevant
+  position is itself reified/representation upstream, so it is never collapsed and never starves a callee).
+- `uncurry` / backend: **not changed, and not needed for the non-demote dispositions.** The backend already
+  collapses representation- and phantom-equivalent instances: it mangles method names by
+  `GroundValue.carrierFQN` (which erases bounds — `id$Int` for every `Int[…]`) and dedups emitted methods by
+  `methodSignatureKey` (mangled name + lowered descriptor). Since `recordUsage` still forwards the full args,
+  the backend sees the whole picture and emits identical bytecode; the `used` dedup only removes the wasted
+  *type-checking* of redundant specializations. The `UncurriedMonomorphicValue` re-keying + body rewriting
+  the original plan sketched here is genuinely **demote work** (passing the demoted value as a runtime
+  argument), and is deferred with demote.
+
+`MonomorphicValue` / `Checker` / `TypeStackLoop` are unchanged — they keep producing exact, full-args facts
+for type reasoning.
+
+#### Demote deferral (decided 2026-06-22, ties into B4)
+
+Both S1 (`countdown`) and S5 (`gen`) actually classify as **`Demote`** under B1 (each references its index `N`
+in value position via `lessThanOrEqual(N, …)` *and* recurses on a changed `N`). The plan's prose framed S1 as
+"phantom", but the concrete proxy is reified. Demoting `N` to a runtime parameter would turn the body's
+**compile-time `fold`** dispatch (which only collapses because `N` is a baked compile-time constant) into a
+**runtime conditional** — and the backend has no runtime-`Bool` branch path (`PostDrainQuoter` leaves a
+runtime-`Bool` `fold` as an un-lowerable application). So full demote codegen is not feasible without first
+building runtime conditionals, a separate feature.
+
+Decision: **defer demote**; `codegenProject` treats `Demote` as `Specialize`. This is fail-safe
+(cf. gaps-must-be-failsafe) — it never mis-merges, it only forgoes the eventual one-body collapse, and the
+Deliverable-A `used` backstop still bounds any runaway. Consequence: S1 stays 4 and S5 stays 3 (their final
+`demote → 1` targets wait on the demote feature + B4 policy). S2 → 1 (representation collapse) and the
+must-not-over-merge guards (S3/S6/S8) all land now.
 
 ### B4. Demote policy (open knob)
 
@@ -351,7 +382,12 @@ Deliverable 0's suite is the gate. After A+B the counts must move: S2 → 1, S3/
 (not hang). Plus full suite green and a jvm end-to-end check (generated class count) for a recursive `sum`/`map`.
 
 **A done:** S7 now hits the backstop (the non-convergence diagnostic on `loop`) instead of hanging; full suite green.
-The B counts (S2 → 1, S5 → demote → 1, S1 → 1) are still pending B1/B2/B3.
+
+**B done (non-demote), 2026-06-22:** B1 (analysis) + B2 (`codegenProject`) + B3 (`used` dedup) landed. The suite now
+asserts **S2 → 1** (representation collapse — exercised via a representation-bearing `Int` import, since the abstract
+stub makes `representationOf` the identity), with **S3/S4/S6/S8 unchanged** and **S7 → backstop**. **S1 stays 4 and S5
+stays 3**: both are `Demote`, which is deferred (see the demote-deferral note) — their `demote → 1` targets wait on the
+runtime-conditional feature + B4. Full `lang` + `jvm` suites green.
 
 **S1/S5 caveat:** the prerequisite computed-type-argument read-back gap (see *Baseline findings*) is now **fixed**, so
 S1/S5 unroll (S1 = 4, S5 = 3) rather than erroring; their suite assertions now pin those unrolled counts. They reach
@@ -365,9 +401,13 @@ breadth.
    as free neutrals). ✅ done (`BindingProcessor.reifyingWrap` + `ComputedTypeArgumentReadbackTest`); S1/S5 now unroll.
 1. **Backstop** (Deliverable A) — independent, immediately useful, de-risks B and feeds demotion. ✅ done.
 2. **B1** relevance + recursion-variance analysis (start maximally conservative). ✅ done.
-3. **B2/B3** projection + wiring through `used`/`uncurry`/backend, including the demote disposition.
-4. Resolve **B4** policy; tighten B1 as the suite/benchmarks justify; the backstop covers residual
-   imprecision.
+3. **B2/B3** projection + wiring. ✅ done for the non-demote dispositions (2026-06-22): `codegenProject`
+   (`used/CodegenProjection.scala`) + the `used` demand dedup. The `uncurry`/backend re-keying is unnecessary for
+   collapse-erase/representation/specialize (the backend's `carrierFQN` mangling + `methodSignatureKey` dedup already
+   collapse them) and is otherwise demote work. **Demote deferred** (see the demote-deferral note): it needs runtime
+   conditionals the backend lacks; `Demote` is treated as `Specialize`, fail-safe.
+4. **Demote codegen** (the deferred half of B2/B3) + resolve **B4** policy; tighten B1 as the suite/benchmarks justify;
+   the backstop covers residual imprecision.
 
 ## Cross-refs
 
