@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The codegen-relevance classification of each leading type-stack ("generic") binder of a value, computed once,
   * statically (no evaluation), on the *saturated* signature + body + the value's own call graph. This is the
-  * monomorphization-keying plan's **B1** analysis (`docs/monomorphization-keying-plan.md`); it grows out of the D6
+  * monomorphization-keying plan's **B1** analysis; it grows out of the D6
   * reified-binder analysis (originally only [[Role.reified]], whose single consumer was the monomorphize binding wrap).
   *
   * Each binder gets four orthogonal role flags and one derived [[BinderRoles.Disposition]] that drives the eventual

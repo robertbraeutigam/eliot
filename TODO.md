@@ -42,8 +42,8 @@ notes.
 ## Compiler architecture & tooling
 
 - **Monomorphization keying — demote codegen + policy (the one remaining piece).** The codegen
-  type-explosion fix is largely landed (full plan + history: `docs/monomorphization-keying-plan.md`,
-  grew out of the recursion-as-effect / `Rec[N]` discussion): the `used` codegen driver dedups its
+  type-explosion fix is largely landed (it grew out of the recursion-as-effect / `Rec[N]` discussion;
+  the original full plan is in git history): the `used` codegen driver dedups its
   `MonomorphicValue` demand on a **codegen-relevant projection** of the type args (B1 per-binder
   relevance analysis in `saturate/fact/BinderRoles.scala`; B2 projection in
   `used/CodegenProjection.scala`) — phantoms collapse-erase, width-equivalent bounds collapse to a

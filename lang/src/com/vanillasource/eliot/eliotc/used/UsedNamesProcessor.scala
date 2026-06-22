@@ -19,7 +19,7 @@ import scala.annotation.tailrec
   *   - Type parameters each value is used with
   *   - Statistics about how many arguments are applied directly to each value
   *
-  * It is also the home of the **non-convergence backstop** (Deliverable A of `docs/monomorphization-keying-plan.md`):
+  * It is also the home of the **non-convergence backstop** (Deliverable A of the monomorphization-keying plan):
   * because `used` is the codegen driver that walks the *breadth* of the monomorphic fact graph (`f[N] -> f[N-1] -> …`,
   * `loop[A] -> loop[Box[A]] -> …`), a divergent type-level recursion makes this DFS materialise specializations without
   * bound — today a hang/OOM. The recursion lives in this processor's own `processValue` descent (not in the global

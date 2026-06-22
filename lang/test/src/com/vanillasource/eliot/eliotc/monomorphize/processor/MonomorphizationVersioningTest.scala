@@ -23,7 +23,7 @@ import com.vanillasource.eliot.eliotc.used.{UsedNames, UsedNamesProcessor}
 
 import scala.concurrent.duration.*
 
-/** Characterization test suite — Deliverable 0 of `docs/monomorphization-keying-plan.md`.
+/** Characterization test suite — Deliverable 0 of the monomorphization-keying plan.
   *
   * These tests pin down, **empirically and before any fix**, how many monomorphic versions the compiler unrolls today
   * for each keying-plan scenario S1-S8. They are the baseline the dedup/demote/backstop fixes (Deliverables A and B)

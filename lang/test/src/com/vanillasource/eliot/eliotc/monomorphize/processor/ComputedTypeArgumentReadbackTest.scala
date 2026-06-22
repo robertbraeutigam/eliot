@@ -20,8 +20,8 @@ import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 import com.vanillasource.eliot.eliotc.used.{UsedNames, UsedNamesProcessor}
 
-/** Regression suite for the '''computed type-argument read-back''' fix (prerequisite of
-  * `docs/monomorphization-keying-plan.md`).
+/** Regression suite for the '''computed type-argument read-back''' fix (prerequisite of the
+  * monomorphization-keying plan).
   *
   * A type-stack ('''generic''') parameter that a value reifies — references in value position — is a binder of the
   * value's '''signature''' but '''not''' of its runtime body: `def bigOf[V] = V` has signature `(V) -> BigInteger` yet

@@ -24,7 +24,7 @@ import com.vanillasource.eliot.eliotc.token.Tokenizer
   *
   * Originally (D6 of the monomorphize architecture review) this only distinguished the *reified* binders (referenced in
   * value position) for the monomorphize binding wrap. The monomorphization-keying plan's **B1**
-  * (`docs/monomorphization-keying-plan.md`) extends it into the full codegen-relevance classification — reified (R1),
+  * extends it into the full codegen-relevance classification — reified (R1),
   * dispatched (R2), representation (R3), recursion-variant — and the derived [[Disposition]] the eventual codegen-key
   * projection (B2/B3) consumes.
   *

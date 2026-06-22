@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.saturate.fact.{BinderRoles, SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The codegen-relevant projection of a monomorphic instance's type arguments — the monomorphization-keying plan's
-  * **B2** (`docs/monomorphization-keying-plan.md`). It maps the *full*, type-checking-exact type arguments of a `(vfqn,
+  * **B2**. It maps the *full*, type-checking-exact type arguments of a `(vfqn,
   * typeArguments)` instance down to the subset (and form) that actually distinguishes generated code, using the
   * per-binder [[BinderRoles.Disposition]] computed by B1 and carried on [[SaturatedValue]].
   *
