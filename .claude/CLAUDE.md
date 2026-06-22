@@ -179,8 +179,9 @@ mechanism; and kind/arity metadata (e.g. `RoleHint.TypeConstructor`) stays out o
 
 The cornerstone-fidelity clean-ups are **complete** (the tracking plan has been retired). Durable
 guardrails it leaves behind: (1) `unify` is *pure definitional equality* — directional `Int` widening
-is a user-defined `Coerce` ability inserted in the checker's check mode (now *implemented*:
-`Checker.unifyOrCoerce`/`tryCoerce`/`coerceWith`), never a `refinements` map / assignability arm in the unifier; (2) `VPi` is the one primitive Π-former
+is a user-defined `Coerce` ability inserted in the checker's check mode (now *implemented*, and as of D4
+factored into its own refinement-lattice module:
+`monomorphize.refine.RefinementSolver.unifyOrCoerce`/`tryCoerce`/`buildCoercedExpr`), never a `refinements` map / assignability arm in the unifier; (2) `VPi` is the one primitive Π-former
 *on principle* — do not fold `Function` into an ordinary `data` declaration; (3) kind/arity metadata
 (`RoleHint`, esp. `typeParamCount`) must not drive any typing decision — its only sanctioned reads are
 constructor-shape reconstruction for `match`.

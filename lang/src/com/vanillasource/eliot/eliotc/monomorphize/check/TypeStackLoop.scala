@@ -208,8 +208,8 @@ class TypeStackLoop(
     */
   private val pipeline: List[PostDrainPass] = List(
     PostDrainPass.Saturation("resolve-abilities", ctx => resolveAbilities(ctx.abilityRefs, ctx.paramConstraints)),
-    PostDrainPass.Saturation("resolve-combines", _ => checker.resolveCombines),
-    PostDrainPass.Finalization("upper-bounds", _ => checker.resolveUpperBounds),
+    PostDrainPass.Saturation("resolve-combines", _ => checker.solver.resolveCombines),
+    PostDrainPass.Finalization("upper-bounds", _ => checker.solver.resolveUpperBounds),
     PostDrainPass.Finalization("carrier-kinds", _ => checker.verifyCarrierKinds),
     PostDrainPass.Finalization(
       "calc-return",

@@ -32,6 +32,8 @@ lang/src/com/vanillasource/eliot/eliotc/monomorphize/
 │   └── MonomorphicTypeCheckProcessor.scala (entry point; → TypeStackLoop)
 ├── unify/
 │   └── Unifier.scala                  (pattern unification + postponement; pure definitional equality)
+├── refine/
+│   └── RefinementSolver.scala         (the refinement lattice: Coerce widening + Combine join + upper-bounds)
 └── check/
     ├── Checker.scala                  (bidirectional check/infer)
     ├── CheckIO.scala
@@ -165,10 +167,15 @@ top. There is **no** notion of "assignability" or directional widening inside it
 
 Directional coercion (an `Int[0,5]` *used where* an `Int[0,10]` is expected) is a separate concern
 handled **outside** the unifier, in the checker's check mode, by a user-defined `Coerce` ability
-(`coerce(value: From): Option[To]`) the checker resolves by name (`WellKnownTypes.coerceFQN`) and
-evaluates through the one NbE evaluator: the existence decision (bounds-only) forces away at compile
-time, any value-dependent conversion residualises into the generated code. **This is built**
-(`Checker.unifyOrCoerce`/`tryCoerce`/`coerceWith`): on a `unify` failure at a leaf, the checker quotes
+(`coerce(value: From): Option[To]`) resolved by name (`WellKnownTypes.coerceFQN`) and
+evaluated through the one NbE evaluator: the existence decision (bounds-only) forces away at compile
+time, any value-dependent conversion residualises into the generated code. **This is built** — and as of
+D4 the whole *refinement lattice* (this `Coerce` widening + the `Combine` join + the deferred upper-bound
+obligations) lives in its own module `refine/RefinementSolver.scala`
+(`RefinementSolver.unifyOrCoerce`/`tryCoerce`/`buildCoercedExpr`), constructed by `Checker` with the five
+primitives it needs and called from `Checker.check` / `TypeStackLoop`'s post-drain passes. The
+combinable/candidates *interception* and `taintMetasIn` stay in `Unifier` (a unification-time decision
+interleaved with the recursive descent); the solver owns the *algorithm*. On a `unify` failure at a leaf, it quotes
 both sides, resolves `Coerce[actual, expected]`, evaluates the impl's `coerce` on the concrete bounds,
 and **discriminates by `VTopDef` head** — `WellKnownTypes.someFQN` ⟹ accept (re-type the term at
 `expected`; the widen is identity on the Long-only backend, so no runtime rewrite), else ⟹ keep the

@@ -30,8 +30,8 @@ unifier's metastore and runs as a post-drain pass**:
 
 | Feature | What it actually is | How it is grafted on | Size |
 |---|---|---|---|
-| Int widening / `Coerce` | a **directional subtyping** relation | `Checker.unifyOrCoerce` / `tryCoerce` / `coercionPayload` / `buildCoercedExpr` resolve an ability and splice nodes *outside* `unify` | ~180 |
-| `pick(a,b)` join / `Combine` | a **least-upper-bound / lattice** | `combinable` / `candidates` in the unifier + `resolveCombines` / `resolveUpperBounds` / `pendingUpperBounds` in the checker | ~200 |
+| Int widening / `Coerce` *(extracted by D4)* | a **directional subtyping** relation | `unifyOrCoerce` / `tryCoerce` / `coercionPayload` / `buildCoercedExpr` resolve an ability and splice nodes *outside* `unify` — now in `refine/RefinementSolver` | ~180 |
+| `pick(a,b)` join / `Combine` *(algorithm extracted by D4)* | a **least-upper-bound / lattice** | `combinable` / `candidates` interception stays in the unifier; `resolveCombines` / `resolveUpperBounds` / `pendingUpperBounds` algorithm now in `refine/RefinementSolver` | ~200 |
 | Calculated returns (implicit generics) | **non-local inference** — a caller's type depends on a callee's *monomorphized body* | `readMonomorphicReturn` re-enters `getFact(MonomorphicValue.Key)` + an `activeFactKeys` recursion guard | ~200 |
 | HKT carriers (effects) | a **kind system** | `recordCarrierMetas` / `verifyCarrierKinds` / `unsatisfiableApplication` reconstruct kinds *post-drain* from signatures | ~130 |
 | Reification / erasure | an explicit **phase / staging** analysis | `PostDrainQuoter`'s gate + `eval/SemExpressionEvaluator` + `processor/BindingProcessor.reifyingWrap` re-derive which subterms are erased | ~250 |
@@ -207,14 +207,40 @@ descent-under-`VPi` mode on `Evaluator.renormalize` used **only post-drain in `P
 are solved, so the descent is safe); the shallow check-time `renormalize` stays shallow so it does not collapse a
 still-combinable result meta.
 
-### D4 — Consolidate the refinement lattice (the structural one)
+### D4 — Consolidate the refinement lattice ✅ DONE (the structural one)
 
-Move `Coerce` + `Combine` + `pendingUpperBounds` (~360 lines spread across `Checker`) into **one
-refinement-bounds solver module** with a clear interface. This honestly separates *definitional equality* (the
-Unifier) from *the refinement lattice* (the new module) — which is what the system actually is. The unifier's
-`combinable` / `candidates` / taint logic moves there too, ending the current split where the data lives in the
-unifier but the algorithm lives in the checker. Spike worth running first: a join may be expressible as "the
-least `T` that both sides `Coerce` into," which would collapse `Combine` and `Coerce` into a single mechanism.
+Moved `Coerce` + `Combine` + `pendingUpperBounds` (~395 lines) out of `Checker` into **one refinement-bounds
+solver module** (`refine/RefinementSolver.scala`) with a clear three-method interface: `unifyOrCoerce` (check-mode
+widening), `resolveCombines` (the saturation join pass), `resolveUpperBounds` (the finalization discharge). The
+Checker drops from 1071 → 683 lines and now hosts only definitional-equality-adjacent work; the lattice algorithm
+has one named home, so a new lattice feature no longer multiplies inside the checker. `TypeStackLoop`'s
+`resolve-combines` / `upper-bounds` passes route through `checker.solver`; the solver depends on exactly five
+checker primitives (`resolveAbility`, `evalExpr`, `force`, `freshMeta`, `doUnify`), passed at construction — that
+narrow, explicit surface *is* the module boundary. Pure refactor: existing `Coerce` / `Combine` coverage
+(`MonomorphicTypeCheckTest`) passes unchanged; full suite green.
+
+**Two refinements learned from building it** (the deliverable's two aspirations were each partly the wrong target):
+
+- **The combinable / candidates / taint *interception* stays in the `Unifier`; only the *algorithm* moved.** The
+  review wanted the unifier's combinable logic moved too, but the interception (accumulate a candidate instead of
+  failing when a concrete type meets an already-solved combinable meta) is genuinely a *unification-time* decision:
+  it must fire at every nesting level of the recursive definitional-equality descent (`unifySpines` → `unify`), not
+  just at the top-level call, so it cannot be hoisted into a separate algorithm step without re-introducing a
+  callback into `unify` — exactly the coupling D2 deliberately localized. So the *data* (the `MetaRole.Instantiation`
+  fields) and its unification-time *connection points* (`unify`'s interception, `solveMeta`'s first-candidate
+  recording, `taintMetasIn`) stay on the unifier, which remains the per-meta metadata authority (D2's finding); the
+  *lattice algorithm that interprets that data* is what the new module owns. The honest separation is therefore
+  "definitional equality + its lattice connection points" (unifier) vs "the lattice resolution algorithm" (solver),
+  not a clean cut of all combinable logic. This is the same shape as D1's finding: the features stay coupled through
+  the shared metastore; the module makes the algorithm cohesive rather than dissolving the coupling.
+- **The join-as-coerce collapse was *not* pursued — the spike's premise does not hold.** A join `Combine[a, b]` is
+  **constructive**: its `Combined` associated type *yields* the join (`Int[min(Amin,Bmin), max(Amax,Bmax)]`),
+  evaluated through the one NbE evaluator. `Coerce` is only a **decision procedure**: "does `a` widen into `b`?"
+  Expressing the join as "the least `T` both sides `Coerce` into" would require *enumerating* candidate `T`s and
+  picking the least — there is no enumeration mechanism, and for open/abstract bounds no finite candidate set. So the
+  two are genuinely different mechanisms (constructor vs predicate) and the module unifies their *home and interface*,
+  not their underlying operation. (`coercionExists` is shared between them already — the constructive `Combine` join
+  is *verified* against each contributor via `Coerce` — which is the real, and sufficient, overlap.)
 
 ### D5 — Replace the `errors.size`-delta success protocol (low/medium)
 
@@ -242,8 +268,8 @@ that work so the classification has two consumers (checking + codegen dedup) and
 
 The NbE core, the single-evaluator/single-domain cornerstone, the uniform type-stack fold, and pure-definitional
 `unify` all stay. The point of this plan is the opposite of a rewrite: the core is right, and the work is to stop
-the *edges* from multiplying. D1–D3 are cheap and high-value; D4 and D6 are the structural fixes that stop new
-features from multiplying against old ones.
+the *edges* from multiplying. D1–D3 were cheap and high-value; D4 (done) extracted the refinement lattice into its
+own module; D6 is the remaining structural fix that stops new features from multiplying against old ones.
 
 ## Validation
 
@@ -257,8 +283,9 @@ Each deliverable keeps the full suite green and adds a targeted test:
   decomposes against a real constructor (`?F := Box`) but **postpones** against a stuck native (`?F[a] ~ add(x, y)`
   does not solve `?F := add`); plus stuck-native definitional equality (same vs different FQN) and the loud quoter
   failure on a surviving stuck native.
-- D4: existing `Coerce` / `Combine` coverage (`MonomorphicTypeCheckTest`) must pass unchanged through the new
-  module boundary; add a join-as-coerce spike test if D4's collapse is pursued.
+- D4: ✅ existing `Coerce` / `Combine` coverage (`MonomorphicTypeCheckTest`) passes unchanged through the new
+  `refine/RefinementSolver` module boundary (a pure refactor, so its existing coverage is the targeted test). No
+  join-as-coerce spike test — the collapse was not pursued (the spike's premise does not hold; see D4 above).
 - D5: no behavioural test (pure refactor); rely on the suite.
 - D6: shares the keying plan's `MonomorphizationVersioningTest` gate plus the reification end-to-end checks.
 
