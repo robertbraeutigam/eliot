@@ -59,17 +59,19 @@ object Evaluator {
 
     case VNative(_, fire) =>
       // Always fire — even on a non-concrete argument. The native's `fire` produces its own canonical stuck form
-      // (a body-less `VTopDef` carrying the native's FQN and the renormalised spine) when an argument is not yet
-      // concrete, so distinct stuck natives stay definitionally distinct and `renormalize` can re-fire them once the
-      // arguments solve. (A previous neutral-only special case collapsed every native to a single anonymous
-      // `VVar(0, "native")` head, which conflated, e.g., `add(x, y)` with `subtract(x, y)` under definitional
-      // equality.) Firing on a neutral mirrors firing on a concrete value: a curried native simply yields the next
-      // `VNative` awaiting the remaining arguments.
+      // (a `VStuckNative` carrying the native's FQN and the renormalised spine) when an argument is not yet concrete,
+      // so distinct stuck natives stay definitionally distinct and `renormalize` can re-fire them once the arguments
+      // solve. (A previous neutral-only special case collapsed every native to a single anonymous `VVar(0, "native")`
+      // head, which conflated, e.g., `add(x, y)` with `subtract(x, y)` under definitional equality.) Firing on a
+      // neutral mirrors firing on a concrete value: a curried native simply yields the next `VNative` awaiting the
+      // remaining arguments.
       fire(unfoldTopDef(x))
 
     case VNeutral(head, spine) => VNeutral(head, spine :+ x)
 
     case VTopDef(fqn, cached, spine) => VTopDef(fqn, cached, spine :+ x)
+
+    case VStuckNative(fqn, spine) => VStuckNative(fqn, spine :+ x)
 
     case VMeta(id, spine) => VMeta(id, spine :+ x)
 
@@ -91,37 +93,62 @@ object Evaluator {
     * concrete.
     *
     * A native (e.g. `add`/`min`/`lessThanOrEqual`) applied to an argument that was a still-unsolved metavariable at
-    * evaluation time goes stuck as a body-less `VTopDef(fqn, None, spine)` (its `fire` returns this canonical stuck
-    * form) — and ordinary [[force]] never re-fires it, because the stuck form has dropped the `VNative` reducer and
-    * `force` only unfolds *cached* bodies. This bites dependent-bounds arithmetic: `Int[LMin,LMax] + Int[RMin,RMax]`
-    * has result type `Int[add(LMin,RMin), add(LMax,RMax)]`, and when that codomain is computed during application
-    * inference the bound metavariables are not yet solved, so each `add(?,?)` sticks. By the time the inferred type is
-    * compared against the expected type the metavariables *are* solved, but the `add`s never reduced.
+    * evaluation time goes stuck as a [[VStuckNative]] (its `fire` returns this canonical stuck form) — and ordinary
+    * [[force]] never re-fires it, because the stuck form has dropped the `VNative` reducer and `force` only unfolds
+    * *cached* bodies. This bites dependent-bounds arithmetic: `Int[LMin,LMax] + Int[RMin,RMax]` has result type
+    * `Int[add(LMin,RMin), add(LMax,RMax)]`, and when that codomain is computed during application inference the bound
+    * metavariables are not yet solved, so each `add(?,?)` sticks. By the time the inferred type is compared against the
+    * expected type the metavariables *are* solved, but the `add`s never reduced.
     *
-    * `renormalize` walks the value, [[force]]ing through solved metas, and for each body-less `VTopDef` whose FQN
-    * resolves (via `lookupNative`) to a [[VNative]] it re-applies the native to the renormalised spine — so a
-    * now-fully- concrete `add(3, 4)` reduces to `7`. If re-firing still produces the same stuck head (an argument is
-    * genuinely still abstract), the stuck form is kept (with renormalised arguments) and no progress loops. Non-native
-    * body-less `VTopDef`s (type constructors like `Int`, abstract `def`s) are rebuilt with renormalised arguments;
-    * everything else is returned as forced.
+    * `renormalize` walks the value, [[force]]ing through solved metas. For each [[VStuckNative]] it renormalises the
+    * spine and, via `lookupNative`, re-applies the native [[VNative]] reducer to the renormalised arguments — so a
+    * now-fully-concrete `add(3, 4)` reduces to `7`. If re-firing still produces the same stuck native (an argument is
+    * genuinely still abstract), that stuck form (already carrying the renormalised arguments) is kept and no progress
+    * loops. A body-less `VTopDef` (a type constructor like `Int`, or an abstract `def`) is rebuilt with renormalised
+    * arguments so that stuck natives nested in its spine (the bounds of `Int[add(LMin,RMin), …]`) re-fire; everything
+    * else is returned as forced.
+    *
+    * `deep` additionally descends under [[VPi]] binders. An *intermediate* function type — a partial application's
+    * codomain or the type of a curried head reference (`(+) : Int[L] -> Int[R] -> Int[add(L,R), …]`) — carries the
+    * not-yet-fully-applied bounds in its codomain, and is never the value handed to the result-renormalisation at the
+    * application site, so its stuck natives are not re-fired there. They are harmless to compilation (the uncurry pass
+    * discards intermediate types) but must still be re-fired before read-back so the strict quoter does not reject a
+    * stuck native that would otherwise be dropped. `deep` is therefore used **only post-drain at quote time**
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]]), where every metavariable is already
+    * solved, so collapsing a binder's metas while descending is safe — unlike the shallow check-time use (e.g. the
+    * application-result renormalisation), which must not collapse a still-combinable result meta mid-checking.
     *
     * `lookupNative` is the checker's binding cache (`vfqn => bindingCache.getOrElse(vfqn, None)`), which already holds
     * every native reachable from the term (prefetched before evaluation).
     */
-  def renormalize(v: SemValue, metaStore: MetaStore, lookupNative: ValueFQN => Option[SemValue]): SemValue =
+  def renormalize(
+      v: SemValue,
+      metaStore: MetaStore,
+      lookupNative: ValueFQN => Option[SemValue],
+      deep: Boolean = false
+  ): SemValue =
     force(v, metaStore) match {
-      case VTopDef(fqn, None, spine) =>
-        val args    = spine.toList.map(renormalize(_, metaStore, lookupNative))
-        val rebuilt = args.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
+      case VStuckNative(fqn, spine) =>
+        val args = spine.toList.map(renormalize(_, metaStore, lookupNative, deep))
         lookupNative(fqn) match {
           case Some(native: VNative) =>
             args.foldLeft(native: SemValue)(applyValue) match {
-              // Still stuck on the same native (an argument is genuinely abstract) — keep the rebuilt stuck form.
-              case VTopDef(stuckFqn, None, _) if stuckFqn == fqn => rebuilt
-              case fired                                         => renormalize(fired, metaStore, lookupNative)
+              // Still stuck on the same native (an argument is genuinely abstract) — keep it (renormalised args carried).
+              case stuckAgain @ VStuckNative(stuckFqn, _) if stuckFqn == fqn => stuckAgain
+              case fired                                                     => renormalize(fired, metaStore, lookupNative, deep)
             }
-          case _                     => rebuilt
+          case _                     =>
+            // No native reducer found (should not happen for a stuck native) — keep the stuck form, renormalised.
+            args.foldLeft(VStuckNative(fqn, Spine.SNil): SemValue)(applyValue)
         }
+      case VTopDef(fqn, None, spine) =>
+        val args = spine.toList.map(renormalize(_, metaStore, lookupNative, deep))
+        args.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
+      case VPi(domain, codomain) if deep =>
+        VPi(
+          renormalize(domain, metaStore, lookupNative, deep),
+          arg => renormalize(codomain(arg), metaStore, lookupNative, deep)
+        )
       case forced                    => forced
     }
 

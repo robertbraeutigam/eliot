@@ -44,12 +44,14 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
   private val boolType: SemValue   = VTopDef(boolFQN, None, Spine.SNil)
   private val bigIntType: SemValue = VTopDef(bigIntFQN, None, Spine.SNil)
 
-  /** The canonical stuck form of a native: a body-less [[VTopDef]] carrying the native's own FQN and the (not-yet-
-    * concrete) arguments as its spine. Keeping the FQN is what lets distinct stuck natives stay definitionally distinct
-    * and lets [[Evaluator.renormalize]] re-fire them once the arguments become concrete.
+  /** The canonical stuck form of a native: a [[VStuckNative]] carrying the native's own FQN and the (not-yet-concrete)
+    * arguments as its spine. Keeping the FQN is what lets distinct stuck natives stay definitionally distinct and lets
+    * [[Evaluator.renormalize]] re-fire them once the arguments become concrete; the dedicated [[VStuckNative]] head
+    * (rather than a body-less [[VTopDef]]) keeps the non-injective native from being injectivity-decomposed by the
+    * unifier or read back as a ground type by the quoter.
     */
   private def stuck(fqn: ValueFQN, args: SemValue*): SemValue =
-    VTopDef(fqn, None, args.foldLeft(Spine.SNil: Spine)(_ :+ _))
+    VStuckNative(fqn, args.foldLeft(Spine.SNil: Spine)(_ :+ _))
 
   override def generateSingleFact(key: NativeBinding.Key): CompilerIO[NativeBinding] =
     // These bindings are input-less compiler constants. Depending on the always-clean `UpToDate` leaf (the value is

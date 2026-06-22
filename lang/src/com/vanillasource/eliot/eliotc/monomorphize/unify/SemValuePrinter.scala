@@ -53,6 +53,11 @@ object SemValuePrinter {
         if (args.isEmpty) fqn.name.name
         else s"${fqn.name.name}(${args.mkString(", ")})"
 
+      case VStuckNative(fqn, spine) =>
+        val args = spine.toList.map(go(_, metaStore, depth, topLevel = false))
+        if (args.isEmpty) fqn.name.name
+        else s"${fqn.name.name}(${args.mkString(", ")})"
+
       case VNative(_, _) =>
         "<native>"
     }

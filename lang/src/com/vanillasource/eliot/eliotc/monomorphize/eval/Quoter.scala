@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 
 /** Quotes semantic values back to ground values. This is the "read-back" phase of NbE.
   *
-  * Fails on VNeutral, VMeta, VLam — those should be resolved before quoting.
+  * Fails on VNeutral, VMeta, VLam, VStuckNative — those should be resolved (or reduced) before quoting.
   */
 object Quoter {
 
@@ -52,6 +52,11 @@ object Quoter {
 
       case VTopDef(fqn, _, _) =>
         Left(s"Cannot quote unapplied top-level definition ${fqn.show}")
+
+      case VStuckNative(fqn, _) =>
+        // A native application (`add(?, ?)`, …) that never reduced — its arguments stayed abstract. Reading it back as
+        // a ground `Structure` would mint a nonsense, non-injective type; fail loudly instead (D3 / F1).
+        Left(s"Cannot quote stuck native application ${fqn.show}")
     }
   }
 

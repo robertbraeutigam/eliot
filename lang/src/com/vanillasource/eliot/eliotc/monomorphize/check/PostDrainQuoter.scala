@@ -49,9 +49,16 @@ class PostDrainQuoter(
   private val erasedParams: Set[String]            = monoEnv.names.toSet
   private val semEvaluator: SemExpressionEvaluator = new SemExpressionEvaluator(lookupTopDef)
 
-  /** Quote a [[SemValue]] to a [[GroundValue]]. Raises a sourced compiler error on failure. */
+  /** Quote a [[SemValue]] to a [[GroundValue]]. Raises a sourced compiler error on failure.
+    *
+    * Deeply renormalises first (descending under [[SemValue.VPi]] binders), so stuck native applications surviving in
+    * an intermediate function type — e.g. the codomain `Int[add(L,R), …]` of a curried head reference, never re-fired
+    * at its application site — reduce before read-back. This is safe here (and only here): post-drain every meta is
+    * solved, so the deep descent collapses no still-open obligation. Any stuck native that genuinely cannot reduce then
+    * surfaces as a loud `Cannot resolve type.` instead of a silent nonsense ground `Structure` (D3 / F1).
+    */
   def quoteSem(v: SemValue, at: Sourced[?]): CompilerIO[GroundValue] =
-    Quoter.quote(0, v, metaStore) match {
+    Quoter.quote(0, Evaluator.renormalize(v, metaStore, lookupTopDef, deep = true), metaStore) match {
       case Right(g)  => g.pure[CompilerIO]
       case Left(msg) => compilerAbort(at.as("Cannot resolve type."), Seq(msg))
     }

@@ -45,8 +45,9 @@ class StdlibNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
         case VConst(GroundValue.Direct(n: BigInt, tpe)) =>
           VConst(GroundValue.Direct(n + 1, tpe))
         case other                                      =>
-          // Leave application stuck: mirror the VTopDef-with-no-body behaviour.
-          VTopDef(incFQN, None, Spine.SNil :+ other)
+          // Leave the application stuck as a non-injective native application (see SemValue.VStuckNative), so it is
+          // re-fired by `renormalize` once the argument becomes concrete and never injectivity-decomposed meanwhile.
+          VStuckNative(incFQN, Spine.SNil :+ other)
       }
     )
 }

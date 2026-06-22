@@ -206,6 +206,12 @@ case class Unifier(
       case (VTopDef(fqn1, _, sp1), VTopDef(fqn2, _, sp2)) if fqn1 == fqn2 =>
         unifySpines(fl, fr, sp1, sp2, context)
 
+      // Stuck native equality by FQN: a native application is *not* injective (`add(1, 3) == add(2, 2)`), so it is
+      // never injectivity-decomposed against a meta (see `tryDecomposeApplied`); two stuck natives are definitionally
+      // equal only when the same operation is applied to pointwise-equal arguments.
+      case (VStuckNative(fqn1, sp1), VStuckNative(fqn2, sp2)) if fqn1 == fqn2 =>
+        unifySpines(fl, fr, sp1, sp2, context)
+
       case _ =>
         addMismatch(fl, fr, context)
     }
@@ -260,7 +266,10 @@ case class Unifier(
     *   - [[VNeutral]] — rigid bound variables with a spine.
     *
     * `n < m` and non-rigid rhs shapes return `None`, leaving the caller to postpone. Cases like `?A [?B] ~
-    * Function [Int, String]` have multiple valid solutions and correctly postpone.
+    * Function [Int, String]` have multiple valid solutions and correctly postpone. A [[VStuckNative]] head
+    * (`add(x, y)`, `min(x, y)`, …) is deliberately **not** in the rigid set: a native application is non-injective, so
+    * decomposing `?F [a] ~ add(x, y)` to `?F := add` would be unsound — it falls through to `None` and postpones,
+    * leaving the meta for `renormalize`/defaulting once the arguments concretise.
     */
   private def tryDecomposeApplied(
       id: MetaId,
@@ -380,6 +389,7 @@ case class Unifier(
       Evaluator.force(sv, metaStore) match {
         case VMeta(id, spine)                  => spine.toList.flatMap(metasOf).toSet + id.value
         case VTopDef(_, _, spine)              => spine.toList.flatMap(metasOf).toSet
+        case VStuckNative(_, spine)            => spine.toList.flatMap(metasOf).toSet
         case VNeutral(_, spine)                => spine.toList.flatMap(metasOf).toSet
         case VPi(domain, codomain)             =>
           val (fresh, _) = freshVar()

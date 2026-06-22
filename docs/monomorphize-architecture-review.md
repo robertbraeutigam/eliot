@@ -74,23 +74,39 @@ are the *symptom*, not the cure: they are hand-patched holes in a default that s
 Neither is a known live bug (the suite is green), but both are "works until a new feature reaches them," and
 both deserve an adversarial test now.
 
-### F1 — `VTopDef(fqn, None, spine)` is overloaded for three incompatible things
+### F1 — `VTopDef(fqn, None, spine)` was overloaded for three incompatible things *(stuck-native arm fixed by D3)*
 
-The same physical shape represents:
+The same physical shape represented:
 
 1. **data / type constructors** — injective, rigid;
 2. **abstract `def`s** (`some` / `none`, body-less platform signatures) — rigid, opaque, **not injective**;
-3. **stuck native applications** — `add(?,?)`, `min(?,?)`, emitted as `VTopDef(fqn, None, spine)` by
-   `SystemNativesProcessor.stuck` so `Evaluator.renormalize` can re-fire them — and **definitely not injective**
+3. **stuck native applications** — `add(?,?)`, `min(?,?)`, formerly emitted as `VTopDef(fqn, None, spine)` by
+   `SystemNativesProcessor.stuck` so `Evaluator.renormalize` could re-fire them — and **definitely not injective**
    (`add(1,3) == add(2,2)`).
 
-But `Unifier.tryDecomposeApplied` (`Unifier.scala:186`) injectivity-decomposes **any** `VTopDef(_, None, _)`
-head: `?F[a] ~ add(x, y)` would solve `?F := add` and unify the arguments pointwise, treating `add` as an
-injective constructor. Likewise `Quoter.quote` (`Quoter.scala:47`) reads any `VTopDef(_, None, spine)` back as a
-ground *type* `Structure(fqn, …)`, so a stuck native surviving to quote-time becomes a nonsense ground type
-rather than an error. `renormalize` currently keeps those paths from being hit in practice, but the
-representation makes "injective constructor," "opaque abstract def," and "non-injective stuck native"
-indistinguishable to the unifier and the quoter.
+`Unifier.tryDecomposeApplied` injectivity-decomposes any *rigid applied* head: `?F[a] ~ add(x, y)` would have
+solved `?F := add` and unified the arguments pointwise, treating `add` as an injective constructor. Likewise
+`Quoter.quote` read any `VTopDef(_, None, spine)` back as a ground *type* `Structure(fqn, …)`, so a stuck native
+surviving to quote-time became a nonsense ground type rather than an error.
+
+> **D3 split out the stuck-native arm.** Stuck natives now carry a dedicated `SemValue.VStuckNative(fqn, spine)`
+> head (produced by `SystemNativesProcessor.stuck` and `StdlibNativesProcessor`'s `inc`), so they are *no longer*
+> `VTopDef`s. `tryDecomposeApplied` therefore never injectivity-decomposes one (a `VStuckNative` rhs simply falls to
+> its `None`/postpone arm — no code change there, the distinct head does it), and `Quoter.quote` fails loudly
+> (`Cannot quote stuck native application …`) instead of minting a nonsense `Structure`. Definitional equality of two
+> stuck natives is the same FQN + pointwise-equal spine (new `unifyForced` arm). Cases 1 and 2 (constructor vs
+> abstract def) remain a `VTopDef`; D3 did not need to split them (neither is non-injective in a way the unifier or
+> quoter reaches in practice — only the native arm was the landmine).
+>
+> **Refinement learned from building it:** the *quoter* half is not "fail on the first stuck native you see." An
+> **intermediate** function type — a partial application's codomain, or a curried head reference's type
+> `(+) : Int[L] -> Int[R] -> Int[add(L,R), …]` — legitimately still carries an un-re-fired native in its codomain
+> (it is never the value handed to the application-site `renormalize`, and the uncurry pass discards it). The old
+> lenient quoter swept those under a nonsense `Structure`; a naïvely strict quoter rejects valid programs. The fix is
+> a `deep` mode on `renormalize` that descends under `VPi` binders, used **only post-drain in `PostDrainQuoter`** —
+> where every meta is already solved, so collapsing a binder's metas is safe. The shallow check-time `renormalize`
+> (the application-result one) must stay shallow: descending there would collapse a still-combinable result meta
+> mid-checking and break `Combine`. Covered by `unify/StuckNativeUnifyTest`.
 
 ### F2 — `defaultUnsolvedMetas` masks unresolved obligations as `Type` *(fixed by D2)*
 
@@ -174,12 +190,22 @@ instead of silently inheriting "default everything to `Type`." Suite green; cove
   *wrong-kind* and *unsatisfiable-rigid-arity* cases error, and those are caught in `verifyCarrierKinds` before the
   finalizer. The finalizer's real win is **exhaustiveness**, not a new per-role outcome.
 
-### D3 — Disambiguate `VTopDef(_, None, _)` (small, removes F1)
+### D3 — Disambiguate `VTopDef(_, None, _)` ✅ DONE (small, removes F1)
 
-Give stuck native applications a distinct head (or a discriminating flag) so the unifier never
-injectivity-decomposes a non-injective native and the quoter fails loudly on a surviving one. Small, surgical,
-removes the sharpest latent-unsoundness landmine. Pair with an adversarial test that unifies a carrier meta
-against a stuck-native-headed value to confirm reachability before/after.
+Gave stuck native applications a distinct `SemValue.VStuckNative(fqn, spine)` head so the unifier never
+injectivity-decomposes a non-injective native and the quoter fails loudly on a surviving one. The distinct head is
+what does the work: `tryDecomposeApplied` decomposes only `VTopDef`/`VNeutral` rigid heads, so a `VStuckNative` rhs
+postpones with **no change** there; `Quoter.quote` gains one arm that errors instead of minting a nonsense
+`Structure`; `unifyForced` gains a same-FQN-spine definitional-equality arm; `metasOf` and `SemValuePrinter` gain
+the obvious spine-recursion / rendering arms. `SystemNativesProcessor.stuck` and `StdlibNativesProcessor` produce
+the new head. Suite green; covered by the new `unify/StuckNativeUnifyTest`.
+
+**Refinement learned from building it** (see the F1 note above): making the quoter strict surfaced that
+*intermediate* function types (a curried head reference / partial-application codomain) legitimately carry an
+un-re-fired native, which the old lenient quoter hid as a discarded nonsense `Structure`. The fix is a `deep`
+descent-under-`VPi` mode on `Evaluator.renormalize` used **only post-drain in `PostDrainQuoter`** (where all metas
+are solved, so the descent is safe); the shallow check-time `renormalize` stays shallow so it does not collapse a
+still-combinable result meta.
 
 ### D4 — Consolidate the refinement lattice (the structural one)
 
@@ -227,7 +253,10 @@ Each deliverable keeps the full suite green and adds a targeted test:
   accumulation, taint, carrier/upper-bound/combine-resolved transitions) and the finalizer's protected set —
   `abstractAssocMetaIds` is *exactly* the `AbstractAssoc` metas, not the Plain/combinable/carrier ones — proving
   the catch-all default is gone.
-- D3: the carrier-vs-stuck-native unification adversarial test (F1).
+- D3: ✅ `unify/StuckNativeUnifyTest` — the carrier-vs-stuck-native unification adversarial test (F1): a carrier meta
+  decomposes against a real constructor (`?F := Box`) but **postpones** against a stuck native (`?F[a] ~ add(x, y)`
+  does not solve `?F := add`); plus stuck-native definitional equality (same vs different FQN) and the loud quoter
+  failure on a surviving stuck native.
 - D4: existing `Coerce` / `Combine` coverage (`MonomorphicTypeCheckTest`) must pass unchanged through the new
   module boundary; add a join-as-coerce spike test if D4's collapse is pursued.
 - D5: no behavioural test (pure refactor); rely on the suite.
