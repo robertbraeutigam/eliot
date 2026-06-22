@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.unify.{SemValuePrinter, Unify
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
+import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, compilerError}
 
 /** Uniform top-down fold over a value's type stack. Each level is processed identically — there is no concept of
   * "generic parameters" as a separate structure.
@@ -23,7 +23,7 @@ class TypeStackLoop(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
     resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
 ) {
-  import TypeStackLoop.AbilityRef
+  import TypeStackLoop.{AbilityRef, PassContext, PostDrainPass}
 
   private val checker = new Checker(fetchBinding, resolveAbility)
 
@@ -81,33 +81,16 @@ class TypeStackLoop(
                       }
 
       // Collect all ability-qualified value references from the output trees (runtime + signature levels). These
-      // drive the drain-and-resolve loop below.
+      // drive the saturation tier of the post-drain pipeline below.
       abilityRefs   = (runtime.toSeq ++ levelExprs).flatMap(collectAbilityRefs)
 
-      // Drain-and-resolve loop: repeatedly drain the unifier, then try to resolve each pending ability reference;
-      // on success, record the resolution and inject the impl's concrete associated-type values into their
-      // standing metas, which re-feeds the next drain. Iterates until no new ability resolves, bounded for safety.
-      _ <- drainAndResolveLoop(abilityRefs, resolvedValue.paramConstraints)
-
-      // Discharge deferred result-against-expected checks now that every combinable meta has its final solution (a
-      // Combine join or its single candidate) — the join, not the first candidate, must fit a narrower declared type.
-      _ <- checker.resolveUpperBounds
-
-      // Kind-check higher-kinded type-parameter instantiation metas (`[F[_]]` carriers): a carrier solved to a
-      // wrong-kind value (e.g. a proper type `Box[String]` where a `Type -> Type` constructor is required) is rejected
-      // here, since the unifier's direct empty-spine solve does not see the binder's declared kind.
-      _ <- checker.verifyCarrierKinds
-
-      // W3: a calculated return the body did not determine (Limit 2 — a stuck/under-constrained result) must not
-      // silently default to `Type` below. Report it as a hard error here, before `defaultUnsolvedMetas` masks it.
-      _ <- returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, resolvedValue))
-
-      // Default any still-unsolved metas to VType. Type parameters that were never constrained (phantom types) and
-      // implicit domain/codomain metas from non-VPi application paths are all treated uniformly here: if unification
-      // has not solved them by this point, they have no runtime impact and can safely be Type. Abstract
-      // associated-ability-type metas are excluded — they keep their unsolved state so that constraint-covered refs
-      // stay abstract through quoting.
-      _     <- defaultUnsolvedMetas
+      // Post-drain resolution pipeline (D1): the named, tiered sequence that settles every metavariable —
+      // saturation fixed-point (drain + ability/Combine resolution), finalization (upper-bounds, carrier kinds,
+      // calculated-return fail-safe), the finalizer (default the rest to Type), and a postcondition assertion.
+      // See `runPostDrainPipeline` and docs/monomorphize-d1-design.md.
+      _ <- runPostDrainPipeline(
+             PassContext(resolvedValue, abilityRefs, resolvedValue.paramConstraints, returnMeta)
+           )
       state <- get
       _     <- state.unifier.errors.reverse.traverse_(err => liftF(reportUnifyError(err, state)))
 
@@ -204,36 +187,101 @@ class TypeStackLoop(
       s.withUnifier(s.unifier.copy(metaStore = solved))
     }
 
-  /** Single fixed-point loop over the combined (unifier-drain + ability-resolve) state. Each step drains the unifier to
-    * a fixed point and then attempts every still-unresolved ability reference. A successful ability resolution may
-    * inject associated-type solutions into the metastore, so if any ability newly resolved during the step we iterate
-    * again.
+  /** The named, ordered post-check resolution pipeline (D1). See docs/monomorphize-d1-design.md.
     *
-    * Because each ability resolves at most once (resolved refs live in [[CheckState.abilityResolutions]] and are
-    * skipped on subsequent iterations), the outer loop is bounded by the initial ability count.
+    * Two registered tiers, plus two fixed structural steps the runner appends:
+    *
+    *   - SATURATION (fixed-point loop): drain-interleaved ability + `Combine` resolution.
+    *   - FINALIZATION (linear, once): upper-bounds discharge, carrier-kind verification, calculated-return fail-safe.
+    *   - the FINALIZER ([[defaultUnsolvedMetas]]) and the POSTCONDITION assertion are appended by [[runPostDrainPipeline]],
+    *     not listed here — the finalizer is "the step nothing runs after" and is the seam D2 replaces.
+    *
+    * `drain` is the equality core settling between feature passes and is deliberately not a pass (see
+    * [[saturateToFixedPoint]]).
     */
-  private def drainAndResolveLoop(
-      allRefs: Seq[AbilityRef],
-      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
-  ): CheckIO[Unit] = {
-    val step: CheckIO[Boolean] =
-      for {
-        _                 <- modify(s => s.withUnifier(s.unifier.drain()))
-        state             <- get
-        unresolved         = allRefs.filterNot { case (ref, _) => state.abilityResolutions.contains(ref) }
-        abilityProgressed <- unresolved.foldLeftM(false) { (acc, ref) =>
-                               tryResolveOne(ref, paramConstraints).map(_ || acc)
-                             }
-        // Resolve covariant multi-candidate metavariables to their `Combine` join (Phase 4). Drain first so any
-        // candidate that depends on a just-resolved ability is ground; a newly-joined meta may in turn unblock a
-        // postponed constraint, so a positive result re-iterates the loop.
-        _                 <- modify(s => s.withUnifier(s.unifier.drain()))
-        combineProgressed <- checker.resolveCombines
-      } yield abilityProgressed || combineProgressed
+  private val pipeline: List[PostDrainPass] = List(
+    PostDrainPass.Saturation("resolve-abilities", ctx => resolveAbilities(ctx.abilityRefs, ctx.paramConstraints)),
+    PostDrainPass.Saturation("resolve-combines", _ => checker.resolveCombines),
+    PostDrainPass.Finalization("upper-bounds", _ => checker.resolveUpperBounds),
+    PostDrainPass.Finalization("carrier-kinds", _ => checker.verifyCarrierKinds),
+    PostDrainPass.Finalization(
+      "calc-return",
+      ctx => ctx.returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, ctx.resolvedValue))
+    )
+  )
 
-    def loop: CheckIO[Unit] = step.flatMap(if (_) loop else pure(()))
+  /** Run the post-check resolution pipeline to completion: saturate to a fixed point, run the finalization passes
+    * once in registration order, apply the finalizer, then assert the postcondition. No semantic change from the
+    * former inlined sequence — only the structure is named.
+    */
+  private def runPostDrainPipeline(ctx: PassContext): CheckIO[Unit] = {
+    val saturation   = pipeline.collect { case s: PostDrainPass.Saturation => s }
+    val finalization = pipeline.collect { case f: PostDrainPass.Finalization => f }
+    for {
+      _ <- saturateToFixedPoint(saturation, ctx)
+      _ <- finalization.traverse_(_.run(ctx))
+      _ <- defaultUnsolvedMetas
+      _ <- assertEveryMetaResolvedOrAbstract(ctx)
+    } yield ()
+  }
+
+  /** Tier 1: run the saturation passes to a fixed point. Each round drains the unifier *before* each pass — so a pass
+    * sees every solution the previous pass injected — and loops while any pass reports progress. This reproduces the
+    * former `drainAndResolveLoop`'s `drain → abilities → drain → combines` round exactly. Bounded because each ability
+    * (and each combinable meta) resolves at most once, so progress is monotone.
+    */
+  private def saturateToFixedPoint(passes: List[PostDrainPass.Saturation], ctx: PassContext): CheckIO[Unit] = {
+    def round: CheckIO[Boolean] =
+      passes.foldLeftM(false) { (acc, p) =>
+        for {
+          _          <- modify(s => s.withUnifier(s.unifier.drain()))
+          progressed <- p.run(ctx)
+        } yield acc || progressed
+      }
+    def loop: CheckIO[Unit] = round.flatMap(if (_) loop else pure(()))
     loop
   }
+
+  /** Saturation pass: try to resolve every still-unresolved ability reference once. Returns `true` iff at least one
+    * ability newly resolved this call — a resolution records the impl and injects its associated-type values into
+    * their standing metas, which the next round's drain propagates.
+    */
+  private def resolveAbilities(
+      allRefs: Seq[AbilityRef],
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
+  ): CheckIO[Boolean] =
+    for {
+      state      <- get
+      unresolved  = allRefs.filterNot { case (ref, _) => state.abilityResolutions.contains(ref) }
+      progressed <- unresolved.foldLeftM(false) { (acc, ref) =>
+                      tryResolveOne(ref, paramConstraints).map(_ || acc)
+                    }
+    } yield progressed
+
+  /** Postcondition of the post-drain pipeline (D1): every metavariable is either solved or a protected abstract
+    * associated-type placeholder ([[CheckState.abstractTypeMetas]]). Today the finalizer ([[defaultUnsolvedMetas]])
+    * makes this hold by construction, so it never fires; it is a forward-looking *compiler-bug* backstop for D2, when
+    * the finalizer becomes a per-role match and a forgotten role would otherwise leave a meta silently unsolved (the
+    * F2 fragility). It [[compilerAbort]]s rather than reporting a user diagnostic because a surviving unsolved meta is
+    * an internal invariant violation, not a type error of the user's making.
+    */
+  private def assertEveryMetaResolvedOrAbstract(ctx: PassContext): CheckIO[Unit] =
+    inspect { s =>
+      val protectedRawIds = s.abstractTypeMetas.values.map(_.value).toSet
+      s.unifier.metaStore.entries.collect {
+        case (rawId, None) if !protectedRawIds.contains(rawId) => rawId
+      }.toList
+    }.flatMap {
+      case Nil      => pure(())
+      case unsolved =>
+        liftF(
+          compilerAbort[Unit](
+            ctx.resolvedValue.name.as(
+              s"Internal: post-drain pipeline left metavariables unresolved: ${unsolved.mkString(", ")}."
+            )
+          )
+        )
+    }
 
   /** Walk a [[SemExpression]] tree and collect all ability-qualified [[SemExpression.ValueReference]] nodes with their
     * current type arguments. Non-ability references and other shapes are skipped.
@@ -459,4 +507,36 @@ object TypeStackLoop {
     new TypeStackLoop(fetchBinding, resolveAbility).process(key, resolvedValue)
 
   private type AbilityRef = (Sourced[ValueFQN], Seq[SemValue])
+
+  /** One named step of the post-check resolution pipeline (D1). The pipeline is tiered, not flat (see
+    * docs/monomorphize-d1-design.md): the unifier `drain` is interleaved by the runner as the equality core settling
+    * — it is not a pass — and the finalizer plus the postcondition assertion are fixed structural steps of
+    * `TypeStackLoop.runPostDrainPipeline`, not entries in the pass list.
+    */
+  private sealed trait PostDrainPass {
+    def name: String
+  }
+
+  private object PostDrainPass {
+
+    /** Solves metavariables iteratively; `run` returns whether it made progress this round. Re-run inside the
+      * saturation fixed-point loop (drain-interleaved) until no `Saturation` pass progresses.
+      */
+    case class Saturation(name: String, run: PassContext => CheckIO[Boolean]) extends PostDrainPass
+
+    /** Runs once, after saturation reaches its fixed point. May report errors or record solutions. Order within the
+      * tier is registration order.
+      */
+    case class Finalization(name: String, run: PassContext => CheckIO[Unit]) extends PostDrainPass
+  }
+
+  /** Everything a post-drain pass closes over from the current check — the pass slot's closed input interface. That
+    * every pass needs *only* this (nothing from `processIO`'s locals) is the evidence the slot boundary is real.
+    */
+  private case class PassContext(
+      resolvedValue: OperatorResolvedValue,
+      abilityRefs: Seq[AbilityRef],
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]],
+      returnMeta: Option[SemValue.VMeta]
+  )
 }
