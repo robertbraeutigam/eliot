@@ -41,6 +41,27 @@ notes.
 
 ## Compiler architecture & tooling
 
+- **Monomorphization type-explosion / key on the codegen-relevant form, not the full type.**
+  `MonomorphicValue.Key` is `(vfqn, typeArguments: Seq[GroundValue])` — the *full, unreduced*
+  ground type, so two instantiations that differ only in a compile-time-only index produce
+  *distinct* specializations even when the generated code is identical. This bites: (a) size-indexed
+  recursion (`Rec[N]`: `f[N]` → `f[N-1]` → … is O(N) or unbounded specializations — representation
+  lowering only dedups in `uncurry`, *after* mono has already paid the cost); (b) any compile-time
+  data threaded through type args (a `Map`/complex structure used for resource tracking, analytics,
+  proofs) explodes the key the same way even though it never reaches codegen. The evaluator
+  (`eval/Evaluator.scala` `applyValue`/`unfoldTopDef`) also has **no** depth/fuel/cycle guard —
+  recursion is only stopped by *stuckness* (neutral argument ⇒ residual, no unfold); a recursion
+  forced on a concrete arg unfolds without limit. Wanted: a **generic** mechanism — key mono on the
+  *erased / codegen-relevant* projection (what survives representation-lowering + dispatch
+  resolution + reification), i.e. a relevance / phantom-parameter analysis that collapses the key
+  over positions the generated code does not depend on; this makes `Rec[N]`, analytics data, and
+  phantom indices all collapse for free (the special case "drop `N` before mono" generalized).
+  Plus a **fail-safe backstop** independent of that: reuse the W4 active-fact chain
+  (`CompilationProcess.activeFactKeys`) to detect the same FQN recurring with diverging type args
+  and hard-error ("monomorphization not converging at <fqn>; arg <x> varies per step — erase or
+  bound it") instead of hanging / OOM. Full plan: `docs/monomorphization-keying-plan.md` (grew out
+  of the recursion-as-effect / `Rec[N]` discussion).
+
 - Separate the cache graph from the values, so not everything has to be deserialized.
 - Default imports should not be hardcoded; all of `lang.*` should be imported.
 - Remove the `Show` instances used for printing expression/fact internals.
