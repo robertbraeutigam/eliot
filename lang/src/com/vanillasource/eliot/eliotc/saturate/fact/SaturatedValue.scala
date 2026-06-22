@@ -25,9 +25,11 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 case class SaturatedValue(value: OperatorResolvedValue) extends CompilerFact {
   override def key(): CompilerFactKey[SaturatedValue] = SaturatedValue.Key(value.vfqn)
 
-  /** The runtime role of each leading type-stack binder, classified once on this saturated value (D6). Read by the
-    * monomorphize binding cache (`BindingProcessor.reifyingWrap`) to know which binders the runtime body reifies, and
-    * the per-binder analysis the monomorphization-keying plan's B1 codegen-dedup is intended to share. Computed on the
+  /** The codegen-relevance classification of each leading type-stack binder, computed once on this saturated value —
+    * the monomorphization-keying plan's B1 analysis (grown from the D6 reified-binder flag). Each binder carries its
+    * reified/dispatched/representation/recursion-variant roles and a derived [[BinderRoles.Disposition]]. Two consumers
+    * are intended: the monomorphize binding cache (`BindingProcessor.reifyingWrap`, today, via
+    * [[BinderRoles.reifiedPrefixBinders]]) and the codegen-key dedup (B2/B3, not yet wired). Computed on the
     * *saturated* signature so the binder indices align with the type arguments the checker applies.
     */
   lazy val binderRoles: BinderRoles = BinderRoles.of(value)

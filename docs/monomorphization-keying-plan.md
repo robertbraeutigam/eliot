@@ -247,7 +247,7 @@ path.
 
 ## Deliverable B — codegen-relevant projection + dispositions
 
-### B1. Relevance + recursion-variance analysis (per `vfqn`, static, pre-NbE)
+### B1. Relevance + recursion-variance analysis (per `vfqn`, static, pre-NbE) ✅ DONE (2026-06-22)
 
 On the resolved/saturated body + call graph — no evaluation. Classify each type-parameter position:
 
@@ -269,8 +269,35 @@ Carry the result on `SaturatedValue` (forward onto the existing fact per lean-fa
 **R1 already exists** as `SaturatedValue.binderRoles` (`saturate/fact/BinderRoles.scala`), added by the
 architecture review's D6: a per-leading-type-stack-binder `reified` flag, computed once on the saturated signature +
 body. It is the value-position classification R1 needs (and is already exercised by the checker's binding wrap), so
-B1 should *extend* `BinderRoles` (add R2 dispatch / R3 representation / recursion-variance) rather than introduce a
+B1 *extends* `BinderRoles` (adds R2 dispatch / R3 representation / recursion-variance) rather than introducing a
 parallel analysis — the same classification then has its two intended consumers, type-checking and codegen dedup.
+
+**What landed.** `BinderRoles.Role` grew from `{name, reified}` to the full classification — `reified` (R1),
+`dispatched` (R2), `representation` (R3), `recursionVariant` — plus a derived `BinderRoles.Disposition`
+(`CollapseErase` / `CollapseToRepresentation` / `Specialize` / `Demote`). Detection, all from the value's *own* fields
+(no fact lookups, so `BinderRoles.of` stays pure/local):
+
+- **R2 dispatched** — the binder is a key of `OperatorResolvedValue.paramConstraints` (`[A ~ Show]`) or appears in a
+  constraint's type arguments.
+- **R3 representation** — the binder appears (anywhere) in a value-parameter domain or the return position of the
+  signature. Maximally conservative: a size index that does not really reach representation (`List[A,N]`'s `N`) is
+  *also* flagged here — refining it into a true phantom is a later tightening, and over-flagging only forgoes a
+  collapse, never mis-merges.
+- **recursion-variant** — a *direct* self-call (`ValueReference` to the value's own `vfqn`) supplies a non-identity
+  type argument (anything but `ParameterReference(binder)`) at that position. Mutual recursion around a call-graph
+  cycle is **deferred** (would need the static SCC the plan envisions sharing with the `Rec`/`Inf` detector); it is
+  covered loudly by Deliverable A's `used` non-convergence backstop, never silently mis-merged.
+
+Disposition precedence is **soundness-ordered** — `dispatched` is checked *first* because merging a distinct ability
+selection is a miscompile (soundness checkpoint 1/3): `dispatched → Specialize`; else `reified && recursionVariant →
+Demote`; else `reified → Specialize`; else `representation → CollapseToRepresentation`; else `CollapseErase`.
+
+**Validated by** `BinderRolesTest` (extended): the reified cases still pin the binding-wrap prefix, and new
+disposition cases pin the keying scenarios directly — `id` (S2/S3) → CollapseToRepresentation, `tag` (S4,
+recursion-invariant reified) → Specialize, `gen` (S5, recursion-variant reified) → Demote, `describe` (S6,
+ability-constrained) → Specialize, and an unused `[P]` → CollapseErase. **No consumer wiring yet** (B2/B3): the
+classification is computed and carried but nothing reads the disposition, so the `MonomorphizationVersioningTest`
+counts are unchanged — B1 is the analysis, B2/B3 are what move S2→1 / S5→1 / S1→1.
 
 ### B2. Projection function
 
@@ -337,7 +364,7 @@ breadth.
 0.5. **Computed-type-argument read-back gap** — prerequisite surfaced by Deliverable 0 (reified type-stack params cached
    as free neutrals). ✅ done (`BindingProcessor.reifyingWrap` + `ComputedTypeArgumentReadbackTest`); S1/S5 now unroll.
 1. **Backstop** (Deliverable A) — independent, immediately useful, de-risks B and feeds demotion. ✅ done.
-2. **B1** relevance + recursion-variance analysis (start maximally conservative).
+2. **B1** relevance + recursion-variance analysis (start maximally conservative). ✅ done.
 3. **B2/B3** projection + wiring through `used`/`uncurry`/backend, including the demote disposition.
 4. Resolve **B4** policy; tighten B1 as the suite/benchmarks justify; the backstop covers residual
    imprecision.

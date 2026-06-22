@@ -1,27 +1,51 @@
 package com.vanillasource.eliot.eliotc.saturate.fact
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** The runtime role of each leading type-stack ("generic") binder of a value, classified once on the *saturated*
-  * signature + body (D6 of the monomorphize architecture review).
+/** The codegen-relevance classification of each leading type-stack ("generic") binder of a value, computed once,
+  * statically (no evaluation), on the *saturated* signature + body + the value's own call graph. This is the
+  * monomorphization-keying plan's **B1** analysis (`docs/monomorphization-keying-plan.md`); it grows out of the D6
+  * reified-binder analysis (originally only [[Role.reified]], whose single consumer was the monomorphize binding wrap).
   *
-  * The only role currently distinguished is whether a binder is '''reified''' — referenced in *value* position in the
-  * runtime body, the positions [[com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator]] visits. A reified binder
-  * is a binder of the value's *signature* but, crucially, '''not''' of its runtime body: `def bigOf[V] = V` has
-  * signature `(V) -> BigInteger` yet body just `V` (the bare reference is the reification of the erased `V`). The
-  * monomorphize binding cache must therefore wrap such a body in leading lambda binders so that applying the value's
-  * explicit type arguments substitutes the reified binders (see `BindingProcessor.reifyingWrap`); an ordinary generic
-  * whose parameter never appears in value position (`id[A](x: A) = x`) is left unwrapped.
+  * Each binder gets four orthogonal role flags and one derived [[BinderRoles.Disposition]] that drives the eventual
+  * codegen-key projection (B2/B3, not yet wired):
   *
-  * This is the single home for that classification — formerly the inline `valuePositionRefs` walk buried in
-  * `BindingProcessor`. It is computed on the *saturated* signature (so the binder indices line up with the type
-  * arguments the checker applies — `SaturatedValueProcessor` may prepend leading binders for omittable `auto`
-  * parameters), and is the per-binder analysis the monomorphization-keying plan's B1 codegen-dedup is intended to share
-  * (carried on [[SaturatedValue]], read both by checking and, eventually, by the codegen demand sites).
+  *   - '''reified''' (R1) — referenced in *value* position in the runtime body, the positions
+  *     [[com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator]] visits. A reified binder is a binder of the
+  *     value's *signature* but not of its runtime body (`def bigOf[V] = V` has body just `V`), so the binding cache must
+  *     materialise it (see `BindingProcessor.reifyingWrap`).
+  *   - '''dispatched''' (R2) — drives an ability-instance selection: the binder is constrained (`[A ~ Show]`, so it is a
+  *     key of `paramConstraints`) or appears in a constraint's type arguments. Dispatch must never be merged
+  *     (soundness), so it forces [[BinderRoles.Disposition.Specialize]].
+  *   - '''representation''' (R3) — appears in a value-parameter type or the return type, so it shapes the machine
+  *     representation of runtime data (`id[A](x: A): A` ⟹ `A` is what `RepresentationLowering.representationOf`
+  *     consumes). Maximally conservative: *any* appearance in a runtime-data type counts, even a size index that does
+  *     not really reach representation (`List[A, N]`'s `N`) — refining that into a true phantom is a later tightening.
+  *   - '''recursionVariant''' — the body calls *this same value* passing a non-identity type argument at this binder's
+  *     position (`gen[N] = … gen[subtract(N, 1)] …`). Only *direct* self-recursion is detected here (a pure, local
+  *     check); mutual recursion around a call-graph cycle is deferred and is covered loudly by the `used`
+  *     non-convergence backstop (Deliverable A), never silently mis-merged.
+  *
+  * Disposition (the per-binder codegen-key decision; see the plan's table). Precedence is soundness-ordered — dispatch
+  * is checked first because merging distinct dispatch is a miscompile:
+  *
+  * {{{
+  *   dispatched                     -> Specialize               (never merge an ability selection)
+  *   reified && recursionVariant    -> Demote                   (one body; the per-step value becomes a runtime arg)
+  *   reified                        -> Specialize               (recursion-invariant: a bounded reified family stays)
+  *   representation                 -> CollapseToRepresentation (key on the width class, not the exact bound)
+  *   otherwise                      -> CollapseErase            (an obvious phantom: appears in no scanned position)
+  * }}}
+  *
+  * The classification is computed on the *saturated* signature (so binder indices line up with the type arguments the
+  * checker applies — `SaturatedValueProcessor` may prepend leading binders for omittable `auto` parameters) and is
+  * carried on [[SaturatedValue]], its two intended consumers being type-checking's binding wrap (today) and the codegen
+  * dedup (B2/B3).
   *
   * @param roles
   *   One [[BinderRoles.Role]] per leading type-stack binder, in declaration order.
@@ -41,26 +65,95 @@ case class BinderRoles(roles: Seq[BinderRoles.Role]) {
 
 object BinderRoles {
 
-  /** One leading type-stack binder's runtime role.
+  /** The codegen-key disposition of one binder — how the B2/B3 projection treats this position when building the
+    * codegen dedup key. See the table in [[BinderRoles]].
+    */
+  enum Disposition {
+
+    /** Phantom: appears in no scanned position. Dropped from the codegen key, with no runtime form. */
+    case CollapseErase
+
+    /** Representation-determining: key on `RepresentationLowering.representationOf` (the width class), so
+      * width-equivalent bounds fold to one specialization while the nominal head is preserved for dispatch.
+      */
+    case CollapseToRepresentation
+
+    /** Kept verbatim in the codegen key — a distinct ability selection (R2) or a bounded recursion-invariant reified
+      * family (R1), each a genuinely different body.
+      */
+    case Specialize
+
+    /** Dropped from the codegen key (one body) but '''retained as a runtime value parameter''' — the reified-twin of
+      * erasure for a recursion-variant reified binder, whose values are real and all matter but belong in the data (N
+      * call-site constants), not the code (N bodies).
+      */
+    case Demote
+  }
+
+  /** One leading type-stack binder's runtime/codegen role.
     *
     * @param name
     *   The binder's name, with its source position (used to position the synthesized wrap lambda).
     * @param reified
-    *   Whether the body references this binder in value position (and so the binding must materialise it at runtime).
+    *   R1: the body references this binder in value position (so the binding must materialise it at runtime).
+    * @param dispatched
+    *   R2: this binder drives an ability-instance selection (it is constrained, or appears in a constraint's args).
+    * @param representation
+    *   R3: this binder appears in a value-parameter type or the return type, so it shapes runtime-data representation.
+    * @param recursionVariant
+    *   The body calls this same value passing a non-identity type argument at this binder's position.
     */
-  case class Role(name: Sourced[String], reified: Boolean)
+  case class Role(
+      name: Sourced[String],
+      reified: Boolean,
+      dispatched: Boolean,
+      representation: Boolean,
+      recursionVariant: Boolean
+  ) {
+
+    /** The codegen-key disposition derived from the role flags (see [[BinderRoles]] for the precedence rationale). */
+    def disposition: Disposition =
+      if (dispatched) Disposition.Specialize
+      else if (reified && recursionVariant) Disposition.Demote
+      else if (reified) Disposition.Specialize
+      else if (representation) Disposition.CollapseToRepresentation
+      else Disposition.CollapseErase
+  }
 
   /** Classify the leading type-stack binders of a value. The binders come from the value's signature
-    * ([[SignatureView]]); a binder is reified iff its name appears in a value position of the value's [[runtime]] body.
+    * ([[SignatureView]]); each flag is derived from a different facet of the value:
+    *
+    *   - [[Role.reified]] from value-position references in the [[OperatorResolvedValue.runtime]] body;
+    *   - [[Role.dispatched]] from [[OperatorResolvedValue.paramConstraints]];
+    *   - [[Role.representation]] from references in the signature's value-parameter domains and return position;
+    *   - [[Role.recursionVariant]] from direct self-calls in the body that pass a non-identity type argument.
+    *
     * The full `runtime` body is used (not `checkingRuntime`): for a non-`opaque` value they are identical, and for an
-    * `opaque` value the checker's binding has no body to wrap, so the wrap never consults this — using `runtime` makes
-    * the same analysis correct for the transparent (representation-lowering) binding too.
+    * `opaque` value the checker's binding has no body to wrap, so the wrap never consults this; using `runtime` keeps
+    * the same analysis correct for the transparent (representation-lowering) binding too. The whole computation reads
+    * only the value's own fields — no fact lookups — so it stays pure and local.
     */
   def of(value: OperatorResolvedValue): BinderRoles = {
     val signature = value.typeStack.as(value.typeStack.value.signature)
-    val binders   = SignatureView.of(signature).binders
-    val reified   = value.runtime.map(b => valuePositionRefs(b.value)).getOrElse(Set.empty)
-    BinderRoles(binders.map(b => Role(b.name, reified.contains(b.name.value))))
+    val view      = SignatureView.of(signature)
+    val binders   = view.binders
+    val body      = value.runtime.map(_.value)
+
+    val reified        = body.map(valuePositionRefs).getOrElse(Set.empty)
+    val dispatched     = dispatchedRefs(value.paramConstraints)
+    val representation = (view.parameters.map(_.value) :+ view.returnType.value).flatMap(parameterRefs).toSet
+    val variant        = body.map(recursionVariantRefs(_, value.vfqn, binders.map(_.name.value))).getOrElse(Set.empty)
+
+    BinderRoles(binders.map { b =>
+      val name = b.name.value
+      Role(
+        b.name,
+        reified = reified.contains(name),
+        dispatched = dispatched.contains(name),
+        representation = representation.contains(name),
+        recursionVariant = variant.contains(name)
+      )
+    })
   }
 
   /** The set of parameter names referenced in positions [[com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator]]
@@ -77,5 +170,77 @@ object BinderRoles {
       valuePositionRefs(t.value) ++ valuePositionRefs(a.value)
     case OperatorResolvedExpression.FunctionLiteral(pn, _, b)   => valuePositionRefs(b.value) - pn.value
     case _                                                      => Set.empty
+  }
+
+  /** The binder names that drive ability dispatch: every constrained binder (a key of `paramConstraints`) plus every
+    * binder referenced inside a constraint's type arguments (so a binder participating in selecting the instance —
+    * `[A, B ~ Foo[A]]` — is kept too). Conservative on purpose: marking a binder dispatched only ever *prevents* a
+    * collapse, never causes an unsound merge.
+    */
+  private def dispatchedRefs(
+      paramConstraints: Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]
+  ): Set[String] =
+    paramConstraints.keySet ++
+      paramConstraints.values.flatten.flatMap(_.typeArgs.flatMap(parameterRefs)).toSet
+
+  /** Every free [[OperatorResolvedExpression.ParameterReference]] name occurring anywhere in a *type* expression —
+    * including type-constructor arguments and (unlike [[valuePositionRefs]]) `FunctionLiteral` parameter-type
+    * annotations, since a type-level lambda's domain is a real type position. A literal's own bound name is excluded
+    * (shadowing). Used to find which binders shape a value-parameter / return type (R3) or a constraint's arguments.
+    */
+  private def parameterRefs(expr: OperatorResolvedExpression): Set[String] = expr match {
+    case OperatorResolvedExpression.ParameterReference(name)    => Set(name.value)
+    case OperatorResolvedExpression.ValueReference(_, typeArgs) =>
+      typeArgs.flatMap(ta => parameterRefs(ta.value)).toSet
+    case OperatorResolvedExpression.FunctionApplication(t, a)   =>
+      parameterRefs(t.value) ++ parameterRefs(a.value)
+    case OperatorResolvedExpression.FunctionLiteral(pn, pt, b)  =>
+      val inType = pt.toSeq.flatMap(_.value.levels.toList).flatMap(parameterRefs).toSet
+      inType ++ (parameterRefs(b.value) - pn.value)
+    case _                                                      => Set.empty
+  }
+
+  /** The binder names this value passes a *non-identity* type argument to on a direct recursive call (`gen[N] = …
+    * gen[subtract(N, 1)] …` ⟹ `N`). For every self-call (a [[OperatorResolvedExpression.ValueReference]] to `selfFqn`)
+    * and every binder position `i`, the binder is recursion-variant iff the call supplies a type argument there that is
+    * not exactly `ParameterReference(binderₙₐₘₑ)`. A position the call leaves implicit (no explicit argument) is left
+    * unmarked — conservatively not variant, which at worst forgoes a demotion (the backstop still caps any runaway).
+    */
+  private def recursionVariantRefs(
+      body: OperatorResolvedExpression,
+      selfFqn: ValueFQN,
+      binderNames: Seq[String]
+  ): Set[String] =
+    selfCallTypeArgs(body, selfFqn).flatMap { typeArgs =>
+      binderNames.zipWithIndex.collect {
+        case (name, i) if typeArgs.lift(i).exists(ta => !isIdentityArg(ta.value, name)) => name
+      }
+    }.toSet
+
+  /** The type-argument lists of every direct self-call ([[OperatorResolvedExpression.ValueReference]] to `selfFqn`)
+    * reachable in the body, including self-calls nested inside other references' type arguments.
+    */
+  private def selfCallTypeArgs(
+      expr: OperatorResolvedExpression,
+      selfFqn: ValueFQN
+  ): Seq[Seq[Sourced[OperatorResolvedExpression]]] = expr match {
+    case OperatorResolvedExpression.ValueReference(name, typeArgs) =>
+      val here   = if (name.value == selfFqn) Seq(typeArgs) else Seq.empty
+      val nested = typeArgs.flatMap(ta => selfCallTypeArgs(ta.value, selfFqn))
+      here ++ nested
+    case OperatorResolvedExpression.FunctionApplication(t, a)      =>
+      selfCallTypeArgs(t.value, selfFqn) ++ selfCallTypeArgs(a.value, selfFqn)
+    case OperatorResolvedExpression.FunctionLiteral(_, pt, b)      =>
+      pt.toSeq.flatMap(_.value.levels.toList).flatMap(selfCallTypeArgs(_, selfFqn)) ++
+        selfCallTypeArgs(b.value, selfFqn)
+    case _                                                         => Seq.empty
+  }
+
+  /** Whether a type argument is the *identity* reference to a binder — `ParameterReference(name)`. Anything else (a
+    * computed `subtract(N, 1)`, a literal, a different binder, an applied constructor) is a non-identity value.
+    */
+  private def isIdentityArg(arg: OperatorResolvedExpression, name: String): Boolean = arg match {
+    case OperatorResolvedExpression.ParameterReference(n) => n.value == name
+    case _                                                => false
   }
 }
