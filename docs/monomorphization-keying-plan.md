@@ -206,29 +206,41 @@ unaffected.
 recursive branch reifies the base case to a constant and drops the `gen[0]` reference). The keying dedup/demote
 (Deliverables A and B) takes these to S1 → 1 and S5 → demote → 1.
 
-S7 is the one scenario that still genuinely diverges, precisely because its growing type-argument is a structural
-`Box[…]` *type application* (a ground type structure that quotes fine), not a stuck native — so it unrolls without
-bound instead of erroring; the backstop (Deliverable A) converts that into a diagnostic.
+S7 is the one scenario that would otherwise genuinely diverge, precisely because its growing type-argument is a
+structural `Box[…]` *type application* (a ground type structure that quotes fine), not a stuck native — so it unrolls
+without bound instead of erroring. The backstop (Deliverable A, now landed) converts that into a diagnostic.
 
-## Deliverable A — non-convergence backstop
+## Deliverable A — non-convergence backstop ✅ DONE (2026-06-22)
 
-A safety net that converts a runaway specialization into a diagnostic (today a divergent recursion
-hangs / OOMs). Independent of B; valuable on its own and the trip-wire that feeds demotion's online
+A safety net that converts a runaway specialization into a diagnostic (a divergent recursion formerly
+hung / OOMed). Independent of B; valuable on its own and the trip-wire that feeds demotion's online
 path.
 
-- **Where:** the codegen driver — `used/UsedNamesProcessor.scala`. Optionally mirror at the producer
-  (`monomorphize/processor/MonomorphicTypeCheckProcessor.scala`).
-- **Mechanism:** reuse the active-fact chain (`processor/CompilerIO.scala:42` `activeFactKeys`,
-  populated by `compiler/IncrementalFactGenerator.scala:50`). Count *nested* entries on the chain
-  sharing the same `vfqn` (generalizing the FQN match at `CalculatedReturnResolver.scala:176-181`
-  from "any repeat = error" to "more than K nested repeats"). Past a generous threshold (configurable;
-  default e.g. 500) emit a specific error and `abort`, modelled on `reportRecursiveCalculatedReturn`
-  (`CalculatedReturnResolver.scala:187`):
+- **Where:** the codegen driver — `used/UsedNamesProcessor.scala`. (The optional producer mirror at
+  `MonomorphicTypeCheckProcessor` was *not* added: the *depth* path it would guard — a calculated-return
+  chain or type-level NbE recursion that re-enters `getFact` — is already covered by
+  `CalculatedReturnResolver`'s FQN-cycle check and, for genuine type-level recursion, the deferred
+  in-NbE step limit. Deliverable A is exactly the codegen *breadth*, which lives in `used`.)
+- **Mechanism — corrected from the original "reuse `activeFactKeys`" sketch.** `activeFactKeys` does
+  **not** capture this explosion: in `used`, every `MonomorphicValue` is requested as a *sibling*
+  (each `getFact` forks a child fiber whose ancestor chain carries exactly one copy of that `vfqn`),
+  so the global active-fact chain stays flat and counting it would never trip. The breadth instead
+  lives in `used`'s **own `processValue` DFS** (the `UsedNamesIO` StateT recursion). So the backstop
+  threads the chain of enclosing `processValue` frames (`ancestors: List[ValueFQN]`, innermost first)
+  and, in `checkConvergence`, counts how many of them share the current `vfqn`. Past a generous
+  threshold (`maxNestedRepeats`, a constructor param defaulting to `500`) it emits a specific error and
+  `compilerAbort`s, modelled on `reportRecursiveCalculatedReturn`:
 
   > Monomorphization of '<name>' is not converging: specialized <N> levels deep with differing type
-  > arguments. Argument(s) <diff of consecutive keys> change on every step — make them compile-time
-  > only (phantom), bound the recursion, or demote them to runtime.
+  > arguments. …make them compile-time only (phantom), bound the recursion, or demote them to runtime.
 
+  (The "diff of consecutive keys" wording was dropped — the error attaches to the value's source name,
+  which is the actionable anchor; the per-step key diff added noise without a clear position.)
+- **Validated by** `MonomorphizationVersioningTest` S7: the `loop[A] -> loop[Box[A]] -> …` tower, which
+  formerly diverged (IO timeout), now produces the single non-convergence diagnostic pointing at
+  `loop` and terminates. The suite constructs `UsedNamesProcessor(maxNestedRepeats = 8)` to keep S7
+  cheap and deterministic; every converging scenario (S1-S6, S8) nests at most 4 deep, well under it,
+  so their counts are unchanged.
 - Post-B, legitimate recursion collapses (phantom) or demotes (reified) and never trips; the backstop
   then only fires on genuinely divergent type-level recursion or analysis-missed positions. It is the
   fail-safe behind the relevance/variance analysis (cf. gaps-must-be-failsafe).
@@ -311,6 +323,9 @@ annotation** (force the user to choose), i.e. a per-target policy or per-paramet
 Deliverable 0's suite is the gate. After A+B the counts must move: S2 → 1, S3/S6/S8 unchanged, S7 → backstop error
 (not hang). Plus full suite green and a jvm end-to-end check (generated class count) for a recursive `sum`/`map`.
 
+**A done:** S7 now hits the backstop (the non-convergence diagnostic on `loop`) instead of hanging; full suite green.
+The B counts (S2 → 1, S5 → demote → 1, S1 → 1) are still pending B1/B2/B3.
+
 **S1/S5 caveat:** the prerequisite computed-type-argument read-back gap (see *Baseline findings*) is now **fixed**, so
 S1/S5 unroll (S1 = 4, S5 = 3) rather than erroring; their suite assertions now pin those unrolled counts. They reach
 their final targets (S1 → 1, S5 → demote→1) once A+B land — the keying dedup/demote is what collapses the now-visible
@@ -321,7 +336,7 @@ breadth.
 0. **Characterization test suite** (Deliverable 0) — baseline + discovery; the acceptance gate. ✅ done.
 0.5. **Computed-type-argument read-back gap** — prerequisite surfaced by Deliverable 0 (reified type-stack params cached
    as free neutrals). ✅ done (`BindingProcessor.reifyingWrap` + `ComputedTypeArgumentReadbackTest`); S1/S5 now unroll.
-1. **Backstop** (Deliverable A) — independent, immediately useful, de-risks B and feeds demotion.
+1. **Backstop** (Deliverable A) — independent, immediately useful, de-risks B and feeds demotion. ✅ done.
 2. **B1** relevance + recursion-variance analysis (start maximally conservative).
 3. **B2/B3** projection + wiring through `used`/`uncurry`/backend, including the demote disposition.
 4. Resolve **B4** policy; tighten B1 as the suite/benchmarks justify; the backstop covers residual

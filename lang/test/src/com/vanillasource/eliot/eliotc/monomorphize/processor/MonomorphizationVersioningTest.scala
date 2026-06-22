@@ -74,7 +74,9 @@ class MonomorphizationVersioningTest
       MatchNativesProcessor(),
       UserValueNativesProcessor(),
       MonomorphicTypeCheckProcessor(),
-      UsedNamesProcessor()
+      // A small backstop tolerance keeps the divergent scenario (S7) cheap and deterministic; every converging scenario
+      // here nests at most 4 deep (S1's countdown), well under it, so the counts are unaffected.
+      UsedNamesProcessor(maxNestedRepeats = 8)
     ) {
 
   // --- S1: recursion over a size-bounded structure (Cat 1, phantom index) ----------------------------------------
@@ -166,13 +168,19 @@ class MonomorphizationVersioningTest
 
   // --- S7: divergent recursion (no base case) --------------------------------------------------------------------
   // The `Box` tower `loop[A] -> loop[Box[A]] -> loop[Box[Box[A]]] -> ...` never revisits a type and has no base case,
-  // so the `used` traversal materialises versions without bound. TODAY: diverges (the IO times out). TARGET after the
-  // fix: a specific non-convergence backstop error (Deliverable A), not a hang. When the backstop lands this test
-  // must be updated to assert the error instead of the timeout.
-  "S7 (divergent recursion, no base case)" should "today diverge / hang (target after fix: backstop error)" in {
+  // so the `used` traversal would materialise versions without bound. Before Deliverable A this diverged (the IO timed
+  // out). NOW: the non-convergence backstop in `UsedNamesProcessor` trips once the nested `loop` specializations exceed
+  // the (here deliberately small) tolerance, converting the runaway into a specific diagnostic pointing at `loop`.
+  // We assert on the backstop diagnostic specifically: this toy program also emits its own incidental errors (the
+  // generic single-field accessor `unwrap` / constructor `Box` do not monomorphize cleanly in this minimal harness —
+  // a pre-existing limitation, reproducible with no recursion at all, unrelated to the backstop), so the test filters
+  // to the convergence error rather than over-constraining that orthogonal noise.
+  "S7 (divergent recursion, no base case)" should "report a non-convergence backstop error instead of diverging" in {
     runVersioning(
       "data Box[A](unwrap: A)\ndef loop[A](x: A): A = unwrap(loop(Box(x)))\ndef bi: BigInteger\ndef main: BigInteger = loop(bi)"
-    ).timeout(3.seconds).attempt.asserting(_.isLeft shouldBe true)
+    ).timeout(30.seconds).asserting { case (errors, _) =>
+      errors.filter(_.message.contains("is not converging")).map(_.highlight) shouldBe Seq("loop")
+    }
   }
 
   // --- S8: recursion on a runtime value, invariant type (control / regression guard) -----------------------------
