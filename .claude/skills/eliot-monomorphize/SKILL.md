@@ -35,7 +35,9 @@ lang/src/com/vanillasource/eliot/eliotc/monomorphize/
 ├── refine/
 │   └── RefinementSolver.scala         (the refinement lattice: Coerce widening + Combine join + upper-bounds)
 └── check/
-    ├── Checker.scala                  (bidirectional check/infer)
+    ├── Checker.scala                  (bidirectional check/infer; definitional-equality-adjacent core only)
+    ├── CalculatedReturnResolver.scala (D7: non-local inference — fills a bare return from the callee's mono body)
+    ├── CarrierKindChecker.scala       (D8: the HKT kind system — seeds + verifies `[F[_]]` carrier kinds)
     ├── CheckIO.scala
     ├── CheckState.scala               (env, nameLevels, unifier)
     └── TypeStackLoop.scala            (uniform top-down fold over type stack)

@@ -55,7 +55,7 @@ class TypeStackLoop(
       // (by ordinary unification) to the body's inferred type; the solved meta is then quoted into the published
       // signature. An abstract (body-less) calculated return cannot calculate — it is left untouched (a limit, W4).
       calcReturn             = resolvedValue.calculatedReturn && resolvedValue.checkingRuntime.isDefined
-      checkResult           <- if (calcReturn) checker.installReturnMeta(instantiated).map { case (sig, m) => (sig, Some(m)) }
+      checkResult           <- if (calcReturn) checker.calcReturns.installReturnMeta(instantiated).map { case (sig, m) => (sig, Some(m)) }
                                else pure((instantiated, Option.empty[SemValue.VMeta]))
       (checkSig, returnMeta) = checkResult
 
@@ -120,7 +120,8 @@ class TypeStackLoop(
     * calculate it, and an output position must not quantify it instead, so the bare return must be stated explicitly.
     * Two body-less cases: a truly abstract declaration (`runtime` is `None` — e.g. a platform-layer signature awaiting
     * an implementation) and an `opaque` value (whose body is deliberately hidden from the checker, `checkingRuntime` is
-    * `None`). Either way [[installReturnMeta]] would not run, leaving the `Type` placeholder in the signature, so this
+    * `None`). Either way [[CalculatedReturnResolver.installReturnMeta]] would not run, leaving the `Type` placeholder
+    * in the signature, so this
     * is reported at the definition rather than letting that placeholder escape.
     */
   private def failOnAbstractCalculatedReturn(resolvedValue: OperatorResolvedValue): CheckIO[Unit] =
@@ -210,7 +211,7 @@ class TypeStackLoop(
     PostDrainPass.Saturation("resolve-abilities", ctx => resolveAbilities(ctx.abilityRefs, ctx.paramConstraints)),
     PostDrainPass.Saturation("resolve-combines", _ => checker.solver.resolveCombines),
     PostDrainPass.Finalization("upper-bounds", _ => checker.solver.resolveUpperBounds),
-    PostDrainPass.Finalization("carrier-kinds", _ => checker.verifyCarrierKinds),
+    PostDrainPass.Finalization("carrier-kinds", _ => checker.carriers.verifyCarrierKinds),
     PostDrainPass.Finalization(
       "calc-return",
       ctx => ctx.returnMeta.traverse_(failOnUndeterminedCalculatedReturn(_, ctx.resolvedValue))

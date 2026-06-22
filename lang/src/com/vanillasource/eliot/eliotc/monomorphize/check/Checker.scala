@@ -5,11 +5,10 @@ import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
+import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
+import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.monomorphize.refine.RefinementSolver
-import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
-import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -36,6 +35,22 @@ class Checker(
     */
   private[check] val solver: RefinementSolver =
     new RefinementSolver(resolveAbility, (tm, env) => evalExpr(tm, env), force, freshMeta, doUnify)
+
+  /** The higher-kinded-carrier kind checker (D8): seeds each `[F[_]]` carrier instantiation meta with its expected kind
+    * and verifies the solution post-drain. A non-equality *kind system*, kept out of this checker's definitional
+    * equality concern. Called from [[instantiatePolymorphic]] (seed) and [[TypeStackLoop]]'s `carrier-kinds` pass
+    * (verify). See [[CarrierKindChecker]].
+    */
+  private[check] val carriers: CarrierKindChecker =
+    new CarrierKindChecker(force, (tm, env) => evalExpr(tm, env), doUnify)
+
+  /** The calculated-return back-edge (D7): fills a value's bare omittable return from its monomorphized body
+    * (implicit-generics W3/W4). A non-equality *non-local inference*, kept out of this checker's definitional equality
+    * concern. Called from [[infer]] / [[applyInferred]] (read sides) and [[TypeStackLoop]] (callee-side
+    * `installReturnMeta`). See [[CalculatedReturnResolver]].
+    */
+  private[check] val calcReturns: CalculatedReturnResolver =
+    new CalculatedReturnResolver(force, freshMeta)
 
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed.
     *
@@ -264,7 +279,7 @@ class Checker(
                         // keeps a `VPi` here (resolved by `applyInferred`); a calculated-return *function* passed
                         // unapplied keeps the placeholder inside its codomain (the higher-order limit, out of scope).
                         calcReturn       <- if (sv.value.calculatedReturn)
-                                              resolveCompleteCalculatedReturn(vfqn, explicitTypeArgs, appliedSig)
+                                              calcReturns.resolveCompleteCalculatedReturn(vfqn, explicitTypeArgs, appliedSig)
                                             else pure(Option.empty[SemValue])
                         resultType        = calcReturn.getOrElse(appliedSig)
                       } yield (
@@ -334,7 +349,7 @@ class Checker(
       retType                 <- rawRetType match {
                                    case _: VMeta => pure(rawRetType)
                                    case other    =>
-                                     resolveCalculatedReturn(updatedTarget, other).flatMap {
+                                     calcReturns.resolveCalculatedReturn(updatedTarget, other).flatMap {
                                        case Some(resolved) => pure(resolved)
                                        case None           => renormalize(other)
                                      }
@@ -347,160 +362,6 @@ class Checker(
       retType
     )
 
-  /** When a function application has reached the bare omittable return of a *calculated-return* producer
-    * (implicit-generics, W3), resolve that return from the callee's monomorphized signature rather than the
-    * (under-applied) source return left by `saturate`. This is the architectural "back-edge": the callee's concrete
-    * type arguments are read off the (instantiated) target value reference, and the caller reads
-    * `MonomorphicValue(callee, args).signature`'s deep return type — the body-checked result the callee already
-    * produced when monomorphized at those arguments — re-entering it as a [[SemValue]]. It reuses the monomorphization
-    * the compiler performs anyway; no symbolic quoting on this path.
-    *
-    * Returns [[None]] (so the ordinary codomain stands) when this is not a reached calculated return: the target is not
-    * a value reference, the return is still a function (an intermediate `VPi` of a partial application), or the callee
-    * is not a calculated-return producer. Also [[None]] when the type arguments are not yet ground or no
-    * monomorphization exists — the caller then keeps the bare return, which fails the ordinary check downstream rather
-    * than being silently mistyped.
-    */
-  private def resolveCalculatedReturn(
-      targetExpr: SemExpression,
-      rawReturn: SemValue
-  ): CheckIO[Option[SemValue]] =
-    force(rawReturn).flatMap {
-      // The calculated-return placeholder evaluates to `VType` (saturate replaced the bare omittable return with the
-      // kind-correct `Type`). A bare `VType` return here therefore means either a reached calculated return or an
-      // ordinary type-level function — confirm with the callee's `calculatedReturn` flag before reading its
-      // monomorphized return. An intermediate `VPi` (partial application) or any concrete return falls through to the
-      // ordinary codomain, so the SaturatedValue fact is fetched only at the rare `VType`-return application.
-      case VType =>
-        innermostValueRef(targetExpr) match {
-          case Some((fqn, typeArgs)) =>
-            liftF(getFact(SaturatedValue.Key(fqn.value))).flatMap {
-              case Some(sv) if sv.value.calculatedReturn => readMonomorphicReturn(fqn, typeArgs)
-              case _                                     => pure(None)
-            }
-          case None                  => pure(None)
-        }
-      case _     => pure(None)
-    }
-
-  /** Resolve the return of a *complete* (fully applied) calculated-return value referenced by name — the read-site twin
-    * of the [[applyInferred]] back-edge (W4, deferred W3 item 1). The value is complete iff its type forced to the
-    * `Type` placeholder `saturate` installed, i.e. no parameter `VPi` remains to apply; then its body-checked return is
-    * read from `MonomorphicValue(value, args)` exactly as in the applied path, sharing [[readMonomorphicReturn]]'s
-    * recursion guard. Returns [[None]] when a `VPi` still remains (the value is applied later, or passed higher-order
-    * with the placeholder buried in its codomain) so the ordinary signature stands.
-    */
-  private def resolveCompleteCalculatedReturn(
-      vfqn: Sourced[ValueFQN],
-      typeArgs: Seq[SemValue],
-      appliedSig: SemValue
-  ): CheckIO[Option[SemValue]] =
-    force(appliedSig).flatMap {
-      case VType => readMonomorphicReturn(vfqn, typeArgs)
-      case _     => pure(None)
-    }
-
-  /** The innermost [[SemExpression.ValueReference]] of a (possibly curried) application target, with its accumulated
-    * type arguments — the callee whose calculated return is being resolved.
-    */
-  private def innermostValueRef(expr: SemExpression): Option[(Sourced[ValueFQN], Seq[SemValue])] =
-    expr.expression match {
-      case SemExpression.ValueReference(fqn, typeArgs)  => Some((fqn, typeArgs))
-      case SemExpression.FunctionApplication(target, _) => innermostValueRef(target.value)
-      case _                                            => None
-    }
-
-  /** Read the callee's body-checked return at the concrete type arguments: quote the (instantiation-meta) type args to
-    * ground and read `MonomorphicValue(callee, args).signature`'s deep return type as a [[SemValue]]. [[None]] when the
-    * args are not yet ground (left as a bare return for the ordinary check to reject) or no monomorphization exists.
-    */
-  private def readMonomorphicReturn(
-      fqn: Sourced[ValueFQN],
-      typeArgs: Seq[SemValue]
-  ): CheckIO[Option[SemValue]] =
-    for {
-      s          <- get
-      groundArgsE = typeArgs.toList.traverse(a => Quoter.quote(0, a, s.unifier.metaStore))
-      result     <- groundArgsE match {
-                      case Left(_)           => reportUngroundCalculatedReturn(fqn)
-                      case Right(groundArgs) => readMonomorphicReturnGround(fqn, groundArgs)
-                    }
-    } yield result
-
-  /** W4 (Limit 3 / deferred W3 item 2): a calculated return is read off `MonomorphicValue(callee, args)`, so the
-    * callee's type arguments must be ground at the call. They are not when an argument's bounds come from a branch join
-    * (a `Combine`) that is resolved only later, in the drain loop — `double(pick(a, b))` instantiates `double`'s bounds
-    * from `pick`'s combinable result, which is deferred. Reading the return eagerly here would leave the bare `Type`
-    * placeholder, which then leaks into a confusing `Coerce` mismatch downstream. Report a specific, actionable error
-    * instead. (Resolving such a call by postponing the calculation past the join — making it *compile* — is a
-    * completeness improvement deferred to W5; it requires reordering against the combinable-meta machinery.)
-    */
-  private def reportUngroundCalculatedReturn(fqn: Sourced[ValueFQN]): CheckIO[Option[SemValue]] =
-    liftF(
-      compilerError(
-        fqn.as(
-          s"Cannot calculate the return type of '${fqn.value.name.name}' here: its argument bounds are not determined at this call site."
-        ),
-        Seq(
-          "This happens when an argument's bounds come from a branch join (a `Combine`) not yet resolved when the call is checked.",
-          "Annotate the argument's type, or give the value an explicit return type."
-        )
-      ) >> abort[Option[SemValue]]
-    )
-
-  /** Read the callee's monomorphized return at ground type arguments, first guarding against a recursive
-    * calculated-return chain (Limit 1 of the implicit-generics calculated-return limits). If the callee's FQN is already an ancestor
-    * of the fact being checked now, requesting `MonomorphicValue(callee, args)` would re-enter an in-progress
-    * computation and dead-lock the fact cache — and, more fundamentally, the callee's return depends (directly,
-    * mutually, or through a value-dependent bound) on itself, which monomorphization-by-type cannot ground. A
-    * non-recursive program has an acyclic producer call graph, so a repeated FQN on the active chain is exactly the
-    * recursion signal; report it as a specific error rather than blocking forever or defaulting to `Type`.
-    */
-  private def readMonomorphicReturnGround(
-      fqn: Sourced[ValueFQN],
-      groundArgs: Seq[GroundValue]
-  ): CheckIO[Option[SemValue]] =
-    liftF(activeFactKeys).flatMap { active =>
-      val recursing = active.exists {
-        case MonomorphicValue.Key(vfqn, _) => vfqn == fqn.value
-        case _                             => false
-      }
-      if (recursing) liftF(reportRecursiveCalculatedReturn(fqn) >> abort[Option[SemValue]])
-      else
-        liftF(getFact(MonomorphicValue.Key(fqn.value, groundArgs)))
-          .map(_.map(mv => Evaluator.groundToSem(mv.signature.deepReturnType)))
-    }
-
-  private def reportRecursiveCalculatedReturn(fqn: Sourced[ValueFQN]): CompilerIO[Unit] =
-    compilerError(
-      fqn.as(s"Cannot calculate the return type of recursive value '${fqn.value.name.name}'."),
-      Seq(
-        "Its result type depends on itself — directly, mutually, or through a value-dependent bound — which " +
-          "monomorphization cannot ground.",
-        "Write an explicit return type."
-      )
-    )
-
-  /** Replace the return position of a calculated-return signature with a fresh metavariable, returning the rewritten
-    * signature and the meta's id (W3 callee side). The signature is a chain of value-parameter `VPi` arrows ending in
-    * the bare omittable return left by `saturate`; the meta stands in for that return so that *checking the body*
-    * against this signature solves it (by ordinary unification) to the body's inferred type. A no-parameter producer
-    * (`def x: Int = 5`) has no arrows, so the signature *is* the return and is replaced directly. The descent reads a
-    * snapshot of the metastore to tell a `VPi` arrow from the return; that is stable, because the arrows come from the
-    * (meta-independent) `Function` native, not from any meta solution.
-    */
-  private[check] def installReturnMeta(sig: SemValue): CheckIO[(SemValue, VMeta)] =
-    for {
-      meta <- freshMeta
-      s    <- get
-    } yield (substituteReturn(sig, meta, s.unifier.metaStore), meta)
-
-  private def substituteReturn(sig: SemValue, meta: SemValue, metaStore: MetaStore): SemValue =
-    Evaluator.force(sig, metaStore) match {
-      case VPi(domain, codomain) => VPi(domain, arg => substituteReturn(codomain(arg), meta, metaStore))
-      case _                     => meta
-    }
-
   /** Peel leading `VLam` closures from an inferred type with fresh metas, baking the metas as implicit type arguments
     * onto the expression's [[SemExpression.ValueReference]] and updating its `expressionType`. Returns the updated
     * expression paired with the peeled (monotype) type. Used both by the generic `check` fallback and by
@@ -512,55 +373,9 @@ class Checker(
   ): CheckIO[(SemExpression, SemValue)] =
     for {
       (peeled, implicitMetas) <- peelLams(tpe)
-      _                       <- recordCarrierMetas(expr, implicitMetas)
+      _                       <- carriers.recordCarrierMetas(expr, implicitMetas)
       updated                 <- appendTypeArgs(expr, implicitMetas)
     } yield (updated.copy(expressionType = peeled), peeled)
-
-  /** Tag the freshly-peeled instantiation metas that stand for *higher-kinded* type parameters (a `[F[_]]` carrier)
-    * with their expected kind, so [[verifyCarrierKinds]] can reject a wrong-kind solution post-drain. Only a
-    * [[SemExpression.ValueReference]] carries a polytype, so the binders' kinds are read off the referenced value's
-    * signature ([[SignatureView]]); the metas align with the binders *after* the explicit type arguments already
-    * applied. An ordinary `[A]` binder (kind `Type`) is left untagged — solving it to a proper type is correct. */
-  private def recordCarrierMetas(expr: SemExpression, implicitMetas: Seq[SemValue]): CheckIO[Unit] =
-    expr.expression match {
-      case SemExpression.ValueReference(fqn, explicitArgs) if implicitMetas.nonEmpty =>
-        for {
-          svOpt <- liftF(getFact(SaturatedValue.Key(fqn.value)))
-          _     <- svOpt match {
-                     case None     => pure(())
-                     case Some(sv) =>
-                       val signature = sv.value.typeStack.map(_.signature)
-                       val binders   = SignatureView.of(signature).binders.drop(explicitArgs.size)
-                       implicitMetas.zip(binders).traverse_ {
-                         case (VMeta(id, _), binder) => recordIfHigherKinded(id, binder, fqn)
-                         case _                      => pure(())
-                       }
-                   }
-        } yield ()
-      case _                                                                         => pure(())
-    }
-
-  /** Evaluate a binder's kind annotation; if it forces to a `VPi` (a higher kind such as `Type -> Type`), record the
-    * meta as a carrier with that kind. A `Type`-kinded (ordinary) binder, or one with no annotation, is not recorded.
-    */
-  private def recordIfHigherKinded(
-      id: SemValue.MetaId,
-      binder: SignatureView.Binder,
-      fqn: Sourced[ValueFQN]
-  ): CheckIO[Unit] =
-    binder.parameterType match {
-      case None     => pure(())
-      case Some(ts) =>
-        for {
-          kind   <- evalExpr(ts.value.signature, env = Some(Env.empty))
-          forced <- force(kind)
-          ctx     = fqn.as("Higher-kinded type parameter mismatch.")
-          _      <- forced match {
-                      case _: VPi => modify(_.recordCarrierKind(id, forced, ctx))
-                      case _      => pure(())
-                    }
-        } yield ()
-    }
 
   /** Append implicit-meta type args to a [[SemExpression.ValueReference]] expression. Only a value reference can
     * inherit a polytype (since polymorphism lives on named signatures), so no other shape should ever arrive here with
@@ -586,98 +401,6 @@ class Checker(
   private def prefetchBindings(ore: OperatorResolvedExpression): CheckIO[Unit] =
     OperatorResolvedExpression.foldValueReferences[CheckIO, Unit](ore, ()) { (_, vfqn) =>
       ensureBinding(vfqn.value).void
-    }
-
-  /** Post-drain kind check for higher-kinded type-parameter instantiation metas (`[F[_]]` carriers). Each carrier
-    * recorded by [[recordCarrierMetas]] is checked two ways:
-    *
-    *   - **Solved** to a value of the wrong kind — a fully-applied proper type (e.g. `?F := Box[String]`, kind `Type`)
-    *     where a `Type -> Type` constructor is required — is reported as a mismatch. The unifier's direct empty-spine
-    *     solve does not see the binder's declared kind, so it would otherwise be silently accepted.
-    *   - **Unsolved** but with a postponed application `?F[a..] ~ H r..` against a *rigid* head `H` (a type constructor
-    *     or bound variable) of a *different* arity is unsatisfiable: no injective type constructor `F` makes
-    *     `F[a..] = H r..` (only a non-injective constant/projection lambda would, which a carrier never is). It is
-    *     reported here rather than being silently dropped from the postponement queue. A carrier postponed against a
-    *     *non-rigid* `VPi` (`?F[A, B] ~ Function[A, B]`) is left alone — that is legitimately higher-order unification
-    *     the pattern unifier cannot solve, backstopped when the callee is monomorphized at the defaulted carrier.
-    */
-  def verifyCarrierKinds: CheckIO[Unit] =
-    for {
-      s <- get
-      _ <- s.unifier.carrierMetas.traverse_ { case (rawId, (expectedKind, context)) =>
-             for {
-               solution <- force(VMeta(SemValue.MetaId(rawId), Spine.SNil))
-               _        <- solution match {
-                             case _: VMeta => checkUnsolvedCarrier(SemValue.MetaId(rawId), context)
-                             case _        =>
-                               kindOfSolution(solution).flatMap {
-                                 case None       => pure(())
-                                 case Some(kind) => doUnify(kind, expectedKind, context)
-                               }
-                           }
-             } yield ()
-           }
-    } yield ()
-
-  /** Report an unsolved carrier meta that has a postponed application against a rigid head of a mismatched arity (see
-    * [[verifyCarrierKinds]]). The postponement queue is at its fixed point by the time this runs, so such a constraint
-    * can never resolve.
-    */
-  private def checkUnsolvedCarrier(id: SemValue.MetaId, context: Sourced[String]): CheckIO[Unit] =
-    for {
-      s     <- get
-      store  = s.unifier.metaStore
-      unsat  = s.unifier.postponed.exists { case (l, r, _) =>
-                 unsatisfiableApplication(id, l, r, store) || unsatisfiableApplication(id, r, l, store)
-               }
-      _     <- if (unsat) modify(st => st.withUnifier(st.unifier.addError(context))) else pure(())
-    } yield ()
-
-  /** True when `applied` forces to this carrier meta applied to a non-empty spine, and `other` forces to a rigid head
-    * (a body-less [[VTopDef]] type constructor or a [[VNeutral]] bound variable) that is *under-applied* relative to the
-    * meta — the unsatisfiable shape `?F[a..] ~ H r..` with `arity(H) < arity(F's spine)`: no injective `F` makes `F`
-    * applied to *more* args equal `H` applied to *fewer*. (`arity(H) >= arity(F)` is satisfiable by partial-application
-    * injectivity — `?F := H` applied to the leading prefix — and is solved in [[Unifier.decomposeSpines]], so it never
-    * reaches here as a postponed constraint.)
-    */
-  private def unsatisfiableApplication(
-      id: SemValue.MetaId,
-      applied: SemValue,
-      other: SemValue,
-      store: MetaStore
-  ): Boolean =
-    Evaluator.force(applied, store) match {
-      case VMeta(mid, spine) if mid.value == id.value && spine.toList.nonEmpty =>
-        Evaluator.force(other, store) match {
-          case VTopDef(_, None, rhsSpine) => rhsSpine.toList.length < spine.toList.length
-          case VNeutral(_, rhsSpine)      => rhsSpine.toList.length < spine.toList.length
-          case _                          => false
-        }
-      case _                                                                   => false
-    }
-
-  /** The kind (type) of a carrier meta's solution, or [[None]] when it cannot be determined locally (so no false
-    * positive is raised). A type-constructor application `C[a..]` has the constructor's kind with the applied spine
-    * removed: `Box` ⟹ `Type -> Type`, `Box[String]` ⟹ `Type`. A function type (`VPi`) or `Type` is itself a `Type`.
-    */
-  private def kindOfSolution(sv: SemValue): CheckIO[Option[SemValue]] =
-    force(sv).flatMap {
-      case VConst(g)                => pure(Some(Evaluator.groundToSem(g.valueType)))
-      case VType                    => pure(Some(VType))
-      case _: VPi                   => pure(Some(VType))
-      case VTopDef(fqn, None, spine) =>
-        kindOfTypeConstructor(fqn).map(_.map(headKind => spine.toList.foldLeft(headKind)(Evaluator.applyValue)))
-      case _                        => pure(None)
-    }
-
-  /** The kind of a type constructor, read off its signature (which, for a type constructor, *is* its kind chain —
-    * e.g. `data Box[A]` ⟹ `Function[Type, Type]`). [[None]] when the value has no fetchable signature (a native or
-    * primitive head), in which case the carrier check is skipped for that solution.
-    */
-  private def kindOfTypeConstructor(fqn: ValueFQN): CheckIO[Option[SemValue]] =
-    liftF(getFact(SaturatedValue.Key(fqn))).flatMap {
-      case None     => pure(None)
-      case Some(sv) => evalExpr(sv.value.typeStack.value.signature, env = Some(Env.empty)).map(Some(_))
     }
 
 }

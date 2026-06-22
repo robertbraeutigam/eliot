@@ -32,8 +32,8 @@ unifier's metastore and runs as a post-drain pass**:
 |---|---|---|---|
 | Int widening / `Coerce` *(extracted by D4)* | a **directional subtyping** relation | `unifyOrCoerce` / `tryCoerce` / `coercionPayload` / `buildCoercedExpr` resolve an ability and splice nodes *outside* `unify` — now in `refine/RefinementSolver` | ~180 |
 | `pick(a,b)` join / `Combine` *(algorithm extracted by D4)* | a **least-upper-bound / lattice** | `combinable` / `candidates` interception stays in the unifier; `resolveCombines` / `resolveUpperBounds` / `pendingUpperBounds` algorithm now in `refine/RefinementSolver` | ~200 |
-| Calculated returns (implicit generics) | **non-local inference** — a caller's type depends on a callee's *monomorphized body* | `readMonomorphicReturn` re-enters `getFact(MonomorphicValue.Key)` + an `activeFactKeys` recursion guard | ~200 |
-| HKT carriers (effects) | a **kind system** | `recordCarrierMetas` / `verifyCarrierKinds` / `unsatisfiableApplication` reconstruct kinds *post-drain* from signatures | ~130 |
+| Calculated returns *(extracted by D7)* | **non-local inference** — a caller's type depends on a callee's *monomorphized body* | `readMonomorphicReturn` re-enters `getFact(MonomorphicValue.Key)` + an `activeFactKeys` recursion guard — now in `check/CalculatedReturnResolver` | ~200 |
+| HKT carriers *(extracted by D8)* | a **kind system** | `recordCarrierMetas` / `verifyCarrierKinds` / `unsatisfiableApplication` reconstruct kinds *post-drain* from signatures — now in `check/CarrierKindChecker` | ~130 |
 | Reification / erasure *(reified-binder classification extracted by D6)* | an explicit **phase / staging** analysis | `PostDrainQuoter`'s gate + `eval/SemExpressionEvaluator` re-derive which subterms are erased; the value's *reified-binder set* is now the precomputed `saturate.fact.BinderRoles` on `SaturatedValue`, consumed by `BindingProcessor.reifyingWrap` | ~250 |
 
 Two consequences make the resulting bugs *non-obvious* — which is the lived experience of "fixed X while working
@@ -317,6 +317,51 @@ the three was the same classification):
   second consumer (keying B1's codegen dedup in `used`/`uncurry`) reads the same `binderRoles` member when that work
   lands; D6 ships the analysis with its checker-side consumer.
 
+### D7 — Extract the calculated-return back-edge ✅ DONE (continues D4 on the second side-car)
+
+Moved the calculated-return cluster (`resolveCalculatedReturn` / `resolveCompleteCalculatedReturn` /
+`readMonomorphicReturn(+Ground)` / `innermostValueRef` / `installReturnMeta` / `substituteReturn` + the two error
+reporters, ~146 lines) out of `Checker` into one module, `check/CalculatedReturnResolver.scala`. This is the
+review's own "non-local inference" side-car (root-cause table) — the implicit-generics W3/W4 machinery that fills a
+value's bare omittable return from its *monomorphized body* by re-entering `getFact(MonomorphicValue.Key)` under an
+`activeFactKeys` recursion guard. It is not equality-shaped, so it does not belong in the equality core. The module
+is constructed with exactly **two** checker primitives (`force`, `freshMeta`); the three entry points
+(`installReturnMeta` callee-side from `TypeStackLoop`; `resolveCalculatedReturn` applied-read from `applyInferred`;
+`resolveCompleteCalculatedReturn` by-name-read from `infer`) are exposed via `checker.calcReturns`, exactly as D4
+exposed `checker.solver`. Suite green.
+
+### D8 — Extract the HKT carrier-kind checker ✅ DONE (continues D4 on the third side-car)
+
+Moved the carrier-kind cluster (`recordCarrierMetas` / `recordIfHigherKinded` / `verifyCarrierKinds` /
+`checkUnsolvedCarrier` / `unsatisfiableApplication` / `kindOfSolution` / `kindOfTypeConstructor`, ~131 lines) out of
+`Checker` into `check/CarrierKindChecker.scala`. This is the review's "kind system" side-car: it reconstructs a
+`[F[_]]` carrier's expected *kind* from its binder signature and verifies the post-drain solution against it —
+again not equality-shaped. Constructed with exactly **three** primitives (`force`, `evalExpr`, `doUnify`); the two
+entry points (`recordCarrierMetas` seed from `instantiatePolymorphic`; `verifyCarrierKinds` from the
+`TypeStackLoop` `carrier-kinds` finalization pass) are exposed via `checker.carriers`. Suite green.
+
+**Refinements learned from building D7+D8** (the honest deltas from the D4 prediction):
+
+- **These two are *pure moves*, like D4 — not new-behavior introductions like D2/D3/D5/D6 — so no new test was
+  fabricated.** The behaviors already have dedicated, named end-to-end coverage in `MonomorphicTypeCheckTest` that
+  routes through the new modules unchanged: calc-return by `"calculated return positions (W3)"` (calculate / reject
+  narrower / chain / Coerce-widen) and `"calculated return limits (W4)"` (self-recursive / mutually-recursive /
+  no-arg-producer recursion guards); carriers by `"reject a higher-kinded carrier inferred as a fully-applied proper
+  type"` (wrong-kind) / `"… applied where a mismatched-arity rigid type is required"` (`unsatisfiableApplication`) /
+  `"accept a higher-kinded carrier inferred as a Type -> Type constructor"`. As with D4, a pure refactor's existing
+  coverage *is* its targeted test; a mock-`CheckState` unit test would be strictly more brittle and less faithful.
+- **The cut is *cleaner than D4's*.** D4 found it had to leave the combinable/candidate *interception* behind in the
+  `Unifier` because it fires at every level of the recursive definitional-equality descent. Neither D7 nor D8 has
+  such an interception: both clusters touch the metastore only at their own named call sites, so the extraction is
+  total — the modules need *only* constructor-injected primitives (two and three respectively, both strict subsets of
+  RefinementSolver's five), with no callback left reaching back into `unify`.
+- **Extraction is not the D6 merge, and does not contradict its finding.** D6 concluded these edges cannot be folded
+  into *one shared per-binder classification*; D7/D8 give each its *own* cohesive home. "Cohesive local logic"
+  (D6's phrase) is precisely what makes a clean module, not a reason to leave it inline. With the lattice (D4),
+  non-local inference (D7), and the kind system (D8) all housed, `Checker` now hosts only
+  definitional-equality-adjacent work: the bidirectional `check`/`infer`/`applyInferred`/`peelLams`/
+  `instantiatePolymorphic` core plus its primitives. **`Checker` drops 683 → 406 lines** (1071 → 406 across D4+D7+D8).
+
 ### Minor cleanups (opportunistic)
 
 - `Evaluator.eval` and `SemExpressionEvaluator.eval` are near-duplicate traversals (the latter only reads
@@ -329,13 +374,17 @@ the three was the same classification):
 
 The NbE core, the single-evaluator/single-domain cornerstone, the uniform type-stack fold, and pure-definitional
 `unify` all stay. The point of this plan is the opposite of a rewrite: the core is right, and the work is to stop
-the *edges* from multiplying. D1–D3 were cheap and high-value; D4 (done) extracted the refinement lattice into its
-own module; D5 (done) replaced the `errors.size`-delta success protocol with an explicit `UnifyResult`; D6 (done)
-gave the reified-binder classification a single home on `SaturatedValue` and fixed the saturated-binder wrap
-alignment. **All six deliverables are complete** — the honest finding across D4/D6 is that the checker's remaining
-edges (the quoter's per-node staging walk, carrier-kind seeding, the `typeStackValueParams` gate) are genuinely
-distinct concerns, not one re-derived classification, so they stay as cohesive local logic rather than being forced
-into a single analysis.
+the *edges* from multiplying. D1–D3 were cheap and high-value; D4 extracted the refinement lattice into its own
+module; D5 replaced the `errors.size`-delta success protocol with an explicit `UnifyResult`; D6 gave the
+reified-binder classification a single home on `SaturatedValue` and fixed the saturated-binder wrap alignment; D7/D8
+extracted the remaining two non-equality side-cars named in the root-cause table — non-local inference
+(`CalculatedReturnResolver`) and the kind system (`CarrierKindChecker`) — into their own modules. **All eight
+deliverables are complete.** With the three extractable side-cars now housed (lattice, non-local inference, kind
+system), `Checker` is back to 406 lines of definitional-equality-adjacent work. The D6 finding still holds and is
+*orthogonal* to D7/D8: the edges cannot be *merged* into one shared per-binder classification — carrier-kind seeding,
+the quoter's per-node staging walk, and the `typeStackValueParams` gate remain genuinely distinct concerns, each
+computing what it needs — but each *can* be *extracted* into its own cohesive home, which is what stops them
+multiplying inside the equality core.
 
 ## Validation
 
@@ -361,6 +410,11 @@ Each deliverable keeps the full suite green and adds a targeted test:
   (`tagged[V](x: Int)`, where the roles span the prepended `$Int$0`/`$Int$1` binders before the reified `V`). The
   existing `ComputedTypeArgumentReadbackTest` and the keying plan's `MonomorphizationVersioningTest` exercise the
   wrap end-to-end through the new `binderRoles` member, unchanged. Full suite green (849 tests).
+- D7/D8: ✅ pure refactors — the named end-to-end coverage in `MonomorphicTypeCheckTest` routes through the new
+  modules unchanged (D7: `"calculated return positions (W3)"` calculate/reject-narrower/chain/Coerce-widen +
+  `"calculated return limits (W4)"` self-/mutually-recursive + no-arg-producer recursion guards; D8: higher-kinded
+  carrier wrong-kind reject / mismatched-arity reject / `Type -> Type` accept). No new test fabricated, as with D4 —
+  a pure refactor's existing coverage is its targeted test. Full suite green (849 tests); `Checker` 683 → 406 lines.
 
 ## Cross-refs
 
