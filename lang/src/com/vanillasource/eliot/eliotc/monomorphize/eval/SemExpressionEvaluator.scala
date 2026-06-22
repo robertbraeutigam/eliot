@@ -3,12 +3,10 @@ package com.vanillasource.eliot.eliotc.monomorphize.eval
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.check.SemExpression
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
-import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 
-/** Pure, synchronous NbE evaluator over the checker's [[SemExpression]] output. Mirrors [[Evaluator.eval]] but reads the
-  * already-evaluated [[SemValue]] type arguments straight out of [[SemExpression.ValueReference]] instead of
-  * re-evaluating ORE.
+/** Pure, synchronous NbE evaluator over the checker's [[SemExpression]] output. Shares the [[NbeEvaluator]] traversal
+  * with the ORE [[Evaluator]]; it only differs in [[decompose]], reading the already-evaluated [[SemValue]] type
+  * arguments straight out of [[SemExpression.ValueReference]] instead of re-evaluating ORE.
   *
   * Used by [[com.vanillasource.eliot.eliotc.monomorphize.check.PostDrainQuoter]] to materialise compile-time-constant
   * sub-terms — the ones whose value is fully determined by erased `[]`-bound parameters — into runtime literals and
@@ -16,35 +14,31 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
   * established that the sub-term references an erased parameter and nothing runtime.
   *
   * @param lookupTopDef
-  *   Resolve a top-level definition (the checker's binding cache). A missing binding becomes a stuck [[VNeutral]], which
-  *   prevents materialisation (read-back fails) rather than silently mis-evaluating.
+  *   Resolve a top-level definition (the checker's binding cache). A missing binding becomes a stuck [[VNeutral]],
+  *   which prevents materialisation (read-back fails) rather than silently mis-evaluating.
   */
-class SemExpressionEvaluator(lookupTopDef: ValueFQN => Option[SemValue]) {
+class SemExpressionEvaluator(lookupTopDef: ValueFQN => Option[SemValue])
+    extends NbeEvaluator[SemExpression](lookupTopDef) {
 
-  /** Evaluate a [[SemExpression]] to a semantic value under the given environment. */
-  def eval(env: Env, expr: SemExpression): SemValue = expr.expression match {
-    case SemExpression.IntegerLiteral(value) =>
-      VConst(GroundValue.Direct(value.value, Evaluator.bigIntGroundType))
+  override protected def decompose(env: Env, expr: SemExpression): NbeEvaluator.Term[SemExpression] =
+    expr.expression match {
+      case SemExpression.IntegerLiteral(value) =>
+        NbeEvaluator.Term.IntegerLiteral(value.value)
 
-    case SemExpression.StringLiteral(value) =>
-      VConst(GroundValue.Direct(value.value, Evaluator.stringGroundType))
+      case SemExpression.StringLiteral(value) =>
+        NbeEvaluator.Term.StringLiteral(value.value)
 
-    case SemExpression.ParameterReference(name) =>
-      env
-        .lookupByName(name.value)
-        .getOrElse(VNeutral(NeutralHead.VVar(env.level, name.value), Spine.SNil))
+      case SemExpression.ParameterReference(name) =>
+        NbeEvaluator.Term.ParameterReference(name.value)
 
-    case SemExpression.ValueReference(vfqn, typeArgs) =>
-      val base = lookupTopDef(vfqn.value).getOrElse(
-        VNeutral(NeutralHead.VVar(env.level, vfqn.value.name.name), Spine.SNil)
-      )
-      // The type arguments are already SemValues (the checker evaluated them); thread them into the value's spine.
-      typeArgs.foldLeft(base)(Evaluator.applyValue)
+      case SemExpression.ValueReference(vfqn, typeArgs) =>
+        // The type arguments are already SemValues (the checker evaluated them); pass them through unchanged.
+        NbeEvaluator.Term.ValueReference(vfqn.value, typeArgs)
 
-    case SemExpression.FunctionApplication(target, argument) =>
-      Evaluator.applyValue(eval(env, target.value), eval(env, argument.value))
+      case SemExpression.FunctionApplication(target, argument) =>
+        NbeEvaluator.Term.FunctionApplication(target.value, argument.value)
 
-    case SemExpression.FunctionLiteral(paramName, _, body) =>
-      VLam(paramName.value, arg => eval(env.bind(paramName.value, arg), body.value))
-  }
+      case SemExpression.FunctionLiteral(paramName, _, body) =>
+        NbeEvaluator.Term.FunctionLiteral(paramName.value, body.value)
+    }
 }

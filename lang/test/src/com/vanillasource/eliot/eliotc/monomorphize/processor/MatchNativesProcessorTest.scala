@@ -14,7 +14,7 @@ import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProc
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.MetaStore
-import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
+import com.vanillasource.eliot.eliotc.monomorphize.eval.Quoter
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
@@ -115,7 +115,7 @@ class MatchNativesProcessorTest
   }
 
   // The closed-term entry point: "evaluate to a SemValue, force, quote" (Quoter, which forces internally) reads a
-  // fully reduced match back to a GroundValue — the same result as semToGround, confirming no separate fact is needed.
+  // fully reduced match back to a GroundValue, confirming no separate fact is needed.
   it should "read a reduced closed match back to ground via the Quoter entry point" in {
     groundViaQuote(
       "data Boolean = True | False\n" +
@@ -127,12 +127,11 @@ class MatchNativesProcessorTest
 
   private def constructorFqn(name: String): ValueFQN = ValueFQN(testModuleName, default(name))
 
-  /** Evaluate the named closed value's NbE binding to a [[GroundValue]] via [[Evaluator.semToGround]]. */
-  private def groundOf(source: String, name: String): IO[Option[GroundValue]] = {
-    val key = NativeBinding.Key(ValueFQN(testModuleName, default(name)))
-    runGenerator(source, key, systemImports)
-      .map(_._2.get(key).map(fact => Evaluator.semToGround(fact.asInstanceOf[NativeBinding].semValue)))
-  }
+  /** Read the named closed value's NbE binding back to a [[GroundValue]] via [[Quoter.quote]]. A read-back failure
+    * (a non-ground residual) surfaces as [[None]] — the assertions all expect a concrete ground.
+    */
+  private def groundOf(source: String, name: String): IO[Option[GroundValue]] =
+    groundViaQuote(source, name).map(_.flatMap(_.toOption))
 
   /** Reduce the named closed value's NbE binding to a [[GroundValue]] through the closed-term read-back entry point:
     * [[Quoter.quote]], which forces the lazy [[com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.VTopDef]]

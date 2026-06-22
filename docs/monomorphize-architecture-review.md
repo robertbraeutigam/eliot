@@ -362,13 +362,24 @@ entry points (`recordCarrierMetas` seed from `instantiatePolymorphic`; `verifyCa
   definitional-equality-adjacent work: the bidirectional `check`/`infer`/`applyInferred`/`peelLams`/
   `instantiatePolymorphic` core plus its primitives. **`Checker` drops 683 → 406 lines** (1071 → 406 across D4+D7+D8).
 
-### Minor cleanups (opportunistic)
+### Minor cleanups (opportunistic) ✅ DONE
 
-- `Evaluator.eval` and `SemExpressionEvaluator.eval` are near-duplicate traversals (the latter only reads
-  pre-evaluated type args); fold toward a shared traversal.
-- `Evaluator.semToGround`'s `case _ => GroundValue.Type` fallback (`Evaluator.scala:162`) is a residual lossy
-  path the strict post-drain quoting work otherwise eliminated; route its callers (ability matching) through
-  `Quoter.quote` so the lossy fallback can be deleted.
+- **Shared traversal extracted.** `Evaluator.eval` and `SemExpressionEvaluator.eval` were near-duplicate
+  syntax-directed folds differing only in how a value reference's type arguments are obtained (the ORE evaluator
+  re-evaluates ORE sub-terms; the checker-output one reads the already-evaluated `SemValue`s). The evaluation
+  *logic* (constant construction, neutral fallback, application, lambda binding) now lives once in a new
+  `eval/NbeEvaluator.scala` abstract base over a shared `NbeEvaluator.Term[E]` shape; both evaluators are now just a
+  trivial `decompose(env, expr): Term[E]` projection (ORE evaluates its type-arg sub-terms inside `decompose`, the
+  checker one passes its `SemValue`s through). Suite green.
+- **`semToGround`'s lossy fallback deleted.** By the time this was picked up, `Evaluator.semToGround` had **no
+  production callers left** — the ability-matching path the review named had already moved to its own
+  `AbilityMatcher.metaToGround`, so `semToGround` was dead apart from a test helper. It was deleted outright (lossy
+  `case _ => GroundValue.Type` and all), and its sole remaining consumer (`MatchNativesProcessorTest.groundOf`)
+  re-routed through `Quoter.quote` — which fails loudly on a non-ground residual instead of minting `Type`. Suite
+  green. (Note `AbilityMatcher.metaToGround` keeps a *deliberate*, documented `Type` default for non-traceable
+  bindings during overlap checking; that is a different, behaviour-bearing method the review did not name, and
+  routing it through `Quoter.quote` would be a behavioural change to ability resolution, not a refactor — left
+  as-is.)
 
 ## What is explicitly *not* in scope
 

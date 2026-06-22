@@ -15,9 +15,9 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
   * For data types like `data Box[A]`, binds the constructor as a [[VTopDef]] with no cached body and an empty spine.
   * Every subsequent [[Evaluator.applyValue]] extends the spine with the [[SemValue]] argument as-is — no eager
   * conversion to [[GroundValue]]. When the result is finally quoted post-drain (e.g. via [[com.vanillasource.eliot.
-  * eliotc.monomorphize.eval.Quoter]]) or via [[Evaluator.semToGround]], the spine entries are turned into `$0`, `$1`,
-  * ... fields. Keeping the args as SemValues means unresolved metavariables are preserved — solved later by
-  * unification — rather than silently collapsing to `GroundValue.Type`.
+  * eliotc.monomorphize.eval.Quoter]]), the spine entries are turned into `$0`, `$1`, ... fields. Keeping the args as
+  * SemValues means unresolved metavariables are preserved — solved later by unification — rather than silently
+  * collapsing to `GroundValue.Type`.
   */
 class DataTypeNativesProcessor
     extends TransformationProcessor[OperatorResolvedValue.Key, NativeBinding.Key](key =>

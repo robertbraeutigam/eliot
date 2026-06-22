@@ -6,7 +6,9 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 
-/** Pure, synchronous NbE evaluator. Evaluates ORE syntax into the semantic domain (SemValue).
+/** Pure, synchronous NbE evaluator. Evaluates ORE syntax into the semantic domain (SemValue) via the shared
+  * [[NbeEvaluator]] traversal — it only has to project ORE nodes onto [[NbeEvaluator.Term]], evaluating its ORE
+  * type-argument sub-terms in the process.
   *
   * The evaluator always produces VLam for FunctionLiteral — the Checker is the only place that produces VPi.
   *
@@ -15,37 +17,29 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
   */
 class Evaluator(
     lookupTopDef: ValueFQN => Option[SemValue]
-) {
+) extends NbeEvaluator[OperatorResolvedExpression](lookupTopDef) {
 
-  /** Evaluate an ORE expression to a semantic value under the given environment. */
-  def eval(env: Env, tm: OperatorResolvedExpression): SemValue = tm match {
+  override protected def decompose(
+      env: Env,
+      expr: OperatorResolvedExpression
+  ): NbeEvaluator.Term[OperatorResolvedExpression] = expr match {
     case OperatorResolvedExpression.IntegerLiteral(value) =>
-      VConst(GroundValue.Direct(value.value, Evaluator.bigIntGroundType))
+      NbeEvaluator.Term.IntegerLiteral(value.value)
 
     case OperatorResolvedExpression.StringLiteral(value) =>
-      VConst(GroundValue.Direct(value.value, Evaluator.stringGroundType))
+      NbeEvaluator.Term.StringLiteral(value.value)
 
     case OperatorResolvedExpression.ParameterReference(name) =>
-      env
-        .lookupByName(name.value)
-        .getOrElse(
-          VNeutral(NeutralHead.VVar(env.level, name.value), Spine.SNil)
-        )
+      NbeEvaluator.Term.ParameterReference(name.value)
 
     case OperatorResolvedExpression.ValueReference(vfqn, typeArgs) =>
-      val base = lookupTopDef(vfqn.value) match {
-        case Some(sem) => sem
-        case None      => VNeutral(NeutralHead.VVar(env.level, vfqn.value.name.name), Spine.SNil)
-      }
-      // Thread explicit type arguments into the value's spine. For a type-application scrutinee like `Tag["hello"]`
-      // this keeps `"hello"` in the constructor's spine, so a type-match `case Tag[name] -> name` can bind it.
-      typeArgs.foldLeft(base)((acc, ta) => Evaluator.applyValue(acc, eval(env, ta.value)))
+      NbeEvaluator.Term.ValueReference(vfqn.value, typeArgs.map(ta => eval(env, ta.value)))
 
     case OperatorResolvedExpression.FunctionApplication(target, arg) =>
-      Evaluator.applyValue(eval(env, target.value), eval(env, arg.value))
+      NbeEvaluator.Term.FunctionApplication(target.value, arg.value)
 
     case OperatorResolvedExpression.FunctionLiteral(paramName, _, body) =>
-      VLam(paramName.value, arg => eval(env.bind(paramName.value, arg), body.value))
+      NbeEvaluator.Term.FunctionLiteral(paramName.value, body.value)
   }
 }
 
@@ -128,7 +122,7 @@ object Evaluator {
       deep: Boolean = false
   ): SemValue =
     force(v, metaStore) match {
-      case VStuckNative(fqn, spine) =>
+      case VStuckNative(fqn, spine)      =>
         val args = spine.toList.map(renormalize(_, metaStore, lookupNative, deep))
         lookupNative(fqn) match {
           case Some(native: VNative) =>
@@ -141,7 +135,7 @@ object Evaluator {
             // No native reducer found (should not happen for a stuck native) — keep the stuck form, renormalised.
             args.foldLeft(VStuckNative(fqn, Spine.SNil): SemValue)(applyValue)
         }
-      case VTopDef(fqn, None, spine) =>
+      case VTopDef(fqn, None, spine)     =>
         val args = spine.toList.map(renormalize(_, metaStore, lookupNative, deep))
         args.foldLeft(VTopDef(fqn, None, Spine.SNil): SemValue)(applyValue)
       case VPi(domain, codomain) if deep =>
@@ -149,7 +143,7 @@ object Evaluator {
           renormalize(domain, metaStore, lookupNative, deep),
           arg => renormalize(codomain(arg), metaStore, lookupNative, deep)
         )
-      case forced                    => forced
+      case forced                        => forced
     }
 
   /** Force a semantic value by walking solved metas and unfolding VTopDef. */
@@ -170,28 +164,9 @@ object Evaluator {
 
   import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 
-  /** Convert a SemValue to a GroundValue. Used by native fire functions that need to store type arguments in
-    * GroundValue structures.
-    */
-  def semToGround(v: SemValue): GroundValue = v match {
-    case VConst(g)                       => g
-    case VType                           => GroundValue.Type
-    case VPi(domain, codomain)           =>
-      val domGround = semToGround(domain)
-      val codGround = semToGround(codomain(VNeutral(NeutralHead.VVar(0, "$quote"), Spine.SNil)))
-      GroundValue.Structure(WellKnownTypes.functionDataTypeFQN, Seq(domGround, codGround), GroundValue.Type)
-    case VTopDef(fqn, None, spine)       =>
-      GroundValue.Structure(fqn, spine.toList.map(semToGround), GroundValue.Type)
-    case VTopDef(_, Some(cached), spine) =>
-      val base   = cached.value
-      val result = spine.toList.foldLeft(base)(applyValue)
-      semToGround(result)
-    case _                               => GroundValue.Type
-  }
-
-  /** Convert a GroundValue to a SemValue. Inverse of [[semToGround]] for [[GroundValue.Structure]]s: the head FQN
-    * becomes a [[VTopDef]] and the positional args become a spine in order. `GroundValue.Type` maps to [[VType]]. All
-    * other ground values wrap as [[VConst]].
+  /** Convert a GroundValue to a SemValue: the read-back inverse for [[GroundValue.Structure]]s — the head FQN becomes a
+    * [[VTopDef]] and the positional args become a spine in order. `GroundValue.Type` maps to [[VType]]. All other
+    * ground values wrap as [[VConst]].
     *
     * Used by ability pattern matching so that concrete query-side ground arguments participate in structural
     * unification against pattern-side [[SemValue]]s produced by evaluating marker-function ORE signatures.
