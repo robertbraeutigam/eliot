@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
+import com.vanillasource.eliot.eliotc.monomorphize.unify.UnifyResult
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -78,19 +79,19 @@ class RefinementSolver(
   ): CheckIO[SemExpression] =
     for {
       s      <- get
-      trial   = s.unifier.unify(actual, expected, tm.as("Type mismatch."))
-      result <- if (trial.errors.size == s.unifier.errors.size)
-                  modify(_.withUnifier(trial)).as(expr)
-                else
-                  tryCoerce(tm, expr, actual, expected).flatMap {
-                    case Some(coerced) => pure(coerced)
-                    // No coercion: report a single mismatch (carrying Expected/Actual) at the term rather than
-                    // committing `trial`, whose spine descent can yield one error per mismatched type argument (e.g.
-                    // both `Int` bounds).
-                    case None          =>
-                      modify(st => st.withUnifier(st.unifier.addMismatch(actual, expected, tm.as("Type mismatch."))))
-                        .as(expr)
-                  }
+      result <- s.unifier.tryUnify(actual, expected, tm.as("Type mismatch.")) match {
+                  case UnifyResult.Unified(u)       => modify(_.withUnifier(u)).as(expr)
+                  case UnifyResult.Contradiction(_) =>
+                    tryCoerce(tm, expr, actual, expected).flatMap {
+                      case Some(coerced) => pure(coerced)
+                      // No coercion: report a single mismatch (carrying Expected/Actual) at the term rather than
+                      // committing the failed unification, whose spine descent can yield one error per mismatched
+                      // type argument (e.g. both `Int` bounds).
+                      case None          =>
+                        modify(st => st.withUnifier(st.unifier.addMismatch(actual, expected, tm.as("Type mismatch."))))
+                          .as(expr)
+                    }
+                }
     } yield result
 
   /** Try to resolve and apply a `Coerce[actual, expected]` instance. Returns the coerced expression on success (the
@@ -414,9 +415,10 @@ class RefinementSolver(
   private def coercionExists(actual: SemValue, expected: SemValue, context: Sourced[String]): CheckIO[Boolean] =
     for {
       s      <- get
-      trial   = s.unifier.unify(actual, expected, context)
-      result <- if (trial.errors.size == s.unifier.errors.size) pure(true)
-                else resolveCoercion(actual, expected, context)
+      result <- s.unifier.tryUnify(actual, expected, context) match {
+                  case UnifyResult.Unified(_)       => pure(true)
+                  case UnifyResult.Contradiction(_) => resolveCoercion(actual, expected, context)
+                }
     } yield result
 
   /** Re-unify the distinct candidates strictly (first against each subsequent), surfacing the ordinary "Type mismatch."

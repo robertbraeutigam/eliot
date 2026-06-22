@@ -242,12 +242,32 @@ narrow, explicit surface *is* the module boundary. Pure refactor: existing `Coer
   not their underlying operation. (`coercionExists` is shared between them already — the constructive `Combine` join
   is *verified* against each contributor via `Coerce` — which is the real, and sufficient, overlap.)
 
-### D5 — Replace the `errors.size`-delta success protocol (low/medium)
+### D5 — Replace the `errors.size`-delta success protocol ✅ DONE (low/medium)
 
-`unify` success/failure is currently detected by diffing `errors.size` before/after, in ≥4 places
-(`unifyOrCoerce`, `coercionExists`, the combinable interception in `Unifier.unify`, and `drain`'s progress
-bookkeeping). Replace with `unify` returning an explicit success/contradiction result (or a non-committing
-`tryUnify`). Removes a brittle hand-rolled speculative-transaction idiom over a mutable error log.
+Added a non-committing `Unifier.tryUnify` returning an explicit `UnifyResult` (`unify/UnifyResult.scala`:
+`Unified(unifier)` | `Contradiction(unifier)`), and routed all four former `errors.size`-delta sites through it:
+`RefinementSolver.unifyOrCoerce` / `coercionExists`, the combinable-contribution interception in `Unifier.unify`,
+and `drain`'s progress bookkeeping. The brittle hand-rolled speculative-transaction idiom (diff the mutable error
+log before/after) is gone; the `errors.size` comparison now lives in exactly **one** private place — `speculate`,
+the helper behind `tryUnify`/`tryUnifyForced`. Pure refactor: full suite green, plus a new contract test
+(`unify/UnifyResultTest`).
+
+**Two refinements learned from building it:**
+
+- **`tryUnify` runs the full unification, then *classifies* — it is not a short-circuiting variant.** The committing
+  `unify`'s spine descent deliberately accumulates *one error per mismatched type argument* (e.g. both `Int` bounds),
+  and that multi-error behaviour is observable (`TypeStackLoop` reports one diagnostic per `UnifyError`). So `tryUnify`
+  wraps `unify` and, on contradiction, strips the new errors (`after.copy(errors = errors)`) rather than stopping at
+  the first leaf — keeping the committing path's error semantics byte-for-byte while giving speculative callers a clean
+  boolean. Making `unify` itself return a result and short-circuit would have changed diagnostic counts; out of scope
+  for a pure refactor.
+- **`Contradiction` carries the partial solutions, and only `drain` consumes them.** A failed unification can solve
+  some metas before hitting a contradiction (a spine that unifies arg 1 then mismatches arg 2). `drain` *keeps* those
+  solutions and re-postpones (its long-standing behaviour), so `Contradiction.unifier` must carry them, errors stripped.
+  The other three callers want a clean rollback, so they simply *discard* the carried unifier and recover from their own
+  pre-unification state (`s.unifier` / `this.recordCandidate`) — the result type accommodates both without a second
+  variant. (`coercionExists` is purely a predicate: it ignores the carried unifier on *both* sides, committing nothing —
+  preserving that it never leaks meta solutions into a verification probe.)
 
 ### D6 — Make staging/role explicit and thread it (aligns with keying B1)
 
@@ -269,7 +289,8 @@ that work so the classification has two consumers (checking + codegen dedup) and
 The NbE core, the single-evaluator/single-domain cornerstone, the uniform type-stack fold, and pure-definitional
 `unify` all stay. The point of this plan is the opposite of a rewrite: the core is right, and the work is to stop
 the *edges* from multiplying. D1–D3 were cheap and high-value; D4 (done) extracted the refinement lattice into its
-own module; D6 is the remaining structural fix that stops new features from multiplying against old ones.
+own module; D5 (done) replaced the `errors.size`-delta success protocol with an explicit `UnifyResult`; D6 is the
+remaining structural fix that stops new features from multiplying against old ones.
 
 ## Validation
 
@@ -286,7 +307,10 @@ Each deliverable keeps the full suite green and adds a targeted test:
 - D4: ✅ existing `Coerce` / `Combine` coverage (`MonomorphicTypeCheckTest`) passes unchanged through the new
   `refine/RefinementSolver` module boundary (a pure refactor, so its existing coverage is the targeted test). No
   join-as-coerce spike test — the collapse was not pursued (the spike's premise does not hold; see D4 above).
-- D5: no behavioural test (pure refactor); rely on the suite.
+- D5: ✅ `unify/UnifyResultTest` pins the `tryUnify` contract — `Unified` on definitional equality (carrying the
+  solution), `Contradiction` on mismatch with the error stripped (non-committing, unlike the committing `unify`), and
+  the partial-solve-preserved-but-error-stripped invariant that `drain` relies on. Full suite otherwise green (pure
+  refactor).
 - D6: shares the keying plan's `MonomorphizationVersioningTest` gate plus the reification end-to-end checks.
 
 ## Cross-refs

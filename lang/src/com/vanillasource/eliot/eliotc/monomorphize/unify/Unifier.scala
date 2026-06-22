@@ -148,13 +148,38 @@ case class Unifier(
     */
   def unify(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = r match {
     case VMeta(id, Spine.SNil) if isCombinable(id.value) && metaStore.lookup(id).nonEmpty =>
-      val solution = metaStore.lookup(id).get
-      val trial    = unifyForced(l, solution, context)
-      if (trial.errors.size == errors.size) trial
-      else recordCandidate(id, l, context)
-    case _                                                                                       =>
+      tryUnifyForced(l, metaStore.lookup(id).get, context) match {
+        case UnifyResult.Unified(u)       => u
+        case UnifyResult.Contradiction(_) => recordCandidate(id, l, context)
+      }
+    case _                                                                                =>
       unifyForced(l, r, context)
   }
+
+  /** Speculatively unify `l` against `r` without committing a mismatch (D5), returning an explicit [[UnifyResult]]
+    * rather than forcing callers to diff [[errors]] before and after a [[unify]] call. A [[UnifyResult.Unified]]
+    * carries the unifier with every solution applied (safe to commit); a [[UnifyResult.Contradiction]] carries the same
+    * partial solutions but with the new mismatch errors stripped, leaving the report-or-recover decision to the caller
+    * (a check-mode `Coerce` insertion, a `Combine` candidate, or a [[drain]] re-postpone).
+    */
+  def tryUnify(l: SemValue, r: SemValue, context: Sourced[String]): UnifyResult =
+    speculate(unify(l, r, context))
+
+  /** Like [[tryUnify]] but over [[unifyForced]], bypassing the combinable-contribution interception in [[unify]] — used
+    * by that interception itself to probe a contribution against a solved combinable meta's first candidate.
+    */
+  private def tryUnifyForced(l: SemValue, r: SemValue, context: Sourced[String]): UnifyResult =
+    speculate(unifyForced(l, r, context))
+
+  /** Classify a unification result `after` (produced from `this`) as [[UnifyResult.Unified]] or
+    * [[UnifyResult.Contradiction]] by whether it added any error, stripping the new errors in the latter case so a
+    * caller can recover without them. This is the single home of the former scattered `errors.size`-delta check (D5);
+    * because `after` only ever *prepends* errors to `this`, restoring `this`'s error list drops exactly the new ones
+    * while preserving every metavariable solved along the way.
+    */
+  private def speculate(after: Unifier): UnifyResult =
+    if (after.errors.size == errors.size) UnifyResult.Unified(after)
+    else UnifyResult.Contradiction(after.copy(errors = errors))
 
   private def unifyForced(l: SemValue, r: SemValue, context: Sourced[String]): Unifier = {
     val fl = Evaluator.force(l, metaStore)
@@ -315,23 +340,14 @@ case class Unifier(
       else {
         val (result, changed) = current.foldLeft((u.copy(postponed = Nil), false)) {
           case ((acc, anyChanged), (l, r, ctx)) =>
-            val beforeErrors    = acc.errors.length
-            val beforePostponed = acc.postponed.length
-            val after           = acc.unify(l, r, ctx)
-            if (after.errors.length > beforeErrors) {
-              // New error — remove it and re-postpone
-              (
-                after.copy(
-                  errors = after.errors.drop(after.errors.length - beforeErrors),
-                  postponed = (l, r, ctx) :: after.postponed
-                ),
-                anyChanged
-              )
-            } else if (after.postponed.length > beforePostponed) {
-              // Constraint was re-postponed inside unify (e.g., non-pattern spine) — no real progress
-              (after, anyChanged)
-            } else {
-              (after, true)
+            acc.tryUnify(l, r, ctx) match {
+              case UnifyResult.Contradiction(after) =>
+                // Could not discharge — keep any solutions, drop the error, and re-postpone (no progress).
+                (after.copy(postponed = (l, r, ctx) :: after.postponed), anyChanged)
+              case UnifyResult.Unified(after)       =>
+                // A constraint re-postponed inside unify (e.g. a non-pattern spine) is not real progress.
+                if (after.postponed.length > acc.postponed.length) (after, anyChanged)
+                else (after, true)
             }
         }
         if (changed) loop(result) else result
