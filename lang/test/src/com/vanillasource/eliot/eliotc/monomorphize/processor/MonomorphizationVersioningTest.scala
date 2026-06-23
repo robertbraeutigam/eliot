@@ -26,11 +26,10 @@ import scala.concurrent.duration.*
 /** Characterization test suite — Deliverable 0 of the monomorphization-keying plan.
   *
   * These tests pin down, **empirically and before any fix**, how many monomorphic versions the compiler unrolls today
-  * for each keying-plan scenario S1-S8. They are the baseline the dedup/demote/backstop fixes (Deliverables A and B)
-  * are validated against: after the fix the *wins* (S1/S2/S5) must drop to their target counts, the
-  * *must-not-over-merge* guards (S3/S6/S8) must stay put, and the divergent case (S7) must turn its hang into a
-  * backstop error. Every assertion records the **current** behaviour (not the desired one) plus, in a comment, the
-  * post-fix target — so the test fails loudly when behaviour changes and is updated as the fix lands.
+  * for each keying-plan scenario S1-S8. They are the baseline the dedup/backstop fixes (Deliverables A and B) are
+  * validated against: the representation win (S2) collapses to one version, the *must-not-over-merge* guards (S3/S6/S8)
+  * stay put, and the divergent case (S7) turns its hang into a backstop error. Every assertion records the **current**
+  * behaviour, so the test fails loudly when behaviour changes.
   *
   * The metric is the number of distinct [[MonomorphicValue]] facts the `used` traversal materialises per `vfqn`. The
   * harness drives [[UsedNames]] from a concrete `main`, which demands a `MonomorphicValue` for every reachable
@@ -48,9 +47,11 @@ import scala.concurrent.duration.*
   * the focused regression tests). Consequently S1 and S5 now '''unroll''' — the recursion proceeds and terminates at the
   * `fold` base case — instead of erroring: S1 ⇒ 4 versions ({3,2,1,0}), S5 ⇒ 3 versions ({3,2,1}, one fewer because its
   * arithmetic recursive branch reifies the base case to a constant and drops the `gen[0]` reference). This is the codegen
-  * breadth the keying dedup/demote (Deliverables A and B) targets: S1 → 1, S5 → demote → 1. The one scenario that still
-  * genuinely diverges is S7, whose growing type-argument is a structural `Box[...]` type application (not a stuck native),
-  * so it quotes fine and unrolls without bound until the backstop (Deliverable A) lands.
+  * breadth the keying dedup targets. S1/S5 specialize per reified index (4 and 3 versions); they are recursion-shaped
+  * proxies no real program can produce — Eliot user code cannot recurse (see `docs/recursion-termination.md`), and
+  * reject-recursion is simply not wired yet, so they still unroll here. The one scenario that genuinely diverges is S7,
+  * whose growing type-argument is a structural `Box[...]` type application (not a stuck native), so it quotes fine and
+  * unrolls without bound until the backstop (Deliverable A) catches it.
   */
 class MonomorphizationVersioningTest
     extends ProcessorTest(
@@ -93,13 +94,12 @@ class MonomorphizationVersioningTest
   // `subtract(N, bigOf[1])` is normalised when read back as a type-argument, so the recursion now unrolls instead of
   // erroring. `countdown[3]` materialises the four distinct indices {3, 2, 1, 0} (the base case `fold` selects the
   // constant at `N <= 0`, so it terminates) ⇒ 4 versions. This is the breadth the keying dedup targets.
-  // DISPOSITION (B1): this concrete proxy references `N` in value position (`lessThanOrEqual(N, ...)`) and recurses on a
-  // changed `N`, so B1 classifies it `Demote`, NOT phantom (the plan's "phantom index" prose describes the idealised
-  // `sum`/`map` where `N` never reaches value position). DEMOTE IS DEFERRED in B2/B3: demoting `N` to a runtime
-  // parameter would turn the compile-time `fold` dispatch into a runtime conditional the backend has no path for, so
-  // `Demote` is treated as `Specialize` (fail-safe -- never mis-merges). Hence this still unrolls 4 versions today.
-  // TARGET (once demote lands): demote -> 1 body (the per-step index becomes a runtime argument).
-  "S1 (size-indexed recursion, reified index)" should "unroll one version per recursive index (demote deferred: stays 4)" in {
+  // DISPOSITION (B1): this concrete proxy references `N` in value position (`lessThanOrEqual(N, ...)`), so B1 classifies
+  // it reified -> Specialize, and each distinct index is its own version (4 here). It is a recursion-shaped proxy: real
+  // Eliot code cannot recurse (see `docs/recursion-termination.md`; reject-recursion is not wired yet, so it still
+  // unrolls here), so no program reaches this breadth -- the test just pins that the keying machinery treats the indices
+  // as an ordinary bounded reified family and the backstop caps any divergence.
+  "S1 (size-indexed recursion, reified index)" should "specialize one version per recursive index (stays 4)" in {
     runVersioning(
       "import eliot.lang.Bool\ndef bigOf[V: BigInteger]: BigInteger = V\ndef countdown[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], countdown[subtract(N, bigOf[1])])\ndef main: BigInteger = countdown[3]",
       imports = intImports
@@ -140,7 +140,7 @@ class MonomorphizationVersioningTest
   // --- S4: reified value at K finite call sites (Cat 3, recursion-invariant) --------------------------------------
   // `tag[N]: BigInteger = N` materialises its erased `N` into a runtime constant (reification). At K=3 distinct call
   // sites each version is genuinely different code. TODAY: 3. TARGET: 3 (correct — a bounded reified family stays
-  // distinct; it neither collapses nor demotes).
+  // distinct; it neither collapses nor erases).
   "S4 (reified value, recursion-invariant)" should "unroll one version per distinct reified constant (target: K, correct)" in {
     runVersioning(
       "def tag[N: BigInteger]: BigInteger = N\ndef use[A, B, C](x: A, y: B, z: C): A = x\ndef main: BigInteger = use(tag[1], tag[2], tag[3])"
@@ -149,19 +149,17 @@ class MonomorphizationVersioningTest
     }
   }
 
-  // --- S5: reified value varying per recursion (Cat 3, recursion-variant) -----------------------------------------
+  // --- S5: reified value varying per recursion (Cat 3, self-referential) ------------------------------------------
   // Like S1 but the index is also reified into value position each step (`add(N, gen[N-1])`), so every level is
-  // genuinely different code — an unbounded, non-collapsible reified family. The plan's disposition is *demote*: keep
-  // the per-step value as a runtime parameter (one body, N call-site constants), not N bodies.
+  // genuinely different code — a reified family that specializes per index. B1 classifies `N` reified -> Specialize.
   // PREREQUISITE GAP NOW FIXED (see `ComputedTypeArgumentReadbackTest`): the computed recursive index normalises, so the
   // recursion unrolls instead of erroring. `gen[3]` materialises {3, 2, 1} = 3 versions: each step's value `add(N, gen[N-1])`
   // is determined entirely by the erased index, so the reification gate folds `gen[1] = add(1, gen[0]) = 1` to a constant
   // (its `gen[0]` base case fully reduces), dropping the `gen[0]` reference — one fewer version than S1's bare-reference
   // recursion. (S1's recursive branch is a plain `countdown[0]` reference, which is kept, so S1 reaches index 0.)
-  // DEMOTE IS DEFERRED in B2/B3 (same reason as S1): the runtime-parameterization of `N` would need a runtime
-  // conditional for the compile-time `fold`, which the backend has no path for, so `Demote` is treated as `Specialize`
-  // (fail-safe). Hence this still unrolls 3 versions today; demote -> 1 is the target once demote lands.
-  "S5 (reified value, recursion-variant)" should "unroll one version per recursive index (demote deferred: stays 3)" in {
+  // Like S1 this is a recursion-shaped proxy: real Eliot code cannot recurse (reject-recursion not wired yet), so no
+  // program reaches this breadth; the test pins that the indices specialize as an ordinary reified family.
+  "S5 (reified value, self-referential)" should "specialize one version per recursive index (stays 3)" in {
     runVersioning(
       "import eliot.lang.Bool\ndef bigOf[V: BigInteger]: BigInteger = V\ndef gen[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], add(N, gen[subtract(N, bigOf[1])]))\ndef main: BigInteger = gen[3]",
       imports = intImports

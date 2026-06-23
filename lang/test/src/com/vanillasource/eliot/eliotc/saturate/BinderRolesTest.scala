@@ -23,16 +23,15 @@ import com.vanillasource.eliot.eliotc.token.Tokenizer
 /** Targeted test for the per-binder role analysis ([[BinderRoles]]) carried on [[SaturatedValue]].
   *
   * Originally (D6 of the monomorphize architecture review) this only distinguished the *reified* binders (referenced in
-  * value position) for the monomorphize binding wrap. The monomorphization-keying plan's **B1**
-  * extends it into the full codegen-relevance classification — reified (R1),
-  * dispatched (R2), representation (R3), recursion-variant — and the derived [[Disposition]] the eventual codegen-key
-  * projection (B2/B3) consumes.
+  * value position) for the monomorphize binding wrap. The monomorphization-keying plan's **B1** extends it into the
+  * full codegen-relevance classification — reified (R1), dispatched (R2), representation (R3) — and the derived
+  * [[Disposition]] the codegen-key projection consumes.
   *
   * The reified cases pin the binding-wrap behaviour (a reified binder, a non-reified ordinary generic, reification
   * through a nested value reference's type argument, and the alignment win where the reified prefix must cover the
   * *saturated* binder list). The disposition cases pin the B1 classification against the keying-plan scenarios:
-  * representation-collapse (S2/S3 `id`), recursion-invariant reified ⟶ specialize (S4 `tag`), recursion-variant reified
-  * ⟶ demote (S5 `gen`), dispatch ⟶ specialize (S6 `describe`), and an obvious phantom ⟶ erase.
+  * representation-collapse (S2/S3 `id`), reified ⟶ specialize (S4 `tag`, and the self-referential S5 `gen`), dispatch ⟶
+  * specialize (S6 `describe`), and an obvious phantom ⟶ erase.
   */
 class BinderRolesTest
     extends ProcessorTest(
@@ -90,9 +89,9 @@ class BinderRolesTest
       .asserting(_ shouldBe (Seq.empty, Seq(("N", Disposition.Specialize))))
   }
 
-  "a recursion-variant reified binder (S5 gen)" should "be disposed demote" in {
+  "a reified binder in a self-referential value (S5 gen)" should "be disposed specialize" in {
     dispositionOf("def one: BigInteger\ndef gen[N: BigInteger]: BigInteger = add(N, gen[subtract(N, one)])", "gen")
-      .asserting(_ shouldBe (Seq.empty, Seq(("N", Disposition.Demote))))
+      .asserting(_ shouldBe (Seq.empty, Seq(("N", Disposition.Specialize))))
   }
 
   "a dispatched (ability-constrained) binder (S6 describe)" should "be disposed specialize, not collapsed" in {
@@ -130,7 +129,7 @@ class BinderRolesTest
     }
   }
 
-  /** Ambient stubs plus `BigInteger` (with the `add`/`subtract` the recursion-variant scenario reifies);
+  /** Ambient stubs plus `BigInteger` (with the `add`/`subtract` the self-referential `gen` scenario reifies);
     * `Int`/`Runtime`/`Console`/`Log`/`Dep` are in `defaultSystemModules`, so their stubs must be present even though
     * these scenarios only declare on `BigInteger`/`Int`.
     */

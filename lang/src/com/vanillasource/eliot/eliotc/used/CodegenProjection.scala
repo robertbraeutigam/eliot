@@ -26,12 +26,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     representation key. Width-equivalent bounds (`Int[0, 100]`/`Int[0, 50]`, both a byte) fold together, while the
   *     nominal head is kept so two distinct opaque types sharing a representation (a `Money` and an `Int` both lowering
   *     to `JvmByte`) are *not* merged — they generate differently-named methods (soundness checkpoint 2).
-  *   - '''Specialize''' — kept verbatim (a distinct ability selection or a bounded recursion-invariant reified family).
-  *   - '''Demote''' — currently treated exactly like '''Specialize''' (kept verbatim). Full demotion (drop from the key
-  *     but retain the value as a runtime parameter) needs runtime conditionals the backend does not yet have for the
-  *     recursion these binders drive, so it is deliberately deferred; treating it as specialize is fail-safe (it never
-  *     mis-merges, only forgoes the eventual one-body collapse — the `used` non-convergence backstop still bounds any
-  *     runaway). See the plan's B4 and the deferral note.
+  *   - '''Specialize''' — kept verbatim (a distinct ability selection or a bounded reified family).
   *
   * A value with no [[SaturatedValue]] (and hence no role information) keeps all its type arguments verbatim — the most
   * conservative behaviour, identical to no projection at all.
@@ -52,7 +47,7 @@ object CodegenProjection {
               case Some(BinderRoles.Disposition.CollapseToRepresentation) =>
                 representationOf(arg, sourcedVfqn).map(rep => Seq(headPreservingRepresentation(arg, rep)))
               case _                                                      =>
-                // Specialize, Demote (deferred -> specialize), or a position past the classified binders.
+                // Specialize, or a position past the classified binders.
                 Seq(arg).pure[CompilerIO]
             }
           }

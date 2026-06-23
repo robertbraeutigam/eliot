@@ -27,10 +27,10 @@ case class SaturatedValue(value: OperatorResolvedValue) extends CompilerFact {
 
   /** The codegen-relevance classification of each leading type-stack binder, computed once on this saturated value —
     * the monomorphization-keying plan's B1 analysis (grown from the D6 reified-binder flag). Each binder carries its
-    * reified/dispatched/representation/recursion-variant roles and a derived [[BinderRoles.Disposition]]. Two consumers
-    * are intended: the monomorphize binding cache (`BindingProcessor.reifyingWrap`, today, via
-    * [[BinderRoles.reifiedPrefixBinders]]) and the codegen-key dedup (B2/B3, not yet wired). Computed on the
-    * *saturated* signature so the binder indices align with the type arguments the checker applies.
+    * reified/dispatched/representation roles and a derived [[BinderRoles.Disposition]]. Two consumers use it: the
+    * monomorphize binding cache (`BindingProcessor.reifyingWrap`, via [[BinderRoles.reifiedPrefixBinders]]) and the
+    * codegen-key dedup (`used/CodegenProjection.scala`). Computed on the *saturated* signature so the binder indices
+    * align with the type arguments the checker applies.
     */
   lazy val binderRoles: BinderRoles = BinderRoles.of(value)
 }

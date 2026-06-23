@@ -20,16 +20,18 @@ import scala.annotation.tailrec
   *   - Statistics about how many arguments are applied directly to each value
   *
   * It is also the home of the **non-convergence backstop** (Deliverable A of the monomorphization-keying plan):
-  * because `used` is the codegen driver that walks the *breadth* of the monomorphic fact graph (`f[N] -> f[N-1] -> …`,
-  * `loop[A] -> loop[Box[A]] -> …`), a divergent type-level recursion makes this DFS materialise specializations without
-  * bound — today a hang/OOM. The recursion lives in this processor's own `processValue` descent (not in the global
-  * `activeFactKeys` chain, which only reflects *depth* across fact generations and stays flat here, since every
-  * `MonomorphicValue` is requested as a sibling of `used`), so the backstop tracks the chain of enclosing
-  * `processValue` frames (`ancestors`) and, when more than [[maxNestedRepeats]] of them share the same `vfqn` with
-  * differing type arguments, converts the runaway into a specific diagnostic instead of diverging. This is the
-  * fail-safe behind the keying-plan's relevance/variance analysis (Deliverable B): legitimate recursion collapses or
-  * demotes and never trips; the backstop only fires on genuinely divergent type-level recursion or analysis-missed
-  * positions.
+  * because `used` is the codegen driver that walks the *breadth* of the monomorphic fact graph, a divergent type-level
+  * computation could make this DFS materialise specializations without bound — a hang/OOM. The breadth lives in this
+  * processor's own `processValue` descent (not in the global `activeFactKeys` chain, which only reflects *depth* across
+  * fact generations and stays flat here, since every `MonomorphicValue` is requested as a sibling of `used`), so the
+  * backstop tracks the chain of enclosing `processValue` frames (`ancestors`) and, when more than [[maxNestedRepeats]]
+  * of them share the same `vfqn` with differing type arguments, converts the runaway into a specific diagnostic
+  * instead of diverging.
+  *
+  * It is purely a fail-safe. Eliot user code cannot express recursion (see `docs/recursion-termination.md`), so the
+  * reachable instantiation graph is finite and program-shaped, and the codegen projection only ever folds identical
+  * code together — neither can drive an unbounded chain. The backstop therefore only fires on a genuinely divergent
+  * *type-level* computation (the residual `Type:Type`/Girard case) or a compiler bug, never on a legitimate program.
   *
   * @param maxNestedRepeats
   *   How many nested `processValue` frames for one `vfqn` are tolerated before the specialization is declared
@@ -102,8 +104,8 @@ class UsedNamesProcessor(maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNe
         s"Monomorphization of '${name.value.name}' is not converging: specialized $depth levels deep with differing type arguments."
       ),
       Seq(
-        "Type argument(s) change on every recursive step, so a new specialization is produced each time and the chain never closes.",
-        "Make the varying argument(s) compile-time only (phantom), bound the recursion, or demote them to runtime."
+        "Type argument(s) change on every step, so a new specialization is produced each time and the chain never closes.",
+        "Eliot user code cannot recurse, so this indicates a non-terminating type-level computation (a Type:Type/Girard paradox) or a compiler issue, not ordinary code."
       )
     )
 

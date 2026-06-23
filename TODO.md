@@ -48,25 +48,23 @@ notes.
 
 ## Compiler architecture & tooling
 
-- **Monomorphization keying — demote codegen + policy (the one remaining piece).** The codegen
-  type-explosion fix is largely landed (it grew out of the recursion-as-effect / `Rec[N]` discussion;
-  the original full plan is in git history): the `used` codegen driver dedups its
-  `MonomorphicValue` demand on a **codegen-relevant projection** of the type args (B1 per-binder
-  relevance analysis in `saturate/fact/BinderRoles.scala`; B2 projection in
-  `used/CodegenProjection.scala`) — phantoms collapse-erase, width-equivalent bounds collapse to a
-  representation key, dispatch/reified families stay specialized — and a **non-convergence backstop**
-  in `used/UsedNamesProcessor.scala` hard-errors on divergent type-level recursion instead of hanging
-  (it counts repeated `vfqn` frames in the `processValue` DFS; the original "reuse `activeFactKeys`"
-  sketch was wrong — siblings keep that chain flat). The one piece still missing is **demote**: a
-  reified *and* recursion-variant param (size-indexed recursion `f[N]→f[N-1]→…`) is *classified*
-  `Demote` but `codegenProject` treats it as `Specialize` (fail-safe — never mis-merges, just keeps
-  N specializations; S1 stays 4, S5 stays 3 instead of collapsing to 1). Real demote = drop it from
-  the codegen key (one body) and **retain it as a runtime value parameter**, threading each call's
-  constant through. **Blocked on runtime conditionals**: demoting `N` turns the body's compile-time
-  `fold` dispatch into a runtime-`Bool` branch, which `PostDrainQuoter`/the backend cannot lower yet.
-  Then resolve **B4 policy** (demotion trades code size for runtime RAM/ROM, so it must be visible):
-  auto-demote-with-a-diagnostic by default vs. error-and-require-an-explicit-annotation on
-  resource-bounded targets (per-target policy or per-parameter annotation).
+- **Monomorphization keying — landed as a code-size optimization; demote dropped.** The codegen
+  type-dedup fix is in (it grew out of the recursion-as-effect discussion; the original full plan is in
+  git history): the `used` codegen driver dedups its `MonomorphicValue` demand on a
+  **codegen-relevant projection** of the type args (B1 per-binder relevance analysis in
+  `saturate/fact/BinderRoles.scala`; B2 projection in `used/CodegenProjection.scala`) — phantoms
+  collapse-erase, width-equivalent bounds collapse to a representation key, dispatch/reified families
+  stay specialized — and a **non-convergence backstop** in `used/UsedNamesProcessor.scala` hard-errors
+  on divergent type-level computation instead of hanging (it counts repeated `vfqn` frames in the
+  `processValue` DFS; the original "reuse `activeFactKeys`" sketch was wrong — siblings keep that chain
+  flat). With recursion removed from the language (`docs/recursion-termination.md`), the unbounded
+  `f[N]→f[N-1]→…` family that motivated **demote** cannot arise, so demote and its B4 policy are
+  **dropped** and the `recursionVariant`/`Demote` machinery deleted. What remains is purely an
+  optimization — the projection only ever folds identical code, never load-bearing for termination —
+  and the backstop is a fail-safe for the residual `Type:Type`/Girard divergence. Possible future
+  tightening: a true phantom (a size index that never reaches representation) currently classifies
+  conservatively as representation, so it is not collapse-erased; refining that is a size win, not
+  correctness.
 
 - Separate the cache graph from the values, so not everything has to be deserialized.
 - Default imports should not be hardcoded; all of `lang.*` should be imported.
