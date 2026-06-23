@@ -35,19 +35,22 @@ latent partiality surfaces as a hard error at the use site, never as a silent mi
 
 We are **not building a theorem prover.** Instead of proving `expr < N` for arbitrary `expr`, we
 **restrict the vocabulary** of how a measure may decrease to a fixed, safe set the compiler recognises
-syntactically. Two modes — and the **first is the common one**:
+syntactically. There is **exactly one proof mode** — *measure descent*:
 
-- **measure descent (primary — platform-mapped / opaque structures).** Recurse on a numeric counter of
-  type `Int[0, N]`, decreased by a *partial* op `dec(·)`/`half(·)` (precondition `> 0`, see below). `N`
-  is seeded from the structure's **type-level size bound** — a `List[SIZE, A]` gives
-  `size(list) : Int[0, SIZE]`, so `N := SIZE`. This is what nearly all real folds use, because most
-  structures are **opaque platform types** (a JVM `ArrayList`, not a pure `data` definition): you cannot
-  pattern-match into them, only index via terminating accessors (`size`/`get`). Termination is proven
-  **from the counter alone** — the opaque structure never enters the argument.
-- **structural descent (special case — pure inductive types only).** Recurse on a structurally-smaller
-  sub-term exposed by a pattern match (`cons h t -> … t …`): no measure, purely syntactic. But it
-  applies *only* to genuinely Eliot-defined inductive `data`, which is the **minority** (sound because
-  such `data` is inductive ⟹ finite — see *Preconditions*).
+> Recurse on a numeric counter of type `Int[0, N]`, decreased by a *partial* op `dec(·)`/`half(·)`
+> (precondition `> 0`, see below). `N` is seeded from the structure's **type-level size bound** — a
+> `List[SIZE, A]` gives `size(list) : Int[0, SIZE]`, so `N := SIZE`. Termination is proven **from the
+> counter alone** — the structure being folded never enters the argument.
+
+This covers the common case directly: **opaque platform structures** (a JVM `ArrayList`, not a pure
+`data` definition — the majority) are indexed via terminating accessors (`size`/`get`), and `size`
+seeds the counter. A genuinely *pure* Eliot inductive type (rare) is recursed the same way — you make
+it size-indexed (`Tree[DEPTH, A]`) or thread an explicit counter; "spend an extra `Rec` definition"
+rather than add a second mechanism. There is **no separate "structural descent"**: "recurse on the
+smaller subtree of a size-indexed type" *is* `Rec[index]` — the same mechanism, with the index as the
+measure (cf. sized types). Collapsing to one mode means termination soundness rests purely on the
+counter, never on the structure being inductive (strict positivity is still required, but only to block
+the Y-combinator — see *Preconditions* — not to make any descent sound).
 
 ## The crux: descent operations are *partial*, and that partiality is the whole proof
 
@@ -58,13 +61,11 @@ dec : {N > 0} Int[1, M] -> Int[0, M-1]
 ```
 
 To type the recursive call `f(…, dec(n))` without underflow, the checker must discharge `N > 0`
-**at that call site, from the condition guarding the recursive branch**. In the numeric/opaque case the
-branch is `isZero(remaining) = False`, which refines `remaining : Int[1, N]` so `dec(remaining)` is
-well-typed and the bound drops `N → N-1`. (In the rare structural/indexed case the branch is "the list
-is `cons`", and the invariant `cons ⟹ SIZE > 0` discharges it the same way.) **That discharge is the
-proof** — the only place the measure `N` is consulted — and it is *ordinary refinement reasoning*
-already in `monomorphize.refine.RefinementSolver` (see [[project_coerce_replaces_typerefinement]]). No
-new solver, no theorem prover.
+**at that call site, from the condition guarding the recursive branch**. The branch is
+`isZero(remaining) = False`, which refines `remaining : Int[1, N]` so `dec(remaining)` is well-typed and
+the bound drops `N → N-1`. **That discharge is the proof** — the only place the measure `N` is consulted
+— and it is *ordinary refinement reasoning* already in `monomorphize.refine.RefinementSolver` (see
+[[project_coerce_replaces_typerefinement]]). No new solver, no theorem prover.
 
 Because the measure is the **type-level bound**, descent is a type-level argument: `dec` propagates the
 bound (`Int[1, N] → Int[0, N-1]`, ordinary `Int[MIN,MAX]` arithmetic), so the recursive call
@@ -186,8 +187,9 @@ computation could be laundered through a lambda and lose its effect. The annotat
 falls only where inference genuinely cannot proceed:
 
 - **Lambdas and acyclic functions: the effect is *inferred*** from the body, bottom-up. No syntax.
-- **Recursive (cyclic) functions must *declare*** `{Rec[N]}` / `{Inf}` — inference hits the cycle and
-  cannot close it without the user's measure. The annotation lands precisely and only at the cycle.
+- **Recursive (cyclic) functions must *declare*** `{Rec(n)}` / `{Inf}` — **no exceptions** (there is no
+  auto-accepted structural case): inference hits the cycle and cannot close it without the user's
+  measure. The annotation lands precisely and only at the cycle.
 
 ### Storing an effectful lambda in data
 
@@ -315,7 +317,7 @@ def foldFrom[A, B, N](list: List[SIZE, A], acc: B, f: Function[B, Function[A, B]
 - Termination is proven **from the counter alone** — the opaque `List` never enters the argument. The
   list need only be **effectively immutable** (so `size` is stable for the fold) with **terminating
   accessors** — exactly the two properties a platform layer *can* enforce. Inductiveness / strict
-  positivity are *not* required here (those are only for the structural special case).
+  positivity are *not* required for the descent (positivity is needed only to block the Y-combinator).
 - `foldFrom`'s measure is discharged at its own definition; **`foldLeft` inherits `Terminating`** and
   carries no annotation. Its real effect is `Terminating ⊕ effect(f) = effect(f)` — terminating iff `f`
   is.
@@ -489,22 +491,20 @@ Each milestone is independently landable and leaves the compiler sound.
   `data Tree(left: Tree, right: Tree)` accepted.
 - *Confirm purity*: verify no mutable-cell primitive exists; record as a guard.
 
-**M1 — Core termination effect: detect, deny, `Inf`, structural descent (first-order).**
+**M1 — Core termination effect: detect, deny, `Inf` (no `Rec` proof yet).**
 - New fact `TerminationEffect(vfqn) ∈ {Terminating, Inf}`, inferred from the body by unioning callees'
   effects (reusing the `DirectStyleDesugarer`/`CalleeSignatures` shape). `activeFactKeys` breaks cycles:
   a value whose inference re-enters itself is *recursive* and must carry an explicit annotation; an
   annotated value's effect is **read from the annotation** (not inferred), which breaks the cycle.
-- *Deny-by-default*: a cyclic value with no `Rec`/`Inf` annotation → hard error.
+- *Deny-by-default*: a cyclic value with no `Rec`/`Inf` annotation → hard error (**no exceptions** — no
+  auto-accepted structural case).
 - *`Inf` opt-out*: legal; effect = `Inf`; propagates to direct callers via the subset-check shape.
-- *Structural descent* proof for `Rec` (the cheap, syntactic case): every recursive call's argument is a
-  pattern variable bound to a proper sub-component of the matched scrutinee — no measure, no solver.
-  **This covers only purely-Eliot-defined inductive `data`, which is the *minority*** — opaque platform
-  structures (the common case) need the numeric measure of M3, so M1 alone is a narrow (if sound) slice.
 - *Scope limit (lifted in M2)*: a call **through a function parameter** conservatively incurs `Inf`
-  (sound but restrictive), so first-order recursion (length/sum/tree-walk) works while higher-order
-  combinators are temporarily `Inf`.
-- Tests: structural recursion = Terminating; unannotated non-structural cycle rejected; `Inf` loop
-  accepted; `Inf` propagates to a direct caller.
+  (sound but restrictive).
+- Acyclic functions infer `Terminating`. At this milestone the *only* terminating recursion is none —
+  every cycle is `Inf` until M3 supplies the `Rec` proof; M1 is the detection/deny/`Inf` skeleton.
+- Tests: unannotated cycle rejected; `Inf` loop accepted; `Inf` propagates to a direct caller; acyclic
+  code is `Terminating`.
 
 **M2 — Arrow effect + higher-order propagation (the load-bearing type-system piece).**
 - Add a `{Terminating, Inf}` effect slot to the function type (`VPi` / the `Function` representation),
@@ -518,15 +518,16 @@ Each milestone is independently landable and leaves the compiler sound.
 - Tests: terminating `fold` over a terminating function = Terminating; the same `fold` over an `Inf`
   function = Inf; a recursive lambda stored in data then called → its `Inf` reaches the caller.
 
-**M3 — Numeric measure `Rec[N]` keyed on a type-level size (the *primary* proof mode).**
-- This is what nearly every real fold uses: opaque platform structures (JVM `ArrayList`, …) are indexed,
-  not pattern-matched, so termination rides a numeric counter `Int[0, N]` with `N` seeded from the
-  structure's type-level `SIZE`. **On the critical path for the feature to be broadly useful** — not an
-  advanced add-on (M1's structural descent only covers the rare pure-`data` case).
+**M3 — Numeric measure `Rec[N]` — the *single* proof mode (makes `Rec` usable).**
+- The one way to prove termination: a numeric counter `Int[0, N]` with `N` seeded from a structure's
+  type-level `SIZE` (opaque structures via the `size` native; pure structures thread an explicit
+  counter). There is no separate structural-descent mode — "recurse on a size-indexed subterm" is just
+  this with the index as the measure.
 - Partial `dec`/`half` (`dec : {N>0} Int[1,M] -> Int[0,M-1]`); discharge the `N>0` precondition at the
   recursive branch (`isZero(remaining) = False ⟹ remaining > 0`) via `RefinementSolver`
   (`monomorphize/refine/`). The branch→bound refinement is the one genuine dependent-typing touchpoint;
-  start with explicit numeric guards before indexed-`data` refinement.
+  start with explicit numeric guards. (Optional far-future ergonomics: indexed-`data` refinement so a
+  pure `List[SIZE, A]` decreases via pattern-matching — *not* required for any of the above.)
 - Tests: `foldFrom`/`power`-style countdown via `dec`, bisection via `half` accepted; missing base case
   / non-decreasing measure rejected.
 
