@@ -1,8 +1,8 @@
 # Recursion & Termination — `Rec[N]` / `Inf` as Effects
 
-Status: **Design note (pre-plan).** Captures the model and its preconditions from the design
-discussion; not yet a sequenced implementation plan. Nothing here is built. Supersedes the sketch in
-the `project_recursion_as_effect` memory by making the mechanism concrete.
+Status: **Design note + concrete implementation plan.** Captures the model, its preconditions, and a
+sequenced milestone plan grounded in a codebase investigation (see *Implementation plan*). Nothing is
+built yet. Supersedes the sketch in the `project_recursion_as_effect` memory.
 
 ## Goal
 
@@ -349,19 +349,116 @@ later.
 
 ## Open questions / not yet decided
 
-- Surface syntax: `{Rec[N]}` / `{Inf}` in the effect row vs. a dedicated annotation; how `N` is
-  named and bound to the driving value.
-- Where the effect slot lives on `Function` / `VPi`, and how it interacts with the one-primitive-Π
-  cornerstone (an effect annotation on the arrow is an extension, not a fold of `Function` into
-  `data`).
-- Exact placement of the descent check and the latent-effect inference relative to
-  `RefinementSolver`, `EffectDesugaringProcessor`, and the `used` walk.
-- Mutual recursion: measure must decrease around the whole SCC; needs the inference fixpoint over
-  call-graph SCCs, not just self-edges.
-- Whether to add CFA later as a *precision booster* to recover indirect calls the coarse bit
-  over-rejects (fail-safe today: over-rejection just demands an annotation).
-- The strict-positivity check on `data` — its own small sub-task, independently valuable, and a
-  prerequisite for the soundness of everything above.
+Placement, positivity, mutual recursion, CFA, and surface syntax are now resolved (surface syntax:
+ride the `{…}` row — see the plan). What genuinely remains open:
+
+- **WCET / resource bounds** — whether they later share the termination measure (deferred).
+- **Linearity-for-mutation** — the eventual performance escape hatch under the no-mutable-cells
+  decision (deferred; see *No mutable cells*).
+
+## Implementation plan
+
+### What the codebase dictates (investigation findings)
+
+Five facts from the current compiler shape the plan (file references under
+`lang/src/com/vanillasource/eliot/eliotc/` unless noted):
+
+1. **Function-valued parameters stay runtime closures — no per-argument specialization.** `map(inc, xs)`
+   keeps the inner `f(h)` as a `ParameterReference` invoked through an indirect `Function.apply`
+   (`jvm/.../classgen/processor/ExpressionCodeGenerator.scala:88-109`), and `UsedNamesProcessor` does
+   not follow parameter references (`used/UsedNamesProcessor.scala:160-166`). **The post-monomorphization
+   call graph is incomplete for indirect calls** → the latent effect on the arrow is required for *sound*
+   higher-order propagation, not merely diagnostics.
+2. **No occurs-check.** `monomorphize/unify/Unifier.scala:248-272` (`solveMeta`) binds a metavariable
+   without checking it occurs in the RHS; a cyclic meta then loops `Evaluator.force`
+   (`monomorphize/eval/Evaluator.scala:150-163`). Self-application `x x` is not cleanly rejected today.
+   **Precondition #2 lands here.**
+3. **No strict-positivity check.** `data` receives only syntactic validation; `DataDefinitionDesugarer`
+   passes constructor field types through untouched. **Precondition #3 must be built.**
+4. **The effect pipeline is reusable wholesale.** `{E} A` desugars in `EffectSugarDesugarer`
+   (CoreProcessor); `EffectDesugaringProcessor` (after `operator`, before `saturate`) propagates effects
+   via `DirectStyleDesugarer` (one bottom-up walk threading `usedEffects`), `CalleeSignatures`
+   (callee→effect via `Qualifier.Ability`), and `DeclaredEffectChecker` (the ⊆ subset check). The
+   termination effect threads a *termination lattice* through the identical shape.
+5. **Recursion can only form among top-level values; the reference graph is cheap, and detection is
+   complete.** There is no local `let`/`letrec` (`ast/fact/Expression.scala`) and lambda parameters are
+   non-recursive (`resolve/processor/ValueResolver.scala:215-224`), so **every cycle is a self/mutual
+   reference among top-level named values**, visible in the resolved `ValueReference` graph. With the M0
+   preconditions (occurs-check blocks self-application; positivity + purity block the other two recursion
+   sources), static cycle detection is **complete**. The `activeFactKeys` pattern — already used for
+   recursive-return detection (`monomorphize/check/CalculatedReturnResolver.scala:176-180`) — catches the
+   cycle during effect inference (re-entry on the same `vfqn`), so no separate SCC pass is required for
+   the self/mutual case.
+
+### Milestones
+
+Each milestone is independently landable and leaves the compiler sound.
+
+**M0 — Preconditions (soundness gate; no surface change).**
+- *Occurs-check* in `Unifier.solveMeta`: before `metaStore.solve(id, rhs)`, walk `rhs` (through solved
+  metas) for `id`; on occurrence, emit "cannot construct infinite type" instead of binding. Tests: `x x`
+  rejected cleanly; legitimate higher-order metas still solve.
+- *Strict-positivity processor*: consume each `data`'s resolved value-constructor, walk every parameter
+  type with variance, reject the data type's own type-constructor FQN in a contravariant (left-of-arrow)
+  position. Tests: `data Loop(f: Function[Loop, A])` rejected; `data Box(content: Function[A,B])` and
+  `data Tree(left: Tree, right: Tree)` accepted.
+- *Confirm purity*: verify no mutable-cell primitive exists; record as a guard.
+
+**M1 — Core termination effect: detect, deny, `Inf`, structural descent (first-order).**
+- New fact `TerminationEffect(vfqn) ∈ {Terminating, Inf}`, inferred from the body by unioning callees'
+  effects (reusing the `DirectStyleDesugarer`/`CalleeSignatures` shape). `activeFactKeys` breaks cycles:
+  a value whose inference re-enters itself is *recursive* and must carry an explicit annotation; an
+  annotated value's effect is **read from the annotation** (not inferred), which breaks the cycle.
+- *Deny-by-default*: a cyclic value with no `Rec`/`Inf` annotation → hard error.
+- *`Inf` opt-out*: legal; effect = `Inf`; propagates to direct callers via the subset-check shape.
+- *Structural descent* proof for `Rec`: syntactic check that every recursive call's argument is a
+  pattern variable bound to a proper sub-component of the matched scrutinee — no measure, no solver.
+- *Scope limit (lifted in M2)*: a call **through a function parameter** conservatively incurs `Inf`
+  (sound but restrictive), so first-order recursion (length/sum/tree-walk) works while higher-order
+  combinators are temporarily `Inf`.
+- Tests: structural recursion = Terminating; unannotated non-structural cycle rejected; `Inf` loop
+  accepted; `Inf` propagates to a direct caller.
+
+**M2 — Arrow effect + higher-order propagation (the load-bearing type-system piece).**
+- Add a `{Terminating, Inf}` effect slot to the function type (`VPi` / the `Function` representation),
+  inferred for every lambda from its body, carried through unification (join on the 2-point lattice), and
+  erased before codegen. (An extension of the one-primitive-Π, *not* a fold of `Function` into `data`.)
+- Higher-order functions become effect-polymorphic over their argument arrows; a call through a parameter
+  incurs that parameter's arrow effect (lifts M1's conservative `Inf`). `fold`/`map` become
+  Terminating-iff-their-argument-is. Unlocks the function-coloring win.
+- Effect-parametric data: a `Function`-typed field carries its arrow effect as an (erased) type
+  parameter, checked at construction.
+- Tests: terminating `fold` over a terminating function = Terminating; the same `fold` over an `Inf`
+  function = Inf; a recursive lambda stored in data then called → its `Inf` reaches the caller.
+
+**M3 — Numeric measure `Rec[N]` (counting / non-structural recursion).**
+- Partial `dec`/`half` (`dec : {N>0} Int[1,M] -> Int[0,M-1]`); descent on a numeric measure; discharge
+  the `N>0` precondition at the recursive branch via `RefinementSolver` (`monomorphize/refine/`). Needs
+  measure-bound refinement from the guard — start with explicit numeric guards (`if N > 0`) before
+  indexed-data refinement (the one genuine dependent-typing touchpoint).
+- Tests: countdown via `dec`, bisection via `half` accepted; missing base case / non-decreasing measure
+  rejected.
+
+**M4 — Mutual recursion, capture, tooling.**
+- Mutual-recursion measures: a shared/lexicographic measure decreasing around the SCC (here an explicit
+  reference-graph SCC pass over `ValueReference`s complements the `activeFactKeys` self-cycle case).
+- Stored-lambda whose termination rides closure capture → forced `Inf` (fail-safe) with a clear message.
+- IDE: surface the inferred termination effect on hover (`TypeHintIndex`) so implicit propagation is
+  visible (mitigates the "invisible effect" cost of implicit propagation).
+
+**Deferred (explicitly):** CFA to recover indirect calls the coarse bit over-rejects; WCET/resource
+bounds and whether they share the measure; linearity-for-mutation.
+
+### Surface syntax (decided): ride the `{…}` row
+
+`Rec`/`Inf` are written in the existing effect row — `{Rec(n)} A` / `{Inf} A` — uniform with capability
+effects, a minimal parser change (the brace row already exists). The crucial distinction is in the
+**desugaring**: a capability entry desugars to a carrier constraint (`F[_] ~ Eff`, dischargeable at a
+`run*` edge), whereas `Rec`/`Inf` desugar to the **arrow-effect channel** — there is no carrier and no
+`runRec`. So `EffectSugarDesugarer` must split brace entries into two kinds: capability entries (existing
+path) and termination entries (new path that annotates the arrow effect rather than adding a carrier
+binder). The measure binds by **named argument** — `{Rec(n)}` references the in-scope parameter `n` it
+decreases (matters at M3) — not positionally.
 
 ## Relationship to existing work
 
