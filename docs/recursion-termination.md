@@ -107,7 +107,7 @@ for `{E}`):
 map : (Function[A,B] ! e) -> List[SIZE, A] -> List[SIZE, B] ! e
 ```
 
-`map` is recursive, so it carries a `{Rec(...)}` annotation internally — but that measure is
+`map` is recursive, so it carries a `{Rec[N]}` annotation internally — but that measure is
 **discharged at `map`'s own definition** by the descent proof and does *not* appear in its propagating
 effect (see *`Rec` discharges locally* below). What propagates is `Terminating ⊕ e = e` (`Terminating`
 is the bottom of the lattice, absorbed). At `map(inc, xs)` with `inc` terminating, `e := Terminating`
@@ -187,7 +187,7 @@ computation could be laundered through a lambda and lose its effect. The annotat
 falls only where inference genuinely cannot proceed:
 
 - **Lambdas and acyclic functions: the effect is *inferred*** from the body, bottom-up. No syntax.
-- **Recursive (cyclic) functions must *declare*** `{Rec(n)}` / `{Inf}` — **no exceptions** (there is no
+- **Recursive (cyclic) functions must *declare*** `{Rec[N]}` / `{Inf}` — **no exceptions** (there is no
   auto-accepted structural case): inference hits the cycle and cannot close it without the user's
   measure. The annotation lands precisely and only at the cycle.
 
@@ -238,11 +238,11 @@ pitfall.
 
 A `Rec` measure is **discharged at the definition that introduces it** — by the descent proof itself —
 so it never propagates. Only the lattice *verdict* (`Terminating` / `Inf`) is inherited by callers. A
-recursive function carries `{Rec(n)}`; the descent check at *its* definition proves it `Terminating` and
+recursive function carries `{Rec[N]}`; the descent check at *its* definition proves it `Terminating` and
 consumes the measure `n`; a non-recursive caller inherits only `Terminating`, which — being the
 bottom/clean state — is invisible (no annotation), exactly like a function with no capability effects.
 
-- `{Rec(n)}` and its measure appear **only on the function that is the recursion cycle.** `foldFrom`
+- `{Rec[N]}` and its measure appear **only on the function that is the recursion cycle.** `foldFrom`
   carries it; `foldLeft`, which merely calls `foldFrom` once, **inherits `Terminating`** and writes
   nothing.
 - The **only effect that surfaces visibly is `Inf`** — the non-clean state, which taints callers until
@@ -251,7 +251,7 @@ bottom/clean state — is invisible (no annotation), exactly like a function wit
 This is the sense in which "every effect is inherited or discharged" holds for termination: the
 *measure* is discharged locally by the proof (a compile-time obligation satisfied at the definition —
 *not* a runtime `runRec` handler); the *verdict* is inherited. It is also why there is **no no-op `Rec`
-discharge function**: `{Rec(n)} A` annotates the arrow without wrapping the result (the result stays
+discharge function**: `{Rec[N]} A` annotates the arrow without wrapping the result (the result stays
 plain `A`), so there is nothing to unwrap. The one meaningful discharge is the *opposite* direction,
 `Inf → Terminating`, via *actual* fuel-bounded execution (`withFuel(steps, computation): Option[A]`,
 which does real work and may return `None`) — optional/advanced, not core.
@@ -304,13 +304,13 @@ def foldLeft[A, B, SIZE](list: List[SIZE, A], acc: B, f: Function[B, Function[A,
    foldFrom(list, acc, f, size(list))                  -- size(list) : Int[0, SIZE]  →  seeds N := SIZE
 
 def foldFrom[A, B, N](list: List[SIZE, A], acc: B, f: Function[B, Function[A, B]],
-                      remaining: Int[0, N]): {Rec(remaining)} B = isZero(remaining) match {
+                      remaining: Int[0, N]): {Rec[N]} B = isZero(remaining) match {
    case True  -> acc
    case False -> foldFrom(list, f(acc)(get(list, sub(size(list), remaining))), f, dec(remaining))
 }
 ```
 
-- `foldFrom` is the recursion cycle, so it carries `{Rec(remaining)}`. The measure is the **type-level
+- `foldFrom` is the recursion cycle, so it carries `{Rec[N]}`. The measure is the **type-level
   bound `N`** on `remaining`'s type — *not* the runtime value — seeded from `SIZE`. `dec(remaining)`
   drops the bound `N → N-1`; the recursion walks `SIZE → … → 0`. `N` is phantom/erased; the runtime
   `remaining` is ordinary data the loop branches on.
@@ -328,14 +328,14 @@ def foldFrom[A, B, N](list: List[SIZE, A], acc: B, f: Function[B, Function[A, B]
 **A genuinely numeric recursion (no structure at all).** Here the counter *is* the only thing:
 
 ```eliot
-def power[N](base: Int, exp: Int[0, N]): {Rec(exp)} Int = isZero(exp) match {
+def power[N](base: Int, exp: Int[0, N]): {Rec[N]} Int = isZero(exp) match {
    case True  -> 1
    case False -> mul(base, power(base, dec(exp)))      -- exp > 0 in this branch ⟹ dec well-typed
 }
 ```
 
 `N` is inferred from the caller (`power(2, 10)` ⟹ `N := 10`); `dec(exp)` drops the bound; `power(2, 10)
-: Int` directly — `{Rec(exp)}` annotates the arrow, the result is plain `Int`, nothing to discharge.
+: Int` directly — `{Rec[N]}` annotates the arrow, the result is plain `Int`, nothing to discharge.
 
 ## Preconditions — "in a pure language, recursion cannot hide"
 
@@ -543,14 +543,16 @@ bounds and whether they share the measure; linearity-for-mutation.
 
 ### Surface syntax (decided): ride the `{…}` row
 
-`Rec`/`Inf` are written in the existing effect row — `{Rec(n)} A` / `{Inf} A` — uniform with capability
+`Rec`/`Inf` are written in the existing effect row — `{Rec[N]} A` / `{Inf} A` — uniform with capability
 effects, a minimal parser change (the brace row already exists). The crucial distinction is in the
 **desugaring**: a capability entry desugars to a carrier constraint (`F[_] ~ Eff`, dischargeable at a
 `run*` edge), whereas `Rec`/`Inf` desugar to the **arrow-effect channel** — there is no carrier and no
 `runRec`. So `EffectSugarDesugarer` must split brace entries into two kinds: capability entries (existing
 path) and termination entries (new path that annotates the arrow effect rather than adding a carrier
-binder). The measure binds by **named argument** — `{Rec(n)}` references the in-scope parameter `n` it
-decreases (matters at M3) — not positionally.
+binder). The measure is a **type-level parameter** — `{Rec[N]}` names the generic parameter `N` (the
+bound on the recursing counter, e.g. `remaining: Int[0, N]`); upper-case and in `[]` like any type
+parameter, *not* the lower-case runtime value. The compiler finds the parameter carrying `N` and checks
+`N` strictly decreases across recursive calls (matters at M3).
 
 ## Relationship to existing work
 
