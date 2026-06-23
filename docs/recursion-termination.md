@@ -18,9 +18,10 @@ specialized loops is the platform's business; the language does not care and doe
 primitive). With recursion unavailable in the pure fragment and the preconditions enforced, **every program
 terminates by default.** The sole opt-out is **`Inf`**, an effect meaning "may not terminate." Because a
 recursion-free typed core cannot itself introduce divergence, an `Inf` effect can **only originate on a
-platform native**; from there it propagates virally to every caller. `Inf` need not be discharged — left on
-`main` it denotes a deliberately non-terminating program (a server / firmware super-loop); or
-`withFuel`-style bounded execution discharges it back to a total `Option`. That is the entire design.
+platform native**; from there it propagates virally to every caller. `Inf` is not discharged — left on
+`main` it denotes a deliberately non-terminating program (a server / firmware super-loop), executed by the
+runtime on the `IO` carrier; *bounding* it (a timeout) is deferred until a time type exists. That is the
+entire design.
 
 ## Why this is sound — and where the literature puts it
 
@@ -44,9 +45,9 @@ is a type-level effect.*
   *further* than Turner: he keeps structural-recursion operators in the language; we push every loop into
   platform constants.
 - **System T / PCF** — the terminating-recursor-constant vs diverging-`Y`-constant dichotomy above.
-- **Capretta, the partiality / delay monad (2005)** — the principled type for divergence. `{Inf} A` is the
-  delay monad `D A`; the bounded-execution discharge (`withFuel : {Inf} A -> Nat -> Option[A]`) is its
-  standard "run for *n* steps" eliminator.
+- **Capretta, the partiality / delay monad (2005)** — non-termination framed as an effect, the conceptual
+  ancestor of `{Inf}`. Eliot does **not** reify the delay structure, though: there is no step-budget
+  eliminator; an `{Inf}` computation is *run* (forever, on `IO`), not *stepped*.
 - **Koka's `div` effect (Leijen)** — the closest existing system: Koka's effect row tracks `div`
   (may-diverge), and a `total` function is one whose row lacks it. That is exactly `Inf`. The difference is
   strength: Koka *infers* `div` for user-written recursive functions; Eliot's core cannot write recursion at
@@ -203,27 +204,12 @@ and effectful arguments alike, instead of the Haskell/cats-effect `map`/`mapM`, 
 and here it is the *same* carrier-polymorphism the rest of the effects use, not a parallel mechanism. For a
 language where iteration is a *platform* feature, a single effect-transparent `fold` is load-bearing.
 
-**Discharge is optional — bound it, or let it run forever.** `Inf` is a genuine effect with a discharge that
-*runs* the computation, but unlike a capability it does **not have to be discharged**. Two cases, for the two
-things you actually want:
-
-*Bound it.* When you want to *tame* a possibly-diverging computation into a terminating result:
-
-```
-withFuel : {Inf} A -> Nat -> Option[A]      -- run for up to N steps; None if it did not finish
-```
-
-`withFuel` drives the computation under a step budget and returns a total `Option`, "birthing" an `Option` at
-the edge exactly as `runAbort` births `Option` and `runState` births `Pair` (M5); being itself terminating
-(`Inf`-free), it *removes* `Inf`. For it to *stop between steps*, the `{Inf} A` it bounds must be a
-**steppable** computation (a reified delay/iteration structure, à la Capretta's delay monad) rather than a
-raw loop; that representation, and its fusion to a tight counted loop under monomorphization, is the one
-mechanism still to pin (deferred).
-
-*Let it run forever.* The more common case — and the whole point of `Inf` — is the opposite: you **don't**
-discharge it. `Inf` is the **one effect that may legitimately reach `main` undischarged.** A capability must
-be handled for the program to mean anything (`println` needs an implementation); `Inf` needs no handler,
-because "runs forever" is already its complete meaning. An undischarged `{Inf}` at the top is therefore not
+**`Inf` is run, not discharged.** Unlike a capability, `Inf` is **not discharged** — there is no terminating
+discharge for it today, and it does not need one. You **run** it: realize it on the `IO` carrier (the
+`forever` primitive becomes a JVM `while (true)`) and let the runtime execute the resulting `IO[Unit]`. `Inf`
+is the **one effect that may legitimately reach `main` undischarged.** A capability must be handled for the
+program to mean anything (`println` needs an implementation); `Inf` needs no handler, because "runs forever"
+is already its complete meaning. An undischarged `{Inf}` at the top is therefore not
 an error — it *is* a non-terminating program, exactly what a server or firmware super-loop should be. The
 guarantee stays honest and conditional: a program terminates iff its row lacks `Inf`; a server opts in,
 visibly.
@@ -240,13 +226,20 @@ The step (`handle(accept())`, `toggle(led)`) is `Inf`-free — it terminates eac
 analyzable — while the driver carries `{Inf}`. So a server's `main` is `{Inf, Console}` (or `{Inf, Gpio}`,
 …): the capability effects discharge the usual way, and `Inf` rides out to the top, meaning "runs until
 killed." This is the embedded super-loop, and it is the *simplest* `Inf` case — `forever` is a plain
-`while (true) { step() }` platform native, needing none of the steppable-structure machinery `withFuel` does.
+`while (true) { step() }` platform native, with no reified delay/step structure anywhere.
 The reactive/event-loop variant is the same shape with the driver supplied by the runtime scheduler
 (cats-effect style: finite handlers, the runtime *is* the loop), where the handlers stay `Inf`-free and only
 the scheduler is `{Inf}`. Either way the **per-iteration bound** — each request/tick terminates — comes for
 free, which is exactly what a responsive embedded system needs. (This refines the earlier "`main` needs no
 `Inf`" idea: that holds only for the reactive model where the *runtime* owns the loop; a user-written
 super-loop makes `main` honestly `{Inf}`, which is correct, not a defect.)
+
+**Bounding an `{Inf}` computation is deferred.** There is no step-budget `withFuel`/fuel discharge — it is not
+needed, and reifying every `{Inf}` computation as a steppable structure to support it is cost the embedded
+target should not pay. When bounding is wanted, it will be a **timeout** (race the computation against a
+clock and cancel), which is the honest mechanism but needs a *time type* first; it is therefore deferred to
+the resource/time work, not part of this plan. Until then the only fates of `{Inf}` are: run it (forever, or
+until the OS kills it) or don't reach it.
 
 ## How you actually iterate
 
@@ -260,9 +253,9 @@ Recursion being absent from the language does not make iteration awkward — it 
 - **Numeric recursion** (`power`, `gcd`, factorial) folds over an available bounding `Nat` (the exponent,
   `b`, the input) — a loose bound is fine for *termination*; only cost wants it tight.
 - **Divide-and-conquer and mutual recursion** (quicksort, mergesort, mutually-recursive walks) are the
-  ergonomic pressure points: phrase them as a fold over a fuel count plus an explicit worklist. Expressible
+  ergonomic pressure points: phrase them as a fold over a bounding count plus an explicit worklist. Expressible
   and asymptotically faithful, but clunkier — absorbed once by the library author, never seen by users, with
-  `Inf` + `withFuel` always available as the escape hatch.
+  marking it `{Inf}` (and running it) always available as the escape hatch.
 
 **Size-indexing is cost-only and optional.** Termination needs *nothing* in the type — a platform fold reads
 the runtime `size`. A type-level `List[SIZE, A]` survives purely for the WCET/resource-bound story (the fold
@@ -308,7 +301,7 @@ Each milestone is independently landable and leaves the compiler sound.
   `data Tree(left: Tree, right: Tree)` accepted.
 - *Confirm purity*: verify no mutable-cell primitive exists; record as a guard.
 
-**M1 — No recursion + `Inf` effect: declare, propagate, discharge.**
+**M1 — No recursion + `Inf` effect: declare, propagate, run.**
 - *Reject recursion in user code*: any self/mutual cycle in the resolved `ValueReference` graph → hard error
   ("Eliot cannot express recursion; use a platform loop, or mark `Inf`"). Reuse `activeFactKeys` for the
   self-cycle; a reference-graph SCC pass covers mutual cycles.
@@ -317,9 +310,12 @@ Each milestone is independently landable and leaves the compiler sound.
 - *`Inf` effect fact + propagation*: a value's effect row = set-union of its callees' rows (read from native
   declarations for leaves), via the existing effect-pipeline shape. `Inf` present anywhere taints; its
   absence is termination — no `Terminating` token.
-- *Discharge*: `withFuel : {Inf} A -> Nat -> Option[A]` as a terminating (`Inf`-free) native.
+- *Run, don't discharge*: `Inf` is realized on the `IO` carrier (the `forever`/event-loop primitive) and run
+  by the runtime; an `{Inf}` `main` (a server / super-loop) is valid and runs forever. There is no
+  step-budget discharge (`withFuel` is dropped); a timeout-based bound is deferred to the time/resource work.
 - Tests: a user-written cycle rejected; an `Inf` native propagates to its callers; a program with no `Inf` in
-  any reachable row is total; `withFuel` tames an `Inf` computation to `Option`.
+  any reachable row is total; an `{Inf}` `main` built from `forever` over a terminating step runs the step
+  endlessly.
 
 **M2 — Higher-order propagation (the function-coloring piece).**
 - `Inf` rides the existing effect-row / carrier in a function value's type (the same channel as `{E}`
@@ -330,9 +326,9 @@ Each milestone is independently landable and leaves the compiler sound.
 - Tests: a platform `fold` over a terminating step is terminating; the same `fold` over an `Inf` step is
   `Inf`; an `Inf` lambda stored in data then called → its `Inf` reaches the caller.
 
-**Deferred (explicitly):** WCET / resource bounds and the optional size-indexing that feeds them; linearity
-for mutation; CFA to recover indirect calls the coarse arrow bit over-rejects; the exact steppable carrier
-for a richer `{Inf} A` discharge.
+**Deferred (explicitly):** WCET / resource bounds and the optional size-indexing that feeds them; a
+**timeout-based bound on `{Inf}`** (needs a time type; the honest replacement for a step-budget discharge);
+linearity for mutation; CFA to recover indirect calls the coarse arrow bit over-rejects.
 
 ## Relationship to existing work
 
