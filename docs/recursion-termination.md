@@ -35,22 +35,32 @@ latent partiality surfaces as a hard error at the use site, never as a silent mi
 
 We are **not building a theorem prover.** Instead of proving `expr < N` for arbitrary `expr`, we
 **restrict the vocabulary** of how a measure may decrease to a fixed, safe set the compiler recognises
-syntactically. There is **exactly one proof mode** — *measure descent*:
+syntactically. There is **exactly one proof mode** — a **type-level measure that strictly decreases**:
 
-> Recurse on a numeric counter of type `Int[0, N]`, decreased by a *partial* op `dec(·)`/`half(·)`
-> (precondition `> 0`, see below). `N` is seeded from the structure's **type-level size bound** — a
-> `List[SIZE, A]` gives `size(list) : Int[0, SIZE]`, so `N := SIZE`. Termination is proven **from the
-> counter alone** — the structure being folded never enters the argument.
+> A recursive function carries `{Rec[N]}` naming a type-level measure parameter `N` (a non-negative
+> bound). The proof obligation: every recursive call instantiates `N` to a strictly-smaller,
+> well-founded value via a recognised decrease (`dec`/`half`). `N` is phantom — erased after the check.
 
-This covers the common case directly: **opaque platform structures** (a JVM `ArrayList`, not a pure
-`data` definition — the majority) are indexed via terminating accessors (`size`/`get`), and `size`
-seeds the counter. A genuinely *pure* Eliot inductive type (rare) is recursed the same way — you make
-it size-indexed (`Tree[DEPTH, A]`) or thread an explicit counter; "spend an extra `Rec` definition"
-rather than add a second mechanism. There is **no separate "structural descent"**: "recurse on the
-smaller subtree of a size-indexed type" *is* `Rec[index]` — the same mechanism, with the index as the
-measure (cf. sized types). Collapsing to one mode means termination soundness rests purely on the
-counter, never on the structure being inductive (strict positivity is still required, but only to block
-the Y-combinator — see *Preconditions* — not to make any descent sound).
+**Structures always carry their size in the type — this is the norm, not an option.** Every structure
+is `List[SIZE, T]` / `Tree[DEPTH, T]` / …, and *every* accessor and function propagates the index:
+`size : List[SIZE,T] -> Int[SIZE,SIZE]`, `tail : {SIZE>0} List[SIZE,T] -> List[SIZE-1,T]`,
+`get : List[SIZE,T] -> Int[0,SIZE] -> T`, and so on. So the measure `N` is *always* available — it is
+the structure's `SIZE`. (This is also what feeds the resource-bounds goal: the size is in the type.)
+
+That one mode is written two idiomatic ways — a **representation choice**, both checked identically
+(the recursive call instantiates the measure smaller):
+
+- **index-as-measure** — recurse on an index-decrementing accessor; the smaller index is *inferred*.
+  `foldFrom(tail(list), …)` where `tail(list) : List[SIZE-1, T]` instantiates the callee at `SIZE-1`.
+  No separate counter; natural and efficient for **cons-list-backed** structures (`tail` is O(1)).
+- **counter** — thread a separate `Int[0, N]` decremented by `dec`, with O(1) indexed access
+  `get(list, i)`; `N` is seeded from `size(list) : Int[0, SIZE]`. For **array-backed** structures
+  (`ArrayList`), where `tail` would be O(n) per step (→ O(n²)) — the counter keeps the fold O(n).
+
+There is **no separate "structural descent"** mechanism: "recurse on the smaller subtree" is just the
+index-as-measure form of `Rec[N]` (cf. sized types). Soundness rests purely on the measure strictly
+decreasing, never on the structure being inductive (strict positivity is still required, but only to
+block the Y-combinator — see *Preconditions* — not to make any descent sound).
 
 ## The crux: descent operations are *partial*, and that partiality is the whole proof
 
@@ -295,9 +305,33 @@ linearity** (configure-then-use, possibly use-once); unioning two functions that
 
 ## Worked examples
 
-**`foldLeft` over an opaque platform `List` (the common case — numeric measure seeded from `SIZE`).**
-`List` is opaque (a JVM `ArrayList` underneath); `size`/`get` are terminating leaf natives. You fold by
-counting, and the measure is the *type-level bound* on the counter, seeded from the list's `SIZE`:
+The same `Rec[N]` mechanism in its two structural idioms (and one purely numeric case). Recall the
+norm: every structure carries its size (`List[SIZE, T]`) and every accessor propagates it.
+
+**1. `foldLeft` over a cons-list — index-as-measure (the clean form).** `tail` decrements the index, so
+recursing on `tail(list)` *infers* the smaller measure — no separate counter:
+
+```eliot
+def foldLeft[A, B, SIZE](list: List[SIZE, A], acc: B, f: Function[B, Function[A, B]]): B =
+   foldFrom(list, acc, f)                              -- seeds the measure with the list's SIZE
+
+def foldFrom[A, B, SIZE](list: List[SIZE, A], acc: B, f: Function[B, Function[A, B]]): {Rec[SIZE]} B =
+   isEmpty(list) match {
+      case True  -> acc
+      case False -> foldFrom(tail(list), f(acc)(head(list)), f)   -- tail(list) : List[SIZE-1, A]
+   }
+```
+
+- `foldFrom` carries `{Rec[SIZE]}` — the measure *is* the type-level index `SIZE`. The recursive call
+  on `tail(list) : List[SIZE-1, A]` instantiates the callee at `SIZE-1`; the descent check sees
+  `SIZE-1 < SIZE`. No explicit `[dec(SIZE)]` is needed — it is inferred from `tail`'s return type.
+- `isEmpty(list) = False` refines `SIZE > 0`, discharging `tail`/`head`'s `{SIZE>0}` preconditions
+  (and ruling out the `SIZE = 0` underflow). This is the **indexed-data refinement** — a first-class
+  M3 capability *because* every structure carries its size (the norm).
+
+**2. `foldLeft` over an array-backed `List` — counter (when `tail` is O(n)).** For a JVM `ArrayList`,
+`tail` would copy (O(n) per step → O(n²)); index with a counter instead to keep the fold O(n). Same
+proof, different idiom:
 
 ```eliot
 def foldLeft[A, B, SIZE](list: List[SIZE, A], acc: B, f: Function[B, Function[A, B]]): B =
@@ -310,22 +344,18 @@ def foldFrom[A, B, N](list: List[SIZE, A], acc: B, f: Function[B, Function[A, B]
 }
 ```
 
-- `foldFrom` is the recursion cycle, so it carries `{Rec[N]}`. The measure is the **type-level
-  bound `N`** on `remaining`'s type — *not* the runtime value — seeded from `SIZE`. `dec(remaining)`
-  drops the bound `N → N-1`; the recursion walks `SIZE → … → 0`. `N` is phantom/erased; the runtime
-  `remaining` is ordinary data the loop branches on.
-- Termination is proven **from the counter alone** — the opaque `List` never enters the argument. The
-  list need only be **effectively immutable** (so `size` is stable for the fold) with **terminating
-  accessors** — exactly the two properties a platform layer *can* enforce. Inductiveness / strict
-  positivity are *not* required for the descent (positivity is needed only to block the Y-combinator).
-- `foldFrom`'s measure is discharged at its own definition; **`foldLeft` inherits `Terminating`** and
-  carries no annotation. Its real effect is `Terminating ⊕ effect(f) = effect(f)` — terminating iff `f`
-  is.
-- `SIZE` also yields a *static cost* bound (≤ `SIZE` iterations). Without a tight `SIZE` (just `Int`),
-  termination still holds (`N` = the type's max, proven symbolically), but the cost bound is useless —
-  the termination-vs-WCET split.
+- The measure `N` is the type-level bound on the counter `remaining`; `dec(remaining)` drops it
+  `N → N-1`. `isZero(remaining) = False` refines `remaining : Int[1, N]`, discharging `dec`'s
+  precondition. Termination is proven **from the counter alone** — the list never enters the argument.
 
-**A genuinely numeric recursion (no structure at all).** Here the counter *is* the only thing:
+Shared notes for 1 and 2: the structure need only be **effectively immutable** (so `SIZE` is stable for
+the fold) with **terminating accessors** — the two properties a platform layer *can* enforce
+(inductiveness is *not* needed). `foldFrom`'s measure is discharged at its own definition, so
+**`foldLeft` inherits `Terminating`** with no annotation (its real effect is `effect(f)`). And `SIZE` in
+the type yields a *static cost* bound (≤ `SIZE` steps) for the resource story; without a tight `SIZE`,
+termination still holds but the cost bound is loose (the termination-vs-WCET split).
+
+**3. A genuinely numeric recursion (no structure at all).** Here the counter *is* the only thing:
 
 ```eliot
 def power[N](base: Int, exp: Int[0, N]): {Rec[N]} Int = isZero(exp) match {
@@ -518,18 +548,20 @@ Each milestone is independently landable and leaves the compiler sound.
 - Tests: terminating `fold` over a terminating function = Terminating; the same `fold` over an `Inf`
   function = Inf; a recursive lambda stored in data then called → its `Inf` reaches the caller.
 
-**M3 — Numeric measure `Rec[N]` — the *single* proof mode (makes `Rec` usable).**
-- The one way to prove termination: a numeric counter `Int[0, N]` with `N` seeded from a structure's
-  type-level `SIZE` (opaque structures via the `size` native; pure structures thread an explicit
-  counter). There is no separate structural-descent mode — "recurse on a size-indexed subterm" is just
-  this with the index as the measure.
+**M3 — `Rec[N]` measure descent — the *single* proof mode (makes `Rec` usable).**
+- The one way to prove termination: a type-level measure `N` that strictly decreases, in either idiom
+  (the choice is the structure's representation, both check identically):
+  - **counter** — `Int[0, N]` decremented by `dec`/`half`, `N` seeded from `size(list) : Int[0, SIZE]`;
+  - **index-as-measure** — recurse on an index-decrementing accessor (`tail : {SIZE>0} List[SIZE,T] ->
+    List[SIZE-1,T]`); the smaller measure is inferred from the accessor's return type.
 - Partial `dec`/`half` (`dec : {N>0} Int[1,M] -> Int[0,M-1]`); discharge the `N>0` precondition at the
-  recursive branch (`isZero(remaining) = False ⟹ remaining > 0`) via `RefinementSolver`
-  (`monomorphize/refine/`). The branch→bound refinement is the one genuine dependent-typing touchpoint;
-  start with explicit numeric guards. (Optional far-future ergonomics: indexed-`data` refinement so a
-  pure `List[SIZE, A]` decreases via pattern-matching — *not* required for any of the above.)
-- Tests: `foldFrom`/`power`-style countdown via `dec`, bisection via `half` accepted; missing base case
-  / non-decreasing measure rejected.
+  recursive branch (`isZero(…) = False ⟹ … > 0`) via `RefinementSolver` (`monomorphize/refine/`). The
+  branch→bound refinement is the one genuine dependent-typing touchpoint.
+- **Indexed-data refinement is first-class here, not deferred** — because every structure carries its
+  size (the norm), the index-as-measure idiom (and index-decrementing accessor signatures + the
+  `isEmpty ⟹ SIZE>0` refinement) is part of the core M3 work, not an optional add-on.
+- Tests: cons-list `foldFrom` via `tail` (index-as-measure), array `foldFrom`/`power` via `dec`
+  (counter), bisection via `half` — all accepted; missing base case / non-decreasing measure rejected.
 
 **M4 — Mutual recursion, capture, tooling.**
 - Mutual-recursion measures: a shared/lexicographic measure decreasing around the SCC (here an explicit
