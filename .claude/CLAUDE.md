@@ -152,6 +152,13 @@ Each of these is a package in the "lang" module, roughly in order of processing:
 
 - Tests extend `AsyncFlatSpec` with `AsyncIOSpec` with `Matchers`
 - Test files are in `<module>/test/src/` directories
+- A processor test that needs more than a couple of leaf phases runs the **whole** pipeline via the shared
+  `plugin.LangProcessors` builder — `extends ProcessorTest(LangProcessors()*)` (or with `systemModules = …` /
+  `maxNestedRepeats = …` when those differ) — never a hand-listed prefix of processors. Computation is demand-driven and
+  `SequentialCompilerProcessors` dispatches each key to its one handling processor, so a harness triggering only an early
+  fact simply never runs the later phases; carrying the full pipeline is free and a new phase is then added in exactly
+  one place. Only true leaf tests (tokenizer/AST/core, or a manual-fact-injection harness) list processors explicitly.
+  The jvm backend test reuses the same list and appends its backend processor: `LangProcessors(…) :+ JvmClassGenerator()`.
 
 ## Language Cornerstone: Types Are Values (λ\*)
 
