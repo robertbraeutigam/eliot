@@ -89,9 +89,12 @@ class BinderRolesTest
       .asserting(_ shouldBe (Seq.empty, Seq(("N", Disposition.Specialize))))
   }
 
-  "a reified binder in a self-referential value (S5 gen)" should "be disposed specialize" in {
+  // `gen` once exercised the disposition of a reified binder in a *self-referential* value; that disposition (reified ->
+  // Specialize) is covered non-recursively by the S4 `tag` case above. `gen` refers back to itself, so termination M1
+  // now rejects the value cycle before the role analysis runs.
+  "a reified binder in a self-referential value (S5 gen)" should "be rejected as recursion" in {
     dispositionOf("def one: BigInteger\ndef gen[N: BigInteger]: BigInteger = add(N, gen[subtract(N, one)])", "gen")
-      .asserting(_ shouldBe (Seq.empty, Seq(("N", Disposition.Specialize))))
+      .asserting { case (errors, _) => errors.map(_.message) should contain("Value 'gen' is defined recursively.") }
   }
 
   "a dispatched (ability-constrained) binder (S6 describe)" should "be disposed specialize, not collapsed" in {

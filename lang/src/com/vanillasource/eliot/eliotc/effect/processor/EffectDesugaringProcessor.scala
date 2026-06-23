@@ -44,14 +44,23 @@ class EffectDesugaringProcessor
   private lazy val calleeSignatures = new CalleeSignatures
   private lazy val desugarer        = new DirectStyleDesugarer(calleeSignatures)
   private lazy val effectChecker    = new DeclaredEffectChecker
+  private lazy val recursionChecker = new RecursionChecker
 
   override protected def generateFromKeyAndFact(
       key: EffectDesugaredValue.Key,
       value: OperatorResolvedValue
   ): CompilerIO[EffectDesugaredValue] =
-    value.runtime match {
-      case None       => EffectDesugaredValue(value).pure[CompilerIO]
-      case Some(body) => desugarBody(value, body).map(runtime => EffectDesugaredValue(value.copy(runtime = runtime)))
+    // Gate every compiled value on the no-recursion rule (termination M1) before desugaring: a recursive definition is
+    // reported here and its body is left untouched, so the registered error trips `registerFactIfClear` and the value
+    // never reaches monomorphization or codegen (where it would silently compile to a self-calling method).
+    recursionChecker.isRecursive(value).flatMap {
+      case true  => EffectDesugaredValue(value).pure[CompilerIO]
+      case false =>
+        value.runtime match {
+          case None       => EffectDesugaredValue(value).pure[CompilerIO]
+          case Some(body) =>
+            desugarBody(value, body).map(runtime => EffectDesugaredValue(value.copy(runtime = runtime)))
+        }
     }
 
   /** Auto-lift one value's body against its declared signature, returning the rewritten runtime (or registering a

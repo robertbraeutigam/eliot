@@ -680,20 +680,16 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("Type mismatch." at "x"))
   }
 
-  // --- Recursion (Step 9) ---
+  // --- Recursion (termination M1: rejected, not unrolled) ---
 
-  "recursion" should "handle direct recursion without infinite loop" in {
-    import scala.concurrent.duration.*
+  "recursion" should "be rejected for a directly self-recursive value" in {
     runForErrors("def f: Function[BigInteger, BigInteger] = f")
-      .timeout(1.seconds)
-      .asserting(_ shouldBe Seq.empty)
+      .asserting(_ shouldBe Seq("Value 'f' is defined recursively." at "f"))
   }
 
-  it should "handle mutual recursion without infinite loop" in {
-    import scala.concurrent.duration.*
+  it should "be rejected for mutually-recursive values" in {
     runForErrors("def f: Function[BigInteger, BigInteger] = g\ndef g: Function[BigInteger, BigInteger] = f")
-      .timeout(1.seconds)
-      .asserting(_ shouldBe Seq.empty)
+      .asserting(_ shouldBe Seq("Value 'f' is defined recursively." at "f"))
   }
 
   // --- Implicit / inferred generic inputs: bare `Int` parameters (W1) ---
@@ -855,32 +851,33 @@ class MonomorphicTypeCheckTest
   }
 
   "calculated return limits (W4)" should "report a self-recursive calculated return instead of dead-locking" in {
-    // Limit 1: `loop`'s bare `Int` return is calculated from its body, but the body re-references `loop`, so reading its
-    // monomorphized return would re-enter the in-progress computation (a fact-cache dead-lock). Detected and reported.
+    // `loop`'s bare `Int` return is calculated from its body, but the body re-references `loop`. The no-recursion rule
+    // (termination M1) now catches this value cycle before monomorphization, so it is reported there rather than at the
+    // calculated-return back-edge's fact-cache dead-lock guard (which remains a deeper defensive backstop).
     runInt(
       "def loop(x: Int): Int = loop(x)",
       name = "loop",
       typeArgs = Seq(GroundValue.Direct(BigInt(0), intType), GroundValue.Direct(BigInt(255), intType))
-    ).asserting(_.map(_.message) shouldBe Seq("Cannot calculate the return type of recursive value 'loop'."))
+    ).asserting(_.map(_.message) shouldBe Seq("Value 'loop' is defined recursively."))
   }
 
   it should "report a value-dependent (non-stabilising) calculated return" in {
-    // Limit 1, the growth flavour: each recursive call widens the bound (`x + x`), so the chain never stabilises. The
-    // repeated FQN on the active request chain is the recursion signal even though no key ever repeats exactly.
+    // The growth flavour: each recursive call widens the bound (`x + x`). `grow` still refers back to itself, so the
+    // no-recursion rule rejects it (the calculated-return chain never even starts).
     runInt(
       "def grow(x: Int): Int = grow(x + x)",
       name = "grow",
       typeArgs = Seq(GroundValue.Direct(BigInt(0), intType), GroundValue.Direct(BigInt(255), intType))
-    ).asserting(_.map(_.message) shouldBe Seq("Cannot calculate the return type of recursive value 'grow'."))
+    ).asserting(_.map(_.message) shouldBe Seq("Value 'grow' is defined recursively."))
   }
 
   it should "report a mutually-recursive calculated return" in {
-    // Limit 1, mutual flavour: `f`'s return needs `g`'s, whose return needs `f`'s — `f` reappears on the active chain.
+    // Mutual flavour: `f`'s return needs `g`'s, whose return needs `f`'s — a mutual cycle the no-recursion rule rejects.
     runInt(
       "def f(x: Int): Int = g(x)\ndef g(x: Int): Int = f(x)",
       name = "f",
       typeArgs = Seq(GroundValue.Direct(BigInt(0), intType), GroundValue.Direct(BigInt(255), intType))
-    ).asserting(_.map(_.message) should contain("Cannot calculate the return type of recursive value 'f'."))
+    ).asserting(_.map(_.message) should contain("Value 'f' is defined recursively."))
   }
 
   it should "report a calculated return on a body-less abstract declaration" in {
@@ -910,9 +907,10 @@ class MonomorphicTypeCheckTest
   }
 
   it should "report a self-recursive no-argument calculated-return producer" in {
-    // The read-site resolution shares the recursion guard: `loopv` referencing itself is detected, not dead-locked.
+    // `loopv` referencing itself is a value cycle the no-recursion rule (termination M1) rejects, before the read-site
+    // calculated-return resolution is even reached.
     runInt("def loopv: Int = loopv", name = "loopv")
-      .asserting(_.map(_.message) shouldBe Seq("Cannot calculate the return type of recursive value 'loopv'."))
+      .asserting(_.map(_.message) shouldBe Seq("Value 'loopv' is defined recursively."))
   }
 
   it should "still accept a body-less abstract declaration with an explicit return type" in {

@@ -315,13 +315,25 @@ Each milestone is independently landable and leaves the compiler sound.
   vocabulary and fails (with a pointer back to the graceful-fallback note) if a cell is ever added.
 
 **M1 — No recursion + `Inf` effect: declare, propagate, run.**
-- *Reject recursion in user code*: any self/mutual cycle in the resolved `ValueReference` graph → hard error
-  ("Eliot cannot express recursion; use a platform loop primitive — `fold` for a bounded loop, `forever` for
-  an endless one"). Note there is **no** "mark it `Inf`" escape for a user cycle: `Inf` originates only on a
-  native, so a recursive user function is rejected outright (it becomes `{Inf}` only by *calling* an `Inf`
-  native like `forever`, never by annotating its own recursion). Reuse `activeFactKeys` for the self-cycle; a
-  reference-graph SCC pass covers mutual cycles.
-- *`Inf` declaration (terminating by default)*: a body-less native is terminating unless it declares `{Inf}`;
+- *Reject recursion in user code* — **✅ DONE.** `effect.processor.RecursionChecker` (invoked by
+  `EffectDesugaringProcessor`, the per-value gate the whole compiled program passes through *before*
+  monomorphization) rejects any self/mutual cycle in a value's **runtime-body** value-reference graph with the
+  hard error "Value 'X' is defined recursively." + the `fold`/`forever` pointer. It is a bounded reachability
+  search over *resolved* `ValueFQN`s in the body only (never the type signature), so it is precise: a covariant
+  `data Tree(left: Tree, right: Tree)` (constructors are body-less leaves) and the monad-transformer lift
+  (`EitherT.pure` calling the inner carrier's *abstract* `pure`, a different FQN) are not flagged. The reported
+  cycle leaves the value's `EffectDesugaredValue` unregistered (the error trips `registerFactIfClear`), so it
+  never reaches monomorphization — preempting the two pre-existing recursion fail-safes (the calculated-return
+  guard and the `used` non-convergence backstop), which survive only for residual type-level (Girard)
+  divergence. There is **no** "mark it `Inf`" escape for a user cycle: `Inf` originates only on a native, so a
+  recursive user function is rejected outright (it becomes `{Inf}` only by *calling* an `Inf` native like
+  `forever`). Demand-driven (fires for values reachable from `main`), consistent with use-site verification.
+  Implementation note: it was folded into `EffectDesugaringProcessor` rather than a standalone processor + fact,
+  to avoid having to wire a new producer into the ~10 custom-pipeline test harnesses. Tests:
+  `jvm/TerminationIntegrationTest` (direct cycle, mutual cycle, deep non-recursive chain compiles+runs); the
+  pre-M1 recursion-proxy tests across `MonomorphicTypeCheckTest`/`MonomorphizationVersioningTest`/etc. were
+  retargeted to assert the rejection.
+- *`Inf` declaration (terminating by default)* — **PENDING (next).** A body-less native is terminating unless it declares `{Inf}`;
   there is no `Terminating` annotation to write. (See the *Declaration* trade-off above.)
 - *`Inf` effect fact + propagation*: a value's effect row = set-union of its callees' rows (read from native
   declarations for leaves), via the existing effect-pipeline shape. `Inf` present anywhere taints; its
@@ -329,9 +341,9 @@ Each milestone is independently landable and leaves the compiler sound.
 - *Run, don't discharge*: `Inf` is realized on the `IO` carrier (the `forever`/event-loop primitive) and run
   by the runtime; an `{Inf}` `main` (a server / super-loop) is valid and runs forever. There is no
   step-budget discharge (`withFuel` is dropped); a timeout-based bound is deferred to the time/resource work.
-- Tests: a user-written cycle rejected; an `Inf` native propagates to its callers; a program with no `Inf` in
-  any reachable row is total; an `{Inf}` `main` built from `forever` over a terminating step runs the step
-  endlessly.
+- Tests: a user-written cycle rejected (**✅ done**); an `Inf` native propagates to its callers; a program with
+  no `Inf` in any reachable row is total; an `{Inf}` `main` built from `forever` over a terminating step runs
+  the step endlessly (the `Inf`-effect tests are **pending** with the rest of the `Inf` half).
 
 **M2 — Higher-order propagation (the function-coloring piece).**
 - `Inf` rides the existing effect-row / carrier in a function value's type (the same channel as `{E}`

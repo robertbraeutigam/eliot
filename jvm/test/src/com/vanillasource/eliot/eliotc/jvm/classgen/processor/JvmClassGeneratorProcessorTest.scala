@@ -14,6 +14,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.module.processor.{ModuleNamesProcessor, ModuleValueProcessor, UnifiedModuleNamesProcessor, UnifiedModuleValueProcessor}
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   DataTypeNativesProcessor,
+  MatchNativesProcessor,
   MonomorphicTypeCheckProcessor,
   SystemNativesProcessor,
   UserValueNativesProcessor
@@ -63,6 +64,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       ModuleAbilityOverlapCheckProcessor(),
       SystemNativesProcessor(),
       DataTypeNativesProcessor(),
+      MatchNativesProcessor(),
       UserValueNativesProcessor(),
       MonomorphicTypeCheckProcessor(),
       UsedNamesProcessor(),
@@ -92,9 +94,9 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
   "jvm class generator" should "resolve ability call directly via monomorphization" in {
     runGenerator(
       """ability Show[A] { def show(x: A): A }
-        |data MyStr
+        |data MyStr(token: Function[Unit, Unit])
         |implement Show[MyStr] { def show(x: MyStr): MyStr = x }
-        |def someValue: MyStr = someValue
+        |def someValue: MyStr = MyStr(u -> u)
         |def main: MyStr = f(someValue)
         |def f[A ~ Show[A]](x: A): A = show(x)""".stripMargin,
       moduleKey
@@ -137,9 +139,9 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
   it should "generate monomorphically mangled method name for generic function" in {
     runGenerator(
       """ability Show[A] { def show(x: A): A }
-        |data MyStr
+        |data MyStr(token: Function[Unit, Unit])
         |implement Show[MyStr] { def show(x: MyStr): MyStr = x }
-        |def someValue: MyStr = someValue
+        |def someValue: MyStr = MyStr(u -> u)
         |def main: MyStr = f(someValue)
         |def f[A ~ Show[A]](x: A): A = x""".stripMargin,
       moduleKey
@@ -169,8 +171,8 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
 
   it should "generate monomorphic methods for generic function" in {
     runGenerator(
-      """data MyStr
-        |def someValue: MyStr = someValue
+      """data MyStr(token: Function[Unit, Unit])
+        |def someValue: MyStr = MyStr(u -> u)
         |def id[A](x: A): A = x
         |def main: MyStr = id(someValue)""".stripMargin,
       moduleKey
@@ -204,15 +206,17 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
 
   it should "generate separate monomorphic methods for different type args" in {
     runGenerator(
-      """data MyStr
-        |data MyInt
-        |def someStr: MyStr = someStr
-        |def someInt: MyInt = someInt
+      """data MyStr(strField: Function[Unit, Unit])
+        |data MyInt(intField: Function[Unit, Unit])
+        |def someStr: MyStr = MyStr(u -> u)
+        |def someInt: MyInt = MyInt(u -> u)
         |def id[A](x: A): A = x
         |def main: MyStr = id(id(someStr))""".stripMargin,
       moduleKey
-    ).map { case (_, facts) =>
-      val generatedModule    = facts(moduleKey).asInstanceOf[GeneratedModule]
+    ).map { case (errors, facts) =>
+      val generatedModule    = facts.get(moduleKey).map(_.asInstanceOf[GeneratedModule]).getOrElse(
+        fail(s"GeneratedModule not found. Errors: ${errors.map(e => s"${e.contentSource}: ${e.message}").mkString("; ")}")
+      )
       val testClassBytes     = generatedModule.classFiles.find(_.fileName == "Test.class").get.bytecode
       val classReader        = new ClassReader(testClassBytes)
       var idMethods          = Set.empty[String]

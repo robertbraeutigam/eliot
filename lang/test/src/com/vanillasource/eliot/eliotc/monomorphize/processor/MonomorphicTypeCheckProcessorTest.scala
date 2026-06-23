@@ -171,20 +171,26 @@ class MonomorphicTypeCheckProcessorTest
     }
   }
 
-  // --- Recursion (Step 9) ---
+  // --- Recursion (termination M1: rejected, not unrolled) ---
 
-  it should "handle direct recursion without infinite loop" in {
-    import scala.concurrent.duration.*
-    runEngineForMonomorphicValue("def f: Function[BigInteger, BigInteger] = f")
-      .timeout(1.seconds)
-      .asserting(_.runtime shouldBe defined)
+  it should "reject a directly self-recursive value" in {
+    runGenerator(
+      "def f: Function[BigInteger, BigInteger] = f",
+      MonomorphicValue.Key(ValueFQN(testModuleName, default("f")), Seq.empty),
+      systemImports
+    ).asserting { case (errors, _) =>
+      errors.map(_.message) should contain("Value 'f' is defined recursively.")
+    }
   }
 
-  it should "handle mutual recursion without infinite loop" in {
-    import scala.concurrent.duration.*
-    runEngineForMonomorphicValue("def f: Function[BigInteger, BigInteger] = g\ndef g: Function[BigInteger, BigInteger] = f")
-      .timeout(1.seconds)
-      .asserting(_.runtime shouldBe defined)
+  it should "reject mutually-recursive values" in {
+    runGenerator(
+      "def f: Function[BigInteger, BigInteger] = g\ndef g: Function[BigInteger, BigInteger] = f",
+      MonomorphicValue.Key(ValueFQN(testModuleName, default("f")), Seq.empty),
+      systemImports
+    ).asserting { case (errors, _) =>
+      errors.map(_.message) should contain("Value 'f' is defined recursively.")
+    }
   }
 
   private val intType: GroundValue =

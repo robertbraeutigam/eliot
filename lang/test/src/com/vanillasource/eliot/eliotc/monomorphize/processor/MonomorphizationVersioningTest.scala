@@ -25,11 +25,11 @@ import scala.concurrent.duration.*
 
 /** Characterization test suite — Deliverable 0 of the monomorphization-keying plan.
   *
-  * These tests pin down, **empirically and before any fix**, how many monomorphic versions the compiler unrolls today
-  * for each keying-plan scenario S1-S8. They are the baseline the dedup/backstop fixes (Deliverables A and B) are
-  * validated against: the representation win (S2) collapses to one version, the *must-not-over-merge* guards (S3/S6/S8)
-  * stay put, and the divergent case (S7) turns its hang into a backstop error. Every assertion records the **current**
-  * behaviour, so the test fails loudly when behaviour changes.
+  * These tests pin down how many monomorphic versions the compiler unrolls for each keying-plan scenario S1-S8: the
+  * representation win (S2) collapses to one version and the *must-not-over-merge* guards (S3/S6) stay put. The four
+  * recursion-shaped scenarios (S1/S5/S7/S8) were always flagged as proxies "no real program can produce" (Eliot user
+  * code cannot recurse) that only unrolled because reject-recursion was unwired; that rule (termination M1) is now
+  * wired, so each of those is rejected outright as recursion — the non-recursive scenarios carry the keying coverage.
   *
   * The metric is the number of distinct [[MonomorphicValue]] facts the `used` traversal materialises per `vfqn`. The
   * harness drives [[UsedNames]] from a concrete `main`, which demands a `MonomorphicValue` for every reachable
@@ -37,21 +37,11 @@ import scala.concurrent.duration.*
   * targets. (The plan's optional post-uncurry mirror — counting `UncurriedMonomorphicValue` — is not wired here; that
   * stage lives in the jvm backend and the breadth being deduped is already visible at the `MonomorphicValue` layer.)
   *
-  * Discovery this baseline recorded (it corrected the plan's guess): the plan anticipated S1/S5 (size-indexed / reified
-  * recursion) would *explode or hang*. They actually failed earlier, and '''not because of recursion''' — a *computed*
-  * value (a native/def application such as `subtract(N, 1)`) passed into a type-argument / erased-parameter position was
-  * not normalised before read-back, because a reified type-stack parameter's runtime body was cached as a free neutral
-  * (`def bigOf[V] = V` ⇒ `bigOf[1]` stuck), so the index stayed a stuck term and surfaced as "Cannot resolve type.".
-  *
-  * That '''prerequisite gap is now fixed''' (`BindingProcessor.reifyingWrap`; see `ComputedTypeArgumentReadbackTest` for
-  * the focused regression tests). Consequently S1 and S5 now '''unroll''' — the recursion proceeds and terminates at the
-  * `fold` base case — instead of erroring: S1 ⇒ 4 versions ({3,2,1,0}), S5 ⇒ 3 versions ({3,2,1}, one fewer because its
-  * arithmetic recursive branch reifies the base case to a constant and drops the `gen[0]` reference). This is the codegen
-  * breadth the keying dedup targets. S1/S5 specialize per reified index (4 and 3 versions); they are recursion-shaped
-  * proxies no real program can produce — Eliot user code cannot recurse (see `docs/recursion-termination.md`), and
-  * reject-recursion is simply not wired yet, so they still unroll here. The one scenario that genuinely diverges is S7,
-  * whose growing type-argument is a structural `Box[...]` type application (not a stuck native), so it quotes fine and
-  * unrolls without bound until the backstop (Deliverable A) catches it.
+  * Historical note: before reject-recursion was wired, S1/S5 unrolled their reified index per step (4 and 3 versions)
+  * once a read-back gap was fixed (`BindingProcessor.reifyingWrap`; see `ComputedTypeArgumentReadbackTest`), and S7's
+  * unbounded `Box[...]` tower was caught by the `used` non-convergence backstop. With termination M1 wired, every value
+  * cycle is rejected before monomorphization, so those scenarios now assert the recursion error rather than a version
+  * count; the backstop survives as a defensive fail-safe for residual type-level (Type:Type/Girard) divergence.
   */
 class MonomorphizationVersioningTest
     extends ProcessorTest(
@@ -84,27 +74,17 @@ class MonomorphizationVersioningTest
     ) {
 
   // --- S1: recursion over a size-bounded structure (Cat 1, phantom index) ----------------------------------------
-  // Intended scenario: a `sum`/`map` over a size-indexed `List[A, N]` recurses `f[N] -> f[N-1] -> ...`. The size index
-  // `N` is codegen-phantom (the runtime body is a list loop, `N`-agnostic) but type-relevant, so today every step is a
-  // distinct key — an O(N) explosion the plan collapses to 1. That structure is not cleanly expressible yet (no built
-  // recursion + base-case dispatch), so this proxy uses a numeric index with a `fold` base case: `countdown[N]`
-  // recurses to `countdown[N-1]` and folds to the base at `N <= 0`. (BigInteger constants are reified via `bigOf[V]`
-  // because bare value-position literals desugar to `Int`, not `BigInteger`.)
-  // PREREQUISITE GAP NOW FIXED (see `ComputedTypeArgumentReadbackTest`): the recursive step's *computed* index
-  // `subtract(N, bigOf[1])` is normalised when read back as a type-argument, so the recursion now unrolls instead of
-  // erroring. `countdown[3]` materialises the four distinct indices {3, 2, 1, 0} (the base case `fold` selects the
-  // constant at `N <= 0`, so it terminates) ⇒ 4 versions. This is the breadth the keying dedup targets.
-  // DISPOSITION (B1): this concrete proxy references `N` in value position (`lessThanOrEqual(N, ...)`), so B1 classifies
-  // it reified -> Specialize, and each distinct index is its own version (4 here). It is a recursion-shaped proxy: real
-  // Eliot code cannot recurse (see `docs/recursion-termination.md`; reject-recursion is not wired yet, so it still
-  // unrolls here), so no program reaches this breadth -- the test just pins that the keying machinery treats the indices
-  // as an ordinary bounded reified family and the backstop caps any divergence.
-  "S1 (size-indexed recursion, reified index)" should "specialize one version per recursive index (stays 4)" in {
+  // This used to be a *recursion-shaped proxy* for size-indexed unrolling: `countdown[N]` recursing to `countdown[N-1]`
+  // with a `fold` base case at `N <= 0`, which once materialised four versions {3, 2, 1, 0} to pin the keying breadth.
+  // It was always flagged as something "no real program can produce — Eliot user code cannot recurse" and only unrolled
+  // because reject-recursion was not yet wired. That rule (termination M1) is now wired: `countdown` refers back to
+  // itself, so it is rejected outright. The non-recursive keying scenarios below (S2/S3/S4/S6) still pin the dedup.
+  "S1 (size-indexed recursion, reified index)" should "be rejected as recursion" in {
     runVersioning(
       "import eliot.lang.Bool\ndef bigOf[V: BigInteger]: BigInteger = V\ndef countdown[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], countdown[subtract(N, bigOf[1])])\ndef main: BigInteger = countdown[3]",
       imports = intImports
-    ).asserting { case (errors, counts) =>
-      (errors, countOf(counts, "countdown")) shouldBe (Seq.empty, 4)
+    ).asserting { case (errors, _) =>
+      errors.map(_.message) should contain("Value 'countdown' is defined recursively.")
     }
   }
 
@@ -150,21 +130,15 @@ class MonomorphizationVersioningTest
   }
 
   // --- S5: reified value varying per recursion (Cat 3, self-referential) ------------------------------------------
-  // Like S1 but the index is also reified into value position each step (`add(N, gen[N-1])`), so every level is
-  // genuinely different code — a reified family that specializes per index. B1 classifies `N` reified -> Specialize.
-  // PREREQUISITE GAP NOW FIXED (see `ComputedTypeArgumentReadbackTest`): the computed recursive index normalises, so the
-  // recursion unrolls instead of erroring. `gen[3]` materialises {3, 2, 1} = 3 versions: each step's value `add(N, gen[N-1])`
-  // is determined entirely by the erased index, so the reification gate folds `gen[1] = add(1, gen[0]) = 1` to a constant
-  // (its `gen[0]` base case fully reduces), dropping the `gen[0]` reference — one fewer version than S1's bare-reference
-  // recursion. (S1's recursive branch is a plain `countdown[0]` reference, which is kept, so S1 reaches index 0.)
-  // Like S1 this is a recursion-shaped proxy: real Eliot code cannot recurse (reject-recursion not wired yet), so no
-  // program reaches this breadth; the test pins that the indices specialize as an ordinary reified family.
-  "S5 (reified value, self-referential)" should "specialize one version per recursive index (stays 3)" in {
+  // Like S1, a recursion-shaped proxy (`gen[N]` reifying its index each step) that once unrolled to {3, 2, 1} only
+  // because reject-recursion was unwired. `gen` refers back to itself, so termination M1 now rejects it. The disposition
+  // it once pinned (a reified binder classifies as Specialize) stays covered non-recursively by S4 (`tag`).
+  "S5 (reified value, self-referential)" should "be rejected as recursion" in {
     runVersioning(
       "import eliot.lang.Bool\ndef bigOf[V: BigInteger]: BigInteger = V\ndef gen[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], add(N, gen[subtract(N, bigOf[1])]))\ndef main: BigInteger = gen[3]",
       imports = intImports
-    ).asserting { case (errors, counts) =>
-      (errors, countOf(counts, "gen")) shouldBe (Seq.empty, 3)
+    ).asserting { case (errors, _) =>
+      errors.map(_.message) should contain("Value 'gen' is defined recursively.")
     }
   }
 
@@ -181,30 +155,27 @@ class MonomorphizationVersioningTest
   }
 
   // --- S7: divergent recursion (no base case) --------------------------------------------------------------------
-  // The `Box` tower `loop[A] -> loop[Box[A]] -> loop[Box[Box[A]]] -> ...` never revisits a type and has no base case,
-  // so the `used` traversal would materialise versions without bound. Before Deliverable A this diverged (the IO timed
-  // out). NOW: the non-convergence backstop in `UsedNamesProcessor` trips once the nested `loop` specializations exceed
-  // the (here deliberately small) tolerance, converting the runaway into a specific diagnostic pointing at `loop`.
-  // We assert on the backstop diagnostic specifically: this toy program also emits its own incidental errors (the
-  // generic single-field accessor `unwrap` / constructor `Box` do not monomorphize cleanly in this minimal harness —
-  // a pre-existing limitation, reproducible with no recursion at all, unrelated to the backstop), so the test filters
-  // to the convergence error rather than over-constraining that orthogonal noise.
-  "S7 (divergent recursion, no base case)" should "report a non-convergence backstop error instead of diverging" in {
+  // The `Box` tower `loop[A] -> loop[Box[A]] -> ...` once diverged the `used` traversal, then was caught by the
+  // non-convergence backstop in `UsedNamesProcessor`. `loop` refers back to itself, so termination M1 now rejects the
+  // value cycle *before* monomorphization — the only way to reach unbounded monomorphic breadth was a value cycle, which
+  // is now banned, so the backstop survives purely as a defensive fail-safe for residual type-level (Type:Type/Girard)
+  // divergence that no longer has a value-level proxy to exercise it here.
+  "S7 (divergent recursion, no base case)" should "be rejected as recursion" in {
     runVersioning(
       "data Box[A](unwrap: A)\ndef loop[A](x: A): A = unwrap(loop(Box(x)))\ndef bi: BigInteger\ndef main: BigInteger = loop(bi)"
     ).timeout(30.seconds).asserting { case (errors, _) =>
-      errors.filter(_.message.contains("is not converging")).map(_.highlight) shouldBe Seq("loop")
+      errors.map(_.message) should contain("Value 'loop' is defined recursively.")
     }
   }
 
   // --- S8: recursion on a runtime value, invariant type (control / regression guard) -----------------------------
-  // A plain self-recursive value whose type never changes: `used` revisits the same key immediately and stops.
-  // TODAY: 1. TARGET: 1 (must stay — ordinary recursion must not be perturbed by the projection).
-  "S8 (runtime recursion, invariant type)" should "unroll exactly one version (target: 1, must stay)" in {
+  // A plain self-recursive value (`main = main`) that once unrolled to exactly one version. It refers back to itself, so
+  // termination M1 now rejects it.
+  "S8 (runtime recursion, invariant type)" should "be rejected as recursion" in {
     runVersioning("def main: Function[BigInteger, BigInteger] = main")
       .timeout(2.seconds)
-      .asserting { case (errors, counts) =>
-        (errors, countOf(counts, "main")) shouldBe (Seq.empty, 1)
+      .asserting { case (errors, _) =>
+        errors.map(_.message) should contain("Value 'main' is defined recursively.")
       }
   }
 

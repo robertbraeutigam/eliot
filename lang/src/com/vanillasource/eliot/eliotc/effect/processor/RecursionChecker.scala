@@ -1,0 +1,79 @@
+package com.vanillasource.eliot.eliotc.effect.processor
+
+import cats.{Id, Monad}
+import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.foldValueReferences
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
+
+/** The no-recursion rule (termination M1): a value defined recursively — through a self or mutual cycle in its
+  * *body-level* value-reference graph — is a hard error. Eliot's pure core cannot express recursion (every loop lives in
+  * a platform native), so a definition that refers back to itself is rejected outright and pointed at the platform loop
+  * primitives. There is no "mark it `Inf`" escape: `Inf` originates only on a native, never by annotating one's own
+  * recursion.
+  *
+  * Run from [[EffectDesugaringProcessor]] (the per-value gate the whole compiled program passes through, before
+  * monomorphization) rather than as a standalone processor, so it rides the existing effect pipeline and needs no
+  * separate fact wired into every compilation harness. A reported cycle leaves the value's
+  * [[com.vanillasource.eliot.eliotc.effect.fact.EffectDesugaredValue]] unregistered (the error trips
+  * `registerFactIfClear`), so the recursive value never reaches monomorphization — where it would otherwise silently
+  * compile to a self-calling method or diverge the type-level computation.
+  *
+  * The check is precise because it walks *resolved* [[ValueFQN]] references in the runtime body only (never the type
+  * signature), so the patterns that merely look self-referential are not flagged:
+  *   - a covariantly self-referential `data` (`data Tree(left: Tree, right: Tree)`) references itself only in field
+  *     *types*; its constructors are body-less natives, hence leaves here (M0 strict positivity vets the declaration);
+  *   - the monad-transformer lifting pattern (`EitherT.pure` whose body calls `pure` on the inner carrier) references
+  *     the *abstract* ability method (`Qualifier.Ability`, a body-less leaf), a different FQN from the *implementation*
+  *     method (`Qualifier.AbilityImplementation`) that contains it. Ability-mediated potential recursion, if any, is
+  *     resolved — and its convergence policed — by monomorphization, not here.
+  */
+class RecursionChecker {
+
+  /** Whether `value` is recursive, reporting a [[compilerError]] on its name when it is. The caller short-circuits on a
+    * `true` result; the registered error additionally suppresses the value's downstream fact.
+    */
+  def isRecursive(value: OperatorResolvedValue): CompilerIO[Boolean] =
+    reachesSelf(value.vfqn, directCallees(value).toList, Set(value.vfqn)).flatTap { recursive =>
+      compilerError(
+        value.name.as(s"Value '${value.name.value.name}' is defined recursively."),
+        Seq(
+          "It refers back to itself, directly or through other values, and Eliot's pure core cannot express recursion.",
+          "Use a platform loop primitive instead: 'fold' for a bounded loop, 'forever' for an endless one."
+        )
+      ).whenA(recursive)
+    }
+
+  /** Whether `target` is reachable from `frontier` through the body-reference graph. `visited` seeds the search with
+    * `target` so a callee that refers straight back is detected, and bounds the walk against any *other* cycles in the
+    * graph (it reads already-resolved facts, so visiting each node once suffices). Stack-safe via `tailRecM`.
+    */
+  private def reachesSelf(
+      target: ValueFQN,
+      frontier: List[ValueFQN],
+      visited: Set[ValueFQN]
+  ): CompilerIO[Boolean] =
+    Monad[CompilerIO].tailRecM((frontier, visited)) {
+      case (Nil, _)            => false.asRight[(List[ValueFQN], Set[ValueFQN])].pure[CompilerIO]
+      case (fqn :: rest, seen) =>
+        if (fqn == target) true.asRight[(List[ValueFQN], Set[ValueFQN])].pure[CompilerIO]
+        else if (seen.contains(fqn)) (rest, seen).asLeft[Boolean].pure[CompilerIO]
+        else calleesOf(fqn).map(cs => (rest ++ cs.toList, seen + fqn).asLeft[Boolean])
+    }
+
+  /** The body callees of an already-resolved value, or the empty set when it is body-less (a native) or cannot be
+    * resolved (conservative: a leaf, so the search just stops there).
+    */
+  private def calleesOf(fqn: ValueFQN): CompilerIO[Set[ValueFQN]] =
+    getFact(OperatorResolvedValue.Key(fqn)).map(_.fold(Set.empty[ValueFQN])(directCallees))
+
+  /** Every distinct [[ValueFQN]] referenced in a value's runtime body — head positions, arguments and type arguments
+    * alike (the resolved value-reference graph). The type signature is deliberately excluded.
+    */
+  private def directCallees(value: OperatorResolvedValue): Set[ValueFQN] =
+    value.runtime.fold(Set.empty[ValueFQN])(body =>
+      foldValueReferences[Id, Set[ValueFQN]](body.value, Set.empty)((acc, ref) => acc + ref.value)
+    )
+}

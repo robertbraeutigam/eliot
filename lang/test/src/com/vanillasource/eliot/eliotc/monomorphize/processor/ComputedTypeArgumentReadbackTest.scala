@@ -82,15 +82,14 @@ class ComputedTypeArgumentReadbackTest
     }
   }
 
-  // The recursion the gap blocked now proceeds and terminates: each step computes its own index `subtract(N, 1)` and the
-  // `fold` base case at `N <= 0` stops it. `countdown[3]` unrolls to the four distinct indices {3, 2, 1, 0} with no
-  // error. (Collapsing this breadth to a single body is the later keying deliverable; here we only assert the read-back
-  // gap is closed so the unroll happens at all.)
-  "a size-indexed recursion with a computed index" should "proceed and terminate after the read-back fix" in {
+  // This `countdown` proxy once exercised the read-back fix across a recursive unroll {3, 2, 1, 0}. The read-back fix
+  // itself is covered non-recursively above (`g[3]` -> `h[subtract(3, 1)]`); `countdown` refers back to itself, so
+  // termination M1 now rejects the value cycle outright.
+  "a size-indexed recursion with a computed index" should "be rejected as recursion" in {
     runReadback(
       "import eliot.lang.Bool\ndef bigOf[V: BigInteger]: BigInteger = V\ndef countdown[N: BigInteger]: BigInteger = fold(lessThanOrEqual(N, bigOf[0]), bigOf[0], countdown[subtract(N, bigOf[1])])\ndef main: BigInteger = countdown[3]"
-    ).asserting { case (errors, args) =>
-      (errors, indicesOf(args, "countdown")) shouldBe (Seq.empty, Set(BigInt(3), BigInt(2), BigInt(1), BigInt(0)))
+    ).asserting { case (errors, _) =>
+      errors.map(_.message) should contain("Value 'countdown' is defined recursively.")
     }
   }
 
