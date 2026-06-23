@@ -77,14 +77,26 @@ the bound drops `N → N-1`. **That discharge is the proof** — the only place 
 — and it is *ordinary refinement reasoning* already in `monomorphize.refine.RefinementSolver` (see
 [[project_coerce_replaces_typerefinement]]). No new solver, no theorem prover.
 
-Because the measure is the **type-level bound**, descent is a type-level argument: `dec` propagates the
-bound (`Int[1, N] → Int[0, N-1]`, ordinary `Int[MIN,MAX]` arithmetic), so the recursive call
-instantiates the measure at `N-1` and the type-level `N` walks `SIZE → … → 0`. The runtime counter
-follows along but is never itself the measure.
+Because the measure is the **type-level bound**, descent is checked **symbolically, once, at the
+definition — *not* by unrolling.** The compiler asks the solver a single question: is `N-1 < N` for
+*all* `N`? That is `-1 < 0`, trivially true with no concrete value involved, and proving it once
+certifies every instantiation. (`dec` propagates the bound `Int[1, N] → Int[0, N-1]` by ordinary
+`Int[MIN,MAX]` arithmetic, so the recursive call's measure is the symbolic `N-1`; the runtime counter
+follows along but is never itself the measure.) The "`N` descends to 0" picture is the
+**well-foundedness theorem** that *justifies* the rule — a discrete, positively-guarded,
+strictly-decreasing measure cannot descend forever — **not** the compiler's procedure, which never sees
+`5, 4, 3`. This is how termination checkers work in general: prove the measure decreases symbolically,
+never evaluate the recursion.
 
-Important consequence of erasure: because `N` is erased (no per-`N` monomorphization), there is **no
-use-site monomorphization underflow to fall back on** — the definitional descent check is the *sole*
-guarantee for an erased measure. It must be sound on its own.
+This is exactly why the proof and **phantom erasure** coexist cleanly. `N` is phantom, so
+monomorphization produces **one body** (`foldFrom[5]` and `foldFrom[4]` share a codegen key) — no
+unrolling, no explosion — and the non-convergence backstop in `used` is **not even engaged** (it guards
+*reified, recursion-variant* params being specialized into a divergent chain; a phantom measure is never
+specialized). The flow is: prove termination **once, symbolically, on the symbolic measure**, then
+**erase the measure**. Because the proof never needed concrete numbers there is nothing to keep — and
+equally, no per-`N` monomorphization to fall back on, so the **definitional symbolic check is the *sole*
+guarantee and must be sound on its own**. (Concrete sizes surface only at *call sites* — a `List[5, T]`
+pins `N := 5` — which triggers no re-check or unroll, and the `5` is erased too.)
 
 ## Detection & denial: a latent effect on the arrow, not pointer-tracking
 
@@ -323,8 +335,9 @@ def foldFrom[A, B, SIZE](list: List[SIZE, A], acc: B, f: Function[B, Function[A,
 ```
 
 - `foldFrom` carries `{Rec[SIZE]}` — the measure *is* the type-level index `SIZE`. The recursive call
-  on `tail(list) : List[SIZE-1, A]` instantiates the callee at `SIZE-1`; the descent check sees
-  `SIZE-1 < SIZE`. No explicit `[dec(SIZE)]` is needed — it is inferred from `tail`'s return type.
+  on `tail(list) : List[SIZE-1, A]` instantiates the callee at `SIZE-1`; the descent check proves
+  `SIZE-1 < SIZE` **symbolically, once, for all `SIZE`** (never by unrolling — `SIZE` is phantom). No
+  explicit `[dec(SIZE)]` is needed — it is inferred from `tail`'s return type.
 - `isEmpty(list) = False` refines `SIZE > 0`, discharging `tail`/`head`'s `{SIZE>0}` preconditions
   (and ruling out the `SIZE = 0` underflow). This is the **indexed-data refinement** — a first-class
   M3 capability *because* every structure carries its size (the norm).
