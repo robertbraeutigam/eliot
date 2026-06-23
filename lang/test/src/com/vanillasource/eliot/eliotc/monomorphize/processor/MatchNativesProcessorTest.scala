@@ -17,6 +17,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.MetaStore
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Quoter
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
 import com.vanillasource.eliot.eliotc.token.Tokenizer
@@ -36,6 +37,7 @@ class MatchNativesProcessorTest
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
+      RecursionCheckProcessor(),
       EffectDesugaringProcessor(),
       SaturatedValueProcessor(),
       AbilityImplementationProcessor(),

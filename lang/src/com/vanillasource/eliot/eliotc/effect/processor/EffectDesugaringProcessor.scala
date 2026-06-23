@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
+import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
 
 /** Effects, Part B — the body auto-lift (the headline of the effects plan, M3).
   *
@@ -31,37 +32,32 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * effect is rejected here ("performs effects but its return type cannot carry them") rather than miscompiled;
   * monomorphization would also catch it as an `F[A]`-vs-`A` mismatch.
   *
-  * Placed after `OperatorResolverProcessor` (so application structure is final) and before `SaturatedValueProcessor`
-  * (whose primary input is repointed to this fact); the signature is untouched, so saturate's cross-value reads of
-  * other [[OperatorResolvedValue]] signatures stay valid.
+  * Placed after `RecursionCheckProcessor` (its sole input — so only recursion-free values reach desugaring; the
+  * no-recursion gate is upstream) and before `SaturatedValueProcessor` (whose primary input is repointed to this
+  * fact); the signature is untouched, so saturate's cross-value reads of other [[OperatorResolvedValue]] signatures
+  * stay valid.
   */
 class EffectDesugaringProcessor
-    extends TransformationProcessor[OperatorResolvedValue.Key, EffectDesugaredValue.Key](key =>
-      OperatorResolvedValue.Key(key.vfqn)
+    extends TransformationProcessor[RecursionCheckedValue.Key, EffectDesugaredValue.Key](key =>
+      RecursionCheckedValue.Key(key.vfqn)
     )
     with Logging {
 
   private lazy val calleeSignatures = new CalleeSignatures
   private lazy val desugarer        = new DirectStyleDesugarer(calleeSignatures)
   private lazy val effectChecker    = new DeclaredEffectChecker
-  private lazy val recursionChecker = new RecursionChecker
 
   override protected def generateFromKeyAndFact(
       key: EffectDesugaredValue.Key,
-      value: OperatorResolvedValue
-  ): CompilerIO[EffectDesugaredValue] =
-    // Gate every compiled value on the no-recursion rule (termination M1) before desugaring: a recursive definition is
-    // reported here and its body is left untouched, so the registered error trips `registerFactIfClear` and the value
-    // never reaches monomorphization or codegen (where it would silently compile to a self-calling method).
-    recursionChecker.isRecursive(value).flatMap {
-      case true  => EffectDesugaredValue(value).pure[CompilerIO]
-      case false =>
-        value.runtime match {
-          case None       => EffectDesugaredValue(value).pure[CompilerIO]
-          case Some(body) =>
-            desugarBody(value, body).map(runtime => EffectDesugaredValue(value.copy(runtime = runtime)))
-        }
+      checked: RecursionCheckedValue
+  ): CompilerIO[EffectDesugaredValue] = {
+    val value = checked.value
+    value.runtime match {
+      case None       => EffectDesugaredValue(value).pure[CompilerIO]
+      case Some(body) =>
+        desugarBody(value, body).map(runtime => EffectDesugaredValue(value.copy(runtime = runtime)))
     }
+  }
 
   /** Auto-lift one value's body against its declared signature, returning the rewritten runtime (or registering a
     * fail-safe error and returning the original, which then will not be registered downstream).

@@ -315,21 +315,26 @@ Each milestone is independently landable and leaves the compiler sound.
   vocabulary and fails (with a pointer back to the graceful-fallback note) if a cell is ever added.
 
 **M1 — No recursion + `Inf` effect: declare, propagate, run.**
-- *Reject recursion in user code* — **✅ DONE.** `effect.processor.RecursionChecker` (invoked by
-  `EffectDesugaringProcessor`, the per-value gate the whole compiled program passes through *before*
-  monomorphization) rejects any self/mutual cycle in a value's **runtime-body** value-reference graph with the
+- *Reject recursion in user code* — **✅ DONE.** `termination.processor.RecursionCheckProcessor` (running
+  `termination.processor.RecursionChecker`) is a standalone gate phase placed after `OperatorResolverProcessor`
+  and before `EffectDesugaringProcessor` — the per-value gate the whole compiled program passes through *before*
+  monomorphization. It rejects any self/mutual cycle in a value's **runtime-body** value-reference graph with the
   hard error "Value 'X' is defined recursively." + the `fold`/`forever` pointer. It is a bounded reachability
   search over *resolved* `ValueFQN`s in the body only (never the type signature), so it is precise: a covariant
   `data Tree(left: Tree, right: Tree)` (constructors are body-less leaves) and the monad-transformer lift
-  (`EitherT.pure` calling the inner carrier's *abstract* `pure`, a different FQN) are not flagged. The reported
-  cycle leaves the value's `EffectDesugaredValue` unregistered (the error trips `registerFactIfClear`), so it
-  never reaches monomorphization — preempting the two pre-existing recursion fail-safes (the calculated-return
-  guard and the `used` non-convergence backstop), which survive only for residual type-level (Girard)
-  divergence. There is **no** "mark it `Inf`" escape for a user cycle: `Inf` originates only on a native, so a
-  recursive user function is rejected outright (it becomes `{Inf}` only by *calling* an `Inf` native like
-  `forever`). Demand-driven (fires for values reachable from `main`), consistent with use-site verification.
-  Implementation note: it was folded into `EffectDesugaringProcessor` rather than a standalone processor + fact,
-  to avoid having to wire a new producer into the ~10 custom-pipeline test harnesses. Tests:
+  (`EitherT.pure` calling the inner carrier's *abstract* `pure`, a different FQN) are not flagged. A clean value
+  is certified as a `termination.fact.RecursionCheckedValue` (the operator-resolved value carried through
+  untouched); a reported cycle trips `registerFactIfClear` so that fact is never registered. Because
+  `EffectDesugaringProcessor`'s sole input is repointed to `RecursionCheckedValue`, a recursive value never
+  reaches effect desugaring, saturation or monomorphization — the gate is fail-safe by construction, and it
+  preempts the two pre-existing recursion fail-safes (the calculated-return guard and the `used` non-convergence
+  backstop), which survive only for residual type-level (Girard) divergence. There is **no** "mark it `Inf`"
+  escape for a user cycle: `Inf` originates only on a native, so a recursive user function is rejected outright
+  (it becomes `{Inf}` only by *calling* an `Inf` native like `forever`). Demand-driven (fires for values reachable
+  from `main`), consistent with use-site verification. Implementation note: it was originally folded into
+  `EffectDesugaringProcessor` to avoid wiring a new producer into the ~10 custom-pipeline test harnesses; it is
+  now its own processor + fact (those harnesses each register `RecursionCheckProcessor` before
+  `EffectDesugaringProcessor`), keeping the recursion concern entirely out of the effect phase. Tests:
   `jvm/TerminationIntegrationTest` (direct cycle, mutual cycle, deep non-recursive chain compiles+runs); the
   pre-M1 recursion-proxy tests across `MonomorphicTypeCheckTest`/`MonomorphizationVersioningTest`/etc. were
   retargeted to assert the rejection.

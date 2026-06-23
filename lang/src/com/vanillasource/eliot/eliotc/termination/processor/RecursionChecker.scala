@@ -1,4 +1,4 @@
-package com.vanillasource.eliot.eliotc.effect.processor
+package com.vanillasource.eliot.eliotc.termination.processor
 
 import cats.{Id, Monad}
 import cats.syntax.all.*
@@ -14,10 +14,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * primitives. There is no "mark it `Inf`" escape: `Inf` originates only on a native, never by annotating one's own
   * recursion.
   *
-  * Run from [[EffectDesugaringProcessor]] (the per-value gate the whole compiled program passes through, before
-  * monomorphization) rather than as a standalone processor, so it rides the existing effect pipeline and needs no
-  * separate fact wired into every compilation harness. A reported cycle leaves the value's
-  * [[com.vanillasource.eliot.eliotc.effect.fact.EffectDesugaredValue]] unregistered (the error trips
+  * Run by [[RecursionCheckProcessor]] as a standalone gate phase before effect desugaring — the per-value gate the
+  * whole compiled program passes through, before monomorphization. A reported cycle leaves the value's
+  * [[com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue]] unregistered (the error trips
   * `registerFactIfClear`), so the recursive value never reaches monomorphization — where it would otherwise silently
   * compile to a self-calling method or diverge the type-level computation.
   *
@@ -32,11 +31,12 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   */
 class RecursionChecker {
 
-  /** Whether `value` is recursive, reporting a [[compilerError]] on its name when it is. The caller short-circuits on a
-    * `true` result; the registered error additionally suppresses the value's downstream fact.
+  /** Reports a [[compilerError]] on `value`'s name when it is recursive, and otherwise does nothing. The registered
+    * error suppresses the value's downstream [[com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue]]
+    * fact, gating it out of the rest of the pipeline.
     */
-  def isRecursive(value: OperatorResolvedValue): CompilerIO[Boolean] =
-    reachesSelf(value.vfqn, directCallees(value).toList, Set(value.vfqn)).flatTap { recursive =>
+  def check(value: OperatorResolvedValue): CompilerIO[Unit] =
+    reachesSelf(value.vfqn, directCallees(value).toList, Set(value.vfqn)).flatMap { recursive =>
       compilerError(
         value.name.as(s"Value '${value.name.value.name}' is defined recursively."),
         Seq(

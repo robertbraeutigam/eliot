@@ -14,6 +14,7 @@ import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProc
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
+import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
 import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.saturate.fact.BinderRoles.Disposition
 import com.vanillasource.eliot.eliotc.saturate.fact.{BinderRoles, SaturatedValue}
@@ -45,6 +46,7 @@ class BinderRolesTest
       ValueResolver(),
       MatchDesugaringProcessor(),
       OperatorResolverProcessor(),
+      RecursionCheckProcessor(),
       EffectDesugaringProcessor(),
       AbilityImplementationProcessor(),
       AbilityImplementationCheckProcessor(),
