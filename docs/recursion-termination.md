@@ -314,7 +314,7 @@ Each milestone is independently landable and leaves the compiler sound.
   Recorded as the guard `termination/PurityGuardTest`, which scans every layer's `.els` for the mutable-reference
   vocabulary and fails (with a pointer back to the graceful-fallback note) if a cell is ever added.
 
-**M1 — No recursion + `Inf` effect: declare, propagate, run.**
+**M1 — No recursion + `Inf` effect: declare, propagate, run. ✅ COMPLETE.**
 - *Reject recursion in user code* — **✅ DONE.** `termination.processor.RecursionCheckProcessor` (running
   `termination.processor.RecursionChecker`) is a standalone gate phase placed after `OperatorResolverProcessor`
   and before `EffectDesugaringProcessor` — the per-value gate the whole compiled program passes through *before*
@@ -338,17 +338,33 @@ Each milestone is independently landable and leaves the compiler sound.
   `jvm/TerminationIntegrationTest` (direct cycle, mutual cycle, deep non-recursive chain compiles+runs); the
   pre-M1 recursion-proxy tests across `MonomorphicTypeCheckTest`/`MonomorphizationVersioningTest`/etc. were
   retargeted to assert the rejection.
-- *`Inf` declaration (terminating by default)* — **PENDING (next).** A body-less native is terminating unless it declares `{Inf}`;
-  there is no `Terminating` annotation to write. (See the *Declaration* trade-off above.)
-- *`Inf` effect fact + propagation*: a value's effect row = set-union of its callees' rows (read from native
-  declarations for leaves), via the existing effect-pipeline shape. `Inf` present anywhere taints; its
-  absence is termination — no `Terminating` token.
-- *Run, don't discharge*: `Inf` is realized on the `IO` carrier (the `forever`/event-loop primitive) and run
-  by the runtime; an `{Inf}` `main` (a server / super-loop) is valid and runs forever. There is no
-  step-budget discharge (`withFuel` is dropped); a timeout-based bound is deferred to the time/resource work.
-- Tests: a user-written cycle rejected (**✅ done**); an `Inf` native propagates to its callers; a program with
-  no `Inf` in any reachable row is total; an `{Inf}` `main` built from `forever` over a terminating step runs
-  the step endlessly (the `Inf`-effect tests are **pending** with the rest of the `Inf` half).
+- *`Inf` as an effect — declare, propagate, run* — **✅ DONE.** `Inf` is an ordinary effect *ability*
+  (`stdlib/.../Inf.els`: `ability Inf[F[_]] { def forever(step: F[Unit]): F[Unit] }`, import-required like `Abort`/
+  `State`), so it rides the **existing** effect machinery with no new termination lattice — exactly the doc's intent:
+  - *Declaration / origination.* `Inf` originates on `forever`, the sole operation of the `Inf` ability. A body-less
+    native is terminating by default; `forever` is the one that loops, and its `{Inf}`-ness is carried by being an
+    `Inf`-ability method (its owning ability *is* `Inf`). There is no `Terminating` token.
+  - *Propagation is the existing subset check.* Because calling an ability method performs its owning ability
+    (`CalleeSignatures.effectAbilitiesOf` → `Inf`), and `DeclaredEffectChecker` already enforces *used ⊆ declared* for
+    every carrier-polymorphic value, a `{Console}`-only function that calls `forever` is rejected ("performs the effect
+    'Inf' but does not declare it") — i.e. `Inf` propagates to its callers as a hard requirement, for free, through the
+    *same* pipeline as `Console`/`Log`. A value declaring `{Inf}` (or `{Inf, Console}`) is accepted. A concrete-carrier
+    value (`main : IO[Unit]`) has no declared set, so `Inf` is simply absorbed into `IO` and reaches the top — a server.
+  - *Run, not discharged.* There is no `runInf`. The jvm layer (`jvm/.../Inf.els`) provides `implement Inf[IO]` whose
+    `forever(step) = IO(_ -> foreverInternal(block(step)))`, where `foreverInternal` is a `private` leaf native emitting
+    a `while (true) { thunk.apply(unit) }` loop (`NativeImplementation.eliot_lang_Inf_foreverInternal`, marked `impure`
+    so the backend enforces its `private`). Reaching it via `main : IO[Unit]` runs the step endlessly; an `{Inf}` `main`
+    is valid and runs forever. No step-budget discharge (`withFuel` dropped); a timeout-based bound is deferred to the
+    time/resource work.
+  - *Deviation from the sketch above.* `forever` is typed `F[Unit] -> F[Unit]`, not the `… -> {Inf, e} A` of the
+    *Higher-order propagation* sketch: the result is `Unit` (a never-returning loop produces no value; `Unit` covers the
+    server/super-loop case) and the step's own effect polymorphism `{e}` is **M2**. In M1 the step is a concrete carrier
+    value (`println("tick") : IO[Unit]` at `main`), which is all the end-to-end tests need; carrier-row `{e}` on the step
+    is the M2 refinement.
+- Tests — **✅ done.** A user-written cycle rejected (recursion half); `Inf` propagation rejected/accepted by the subset
+  check (`EffectDesugaringProcessorTest`, lang); end-to-end `compileForErrors` rejection + a bounded-subprocess
+  "runs endlessly" test for both a concrete-`IO` `main` and a carrier-polymorphic `{Inf, Console}` super-loop pinned to
+  `IO` (`TerminationIntegrationTest`, jvm — the loop's infinite-loop bytecode also verifies under `COMPUTE_FRAMES`).
 
 **M2 — Higher-order propagation (the function-coloring piece).**
 - `Inf` rides the existing effect-row / carrier in a function value's type (the same channel as `{E}`

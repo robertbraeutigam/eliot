@@ -55,10 +55,24 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
     runEffectDesugarErrors("def ok: {Console, Log} Unit = log(readLine)").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "propagate the Inf effect: reject a {Console} body that calls forever (undeclared Inf)" in {
+    runEffectDesugarErrors("import eliot.lang.Inf\ndef bad: {Console} Unit = forever(println(readLine))")
+      .asserting(_.map(_.message) should contain("This value performs the effect 'Inf' but does not declare it; add it to its { ... } effect set."))
+  }
+
+  it should "accept a {Console, Inf} body that calls forever (Inf declared)" in {
+    runEffectDesugarErrors("import eliot.lang.Inf\ndef ok: {Console, Inf} Unit = forever(println(readLine))")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   // The Monad ability stub (matching `stdlib/.../Monad.els`), so the idempotency case's hand-written `flatMap` resolves.
   private val monadStub  =
     SystemImport("Monad", "ability Monad[F[_]] {\ndef flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]\ndef pure[A](a: A): F[A]\n}")
-  private val allImports = systemImports :+ monadStub
+  // The Inf effect ability stub (matching `stdlib/.../Inf.els`), import-required (not ambient), so the propagation
+  // cases above can name `forever` and `{Inf}`.
+  private val infStub    =
+    SystemImport("Inf", "ability Inf[F[_]] {\ndef forever(step: F[Unit]): F[Unit]\n}")
+  private val allImports = systemImports :+ monadStub :+ infStub
 
   private def runEffectDesugar(source: String): IO[Option[OperatorResolvedExpression]] =
     runGenerator(source, EffectDesugaredValue.Key(echoVfqn(source)), allImports).map { case (_, facts) =>

@@ -64,6 +64,45 @@ trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       } yield output
     }
 
+  /** Compile `source` to an executable jar, then run it as a separate `java -jar` process for up to `timeoutMillis`
+    * before forcibly terminating it, returning whatever it printed to standard output meanwhile. Used to exercise a
+    * deliberately non-terminating (`{Inf}`) program: the loop never returns on its own, so the test bounds it by
+    * killing the process and inspecting the partial (repeated) output.
+    */
+  protected def compileAndRunBounded(source: String, timeoutMillis: Long, moduleName: String = "Test"): IO[String] =
+    (for {
+      sourceDir <- tempDirectory("eliot-src")
+      targetDir <- tempDirectory("eliot-target")
+    } yield (sourceDir, targetDir)).use { (sourceDir, targetDir) =>
+      for {
+        _      <- IO.blocking(Files.writeString(sourceDir.resolve(s"$moduleName.els"), source))
+        _      <- Compiler.runCompiler(
+                    List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", moduleName)
+                  )
+        output <- runJarBounded(targetDir.resolve(s"$moduleName.jar"), timeoutMillis)
+      } yield output
+    }
+
+  private def runJarBounded(jarPath: Path, timeoutMillis: Long): IO[String] = IO.blocking {
+    // Run out-of-process (not via an in-process classloader as `runJar` does): an `{Inf}` program never returns, so it
+    // must be killed, which a reflective in-VM call cannot survive. Output is redirected to a file to avoid a pipe
+    // deadlock when the unbounded loop outpaces a reader.
+    val outFile = Files.createTempFile("eliot-bounded-out", ".txt")
+    val javaBin = Path.of(System.getProperty("java.home"), "bin", "java").toString
+    val process = new ProcessBuilder(javaBin, "-jar", jarPath.toString)
+      .redirectErrorStream(true)
+      .redirectOutput(outFile.toFile)
+      .start()
+    try process.waitFor(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
+    finally {
+      process.destroyForcibly()
+      process.waitFor()
+    }
+    val output = Files.readString(outFile)
+    Files.deleteIfExists(outFile)
+    output
+  }
+
   private def runJar(jarPath: Path, stdin: String): IO[String] = IO.blocking {
     val classLoader = new URLClassLoader(Array(jarPath.toUri.toURL), ClassLoader.getPlatformClassLoader)
     try {

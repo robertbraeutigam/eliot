@@ -25,10 +25,12 @@ class NativeImplementationTest extends AnyFlatSpec with Matchers {
     NativeImplementation.visibilityViolation(fqn, impure = false, Visibility.Public) shouldBe None
   }
 
-  "the registered I/O leaf natives" should "all be marked impure" in {
+  "the registered must-be-private leaf natives" should "all be marked impure" in {
+    // The I/O leaves (`printlnInternal`/`readLineInternal`/`logInternal`) plus the unbounded-loop divergence leaf
+    // (`foreverInternal`, the `Inf` effect): each is reachable only through its public ability, so each must be private.
     val impureNames = NativeImplementation.implementations.collect {
       case (vfqn, impl) if impl.impure => vfqn.name.name
     }.toSet
-    impureNames shouldBe Set("printlnInternal", "readLineInternal", "logInternal")
+    impureNames shouldBe Set("printlnInternal", "readLineInternal", "logInternal", "foreverInternal")
   }
 }

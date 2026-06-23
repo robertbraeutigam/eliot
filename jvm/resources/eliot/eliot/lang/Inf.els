@@ -1,0 +1,27 @@
+/**
+ * The `Inf` ability re-declared here so this layer file is self-complete (the layer system mixes files rather than
+ * stacking them: each file declares what it depends on, and the merge verifies the duplicated signature agrees with the
+ * base `stdlib` declaration). A concrete-carrier instance must be colocated with its ability, hence the re-declaration
+ * alongside the JVM implementation.
+ */
+ability Inf[F[_]] {
+   def forever(step: F[Unit]): F[Unit]
+}
+
+/**
+ * The JVM `Inf` instance: `forever` is pinned to the concrete runtime carrier `IO`. `Inf` is *run, not discharged*, so
+ * there is no transformer and no `Sync` lift — the loop is realised directly on `IO`. `forever` wraps the unbounded
+ * loop in a fresh `IO` thunk; running that `IO` (via `main`'s `apply(block(...), unit)`) drives `foreverInternal`,
+ * which re-invokes the step's deferred block on every iteration so the step's effects repeat. It never returns.
+ */
+implement Inf[IO] {
+   def forever(step: IO[Unit]): IO[Unit] = IO(_ -> foreverInternal(block(step)))
+}
+
+/**
+ * The single non-terminating spot: invoke a deferred thunk (`step`'s `IO` block, a `Function[Unit, Unit]`) endlessly.
+ * `private` so no application module can name it — divergence is reachable only through the `{Inf}`-typed `forever`,
+ * which records the effect honestly. Being body-less, it is a stuck neutral at compile time (never run by the NbE
+ * evaluator); the JVM backend supplies its bytecode (a `while (true) { thunk.apply(unit) }` loop that never returns).
+ */
+private def foreverInternal(thunk: Function[Unit, Unit]): Unit

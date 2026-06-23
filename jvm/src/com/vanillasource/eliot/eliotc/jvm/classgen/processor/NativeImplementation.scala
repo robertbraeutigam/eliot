@@ -8,14 +8,18 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.systemLangType
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{systemFunctionValue, systemUnitValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.CompilerIO
-import org.objectweb.asm.Opcodes
+import org.objectweb.asm.{Label, Opcodes}
 
 trait NativeImplementation {
 
-  /** Whether this native touches the world (I/O) and therefore must be wrapped behind a `private` Eliot leaf. The
-    * backend asserts the resolved def of an `impure` native is `Visibility.Private` (see [[JvmClassGenerator]]); a pure
-    * native (arithmetic, `unit`) stays `false` and may be `public`.
+  /** Whether this native must be wrapped behind a `private` Eliot leaf — because it touches the world (I/O, e.g.
+    * `printlnInternal`) or is the one unbounded-loop divergence leaf (`foreverInternal`, the `Inf` effect). Either way
+    * application code must never name it directly: the effect (I/O via `{Console}`/`{Log}`, divergence via `{Inf}`) is
+    * recorded honestly only through the public ability the leaf hides behind. The backend asserts the resolved def of
+    * an `impure` native is `Visibility.Private` (see [[JvmClassGenerator]]); a pure, total native (arithmetic, `unit`)
+    * stays `false` and may be `public`.
     */
   def impure: Boolean = false
 
@@ -28,6 +32,7 @@ object NativeImplementation {
       (systemLangValueFQN("Console", "printlnInternal"), eliot_lang_Console_printlnInternal),
       (systemLangValueFQN("Console", "readLineInternal"), eliot_lang_Console_readLineInternal),
       (systemLangValueFQN("Log", "logInternal"), eliot_lang_Log_logInternal),
+      (systemLangValueFQN("Inf", "foreverInternal"), eliot_lang_Inf_foreverInternal),
       (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit)
     )
   )
@@ -43,6 +48,37 @@ object NativeImplementation {
     Option.when(impure && visibility != Visibility.Private)(
       s"Impure native '${vfqn.show}' must be declared `private`."
     )
+
+  /** `forever` (the `Inf` effect, termination M1): run a deferred thunk (`Function[Unit, Unit]`) endlessly — a plain
+    * `while (true) { thunk.apply(unit) }`. It is the single trusted source of divergence: a body-less native is
+    * terminating by default, and this is the one that loops. The method never returns normally, so it has no reachable
+    * return; the trailing `ARETURN` `createMethod` appends is dead code, which `COMPUTE_FRAMES` rewrites. Marked
+    * `impure` so the backend enforces its `private` declaration (divergence is reachable only through `{Inf}` `forever`).
+    */
+  private def eliot_lang_Inf_foreverInternal: NativeImplementation = new NativeImplementation {
+    override val impure: Boolean = true
+
+    override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] =
+      classGenerator
+        .createMethod[CompilerIO](JvmIdentifier("foreverInternal"), Seq(systemFunctionValue), systemUnitValue)
+        .use { methodGenerator =>
+          methodGenerator.runNative { methodVisitor =>
+            val loop = new Label()
+            methodVisitor.visitLabel(loop)
+            methodVisitor.visitVarInsn(Opcodes.ALOAD, 0)  // the thunk
+            methodVisitor.visitInsn(Opcodes.ACONST_NULL)  // the Unit argument
+            methodVisitor.visitMethodInsn(
+              Opcodes.INVOKEINTERFACE,
+              "java/util/function/Function",
+              "apply",
+              "(Ljava/lang/Object;)Ljava/lang/Object;",
+              true
+            )
+            methodVisitor.visitInsn(Opcodes.POP)          // discard the Unit result
+            methodVisitor.visitJumpInsn(Opcodes.GOTO, loop)
+          }
+        }
+  }
 
   private def eliot_lang_Unit_unit: NativeImplementation = new NativeImplementation {
     override def generateMethod(classGenerator: ClassGenerator): CompilerIO[Unit] = {
