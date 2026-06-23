@@ -2,59 +2,13 @@ package com.vanillasource.eliot.eliotc.ability
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.ability.processor.{
-  AbilityImplementationCheckProcessor,
-  AbilityImplementationProcessor,
-  ModuleAbilityOverlapCheckProcessor
-}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.module.processor.{
-  ModuleNamesProcessor,
-  ModuleValueProcessor,
-  UnifiedModuleNamesProcessor,
-  UnifiedModuleValueProcessor
-}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
-import com.vanillasource.eliot.eliotc.monomorphize.processor.{
-  DataTypeNativesProcessor,
-  MonomorphicTypeCheckProcessor,
-  SystemNativesProcessor,
-  UserValueNativesProcessor
-}
-import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
-import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
-import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
-import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
-import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.token.Tokenizer
+import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 
 class AbilityImplementationCheckProcessorTest
-    extends ProcessorTest(
-      Tokenizer(),
-      ASTParser(),
-      CoreProcessor(),
-      ModuleNamesProcessor(),
-      UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(ProcessorTest.systemModulesWithoutInt),
-      UnifiedModuleValueProcessor(),
-      ValueResolver(),
-      MatchDesugaringProcessor(),
-      OperatorResolverProcessor(),
-      RecursionCheckProcessor(),
-      EffectDesugaringProcessor(),
-      SaturatedValueProcessor(),
-      AbilityImplementationProcessor(),
-      AbilityImplementationCheckProcessor(),
-      ModuleAbilityOverlapCheckProcessor(),
-      SystemNativesProcessor(),
-      DataTypeNativesProcessor(),
-      UserValueNativesProcessor(),
-      MonomorphicTypeCheckProcessor()
-    ) {
+    extends ProcessorTest(LangProcessors(systemModules = ProcessorTest.systemModulesWithoutInt)*) {
   "ability implementation check" should "pass when all methods are provided with correct signatures" in {
     runEngineForErrors(
       "ability Show[A] { def show(x: A): A }\ndata Int\nimplement Show[Int] { def show(x: Int): Int = x }\ndef f(x: Int): Int = show(x)"

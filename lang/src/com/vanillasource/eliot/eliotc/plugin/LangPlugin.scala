@@ -3,47 +3,17 @@ package com.vanillasource.eliot.eliotc.plugin
 import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ability.processor.{
-  AbilityImplementationCheckProcessor,
-  AbilityImplementationProcessor,
-  ModuleAbilityOverlapCheckProcessor
-}
-import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDateProcessor
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
-import com.vanillasource.eliot.eliotc.module.processor.{
-  ModuleNamesProcessor,
-  ModuleValueProcessor,
-  UnifiedModuleNamesProcessor,
-  UnifiedModuleValueProcessor
-}
-import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
-import com.vanillasource.eliot.eliotc.monomorphize.processor.{
-  DataTypeNativesProcessor,
-  MatchNativesProcessor,
-  MonomorphicTypeCheckProcessor,
-  SystemNativesProcessor,
-  TransparentBindingProcessor,
-  UserValueNativesProcessor
-}
-import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
-import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
-import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.pathKey
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.file.FileContentReader
 import com.vanillasource.eliot.eliotc.source.resource.ResourceContentReader
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.source.stat.FileStatProcessor
-import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.uncurry.processor.MonomorphicUncurryingProcessor
-import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
 import scopt.{OParser, OParserBuilder}
 
 import java.nio.file.Path
@@ -72,32 +42,8 @@ class LangPlugin extends CompilerPlugin {
             FileContentReader(),
             ResourceContentReader(),
             SourceContentReader(),
-            PathScanner(configuration.getOrElse(pathKey, Seq.empty)),
-            Tokenizer(),
-            ASTParser(),
-            CoreProcessor(),
-            ModuleNamesProcessor(),
-            ModuleValueProcessor(),
-            UnifiedModuleNamesProcessor(),
-            UnifiedModuleValueProcessor(),
-            ValueResolver(),
-            MatchDesugaringProcessor(),
-            OperatorResolverProcessor(),
-            RecursionCheckProcessor(),
-            EffectDesugaringProcessor(),
-            SaturatedValueProcessor(),
-            AbilityImplementationProcessor(),
-            AbilityImplementationCheckProcessor(),
-            ModuleAbilityOverlapCheckProcessor(),
-            SystemNativesProcessor(),
-            DataTypeNativesProcessor(),
-            MatchNativesProcessor(),
-            UserValueNativesProcessor(),
-            MonomorphicTypeCheckProcessor(),
-            UsedNamesProcessor(),
-            TransparentBindingProcessor(),
-            MonomorphicUncurryingProcessor()
-          )
+            PathScanner(configuration.getOrElse(pathKey, Seq.empty))
+          ) ++ LangProcessors()
         )
       )
   }

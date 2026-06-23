@@ -2,25 +2,11 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.ability.processor.{
-  AbilityImplementationCheckProcessor,
-  AbilityImplementationProcessor,
-  ModuleAbilityOverlapCheckProcessor
-}
-import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
-import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
-import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
-import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
+import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
-import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.used.{UsedNames, UsedNamesProcessor}
+import com.vanillasource.eliot.eliotc.used.UsedNames
 
 import scala.concurrent.duration.*
 
@@ -44,36 +30,9 @@ import scala.concurrent.duration.*
   * cycle is rejected before monomorphization, so those scenarios now assert the recursion error rather than a version
   * count; the backstop survives as a defensive fail-safe for residual type-level (Type:Type/Girard) divergence.
   */
-class MonomorphizationVersioningTest
-    extends ProcessorTest(
-      Tokenizer(),
-      ASTParser(),
-      CoreProcessor(),
-      ModuleNamesProcessor(),
-      UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(),
-      UnifiedModuleValueProcessor(),
-      ValueResolver(),
-      MatchDesugaringProcessor(),
-      OperatorResolverProcessor(),
-      RecursionCheckProcessor(),
-      EffectDesugaringProcessor(),
-      SaturatedValueProcessor(),
-      AbilityImplementationProcessor(),
-      AbilityImplementationCheckProcessor(),
-      ModuleAbilityOverlapCheckProcessor(),
-      SystemNativesProcessor(),
-      DataTypeNativesProcessor(),
-      MatchNativesProcessor(),
-      UserValueNativesProcessor(),
-      MonomorphicTypeCheckProcessor(),
-      // The codegen projection (B2/B3) lowers representation-class type arguments via `RepresentationLowering`, which
-      // reads `TransparentBinding` (the cached opaque-type body), so the `used` dedup needs this producer wired in.
-      TransparentBindingProcessor(),
-      // A small backstop tolerance keeps the divergent scenario (S7) cheap and deterministic; every converging scenario
-      // here nests at most 4 deep (S1's countdown), well under it, so the counts are unaffected.
-      UsedNamesProcessor(maxNestedRepeats = 8)
-    ) {
+// A small `UsedNamesProcessor` backstop tolerance keeps the divergent scenario (S7) cheap and deterministic; every
+// converging scenario here nests at most 4 deep (S1's countdown), well under it, so the counts are unaffected.
+class MonomorphizationVersioningTest extends ProcessorTest(LangProcessors(maxNestedRepeats = 8)*) {
 
   // --- S1: recursion over a size-bounded structure (Cat 1, phantom index) ----------------------------------------
   // This used to be a *recursion-shaped proxy* for size-indexed unrolling: `countdown[N]` recursing to `countdown[N-1]`

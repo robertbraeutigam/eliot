@@ -3,20 +3,10 @@ package com.vanillasource.eliot.eliotc.module.processor
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ModuleValue, ValueFQN}
-import com.vanillasource.eliot.eliotc.token.Tokenizer
+import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 
-class ModuleValueProcessorTest
-    extends ProcessorTest(
-      Tokenizer(),
-      ASTParser(),
-      CoreProcessor(),
-      ModuleNamesProcessor(),
-      UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(Seq.empty)
-    ) {
+class ModuleValueProcessorTest extends ProcessorTest(LangProcessors(systemModules = Seq.empty)*) {
   private val testModuleName2 = ModuleName2(Seq.empty, "Test")
 
   "module value processor" should "create module value for a simple constant" in {

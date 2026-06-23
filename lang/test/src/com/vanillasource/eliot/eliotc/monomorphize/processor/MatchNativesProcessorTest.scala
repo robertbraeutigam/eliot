@@ -2,52 +2,16 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ability.processor.{
-  AbilityImplementationCheckProcessor,
-  AbilityImplementationProcessor,
-  ModuleAbilityOverlapCheckProcessor
-}
-import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
-import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.MetaStore
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Quoter
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}
-import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
-import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
-import com.vanillasource.eliot.eliotc.token.Tokenizer
+import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 
 /** Verifies that [[MatchNativesProcessor]] makes the NbE evaluator reduce `match` on a concrete scrutinee to a ground
   * value — the `interpret`-backend oracle cases, re-expressed at the NbE level (plan P1).
   */
-class MatchNativesProcessorTest
-    extends ProcessorTest(
-      Tokenizer(),
-      ASTParser(),
-      CoreProcessor(),
-      ModuleNamesProcessor(),
-      UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(),
-      UnifiedModuleValueProcessor(),
-      ValueResolver(),
-      MatchDesugaringProcessor(),
-      OperatorResolverProcessor(),
-      RecursionCheckProcessor(),
-      EffectDesugaringProcessor(),
-      SaturatedValueProcessor(),
-      AbilityImplementationProcessor(),
-      AbilityImplementationCheckProcessor(),
-      ModuleAbilityOverlapCheckProcessor(),
-      SystemNativesProcessor(),
-      DataTypeNativesProcessor(),
-      MatchNativesProcessor(),
-      UserValueNativesProcessor()
-    ) {
+class MatchNativesProcessorTest extends ProcessorTest(LangProcessors()*) {
 
   override val systemImports = Seq(
     SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),

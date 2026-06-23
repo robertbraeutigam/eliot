@@ -3,30 +3,16 @@ package com.vanillasource.eliot.eliotc.resolve
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName => ModuleName2, ValueFQN}
-import com.vanillasource.eliot.eliotc.module.processor.*
+import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve.fact.Expression.*
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.resolve.ExpressionMatchers.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
-import com.vanillasource.eliot.eliotc.token.Tokenizer
 
-class ValueResolverTest
-    extends ProcessorTest(
-      Tokenizer(),
-      ASTParser(),
-      CoreProcessor(),
-      ModuleNamesProcessor(),
-      UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(Seq(ModuleName2.systemFunctionModuleName)),
-      UnifiedModuleValueProcessor(),
-      ValueResolver()
-    ) {
+class ValueResolverTest extends ProcessorTest(LangProcessors(systemModules = Seq(ModuleName2.systemFunctionModuleName))*) {
   private val testModuleName2    = ModuleName2(Seq.empty, "Test")
   private val functionModuleName = ModuleName2.systemFunctionModuleName
 

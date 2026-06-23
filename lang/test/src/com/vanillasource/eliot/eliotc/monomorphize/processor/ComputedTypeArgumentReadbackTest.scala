@@ -2,24 +2,10 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.ability.processor.{
-  AbilityImplementationCheckProcessor,
-  AbilityImplementationProcessor,
-  ModuleAbilityOverlapCheckProcessor
-}
-import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
-import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.module.processor.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicValue}
-import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
-import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
-import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.used.{UsedNames, UsedNamesProcessor}
+import com.vanillasource.eliot.eliotc.plugin.LangProcessors
+import com.vanillasource.eliot.eliotc.used.UsedNames
 
 /** Regression suite for the '''computed type-argument read-back''' fix (prerequisite of the
   * monomorphization-keying plan).
@@ -37,31 +23,7 @@ import com.vanillasource.eliot.eliotc.used.{UsedNames, UsedNamesProcessor}
   * own monomorphization). These tests pin that down directly: the computed indices now normalise, no "Cannot resolve
   * type." error is produced, and the downstream specializations carry the '''reduced''' type arguments.
   */
-class ComputedTypeArgumentReadbackTest
-    extends ProcessorTest(
-      Tokenizer(),
-      ASTParser(),
-      CoreProcessor(),
-      ModuleNamesProcessor(),
-      UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(),
-      UnifiedModuleValueProcessor(),
-      ValueResolver(),
-      MatchDesugaringProcessor(),
-      OperatorResolverProcessor(),
-      RecursionCheckProcessor(),
-      EffectDesugaringProcessor(),
-      SaturatedValueProcessor(),
-      AbilityImplementationProcessor(),
-      AbilityImplementationCheckProcessor(),
-      ModuleAbilityOverlapCheckProcessor(),
-      SystemNativesProcessor(),
-      DataTypeNativesProcessor(),
-      MatchNativesProcessor(),
-      UserValueNativesProcessor(),
-      MonomorphicTypeCheckProcessor(),
-      UsedNamesProcessor()
-    ) {
+class ComputedTypeArgumentReadbackTest extends ProcessorTest(LangProcessors()*) {
 
   // A reified BigInteger value `bigOf[1]` applied to a literal, used directly as another value's type argument, must
   // reduce to the constant `1` (it was previously a stuck neutral). `box[N] = N` is specialized at the reduced index.

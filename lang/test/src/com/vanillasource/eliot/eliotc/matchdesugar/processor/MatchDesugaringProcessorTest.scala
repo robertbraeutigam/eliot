@@ -2,28 +2,14 @@ package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.{MatchDesugaredExpression, MatchDesugaredValue}
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, ModuleName => ModuleName2}
-import com.vanillasource.eliot.eliotc.module.processor.*
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.token.Tokenizer
+import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import MatchDesugaredExpressionMatchers.*
 
 class MatchDesugaringProcessorTest
-    extends ProcessorTest(
-      Tokenizer(),
-      ASTParser(),
-      CoreProcessor(),
-      ModuleNamesProcessor(),
-      UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(Seq(ModuleName2.systemFunctionModuleName)),
-      UnifiedModuleValueProcessor(),
-      ValueResolver(),
-      MatchDesugaringProcessor()
-    ) {
+    extends ProcessorTest(LangProcessors(systemModules = Seq(ModuleName2.systemFunctionModuleName))*) {
   private val testMN = ModuleName2(Seq.empty, "Test")
 
   override val systemImports = Seq(

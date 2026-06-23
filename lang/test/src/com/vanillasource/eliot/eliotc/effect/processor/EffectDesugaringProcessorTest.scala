@@ -2,34 +2,13 @@ package com.vanillasource.eliot.eliotc.effect.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.effect.fact.EffectDesugaredValue
-import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolvedExpressionMatchers.*
-import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
-import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
-import com.vanillasource.eliot.eliotc.module.processor.*
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
-import com.vanillasource.eliot.eliotc.token.Tokenizer
+import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 
-class EffectDesugaringProcessorTest
-    extends ProcessorTest(
-      Tokenizer(),
-      ASTParser(),
-      CoreProcessor(),
-      ModuleNamesProcessor(),
-      UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(ModuleName.defaultSystemModules),
-      UnifiedModuleValueProcessor(),
-      ValueResolver(),
-      MatchDesugaringProcessor(),
-      OperatorResolverProcessor(),
-      RecursionCheckProcessor(),
-      EffectDesugaringProcessor()
-    ) {
+class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
 
   private val consoleModule = ModuleName(ModuleName.defaultSystemPackage, "Console")
   private val monadModule   = ModuleName(ModuleName.defaultSystemPackage, "Monad")

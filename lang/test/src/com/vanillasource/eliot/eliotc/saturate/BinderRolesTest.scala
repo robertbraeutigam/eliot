@@ -2,24 +2,10 @@ package com.vanillasource.eliot.eliotc.saturate
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ability.processor.{
-  AbilityImplementationCheckProcessor,
-  AbilityImplementationProcessor,
-  ModuleAbilityOverlapCheckProcessor
-}
-import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
-import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
-import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.module.processor.*
-import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
-import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
+import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.saturate.fact.BinderRoles.Disposition
 import com.vanillasource.eliot.eliotc.saturate.fact.{BinderRoles, SaturatedValue}
-import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
-import com.vanillasource.eliot.eliotc.token.Tokenizer
 
 /** Targeted test for the per-binder role analysis ([[BinderRoles]]) carried on [[SaturatedValue]].
   *
@@ -34,25 +20,7 @@ import com.vanillasource.eliot.eliotc.token.Tokenizer
   * representation-collapse (S2/S3 `id`), reified ⟶ specialize (S4 `tag`, and the self-referential S5 `gen`), dispatch ⟶
   * specialize (S6 `describe`), and an obvious phantom ⟶ erase.
   */
-class BinderRolesTest
-    extends ProcessorTest(
-      Tokenizer(),
-      ASTParser(),
-      CoreProcessor(),
-      ModuleNamesProcessor(),
-      UnifiedModuleNamesProcessor(),
-      ModuleValueProcessor(),
-      UnifiedModuleValueProcessor(),
-      ValueResolver(),
-      MatchDesugaringProcessor(),
-      OperatorResolverProcessor(),
-      RecursionCheckProcessor(),
-      EffectDesugaringProcessor(),
-      AbilityImplementationProcessor(),
-      AbilityImplementationCheckProcessor(),
-      ModuleAbilityOverlapCheckProcessor(),
-      SaturatedValueProcessor()
-    ) {
+class BinderRolesTest extends ProcessorTest(LangProcessors()*) {
 
   // --- reified classification (the binding-wrap concern) ---------------------------------------------------------
 

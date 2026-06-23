@@ -3,36 +3,17 @@ package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.compiler.IncrementalFactGenerator
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
-import com.vanillasource.eliot.eliotc.ability.processor.{AbilityImplementationCheckProcessor, AbilityImplementationProcessor, ModuleAbilityOverlapCheckProcessor}
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.GeneratedModule
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.module.processor.{ModuleNamesProcessor, ModuleValueProcessor, UnifiedModuleNamesProcessor, UnifiedModuleValueProcessor}
-import com.vanillasource.eliot.eliotc.monomorphize.processor.{
-  DataTypeNativesProcessor,
-  MatchNativesProcessor,
-  MonomorphicTypeCheckProcessor,
-  SystemNativesProcessor,
-  UserValueNativesProcessor
-}
-import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolverProcessor
-import com.vanillasource.eliot.eliotc.termination.processor.RecursionCheckProcessor
-import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
-import com.vanillasource.eliot.eliotc.saturate.processor.SaturatedValueProcessor
-import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
+import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
-import com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver
 import com.vanillasource.eliot.eliotc.source.content.{SourceContent, Sourced}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
-import com.vanillasource.eliot.eliotc.token.Tokenizer
-import com.vanillasource.eliot.eliotc.uncurry.processor.MonomorphicUncurryingProcessor
-import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
 import org.objectweb.asm.{ClassReader, ClassVisitor, MethodVisitor, Opcodes}
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -47,32 +28,14 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
   private val moduleKey      = GeneratedModule.Key(testModuleName, mainVfqn)
 
   private val processors = SequentialCompilerProcessors(
-    Seq(
-      Tokenizer(),
-      ASTParser(),
-      CoreProcessor(),
-      ModuleNamesProcessor(),
-      ModuleValueProcessor(Seq(ModuleName.systemFunctionModuleName, ModuleName(ModuleName.defaultSystemPackage, "Unit"), ModuleName(ModuleName.defaultSystemPackage, "PatternMatch"), ModuleName(ModuleName.defaultSystemPackage, "TypeMatch"))),
-      UnifiedModuleNamesProcessor(),
-      UnifiedModuleValueProcessor(),
-      ValueResolver(),
-      MatchDesugaringProcessor(),
-      OperatorResolverProcessor(),
-      RecursionCheckProcessor(),
-      EffectDesugaringProcessor(),
-      SaturatedValueProcessor(),
-      AbilityImplementationProcessor(),
-      AbilityImplementationCheckProcessor(),
-      ModuleAbilityOverlapCheckProcessor(),
-      SystemNativesProcessor(),
-      DataTypeNativesProcessor(),
-      MatchNativesProcessor(),
-      UserValueNativesProcessor(),
-      MonomorphicTypeCheckProcessor(),
-      UsedNamesProcessor(),
-      MonomorphicUncurryingProcessor(),
-      JvmClassGenerator()
-    )
+    LangProcessors(systemModules =
+      Seq(
+        ModuleName.systemFunctionModuleName,
+        ModuleName(ModuleName.defaultSystemPackage, "Unit"),
+        ModuleName(ModuleName.defaultSystemPackage, "PatternMatch"),
+        ModuleName(ModuleName.defaultSystemPackage, "TypeMatch")
+      )
+    ) :+ JvmClassGenerator()
   )
 
   private def runGenerator(
