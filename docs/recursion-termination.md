@@ -159,54 +159,71 @@ holding **plain data** contributes no effect (terminating); a cell holding a **f
 
 ## `Inf` as an effect: declaration, propagation, discharge
 
-`Inf` is the *only* termination-related annotation in the whole language. "Terminating" is the invisible
-default (the bottom of the lattice); it is never written. `Inf` rides the existing `{…}` effect row
-(`{Inf} A`), so the surface and parser cost are minimal.
+There is **no `Terminating` effect.** Termination is the *default* — simply the absence of `Inf` from a
+computation's effect row, exactly as "does no console IO" is the absence of `Console`, not a `NoConsole`
+token. `Inf` is an ordinary member of the existing `{…}` row (`{Inf} A`); the row is a *set* of effects and
+`Inf` is one possible element. So there is nothing to write on a terminating function, no two-point lattice,
+and no invisible bottom value to carry — `Inf` is just another capability effect, and termination is its
+absence.
 
-**Declaration — no silent default (fail-safe).** Divergence now lives entirely in how natives are
-classified, so the native termination annotation *is* the trusted computing base. Per
-[[feedback_gaps_must_be_failsafe]], **every body-less native must declare `Terminating` or `Inf` — there is
-no default.** A missing declaration is a compile error (fails *closed*), never a silent assumption that a
-looping native terminates (which would fail *open*). The obligation is local and obvious to the platform
-author ("did I write a loop in this native? then `Inf`"), and there are few natives. Bonus: the entire
-trusted-divergence surface becomes greppable — `grep Inf` over the platform layer lists every place totality
-is delegated, which is exactly the auditable TCB an embedded/safety target wants.
+**Declaration — terminating by default; `Inf` is the opt-in.** A body-less native is terminating unless it
+declares `{Inf}`. The platform author writes `Inf` precisely on the natives whose implementation contains an
+unbounded loop (the event-loop driver, `forever`, an unbounded `iterate`) and nothing on the straight-line
+rest (`add`, `println`, `intToString`). The trusted-divergence surface stays greppable — `grep Inf` over the
+platform layer lists every native that delegates totality.
 
-**Propagation — union, inferred, implicit.** A function's effect is the union of its callees' effects.
-`Terminating` is absorbed (`Terminating ∪ Inf = Inf`); a single `Inf` callee taints the caller. The user
-writes no effect variables — propagation is implicit, matching the `auto`/inferable-generics ethos, and
-reuses the existing effect pipeline (`DirectStyleDesugarer` / `CalleeSignatures` / `DeclaredEffectChecker`).
+> Trade-off (a deliberate reversal of an earlier "every native must declare, no default" sketch): defaulting
+> to terminating means a platform author who writes a loop but forgets `Inf` would *silently* over-claim
+> termination — a fail-open gap, in tension with [[feedback_gaps_must_be_failsafe]]. It is accepted because
+> (a) it is the same irreducible platform trust the language already places in every native's *correctness*
+> (a buggy `add` is no different), (b) the only natives that can loop are ones whose author visibly wrote a
+> loop, and (c) "write `Inf` only when you loop" is worth far more than forcing a meaningless `Terminating`
+> onto every leaf. The compiler cannot inspect a native's body (it is opaque platform code), so requiring a
+> declaration would not actually *close* the gap — it only relocates the same trust to an annotation.
 
-**The effect must sit on every arrow** — lambdas included — otherwise an `Inf` computation could be
-laundered through a lambda and lose its effect. This makes higher-order functions **effect-polymorphic** over
-their argument arrows:
+**Propagation — set union, inferred, implicit.** A function's effect row is the union of its callees' rows
+(plus its own). `Inf` present in *any* callee's row ⟹ present in yours; absent everywhere ⟹ the function is
+terminating. This is ordinary effect-row union — the *same* mechanism as capability effects, not a special
+termination lattice. The user writes no effect variables; propagation reuses the existing effect pipeline
+(`DirectStyleDesugarer` / `CalleeSignatures` / `DeclaredEffectChecker`).
+
+**Higher-order propagation rides the carrier, like every effect.** `Inf` is reflected in a function value's
+type (its effect row / carrier), so it cannot be laundered through a lambda — and higher-order functions are
+**effect-polymorphic** over their argument arrows exactly as they are for `{E}`:
 
 ```
 map : (Function[A, B] ! e) -> List[A] -> List[B] ! e
 ```
 
-A platform `fold`/`map` native is `Terminating` *in its own loop* but polymorphic in its **step's** effect:
-fold a `Terminating` step → `Terminating`; fold an `Inf` step → `Inf`. This is the **function-coloring win**
-(Nystrom, *What Color is Your Function?*): one combinator serves pure and effectful arguments alike, instead
-of the Haskell/cats-effect `map`/`mapM`, `fold`/`foldM` duplication. For a language where iteration is a
-*platform* feature, a single effect-transparent `fold` is load-bearing, not a nicety.
+A platform `fold`/`map` native carries no `Inf` *in its own loop*, but its result row is the union with its
+**step's** row: fold an `Inf` step ⟹ the fold is `Inf`; fold a terminating step ⟹ the fold is terminating.
+This is the **function-coloring win** (Nystrom, *What Color is Your Function?*): one combinator serves pure
+and effectful arguments alike, instead of the Haskell/cats-effect `map`/`mapM`, `fold`/`foldM` duplication —
+and here it is the *same* carrier-polymorphism the rest of the effects use, not a parallel mechanism. For a
+language where iteration is a *platform* feature, a single effect-transparent `fold` is load-bearing.
 
-**Discharge — `Inf → Option`, the partiality eliminator.** Bounded execution discharges `Inf`:
+**Discharge — execute it.** `Inf` is a genuine effect with discharge functions that *run* the computation —
+that is what makes it a real effect and not a mere marker:
 
 ```
 withFuel : {Inf} A -> Nat -> Option[A]      -- run for up to N steps; None if it did not finish
 ```
 
-This is Capretta's delay-monad eliminator, and it is itself a **`Terminating`** native (its loop is bounded
-by the fuel). So `Inf` is a *genuine* effect with a real discharge that "births" an `Option` at the edge —
-symmetric with how `Abort` births `Option` and `State` births `Pair` (M5). The exact carrier/representation
-of a steppable `{Inf} A` (a thunk vs an explicit delay structure) is a deferred mechanism detail; the *core*
-of the model needs only declaration + propagation.
+`withFuel` is itself a terminating (`Inf`-free) native: it drives the computation under a step budget and
+returns a total `Option`, "birthing" an `Option` at the edge exactly as `runAbort` births `Option` and
+`runState` births `Pair` (M5). At the bare-metal edge a trusted event-loop driver runs an `{Inf}` computation
+*unboundedly* (never returns); that is the one place divergence is executed for real, and a discharge does
+not propagate `Inf` further (a `main` that calls a discharge stays terminating). For a discharge to *bound*
+execution it must be able to stop between steps, so an `{Inf} A` is a **steppable** computation (a reified
+delay/iteration structure, à la Capretta's delay monad) rather than a raw non-returning loop. That
+representation — and its fusion to a tight counted loop under monomorphization, so the embedded cost is a
+loop and not a heap of thunks — is the one mechanism still to pin (deferred).
 
-**`main` and the event loop.** A reactive `main` runs forever, so the top-level event loop is an `Inf`
-native at the runtime edge — exactly where unboundedness belongs (mirroring cats-effect: the runtime *is*
-the loop). Individual callbacks/handlers stay `Terminating`; only the scheduler is `Inf`. A bare-metal target
-must actually ship that event-loop runtime — the one trusted unbounded loop.
+**`main` and the event loop.** A reactive `main` runs forever, so the top-level event loop is an `{Inf}`
+native run by the trusted edge driver — exactly where unboundedness belongs (mirroring cats-effect: the
+runtime *is* the loop). Individual callbacks/handlers are terminating (`Inf`-free); only the scheduler is
+`{Inf}`, and it is consumed by the edge driver. A bare-metal target must ship that event-loop runtime — the
+one trusted unbounded loop.
 
 ## How you actually iterate
 
@@ -246,8 +263,8 @@ clean split: **soundness from "no recursion + `Inf` natives"; cost from optional
    passes constructor field types through untouched. Precondition #2 (positivity) must be built.
 4. **The effect pipeline is reusable wholesale.** `{E} A` desugars in `EffectSugarDesugarer`;
    `EffectDesugaringProcessor` (after `operator`, before `saturate`) propagates effects via
-   `DirectStyleDesugarer`, `CalleeSignatures`, and `DeclaredEffectChecker` (the ⊆ subset check). The `Inf`
-   bit threads through the identical shape (a two-point lattice instead of a capability set).
+   `DirectStyleDesugarer`, `CalleeSignatures`, and `DeclaredEffectChecker` (the ⊆ subset check). `Inf` is
+   just another member of the capability set and threads through the identical shape — no special lattice.
 5. **Recursion can only form among top-level values.** No local `let`/`letrec`; lambda parameters are
    non-recursive. Every cycle is a self/mutual reference among top-level named values, visible in the
    resolved `ValueReference` graph. The `activeFactKeys` pattern (already used for recursive-return
@@ -272,22 +289,23 @@ Each milestone is independently landable and leaves the compiler sound.
 - *Reject recursion in user code*: any self/mutual cycle in the resolved `ValueReference` graph → hard error
   ("Eliot cannot express recursion; use a platform loop, or mark `Inf`"). Reuse `activeFactKeys` for the
   self-cycle; a reference-graph SCC pass covers mutual cycles.
-- *Native termination declaration (no default)*: every body-less native must declare `Terminating` or
-  `Inf`; a missing declaration is a compile error.
-- *`Inf` effect fact + propagation*: a value's effect = union of callees' (read from native declarations for
-  leaves), via the existing effect-pipeline shape. `Inf` taints; `Terminating` is invisible.
-- *Discharge*: `withFuel : {Inf} A -> Nat -> Option[A]` as a `Terminating` native.
-- Tests: a user-written cycle rejected; an `Inf` native propagates to its callers; a program over only
-  `Terminating` natives is total; `withFuel` tames an `Inf` computation to `Option`.
+- *`Inf` declaration (terminating by default)*: a body-less native is terminating unless it declares `{Inf}`;
+  there is no `Terminating` annotation to write. (See the *Declaration* trade-off above.)
+- *`Inf` effect fact + propagation*: a value's effect row = set-union of its callees' rows (read from native
+  declarations for leaves), via the existing effect-pipeline shape. `Inf` present anywhere taints; its
+  absence is termination — no `Terminating` token.
+- *Discharge*: `withFuel : {Inf} A -> Nat -> Option[A]` as a terminating (`Inf`-free) native.
+- Tests: a user-written cycle rejected; an `Inf` native propagates to its callers; a program with no `Inf` in
+  any reachable row is total; `withFuel` tames an `Inf` computation to `Option`.
 
-**M2 — Arrow effect + higher-order propagation (the function-coloring piece).**
-- Add a `{Terminating, Inf}` effect slot to the function type (`VPi` / the `Function` representation),
-  inferred for every lambda from its body, carried through unification (join on the two-point lattice), and
-  erased before codegen. (An extension of the one-primitive-Π, *not* a fold of `Function` into `data`.)
-- Higher-order functions become effect-polymorphic over their argument arrows; a call through a parameter
-  incurs that parameter's arrow effect. `fold`/`map` become Terminating-iff-their-step-is.
-- Tests: a platform `fold` over a `Terminating` step = Terminating; the same `fold` over an `Inf` step = Inf;
-  an `Inf` lambda stored in data then called → its `Inf` reaches the caller.
+**M2 — Higher-order propagation (the function-coloring piece).**
+- `Inf` rides the existing effect-row / carrier in a function value's type (the same channel as `{E}`
+  capability effects), so it propagates through unification as ordinary set-union and is erased before
+  codegen — *not* a separate two-point lattice slot on the `Function` representation.
+- Higher-order functions are effect-polymorphic over their argument arrows; a call through a parameter incurs
+  that parameter's row. `fold`/`map` become `Inf`-iff-their-step-is.
+- Tests: a platform `fold` over a terminating step is terminating; the same `fold` over an `Inf` step is
+  `Inf`; an `Inf` lambda stored in data then called → its `Inf` reaches the caller.
 
 **Deferred (explicitly):** WCET / resource bounds and the optional size-indexing that feeds them; linearity
 for mutation; CFA to recover indirect calls the coarse arrow bit over-rejects; the exact steppable carrier
