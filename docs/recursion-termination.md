@@ -18,8 +18,9 @@ specialized loops is the platform's business; the language does not care and doe
 primitive). With recursion unavailable in the pure fragment and the preconditions enforced, **every program
 terminates by default.** The sole opt-out is **`Inf`**, an effect meaning "may not terminate." Because a
 recursion-free typed core cannot itself introduce divergence, an `Inf` effect can **only originate on a
-platform native**; from there it propagates virally to every caller. Bounded execution (`withFuel`-style)
-discharges `Inf` back to a total `Option`. That is the entire design.
+platform native**; from there it propagates virally to every caller. `Inf` need not be discharged — left on
+`main` it denotes a deliberately non-terminating program (a server / firmware super-loop); or
+`withFuel`-style bounded execution discharges it back to a total `Option`. That is the entire design.
 
 ## Why this is sound — and where the literature puts it
 
@@ -202,28 +203,50 @@ and effectful arguments alike, instead of the Haskell/cats-effect `map`/`mapM`, 
 and here it is the *same* carrier-polymorphism the rest of the effects use, not a parallel mechanism. For a
 language where iteration is a *platform* feature, a single effect-transparent `fold` is load-bearing.
 
-**Discharge — execute it.** `Inf` is a genuine effect with discharge functions that *run* the computation —
-that is what makes it a real effect and not a mere marker:
+**Discharge is optional — bound it, or let it run forever.** `Inf` is a genuine effect with a discharge that
+*runs* the computation, but unlike a capability it does **not have to be discharged**. Two cases, for the two
+things you actually want:
+
+*Bound it.* When you want to *tame* a possibly-diverging computation into a terminating result:
 
 ```
 withFuel : {Inf} A -> Nat -> Option[A]      -- run for up to N steps; None if it did not finish
 ```
 
-`withFuel` is itself a terminating (`Inf`-free) native: it drives the computation under a step budget and
-returns a total `Option`, "birthing" an `Option` at the edge exactly as `runAbort` births `Option` and
-`runState` births `Pair` (M5). At the bare-metal edge a trusted event-loop driver runs an `{Inf}` computation
-*unboundedly* (never returns); that is the one place divergence is executed for real, and a discharge does
-not propagate `Inf` further (a `main` that calls a discharge stays terminating). For a discharge to *bound*
-execution it must be able to stop between steps, so an `{Inf} A` is a **steppable** computation (a reified
-delay/iteration structure, à la Capretta's delay monad) rather than a raw non-returning loop. That
-representation — and its fusion to a tight counted loop under monomorphization, so the embedded cost is a
-loop and not a heap of thunks — is the one mechanism still to pin (deferred).
+`withFuel` drives the computation under a step budget and returns a total `Option`, "birthing" an `Option` at
+the edge exactly as `runAbort` births `Option` and `runState` births `Pair` (M5); being itself terminating
+(`Inf`-free), it *removes* `Inf`. For it to *stop between steps*, the `{Inf} A` it bounds must be a
+**steppable** computation (a reified delay/iteration structure, à la Capretta's delay monad) rather than a
+raw loop; that representation, and its fusion to a tight counted loop under monomorphization, is the one
+mechanism still to pin (deferred).
 
-**`main` and the event loop.** A reactive `main` runs forever, so the top-level event loop is an `{Inf}`
-native run by the trusted edge driver — exactly where unboundedness belongs (mirroring cats-effect: the
-runtime *is* the loop). Individual callbacks/handlers are terminating (`Inf`-free); only the scheduler is
-`{Inf}`, and it is consumed by the edge driver. A bare-metal target must ship that event-loop runtime — the
-one trusted unbounded loop.
+*Let it run forever.* The more common case — and the whole point of `Inf` — is the opposite: you **don't**
+discharge it. `Inf` is the **one effect that may legitimately reach `main` undischarged.** A capability must
+be handled for the program to mean anything (`println` needs an implementation); `Inf` needs no handler,
+because "runs forever" is already its complete meaning. An undischarged `{Inf}` at the top is therefore not
+an error — it *is* a non-terminating program, exactly what a server or firmware super-loop should be. The
+guarantee stays honest and conditional: a program terminates iff its row lacks `Inf`; a server opts in,
+visibly.
+
+**Endless loops (servers, firmware super-loops, the event loop).** You cannot *write* `loop { handle() }` —
+that is recursion, rejected. You hand a **terminating step** to a platform unbounded driver, exactly as
+bounded iteration hands a step to `fold`:
+
+```
+forever : (Unit -> {e} Unit) -> {Inf, e} A      -- run the step endlessly; never returns normally
+```
+
+The step (`handle(accept())`, `toggle(led)`) is `Inf`-free — it terminates each iteration, so its WCET is
+analyzable — while the driver carries `{Inf}`. So a server's `main` is `{Inf, Console}` (or `{Inf, Gpio}`,
+…): the capability effects discharge the usual way, and `Inf` rides out to the top, meaning "runs until
+killed." This is the embedded super-loop, and it is the *simplest* `Inf` case — `forever` is a plain
+`while (true) { step() }` platform native, needing none of the steppable-structure machinery `withFuel` does.
+The reactive/event-loop variant is the same shape with the driver supplied by the runtime scheduler
+(cats-effect style: finite handlers, the runtime *is* the loop), where the handlers stay `Inf`-free and only
+the scheduler is `{Inf}`. Either way the **per-iteration bound** — each request/tick terminates — comes for
+free, which is exactly what a responsive embedded system needs. (This refines the earlier "`main` needs no
+`Inf`" idea: that holds only for the reactive model where the *runtime* owns the loop; a user-written
+super-loop makes `main` honestly `{Inf}`, which is correct, not a defect.)
 
 ## How you actually iterate
 
