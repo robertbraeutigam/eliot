@@ -56,9 +56,15 @@ class CoreProcessor
       allFunctions.map { case (fd, hint) => transformFunction(EffectSugarDesugarer.desugar(fd), hint) }
     )
 
-    debug[CompilerIO](
-      s"Core functions in ${key.uri}: ${coreAstData.namedValues.map(_.show).mkString(", ")}"
-    ) >>
+    // Strict-positivity check (termination precondition #2): reject any `data` whose own type constructor appears in a
+    // contravariant position of a constructor field (the negative-recursive-datatype route to `Y`). See
+    // StrictPositivityChecker. Errors are reported here but the CoreAST is still produced so other checks proceed.
+    val positivityErrors = sourceAstData.typeDefinitions.flatMap(StrictPositivityChecker.check)
+
+    positivityErrors.traverse_(message => Sourced.compilerError(message)) >>
+      debug[CompilerIO](
+        s"Core functions in ${key.uri}: ${coreAstData.namedValues.map(_.show).mkString(", ")}"
+      ) >>
       CoreAST(sourceAst.uri, sourceAst.ast.as(coreAstData)).pure[CompilerIO]
   }
 

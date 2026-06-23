@@ -294,15 +294,25 @@ clean split: **soundness from "no recursion + `Inf` natives"; cost from optional
 
 Each milestone is independently landable and leaves the compiler sound.
 
-**M0 — Preconditions (soundness gate; no surface change).**
-- *Occurs-check* in `Unifier.solveMeta`: before solving, walk the RHS (through solved metas) for the id; on
-  occurrence, emit "cannot construct infinite type." Tests: `x x` rejected; legitimate higher-order metas
-  still solve.
-- *Strict-positivity processor*: walk each `data` constructor's field types with variance; reject the data
-  type's own type-constructor FQN in a contravariant (left-of-arrow) position. Tests:
-  `data Loop(f: Function[Loop, A])` rejected; `data Box(content: Function[A, B])` and
-  `data Tree(left: Tree, right: Tree)` accepted.
-- *Confirm purity*: verify no mutable-cell primitive exists; record as a guard.
+**M0 — Preconditions (soundness gate; no surface change). ✅ DONE.**
+- *Occurs-check* in `Unifier.solveMeta` — **DONE.** `occursIn` walks the RHS through solved metas (forcing, so an
+  *indirect* cycle `?id := … ?other …` with `?other := … ?id` is caught too); the empty-spine direct solve refuses
+  and emits "Cannot construct infinite type.", and `decomposeSpines` refuses (postpones, fail-safe) on an injective
+  solution that would be cyclic. Tests: `monomorphize/unify/OccursCheckTest` — `x x` (`?A ~ ?A -> ?B`) rejected,
+  indirect cycle rejected, legitimate higher-order metas still solve.
+- *Strict-positivity check* — **DONE.** `core.processor.StrictPositivityChecker` (a pure
+  `DataDefinition => Seq[Sourced[String]]`) invoked from `CoreProcessor` for every loaded file: walks each `data`
+  constructor's field types tracking polarity (only `Function` flips, its last generic arg is the covariant codomain),
+  reporting the data type's own unqualified name in any contravariant position. Tests:
+  `core/processor/StrictPositivityCheckerTest` + end-to-end `jvm/TerminationIntegrationTest` —
+  `data Loop(f: Function[Loop, String])` rejected; `data Box(content: Function[A, B])` /
+  `data Tree(left: Tree, right: Tree)` accepted (the latter compiles and runs). Mutual negative recursion across two
+  data types is left to M1's value-reference-graph cycle detection; other type constructors are conservatively
+  covariant (sound — over-rejects, never under).
+- *Confirm purity* — **DONE.** Confirmed no mutable-cell primitive exists today (system natives = Function/Type/Bool +
+  bound-arithmetic; jvm `Intrinsics` = intToString/nativeWiden/native{Add,Subtract,Multiply}*; no `.els` cell type/def).
+  Recorded as the guard `termination/PurityGuardTest`, which scans every layer's `.els` for the mutable-reference
+  vocabulary and fails (with a pointer back to the graceful-fallback note) if a cell is ever added.
 
 **M1 — No recursion + `Inf` effect: declare, propagate, run.**
 - *Reject recursion in user code*: any self/mutual cycle in the resolved `ValueReference` graph → hard error

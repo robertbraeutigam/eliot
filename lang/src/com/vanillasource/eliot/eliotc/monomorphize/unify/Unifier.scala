@@ -259,10 +259,16 @@ case class Unifier(
           case _                                          =>
             val spineList = spine.toList
             if (spineList.isEmpty) {
-              // Empty spine — solve directly. For a combinable meta also record the first candidate, so the checker's
-              // combine resolution sees the full candidate set.
-              val solvedU = copy(metaStore = metaStore.solve(id, rhs))
-              if (isCombinable(id.value)) solvedU.recordCandidate(id, rhs, context) else solvedU
+              // Empty spine — solve directly, but first run the occurs-check: solving `?id := rhs` where `id` occurs in
+              // `rhs` would build an infinite type (the `x x` / Y-combinator route) and loop `Evaluator.force` once the
+              // cyclic meta is in the store. This is precondition #2 of the termination model — reject it instead.
+              if (occursIn(id, rhs)) addOccursError(context)
+              else {
+                // For a combinable meta also record the first candidate, so the checker's combine resolution sees the
+                // full candidate set.
+                val solvedU = copy(metaStore = metaStore.solve(id, rhs))
+                if (isCombinable(id.value)) solvedU.recordCandidate(id, rhs, context) else solvedU
+              }
             } else {
               // Non-empty spine — try injectivity decomposition first, otherwise postpone.
               tryDecomposeApplied(id, spineList, rhs, context)
@@ -326,8 +332,14 @@ case class Unifier(
     else {
       val (prefix, suffix) = rhsList.splitAt(rhsList.length - metaSpine.length)
       val headWithPrefix   = rebuildHead(prefix.foldLeft(Spine.SNil: Spine)(_ :+ _))
-      val solvedMeta       = copy(metaStore = metaStore.solve(id, headWithPrefix))
-      Some(metaSpine.zip(suffix).foldLeft(solvedMeta) { case (u, (l, r)) => u.unify(l, r, context) })
+      // Occurs-check the injective solution too: `?F[A] ~ OptionT[?F, A]` would solve `?F := OptionT[?F]` (infinite).
+      // Returning None here postpones rather than committing the cycle, so it surfaces as an unresolved type, never a
+      // silently-accepted recursive one.
+      if (occursIn(id, headWithPrefix)) None
+      else {
+        val solvedMeta = copy(metaStore = metaStore.solve(id, headWithPrefix))
+        Some(metaSpine.zip(suffix).foldLeft(solvedMeta) { case (u, (l, r)) => u.unify(l, r, context) })
+      }
     }
   }
 
@@ -416,6 +428,35 @@ case class Unifier(
         case VConst(_) | VType | VNative(_, _) => Set.empty
       }
   }
+
+  /** Occurs-check: does the metavariable `id` appear anywhere in `value` (under spines and binders)? Forces through
+    * already-solved metas, so an *indirect* cycle — `?id := … ?other …` where `?other` is itself solved to something
+    * mentioning `?id` — is also caught. This is the soundness gate of precondition #2 (no inferred infinite type): the
+    * caller refuses to solve `?id := value` when this holds, so `Evaluator.force` can never enter a cyclic meta.
+    *
+    * Distinct from [[metasOf]], which deliberately does *not* follow solutions (it taints by id, on purpose). Forcing
+    * here is safe because `id` is unsolved at every call site, and the store holds no cycle (this very check maintains
+    * that invariant).
+    */
+  private def occursIn(id: MetaId, value: SemValue): Boolean =
+    Evaluator.force(value, metaStore) match {
+      case VMeta(other, spine)    => other.value == id.value || spine.toList.exists(occursIn(id, _))
+      case VTopDef(_, _, spine)   => spine.toList.exists(occursIn(id, _))
+      case VStuckNative(_, spine) => spine.toList.exists(occursIn(id, _))
+      case VNeutral(_, spine)     => spine.toList.exists(occursIn(id, _))
+      case VPi(domain, codomain)  =>
+        val (fresh, _) = freshVar()
+        occursIn(id, domain) || occursIn(id, codomain(fresh))
+      case VLam(_, closure)       =>
+        val (fresh, _) = freshVar()
+        occursIn(id, closure(fresh))
+      case VNative(paramType, _)  => occursIn(id, paramType)
+      case VConst(_) | VType      => false
+    }
+
+  /** Record an "infinite type" rejection from the occurs-check, reusing the source position of `context`. */
+  private[monomorphize] def addOccursError(context: Sourced[String]): Unifier =
+    copy(errors = UnifyError(Sourced(context.uri, context.range, "Cannot construct infinite type."), None, None) :: errors)
 
   private def freshVar(): (SemValue, Unifier) = {
     val v = VNeutral(NeutralHead.VVar(depth, s"$$unify$depth"), Spine.SNil)
