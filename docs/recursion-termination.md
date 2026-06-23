@@ -23,22 +23,31 @@ latent partiality surfaces as a hard error at the use site, never as a silent mi
 - **`Inf`** — "may not terminate." The honest escape hatch. Viral like any effect: calling an `Inf`
   thing makes you `Inf`. Expected to be **rare in user code** (see *Who writes `Rec`?* and *`main`
   needs no `Inf`*).
-- **`Rec[N]`** — "terminates, with a well-founded measure `N`." `N` is a non-negative
-  (`Int[0, MAX]`-style) measure that **strictly decreases** on every recursive call. By
-  well-foundedness, strict descent over ℕ *is* a complete termination proof — "exits at 0" falls out
-  for free (you cannot decrease below 0). `N` is **unreified / phantom**: it exists only for the
-  compile-time proof and is erased, so it never affects monomorphization (it collapse-erases under the
-  monomorphization-keying classification — see [[project_generic_multifield_codegen_fix]] and the
-  keying work in `saturate/fact/BinderRoles.scala` / `used/CodegenProjection.scala`).
+- **`Rec[N]`** — "terminates, with a well-founded measure `N`." `N` is a **type-level**, non-negative
+  (`Int[0, N]`-style) *bound* that **strictly decreases** on every recursive call. By well-foundedness,
+  strict descent over ℕ *is* a complete termination proof — "exits at 0" falls out for free. Crucially,
+  `N` is the **type-level bound on the value that drives the recursion, not the runtime value itself**
+  (a runtime magnitude cannot be the measure). The runtime counter the loop branches on is ordinary
+  data and stays; only its *bound* `N` is the measure. `N` is **unreified / phantom**: it exists only
+  for the compile-time proof and is erased — it collapse-erases under monomorphization-keying (see
+  [[project_generic_multifield_codegen_fix]], `saturate/fact/BinderRoles.scala` /
+  `used/CodegenProjection.scala`).
 
 We are **not building a theorem prover.** Instead of proving `expr < N` for arbitrary `expr`, we
-**restrict the vocabulary** of how a measure may decrease to a fixed, safe set of operations the
-compiler recognises syntactically:
+**restrict the vocabulary** of how a measure may decrease to a fixed, safe set the compiler recognises
+syntactically. Two modes — and the **first is the common one**:
 
-- **measure descent**: `dec(N)`, `half(N)`, … — each is a *partial* operation with precondition
-  `N > 0` (see below);
-- **structural descent**: recurse on a structurally-smaller sub-term of the scrutinee (the FP
-  bread-and-butter — tree/list traversal). The measure is the structure's size bound.
+- **measure descent (primary — platform-mapped / opaque structures).** Recurse on a numeric counter of
+  type `Int[0, N]`, decreased by a *partial* op `dec(·)`/`half(·)` (precondition `> 0`, see below). `N`
+  is seeded from the structure's **type-level size bound** — a `List[SIZE, A]` gives
+  `size(list) : Int[0, SIZE]`, so `N := SIZE`. This is what nearly all real folds use, because most
+  structures are **opaque platform types** (a JVM `ArrayList`, not a pure `data` definition): you cannot
+  pattern-match into them, only index via terminating accessors (`size`/`get`). Termination is proven
+  **from the counter alone** — the opaque structure never enters the argument.
+- **structural descent (special case — pure inductive types only).** Recurse on a structurally-smaller
+  sub-term exposed by a pattern match (`cons h t -> … t …`): no measure, purely syntactic. But it
+  applies *only* to genuinely Eliot-defined inductive `data`, which is the **minority** (sound because
+  such `data` is inductive ⟹ finite — see *Preconditions*).
 
 ## The crux: descent operations are *partial*, and that partiality is the whole proof
 
@@ -48,13 +57,19 @@ This is the one technical core. The decrease operation carries a precondition:
 dec : {N > 0} Int[1, M] -> Int[0, M-1]
 ```
 
-To type the recursive call `f[dec(N)]` without underflow, the checker must discharge `N > 0`
-**at that call site, from the condition guarding the recursive branch**. For `List[SIZE]` the
-recursive branch is "the list is `cons`", and the type-level invariant `cons ⟹ SIZE > 0` is what
-discharges it. **That discharge is the proof** — it is the only place the measure `N` is consulted,
-and it is *ordinary refinement reasoning* already implemented in
-`monomorphize.refine.RefinementSolver` (see [[project_coerce_replaces_typerefinement]]). No new
-solver, no theorem prover.
+To type the recursive call `f(…, dec(n))` without underflow, the checker must discharge `N > 0`
+**at that call site, from the condition guarding the recursive branch**. In the numeric/opaque case the
+branch is `isZero(remaining) = False`, which refines `remaining : Int[1, N]` so `dec(remaining)` is
+well-typed and the bound drops `N → N-1`. (In the rare structural/indexed case the branch is "the list
+is `cons`", and the invariant `cons ⟹ SIZE > 0` discharges it the same way.) **That discharge is the
+proof** — the only place the measure `N` is consulted — and it is *ordinary refinement reasoning*
+already in `monomorphize.refine.RefinementSolver` (see [[project_coerce_replaces_typerefinement]]). No
+new solver, no theorem prover.
+
+Because the measure is the **type-level bound**, descent is a type-level argument: `dec` propagates the
+bound (`Int[1, N] → Int[0, N-1]`, ordinary `Int[MIN,MAX]` arithmetic), so the recursive call
+instantiates the measure at `N-1` and the type-level `N` walks `SIZE → … → 0`. The runtime counter
+follows along but is never itself the measure.
 
 Important consequence of erasure: because `N` is erased (no per-`N` monomorphization), there is **no
 use-site monomorphization underflow to fall back on** — the definitional descent check is the *sole*
@@ -88,11 +103,14 @@ Higher-order functions become **effect-polymorphic** (same shape as the existing
 for `{E}`):
 
 ```
-map : (Function[A,B] ! e) -> List[n, A] -> List[n, B] ! (Rec[n] ⊕ e)
+map : (Function[A,B] ! e) -> List[SIZE, A] -> List[SIZE, B] ! e
 ```
 
-`map`'s own recursion contributes `Rec[n]` (direct structural self-call, fully visible); it inherits
-`f`'s effect `e`. At `map(inc, xs)` with `inc` terminating, `e := Terminating`.
+`map` is recursive, so it carries a `{Rec(...)}` annotation internally — but that measure is
+**discharged at `map`'s own definition** by the descent proof and does *not* appear in its propagating
+effect (see *`Rec` discharges locally* below). What propagates is `Terminating ⊕ e = e` (`Terminating`
+is the bottom of the lattice, absorbed). At `map(inc, xs)` with `inc` terminating, `e := Terminating`
+and the call is Terminating; with an `Inf` argument, `e := Inf` and the call is `Inf`.
 
 **Detection = the effect-inference fixpoint hitting a cycle.** A function whose latent effect can't be
 assigned `Terminating` without referencing its own effect *is* the recursive one; the compiler then
@@ -214,6 +232,28 @@ higher-order functions, since `map`/`fold` being terminating-iff-their-argument-
 recursion being a library feature — and it can, because it paid for the machinery and avoids the worst
 pitfall.
 
+### `Rec` discharges locally; only the verdict propagates
+
+A `Rec` measure is **discharged at the definition that introduces it** — by the descent proof itself —
+so it never propagates. Only the lattice *verdict* (`Terminating` / `Inf`) is inherited by callers. A
+recursive function carries `{Rec(n)}`; the descent check at *its* definition proves it `Terminating` and
+consumes the measure `n`; a non-recursive caller inherits only `Terminating`, which — being the
+bottom/clean state — is invisible (no annotation), exactly like a function with no capability effects.
+
+- `{Rec(n)}` and its measure appear **only on the function that is the recursion cycle.** `foldFrom`
+  carries it; `foldLeft`, which merely calls `foldFrom` once, **inherits `Terminating`** and writes
+  nothing.
+- The **only effect that surfaces visibly is `Inf`** — the non-clean state, which taints callers until
+  (if ever) it is fuel-bounded.
+
+This is the sense in which "every effect is inherited or discharged" holds for termination: the
+*measure* is discharged locally by the proof (a compile-time obligation satisfied at the definition —
+*not* a runtime `runRec` handler); the *verdict* is inherited. It is also why there is **no no-op `Rec`
+discharge function**: `{Rec(n)} A` annotates the arrow without wrapping the result (the result stays
+plain `A`), so there is nothing to unwrap. The one meaningful discharge is the *opposite* direction,
+`Inf → Terminating`, via *actual* fuel-bounded execution (`withFuel(steps, computation): Option[A]`,
+which does real work and may return `None`) — optional/advanced, not core.
+
 ### The function-coloring win (a primary motivation)
 
 Because every arrow is effect-polymorphic, **one combinator serves pure and effectful arguments
@@ -250,6 +290,50 @@ linearity** (configure-then-use, possibly use-once); unioning two functions that
 > sequencing carry a real obligation; *same row syntax, genuinely different algebra*. The additive kind
 > is what this design relies on; the typestate kind is future work that must **not** be assumed to
 > union freely.
+
+## Worked examples
+
+**`foldLeft` over an opaque platform `List` (the common case — numeric measure seeded from `SIZE`).**
+`List` is opaque (a JVM `ArrayList` underneath); `size`/`get` are terminating leaf natives. You fold by
+counting, and the measure is the *type-level bound* on the counter, seeded from the list's `SIZE`:
+
+```eliot
+def foldLeft[A, B, SIZE](list: List[SIZE, A], acc: B, f: Function[B, Function[A, B]]): B =
+   foldFrom(list, acc, f, size(list))                  -- size(list) : Int[0, SIZE]  →  seeds N := SIZE
+
+def foldFrom[A, B, N](list: List[SIZE, A], acc: B, f: Function[B, Function[A, B]],
+                      remaining: Int[0, N]): {Rec(remaining)} B = isZero(remaining) match {
+   case True  -> acc
+   case False -> foldFrom(list, f(acc)(get(list, sub(size(list), remaining))), f, dec(remaining))
+}
+```
+
+- `foldFrom` is the recursion cycle, so it carries `{Rec(remaining)}`. The measure is the **type-level
+  bound `N`** on `remaining`'s type — *not* the runtime value — seeded from `SIZE`. `dec(remaining)`
+  drops the bound `N → N-1`; the recursion walks `SIZE → … → 0`. `N` is phantom/erased; the runtime
+  `remaining` is ordinary data the loop branches on.
+- Termination is proven **from the counter alone** — the opaque `List` never enters the argument. The
+  list need only be **effectively immutable** (so `size` is stable for the fold) with **terminating
+  accessors** — exactly the two properties a platform layer *can* enforce. Inductiveness / strict
+  positivity are *not* required here (those are only for the structural special case).
+- `foldFrom`'s measure is discharged at its own definition; **`foldLeft` inherits `Terminating`** and
+  carries no annotation. Its real effect is `Terminating ⊕ effect(f) = effect(f)` — terminating iff `f`
+  is.
+- `SIZE` also yields a *static cost* bound (≤ `SIZE` iterations). Without a tight `SIZE` (just `Int`),
+  termination still holds (`N` = the type's max, proven symbolically), but the cost bound is useless —
+  the termination-vs-WCET split.
+
+**A genuinely numeric recursion (no structure at all).** Here the counter *is* the only thing:
+
+```eliot
+def power[N](base: Int, exp: Int[0, N]): {Rec(exp)} Int = isZero(exp) match {
+   case True  -> 1
+   case False -> mul(base, power(base, dec(exp)))      -- exp > 0 in this branch ⟹ dec well-typed
+}
+```
+
+`N` is inferred from the caller (`power(2, 10)` ⟹ `N := 10`); `dec(exp)` drops the bound; `power(2, 10)
+: Int` directly — `{Rec(exp)}` annotates the arrow, the result is plain `Int`, nothing to discharge.
 
 ## Preconditions — "in a pure language, recursion cannot hide"
 
@@ -342,10 +426,11 @@ later.
   Authors discharge `Rec` once, parameterized by the collection's length bound; users over
   length-indexed structures inherit it **transitively, with zero annotation**. The `Rec`/`Inf` tax
   is paid only by the rare hand-written recursion. This is the desired ergonomic gradient.
-- **Structural recursion on real data always terminates at runtime** regardless of measure
-  correctness (the data is genuinely finite). A wrong `SIZE` there corrupts the *bound*, not
-  termination. The hang risk is confined to *pure measure* recursion (`half(N)`, numeric iteration)
-  with no underlying finite structure — exactly where the partial-`dec` discharge does its work.
+- **Termination is robust against a wrong `SIZE`.** With the numeric-counter model, a wrong `size(list)`
+  corrupts the *result* (too small → stops early) or causes an out-of-bounds `get` (too large), but
+  **never a hang** — the counter still reaches 0. A hang would require a *non-decreasing* measure, which
+  the restricted `dec`/`half` vocabulary makes unwriteable. So termination itself is essentially never
+  the weak link; the tested correspondences are `size`-reflects-reality and `get`-in-bounds.
 
 ## Open questions / not yet decided
 
@@ -411,8 +496,10 @@ Each milestone is independently landable and leaves the compiler sound.
   annotated value's effect is **read from the annotation** (not inferred), which breaks the cycle.
 - *Deny-by-default*: a cyclic value with no `Rec`/`Inf` annotation → hard error.
 - *`Inf` opt-out*: legal; effect = `Inf`; propagates to direct callers via the subset-check shape.
-- *Structural descent* proof for `Rec`: syntactic check that every recursive call's argument is a
+- *Structural descent* proof for `Rec` (the cheap, syntactic case): every recursive call's argument is a
   pattern variable bound to a proper sub-component of the matched scrutinee — no measure, no solver.
+  **This covers only purely-Eliot-defined inductive `data`, which is the *minority*** — opaque platform
+  structures (the common case) need the numeric measure of M3, so M1 alone is a narrow (if sound) slice.
 - *Scope limit (lifted in M2)*: a call **through a function parameter** conservatively incurs `Inf`
   (sound but restrictive), so first-order recursion (length/sum/tree-walk) works while higher-order
   combinators are temporarily `Inf`.
@@ -431,13 +518,17 @@ Each milestone is independently landable and leaves the compiler sound.
 - Tests: terminating `fold` over a terminating function = Terminating; the same `fold` over an `Inf`
   function = Inf; a recursive lambda stored in data then called → its `Inf` reaches the caller.
 
-**M3 — Numeric measure `Rec[N]` (counting / non-structural recursion).**
-- Partial `dec`/`half` (`dec : {N>0} Int[1,M] -> Int[0,M-1]`); descent on a numeric measure; discharge
-  the `N>0` precondition at the recursive branch via `RefinementSolver` (`monomorphize/refine/`). Needs
-  measure-bound refinement from the guard — start with explicit numeric guards (`if N > 0`) before
-  indexed-data refinement (the one genuine dependent-typing touchpoint).
-- Tests: countdown via `dec`, bisection via `half` accepted; missing base case / non-decreasing measure
-  rejected.
+**M3 — Numeric measure `Rec[N]` keyed on a type-level size (the *primary* proof mode).**
+- This is what nearly every real fold uses: opaque platform structures (JVM `ArrayList`, …) are indexed,
+  not pattern-matched, so termination rides a numeric counter `Int[0, N]` with `N` seeded from the
+  structure's type-level `SIZE`. **On the critical path for the feature to be broadly useful** — not an
+  advanced add-on (M1's structural descent only covers the rare pure-`data` case).
+- Partial `dec`/`half` (`dec : {N>0} Int[1,M] -> Int[0,M-1]`); discharge the `N>0` precondition at the
+  recursive branch (`isZero(remaining) = False ⟹ remaining > 0`) via `RefinementSolver`
+  (`monomorphize/refine/`). The branch→bound refinement is the one genuine dependent-typing touchpoint;
+  start with explicit numeric guards before indexed-`data` refinement.
+- Tests: `foldFrom`/`power`-style countdown via `dec`, bisection via `half` accepted; missing base case
+  / non-decreasing measure rejected.
 
 **M4 — Mutual recursion, capture, tooling.**
 - Mutual-recursion measures: a shared/lexicographic measure decreasing around the SCC (here an explicit
