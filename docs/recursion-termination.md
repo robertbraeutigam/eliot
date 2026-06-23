@@ -159,7 +159,7 @@ holding **plain data** contributes no effect (terminating); a cell holding a **f
 **Honest cost:** until linearity exists, "no cells" means some algorithms **copy**, which hurts more on a
 2 KB-SRAM part. Mitigate with State + monomorphization now, linearity later.
 
-## `Inf` as an effect: declaration, propagation, discharge
+## `Inf` as an effect: declaration, propagation, execution
 
 There is **no `Terminating` effect.** Termination is the *default* — simply the absence of `Inf` from a
 computation's effect row, exactly as "does no console IO" is the absence of `Console`, not a `NoConsole`
@@ -230,9 +230,10 @@ killed." This is the embedded super-loop, and it is the *simplest* `Inf` case �
 The reactive/event-loop variant is the same shape with the driver supplied by the runtime scheduler
 (cats-effect style: finite handlers, the runtime *is* the loop), where the handlers stay `Inf`-free and only
 the scheduler is `{Inf}`. Either way the **per-iteration bound** — each request/tick terminates — comes for
-free, which is exactly what a responsive embedded system needs. (This refines the earlier "`main` needs no
-`Inf`" idea: that holds only for the reactive model where the *runtime* owns the loop; a user-written
-super-loop makes `main` honestly `{Inf}`, which is correct, not a defect.)
+free, which is exactly what a responsive embedded system needs. (Two shapes for the top level: in the
+reactive model the *runtime* owns the loop, so `main` stays a finite description; in a user-written
+super-loop the driver is in the program, so `main` is honestly `{Inf}` — both are correct, neither is a
+defect.)
 
 **Bounding an `{Inf}` computation is deferred.** There is no step-budget `withFuel`/fuel discharge — it is not
 needed, and reifying every `{Inf}` computation as a steppable structure to support it is cost the embedded
@@ -271,8 +272,10 @@ clean split: **soundness from "no recursion + `Inf` natives"; cost from optional
 1. **Function-valued parameters stay runtime closures — no per-argument specialization.** `map(inc, xs)`
    keeps `f(h)` as a `ParameterReference` invoked through an indirect `Function.apply`
    (`jvm/.../classgen/processor/ExpressionCodeGenerator.scala`), and `UsedNamesProcessor` does not follow
-   parameter references. The post-monomorphization call graph is incomplete for indirect calls → **the
-   `Inf` effect must sit on the arrow** for sound higher-order propagation, not merely diagnostics.
+   parameter references. The post-monomorphization call graph is incomplete for indirect calls → **`Inf`
+   must be carried in the function's type** (its effect row / carrier), so it propagates through an indirect
+   call; it cannot be recovered from the call graph after the fact. (This is the *existing* carrier channel,
+   not a new arrow slot — see M2.)
 2. **No occurs-check.** `monomorphize/unify/Unifier.scala` (`solveMeta`) binds a metavariable without
    checking it occurs in the RHS; a cyclic meta then loops `Evaluator.force`. Precondition #2 lands here.
 3. **No strict-positivity check.** `data` receives only syntactic validation; `DataDefinitionDesugarer`
@@ -303,8 +306,11 @@ Each milestone is independently landable and leaves the compiler sound.
 
 **M1 — No recursion + `Inf` effect: declare, propagate, run.**
 - *Reject recursion in user code*: any self/mutual cycle in the resolved `ValueReference` graph → hard error
-  ("Eliot cannot express recursion; use a platform loop, or mark `Inf`"). Reuse `activeFactKeys` for the
-  self-cycle; a reference-graph SCC pass covers mutual cycles.
+  ("Eliot cannot express recursion; use a platform loop primitive — `fold` for a bounded loop, `forever` for
+  an endless one"). Note there is **no** "mark it `Inf`" escape for a user cycle: `Inf` originates only on a
+  native, so a recursive user function is rejected outright (it becomes `{Inf}` only by *calling* an `Inf`
+  native like `forever`, never by annotating its own recursion). Reuse `activeFactKeys` for the self-cycle; a
+  reference-graph SCC pass covers mutual cycles.
 - *`Inf` declaration (terminating by default)*: a body-less native is terminating unless it declares `{Inf}`;
   there is no `Terminating` annotation to write. (See the *Declaration* trade-off above.)
 - *`Inf` effect fact + propagation*: a value's effect row = set-union of its callees' rows (read from native
