@@ -10,6 +10,12 @@ package com.vanillasource.eliot.eliotc.jvm
   * `RecursionCheckProcessor`), while a non-recursive helper chain — however deep — compiles and runs, and the
   * monad-transformer lifting pattern (an impl method calling the same-named abstract method on an inner carrier) is not
   * mistaken for recursion.
+  *
+  * M2 (higher-order propagation, the function-coloring piece): because `Inf` is an ordinary effect riding the carrier
+  * (M1's design choice), a single effect-transparent higher-order combinator is `Inf`-iff-its-step-is — terminating
+  * over a terminating step, looping over an `Inf` step — with no separate termination lattice and no change to the
+  * combinator. The step's own capability effects union with `Inf` through the shared carrier, an `Inf` action survives
+  * a round-trip through a data field, and the same subset check governs propagation through a higher-order driver.
   */
 class TerminationIntegrationTest extends FullIntegrationTest {
 
@@ -94,5 +100,74 @@ class TerminationIntegrationTest extends FullIntegrationTest {
         |def main: IO[Unit] = serve""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "serving") should be > 5)
+  }
+
+  // --- M2 (higher-order propagation: the function-coloring piece) ---
+
+  // Function-coloring, terminating side. The effect-transparent combinator `runStep` declares no effect of its own; its
+  // result effect is exactly its step's. Over a terminating step it terminates with finite output. The combinator's
+  // definition is byte-for-byte the one used in the `Inf` case below — only the supplied step differs.
+  "a higher-order combinator over a terminating step" should "itself terminate" in {
+    compileAndRun(
+      """def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
+        |
+        |def main: IO[Unit] = runStep(_ -> println("done"))""".stripMargin
+    ).asserting(_ shouldBe "done")
+  }
+
+  // Function-coloring, Inf side. The *same* `runStep` definition over an `Inf` step loops endlessly: the step's `Inf`
+  // reaches the result through the shared carrier with no change to the combinator — one combinator serves both colours
+  // (Nystrom's function-coloring win), because `Inf` is a carrier effect, not a separate lattice slot.
+  "the same higher-order combinator over an Inf step" should "loop endlessly" in {
+    compileAndRunBounded(
+      """import eliot.lang.Inf
+        |
+        |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
+        |
+        |def main: IO[Unit] = runStep(_ -> forever(println("loop")))""".stripMargin,
+      timeoutMillis = 400
+    ).asserting(_.linesIterator.count(_ == "loop") should be > 5)
+  }
+
+  // An `Inf` action stored in a data structure, pulled back out through its field accessor and run, carries its `Inf`
+  // to the caller: the effect rides the carrier `F` of `Box[F]`, so the stored action loops when run — data is only a
+  // courier for the carrier-typed value, it does not launder the effect.
+  "an Inf action stored in data then run through its accessor" should "loop endlessly" in {
+    compileAndRunBounded(
+      """import eliot.lang.Inf
+        |
+        |data Box[F[_]](action: F[Unit])
+        |
+        |def runBox[F[_]](b: Box[F]): F[Unit] = action(b)
+        |
+        |def main: IO[Unit] = runBox(Box(forever(println("boxed"))))""".stripMargin,
+      timeoutMillis = 400
+    ).asserting(_.linesIterator.count(_ == "boxed") should be > 5)
+  }
+
+  // The step's own capability effect rides the same carrier as the driver's `Inf`: a `{Console}` step run by an
+  // `{Inf, Console}` driver unions both effects (the `{e}`-on-the-step polymorphism the M1 deviation deferred to M2)
+  // and runs end-to-end.
+  "an {Inf, Console} driver over a {Console} step" should "union both effects and loop endlessly" in {
+    compileAndRunBounded(
+      """import eliot.lang.Inf
+        |
+        |def driver(step: {Console} Unit): {Inf, Console} Unit = forever(step)
+        |
+        |def main: IO[Unit] = driver(println("tick"))""".stripMargin,
+      timeoutMillis = 400
+    ).asserting(_.linesIterator.count(_ == "tick") should be > 5)
+  }
+
+  // Propagation is the same used-subset-of-declared check through a higher-order driver: the driver above declaring only
+  // `{Console}` (omitting `Inf`) is rejected — calling `forever` performs `Inf`, which must be declared.
+  "a driver that calls forever while declaring only {Console}" should "be rejected (Inf not declared)" in {
+    compileForErrors(
+      """import eliot.lang.Inf
+        |
+        |def driver(step: {Console} Unit): {Console} Unit = forever(step)
+        |
+        |def main: IO[Unit] = driver(println("tick"))""".stripMargin
+    ).asserting(_ should include("performs the effect 'Inf'"))
   }
 }

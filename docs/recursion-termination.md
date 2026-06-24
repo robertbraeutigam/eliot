@@ -1,7 +1,10 @@
 # Recursion & Termination — Total Core, `Inf` as a Platform Effect
 
-Status: **Design note + implementation plan.** Captures the model, its theoretical grounding, its
-preconditions, and a sequenced milestone plan grounded in a codebase investigation.
+Status: **Design note + implementation plan — milestones M0–M2 ✅ COMPLETE.** Captures the model, its
+theoretical grounding, its preconditions, and a sequenced milestone plan grounded in a codebase
+investigation. The preconditions (M0), the no-recursion rule plus the `Inf` effect (M1), and higher-order
+propagation (M2) are all built and verified end-to-end; only the explicitly-deferred resource/time work
+remains (see *Deferred*).
 
 **Supersedes the earlier `Rec[N]` measure design.** An earlier version of this note proved termination
 with a per-function *measure* `Rec[N]` that had to strictly decrease across recursive calls, discharged by a
@@ -366,18 +369,47 @@ Each milestone is independently landable and leaves the compiler sound.
   "runs endlessly" test for both a concrete-`IO` `main` and a carrier-polymorphic `{Inf, Console}` super-loop pinned to
   `IO` (`TerminationIntegrationTest`, jvm — the loop's infinite-loop bytecode also verifies under `COMPUTE_FRAMES`).
 
-**M2 — Higher-order propagation (the function-coloring piece).**
-- `Inf` rides the existing effect-row / carrier in a function value's type (the same channel as `{E}`
-  capability effects), so it propagates through unification as ordinary set-union and is erased before
-  codegen — *not* a separate two-point lattice slot on the `Function` representation.
-- Higher-order functions are effect-polymorphic over their argument arrows; a call through a parameter incurs
-  that parameter's row. `fold`/`map` become `Inf`-iff-their-step-is.
-- Tests: a platform `fold` over a terminating step is terminating; the same `fold` over an `Inf` step is
-  `Inf`; an `Inf` lambda stored in data then called → its `Inf` reaches the caller.
+**M2 — Higher-order propagation (the function-coloring piece). ✅ COMPLETE.**
+
+This milestone required **no new production code**: it is the architectural payoff of M1's decision to model
+`Inf` as an ordinary effect *ability* riding the carrier rather than a bespoke termination lattice. Because
+the carrier `F` is shared across a computation and unified at every call (including indirect/higher-order
+calls), `Inf` propagates through a higher-order combinator *for free*, exactly as a capability effect does.
+The milestone is therefore a **verification + test** step confirming the behaviours below, each now covered
+end-to-end in `jvm/TerminationIntegrationTest`:
+
+- *`Inf` rides the existing carrier, no new lattice.* Confirmed — there is no two-point slot on the
+  `Function` representation; the effect lives in the carrier's ability constraints and is erased before
+  codegen (the `Inf[IO]` instance is resolved and the dictionary erased, so the programs below run as plain
+  bytecode).
+- *Function-coloring win — one combinator, `Inf`-iff-its-step-is.* A single effect-transparent combinator
+  `def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)` *terminates* over a terminating
+  step (`runStep(_ -> println("done"))` prints once and exits) and *loops* over an `Inf` step
+  (`runStep(_ -> forever(println("loop")))` runs endlessly) — the **identical definition**, the colour coming
+  entirely from the argument. This is Nystrom's function-coloring win and the load-bearing reason a language
+  whose iteration is a platform feature needs only one effect-transparent `fold`/`map`/`runStep`. (No `List`
+  or platform `fold` native exists yet, so `runStep` — apply the carrier-returning step — stands in as the
+  minimal higher-order combinator; the propagation it exercises is identical.)
+- *The step's own `{e}` unions with `Inf`.* An `{Inf, Console}` driver over a `{Console}` step
+  (`def driver(step: {Console} Unit): {Inf, Console} Unit = forever(step)`) unions both effects through the
+  shared carrier and runs — closing the M1 deviation that deferred the step's `{e}` carrier-row polymorphism
+  to M2 (it needed no change; M1's `F[Unit]` step already carries `{e}` because the carrier is a *set* of
+  effects).
+- *`Inf` survives a round-trip through data.* An `Inf` action stored in `data Box[F[_]](action: F[Unit])`,
+  pulled back out through its field accessor and run, still loops — data is only a courier for the
+  carrier-typed value and cannot launder the effect.
+- *Propagation is the same subset check, fail-safe through a higher-order driver.* The driver above declaring
+  only `{Console}` (omitting `Inf`) is rejected with the clean "performs the effect 'Inf' but does not declare
+  it" — the M1 used-⊆-declared check, unchanged. The dual carrier-pin case (a `{Console}`-carrier combinator
+  handed an `Inf` step) is likewise rejected, at monomorphization ("Function not implemented." — the use-site
+  backstop, sound but less precise; surfacing it at the definition is deferred IDE work, not a soundness gap).
 
 **Deferred (explicitly):** WCET / resource bounds and the optional size-indexing that feeds them; a
 **timeout-based bound on `{Inf}`** (needs a time type; the honest replacement for a step-budget discharge);
-linearity for mutation; CFA to recover indirect calls the coarse arrow bit over-rejects.
+linearity for mutation; a definition-site (vs. use-site/monomorphization) error when an `Inf` step is handed
+to a carrier that cannot host it (IDE work — sound today, just less precise). The investigation's "coarse
+arrow bit over-rejects indirect calls" concern did **not** materialize: M2 carries `Inf` in the *carrier*,
+not a per-arrow bit, so propagation is precise and no CFA recovery is needed.
 
 ## Relationship to existing work
 
