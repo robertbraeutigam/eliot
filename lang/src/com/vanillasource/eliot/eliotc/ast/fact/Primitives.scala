@@ -1,7 +1,8 @@
 package com.vanillasource.eliot.eliotc.ast.fact
 
+import cats.data.StateT
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.parser.Parser
+import com.vanillasource.eliot.eliotc.ast.parser.{InputStream, Parser, ParserResult}
 import com.vanillasource.eliot.eliotc.pos.PositionRange
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
@@ -9,6 +10,34 @@ import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
 import Parser.*
 
 object Primitives {
+  /** Peek the 1-based source line of the next token without consuming any input, or `None` at end of input. Used by the
+    * block parser to keep an atom run on one source line (a line is the maximal atom run whose successor starts on the
+    * same line the previous atom ended).
+    */
+  val peekTokenLine: Parser[Sourced[Token], Option[Int]] =
+    StateT.inspect[ParserResult, InputStream[Sourced[Token]], Option[Int]](_.headOption.map(_.range.from.line))
+
+  /** Parse the maximal run of `atom`s that stay on one source line: the first atom is always parsed, then each
+    * subsequent atom is parsed only while it starts on the same line the previous atom ended (so a multi-line atom like
+    * `( … )` keeps the run going up to its closing line — the "force-join"). Stops without consuming as soon as the next
+    * token is on a later line, or is not a valid `atom` start (e.g. the block's closing `}`). This is the only
+    * line-awareness in the block parser; the over-separated lines it yields are re-joined later by fixity.
+    */
+  def lineBoundedAtoms[A](atom: Parser[Sourced[Token], Sourced[A]]): Parser[Sourced[Token], Seq[Sourced[A]]] = {
+    val empty: Parser[Sourced[Token], Seq[Sourced[A]]] =
+      StateT.pure[ParserResult, InputStream[Sourced[Token]], Seq[Sourced[A]]](Seq.empty)
+    def more(prevEndLine: Int): Parser[Sourced[Token], Seq[Sourced[A]]] =
+      peekTokenLine.flatMap {
+        case Some(line) if line == prevEndLine =>
+          atom.optional().flatMap {
+            case Some(a) => more(a.range.to.line).map(a +: _)
+            case None    => empty
+          }
+        case _                                 => empty
+      }
+    atom.flatMap(first => more(first.range.to.line).map(first +: _))
+  }
+
   def optionalArgumentListOf[A](item: Parser[Sourced[Token], A]): Parser[Sourced[Token], Seq[A]] =
     optionalBracketedCommaSeparatedItems("(", item, ")")
 

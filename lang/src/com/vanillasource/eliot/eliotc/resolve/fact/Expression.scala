@@ -29,10 +29,21 @@ object Expression {
       scrutinee: Sourced[TypeStack[Expression]],
       cases: Seq[MatchCase]
   ) extends Expression
+  // A `{ … }` block, lowered to immediately-applied lambdas by BlockDesugaringProcessor; gone before matchdesugar.
+  case class BlockExpression(lines: Seq[BlockLine]) extends Expression
 
   case class MatchCase(
       pattern: Sourced[Pattern],
       body: Sourced[TypeStack[Expression]]
+  )
+
+  /** One line of a [[BlockExpression]]: an optional binder (name plus optional resolved type) and the line's resolved
+    * flat expression. References to the binder name in later lines resolve to a [[ParameterReference]].
+    */
+  case class BlockLine(
+      binderName: Option[Sourced[String]],
+      binderType: Option[Sourced[TypeStack[Expression]]],
+      expression: Sourced[Expression]
   )
 
   def mapChildrenM[F[_]: Applicative](f: Expression => F[Expression])(expr: Expression): F[Expression] = {
@@ -53,6 +64,13 @@ object Expression {
         ).mapN(MatchExpression.apply)
       case ValueReference(name, typeArgs)                  =>
         typeArgs.traverse(ta => f(ta.value).map(ta.as)).map(ValueReference(name, _))
+      case BlockExpression(lines)                          =>
+        lines
+          .traverse(line =>
+            (line.binderType.traverse(traverseStack), f(line.expression.value).map(line.expression.as))
+              .mapN((bt, e) => BlockLine(line.binderName, bt, e))
+          )
+          .map(BlockExpression.apply)
       case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr.pure[F]
     }
   }
@@ -71,5 +89,9 @@ object Expression {
     case FlatExpression(parts)                   => parts.map(_.value.show).mkString(" ")
     case MatchExpression(scrutinee, cases)        =>
       s"${scrutinee.value.show} match { ${cases.map(c => s"case ${c.pattern.value.show} -> ${c.body.value.show}").mkString(" ")} }"
+    case BlockExpression(lines)                  =>
+      lines
+        .map(l => l.binderName.map(n => s"val ${n.value} = ").getOrElse("") + l.expression.value.show)
+        .mkString("{ ", "; ", " }")
   }
 }

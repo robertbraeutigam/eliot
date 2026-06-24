@@ -73,6 +73,11 @@ object EffectSugarDesugarer {
     case FlatExpression(parts)                        => parts.flatMap(e => collectEffects(e.value))
     case MatchExpression(scrutinee, cases)            =>
       collectEffects(scrutinee.value) ++ cases.flatMap(c => collectEffects(c.body.value))
+    case BlockExpression(lines)                       =>
+      lines.flatMap(l =>
+        l.binder.flatMap(_.typeExpression).toSeq.flatMap(t => collectEffects(t.value)) ++
+          collectEffects(l.expression.value)
+      )
     case _: IntegerLiteral | _: StringLiteral         => Seq.empty
   }
 
@@ -105,6 +110,13 @@ object EffectSugarDesugarer {
           cases.map(c => c.copy(body = rewrite(carrierName)(c.body)))
         )
       )
+    case BlockExpression(lines)                                   =>
+      expr.as(BlockExpression(lines.map { line =>
+        line.copy(
+          binder = line.binder.map(b => b.copy(typeExpression = b.typeExpression.map(rewrite(carrierName)))),
+          expression = rewrite(carrierName)(line.expression)
+        )
+      }))
     case _: IntegerLiteral | _: StringLiteral                     => expr
   }
 

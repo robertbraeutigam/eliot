@@ -216,3 +216,25 @@ Merge tests (`BlockDesugaringProcessor`):
   harmless, so a candidate lint warning, not an error, and not required for the first cut.
 - **Error recovery inside a half-written block** (for IDE hints) follows the general parser-recovery
   work in `docs/ide-type-hints.md`, not this change.
+
+## As-built notes
+
+Two points where the shipped implementation differs from or refines the plan above:
+
+- **One effect-phase change was required after all.** The plan expected effect threading to fall out of
+  the existing auto-lift with *nothing in `effect`*. In practice `DirectStyleDesugarer` only bound
+  effectful arguments flowing into a *named* callee's pure parameter; an **immediately-applied lambda**
+  `(x -> body)(arg)` — the exact shape a block lowers to — hit the structural "no-signature, don't bind"
+  fallback, so `(old -> …)(getState)` left `getState : F[S]` flowing into a plain `old : S` and failed to
+  type-check. A small additive case was added: an immediately-applied lambda binds its effectful argument
+  with `Monad.flatMap`/`Applicative.map` (the lambda's parameter is an ordinary pure position, unless it is
+  annotated with a carrier type, which keeps it a stored action). This is the let-form analogue of the rule
+  the pass already applied to callee parameters; all existing effect tests are unchanged, and block effect
+  threading is verified end-to-end (the `swap` example compiles to the same result as the hand-written
+  `flatMap` nest).
+- **A bare lambda may only be a block line's *final* expression (otherwise parenthesize it).** A block line
+  is a line-bounded atom run, but a lambda body is parsed by the ordinary greedy expression parser, which is
+  not line-aware — so a non-final `val f = x -> g(x)` would swallow the following line. This is **fail-safe**
+  (the block then ends in a binding, or mistypes — a hard error, never silent), and the fix (a line-aware
+  lambda body inside blocks) belongs with the deferred in-block parser-robustness work. Write
+  `val f = (x -> g(x))` when a lambda binding is followed by more statements.

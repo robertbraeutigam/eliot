@@ -240,6 +240,28 @@ class ValueResolver
                                  }
                                }
         } yield Expression.MatchExpression(resolvedScrutinee, resolvedCases)
+      case BlockExpression(lines)                                    =>
+        withLocalScope(resolveBlockLines(lines, runtime)).map(Expression.BlockExpression.apply)
+    }
+
+  /** Resolves a block's lines in order, threading the binder scope: each binder is added to scope *before* its own line
+    * (and every later line) is resolved, so a self-reference resolves to that local — caught as a hard error at
+    * lowering — and later lines can reference it. The whole block is wrapped in a [[withLocalScope]] by the caller so
+    * the binders do not leak past the block.
+    */
+  private def resolveBlockLines(lines: Seq[CoreExpression.BlockLine], runtime: Boolean): ScopedIO[Seq[Expression.BlockLine]] =
+    lines match {
+      case Nil          => Seq.empty[Expression.BlockLine].pure[ScopedIO]
+      case line :: rest =>
+        for {
+          resolvedType <- (line.binderName, line.binderType) match {
+                            case (Some(n), Some(t)) => resolveTypeStack(n.as(t), false).map(Some(_))
+                            case _                  => None.pure[ScopedIO]
+                          }
+          _            <- line.binderName.traverse(n => addParameter(n.value))
+          resolvedExpr <- resolveExpression(line.expression.value, runtime).map(line.expression.as)
+          resolvedRest <- resolveBlockLines(rest, runtime)
+        } yield Expression.BlockLine(line.binderName, resolvedType, resolvedExpr) +: resolvedRest
     }
 
   private def resolvePattern(pattern: Sourced[CorePattern]): ScopedIO[Sourced[Pattern]] =

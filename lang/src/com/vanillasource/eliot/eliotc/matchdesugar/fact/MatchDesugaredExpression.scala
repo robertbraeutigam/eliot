@@ -63,6 +63,8 @@ object MatchDesugaredExpression {
       FlatExpression(parts.map(convertTypeStack))
     case Expression.MatchExpression(_, _)                       =>
       throw IllegalStateException("MatchExpression should not exist after match desugaring")
+    case Expression.BlockExpression(_)                          =>
+      throw IllegalStateException("BlockExpression should not exist after block desugaring")
   }
 
   def convertTypeStack(

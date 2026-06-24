@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.ability.processor.{
   ModuleAbilityOverlapCheckProcessor
 }
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
+import com.vanillasource.eliot.eliotc.block.processor.BlockDesugaringProcessor
 import com.vanillasource.eliot.eliotc.core.processor.CoreProcessor
 import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
@@ -65,6 +66,7 @@ object LangProcessors {
     UnifiedModuleNamesProcessor(),
     UnifiedModuleValueProcessor(),
     ValueResolver(),
+    BlockDesugaringProcessor(),
     MatchDesugaringProcessor(),
     OperatorResolverProcessor(),
     RecursionCheckProcessor(),

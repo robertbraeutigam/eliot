@@ -37,10 +37,19 @@ object Expression {
       scrutinee: Sourced[TypeStack[Expression]],
       cases: Seq[MatchCase]
   ) extends Expression
+  // A `{ … }` block, to be lowered to immediately-applied lambdas by BlockDesugaringProcessor (after resolution).
+  case class BlockExpression(lines: Seq[BlockLine]) extends Expression
 
   case class MatchCase(
       pattern: Sourced[Pattern],
       body: Sourced[TypeStack[Expression]]
+  )
+
+  /** One line of a [[BlockExpression]]: an optional binder (name plus optional type) and the line's flat expression. */
+  case class BlockLine(
+      binderName: Option[Sourced[String]],
+      binderType: Option[TypeStack[Expression]],
+      expression: Sourced[Expression]
   )
 
   /** Structural equality means that the expression contains the same building blocks in the same order / structure. No
@@ -82,5 +91,9 @@ object Expression {
     case FlatExpression(parts)                                                         => parts.map(_.value.show).mkString(" ")
     case MatchExpression(scrutinee, cases)                                               =>
       s"${scrutinee.value.show} match { ${cases.map(c => s"case ${c.pattern.value.show} -> ${c.body.value.show}").mkString(" ")} }"
+    case BlockExpression(lines)                                                          =>
+      lines
+        .map(l => l.binderName.map(n => s"val ${n.value} = ").getOrElse("") + l.expression.value.show)
+        .mkString("{ ", "; ", " }")
   }
 }

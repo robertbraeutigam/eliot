@@ -80,6 +80,10 @@ object PositionIndex {
     case Expression.MatchExpression(scrutinee, cases)                                                  =>
       fromStack(scrutinee.value) ++
         cases.flatMap(matchCase => fromPattern(matchCase.pattern.value) ++ fromStack(matchCase.body.value))
+    case Expression.BlockExpression(lines)                                                             =>
+      lines.flatMap(line =>
+        line.binderType.toSeq.flatMap(stack => fromStack(stack.value)) ++ fromExpression(line.expression.value)
+      )
     case _: Expression.IntegerLiteral | _: Expression.StringLiteral | _: Expression.ParameterReference =>
       Seq.empty
   }

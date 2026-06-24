@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.block.fact.BlockDesugaredValue
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.{MatchDesugaredExpression, MatchDesugaredValue}
@@ -10,8 +11,8 @@ import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 class MatchDesugaringProcessor
-    extends TransformationProcessor[ResolvedValue.Key, MatchDesugaredValue.Key](key =>
-      ResolvedValue.Key(key.vfqn)
+    extends TransformationProcessor[BlockDesugaredValue.Key, MatchDesugaredValue.Key](key =>
+      BlockDesugaredValue.Key(key.vfqn)
     )
     with Logging {
 
@@ -21,21 +22,21 @@ class MatchDesugaringProcessor
 
   override protected def generateFromKeyAndFact(
       key: MatchDesugaredValue.Key,
-      resolvedValue: ResolvedValue
+      blockDesugaredValue: BlockDesugaredValue
   ): CompilerIO[MatchDesugaredValue] =
     for {
-      desugaredRuntime <- resolvedValue.runtime.traverse(expr => desugarExpression(expr.value).map(expr.as))
+      desugaredRuntime <- blockDesugaredValue.runtime.traverse(expr => desugarExpression(expr.value).map(expr.as))
     } yield MatchDesugaredValue(
-      resolvedValue.vfqn,
-      resolvedValue.name,
+      blockDesugaredValue.vfqn,
+      blockDesugaredValue.name,
       desugaredRuntime.map(_.map(MatchDesugaredExpression.fromExpression)),
-      MatchDesugaredExpression.convertTypeStack(resolvedValue.typeStack),
-      convertParamConstraints(resolvedValue.paramConstraints),
-      resolvedValue.fixity,
-      resolvedValue.precedence,
-      resolvedValue.opaque,
-      resolvedValue.inferableArity,
-      resolvedValue.roleHint
+      MatchDesugaredExpression.convertTypeStack(blockDesugaredValue.typeStack),
+      convertParamConstraints(blockDesugaredValue.paramConstraints),
+      blockDesugaredValue.fixity,
+      blockDesugaredValue.precedence,
+      blockDesugaredValue.opaque,
+      blockDesugaredValue.inferableArity,
+      blockDesugaredValue.roleHint
     )
 
   private def convertParamConstraints(

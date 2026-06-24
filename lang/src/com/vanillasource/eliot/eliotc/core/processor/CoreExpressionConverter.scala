@@ -83,6 +83,14 @@ object CoreExpressionConverter {
             )
           )
         )
+      case SourceExpression.BlockExpression(lines)                                     =>
+        expr.as(BlockExpression(lines.map { line =>
+          BlockLine(
+            line.binder.map(_.name),
+            line.binder.flatMap(_.typeExpression).map(t => TypeStack.of(convertExpression(t, typeContext = true).value)),
+            convertExpression(line.expression, typeContext)
+          )
+        }))
       case _: SourceExpression.EffectfulType                                           =>
         // EffectSugarDesugarer rewrites every `{…} A` to `F[A]` across the whole function before conversion, so an
         // EffectfulType reaching here means it was written somewhere the desugarer does not reach (only signature and

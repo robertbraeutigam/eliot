@@ -3,6 +3,8 @@ package com.vanillasource.eliot.eliotc.effect.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.effect.processor.CalleeSignatures.CalleeInfo
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.core.fact.TypeStack
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
   FunctionApplication,
   FunctionLiteral,
@@ -91,6 +93,13 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
           used                    = (if (coreEffectful) info.effectAbilities else Set.empty) ++
                                       argResults.foldMap(_.usedEffects)
         } yield wrapBinds(core, coreEffectful, binds, idxB, used)
+      // An immediately-applied lambda `(x -> body)(arg)` is a `let` (the shape every `val`/statement in a `{…}` block
+      // lowers to). Its parameter is an ordinary pure value position, so an effectful `arg` flowing in is sequenced —
+      // `flatMap`/`map(arg, x -> body)` — exactly as it would be for a named callee's pure parameter. Threading effects
+      // through block bindings depends on this case; a non-effectful `arg` (or a carrier-typed binder that deliberately
+      // stores the action) is left as the plain immediately-applied lambda.
+      case FunctionLiteral(param, paramType, body) if args.sizeIs == 1 =>
+        desugarImmediateLambda(expr, param, paramType, body, args.head, env, carrier, idx)
       case _                      =>
         // Non-value-reference head (immediately-applied lambda, applied parameter): no signature to read, so rebuild
         // structurally without binding and let monomorphization arbitrate. Conservative, fail-safe.
@@ -105,6 +114,42 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
         )
     }
   }
+
+  /** Lower an immediately-applied lambda `(param -> body)(arg)`. If `arg` is effectful and `param` is not a carrier-typed
+    * storage position, bind it with `flatMap`/`map` (`map` when the continuation `body` is pure); otherwise keep the
+    * plain immediately-applied lambda whose result is the body's result.
+    */
+  private def desugarImmediateLambda(
+      expr: Sourced[OperatorResolvedExpression],
+      param: Sourced[String],
+      paramType: Option[Sourced[TypeStack[OperatorResolvedExpression]]],
+      body: Sourced[OperatorResolvedExpression],
+      arg: Sourced[OperatorResolvedExpression],
+      env: Map[String, OperatorResolvedExpression],
+      carrier: Set[String],
+      idx: Int
+  ): CompilerIO[Desugared] =
+    for {
+      argRes  <- desugarExpr(arg, env, carrier, idx)
+      bodyRes <- desugarExpr(body, env - param.value, carrier, argRes.nextIdx)
+    } yield {
+      val used = argRes.usedEffects ++ bodyRes.usedEffects
+      if (argRes.effectful && !paramType.exists(pt => EffectCarriers.carrierHeaded(pt.value.signature, carrier)))
+        Desugared(
+          EffectMachinery.sequence(argRes.expr, param.value, bodyRes.expr, bodyRes.effectful),
+          effectful = true,
+          bodyRes.nextIdx,
+          usedEffects = used,
+          synthesizedBind = true
+        )
+      else
+        Desugared(
+          expr.as(FunctionApplication(expr.as(FunctionLiteral(param, paramType, bodyRes.expr)), argRes.expr)),
+          effectful = bodyRes.effectful,
+          bodyRes.nextIdx,
+          usedEffects = used
+        )
+    }
 
   /** Desugar each argument left to right, threading the fresh-variable index across them. */
   private def desugarArgs(

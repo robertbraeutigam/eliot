@@ -76,5 +76,6 @@ object StrictPositivityChecker {
         negativeOccurrences(dataName, result, positive)
     case Expression.IntegerLiteral(_)               => Seq.empty
     case Expression.StringLiteral(_)                => Seq.empty
+    case Expression.BlockExpression(_)              => Seq.empty // blocks are runtime values, never type expressions
   }
 }

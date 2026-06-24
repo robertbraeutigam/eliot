@@ -29,6 +29,19 @@ object Expression {
   case class FlatExpression(parts: Seq[Sourced[Expression]])                                        extends Expression
   case class MatchExpression(scrutinee: Sourced[Expression], cases: Seq[MatchCase])                 extends Expression
 
+  /** A `{ … }` block: a sequence of statement/binding lines ending in a result expression. Over-separated at parse time
+    * (one [[BlockLine]] per source line); adjacent lines are re-joined by fixity and the whole block is lowered to a
+    * tower of immediately-applied lambdas by `block.processor.BlockDesugaringProcessor`, so it never survives past
+    * resolution. See `docs/block-syntax.md`.
+    */
+  case class BlockExpression(lines: Seq[BlockLine]) extends Expression
+
+  /** One source line of a [[BlockExpression]]: an optional `val name [: type] =` binder (reusing the lambda-parameter
+    * shape) and the line's flat expression. A line with no binder is a bare statement; the last line of a block (which
+    * must have no binder) is the block's result.
+    */
+  case class BlockLine(binder: Option[LambdaParameterDefinition], expression: Sourced[Expression])
+
   /** The effect-set sugar `{ E1, E2, … } A` written in a type position: the unordered set of effects `effects`
     * (capabilities, each an ability reference) carried by a computation that produces a plain `resultType`. Pure,
     * type-information-free sugar — it never survives past the core processor, where [[core.processor.EffectSugarDesugarer]]
@@ -61,7 +74,12 @@ object Expression {
       s"${scrutinee.value.show} match { ${cases.map(c => s"case ${c.pattern.value.show} -> ${c.body.value.show}").mkString(" ")} }"
     case EffectfulType(effects, resultType)                                                   =>
       s"{${effects.map(showAbilityConstraint).mkString(", ")}} ${resultType.value.show}"
+    case BlockExpression(lines)                                                               =>
+      lines.map(showBlockLine).mkString("{ ", "; ", " }")
   }
+
+  private def showBlockLine(line: BlockLine): String =
+    line.binder.map(b => s"val ${b.show} = ").getOrElse("") + line.expression.value.show
 
   private def showAbilityConstraint(ac: GenericParameter.AbilityConstraint): String =
     ac.abilityName.value +
@@ -127,9 +145,40 @@ object Expression {
       integerLiteralParser or
       stringLiteralParser
 
-  /** Full atoms including lambdas. */
+  /** The `val name [: type] =` binder prefix of a block line, reusing the lambda-parameter shape for `name [: type]`.
+    * Atomic so a non-`val` (statement) line backtracks cleanly to a binder-less parse.
+    */
+  private lazy val blockBinderParser: Parser[Sourced[Token], LambdaParameterDefinition] =
+    (keyword("val") *> component[LambdaParameterDefinition] <* symbol("=")).atomic()
+
+  /** One source line of a block: an optional binder then the line's atom run (line-bounded), optionally followed by a
+    * trailing `match { … }` whose scrutinee is that atom run. Over-separation happens here: the run stops at every
+    * newline, so each source line becomes one [[BlockLine]].
+    */
+  private lazy val blockLineParser: Parser[Sourced[Token], BlockLine] = for {
+    binder     <- blockBinderParser.optional()
+    atoms      <- lineBoundedAtoms(sourced(fullAtom))
+    matchBlock <- matchExpressionParser.optional()
+  } yield {
+    val flat = Sourced.outline(atoms).as(FlatExpression(atoms))
+    val expression = matchBlock match {
+      case Some(cases) =>
+        val scrutinee = if (atoms.size == 1) atoms.head else flat
+        Sourced.outline(atoms).as(MatchExpression(scrutinee, cases))
+      case None        => flat
+    }
+    BlockLine(binder, expression)
+  }
+
+  private lazy val blockParser: Parser[Sourced[Token], Expression] =
+    blockLineParser.anyTimes().between(symbol("{"), symbol("}")).map(BlockExpression.apply)
+
+  /** Full atoms including lambdas and `{ … }` blocks. The block alternative is first and atomic: a leading `{` in value
+    * position is always a block (the effect-set sugar `{…} A` lives only in [[typeParser]], never here), and a
+    * non-`{` start backtracks to the lambda/type atoms.
+    */
   private lazy val fullAtom: Parser[Sourced[Token], Expression] =
-    functionLiteralParser.atomic() or typeAtom
+    blockParser.atomic() or functionLiteralParser.atomic() or typeAtom
 
   /** Full expression parser including lambdas and match expressions. */
   private lazy val fullParser: Parser[Sourced[Token], Expression] =
