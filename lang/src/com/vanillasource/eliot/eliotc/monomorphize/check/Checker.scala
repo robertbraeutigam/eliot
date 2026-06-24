@@ -58,6 +58,11 @@ class Checker(
     * [[VMeta]] on first access and cached in that form. The meta is solved post-drain by unifying against the concrete
     * impl's corresponding associated-type value. The cache provides per-(fqn, check-session) dedup automatically —
     * subsequent lookups return the same cached meta.
+    *
+    * Recognition keys on the FQN ([[ValueFQN.isAbstractAbilityType]] — Ability-qualified, upper-case), not on the
+    * presence of a body-less binding fact: such a member is body-less, so its binding is none of
+    * [[com.vanillasource.eliot.eliotc.monomorphize.processor.UserValueNativesProcessor]]'s business, and `fetchBinding`
+    * legitimately returns `None`.
     */
   private def ensureBinding(vfqn: ValueFQN): CheckIO[Option[SemValue]] =
     for {
@@ -67,15 +72,12 @@ class Checker(
                   case None        =>
                     for {
                       opt      <- liftF(fetchBinding(vfqn))
-                      replaced <- opt match {
-                                    case Some(VTopDef(fqn, None, Spine.SNil)) if ValueFQN.isAbstractAbilityType(fqn) =>
-                                      for {
-                                        meta <- freshMeta
-                                        _    <- modify(_.recordAbstractTypeMeta(vfqn, meta.id))
-                                      } yield Some(meta: SemValue)
-                                    case other                                                                       =>
-                                      pure(other)
-                                  }
+                      replaced <- if (ValueFQN.isAbstractAbilityType(vfqn))
+                                    for {
+                                      meta <- freshMeta
+                                      _    <- modify(_.recordAbstractTypeMeta(vfqn, meta.id))
+                                    } yield Some(meta: SemValue)
+                                  else pure(opt)
                       _        <- modify(_.cacheBinding(vfqn, replaced))
                     } yield replaced
                 }

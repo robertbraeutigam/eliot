@@ -21,6 +21,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 class UserValueNativesProcessor
     extends BindingProcessor[NativeBinding.Key](key => SaturatedValue.Key(key.vfqn)) {
 
+  // Checking: a body-less value's implementation is a native (or, for a runtime-only function, the evaluator's stuck
+  // VNeutral fallback) — never an empty user binding that would shadow a reducing native. See BindingProcessor.
+  override protected def bindsBodylessValues: Boolean = false
+
   override protected def selfBody(fact: OperatorResolvedValue): Option[Sourced[OperatorResolvedExpression]] =
     fact.checkingRuntime
 

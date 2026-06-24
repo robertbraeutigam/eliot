@@ -17,6 +17,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 class TransparentBindingProcessor
     extends BindingProcessor[TransparentBinding.Key](key => SaturatedValue.Key(key.vfqn)) {
 
+  // Lowering: a body-less runtime native (e.g. `nativeWiden`, the jvm integer leaf ops) needs an FQN-preserving stuck
+  // `VTopDef` here so representation lowering can read it back into codegen. See BindingProcessor.
+  override protected def bindsBodylessValues: Boolean = true
+
   override protected def selfBody(fact: OperatorResolvedValue): Option[Sourced[OperatorResolvedExpression]] =
     fact.runtime
 

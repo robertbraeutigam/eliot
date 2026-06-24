@@ -24,10 +24,9 @@ import com.vanillasource.eliot.eliotc.used.UsedNames
   * own monomorphization). These tests pin that down directly: the computed indices now normalise, no "Cannot resolve
   * type." error is produced, and the downstream specializations carry the '''reduced''' type arguments.
   */
-// Prepends `StdlibNativesProcessor` (the stdlib-layer `subtract`/`lessThanOrEqual`/… natives the computed indices
-// reduce through) onto `LangProcessors` — first, so its reducing bindings win over `UserValueNativesProcessor`'s
-// body-less stubs (NativeBinding registration is first-wins), mirroring `StdlibPlugin`.
-class ComputedTypeArgumentReadbackTest extends ProcessorTest((StdlibNativesProcessor() +: LangProcessors())*) {
+// Composes `StdlibNativesProcessor` (the stdlib-layer `subtract`/`lessThanOrEqual`/… natives the computed indices
+// reduce through) onto `LangProcessors`; order is irrelevant — each `NativeBinding.Key` has one producer.
+class ComputedTypeArgumentReadbackTest extends ProcessorTest((LangProcessors() :+ StdlibNativesProcessor())*) {
 
   // A reified BigInteger value `bigOf[1]` applied to a literal, used directly as another value's type argument, must
   // reduce to the constant `1` (it was previously a stuck neutral). `box[N] = N` is specialized at the reduced index.

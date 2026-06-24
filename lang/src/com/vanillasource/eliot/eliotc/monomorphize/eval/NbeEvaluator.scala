@@ -30,9 +30,11 @@ abstract class NbeEvaluator[E](lookupTopDef: ValueFQN => Option[SemValue]) {
       env.lookupByName(name).getOrElse(VNeutral(NeutralHead.VVar(env.level, name), Spine.SNil))
 
     case Term.ValueReference(valueName, typeArguments) =>
-      val base = lookupTopDef(valueName).getOrElse(
-        VNeutral(NeutralHead.VVar(env.level, valueName.name.name), Spine.SNil)
-      )
+      // A value reference names a top-level definition. With no binding it is a *stuck definition* — a body-less native
+      // or runtime function the compiler does not reduce (e.g. `nativeWiden`, a jvm leaf op, or the `some`/`none`
+      // constructors) — so it falls back to its own FQN-preserving `VTopDef`, NOT a `VNeutral` (which is a bound
+      // variable and would drop the FQN, corrupting read-back/codegen and the `Coerce` constructor recognition).
+      val base = lookupTopDef(valueName).getOrElse(VTopDef(valueName, None, Spine.SNil))
       // Thread the (already-evaluated) type arguments into the value's spine. For a type-application scrutinee like
       // `Tag["hello"]` this keeps `"hello"` in the constructor's spine, so a type-match `case Tag[name] -> name` binds it.
       typeArguments.foldLeft(base)(Evaluator.applyValue)

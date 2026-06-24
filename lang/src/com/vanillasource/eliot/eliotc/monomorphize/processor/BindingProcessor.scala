@@ -48,7 +48,25 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
   private val generating: java.util.Set[ValueFQN] =
     java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap())
 
-  override protected def generateFromKeyAndFact(key: OutputKey, fact: InputFact): CompilerIO[OutputFact] = {
+  /** Whether this processor binds body-less definitions.
+    *
+    * The checking-phase NativeBinding producer ([[UserValueNativesProcessor]]) does **not**: a body-less value's
+    * checking implementation is a native (one of the native processors) — or, for a runtime-only function the checker
+    * never reduces, the evaluator's stuck `VNeutral` fallback — never an empty `VTopDef(_, None)` user binding, which
+    * would only shadow a reducing native (the `add` bug). The lowering-phase TransparentBinding producer **does**: a
+    * runtime native like `nativeWiden` needs an FQN-preserving stuck `VTopDef` so representation lowering can read it
+    * back into codegen.
+    *
+    * Note the gate is on `runtime` (not `selfBody`/`checkingRuntime`): an `opaque` definition like `Int` HAS a body —
+    * it is merely kept stuck during checking — so it is a user value either way.
+    */
+  protected def bindsBodylessValues: Boolean
+
+  override protected def generateFromKeyAndFact(key: OutputKey, fact: InputFact): CompilerIO[OutputFact] =
+    if (!bindsBodylessValues && fact.value.runtime.isEmpty) abort
+    else generateForBodyfulValue(key, fact)
+
+  private def generateForBodyfulValue(key: OutputKey, fact: InputFact): CompilerIO[OutputFact] = {
     val vfqn = getInputKey(key).vfqn
     val body = selfBody(fact.value)
     generating.add(vfqn)
