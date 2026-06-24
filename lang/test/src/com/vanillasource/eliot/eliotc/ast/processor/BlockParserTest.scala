@@ -34,6 +34,17 @@ class BlockParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       .asserting(_.flatMap(_.lines.head.binder.flatMap(_.typeExpression)).isDefined shouldBe true)
   }
 
+  it should "parse a nested block (a val whose right-hand side is itself a block), keeping the outer two lines" in {
+    blockOf("def f: A = {\n  val x = {\n    a\n    b\n  }\n  x\n}").asserting(_.map(_.lines.size) shouldBe Some(2))
+  }
+
+  it should "parse a block line carrying a trailing match expression" in {
+    blockOf("def f: A = {\n  val r = x match { case A -> a }\n  r\n}")
+      .asserting(_.flatMap(_.lines.headOption.map(_.expression.value)).collect {
+        case _: Expression.MatchExpression => true
+      } shouldBe Some(true))
+  }
+
   private def blockOf(source: String): IO[Option[Expression.BlockExpression]] =
     runGenerator(source, SourceAST.Key(file)).map { case (_, facts) =>
       facts.values

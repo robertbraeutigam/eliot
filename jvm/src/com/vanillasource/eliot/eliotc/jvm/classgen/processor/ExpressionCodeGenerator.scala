@@ -152,7 +152,31 @@ object ExpressionCodeGenerator {
             arguments,
             expectedResultType
           )
-      case FunctionLiteral(parameters, body)                      => ??? // FIXME: applying lambda immediately
+      case FunctionLiteral(parameters, body)                      =>
+        // An immediately-applied lambda `(x -> body)(arg)` — a `let`, the shape a non-effectful block `val`/statement
+        // lowers to. Generate the lambda as an ordinary closure value, then apply the argument(s) to it exactly as a
+        // function-valued parameter is applied. (An effectful block binding is rewritten to `flatMap`/`map` earlier and
+        // never reaches here.)
+        for {
+          lambdaClasses <- LambdaGenerator.generateLambda(
+                             moduleName,
+                             outerClassGenerator,
+                             methodGenerator,
+                             parameters,
+                             body,
+                             createExpressionCode
+                           )
+          argClasses    <- arguments.zipWithIndex.flatTraverse { (expression, idx) =>
+                             for {
+                               cs <- createExpressionCode(moduleName, outerClassGenerator, methodGenerator, expression)
+                               _  <- methodGenerator.addCallToApply[CompilationTypesIO]()
+                               _  <- methodGenerator
+                                       .addCastTo[CompilationTypesIO](NativeType.systemFunctionValue)
+                                       .whenA(idx < arguments.size - 1)
+                             } yield cs
+                           }
+          _             <- methodGenerator.addCastTo[CompilationTypesIO](valueType(expectedResultType))
+        } yield lambdaClasses ++ argClasses
       case FunctionApplication(target, arguments2)                => ??? // FIXME: applying on a result function?
     }
 

@@ -1,0 +1,38 @@
+// Block syntax: `val` bindings and statement sequencing (see docs/block-syntax.md).
+//
+// A block `{ … }` is a sequence of statements/bindings ending in a result expression. It lowers to a tower of
+// immediately-applied lambdas, so effect threading falls out for free: a `val` binds the carried result of an
+// effectful step (or a plain value), and bare statements are sequenced through the carrier automatically — no
+// hand-written `flatMap` nest.
+
+import eliot.lang.Monad
+import eliot.lang.State
+import eliot.lang.Pair
+import eliot.lang.StateT
+
+// `swap` reads the current state, installs `next`, and returns the previous value. In block form:
+//   `val old = getState`   binds the carried state,
+//   `putState(next)`       is a bare effectful statement,
+//   `old`                  is the result expression.
+// This is exactly the hand-written form it lowers to:
+//   flatMap(getState, old -> flatMap(putState(next), ignored -> pure(old)))
+def swap(next: String): {State[String]} String = {
+  val old = getState
+  putState(next)
+  old
+}
+
+// A two-effect {Console, State[String]} interaction, also direct-style: announce the change, perform the swap, and
+// report the previous value. `Console` and `State` share one carrier, threaded automatically across the block.
+def rename(next: String): {Console, State[String]} Unit = {
+  println("renaming the account...")
+  val previous = swap(next)
+  println(previous)
+}
+
+// `main` is itself a block ending in an expression. The first binding is a plain (non-effectful) `val` that captures
+// the runtime carrier produced by `runState`; the rest sequence through it.
+def main: IO[Unit] = {
+  val outcome = runState(rename("after"), "before")
+  println(second(outcome))
+}

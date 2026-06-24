@@ -444,6 +444,155 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "<no state>")
   }
 
+  // --- Block syntax: `val` bindings and statement sequencing (docs/block-syntax.md) ---
+
+  // The headline: a multi-step body written as a block instead of a hand-nested flatMap. Each bare statement is a `val`
+  // with a discarded binder, so the steps are sequenced through the carrier automatically, in order.
+  "a block of statements" should "sequence effectful steps in order" in {
+    compileAndRun(
+      """def main: IO[Unit] = {
+        |  println("first")
+        |  println("second")
+        |  println("third")
+        |}""".stripMargin
+    ).asserting(_ shouldBe "first\nsecond\nthird")
+  }
+
+  // A `val` binds the *carried* result of an effectful step (here `readLine`), so the body sees the plain value; the
+  // block lowers to `flatMap(readLine, line -> println(line))`.
+  "a val binding an effectful result" should "bind the carried value and use it" in {
+    compileAndRun(
+      """def echo: {Console} Unit = {
+        |  val line = readLine
+        |  println(line)
+        |}
+        |
+        |def main: IO[Unit] = echo""".stripMargin,
+      stdin = "typed line\n"
+    ).asserting(_ shouldBe "typed line")
+  }
+
+  // A non-effectful `val` binds a plain value (no carrier), used twice in the body. This is the immediately-applied
+  // lambda `let` form: the block lowers to `(msg -> …)(greeting)`, with `greeting` a pure value, not a carried action.
+  "a non-effectful val binding" should "bind a plain value usable multiple times" in {
+    compileAndRun(
+      """def greeting: String = "Hi"
+        |
+        |def main: IO[Unit] = {
+        |  val msg = greeting
+        |  println(msg)
+        |  println(msg)
+        |}""".stripMargin
+    ).asserting(_ shouldBe "Hi\nHi")
+  }
+
+  // A pure `val` and an effectful `val` interleaved in one block: the pure binding inlines as a plain `let`, the
+  // effectful one threads through `flatMap` — both in the same lowered tower.
+  it should "interleave a pure binding with an effectful one" in {
+    compileAndRun(
+      """def main: IO[Unit] = {
+        |  val label = "echo:"
+        |  val line = readLine
+        |  println(label)
+        |  println(line)
+        |}""".stripMargin,
+      stdin = "hello\n"
+    ).asserting(_ shouldBe "echo:\nhello")
+  }
+
+  // The docs' headline equivalence: `swap` written as a block produces the same result as the hand-written flatMap nest
+  // (cf. the "State effect" test above). `val old = getState` binds the carried state; `putState(next)` is a bare
+  // effectful statement; `old` is the result expression.
+  "a {State} computation in block form" should "thread state exactly like the hand-written flatMap nest" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |import eliot.lang.State
+        |import eliot.lang.Pair
+        |import eliot.lang.StateT
+        |
+        |def swap(next: String): {State[String]} String = {
+        |  val old = getState
+        |  putState(next)
+        |  old
+        |}
+        |
+        |def main: IO[Unit] = flatMap(runState(swap("after"), "before"),
+        |   p -> flatMap(println(first(p)), ignored -> println(second(p))))""".stripMargin
+    ).asserting(_ shouldBe "before\nafter")
+  }
+
+  // Leading-dot continuation lines merge into one expression by fixity (the lower line starts with the infix `.`), so a
+  // method-style chain can be written across lines inside a block.
+  "a leading-dot chain split across block lines" should "merge into one expression" in {
+    compileAndRun(
+      """data Box[A](content: A)
+        |
+        |def map[A, B](f: Function[A, B], box: Box[A]): Box[B] = Box(f(content(box)))
+        |
+        |def as[A, B](b: B, box: Box[A]): Box[B] = box.map(_ -> b)
+        |
+        |def main: IO[Unit] = {
+        |  val result: Box[String] = Box("Hello")
+        |    .map(_ -> "Earth!")
+        |    .as("World!")
+        |  println(content(result))
+        |}""".stripMargin
+    ).asserting(_ shouldBe "World!")
+  }
+
+  // The `examples/src/Blocks.els` shape: a two-effect {Console, State[String]} interaction in block form, with a `val`
+  // binding the carried result of a sub-computation (`swap`). Console and State share one carrier, threaded across the
+  // block; pinned here so the shipped example cannot silently regress.
+  "a {Console, State} interaction in block form (the Blocks example)" should "run end to end" in {
+    compileAndRun(
+      """import eliot.lang.Monad
+        |import eliot.lang.State
+        |import eliot.lang.Pair
+        |import eliot.lang.StateT
+        |
+        |def swap(next: String): {State[String]} String = {
+        |  val old = getState
+        |  putState(next)
+        |  old
+        |}
+        |
+        |def rename(next: String): {Console, State[String]} Unit = {
+        |  println("renaming the account...")
+        |  val previous = swap(next)
+        |  println(previous)
+        |}
+        |
+        |def main: IO[Unit] = {
+        |  val outcome = runState(rename("after"), "before")
+        |  println(second(outcome))
+        |}""".stripMargin
+    ).asserting(_ shouldBe "renaming the account...\nbefore\nafter")
+  }
+
+  // A nested block as a `val`'s right-hand side: both blocks lower, the inner producing the bound value.
+  "a nested block" should "compute the inner block's value and bind it" in {
+    compileAndRun(
+      """def main: IO[Unit] = {
+        |  val x = {
+        |    val inner = "deep"
+        |    inner
+        |  }
+        |  println(x)
+        |}""".stripMargin
+    ).asserting(_ shouldBe "deep")
+  }
+
+  // A block ending in a binding is rejected (a block must end in an expression); the fail-safe is a hard error, not a
+  // silent miscompile.
+  "a block ending in a binding" should "be rejected" in {
+    compileForErrors(
+      """def main: IO[Unit] = {
+        |  println("x")
+        |  val leftover = "oops"
+        |}""".stripMargin
+    ).asserting(_ should include("A block must end in an expression, not a binding."))
+  }
+
   "ability" should "dispatch to correct implementation" in {
     compileAndRun(
       """ability Show[A] {

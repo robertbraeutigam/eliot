@@ -222,6 +222,33 @@ class MonomorphicTypeCheckTest extends ProcessorTest((LangProcessors() :+ Stdlib
       .asserting(_ shouldBe Seq("Type mismatch." at "x"))
   }
 
+  // --- Immediately-applied lambdas (the `let` form a non-effectful block `val`/statement lowers to) ---
+
+  "an immediately-applied unannotated lambda" should "infer the binder type from the argument" in {
+    runForErrors("data A\ndef mk: A\ndef f: A = (x -> x)(mk)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "bind the value so the body can use it at the inferred type" in {
+    runForErrors("data A\ndata B\ndef mk: A\ndef use(a: A): B\ndef f: B = (x -> use(x))(mk)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "push the expected return type into the body, rejecting a mismatch" in {
+    runForErrors("data A\ndata B\ndef mk: A\ndef f: B = (x -> x)(mk)")
+      .asserting(_ shouldBe Seq("Type mismatch." at "x"))
+  }
+
+  it should "type-check a chain of immediately-applied lambdas (a multi-statement block)" in {
+    runForErrors("data A\ndef mk: A\ndef f: A = (ignored -> (x -> x)(mk))(mk)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  "an immediately-applied annotated lambda" should "type-check via the annotation" in {
+    runForErrors("data A\ndef mk: A\ndef f: A = (x: A -> x)(mk)")
+      .asserting(_ shouldBe Seq.empty)
+  }
+
   // --- Top level functions ---
 
   "top level functions" should "be assignable to function types" in {

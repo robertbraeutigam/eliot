@@ -150,6 +150,15 @@ class Checker(
                           case OperatorResolvedExpression.FunctionLiteral(_, None, _) =>
                             liftF(compilerError(tm.as("Cannot infer type of unannotated lambda.")) >> abort)
 
+                          // An immediately-applied unannotated lambda `(x -> body)(arg)` checked against a known type — a
+                          // `let`. Infer the argument's type for the binder and push `expected` down into the body. This
+                          // is the shape a non-effectful block `val`/statement lowers to.
+                          case OperatorResolvedExpression.FunctionApplication(target, arg)
+                              if isUnannotatedLambda(target.value) =>
+                            val OperatorResolvedExpression.FunctionLiteral(paramName, _, body) =
+                              target.value: @unchecked
+                            typeImmediateLambda(target, paramName, body, arg, Some(forcedExpected)).map(_._1)
+
                           case _ =>
                             for {
                               (expr, inferred) <- infer(tm)
@@ -294,10 +303,17 @@ class Checker(
       } yield result
 
     case OperatorResolvedExpression.FunctionApplication(target, arg) =>
-      for {
-        (targetExpr, targetType) <- infer(target)
-        result                   <- applyInferred(target, targetExpr, targetType, arg)
-      } yield result
+      target.value match {
+        // An immediately-applied unannotated lambda `(x -> body)(arg)` is a `let` (the shape a non-effectful block
+        // `val`/statement lowers to). The lambda alone has no inferable parameter type, so infer it from the argument.
+        case OperatorResolvedExpression.FunctionLiteral(paramName, None, body) =>
+          typeImmediateLambda(target, paramName, body, arg, None)
+        case _                                                                 =>
+          for {
+            (targetExpr, targetType) <- infer(target)
+            result                   <- applyInferred(target, targetExpr, targetType, arg)
+          } yield result
+      }
 
     case OperatorResolvedExpression.FunctionLiteral(paramName, Some(paramTypeStack), body) =>
       for {
@@ -362,6 +378,41 @@ class Checker(
         SemExpression.FunctionApplication(target.as(updatedTarget), arg.as(argExpr))
       ),
       retType
+    )
+
+  /** Whether `expr` is an unannotated function literal `(x -> body)`. Its parameter type cannot be inferred from the
+    * literal alone; when it is *immediately applied* the type is taken from the argument (see [[typeImmediateLambda]]).
+    */
+  private def isUnannotatedLambda(expr: OperatorResolvedExpression): Boolean = expr match {
+    case OperatorResolvedExpression.FunctionLiteral(_, None, _) => true
+    case _                                                      => false
+  }
+
+  /** Type an immediately-applied unannotated lambda `(param -> body)(arg)` — a `let` (the shape a non-effectful block
+    * `val`/statement lowers to). The parameter type is taken from the (instantiated) argument; the body is checked
+    * against `expected` when known (pushing the type down) and inferred otherwise. Returns the rebuilt application
+    * expression and its type.
+    */
+  private def typeImmediateLambda(
+      target: Sourced[OperatorResolvedExpression],
+      paramName: Sourced[String],
+      body: Sourced[OperatorResolvedExpression],
+      arg: Sourced[OperatorResolvedExpression],
+      expected: Option[SemValue]
+  ): CheckIO[(SemExpression, SemValue)] =
+    for {
+      (argExpr0, argType0)   <- infer(arg)
+      (argExpr, argType)     <- instantiatePolymorphic(argExpr0, argType0)
+      _                      <- modify(_.bind(paramName.value, argType))
+      (bodyExpr, bodyType)   <- expected match {
+                                  case Some(exp) => check(body, exp).map(e => (e, exp))
+                                  case None      => infer(body)
+                                }
+      lamType                 = VPi(argType, _ => bodyType)
+      lamExpr                 = SemExpression(lamType, SemExpression.FunctionLiteral(paramName, argType, body.as(bodyExpr)))
+    } yield (
+      SemExpression(bodyType, SemExpression.FunctionApplication(target.as(lamExpr), arg.as(argExpr))),
+      bodyType
     )
 
   /** Peel leading `VLam` closures from an inferred type with fresh metas, baking the metas as implicit type arguments

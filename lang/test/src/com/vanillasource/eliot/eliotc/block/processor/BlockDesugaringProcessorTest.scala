@@ -30,6 +30,27 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
     }
   }
 
+  it should "preserve a typed binder's annotation on the lowered lambda parameter" in {
+    lowered("def a: String\ndef b: String\ndef f: String = {\n  val x: String = a\n  b\n}", "f").asserting {
+      case Some(RApp(RLitTyped("x", true), RVal("a"))) => succeed
+      case other                                       => fail(s"unexpected: $other")
+    }
+  }
+
+  it should "lower three statements into a left-nested tower of immediately-applied lambdas" in {
+    lowered("def a: String\ndef b: String\ndef c: String\ndef f: String = {\n  a\n  b\n  c\n}", "f").asserting {
+      case Some(RApp(RLit("_", RApp(RLit("_", RVal("c")), RVal("b"))), RVal("a"))) => succeed
+      case other                                                                   => fail(s"unexpected: $other")
+    }
+  }
+
+  it should "lower a nested block in a val's right-hand side, lowering both blocks" in {
+    lowered("def a: String\ndef b: String\ndef f: String = {\n  val x = {\n    a\n    b\n  }\n  x\n}", "f").asserting {
+      case Some(RApp(RLit("x", RParam("x")), RApp(RLit("_", RVal("b")), RVal("a")))) => succeed
+      case other                                                                     => fail(s"unexpected: $other")
+    }
+  }
+
   // ── Effect threading end to end ───────────────────────────────────────────────────────────────────────────────
 
   it should "thread effects through a block: swap in block form lifts to flatMap/map" in {
@@ -192,6 +213,14 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
     def unapply(e: Expression): Option[(String, Expression)] = e match {
       case Expression.FunctionLiteral(Sourced(_, _, param), _, Sourced(_, _, body)) => Some((param, body.signature))
       case _                                                                        => None
+    }
+  }
+
+  /** Like [[RLit]] but exposes whether the lambda parameter carries a (binder) type annotation, instead of the body. */
+  private object RLitTyped {
+    def unapply(e: Expression): Option[(String, Boolean)] = e match {
+      case Expression.FunctionLiteral(Sourced(_, _, param), paramType, _) => Some((param, paramType.isDefined))
+      case _                                                              => None
     }
   }
 

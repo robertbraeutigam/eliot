@@ -232,6 +232,18 @@ Two points where the shipped implementation differs from or refines the plan abo
   the pass already applied to callee parameters; all existing effect tests are unchanged, and block effect
   threading is verified end-to-end (the `swap` example compiles to the same result as the hand-written
   `flatMap` nest).
+- **The *non-effectful* `val` path needed immediately-applied-lambda support in monomorphize and the backend.** The
+  plan expected the lowering (`val x = e` ⟹ `(x -> rest)(e)`) to be reused by every downstream phase unchanged. That
+  held for *effectful* bindings — the effect auto-lift rewrites `(x -> rest)(action)` into `flatMap`/`map`, which already
+  type-checked and generated. But a *non-effectful* binding (`val x = pureValue`) stays a literal immediately-applied
+  lambda all the way down, and that shape was previously unsupported: the monomorphize checker rejected the unannotated
+  lambda with "Cannot infer type of unannotated lambda" (it never tried to read the parameter type from the argument),
+  and the JVM backend left the application-of-a-lambda case as `???`. Both were filled in: the checker now types an
+  immediately-applied unannotated lambda as a `let` (parameter type taken from the argument, the body checked against the
+  pushed-down expected type — `Checker.typeImmediateLambda`), and the backend generates the lambda as an ordinary closure
+  value and applies the argument to it (`ExpressionCodeGenerator`, the former `FunctionLiteral`-target `???`). This is a
+  general fix — a hand-written `(x -> body)(arg)` now works too, not only block-lowered code — and is covered end to end
+  (a non-effectful `val` bound and reused, a pure/effectful `val` interleaved, a nested block).
 - **A bare lambda may only be a block line's *final* expression (otherwise parenthesize it).** A block line
   is a line-bounded atom run, but a lambda body is parsed by the ordinary greedy expression parser, which is
   not line-aware — so a non-final `val f = x -> g(x)` would swallow the following line. This is **fail-safe**
