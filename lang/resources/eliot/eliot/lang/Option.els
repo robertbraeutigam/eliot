@@ -14,17 +14,17 @@ type Option[A]
  * The present case, wrapping a value of type `A`. Abstract (body-less): a platform layer supplies
  * the concrete representation. During type checking the NbE evaluator represents an applied `some`
  * as a stuck constructor (`VTopDef(some, [value])`), which the checker's Coerce insertion inspects
- * by name to mean "the coercion exists, and here is the (possibly widened) value."
+ * by name (`WellKnownTypes.someFQN`, read in `RefinementSolver`) to mean "the coercion exists, and
+ * here is the (possibly widened) value."
+ *
+ * Reason for being in lang: this is the one `Option` constructor the compiler reasons about — it is
+ * matched by name to detect a successful coercion. The *failure* spelling `none` is **not** named by
+ * the compiler (rejection is simply "the result head is not `some`"), so `none` is an ordinary library
+ * constructor and lives in the stdlib layer (`stdlib/.../Option.els`) alongside the `Coerce` instances
+ * that produce it.
  *
  * Lower-cased because constructor (upper-case) names are introduced only by `data`, and `Option`
  * is deliberately an abstract `type` (no `data`) per the platform-independence cornerstone — so its
  * constructors are ordinary body-less `def`s, which the grammar requires to be lower-case.
  */
 def some[A](value: A): Option[A]
-
-/**
- * The absent case. Abstract (body-less): a platform layer supplies the concrete representation.
- * During type checking the checker's Coerce insertion reads a `none` result as "the coercion does
- * not exist" (a type error at the use site). Lower-cased for the same reason as `some`.
- */
-def none[A]: Option[A]

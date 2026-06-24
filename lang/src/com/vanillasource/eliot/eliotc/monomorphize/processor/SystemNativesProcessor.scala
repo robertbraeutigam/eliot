@@ -2,20 +2,11 @@ package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
-  addFQN,
-  bigIntFQN,
-  boolAndFQN,
   boolFQN,
   boolFalseFQN,
   boolFoldFQN,
   boolTrueFQN,
   functionDataTypeFQN,
-  lessThanOrEqualFQN,
-  maxFQN,
-  minFQN,
-  multiplyMaxFQN,
-  multiplyMinFQN,
-  subtractFQN,
   typeFQN
 }
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDate
@@ -27,22 +18,23 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBind
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
-/** Emits NativeBinding facts for built-in system values: Function (type constructor), Type, and the compile-time Bool
-  * primitives (`true`/`false`/`&&`).
+/** Emits NativeBinding facts for the language-intrinsic system values the compiler itself reasons about: Function (type
+  * constructor), Type, and the compile-time Bool primitives `true`/`false`/`fold`.
   *
   * Function is wired as a curried native that takes two type args (A, B) and produces VPi(A, _ => B): the Π-former is
   * the single primitive type former, so every function type is a VPi (read back to a Function structure only at quote
   * time by the Quoter).
   *
   * Bool is declared opaque in the language (`type Bool`); its compile-time representation is supplied here as
-  * `VConst(Direct(Boolean, …))` so type-level predicates (e.g. a Coerce instance's bounds check) reduce during
-  * checking. `&&` reduces only when its arguments are concrete, otherwise it stays stuck so the unifier falls back to
-  * ordinary unification.
+  * `VConst(Direct(Boolean, …))` so type-level predicates reduce during checking, and `fold` (the only way to branch on
+  * an opaque `Bool`, which the checker collapses at compile time via `PostDrainQuoter`) selects a branch when its
+  * condition is concrete. Library Bool/BigInteger operations whose reduction the compiler merely supplies but does not
+  * reason about (`&&`, `lessThanOrEqual`, the arithmetic natives backing `Int`'s dependent bounds) live in the stdlib
+  * layer's `StdlibNativesProcessor`, not here.
   */
 class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
 
-  private val boolType: SemValue   = VTopDef(boolFQN, None, Spine.SNil)
-  private val bigIntType: SemValue = VTopDef(bigIntFQN, None, Spine.SNil)
+  private val boolType: SemValue = VTopDef(boolFQN, None, Spine.SNil)
 
   /** The canonical stuck form of a native: a [[VStuckNative]] carrying the native's own FQN and the (not-yet-concrete)
     * arguments as its spine. Keeping the FQN is what lets distinct stuck natives stay definitionally distinct and lets
@@ -69,24 +61,8 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
       NativeBinding(boolTrueFQN, Evaluator.trueValue).pure[CompilerIO]
     } else if (key.vfqn === boolFalseFQN) {
       NativeBinding(boolFalseFQN, Evaluator.falseValue).pure[CompilerIO]
-    } else if (key.vfqn === boolAndFQN) {
-      NativeBinding(boolAndFQN, andNative).pure[CompilerIO]
     } else if (key.vfqn === boolFoldFQN) {
       NativeBinding(boolFoldFQN, boolFoldNative).pure[CompilerIO]
-    } else if (key.vfqn === lessThanOrEqualFQN) {
-      NativeBinding(lessThanOrEqualFQN, lessThanOrEqualNative).pure[CompilerIO]
-    } else if (key.vfqn === minFQN) {
-      NativeBinding(minFQN, bigIntBinaryNative(minFQN)((a, b) => a min b)).pure[CompilerIO]
-    } else if (key.vfqn === maxFQN) {
-      NativeBinding(maxFQN, bigIntBinaryNative(maxFQN)((a, b) => a max b)).pure[CompilerIO]
-    } else if (key.vfqn === addFQN) {
-      NativeBinding(addFQN, bigIntBinaryNative(addFQN)((a, b) => a + b)).pure[CompilerIO]
-    } else if (key.vfqn === subtractFQN) {
-      NativeBinding(subtractFQN, bigIntBinaryNative(subtractFQN)((a, b) => a - b)).pure[CompilerIO]
-    } else if (key.vfqn === multiplyMinFQN) {
-      NativeBinding(multiplyMinFQN, bigIntCornerNative(multiplyMinFQN)(_.min)).pure[CompilerIO]
-    } else if (key.vfqn === multiplyMaxFQN) {
-      NativeBinding(multiplyMaxFQN, bigIntCornerNative(multiplyMaxFQN)(_.max)).pure[CompilerIO]
     } else {
       abort
     }
@@ -98,81 +74,6 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
       domain => VNative(VType, codomain => VPi(domain, _ => codomain))
     )
     NativeBinding(functionDataTypeFQN, nativeFunction)
-  }
-
-  /** `lessThanOrEqual(a, b): Bool` — reduces to a concrete Bool when both arguments are concrete BigIntegers,
-    * otherwise stays stuck (so the unifier falls back to ordinary unification).
-    */
-  private def lessThanOrEqualNative: SemValue =
-    VNative(bigIntType, a => VNative(bigIntType, b => lessThanOrEqualResult(a, b)))
-
-  private def lessThanOrEqualResult(a: SemValue, b: SemValue): SemValue = (a, b) match {
-    case (VConst(GroundValue.Direct(x: BigInt, _)), VConst(GroundValue.Direct(y: BigInt, _))) =>
-      if (x <= y) Evaluator.trueValue else Evaluator.falseValue
-    case _                                                                                    =>
-      stuck(lessThanOrEqualFQN, a, b)
-  }
-
-  /** A curried `BigInteger -> BigInteger -> BigInteger` native (e.g. `min`/`max`): reduces to a concrete BigInteger
-    * when both arguments are concrete, otherwise stays stuck (so the unifier falls back to ordinary unification on the
-    * still-abstract bounds). Mirrors [[lessThanOrEqualNative]]'s concreteness discipline.
-    */
-  private def bigIntBinaryNative(fqn: ValueFQN)(
-      op: (BigInt, BigInt) => BigInt
-  ): SemValue =
-    VNative(bigIntType, a => VNative(bigIntType, b => bigIntBinaryResult(fqn, op, a, b)))
-
-  private def bigIntBinaryResult(
-      fqn: ValueFQN,
-      op: (BigInt, BigInt) => BigInt,
-      a: SemValue,
-      b: SemValue
-  ): SemValue = (a, b) match {
-    case (VConst(GroundValue.Direct(x: BigInt, t)), VConst(GroundValue.Direct(y: BigInt, _))) =>
-      VConst(GroundValue.Direct(op(x, y), t))
-    case _                                                                                    =>
-      stuck(fqn, a, b)
-  }
-
-  /** A curried 4-argument `BigInteger -> … -> BigInteger` native over the corner products of `Int[a,b] * Int[c,d]`
-    * (`multiplyMin`/`multiplyMax`): when all four bounds are concrete it reduces to `op(Seq(a*c, a*d, b*c, b*d))`
-    * (`min`/`max`), otherwise it stays stuck so the unifier falls back to ordinary unification on the still-abstract
-    * bounds. Mirrors [[bigIntBinaryNative]]'s concreteness discipline.
-    */
-  private def bigIntCornerNative(fqn: ValueFQN)(
-      op: Seq[BigInt] => BigInt
-  ): SemValue = {
-    def collect(acc: Seq[SemValue], remaining: Int): SemValue =
-      if (remaining === 0) bigIntCornerResult(fqn, op, acc)
-      else VNative(bigIntType, arg => collect(acc :+ arg, remaining - 1))
-    collect(Seq.empty, 4)
-  }
-
-  private def bigIntCornerResult(
-      fqn: ValueFQN,
-      op: Seq[BigInt] => BigInt,
-      args: Seq[SemValue]
-  ): SemValue = args match {
-    case Seq(
-          VConst(GroundValue.Direct(a: BigInt, t)),
-          VConst(GroundValue.Direct(b: BigInt, _)),
-          VConst(GroundValue.Direct(c: BigInt, _)),
-          VConst(GroundValue.Direct(d: BigInt, _))
-        ) =>
-      VConst(GroundValue.Direct(op(Seq(a * c, a * d, b * c, b * d)), t))
-    case _ =>
-      stuck(fqn, args*)
-  }
-
-  /** `&&(a, b)`: reduces to `Direct(a && b)` when both arguments are concrete Bools, otherwise stays stuck. */
-  private def andNative: SemValue =
-    VNative(boolType, a => VNative(boolType, b => andResult(a, b)))
-
-  private def andResult(a: SemValue, b: SemValue): SemValue = (a, b) match {
-    case (VConst(GroundValue.Direct(x: Boolean, _)), VConst(GroundValue.Direct(y: Boolean, _))) =>
-      VConst(GroundValue.Direct(x && y, Evaluator.boolGroundType))
-    case _                                                                                      =>
-      stuck(boolAndFQN, a, b)
   }
 
   /** `fold(condition, whenTrue, whenFalse)`: selects a branch when the condition is a concrete Bool, otherwise stays

@@ -19,11 +19,6 @@ def true: Bool
 def false: Bool
 
 /**
- * Logical conjunction. Native: reduces when both arguments are concrete.
- */
-infix def &&(a: Bool, b: Bool): Bool
-
-/**
  * Boolean eliminator (catamorphism): yields `whenTrue` when `condition` is `true` and
  * `whenFalse` when it is `false`. This is the only way to branch on a `Bool` (there is no
  * `if`/`then`/`else` syntax and `Bool` is opaque, so it has no pattern-match constructors).

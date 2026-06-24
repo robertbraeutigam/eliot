@@ -1,0 +1,18 @@
+/**
+ * Re-declared (copied) from the lang-layer `Option` module so this file can stand on its own: name resolution is
+ * per-file (own declarations + imports only, never a sibling file of the same module), so `none` — which lives here —
+ * must have `Option` in its own dictionary. Both declarations are abstract and the merge verifies they agree; the lang
+ * layer owns the `Option` type and the `some` constructor (which the `Coerce` checker matches by name).
+ */
+type Option[A]
+
+/**
+ * The absent case of `Option`. Abstract (body-less): a platform layer supplies the concrete representation.
+ *
+ * Unlike `some` (which lives in the lang layer because the `Coerce` checker matches it by name to detect a successful
+ * coercion), `none` is **not** named by the compiler: a failed coercion is simply "the result head is not `some`", so
+ * `none` is an ordinary library constructor an instance author writes to spell the failure case. It is therefore in the
+ * stdlib layer, alongside the `Coerce` instances (in platform `Int.els`) that produce it. Lower-cased for the same
+ * reason as `some`: `Option` is an abstract `type` (no `data`), so its constructors are body-less lower-case `def`s.
+ */
+def none[A]: Option[A]

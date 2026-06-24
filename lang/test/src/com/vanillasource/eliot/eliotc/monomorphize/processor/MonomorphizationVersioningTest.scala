@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
+import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor
 import com.vanillasource.eliot.eliotc.used.UsedNames
 
 import scala.concurrent.duration.*
@@ -32,7 +33,11 @@ import scala.concurrent.duration.*
   */
 // A small `UsedNamesProcessor` backstop tolerance keeps the divergent scenario (S7) cheap and deterministic; every
 // converging scenario here nests at most 4 deep (S1's countdown), well under it, so the counts are unaffected.
-class MonomorphizationVersioningTest extends ProcessorTest(LangProcessors(maxNestedRepeats = 8)*) {
+// `StdlibNativesProcessor` (stdlib-layer arithmetic/`&&`/`lessThanOrEqual` natives backing `Int`'s bounds) is prepended
+// so its reducing bindings win over `UserValueNativesProcessor`'s body-less stubs (NativeBinding registration is
+// first-wins), mirroring `StdlibPlugin` which wraps the real pipeline with `StdlibNativesProcessor` first.
+class MonomorphizationVersioningTest
+    extends ProcessorTest((StdlibNativesProcessor() +: LangProcessors(maxNestedRepeats = 8))*) {
 
   // --- S1: recursion over a size-bounded structure (Cat 1, phantom index) ----------------------------------------
   // This used to be a *recursion-shaped proxy* for size-indexed unrolling: `countdown[N]` recursing to `countdown[N-1]`

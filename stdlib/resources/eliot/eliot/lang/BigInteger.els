@@ -1,6 +1,75 @@
+import eliot.lang.Bool
+
 type BigInteger
 
 /**
  * Increase by one.
  */
 def inc(bi: BigInteger): BigInteger
+
+/**
+ * True iff `a` is less than or equal to `b`. The compiler supplies the reduction as a compile-time native
+ * (`SystemNativesProcessor`): it reduces when both arguments are concrete, otherwise stays stuck. Used by the
+ * `Coerce[Int, Int]` instance to compare dependent-type bounds during checking, and by `fitsIn` below. Body-less
+ * (the reduction is FQN-keyed), so it stays platform-independent.
+ */
+def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool
+
+/**
+ * The smaller of `a` and `b`. Compile-time native (reduces when both arguments are concrete, otherwise stays stuck).
+ * Used by the `Combine[Int, Int]` instance to compute a joined bound range during checking.
+ */
+def min(a: BigInteger, b: BigInteger): BigInteger
+
+/**
+ * The larger of `a` and `b`. Compile-time native (reduces when both arguments are concrete, otherwise stays stuck).
+ * Used by the `Combine[Int, Int]` instance to compute a joined bound range during checking.
+ */
+def max(a: BigInteger, b: BigInteger): BigInteger
+
+/**
+ * The sum of `a` and `b`. Compile-time native (reduces when both arguments are concrete, otherwise stays stuck).
+ * Used by `Int`'s `+` operator to compute the dependent result bounds `Int[add(LMin, RMin), add(LMax, RMax)]` during
+ * checking (the runtime addition itself is supplied by the backend).
+ */
+def add(a: BigInteger, b: BigInteger): BigInteger
+
+/**
+ * The difference `a - b`. Compile-time native (reduces when both arguments are concrete, otherwise stays stuck).
+ * Used by `Int`'s `-` operator to compute the dependent result bounds `Int[subtract(LMin, RMax), subtract(LMax, RMin)]`
+ * during checking.
+ */
+def subtract(a: BigInteger, b: BigInteger): BigInteger
+
+/**
+ * The minimum of the four corner products of `Int[a, b] * Int[c, d]` — i.e. `min(a*c, a*d, b*c, b*d)`. Compile-time
+ * native (reduces when all four arguments are concrete, otherwise stays stuck). Used by `Int`'s `*` operator to compute
+ * the lower result bound (a single corner is not sufficient because either factor's range may straddle zero).
+ */
+def multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger
+
+/**
+ * The maximum of the four corner products of `Int[a, b] * Int[c, d]` — i.e. `max(a*c, a*d, b*c, b*d)`. Compile-time
+ * native (reduces when all four arguments are concrete, otherwise stays stuck). Used by `Int`'s `*` operator to compute
+ * the upper result bound.
+ */
+def multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger
+
+/**
+ * True iff the range `[Min, Max]` is contained in `[Lo, Hi]`. An ordinary value-level predicate (not a native),
+ * defined in the ambient `BigInteger` module so that a platform layer's `Int` width dispatch (e.g. the jvm-layer
+ * opaque `Int` body and its `+`/`-`/`*` bodies) can resolve it without an import.
+ *
+ * Its four `BigInteger` operands are ordinary **value parameters**, yet every caller applies it with `[...]`
+ * (`fitsIn[-128, 127, MIN, MAX]`). `[...]` and `()` are the same Π-application, so the bracket arguments simply land in
+ * type context: the integer thresholds stay `BigInteger` (rather than desugaring to `Int[n, n]`) and the range bounds
+ * `MIN`/`MAX` flow through as the dispatch's own type-stack params. The checker types such a call by stepping the value
+ * function's `VPi` signature (`Checker.infer` applies type args through `applyValue`), so the dispatch bodies
+ * (`+`/`-`/`*`) type-check.
+ *
+ * `fitsIn` is purely compile-time: it only ever appears as the condition of a `Bool` `fold` in a width dispatch, and
+ * once the dispatch is monomorphized at concrete bounds that `fold` is collapsed to its selected branch by
+ * `PostDrainQuoter`'s compile-time fold-selection — so neither `fitsIn` nor `fold` survives into the backend.
+ */
+def fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bool =
+  lessThanOrEqual(lo, min) && lessThanOrEqual(max, hi)
