@@ -6,13 +6,6 @@ notes.
 
 ## Type system & language
 
-- **Recursion & termination — `Rec[N]` / `Inf` as effects.** Disallow unbounded recursion by
-  default; a function recurses only by proving termination (`Rec[N]`, a phantom well-founded measure
-  with partial `dec`/`half`/structural descent) or opting out (`Inf`). Detection rides a latent
-  `{Terminating, Inf}` effect on the function arrow (no pointer-tracking). Sound only under three
-  preconditions: purity (no mutable cells — decided), occurs-check, and a **strict-positivity check
-  on `data`** (not yet built — the concrete new obligation). Full design note:
-  `docs/recursion-termination.md`.
 - Add generics to function literals.
 - Introduce arrays (records / multi-field `data` are already done).
 - WCET (worst-case execution time) and other real-time properties as type parameters, or as
@@ -57,7 +50,8 @@ notes.
   stay specialized — and a **non-convergence backstop** in `used/UsedNamesProcessor.scala` hard-errors
   on divergent type-level computation instead of hanging (it counts repeated `vfqn` frames in the
   `processValue` DFS; the original "reuse `activeFactKeys`" sketch was wrong — siblings keep that chain
-  flat). With recursion removed from the language (`docs/recursion-termination.md`), the unbounded
+  flat). With recursion removed from the language (see the "Total by Default" cornerstone in
+  `.claude/CLAUDE.md`), the unbounded
   `f[N]→f[N-1]→…` family that motivated **demote** cannot arise, so demote and its B4 policy are
   **dropped** and the `recursionVariant`/`Demote` machinery deleted. What remains is purely an
   optimization — the projection only ever folds identical code, never load-bearing for termination —

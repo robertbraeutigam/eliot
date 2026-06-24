@@ -28,7 +28,8 @@ import scala.annotation.tailrec
   * of them share the same `vfqn` with differing type arguments, converts the runaway into a specific diagnostic
   * instead of diverging.
   *
-  * It is purely a fail-safe. Eliot user code cannot express recursion (see `docs/recursion-termination.md`), so the
+  * It is purely a fail-safe. Eliot user code cannot express recursion (see the "Total by Default" cornerstone in
+  * `.claude/CLAUDE.md`), so the
   * reachable instantiation graph is finite and program-shaped, and the codegen projection only ever folds identical
   * code together — neither can drive an unbounded chain. The backstop therefore only fires on a genuinely divergent
   * *type-level* computation (the residual `Type:Type`/Girard case) or a compiler bug, never on a legitimate program.

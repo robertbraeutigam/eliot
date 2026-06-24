@@ -41,8 +41,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * carried on [[SaturatedValue]], its two intended consumers being type-checking's binding wrap and the codegen dedup.
   *
   * The projection only ever folds together instances whose generated code is identical, so it is a pure code-size
-  * optimization and never affects correctness. Because Eliot user code cannot express recursion (see
-  * `docs/recursion-termination.md`), the number of distinct instantiations is finite and program-shaped — there is no
+  * optimization and never affects correctness. Because Eliot user code cannot express recursion (see the "Total by
+  * Default" cornerstone in `.claude/CLAUDE.md`), the number of distinct instantiations is finite and program-shaped — there is no
   * unbounded family to collapse, so the earlier recursion-variance / demote machinery has been removed; the `used`
   * non-convergence backstop remains as the fail-safe for type-level divergence.
   *

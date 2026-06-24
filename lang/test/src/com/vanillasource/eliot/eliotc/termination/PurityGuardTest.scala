@@ -9,7 +9,7 @@ import scala.io.Source
 /** M0 precondition #3 (purity — the store / Landin's knot): Eliot ships **no general user-facing mutable cell**. An
   * unrestricted cell would let a program tie a recursion knot through the heap (store a function that reads and calls
   * the cell, then backpatch) with no syntactic cycle and no recursive type — defeating the no-recursion guarantee the
-  * termination model rests on (see `docs/recursion-termination.md`, "No mutable cells").
+  * termination model rests on (see the "Total by Default" cornerstone in `.claude/CLAUDE.md`).
   *
   * This is the durable guard recording that confirmation: it scans every `.els` source of the language layers for a
   * declaration of a mutable-cell primitive and fails if one ever appears. A mutable cell can only enter the language as

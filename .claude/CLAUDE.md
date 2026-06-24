@@ -270,6 +270,35 @@ never silent acceptance of wrong typing (cf. [[feedback_gaps_must_be_failsafe]])
 Principle: *we prove a definition correct for every input it does take, not every input it could take — and reject
 any program in which some input it does take is wrong.*
 
+## Language Cornerstone: Total by Default (No Recursion; `Inf` is the Opt-Out)
+
+**Eliot user code cannot express recursion or loops — full stop.** There is no `fix`/`letrec`, lambda parameters
+are non-recursive, and every cycle is therefore a self/mutual reference among top-level named values, visible in the
+resolved value-reference graph. The `termination` package gates this: `RecursionCheckProcessor` (running
+`RecursionChecker`), placed after operator resolution and before effect desugaring, rejects any cycle in a value's
+**runtime-body** reference graph (`"Value 'X' is defined recursively."`) — body only, never the signature, so a
+covariant `data Tree(left: Tree, right: Tree)` and the monad-transformer lift are not flagged. A rejected value never
+produces its `RecursionCheckedValue` fact, so it never reaches saturation or monomorphization (fail-safe by
+construction). Every actual loop instead lives inside a **platform-provided native** (a `fold`, `forever`, the event
+loop); the language mandates no recursion primitive of its own. Three preconditions make "no recursion" mean what it
+says: an **occurs-check** in `Unifier` (no inferred infinite type / Y-combinator), a **strict-positivity check**
+(`core.processor.StrictPositivityChecker`, no negative-recursive `data`), and **purity** (no mutable cells — Landin's
+knot; guarded by `termination/PurityGuardTest`). With a recursion-free typed core, **every program terminates by
+default** (System T, not PCF) — modulo the already-accepted `Type:Type`/Girard residual the Cornerstone does not close.
+
+The one opt-out is **`Inf`**, modelled as an ordinary effect *ability* (`stdlib/.../Inf.els`:
+`ability Inf[F[_]] { def forever(step: F[Unit]): F[Unit] }`, import-required) rather than a bespoke termination
+lattice — there is **no `Terminating` token**; termination is simply `Inf`'s *absence* from the effect row. Because a
+recursion-free core cannot itself diverge, `Inf` can **only originate on a native** (`forever`), and it propagates to
+callers for free through the *existing* `used ⊆ declared` effect subset check — a `{Console}`-only function calling
+`forever` is rejected ("performs the effect 'Inf' but does not declare it"). `Inf` is **run, not discharged**: it is
+the one effect that may legitimately reach `main` undischarged (the jvm layer's `implement Inf[IO]` realizes `forever`
+as a `while(true)` loop), where it denotes a deliberate non-terminating program — a server / firmware super-loop.
+Higher-order propagation is automatic: `Inf` rides the shared carrier like any effect (the function-coloring win — one
+effect-transparent combinator is `Inf`-iff-its-step-is), with no per-arrow bit. Deferred (needs foundations that do not
+yet exist): WCET/resource bounds and optional size-indexing, a *timeout*-based bound on `{Inf}` (needs a time type),
+and linearity for in-place mutation. See [[project_recursion_as_effect]].
+
 ## Language Overview
 
 Eliot is a functional, strongly-typed language, with whole-application compilation
