@@ -82,7 +82,12 @@ val packageServer by tasks.registering(Exec::class) {
     inputs.dir(file("../../lang/src"))
     inputs.dir(file("../../stdlib/src"))
     inputs.dir(file("../../eliotc/src"))
-    inputs.dir(file("../../jvm/src")) // the JVM backend is bundled in compiler-lib for the "Run main" feature
+    inputs.dir(file("../../jvm/src")) // the JVM backend jar is bundled in lib/ (resident type-checking) + used by "Run main"
+    // The platform layer's `.els` files live in resources, not src. The resident server type-checks against them
+    // (jvm = the concrete platform layer; stdlib/lang = abstract base), so an edit must re-trigger packaging.
+    inputs.dir(file("../../lang/resources"))
+    inputs.dir(file("../../stdlib/resources"))
+    inputs.dir(file("../../jvm/resources"))
     outputs.dir(file("../lsp/dist/lib"))
     outputs.dir(file("../lsp/dist/compiler-lib"))
 }

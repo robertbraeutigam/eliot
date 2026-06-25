@@ -12,13 +12,17 @@
 #   each layer's copy, so getResources still returns all of them. Hence: a lib/ of per-module jars.
 #
 # Two classpath dirs are produced:
-#   lib/          — the LSP server's classpath (lang + stdlib + eliotc + lsp + deps). This is the
-#                   *abstract* workspace the resident type-checker sees; it deliberately omits the JVM
-#                   backend, so diagnostics check platform-independently (no concrete Int width, etc.).
-#   compiler-lib/ — the extra jars the JVM backend needs to BUILD a runnable jar from a `main`
-#                   (eliot-jvm.jar + asm). The "Run main" feature launches the compiler CLI with
-#                   `-cp "lib/*:compiler-lib/*"`, adding the concrete jvm platform layer on top of the
-#                   server classpath. Kept separate so the resident server's own classpath is unchanged.
+#   lib/          — the LSP server's classpath (lang + stdlib + jvm platform layer + eliotc + lsp + deps).
+#                   The resident type-checker sees the concrete JVM platform layer (eliot-jvm.jar's .els
+#                   resources: the concrete `IO`, `Pair`, `StateT`, ...), so it type-checks platform-specific
+#                   code exactly as it will run — Eliot programs may legitimately use platform-only modules.
+#                   Only the platform *resources* matter here: the jvm module's processors are codegen-only and
+#                   are never added to the server's plugin list, so the resident server emits no bytecode.
+#   compiler-lib/ — the one extra jar the JVM backend needs to BUILD a runnable jar that is not already in lib/:
+#                   ASM. The "Run main" feature launches the compiler CLI with `-cp "lib/*:compiler-lib/*"`.
+#                   eliot-jvm.jar lives in lib/ (not here): the CLI puts both dirs on the classpath, so a second
+#                   copy would surface the platform layer twice ("Has multiple implementations." — see the merge
+#                   rules in CLAUDE.md).
 #
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # repo root (script lives at ide/lsp/package.sh)
@@ -43,21 +47,25 @@ copy_module_jar() { # <mill-jar-target> <destination-file>
   cp "$path" "$2"
 }
 
-# Per-module jars keep each layer's own resources (the whole point — see header).
+# Per-module jars keep each layer's own resources (the whole point — see header). eliot-jvm.jar carries the
+# concrete JVM platform layer (its .els resources: concrete `IO`, `Pair`, `StateT`, ...); with it in lib/, the
+# resident server type-checks platform-specific code the same way it will run. As a separate per-module jar its
+# same-path .els resources merge with the abstract stdlib's via getResources (see header) instead of colliding.
 copy_module_jar ide.lsp.jar "$LIB/eliot-lsp.jar"
 copy_module_jar lang.jar "$LIB/eliot-lang.jar"
 copy_module_jar stdlib.jar "$LIB/eliot-stdlib.jar"
 copy_module_jar eliotc.jar "$LIB/eliot-eliotc.jar"
+copy_module_jar jvm.jar "$LIB/eliot-jvm.jar"
 
-# Third-party dependency jars (cats-effect, lsp4j, parsley, log4j, ...) from the run classpath.
+# Third-party dependency jars (cats-effect, lsp4j, parsley, log4j, asm, ...) from the run classpath.
 # Entries are Mill PathRef strings ("qref:v1:HASH:/abs/path.jar"); take the absolute path part.
 ./mill show ide.lsp.runClasspath 2>/dev/null \
   | python3 -c "import sys, json; [print(p[p.index('/'):]) for p in json.load(sys.stdin) if p.endswith('.jar')]" \
   | while read -r jar; do cp "$jar" "$LIB/"; done
 
-# Compiler classpath = the JVM backend module jar + ASM (the only deps not already in lib/). The jvm
-# module's own .els resources (the concrete platform layer) live inside eliot-jvm.jar.
-copy_module_jar jvm.jar "$COMPILER_LIB/eliot-jvm.jar"
+# compiler-lib/ holds only ASM — the one backend dep the "Run main" CLI build needs to emit bytecode. The CLI
+# runs `-cp "lib/*:compiler-lib/*"`; eliot-jvm.jar is deliberately NOT copied here (it is in lib/), since a second
+# copy of the platform layer on that combined classpath would be a "Has multiple implementations." error.
 ./mill show jvm.runClasspath 2>/dev/null \
   | python3 -c "import sys, json; [print(p[p.index('/'):]) for p in json.load(sys.stdin) if p.endswith('.jar') and '/asm-' in p]" \
   | while read -r jar; do cp "$jar" "$COMPILER_LIB/"; done
@@ -93,6 +101,6 @@ EOF
 
 echo
 echo "Built $LAUNCHER ($(ls "$LIB" | wc -l | tr -d ' ') jars in $LIB/)"
-echo "Compiler classpath: $(ls "$COMPILER_LIB" | wc -l | tr -d ' ') jars in $COMPILER_LIB/ (jvm backend + asm)"
+echo "Compiler classpath: $(ls "$COMPILER_LIB" | wc -l | tr -d ' ') jars in $COMPILER_LIB/ (asm; jvm backend is in lib/)"
 echo "Ready-to-import LSP4IJ template: $TEMPLATE/"
 echo "See ide/lsp/intellij/README.md for IntelliJ setup."

@@ -36,7 +36,12 @@ object `package` extends Module {
    // grammar (ide/textmate) is static editor files, not a build module.
    object ide extends Module {
      object lsp extends DefaultScalaModule {
-       override def moduleDeps = Seq(lang, stdlib)
+       // Depends on `jvm` for the concrete platform layer's `.els` *resources* (e.g. `Pair`, `StateT`, `OptionT`, the
+       // concrete `IO`). The resident server type-checks platform-specific code the same way the program actually runs,
+       // so it must see the platform layer — `PathScanner` discovers those `.els` files from the `jvm` jar on the
+       // classpath. Only the resources are needed: the jvm module's processors are codegen-only and are never added to
+       // the resident server's plugin list, so no bytecode is generated here.
+       override def moduleDeps = Seq(lang, stdlib, jvm)
        override def mainClass = Some("com.vanillasource.eliot.eliotc.lsp.server.LspMain")
 
        override def extraDeps = Seq(
