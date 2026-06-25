@@ -20,8 +20,9 @@ At a concrete monomorphic use site the compiler evaluates the signature: a suffi
 `A`; an empty one aborts compilation with the author's message. There is **no solver and no theorem prover** — the
 decision is *evaluation* of ordinary code by the one NbE evaluator.
 
-This subsumes a `where`-clause precondition (`… where MIN > 0`), which becomes sugar (W4), and it generalizes the
-existing *calculated return* (W3/W4 of implicit-generics).
+There is deliberately **no dedicated guard/precondition syntax** (no `where` clause): once any expression is
+allowed in the return position, standard-library combinators (`when`, `orError`, `if`/`else`, …) cover it as
+ordinary Eliot. This also generalizes the existing *calculated return* (W3/W4 of implicit-generics).
 
 ## Cornerstone framing
 
@@ -164,17 +165,16 @@ Touch points: the effect/`core` desugaring that handles signature effect rows (s
 and the checker's expectation for the return slot (now `{Throw[String]} Type`, discharged by W2 before the rest of
 the checker consumes a plain `Type`).
 
-### W4 — Surface syntax
+### W4 — Any expression in return position
 
-1. **Full expressions in return position.** Lift the restriction on `Expression.typeParser` so the return position
-   parses as a normal expression (infix operators, string literals, `if`/`else`, application). This is the λ\*
-   cornerstone at the grammar level: type position = value expression. Expect grammar-ambiguity wrinkles around the
-   `[]`-vs-`()` call forms and operators inside type arguments — the reason the parser is restricted today — to be
-   resolved here.
-2. **`where`-clause sugar (optional).** `def f[…](…) where MIN > 0 : A` desugars to
-   `: A when (MIN > 0) orError "<generated or default message>"`, i.e. into the same signature expression. A
-   `where` clause is the *declaratively visible* form (readable without evaluating); the expression form is the
-   primitive.
+Lift the restriction on `Expression.typeParser` so the return position parses as a normal expression (infix
+operators, string literals, `if`/`else`, application). This is the λ\* cornerstone at the grammar level: type
+position = value expression. Expect grammar-ambiguity wrinkles around the `[]`-vs-`()` call forms and operators
+inside type arguments — the reason the parser is restricted today — to be resolved here.
+
+There is **no dedicated guard syntax**. Guards/preconditions are expressed entirely with standard-library
+combinators (W5) — `A when (MIN > 0) orError "…"`, `if (MIN > 0) A else error("…")` — so this single parser
+change is all that is needed at the surface.
 
 ### W5 — Stdlib guard combinators
 
@@ -197,7 +197,7 @@ These are dual-use: the same functions work on real `Option`/`Either` values at 
    with exactly `msg`; one evaluating to `Right(T)` types as `T`; one stuck on an abstract bound defers (no error).
 2. **W3** — route the signature position through effect desugaring onto the fixed carrier, enabling direct-style
    `{Throw[String]}` signatures.
-3. **W4** — parser unrestriction + optional `where` sugar.
+3. **W4** — parser unrestriction (any expression in return position).
 4. **W5** — flesh out the combinator vocabulary.
 
 ## Guarantees
@@ -220,7 +220,7 @@ These are dual-use: the same functions work on real `Option`/`Either` values at 
 - `monomorphize/check/CalculatedReturnResolver.scala` — W2 (the discharge/unwrap step).
 - `core`/`effect` desugaring (sibling of `core/processor/EffectSugarDesugarer.scala`) — W3 (route signature
   position onto the fixed carrier).
-- `ast` parser (`Expression.typeParser`) — W4 (full expressions in return position; `where` sugar).
+- `ast` parser (`Expression.typeParser`) — W4 (full expressions in return position).
 - `stdlib/.../` — W5 (`error`, `when`, `orError`, `orElse`); promote `Either`/`foldEither`/`Id` as needed for
   compile-time availability (W1).
 
@@ -232,5 +232,4 @@ These are dual-use: the same functions work on real `Option`/`Either` values at 
   (with source spans / suggestions) could replace the bare message.
 - **Definition-site surfacing** of latent partiality (the use-site-verification trade-off): the IDE surfaces a
   guard at the definition by *probing* the signature with sample bounds (generators + probing; see
-  `docs/ide-type-hints.md`), since the precondition is computed, not declared. A `where` clause (W4.2) additionally
-  makes it statically readable.
+  `docs/ide-type-hints.md`), since the precondition is computed, not declared.
