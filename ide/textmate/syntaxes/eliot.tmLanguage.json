@@ -73,7 +73,7 @@
     },
     "modifiers": {
       "name": "storage.modifier.eliot",
-      "match": "\\b(opaque|auto)\\b"
+      "match": "\\b(opaque|auto|private)\\b"
     },
     "definitions": {
       "patterns": [
@@ -82,6 +82,13 @@
           "captures": {
             "1": { "name": "keyword.other.def.eliot" },
             "2": { "name": "entity.name.function.eliot" }
+          }
+        },
+        {
+          "match": "\\b(val)\\b[ \\t]+((?![\\p{Lu}])[\\p{L}][\\p{L}\\p{N}]*)",
+          "captures": {
+            "1": { "name": "keyword.other.val.eliot" },
+            "2": { "name": "variable.other.eliot" }
           }
         },
         {
@@ -102,7 +109,7 @@
     },
     "declaration-keywords": {
       "name": "keyword.other.eliot",
-      "match": "\\b(ability|implement|data|def|type)\\b"
+      "match": "\\b(ability|implement|data|def|type|val)\\b"
     },
     "control-keywords": {
       "name": "keyword.control.eliot",
