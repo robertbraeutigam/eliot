@@ -35,6 +35,43 @@ discharged abstractly (binders left neutral) is deferred to the concrete use sit
 it exactly. A guard on abstract bounds stays *stuck* (deferred); a guard on concrete bounds *evaluates* (accept or
 reject). No modular per-definition proof is attempted or required.
 
+## Architecture: one front-end, a fixed compiler backend
+
+There is no separate "type pipeline." A signature is an ordinary `Expression`, so it flows through the **same
+front-end as a runtime body** — and a signature and a body differ in exactly two things:
+
+1. **The carrier the `effect` phase binds.** A body binds an *inferable platform* carrier (`F[_] ~ Monad`, realized
+   as `IO`). A signature binds the *fixed* compile-time carrier (`Either[String, _]` with the compiler's intrinsic
+   `Monad`/`Throw`). Same phase, position-dependent carrier.
+2. **Its terminal fate.** A body survives to `used → uncurry → codegen` — the *platform* backend, run by the JVM. A
+   signature is *forced by the NbE evaluator and discharged* (W2) — the *compiler* backend, run by the
+   compiler-as-handler. Eval-and-discharge replaces codegen.
+
+So a signature is "normal code compiled against a **fixed** backend": the NbE evaluator + the compiler-provided
+carrier + the compiler-as-handler, invariant across platforms where the runtime backend is chosen by the platform
+layer. This is the λ\* phase/erasure distinction made operational, and the same "reduce a feature to ordinary core
+terms before the backend" philosophy `docs/backend-portability-plan.md` states for runtime code, applied to type
+expressions. The fixedness is *why* guards are layer-independent (see "Platform-independence"): the evaluator and
+carrier are always compiler-supplied, so a guard evaluates in the abstract-only LSP workspace exactly as in a
+linked build.
+
+**Phase ledger** — what already treats the signature as code, vs. what this plan extends:
+
+| phase | applies to the signature today? | this plan |
+|---|---|---|
+| `resolve` (value resolver) | yes | — |
+| `operator` | yes — this is why `Int[a + b]` already works | — |
+| `matchdesugar`, block | body only | **extend to the signature position** (W4) |
+| `ability` | resolved during monomorphize / discharge | provide the compile-time `Throw` instance (W1) |
+| `termination` | runtime-body graph only | must also cover the (recursion-free) type program |
+| `effect` | body only (`EffectDesugaredValue` copies `runtime`) | **extend to the signature position**, fixed carrier (W3) |
+| `monomorphize` | shared — the checker + evaluator already run both | discharge the return computation (W2) |
+| `used → uncurry → codegen` | runtime only | n/a — type code is evaluated, never emitted |
+
+The terminal interpreter must be **total**: the type-level program is recursion-free (Total-by-Default) and the
+non-convergence backstop in `used/UsedNamesProcessor.scala` catches the `Type:Type` residual, so the fixed backend
+always terminates.
+
 ## The model — a compile-time effect, not a bottom
 
 The signature is a **total** function whose result is an inspectable value: either an error or a type. We model
@@ -162,19 +199,31 @@ never enters the value's runtime effect row. A bare `Type` in return position is
 ordinary non-guarded signatures are unchanged.
 
 Touch points: the effect/`core` desugaring that handles signature effect rows (sibling of `EffectSugarDesugarer`),
-and the checker's expectation for the return slot (now `{Throw[String]} Type`, discharged by W2 before the rest of
-the checker consumes a plain `Type`).
+and the checker's expectation for the return slot. **This is a bigger change than it looks:** effect desugaring
+today rewrites only the body (`EffectDesugaringProcessor` does `value.copy(runtime = …)`; the signature is read
+solely to pick the *body's* carrier). Extending it to the signature changes what `SignatureView.returnType` holds —
+no longer a plain type but a discharged `Either[String, Type]` *computation* — which ripples through everything that
+reads the return position (`SignatureView`, `BinderRoles`' representation/relevance analysis, `saturate`). W2's
+discharge is what restores a plain `Type` for the rest of the checker; downstream readers must either run after the
+discharge or tolerate the un-discharged return.
 
 ### W4 — Any expression in return position
 
-Lift the restriction on `Expression.typeParser` so the return position parses as a normal expression (infix
-operators, string literals, `if`/`else`, application). This is the λ\* cornerstone at the grammar level: type
-position = value expression. Expect grammar-ambiguity wrinkles around the `[]`-vs-`()` call forms and operators
-inside type arguments — the reason the parser is restricted today — to be resolved here.
+Two parts, both realizing "the signature is just code" at the front-end:
+
+1. **Parser.** Lift the restriction on `Expression.typeParser` so the return position parses as a normal expression
+   (infix operators, string literals, `if`/`else`, blocks, `match`, application). This is the λ\* cornerstone at the
+   grammar level: type position = value expression. Expect grammar-ambiguity wrinkles around the `[]`-vs-`()` call
+   forms and operators inside type arguments — the reason the parser is restricted today — to be resolved here.
+2. **Desugar phases on the signature position.** Extend `matchdesugar` and block desugaring to run on the
+   signature/return-type sub-expression, not only the body, so a `match`/block that now parses in a signature lowers
+   to core exactly as in a body (the phases must recurse into the type-annotation position). `resolve` and
+   `operator` already do this; this item closes the gap for the remaining expression-desugaring phases. (`effect`
+   desugaring of the signature is W3.)
 
 There is **no dedicated guard syntax**. Guards/preconditions are expressed entirely with standard-library
-combinators (W5) — `A when (MIN > 0) orError "…"`, `if (MIN > 0) A else error("…")` — so this single parser
-change is all that is needed at the surface.
+combinators (W5) — `A when (MIN > 0) orError "…"`, `if (MIN > 0) A else error("…")` — so the parser change plus
+uniform desugaring is all that is needed at the surface.
 
 ### W5 — Stdlib guard combinators
 
@@ -197,7 +246,8 @@ These are dual-use: the same functions work on real `Option`/`Either` values at 
    with exactly `msg`; one evaluating to `Right(T)` types as `T`; one stuck on an abstract bound defers (no error).
 2. **W3** — route the signature position through effect desugaring onto the fixed carrier, enabling direct-style
    `{Throw[String]}` signatures.
-3. **W4** — parser unrestriction (any expression in return position).
+3. **W4** — parser unrestriction + extend `matchdesugar`/block to the signature position (any expression in return
+   position).
 4. **W5** — flesh out the combinator vocabulary.
 
 ## Guarantees
@@ -218,9 +268,11 @@ These are dual-use: the same functions work on real `Option`/`Either` values at 
   primitives.
 - `module/fact/WellKnownTypes.scala` — FQNs for the compile-time carrier / `Throw` instance / `error`.
 - `monomorphize/check/CalculatedReturnResolver.scala` — W2 (the discharge/unwrap step).
-- `core`/`effect` desugaring (sibling of `core/processor/EffectSugarDesugarer.scala`) — W3 (route signature
-  position onto the fixed carrier).
-- `ast` parser (`Expression.typeParser`) — W4 (full expressions in return position).
+- `effect/processor/EffectDesugaringProcessor.scala` + `core/processor/EffectSugarDesugarer.scala` — W3 (route the
+  signature position onto the fixed carrier); ripples to `operator/.../OperatorResolvedExpression.scala`
+  (`SignatureView`) and `saturate/fact/BinderRoles.scala`, which read the return position.
+- `ast` parser (`Expression.typeParser`) + `matchdesugar`/block processors — W4 (full expressions in return
+  position, and the desugar phases extended to the signature sub-expression).
 - `stdlib/.../` — W5 (`error`, `when`, `orError`, `orElse`); promote `Either`/`foldEither`/`Id` as needed for
   compile-time availability (W1).
 
