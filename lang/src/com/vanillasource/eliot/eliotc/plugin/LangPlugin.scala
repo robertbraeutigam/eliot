@@ -4,6 +4,7 @@ import cats.data.StateT
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDateProcessor
+import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.pathKey
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
@@ -43,7 +44,12 @@ class LangPlugin extends CompilerPlugin {
             ResourceContentReader(),
             SourceContentReader(),
             PathScanner(configuration.getOrElse(pathKey, Seq.empty))
-          ) ++ LangProcessors()
+          ) ++ LangProcessors(extraNativeBindingLabels =
+            // The native-binding merger built inside LangProcessors must consult every native contributor that other
+            // layers registered in their configure() (e.g. stdlib's arithmetic natives). All configure() complete before
+            // initialize, so the roster is already final here.
+            configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq
+          )
         )
       )
   }

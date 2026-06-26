@@ -1,0 +1,50 @@
+package com.vanillasource.eliot.eliotc.monomorphize.processor
+
+import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{ContributedBinding, NativeBinding}
+import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
+import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
+
+/** Owns the evaluator-facing [[NativeBinding]]: for each name it selects the one host-runnable reduction by category
+  * precedence over the suppliers' total [[ContributedBinding]] facts. This is the single owner that replaces the former
+  * silent first-registration race between the several `NativeBinding` producers.
+  *
+  * Type-level evaluation is *running code on the host*, so for each name the checker needs that name's host-runnable
+  * reduction. Two categories of supplier can offer one:
+  *   - **native suppliers** (`nativeLabels`) — compiler/platform reducers coded directly against the evaluator;
+  *     host-runnable by construction and disjoint (each owns its own names). **Preferred for checking.**
+  *   - **user suppliers** (`userLabels`) — the per-layer body suppliers, merged upstream to one implementation per name
+  *     by the layering system. **Fallback**, used when no native supplies the name; non-runnability surfaces lazily at
+  *     the use site, never as a producer-side judgment.
+  *
+  * Selection is pure precedence with no conflict resolution: the first native `Some` → else the first user `Some` →
+  * else abort (no binding; the evaluator stalls at the use site — the companion-clause, use-site error). Uniqueness
+  * already holds within each category (native suppliers are disjoint by construction; the user stack is
+  * single-implementation by layering), so each category yields at most one value and there is nothing to order or
+  * reject. A user body coexisting with a native is the normal case (`add` has a compile-time native and a runtime
+  * body), not an override — precedence alone keeps the native for checking; the body is read by codegen via
+  * `TransparentBinding`.
+  *
+  * Contributor facts are total, so [[getFactOrAbort]] always lands and a mis-wired native supplier aborts loudly (no
+  * binding ⇒ use-site stuck) rather than silently demoting to the user answer. The user contributors are only forced
+  * when no native wins, so native-owned names never pay for the user body walk.
+  */
+class BindingMergerProcessor(nativeLabels: Seq[String], userLabels: Seq[String])
+    extends SingleFactProcessor[NativeBinding.Key] {
+
+  override def generateSingleFact(key: NativeBinding.Key): CompilerIO[NativeBinding] =
+    for {
+      natives  <- nativeLabels.traverse(label => getFactOrAbort(ContributedBinding.Key(key.vfqn, label)))
+      selected <- natives.flatMap(_.contributed).headOption match {
+                    case found @ Some(_) => found.pure[CompilerIO]
+                    case None            =>
+                      userLabels
+                        .traverse(label => getFactOrAbort(ContributedBinding.Key(key.vfqn, label)))
+                        .map(_.flatMap(_.contributed).headOption)
+                  }
+      result   <- selected match {
+                    case Some(semValue) => NativeBinding(key.vfqn, semValue).pure[CompilerIO]
+                    case None           => abort[NativeBinding]
+                  }
+    } yield result
+}

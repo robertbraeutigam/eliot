@@ -9,17 +9,19 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   functionDataTypeFQN,
   typeFQN
 }
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDate
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{ContributedBinding, GroundValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
-/** Emits NativeBinding facts for the language-intrinsic system values the compiler itself reasons about: Function (type
-  * constructor), Type, and the compile-time Bool primitives `true`/`false`/`fold`.
+/** The `system` native contributor: emits the total [[ContributedBinding]] under [[ContributedBinding.systemLabel]] for
+  * the language-intrinsic system values the compiler itself reasons about — Function (type constructor), Type, and the
+  * compile-time Bool primitives `true`/`false`/`fold` — and `None` for every other name.
   *
   * Function is wired as a curried native that takes two type args (A, B) and produces VPi(A, _ => B): the Π-former is
   * the single primitive type former, so every function type is a VPi (read back to a Function structure only at quote
@@ -31,8 +33,11 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * condition is concrete. Library Bool/BigInteger operations whose reduction the compiler merely supplies but does not
   * reason about (`&&`, `lessThanOrEqual`, the arithmetic natives backing `Int`'s dependent bounds) live in the stdlib
   * layer's `StdlibNativesProcessor`, not here.
+  *
+  * The system names are disjoint from every other native supplier (the [[BindingMergerProcessor]] relies on native
+  * disjointness): `Type` is owned here, not by `DataTypeNativesProcessor` (which excludes it).
   */
-class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
+class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] {
 
   private val boolType: SemValue = VTopDef(boolFQN, None, Spine.SNil)
 
@@ -45,36 +50,29 @@ class SystemNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
   private def stuck(fqn: ValueFQN, args: SemValue*): SemValue =
     VStuckNative(fqn, args.foldLeft(Spine.SNil: Spine)(_ :+ _))
 
-  override def generateSingleFact(key: NativeBinding.Key): CompilerIO[NativeBinding] =
-    // These bindings are input-less compiler constants. Depending on the always-clean `UpToDate` leaf (the value is
-    // immaterial — only the edge matters) lets the incremental cache prove them unchanged on a no-change run instead of
-    // treating them as source leaves and regenerating them every time. Deliberately not `getFactOrAbort`: a bundle
+  override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
+    if (key.label =!= ContributedBinding.systemLabel) abort
+    // The system reductions are input-less compiler constants. Depending on the always-clean `UpToDate` leaf (the value
+    // is immaterial — only the edge matters) lets the incremental cache prove them unchanged on a no-change run instead
+    // of treating them as source leaves and regenerating them every time. Deliberately not `getFactOrAbort`: a bundle
     // without `UpToDateProcessor` (e.g. a minimal test) just loses incrementality here, never fails.
-    getFact(UpToDate.Key()) >> produceNativeBinding(key)
+    else getFact(UpToDate.Key()) >> ContributedBinding(key.vfqn, key.label, systemReduction(key.vfqn)).pure[CompilerIO]
 
-  private def produceNativeBinding(key: NativeBinding.Key): CompilerIO[NativeBinding] =
-    if (key.vfqn === functionDataTypeFQN) {
-      createFunctionBinding().pure[CompilerIO]
-    } else if (key.vfqn === typeFQN) {
-      NativeBinding(typeFQN, VType).pure[CompilerIO]
-    } else if (key.vfqn === boolTrueFQN) {
-      NativeBinding(boolTrueFQN, Evaluator.trueValue).pure[CompilerIO]
-    } else if (key.vfqn === boolFalseFQN) {
-      NativeBinding(boolFalseFQN, Evaluator.falseValue).pure[CompilerIO]
-    } else if (key.vfqn === boolFoldFQN) {
-      NativeBinding(boolFoldFQN, boolFoldNative).pure[CompilerIO]
-    } else {
-      abort
-    }
+  /** The host-runnable reduction for a system name, or `None` if `vfqn` is not a system name (totality). */
+  private def systemReduction(vfqn: ValueFQN): Option[SemValue] =
+    if (vfqn === functionDataTypeFQN) functionNative.some
+    else if (vfqn === typeFQN) VType.some
+    else if (vfqn === boolTrueFQN) Evaluator.trueValue.some
+    else if (vfqn === boolFalseFQN) Evaluator.falseValue.some
+    else if (vfqn === boolFoldFQN) boolFoldNative.some
+    else none
 
   /** Function[A, B] is a curried native: first takes A (domain), then B (codomain), and produces VPi(A, _ => B). */
-  private def createFunctionBinding(): NativeBinding = {
-    val nativeFunction = VNative(
+  private def functionNative: SemValue =
+    VNative(
       VType,
       domain => VNative(VType, codomain => VPi(domain, _ => codomain))
     )
-    NativeBinding(functionDataTypeFQN, nativeFunction)
-  }
 
   /** `fold(condition, whenTrue, whenFalse)`: selects a branch when the condition is a concrete Bool, otherwise stays
     * stuck. The type parameter `A` is implicit (never applied at evaluation time, since implicit type args are not

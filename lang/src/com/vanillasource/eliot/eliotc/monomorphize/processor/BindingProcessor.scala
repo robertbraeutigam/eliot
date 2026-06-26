@@ -27,10 +27,10 @@ import scala.reflect.ClassTag
   * binders for omittable `auto` parameters) — keeping the wrap's binder indices aligned (D6).
   *
   * The subtle, error-prone parts live here once: the mutual-recursion guard (via the runtime's active fact-request
-  * chain, [[com.vanillasource.eliot.eliotc.processor.CompilerIO.activeFactKeys]] — never per-processor mutable state, so
-  * the processor stays a pure function of the facts it reads), and the transitive dependency collection. Dependencies
-  * are always resolved via [[NativeBinding]] (the checker's semantics, the bindings the bodies were type-checked
-  * against); only the top-level value's own body selection differs between phases.
+  * chain, [[com.vanillasource.eliot.eliotc.processor.CompilerIO.activeFactKeys]] — never per-processor mutable state,
+  * so the processor stays a pure function of the facts it reads), and the transitive dependency collection.
+  * Dependencies are always resolved via [[NativeBinding]] (the checker's semantics, the bindings the bodies were
+  * type-checked against); only the top-level value's own body selection differs between phases.
   */
 abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
     getInputKey: OutputKey => SaturatedValue.Key
@@ -42,17 +42,21 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
     */
   protected def selfBody(fact: OperatorResolvedValue): Option[Sourced[OperatorResolvedExpression]]
 
-  /** Wrap the computed binding in the phase-specific output fact. */
-  protected def buildFact(vfqn: ValueFQN, semValue: SemValue): OutputFact
+  /** Wrap the computed binding in the phase-specific output fact. `binding` is `None` only when the value is body-less
+    * and this phase declines body-less values ([[bindsBodylessValues]] = false) — the user contributor's total `None`
+    * answer; a phase that binds body-less values never receives `None` and may treat it as unreachable.
+    */
+  protected def buildFact(vfqn: ValueFQN, binding: Option[SemValue]): CompilerIO[OutputFact]
 
   /** Whether this processor binds body-less definitions.
     *
-    * The checking-phase NativeBinding producer ([[UserValueNativesProcessor]]) does **not**: a body-less value's
-    * checking implementation is a native (one of the native processors) — or, for a runtime-only function the checker
-    * never reduces, the evaluator's stuck `VNeutral` fallback — never an empty `VTopDef(_, None)` user binding, which
-    * would only shadow a reducing native (the `add` bug). The lowering-phase TransparentBinding producer **does**: a
-    * runtime native like `nativeWiden` needs an FQN-preserving stuck `VTopDef` so representation lowering can read it
-    * back into codegen.
+    * The checking-phase user contributor ([[UserValueNativesProcessor]]) does **not**: a body-less value's checking
+    * implementation is a native (one of the native processors) — or, for a runtime-only function the checker never
+    * reduces, the evaluator's stuck `VNeutral` fallback — never an empty `VTopDef(_, None)` user binding, which would
+    * only shadow a reducing native (the `add` bug). So it answers `None` for a body-less value (its total
+    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding]] saying "I do not define this"). The
+    * lowering-phase TransparentBinding producer **does**: a runtime native like `nativeWiden` needs an FQN-preserving
+    * stuck `VTopDef` so representation lowering can read it back into codegen.
     *
     * Note the gate is on `runtime` (not `selfBody`/`checkingRuntime`): an `opaque` definition like `Int` HAS a body —
     * it is merely kept stuck during checking — so it is a user value either way.
@@ -60,30 +64,32 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
   protected def bindsBodylessValues: Boolean
 
   override protected def generateFromKeyAndFact(key: OutputKey, fact: InputFact): CompilerIO[OutputFact] =
-    if (!bindsBodylessValues && fact.value.runtime.isEmpty) abort
-    else generateForBodyfulValue(key, fact)
+    bindingFor(key, fact).flatMap(buildFact(getInputKey(key).vfqn, _))
 
-  private def generateForBodyfulValue(key: OutputKey, fact: InputFact): CompilerIO[OutputFact] = {
-    val vfqn = getInputKey(key).vfqn
+  /** `Some(VTopDef …)` for a body-ful value (and for a body-less value when this phase binds them); `None` for a
+    * body-less value this phase declines. The body-less `VTopDef` is a stuck `VTopDef(vfqn, None, SNil)`.
+    */
+  private def bindingFor(key: OutputKey, fact: InputFact): CompilerIO[Option[SemValue]] =
+    if (!bindsBodylessValues && fact.value.runtime.isEmpty) none[SemValue].pure[CompilerIO]
+    else buildSemValue(getInputKey(key).vfqn, fact).map(_.some)
+
+  private def buildSemValue(vfqn: ValueFQN, fact: InputFact): CompilerIO[SemValue] = {
     val body = selfBody(fact.value)
     for {
       bodyBindings <- body match {
                         case Some(b) => collectBindings(b.value, vfqn)
                         case None    => Map.empty[ValueFQN, SemValue].pure[CompilerIO]
                       }
-    } yield {
-      val semValue = VTopDef(
-        vfqn,
-        body.map { b =>
-          Lazy {
-            val evaluator = new Evaluator(ref => bodyBindings.get(ref))
-            evaluator.eval(Env.empty, reifyingWrap(b.value, fact))
-          }
-        },
-        Spine.SNil
-      )
-      buildFact(vfqn, semValue)
-    }
+    } yield VTopDef(
+      vfqn,
+      body.map { b =>
+        Lazy {
+          val evaluator = new Evaluator(ref => bodyBindings.get(ref))
+          evaluator.eval(Env.empty, reifyingWrap(b.value, fact))
+        }
+      },
+      Spine.SNil
+    )
   }
 
   /** Wrap a runtime body in [[FunctionLiteral]] binders for the leading type-stack (generic) parameters it reifies —
@@ -117,12 +123,13 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
 
   /** Collect [[NativeBinding]]s for every ValueReference transitively reachable from `ore`, skipping FQNs already
     * accumulated in this walk, the value's own FQN (`selfFqn`), and any FQN whose [[NativeBinding]] is already an
-    * ancestor on the active fact-request chain ([[com.vanillasource.eliot.eliotc.processor.CompilerIO.activeFactKeys]]).
-    * The ancestor check is what breaks mutual-recursion deadlocks (a covariant `data` cycle, a monad-transformer lift):
-    * fetching a [[NativeBinding]] that is currently being generated up this chain would block on its not-yet-completed
-    * `Deferred`. Using the runtime's per-fiber chain — rather than a shared mutable "currently generating" set — keeps
-    * the scope correct (only *this* request's ancestors are skipped, not values merely generating concurrently in an
-    * unrelated chain) and keeps the processor pure.
+    * ancestor on the active fact-request chain
+    * ([[com.vanillasource.eliot.eliotc.processor.CompilerIO.activeFactKeys]]). The ancestor check is what breaks
+    * mutual-recursion deadlocks (a covariant `data` cycle, a monad-transformer lift): fetching a [[NativeBinding]] that
+    * is currently being generated up this chain would block on its not-yet-completed `Deferred`. Using the runtime's
+    * per-fiber chain — rather than a shared mutable "currently generating" set — keeps the scope correct (only *this*
+    * request's ancestors are skipped, not values merely generating concurrently in an unrelated chain) and keeps the
+    * processor pure.
     */
   private def collectBindings(
       ore: OperatorResolvedExpression,

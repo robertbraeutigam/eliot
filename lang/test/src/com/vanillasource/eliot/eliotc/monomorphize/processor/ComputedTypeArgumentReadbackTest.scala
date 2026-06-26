@@ -25,8 +25,11 @@ import com.vanillasource.eliot.eliotc.used.UsedNames
   * type." error is produced, and the downstream specializations carry the '''reduced''' type arguments.
   */
 // Composes `StdlibNativesProcessor` (the stdlib-layer `subtract`/`lessThanOrEqual`/… natives the computed indices
-// reduce through) onto `LangProcessors`; order is irrelevant — each `NativeBinding.Key` has one producer.
-class ComputedTypeArgumentReadbackTest extends ProcessorTest((LangProcessors() :+ StdlibNativesProcessor())*) {
+// reduce through) onto `LangProcessors` and registers its native label so the binding merger consults it.
+class ComputedTypeArgumentReadbackTest
+    extends ProcessorTest(
+      (LangProcessors(extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)) :+ StdlibNativesProcessor())*
+    ) {
 
   // A reified BigInteger value `bigOf[1]` applied to a literal, used directly as another value's type argument, must
   // reduce to the constant `1` (it was previously a stuck neutral). `box[N] = N` is specialized at the reduced index.

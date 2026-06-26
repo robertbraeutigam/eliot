@@ -16,13 +16,14 @@ import com.vanillasource.eliot.eliotc.module.fact.{
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{ContributedBinding, GroundValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
+import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
-/** Emits [[NativeBinding]] facts for the abstract `match`-dispatch ability implementations, intercepting the FQNs that
-  * [[UserValueNativesProcessor]] would otherwise bind to a body-less, useless [[VTopDef]]. Must be ordered ahead of
-  * [[UserValueNativesProcessor]] in the processor sequence so it wins the fact for these FQNs (first registration wins).
+/** The `match` native contributor: emits the total [[ContributedBinding]] under [[ContributedBinding.matchLabel]] for
+  * the abstract `match`-dispatch ability implementations — and `None` for every other name. These FQNs are body-less,
+  * so the user supplier contributes `None` for them; the merger's native precedence makes this contributor's reduction
+  * win for checking, with no ordering to arrange.
   *
   *   - **`PatternMatch.handleCases`** (one impl per data type): a curried [[VNative]] collecting `(value, cases)`. The
   *     data type's value constructors, in source-declaration order, are baked in at fact-generation time. On a concrete
@@ -36,23 +37,28 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
   * On a symbolic (non-concrete) scrutinee the native stays stuck — open-term match dispatch is deferred (plan P4). All
   * dispatch is pure ([[SemValue]] `applyValue` only); the constructor metadata IO happens here, at fact-generation time.
   */
-class MatchNativesProcessor extends SingleKeyTypeProcessor[NativeBinding.Key] {
+class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] {
 
-  override protected def generateFact(key: NativeBinding.Key): CompilerIO[Unit] =
-    if (WellKnownTypes.isPatternMatchHandleCases(key.vfqn)) buildHandleCases(key.vfqn).flatMap(registerFactIfClear)
-    else if (WellKnownTypes.isTypeMatchTypeMatch(key.vfqn)) buildTypeMatch(key.vfqn).flatMap(registerFactIfClear)
-    else abort
+  override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
+    if (key.label =!= ContributedBinding.matchLabel) abort
+    else matchReduction(key.vfqn).map(ContributedBinding(key.vfqn, key.label, _))
 
-  private def buildHandleCases(vfqn: ValueFQN): CompilerIO[NativeBinding] =
+  /** The match-dispatch native reduction for `vfqn`, or `None` (totality) if `vfqn` is not a `handleCases`/`typeMatch`
+    * implementation method.
+    */
+  private def matchReduction(vfqn: ValueFQN): CompilerIO[Option[SemValue]] =
+    if (WellKnownTypes.isPatternMatchHandleCases(vfqn)) buildHandleCases(vfqn).map(_.some)
+    else if (WellKnownTypes.isTypeMatchTypeMatch(vfqn)) buildTypeMatch(vfqn).map(_.some)
+    else none[SemValue].pure[CompilerIO]
+
+  private def buildHandleCases(vfqn: ValueFQN): CompilerIO[SemValue] =
     for {
       typeName <- requiredTypeName(vfqn, WellKnownTypes.patternMatchAbilityName)
       ordered  <- orderedConstructors(vfqn.moduleName, QualifiedName(typeName, Qualifier.Type))
-    } yield NativeBinding(vfqn, handleCasesNative(ordered))
+    } yield handleCasesNative(ordered)
 
-  private def buildTypeMatch(vfqn: ValueFQN): CompilerIO[NativeBinding] =
-    requiredTypeName(vfqn, WellKnownTypes.typeMatchAbilityName).map(targetName =>
-      NativeBinding(vfqn, typeMatchNative(targetName))
-    )
+  private def buildTypeMatch(vfqn: ValueFQN): CompilerIO[SemValue] =
+    requiredTypeName(vfqn, WellKnownTypes.typeMatchAbilityName).map(typeMatchNative)
 
   private def requiredTypeName(vfqn: ValueFQN, abilityName: String): CompilerIO[String] =
     ImplementationMarkerUtils.firstPatternTypeConstructorName(vfqn, abilityName).flatMap {

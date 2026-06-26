@@ -17,7 +17,9 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleNamesProcessor,
   UnifiedModuleValueProcessor
 }
+import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
+  BindingMergerProcessor,
   DataTypeNativesProcessor,
   MatchNativesProcessor,
   MonomorphicTypeCheckProcessor,
@@ -38,8 +40,8 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   * truth for the processor sequence and its order.
   *
   * [[LangPlugin]] prepends the source-reading processors (file/resource readers and the path scanner, which depend on
-  * the CLI configuration) and runs this; test harnesses register their source as facts directly and run this list
-  * as-is via `ProcessorTest`. Sharing one definition means a new phase is added in exactly one place rather than being
+  * the CLI configuration) and runs this; test harnesses register their source as facts directly and run this list as-is
+  * via `ProcessorTest`. Sharing one definition means a new phase is added in exactly one place rather than being
   * re-listed across every harness that compiles past it.
   *
   * Processor order within the list is irrelevant to behaviour — `SequentialCompilerProcessors` dispatches each demanded
@@ -52,11 +54,19 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *     the default; tests that declare local versions of ambient names pass a narrower set, e.g.
   *     `systemModulesWithoutInt`, or `Seq.empty`);
   *   - `maxNestedRepeats` — the `UsedNamesProcessor` non-convergence backstop bound.
+  *   - `extraNativeBindingLabels` — the native-category [[ContributedBinding]] labels contributed by layers *beyond*
+  *     this base one (e.g. stdlib's arithmetic natives,
+  *     [[com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor.stdlibLabel]]). `LangPlugin` passes the
+  *     roster the other plugins registered through [[ContributedBinding.extraNativeLabelsKey]]; a test that composes an
+  *     extra native processor onto this list passes that processor's label here so the [[BindingMergerProcessor]]
+  *     consults it. The base labels ([[ContributedBinding.langNativeLabels]]) are always included — the contributors
+  *     that own them are always in this list.
   */
 object LangProcessors {
   def apply(
       systemModules: Seq[ModuleName] = ModuleName.defaultSystemModules,
-      maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNestedRepeats
+      maxNestedRepeats: Int = UsedNamesProcessor.DefaultMaxNestedRepeats,
+      extraNativeBindingLabels: Seq[String] = Seq.empty
   ): Seq[CompilerProcessor] = Seq(
     Tokenizer(),
     ASTParser(),
@@ -79,6 +89,10 @@ object LangProcessors {
     DataTypeNativesProcessor(),
     MatchNativesProcessor(),
     UserValueNativesProcessor(),
+    BindingMergerProcessor(
+      ContributedBinding.langNativeLabels ++ extraNativeBindingLabels,
+      ContributedBinding.userLabels
+    ),
     MonomorphicTypeCheckProcessor(),
     UsedNamesProcessor(maxNestedRepeats),
     TransparentBindingProcessor(),

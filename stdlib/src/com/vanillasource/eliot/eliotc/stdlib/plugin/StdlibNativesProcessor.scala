@@ -6,28 +6,31 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{bigIntFQN, boo
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, NativeBinding}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{ContributedBinding, GroundValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
-/** Emits NativeBinding facts for the stdlib functions whose reduction the compiler must supply for type-level
-  * computation but does not otherwise reason about — the compile-time arithmetic/comparison on [[BigInteger]] backing
-  * `Int`'s dependent bounds (`add`/`subtract`/`min`/`max`/`multiplyMin`/`multiplyMax`/`lessThanOrEqual`), boolean
-  * conjunction (`&&`), and `inc`.
+/** The `stdlib` native contributor: emits the total [[ContributedBinding]] under
+  * [[StdlibNativesProcessor.stdlibLabel]] for the stdlib functions whose reduction the compiler must supply for
+  * type-level computation but does not otherwise reason about — the compile-time arithmetic/comparison on
+  * [[BigInteger]] backing `Int`'s dependent bounds (`add`/`subtract`/`min`/`max`/`multiplyMin`/`multiplyMax`/
+  * `lessThanOrEqual`), boolean conjunction (`&&`), and `inc` — and `None` for every other name.
   *
   * These are ordinary library functions (declared body-less in the stdlib layer's `BigInteger.els`/`Bool.els`); the
   * compiler only seeds the NbE evaluator with a native reduction rule so that, e.g., `add(2, 3)` reduces to `5` and
   * `lessThanOrEqual(0, 1)` to `true` during type checking. Each native reduces only when its arguments are concrete,
   * otherwise it stays stuck (a [[SemValue.VStuckNative]]) so the unifier falls back to ordinary unification on the
   * still-abstract bounds and `Evaluator.renormalize` re-fires it once they concretise. The runtime computation (e.g.
-  * the `LADD` for `Int` addition) is supplied separately by the backend.
+  * the `LADD` for `Int` addition) is supplied separately by the backend as a runtime body — the [[BindingMergerProcessor]]
+  * reads this native for checking and that body for codegen, with no conflict (native precedence).
   *
-  * The processor is FQN-keyed and composes with the lang layer's `SystemNativesProcessor` (which owns the
-  * compiler-intrinsic `Function`/`Type`/`Bool` primitives): `SequentialCompilerProcessors` runs both for a
-  * `NativeBinding.Key` and each aborts for the FQNs it does not own. The well-known lang types it builds on
-  * (`bigIntFQN`/`boolFQN`) stay in the lang layer; only these library reductions live here.
+  * This is a platform/library native supplier disjoint from the lang layer's `SystemNativesProcessor` (which owns the
+  * compiler-intrinsic `Function`/`Type`/`Bool` primitives): each owns its own names, so the merger never has to choose
+  * between two native answers. The plugin registers [[StdlibNativesProcessor.stdlibLabel]] in the merger's native
+  * roster via `StdlibPlugin.configure()`. The well-known lang types it builds on (`bigIntFQN`/`boolFQN`) stay in the
+  * lang layer; only these library reductions live here.
   */
-class StdlibNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
+class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] {
 
   private val bigIntegerModule: ModuleName = ModuleName(ModuleName.defaultSystemPackage, "BigInteger")
   private val boolModule: ModuleName       = ModuleName(ModuleName.defaultSystemPackage, "Bool")
@@ -59,11 +62,9 @@ class StdlibNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
     boolAndFQN         -> andNative
   )
 
-  override def generateSingleFact(key: NativeBinding.Key): CompilerIO[NativeBinding] =
-    bindings.get(key.vfqn) match {
-      case Some(sem) => NativeBinding(key.vfqn, sem).pure[CompilerIO]
-      case None      => abort
-    }
+  override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
+    if (key.label =!= StdlibNativesProcessor.stdlibLabel) abort
+    else ContributedBinding(key.vfqn, key.label, bindings.get(key.vfqn)).pure[CompilerIO]
 
   /** The canonical stuck form of a native: a [[SemValue.VStuckNative]] carrying the native's own FQN and the
     * (not-yet-concrete) arguments as its spine — so it stays definitionally distinct, is re-fired by
@@ -142,4 +143,13 @@ class StdlibNativesProcessor extends SingleFactProcessor[NativeBinding.Key] {
     case _                                                                                      =>
       stuck(boolAndFQN, a, b)
   }
+}
+
+object StdlibNativesProcessor {
+
+  /** This contributor's native-category label in the [[ContributedBinding]] merge. `StdlibPlugin.configure()` adds it to
+    * the merger's extra-native roster ([[ContributedBinding.extraNativeLabelsKey]]); tests that compose this processor
+    * onto `LangProcessors` pass it as `extraNativeBindingLabels`.
+    */
+  val stdlibLabel: String = "stdlib"
 }

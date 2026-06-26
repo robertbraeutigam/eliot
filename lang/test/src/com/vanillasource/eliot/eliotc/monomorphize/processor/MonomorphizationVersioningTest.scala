@@ -34,9 +34,12 @@ import scala.concurrent.duration.*
 // A small `UsedNamesProcessor` backstop tolerance keeps the divergent scenario (S7) cheap and deterministic; every
 // converging scenario here nests at most 4 deep (S1's countdown), well under it, so the counts are unaffected.
 // `StdlibNativesProcessor` (stdlib-layer arithmetic/`&&`/`lessThanOrEqual` natives backing `Int`'s bounds) composed
-// onto `LangProcessors`; order is irrelevant — each `NativeBinding.Key` has exactly one producer.
+// onto `LangProcessors`, with its native label registered so the binding merger consults it.
 class MonomorphizationVersioningTest
-    extends ProcessorTest((LangProcessors(maxNestedRepeats = 8) :+ StdlibNativesProcessor())*) {
+    extends ProcessorTest(
+      (LangProcessors(maxNestedRepeats = 8, extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)) :+
+        StdlibNativesProcessor())*
+    ) {
 
   // --- S1: recursion over a size-bounded structure (Cat 1, phantom index) ----------------------------------------
   // This used to be a *recursion-shaped proxy* for size-indexed unrolling: `countdown[N]` recursing to `countdown[N-1]`

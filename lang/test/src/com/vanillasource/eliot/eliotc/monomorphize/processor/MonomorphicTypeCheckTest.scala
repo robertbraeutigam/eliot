@@ -12,9 +12,13 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibNativesProcessor
 
 // The stdlib-layer arithmetic/`&&`/`lessThanOrEqual` natives backing `Int`'s dependent bounds live in
-// `StdlibNativesProcessor`, so this monomorphization suite composes it onto `LangProcessors`. Order is irrelevant —
-// each `NativeBinding.Key` has exactly one producer (`UserValueNativesProcessor` does not bind body-less values).
-class MonomorphicTypeCheckTest extends ProcessorTest((LangProcessors() :+ StdlibNativesProcessor())*) {
+// `StdlibNativesProcessor`, so this monomorphization suite composes it onto `LangProcessors` and registers its native
+// label so the binding merger consults it. Each name has at most one native answer (disjoint suppliers); the user
+// supplier is the fallback, so the merger reads the right reduction with no ordering.
+class MonomorphicTypeCheckTest
+    extends ProcessorTest(
+      (LangProcessors(extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)) :+ StdlibNativesProcessor())*
+    ) {
 
   // --- Explicit integerLiteral constructor ---
 
