@@ -26,10 +26,11 @@ import scala.reflect.ClassTag
   * consumes, and its leading binders line up with the type arguments the checker applies (saturation may prepend
   * binders for omittable `auto` parameters) — keeping the wrap's binder indices aligned (D6).
   *
-  * The subtle, error-prone parts live here once: the concurrent generation guard against mutual-recursion deadlocks,
-  * and the transitive dependency collection. Dependencies are always resolved via [[NativeBinding]] (the checker's
-  * semantics, the bindings the bodies were type-checked against); only the top-level value's own body selection differs
-  * between phases.
+  * The subtle, error-prone parts live here once: the mutual-recursion guard (via the runtime's active fact-request
+  * chain, [[com.vanillasource.eliot.eliotc.processor.CompilerIO.activeFactKeys]] — never per-processor mutable state, so
+  * the processor stays a pure function of the facts it reads), and the transitive dependency collection. Dependencies
+  * are always resolved via [[NativeBinding]] (the checker's semantics, the bindings the bodies were type-checked
+  * against); only the top-level value's own body selection differs between phases.
   */
 abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
     getInputKey: OutputKey => SaturatedValue.Key
@@ -43,10 +44,6 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
 
   /** Wrap the computed binding in the phase-specific output fact. */
   protected def buildFact(vfqn: ValueFQN, semValue: SemValue): OutputFact
-
-  /** Thread-safe set of FQNs currently being generated. Prevents mutual recursion deadlocks in collectBindings. */
-  private val generating: java.util.Set[ValueFQN] =
-    java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap())
 
   /** Whether this processor binds body-less definitions.
     *
@@ -69,14 +66,12 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
   private def generateForBodyfulValue(key: OutputKey, fact: InputFact): CompilerIO[OutputFact] = {
     val vfqn = getInputKey(key).vfqn
     val body = selfBody(fact.value)
-    generating.add(vfqn)
     for {
       bodyBindings <- body match {
                         case Some(b) => collectBindings(b.value, vfqn)
                         case None    => Map.empty[ValueFQN, SemValue].pure[CompilerIO]
                       }
     } yield {
-      generating.remove(vfqn)
       val semValue = VTopDef(
         vfqn,
         body.map { b =>
@@ -120,9 +115,14 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
       }
       .value
 
-  /** Collect [[NativeBinding]]s for every ValueReference transitively reachable from `ore`, skipping FQNs that are
-    * currently being generated (`generating` set) or already accumulated in this walk — this prevents mutual-recursion
-    * deadlocks and duplicate fact fetches.
+  /** Collect [[NativeBinding]]s for every ValueReference transitively reachable from `ore`, skipping FQNs already
+    * accumulated in this walk, the value's own FQN (`selfFqn`), and any FQN whose [[NativeBinding]] is already an
+    * ancestor on the active fact-request chain ([[com.vanillasource.eliot.eliotc.processor.CompilerIO.activeFactKeys]]).
+    * The ancestor check is what breaks mutual-recursion deadlocks (a covariant `data` cycle, a monad-transformer lift):
+    * fetching a [[NativeBinding]] that is currently being generated up this chain would block on its not-yet-completed
+    * `Deferred`. Using the runtime's per-fiber chain — rather than a shared mutable "currently generating" set — keeps
+    * the scope correct (only *this* request's ancestors are skipped, not values merely generating concurrently in an
+    * unrelated chain) and keeps the processor pure.
     */
   private def collectBindings(
       ore: OperatorResolvedExpression,
@@ -130,12 +130,14 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
   ): CompilerIO[Map[ValueFQN, SemValue]] =
     OperatorResolvedExpression
       .foldValueReferences[CompilerIO, Map[ValueFQN, SemValue]](ore, Map.empty) { (acc, vfqn) =>
-        if (acc.contains(vfqn.value) || vfqn.value == selfFqn || generating.contains(vfqn.value))
-          acc.pure[CompilerIO]
-        else
-          getFact(NativeBinding.Key(vfqn.value)).map {
-            case Some(binding) => acc + (vfqn.value -> binding.semValue)
-            case None          => acc
-          }
+        activeFactKeys.flatMap { ancestors =>
+          if (acc.contains(vfqn.value) || vfqn.value == selfFqn || ancestors.contains(NativeBinding.Key(vfqn.value)))
+            acc.pure[CompilerIO]
+          else
+            getFact(NativeBinding.Key(vfqn.value)).map {
+              case Some(binding) => acc + (vfqn.value -> binding.semValue)
+              case None          => acc
+            }
+        }
       }
 }
