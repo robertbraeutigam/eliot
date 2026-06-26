@@ -32,9 +32,6 @@ Key dependencies: `cats-effect` (IO monad), `parsley-cats` (parser combinators),
 # Filter test output by class name (the -- flag is rejected by ScalaTest)
 ./mill lang.test 2>&1 | grep -v DEBUG | grep "ClassName"
 
-# Format code with scalafmt
-./mill mill.scalalib.scalafmt.ScalafmtModule/reformatAll __
-
 # Clean build artifacts
 ./mill clean
 
