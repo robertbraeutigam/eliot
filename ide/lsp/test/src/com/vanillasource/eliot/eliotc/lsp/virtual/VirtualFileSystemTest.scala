@@ -97,7 +97,10 @@ object VirtualFileSystemTest {
   private class InMemoryProcess extends CompilationProcess {
     private var facts: Map[CompilerFactKey[?], CompilerFact] = Map.empty
 
-    override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] =
+    override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](
+        key: K,
+        ancestors: List[CompilerFactKey[?]]
+    ): IO[Option[V]] =
       IO(facts.get(key).map(_.asInstanceOf[V]))
 
     override def registerFact(value: CompilerFact): IO[Unit] = IO { facts = facts.updated(value.key(), value) }

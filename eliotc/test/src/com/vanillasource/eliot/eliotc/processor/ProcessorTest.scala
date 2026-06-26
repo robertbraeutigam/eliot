@@ -62,7 +62,10 @@ object ProcessorTest {
       facts = facts.updated(fact.key(), fact)
     }
 
-    override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] =
+    override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](
+        key: K,
+        ancestors: List[CompilerFactKey[?]]
+    ): IO[Option[V]] =
       IO.pure(facts.get(key).map(_.asInstanceOf[V]))
 
     override def registerFact(value: CompilerFact): IO[Unit] =

@@ -13,8 +13,18 @@ trait CompilationProcess {
     * If the generation of the fact previously failed, this call will return with None. Otherwise, the processors will
     * be asked to generate this fact and this call will block until that process ends. If this call returns with None,
     * that means this fact will never be produced.
+    *
+    * `ancestors` is the active fact-request chain of the caller (the keys whose generation is in progress up this
+    * request path, innermost first). Processors never pass it — it defaults to empty and is supplied internally by the
+    * per-generation [[com.vanillasource.eliot.eliotc.compiler.cache.DependencyTrackingProcess]] wrapper, which knows
+    * the key it is tracking and threads `key :: ancestors` down to the generator so the generated fact's own
+    * [[activeFactKeys]] reflects the full chain. This is what lets cycle detection work without ambient fiber-local
+    * state.
     */
-  def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]]
+  def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](
+      key: K,
+      ancestors: List[CompilerFactKey[?]] = Nil
+  ): IO[Option[V]]
 
   def registerFact(value: CompilerFact): IO[Unit]
 
@@ -22,8 +32,9 @@ trait CompilationProcess {
     * of the fact being generated right now. A processor reads this to detect a cyclic / non-stabilising fact-request
     * chain: requesting a key that is already an ancestor would dead-lock the [[Deferred]]-based fact cache (the
     * in-progress computation would end up waiting on itself), so a processor can instead report a specific error. The
-    * default is empty (no tracking); [[com.vanillasource.eliot.eliotc.compiler.IncrementalFactGenerator]] maintains the
-    * real chain.
+    * default is empty (no tracking); the real chain is carried explicitly by the per-generation
+    * [[com.vanillasource.eliot.eliotc.compiler.cache.DependencyTrackingProcess]] (one is built per fact generation by
+    * [[com.vanillasource.eliot.eliotc.compiler.IncrementalFactGenerator]], with the chain as a constructor field).
     */
   def activeFactKeys: IO[List[CompilerFactKey[?]]] = IO.pure(Nil)
 }

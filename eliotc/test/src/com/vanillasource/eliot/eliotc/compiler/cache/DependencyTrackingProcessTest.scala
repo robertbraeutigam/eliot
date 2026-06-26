@@ -42,16 +42,33 @@ class DependencyTrackingProcessTest extends AsyncFlatSpec with AsyncIOSpec with 
     }.asserting(_ shouldBe (Map.empty, List(Fact("x"))))
   }
 
-  it should "delegate activeFactKeys to the underlying process" in {
-    tracked(Map.empty, active = List(Key("ancestor"))) { (process, _, _) =>
+  it should "expose its own key prepended to the ancestor chain as the active fact keys" in {
+    tracked(Map.empty, ancestors = List(Key("ancestor"))) { (process, _, _) =>
       process.activeFactKeys
-    }.asserting(_ shouldBe List(Key("ancestor")))
+    }.asserting(_ shouldBe List(owner, Key("ancestor")))
   }
 
-  /** Build a [[DependencyTrackingProcess]] for `owner` over a stub process with the given facts, exposing the
-    * dependency map and a record of facts registered through it.
+  it should "forward its own key and ancestor chain as the ancestors of reads on the underlying process" in {
+    for {
+      seen      <- Ref.of[IO, List[CompilerFactKey[?]]](Nil)
+      underlying = new CompilationProcess {
+                     override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](
+                         key: K,
+                         ancestors: List[CompilerFactKey[?]]
+                     ): IO[Option[V]]                                          = seen.set(ancestors).as(None)
+                     override def registerFact(value: CompilerFact): IO[Unit] = IO.unit
+                   }
+      deps      <- Ref.of[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]](Map.empty)
+      process    = new DependencyTrackingProcess(underlying, owner, deps, List(Key("ancestor")))
+      _         <- process.getFact(Key("a"))
+      result    <- seen.get
+    } yield result
+  }.asserting(_ shouldBe List(owner, Key("ancestor")))
+
+  /** Build a [[DependencyTrackingProcess]] for `owner` (requested under `ancestors`) over a stub process with the given
+    * facts, exposing the dependency map and a record of facts registered through it.
     */
-  private def tracked[A](facts: Map[CompilerFactKey[?], CompilerFact], active: List[CompilerFactKey[?]] = Nil)(
+  private def tracked[A](facts: Map[CompilerFactKey[?], CompilerFact], ancestors: List[CompilerFactKey[?]] = Nil)(
       body: (
           DependencyTrackingProcess,
           Ref[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]],
@@ -62,12 +79,14 @@ class DependencyTrackingProcessTest extends AsyncFlatSpec with AsyncIOSpec with 
       deps       <- Ref.of[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]](Map.empty)
       registered <- Ref.of[IO, List[CompilerFact]](List.empty)
       underlying  = new CompilationProcess {
-                      override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] =
+                      override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](
+                          key: K,
+                          ancestors: List[CompilerFactKey[?]]
+                      ): IO[Option[V]]                                          =
                         IO.pure(facts.get(key).map(_.asInstanceOf[V]))
                       override def registerFact(value: CompilerFact): IO[Unit] = registered.update(_ :+ value)
-                      override def activeFactKeys: IO[List[CompilerFactKey[?]]] = IO.pure(active)
                     }
-      result     <- body(new DependencyTrackingProcess(underlying, owner, deps), deps, registered)
+      result     <- body(new DependencyTrackingProcess(underlying, owner, deps, ancestors), deps, registered)
     } yield result
 }
 

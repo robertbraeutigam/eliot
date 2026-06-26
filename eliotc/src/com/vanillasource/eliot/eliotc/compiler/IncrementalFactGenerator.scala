@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.compiler
 
 import cats.data.Chain
-import cats.effect.{Deferred, IO, IOLocal, Ref}
+import cats.effect.{Deferred, IO, Ref}
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.{CacheEntry, DependencyTrackingProcess, FactCache, FactCacheData}
 import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
@@ -10,7 +10,8 @@ import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFac
 /** Cache-aware fact generator implementing incremental compilation by backward, demand-driven validation.
   *
   * It keeps the same concurrent core as a plain generator — a [[Deferred]]-per-key map that computes each fact at most
-  * once per run, per-fiber generation, and an [[IOLocal]] ancestor chain for recursion detection — and decides, per
+  * once per run, per-fiber generation, and an ancestor chain for recursion detection threaded explicitly through the
+  * per-generation [[DependencyTrackingProcess]] (the `ancestors` parameter of [[getFact]]) — and decides, per
   * dependency, whether it changed since last run via [[depUnchanged]]:
   *
   *   - a dependency with a **stored value** (every leaf, and every serializable derived fact) is recomputed and compared
@@ -37,17 +38,17 @@ final class IncrementalFactGenerator(
     directDependencies: Ref[IO, Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]],
     carriedForward: Ref[IO, Map[CompilerFactKey[?], CacheEntry]],
     unchangedChecks: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]],
-    regeneratedCount: Ref[IO, Int],
-    activeKeys: IOLocal[List[CompilerFactKey[?]]]
+    regeneratedCount: Ref[IO, Int]
 ) extends CompilationProcess
     with Logging {
 
-  override def activeFactKeys: IO[List[CompilerFactKey[?]]] = activeKeys.get
-
-  override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] =
+  override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](
+      key: K,
+      ancestors: List[CompilerFactKey[?]]
+  ): IO[Option[V]] =
     for {
       modifyResult <- modifyAtomicallyFor(key)
-      _            <- (activeKeys.update(key :: _) >> resolve(key, modifyResult._1))
+      _            <- resolve(key, modifyResult._1, ancestors)
                         .handleErrorWith(t => error[IO](s"Resolving (${key.getClass.getName}) $key failed.", t))
                         .flatMap(_ => modifyResult._1.complete(None).void) // safety net; no-op if already completed
                         .start
@@ -66,15 +67,19 @@ final class IncrementalFactGenerator(
     *   - Anything else (a value-less fact whose value is now actually needed, a leaf, or a fact with no prior) is
     *     regenerated.
     */
-  private def resolve(key: CompilerFactKey[?], deferred: Deferred[IO, Option[CompilerFact]]): IO[Unit] =
+  private def resolve(
+      key: CompilerFactKey[?],
+      deferred: Deferred[IO, Option[CompilerFact]],
+      ancestors: List[CompilerFactKey[?]]
+  ): IO[Unit] =
     prior.get(key) match {
       case Some(entry) if entry.injected                              => deferred.complete(entry.value).void
       case Some(entry) if entry.value.isDefined && entry.directDeps.nonEmpty =>
         entry.directDeps.toList.forallM(depUnchanged).flatMap {
           case true  => acceptPrior(key, entry, deferred)
-          case false => regenerate(key)
+          case false => regenerate(key, ancestors)
         }
-      case _                                                          => regenerate(key)
+      case _                                                          => regenerate(key, ancestors)
     }
 
   /** Whether `key`'s value is unchanged since last run, memoized once per run. The validity oracle a parent uses for
@@ -130,18 +135,22 @@ final class IncrementalFactGenerator(
     * `getFact` calls — is recorded as *generated* (not mistaken for an injected fact, see [[buildCacheData]]). Reads then
     * accumulate into the same entry as they happen, before the fact becomes observable.
     */
-  private def regenerate(key: CompilerFactKey[?]): IO[Unit] =
+  private def regenerate(key: CompilerFactKey[?], ancestors: List[CompilerFactKey[?]]): IO[Unit] =
     regeneratedCount.update(_ + 1) >>
       directDependencies.update(deps => deps.updated(key, deps.getOrElse(key, Set.empty))) >>
       generator
         .generate(key)
-        .run(new DependencyTrackingProcess(this, key, directDependencies))
+        .run(new DependencyTrackingProcess(this, key, directDependencies, ancestors))
         .runS(Chain.empty)
         .fold(identity, identity)
         .flatMap(es => errors.update(_ ++ es))
 
+  /** A validation-path read (recompute-and-compare). It starts a fresh chain (`Nil`): the recursion guard only matters
+    * for facts materialised through a processor generation, and the value-less `SemValue`-bearing facts the guard
+    * protects are never materialised here — they take the structural-drill branch of [[computeUnchanged]].
+    */
   private def getFactUntyped(key: CompilerFactKey[?]): IO[Option[CompilerFact]] =
-    getFact(key.asInstanceOf[CompilerFactKey[CompilerFact]])
+    getFact(key.asInstanceOf[CompilerFactKey[CompilerFact]], Nil)
 
   private def modifyAtomicallyFor(
       key: CompilerFactKey[?]
@@ -199,7 +208,6 @@ object IncrementalFactGenerator {
       carriedForward  <- Ref.of[IO, Map[CompilerFactKey[?], CacheEntry]](Map.empty)
       unchangedChecks <- Ref.of[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]](Map.empty)
       regenerated     <- Ref.of[IO, Int](0)
-      activeKeys      <- IOLocal[List[CompilerFactKey[?]]](Nil)
     } yield new IncrementalFactGenerator(
       generator,
       prior.map(_.entries).getOrElse(Map.empty),
@@ -208,7 +216,6 @@ object IncrementalFactGenerator {
       deps,
       carriedForward,
       unchangedChecks,
-      regenerated,
-      activeKeys
+      regenerated
     )
 }

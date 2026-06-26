@@ -12,10 +12,13 @@ final class TrackedCompilationProcess(
     processorName: String
 ) extends CompilationProcess {
 
-  override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](key: K): IO[Option[V]] =
+  override def getFact[V <: CompilerFact, K <: CompilerFactKey[V]](
+      key: K,
+      ancestors: List[CompilerFactKey[?]]
+  ): IO[Option[V]] =
     for {
       _      <- tracker.recordFactRequest(processorName, key)
-      result <- underlying.getFact(key)
+      result <- underlying.getFact(key, ancestors)
     } yield result
 
   override def registerFact(value: CompilerFact): IO[Unit] =
