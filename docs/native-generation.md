@@ -1,10 +1,10 @@
-# Native Generation: One Host-Runnable Implementation per Name
+# Native Generation: Host-Runnable Reduction per Name
 
-Status: **Design in progress.** This document records the current state of the design discussion. Nothing of the
-resolution mechanism is implemented yet; the only code that has landed is a *prerequisite* purity fix to
-`BindingProcessor` (commit `618dad8b`, see "Prerequisite, landed" below). The problem is currently latent — it
-does not yet mis-compile any program — but the resolution today is a silent, order-dependent race that is not
-fail-safe.
+Status: **Design resolved; not yet implemented.** This document records the design. The mechanism below — labeled,
+total contributor facts selected by a precedence merger — is agreed but not yet built; the only code that has landed
+is a *prerequisite* purity fix to `BindingProcessor` (commit `618dad8b`, see "Prerequisite, landed" below). The
+problem is latent today — it does not yet mis-compile any program — but the current resolution is a silent,
+order-dependent first-registration race that is not fail-safe.
 
 ## The problem
 
@@ -55,119 +55,138 @@ actual machine the compiler runs on (the JVM). There are only two kinds of primi
 - **emit-only** — the host can only *produce* it for the target to execute later: `nativeWiden`, the
   `nativeAdd…`/`nativeMultiply…` machine leaves, `intToString`, `println`. The host can never run these.
 
-This boundary **cuts through the target (U) layer, not around it.** Whether a U definition "can run on the
-compiler" has nothing to do with it being U code — it is whether its transitive primitive base is run-able.
-`Coerce[Int,Int]`'s *condition* (`lessThanOrEqual && …`) is run-able, so checking evaluates it; its `nativeWiden`
-*payload* is emit-only, so checking never forces it (it rides inside the `some`). Same definition, both kinds,
-separated by *position*.
+This boundary **cuts through the target layer, not around it.** Whether a definition "can run on the compiler" has
+nothing to do with it being target code — it is whether its transitive primitive base is run-able. `Coerce[Int,Int]`'s
+*condition* (`lessThanOrEqual && …`) is run-able, so checking evaluates it; its `nativeWiden` *payload* is emit-only,
+so checking never forces it (it rides inside the `some`). Same definition, both kinds, separated by *position*.
 
-So C and U were never competing answers to one question. They are implementations of one abstract `add` for two
-execution engines: the **host** (checking) reads the host-runnable realization; **codegen** reads the
-emit/runtime realization. The two facts already encode this split: `NativeBinding` = "what the host can run,"
-`TransparentBinding` = "what gets emitted." There is no ordering to invent.
+So the native reduction and the target body were never competing answers to one question. They are implementations of
+one abstract `add` for two execution engines: the **host** (checking) reads the host-runnable realization; **codegen**
+reads the emit/runtime realization. The two facts already encode this split: `NativeBinding` = "what the host can run,"
+`TransparentBinding` = "what gets emitted." There is no ordering to invent — only a precedence to state.
 
 ## The rule
 
-> Across C (compiler/host) and U (target) combined, a name has **at most one host-runnable implementation**.
+Type-level evaluation is *running code on the host*, so for each name the checker needs that name's **host-runnable
+reduction**. Two categories of supplier can offer one:
 
-- **C is the closed set of host-runnable primitive *leaves*.** Only the compiler can supply a host-runnable leaf —
-  U is `.els` text with no host execution semantics except by calling C's primitives. C must therefore be present
-  in every build, regardless of target.
-- **U = host-runnable *composites* over C's leaves** (`fitsIn`, the `Combine`/`Coerce` instances, the opaque `Int`
-  representation body) **+ emit-only leaves** (machine ops) **+ types/abilities.**
-- **U may give a C-owned name an *emit-only* sibling** (a body-less backend native — e.g. a machine `add`) even
-  though C host-runs it. That is the runtime realization, not an override: checking uses C's native, codegen emits
-  the leaf.
-- **Two host-runnable implementations of one name = error.** "U gave an eliot body to a host primitive" is the
-  override, rejected exactly like the layer merge rejects "multiple implementations."
-- **Companion clause:** a name forced in a *must-run* position (type-level eval, or lowering an opaque body) with
-  **zero** host-runnable implementations is also an error — reported lazily, at the use site, when the evaluator
-  gets stuck on an emit-only leaf (`PostDrainQuoter` "Cannot resolve type."; `RepresentationLowering` "Could not
-  reduce opaque type…"). This is the Use-Site Verification cornerstone; it is *not* a separate modular analysis.
+- **Native suppliers** — compiler/platform-supplied reducers coded directly against the evaluator (System's
+  `Function`/`Type`/`Bool`, Stdlib's `BigInteger` arithmetic + `&&`, plus any a platform plugin adds). Host-runnable by
+  construction. **Preferred for checking.**
+- **User suppliers** — the per-layer body suppliers (stdlib's, jvm's, and any layer in between) that build a binding
+  from a value's `.els` body. A user supplier **returns every bodied def** — it neither can nor does decide whether a
+  body is host-runnable. **Fallback**, used when no native supplies the name; non-runnability surfaces lazily at the
+  use site, never as a producer-side judgment.
 
-Net: type-level eval needs *a host-runnable implementation*; the rule guarantees exactly one; so there is nothing
-to order or prefer. The original "which to read for `add`?" stops being a question.
+Selection is **pure precedence with no conflict resolution**: take the first native value; failing that, the first user
+value; failing that, no binding. Nothing has to be ordered or rejected, because uniqueness already holds within each
+category:
+
+- native suppliers are **disjoint by construction** (each owns its own names) → at most one native value;
+- the user layer-stack has **one implementation per name**, enforced upstream by the layering system
+  (`UnifiedModuleValueProcessor` rejects "multiple implementations") → at most one user value.
+
+**A user body coexisting with a native is the normal case, not an override.** `BigInteger.add` has a compile-time
+native (for dependent bounds) *and* a runtime body in a platform layer; checking reads the native, codegen reads the
+body via `TransparentBinding`. Precedence alone prevents the body from shadowing the native — so there is nothing to
+reject. Whether the two *agree* (the native is the spec; the body must conform within the proven bounds) is the
+deferred **host/target agreement** obligation (a TODO), not a condition checked here.
+
+**Companion clause.** A name forced in a *must-run* position (type-level eval, or lowering an opaque body) with **no**
+value from any supplier is an error — reported lazily, at the use site, when the evaluator gets stuck on an emit-only
+leaf (`PostDrainQuoter` "Cannot resolve type."; `RepresentationLowering` "Could not reduce opaque type…"). This is the
+Use-Site Verification cornerstone; it is *not* a separate modular analysis.
+
+*(Earlier drafts of this doc proposed "at most one host-runnable implementation per name; two = error." That rule is
+**struck**: a user supplier returns every bodied def and cannot identify host-runnability, so "a second host-runnable
+implementation" is not an observable condition. Native precedence prevents the shadowing the rule was meant to prevent;
+the residual agreement concern is deferred, above.)*
 
 ### Stress test
 
-| name | C | U | host-runnable count | verdict |
+| name | native | user | checking reads | note |
 |---|---|---|---|---|
-| `add` (BigInteger) | native | future machine `add` (emit-only, body-less) | 1 (C) | OK — check via native, emit via leaf |
-| `add` *if U gave a pure-eliot body* | native | composite over C prims | **2** | **error** — override of a host primitive |
-| `fitsIn` | — | `lessThanOrEqual && …` | 1 (U) | OK |
-| `Combine[Int,Int]` | — | `min`/`max` composite | 1 (U) | OK |
-| `Coerce[Int,Int]` | — | condition host-runnable, `nativeWiden` payload emit-only | 1 (U) | OK — payload never forced at type level |
-| `nativeWiden`, `nativeAdd…` | — | body-less machine leaf | 0 (emit-only) | OK — never forced at type level |
-| `Int.+` | — | body bottoms in `nativeWiden` (emit-only) | 0 | OK — signature-only at checking; emitted at codegen |
-| `opaque type Int = fold(fitsIn…, JvmByte, …)` | — | opaque body host-runnable | 1 (U) | OK — C doesn't define `Int`; lowering runs it |
-| `lessThanOrEqual`, `&&`, `fold` | native | body-less abstract signature | 1 (C) | OK |
-| `intToString` | — | body-less machine leaf | 0, runtime-only | OK — not type-level; companion clause N/A |
+| `add` (BigInteger) | yes | machine `add` (emit-only, body-less ⇒ no user value) | native | native is the only value |
+| `add`, U *also* gives a pure-eliot body | yes | composite over native prims | native | **not an override** — native wins checking, U body is codegen; agreement deferred |
+| `fitsIn` | — | `lessThanOrEqual && …` | user | host-runnable composite; reduces during checking |
+| `Combine[Int,Int]` | — | `min`/`max` composite | user | host-runnable composite |
+| `Coerce[Int,Int]` | — | condition host-runnable, `nativeWiden` payload emit-only | user | payload never forced at type level |
+| `nativeWiden`, `nativeAdd…` | — | body-less machine leaf (no user value) | none | emit-only; never forced at type level |
+| `Int.+` | — | body bottoms in `nativeWiden` (emit-only) | user | signature-only at checking; stuck only if forced; emitted at codegen |
+| `opaque type Int = fold(fitsIn…, …)` | — | opaque body host-runnable | user | no native defines `Int`; lowering runs the body |
+| `lessThanOrEqual`, `&&`, `fold` | yes | body-less abstract signature (no user value) | native | |
+| `println`, `intToString` | — | platform body / machine leaf | user | runtime-only, never forced; companion clause N/A |
 
 ## What this is *not* (framings considered and rejected)
 
 Recorded so they are not re-litigated.
 
-- **"C-if-present-else-U" as a bare priority.** Unprincipled — a tiebreak dressed as a rule.
-- **`opaque` as the marker.** Would force *every* C-implemented function that also gets a runtime body to be
+- **The host-leaf registry** (this doc's own earlier proposed mechanism). A runtime `Map[ValueFQN, SemValue]`
+  assembled at plugin init and consulted to make the host-vs-user decision. Rejected: it is a **side-channel** carrying
+  per-FQN semantics *outside* the fact graph — no incremental tracking, a parallel mechanism to the facts. The
+  labeled-contributor-facts design keeps every answer in the fact graph; the plugin `Configuration` carries only the
+  contributor *roster* (strings), never semantics.
+- **"Native-if-present-else-user" as a bare priority.** Once it is restated as a *category precedence* over total facts
+  (native suppliers before user suppliers, each category provably single-valued), it is exactly the rule — but as a
+  silent tiebreak over a racing single key it was unprincipled. The principle is what makes it legitimate.
+- **`opaque` as the marker.** Would force *every* native-implemented function that also gets a runtime body to be
   `opaque def`. Absurd; the classification belongs to the compiler (it has a native), not an annotation.
+- **Probing whether a binding fact "exists."** Still rejected as a control-flow signal — and the design *avoids* it:
+  contributor facts are **total** (every supplier answers `Some`/`None` for every query, under its own label), so the
+  merger reads *values* with `getFactOrAbort`, never tests presence. Absence is a value, not a missing fact; a
+  mis-wired supplier aborts loudly instead of silently demoting to a lower-precedence answer.
+- **Analysing whether a user body is host-runnable.** Still rejected — and now load-bearing: *because* a user supplier
+  returns every def blindly, native+user coexistence is benign and needs no override check (see "The rule").
+  Non-runnability is discovered by the evaluator getting stuck at the use site, never computed as a fact.
 - **A "two-axis" (platform × stage) theory.** Overbuilt for the single case it covers; did not aid reasoning.
-- **Modeling C as a third platform on the same axis as the target platforms.** Leads to chaos: the target (U)
-  *contributes to* the host run (its type definitions, its `Combine`/`Coerce` instances, and the ordinary defs they
-  use all execute on the host during checking), so there is no clean precedence among base / host / target. The
-  resolution is that **C is not a third platform** — it is the host's realization of the run-able leaves; the
-  target contributes to checking simply as *the program being checked*.
-- **Probing whether a `NativeBinding`/`HostNativeBinding` fact "exists."** Violates the fact model: a fact you
-  request must be expected to exist (`getFactOrAbort`, or `getFact` + `compileError` on `None`); fact-absence is
-  not a control-flow signal. So the host-vs-user decision must read *in-memory data*, never test a fact for
-  presence.
-- **Analysing whether a U body is host-runnable.** "Does this body bottom out only in run-able leaves" is a
-  transitive, whole-graph property — precisely the class of thing Use-Site Verification defers. The user-binding
-  producer builds the binding **blindly**; non-run-ability is discovered by the evaluator getting stuck at the use
-  site. We never compute it as a fact.
+- **Modeling the compiler natives as a third platform.** The target *contributes to* the host run (its type
+  definitions, `Combine`/`Coerce` instances, and the ordinary defs they use all execute on the host during checking),
+  so there is no clean precedence among base / host / target. The resolution: native suppliers are not a platform —
+  they are the host's realization of the run-able leaves; the target contributes to checking simply as *the program
+  being checked*.
 
-## Mechanism (current direction)
+## Mechanism
 
-The simplest shape consistent with the fact model: **one processor owns `NativeBinding.Key`**, with the precedence
-done *in-process* over in-memory data (a `Map.get`, not a fact-existence probe — which is what makes the "fallback"
-legitimate where a cross-fact fallback would not be).
+**Labeled, total contributor facts + a precedence merger.** Everything stays in the fact graph; nothing is a
+side-channel.
 
-1. A **host-leaf registry** — `Map[ValueFQN, SemValue]` — assembled at plugin init. It spans two modules:
-   `SystemNativesProcessor`'s leaves live in `lang`, `StdlibNativesProcessor`'s in `stdlib` (which depends on
-   `lang`, not the reverse). So the registry is **plugin-contributed** and read in-memory. This is required, not
-   cosmetic: the override check must cover stdlib leaves like `add`, not just System's.
-2. The unified `NativeBinding` processor resolves `NativeBinding.Key(fqn)`:
-   - `registry.get(fqn)` is a host leaf →
-     - if the merged value *also* carries a (checking-visible) body → **override error** (host-leaf ∩ bodied);
-     - else → the native.
-   - else → the existing user-body logic (build from `checkingRuntime`; inert `VTopDef` for `opaque`; abort →
-     `VNeutral` for body-less, leaving `DataType`/`Match`/codegen to handle it).
-3. `DataTypeNativesProcessor`/`MatchNativesProcessor` are otherwise disjoint from the user branch (they handle
-   body-less FQNs, which the user branch aborts on), so they may stay separate or fold in. **One existing overlap
-   must be tidied:** `SystemNativesProcessor` and `DataTypeNativesProcessor` both produce `NativeBinding(Type)`
-   today, resolved only by list order (System listed first). Make it explicit — exclude `typeFQN` from
-   `DataTypeNativesProcessor`, or fold the type-constructor inert branch into the unified processor.
+1. **Each supplier emits a total, label-discriminated fact** `ContributedBinding(vfqn, label)` — `Some(semValue)` if
+   that supplier defines a reduction/body for `vfqn`, `None` otherwise. Distinct labels ⇒ every answer is its own fact
+   ⇒ they coexist legally, with no first-registration race. The native suppliers (System, Stdlib, platform reducers)
+   and the per-layer user suppliers (stdlib's, jvm's, intermediate layers') are all contributors of this one fact type,
+   separated by label and tagged native-vs-user category.
+2. **The label set is open and enumerated through `Configuration`.** Dynamic layers mean the contributor set is not
+   fixed, so it cannot be a static list of fact types. Each contributing plugin adds its label(s) to a
+   `Configuration.Key[Set[String]]` in `configure()`; because all `configure()` complete before
+   `initialize(configuration)`, the merger is built in `initialize` already holding the full set, and asks
+   `ContributedBinding.Key(vfqn, label)` for each. The config carries only strings (*which* contributors exist), never
+   per-FQN semantics — ordinary plugin configuration, not a registry.
+3. **One merger owns the evaluator-facing `NativeBinding(vfqn)`.** Pure precedence: first native value → else first
+   user value → else abort (no binding; the evaluator stalls at the use site = companion clause). `getFactOrAbort` on
+   each contributor fact (all total, so reads always land) makes a missing supplier fail loudly. **No conflict arm:**
+   native suppliers are disjoint and the user stack is single-implementation (layering), so each category yields at
+   most one value. Native disjointness is a construction invariant, so no ≥2-native guard is added — selection is
+   correct under it.
+4. **`DataType`/`Match` natives become ordinary native-category contributors** (their own labels), disjoint from the
+   rest. The one *existing* overlap must be removed to keep native disjointness real: `SystemNativesProcessor` and
+   `DataTypeNativesProcessor` both answer for `NativeBinding(Type)` today (resolved only by list order) — exclude
+   `typeFQN` from the `DataType` contributor so each native name has exactly one native supplier.
 
-Properties: registry-first gives the right def **deterministically** (the host realization wins with no reliance
-on processor order), and the override is caught **in one place** as a declaration-vs-body intersection — no
-probing, no body classification. `TransparentBinding` (codegen) is unchanged: it always reads the value's runtime
-body, and the compiler natives never emit a `TransparentBinding`.
+`TransparentBinding` (codegen) is unchanged: it always reads the value's runtime body, and native suppliers never emit
+one.
 
 ## Open questions / consequences to accept
 
 - **The emit-leaf set must become an explicit backend declaration.** Today an emit-only leaf (`nativeWiden`) and a
-  genuinely abstract (unimplemented) signature are *both* body-less and indistinguishable without the backend
-  saying which FQNs it emits. The companion clause and clean codegen both want this line drawn structurally rather
-  than by today's implicit FQN-recognition in the backend. This is the one piece the design *forces*.
-- **`opaque` host-runnable body over a C native (coherence).** The proposed check is *lenient* — it triggers on a
-  checking-visible body (`checkingRuntime.nonEmpty`), so an `opaque def` over a C native would be allowed (checking
-  uses the native, codegen the opaque body). A *strict* reading would reject any body coexisting with a C native.
-  For the arithmetic primitives this never arises (their runtime sibling is a body-less leaf, not an opaque body),
-  so lenient is recommended. The host/target *agreement* obligation for such a pair — the host native is the
-  spec, the target impl must conform within the proven bounds — is a separate, currently-unchecked concern worth a
-  TODO.
-- **Fold `DataType`/`Match` into the single producer, or keep separate?** Folding yields literally one producer of
-  `NativeBinding` (no possible clash); keeping them separate is less churn and they are provably disjoint from the
-  user branch once the `typeFQN` overlap is fixed.
+  genuinely abstract (unimplemented) signature are *both* body-less and indistinguishable without the backend saying
+  which FQNs it emits. The companion clause and clean codegen both want this line drawn structurally rather than by
+  today's implicit FQN-recognition in the backend. This is the one piece the design *forces*.
+- **Host/target agreement is unchecked.** When a name has both a native (checking) and a user body (codegen) — the
+  `add` case — nothing verifies the body conforms to the native (the native is the spec). Precedence guarantees
+  *which* is read in each phase; agreement between them is a separate, currently-unchecked concern worth a TODO.
+- **`opaque` host-runnable body over a native (coherence).** An `opaque def` over a native is allowed (checking uses
+  the native, codegen the opaque body). For the arithmetic primitives this never arises (their runtime sibling is a
+  body-less leaf, not an opaque body), so the lenient reading is fine; it folds into the agreement TODO above.
 
 ## Prerequisite, landed
 
@@ -177,18 +196,22 @@ body's transitive references and fetches each one's `NativeBinding`. It used a *
 binding generation impure and interleaving-dependent (it skipped values merely generating concurrently in
 unrelated chains). Commit `618dad8b` replaced it with the runtime's per-fiber ancestor chain
 (`CompilerIO.activeFactKeys`), which is correctly scoped (only *this* request's ancestors can deadlock) and keeps
-the processor a pure function of the facts it reads. The unified-processor work above should land on this pure
-base.
+the processor a pure function of the facts it reads. The mechanism above should land on this pure base.
 
 ## Glossary of current facts/code
 
+- **`ContributedBinding(vfqn, label)`** *(to add)* — one supplier's total answer for a name: `Some(semValue)` or
+  `None`, under that supplier's label. The fact the precedence merger reads, one per label.
 - **`NativeBinding(vfqn, semValue)`** — the checking-phase (host-runnable) binding the NbE evaluator reads per FQN.
-  The fact this plan makes single-producer and rule-checked.
+  Made single-owner by this plan: produced only by the merger, from the `ContributedBinding`s.
 - **`TransparentBinding(vfqn, semValue)`** — the codegen/lowering binding; identical to `NativeBinding` except it
   keeps `opaque` bodies unfolded. Unchanged by this plan.
 - **`OperatorResolvedValue.runtime` / `.checkingRuntime`** — a value's body for lowering vs for checking;
-  `checkingRuntime = if (opaque) None else runtime`. The "has a checking-visible body" test in the override check.
+  `checkingRuntime = if (opaque) None else runtime`. What each user supplier reads for its `ContributedBinding`.
+- **`Configuration.Key[Set[String]]`** *(to add)* — the contributor-label roster; plugins add their labels in
+  `configure()`, the merger reads it in `initialize` to know which `ContributedBinding`s to ask for.
 - **`SystemNativesProcessor` / `StdlibNativesProcessor` / `DataTypeNativesProcessor` / `MatchNativesProcessor` /
-  `UserValueNativesProcessor`** — the current `NativeBinding` producers (see "The problem").
+  `UserValueNativesProcessor`** — the current `NativeBinding` producers (see "The problem"); under this plan they
+  become labeled `ContributedBinding` contributors feeding the merger.
 - **`CompilerIO.activeFactKeys`** — the runtime's per-fiber ancestor chain of in-progress fact keys; the pure cycle
   guard `collectBindings` now uses.
