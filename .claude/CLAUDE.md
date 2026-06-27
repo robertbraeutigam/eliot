@@ -241,6 +241,29 @@ same names with bodies / as `data`. The base stays universal; each platform fill
 behaviour. (`data` desugars to an abstract type-constructor `FunctionDefinition` plus value-constructor
 functions via `DataDefinitionDesugarer`, so even concrete types reduce to the same `NamedValue` model.)
 
+### The compiler is itself a platform (where compile-time code lives)
+
+The **compiler is its own platform**, peer to runtime platforms like jvm. Source resolution is **platform-scoped**
+(the `platform` marker — `compiler` / `runtime` — is a key dimension threaded through the front-end): the NbE checker
+resolves names in the `compiler` platform; codegen (`used → uncurry → backend`) resolves in the `runtime` platform.
+So one abstract base name can have a **distinct concrete implementation per platform** — exactly as `add`/`fold`/`Bool`
+already do via the native-binding routing (`ContributedBinding` + `BindingMergerProcessor`: the compile-time reduction
+wins for checking, the runtime body is used for codegen). There is no "shared" platform: each unifies the base + the
+user program + its own layer independently. Status: designed in `docs/compiler-as-platform.md` (work items CP1–CP4),
+being implemented; **until that lands, compile-time intrinsics are still Scala natives** in `SystemNativesProcessor` /
+`StdlibNativesProcessor`, so verify the compiler-platform module exists before targeting it.
+
+**Where to put new compiler code.** When a task needs something the compiler must *evaluate at compile time* — a
+carrier (e.g. the effectful-signatures `Either`), a compile-time intrinsic, or an ability instance used only during
+checking — and it is expressible in ordinary Eliot, write it as **Eliot in the compiler-platform module** (a Mill
+module depending on `stdlib`, shipping resources under the compiler prefix), keeping the abstract signature in
+`lang`/`stdlib` and the *runtime* concrete impl in `jvm`. Do **not** put `data`/bodies in the abstract base (it stays
+representation-free, per the cornerstone above), and do **not** reimplement `data`/`match`/instances as Scala
+`SemValue`s — the one NbE evaluator already runs them, so a Scala reimplementation is the single-evaluator
+anti-pattern. Reserve Scala natives (`SystemNativesProcessor`/`StdlibNativesProcessor`) for genuinely primitive
+**leaves** no Eliot body can express (arbitrary-precision arithmetic, `Bool` branching) — these are the compiler
+platform's leaf bottom, mirroring jvm's bytecode leaves.
+
 ## Language Cornerstone: Use-Site Verification (Sound, Not Modular)
 
 Eliot does not prove a definition correct for every instantiation it *could* receive (modular completeness); it
