@@ -156,13 +156,14 @@ concrete; otherwise it stays stuck and is deferred.)
 
 ## Work items
 
-### W1 — Compile-time Error carrier as intrinsics — **done (via compiler-as-platform CP4)**
+### W1 — Compile-time Error carrier as intrinsics — **done (the compiler-platform `Either` carrier)**
 
 > **Superseded mechanism — now landed.** The sketch below supplies the carrier + instances as **Scala** native
 > reductions in `SystemNativesProcessor`. That reimplements in Scala what the one NbE evaluator already does for ordinary
 > `data`/`match`/ability instances (a parallel evaluator — the single-evaluator anti-pattern). W1 is instead realized
-> by making the compiler a first-class platform with its own **Eliot** source root: see
-> `docs/compiler-as-platform.md` (CP4 **is** this carrier, and is implemented). The carrier is now ordinary concrete
+> by making the compiler a first-class platform with its own **Eliot** source root (the *compiler-as-platform*
+> architecture — see the "compiler is itself a platform" section of `.claude/CLAUDE.md` and `compiler/README.md`; this
+> carrier is its first content, and is implemented). The carrier is now ordinary concrete
 > Eliot (`data Either` + `foldEither` + `implement Monad[Either[String]]`/`Throw[String, Either[String]]`) in the
 > compiler-platform layer (`compiler/resources/eliot/eliot/lang/Either.els`), reduced by the existing checker, with the
 > abstract `type Either[E, A]` in the `stdlib` base; `WellKnownTypes` exposes `eitherFQN`/`leftFQN`/`rightFQN` as the

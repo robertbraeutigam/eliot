@@ -54,7 +54,7 @@ class LangPlugin extends CompilerPlugin {
             // The marker selects which filesystem root list `PathScanner` scans. Since CP1.5 these two lists are the
             // *only* source of `.els`: `--compiler-path` carries the abstract base (+ compiler platform), `--runtime-path`
             // the base + target layer, and the positional `<path>` args (the user's program) fold into the runtime path.
-            // See `PathScanner` and docs/compiler-as-platform.md (CP1.5).
+            // See `PathScanner` (CP1.5).
             PathScanner(
               configuration.getOrElse(compilerPathKey, Seq.empty),
               configuration.getOrElse(runtimePathKey, Seq.empty) ++ configuration.getOrElse(pathKey, Seq.empty)

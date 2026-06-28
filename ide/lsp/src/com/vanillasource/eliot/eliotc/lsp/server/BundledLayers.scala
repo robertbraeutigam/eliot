@@ -5,7 +5,7 @@ import java.nio.file.Path
 /** Resolves the bundled compiler/runtime layer source roots the resident LSP compile must hand to `PathScanner`.
   *
   * Since CP1.5 the abstract base and the platform layers are supplied as ordinary filesystem roots — the classpath scan
-  * that used to discover them is gone (see `docs/compiler-as-platform.md`). A packaged distribution stages those layer
+  * that used to discover them is gone (CP1.5). A packaged distribution stages those layer
   * sources as plain directories beside the server jars (`ide/lsp/package.sh`) and the launcher points the
   * [[layersDirectoryProperty]] system property at the staging directory; this object turns that directory into the two
   * per-phase root lists.

@@ -18,7 +18,7 @@ trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     * source roots — their `resources/eliot` dirs — instead of being discovered on the classpath. A forked test JVM's
     * working dir is a per-worker sandbox, so the build hands the repo root in via `ELIOT_REPO_ROOT` (see `build.mill`).
     * These options are appended *after* the `jvm exe-jar …` command — the only position scopt accepts these top-level
-    * options (exactly as `-o` already trails it). See `docs/compiler-as-platform.md` (CP1.5).
+    * options (exactly as `-o` already trails it) (CP1.5).
     */
   private def layerPathArgs: List[String] = {
     val repoRoot          = Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))

@@ -3,7 +3,7 @@ import eliot.lang.Throw
 
 /**
  * The compile-time `Either` carrier (the compiler platform's redefinition of the abstract `type Either[E, A]` in the
- * base layer — `docs/compiler-as-platform.md`, CP4). The compiler is a platform exactly like `jvm`: where the `jvm`
+ * base layer). The compiler is a platform exactly like `jvm`: where the `jvm`
  * layer realizes `Either` for the runtime phase (codegen), this realizes it for the compile-time phase (NbE / type
  * checking). It is the discharge target of the signature-level `Throw[String]` effect — a `{Throw[String]} Type`
  * computation runs on `Either[String, _]` and reads back as `Right(t)` (the type) or `Left(msg)` (a guard rejection);

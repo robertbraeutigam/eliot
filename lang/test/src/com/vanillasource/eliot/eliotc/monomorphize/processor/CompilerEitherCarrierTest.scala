@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import java.net.URI
 import java.nio.file.Path
 
-/** CP4 leaf test (`docs/compiler-as-platform.md`): the compiler-platform `Either` carrier is well-formed Eliot and is
+/** CP4 leaf test: the compiler-platform `Either` carrier is well-formed Eliot and is
   * extracted into the **compiler** source pool — the concrete `data`/`foldEither` *and* the compile-time
   * `Monad[Either[String]]` / `Throw[String, Either[String]]` instances.
   *

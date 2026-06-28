@@ -249,7 +249,7 @@ resolves names in the `compiler` platform; codegen (`used → uncurry → backen
 So one abstract base name can have a **distinct concrete implementation per platform** — exactly as `add`/`fold`/`Bool`
 already do via the native-binding routing (`ContributedBinding` + `BindingMergerProcessor`: the compile-time reduction
 wins for checking, the runtime body is used for codegen). There is no "shared" platform: each unifies the base + the
-user program + its own layer independently. Status (`docs/compiler-as-platform.md`): **CP1–CP4 implemented** — the
+user program + its own layer independently. This is built and in place — the
 `compiler` source pool, the always-linked `compiler` Mill module, the native label that reads it
 (`CompilerNativesProcessor`, contributing the `compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`),
 and the module's **first content** all exist. CP4 is the compile-time `Either` carrier

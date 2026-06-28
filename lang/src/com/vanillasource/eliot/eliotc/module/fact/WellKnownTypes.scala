@@ -48,8 +48,8 @@ object WellKnownTypes {
 
   /** The `Either[E, A]` type constructor — the discharge carrier of the `Throw[E]` effect (`runThrow` reflects a
     * `{Throw[E]}` computation into an `Either[E, A]`). Abstract in the base layer (`type Either[E, A]`), redefined
-    * concretely per platform (the `jvm` layer for the runtime phase, the compiler platform for the compile-time phase —
-    * see `docs/compiler-as-platform.md`). The effectful-signatures discharge (W2) reads back a `{Throw[String]} Type`
+    * concretely per platform (the `jvm` layer for the runtime phase, the compiler platform for the compile-time phase).
+    * The effectful-signatures discharge (W2) reads back a `{Throw[String]} Type`
     * signature as a ground `Either[String, Type]` and inspects its head by [[leftFQN]]/[[rightFQN]].
     */
   val eitherFQN: ValueFQN = ValueFQN(eitherModule, QualifiedName("Either", Qualifier.Type))
