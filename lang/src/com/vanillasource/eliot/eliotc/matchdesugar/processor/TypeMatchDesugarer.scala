@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -15,7 +16,7 @@ class TypeMatchDesugarer(context: MatchDesugarContext) {
   def desugar(
       scrutinee: Sourced[TypeStack[Expression]],
       cases: Seq[Expression.MatchCase]
-  ): CompilerIO[Expression] = {
+  )(using platform: Platform): CompilerIO[Expression] = {
     val constructorCases = cases.filter(_.pattern.value.isInstanceOf[Pattern.ConstructorPattern])
     val wildcardCase     = cases.find(c => bindingName(c.pattern.value).isDefined)
 
@@ -25,16 +26,17 @@ class TypeMatchDesugarer(context: MatchDesugarContext) {
         compilerAbort(ctorName.as("Type match must have a wildcard case."))
       case Some(wc) =>
         for {
-          wildcardBody <- context.desugarInTypeStack(wc.body)
+          wildcardBody <- context.desugarInTypeStack(wc.body, platform)
           handlers     <- constructorCases.traverse { ctorCase =>
                             val Pattern.ConstructorPattern(ctor, subPatterns) = ctorCase.pattern.value: @unchecked
                             for {
-                              handler      <- context.buildPatternHandler(scrutinee, subPatterns, ctorCase.body)
+                              handler      <- context.buildPatternHandler(scrutinee, subPatterns, ctorCase.body, platform)
                               typeMatchFqn <- findAbilityMethodImpl(
                                                 ctor,
                                                 ctor.value.moduleName,
                                                 "TypeMatch",
                                                 "typeMatch",
+                                                platform,
                                                 Some(ctor.value.name.name)
                                               )
                             } yield (typeMatchFqn, handler)

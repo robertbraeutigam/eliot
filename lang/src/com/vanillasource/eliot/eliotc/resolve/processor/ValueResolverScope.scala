@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.Qualifier.Ability
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 
@@ -13,7 +14,8 @@ case class ValueResolverScope(
     dictionary: Map[QualifiedName, ValueFQN],
     privateNames: Map[QualifiedName, ValueFQN],
     parameters: Set[String],
-    currentQualifier: Qualifier = Qualifier.Default
+    currentQualifier: Qualifier = Qualifier.Default,
+    platform: Platform = Platform.Runtime
 )
 
 object ValueResolverScope {
@@ -74,6 +76,9 @@ object ValueResolverScope {
 
   def getCurrentModule: ScopedIO[ModuleName] =
     StateT.get[CompilerIO, ValueResolverScope].map(_.currentModule)
+
+  def getPlatform: ScopedIO[Platform] =
+    StateT.get[CompilerIO, ValueResolverScope].map(_.platform)
 
   def withLocalScope[T](computation: ScopedIO[T]): ScopedIO[T] =
     for {

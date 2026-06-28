@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.Expression
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, UnifiedModuleValue, ValueFQN}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -26,11 +27,12 @@ object ImplementationMarkerUtils {
     */
   def firstPatternTypeConstructorName(
       methodVfqn: ValueFQN,
-      abilityName: String
+      abilityName: String,
+      platform: Platform = Platform.Runtime
   ): CompilerIO[Option[String]] =
     methodVfqn.name.qualifier match {
       case Qualifier.AbilityImplementation(_, index) =>
-        firstPatternTypeConstructorName(methodVfqn.moduleName, abilityName, index)
+        firstPatternTypeConstructorName(methodVfqn.moduleName, abilityName, index, platform)
       case _                                         =>
         None.pure[CompilerIO]
     }
@@ -39,12 +41,13 @@ object ImplementationMarkerUtils {
   def firstPatternTypeConstructorName(
       moduleName: ModuleName,
       abilityName: String,
-      index: Int
+      index: Int,
+      platform: Platform
   ): CompilerIO[Option[String]] =
-    findMarkerVfqn(moduleName, abilityName, index).flatMap {
+    findMarkerVfqn(moduleName, abilityName, index, platform).flatMap {
       case None             => None.pure[CompilerIO]
       case Some(markerVfqn) =>
-        getFact(UnifiedModuleValue.Key(markerVfqn)).map(
+        getFact(UnifiedModuleValue.Key(markerVfqn, platform)).map(
           _.flatMap(umv => firstArgTypeConstructorName(umv.namedValue.typeStack.signature))
         )
     }
@@ -53,11 +56,12 @@ object ImplementationMarkerUtils {
   def firstPatternTypeConstructorName(
       moduleName: ModuleName,
       abilityName: String,
-      implQualifier: Qualifier
+      implQualifier: Qualifier,
+      platform: Platform
   ): CompilerIO[Option[String]] =
     implQualifier match {
       case Qualifier.AbilityImplementation(_, index) =>
-        firstPatternTypeConstructorName(moduleName, abilityName, index)
+        firstPatternTypeConstructorName(moduleName, abilityName, index, platform)
       case _                                         =>
         None.pure[CompilerIO]
     }
@@ -65,9 +69,10 @@ object ImplementationMarkerUtils {
   private def findMarkerVfqn(
       moduleName: ModuleName,
       abilityName: String,
-      index: Int
+      index: Int,
+      platform: Platform
   ): CompilerIO[Option[ValueFQN]] =
-    getFact(UnifiedModuleNames.Key(moduleName)).map {
+    getFact(UnifiedModuleNames.Key(moduleName, platform)).map {
       case None        => None
       case Some(names) =>
         names.names.keys.collectFirst {

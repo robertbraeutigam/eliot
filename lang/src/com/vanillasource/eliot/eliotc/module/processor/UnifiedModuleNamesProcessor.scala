@@ -12,9 +12,9 @@ class UnifiedModuleNamesProcessor extends SingleFactProcessor[UnifiedModuleNames
 
   override protected def generateSingleFact(key: UnifiedModuleNames.Key): CompilerIO[UnifiedModuleNames] =
     for {
-      pathScan <- getFactOrAbort(PathScan.Key(pathName(key.moduleName)))
+      pathScan <- getFactOrAbort(PathScan.Key(pathName(key.moduleName), key.platform))
       allNames <- pathScan.files.traverse(uri => getFactOrAbort(ModuleNames.Key(uri)))
-    } yield UnifiedModuleNames(key.moduleName, allNames.flatMap(_.names.value).toMap)
+    } yield UnifiedModuleNames(key.moduleName, allNames.flatMap(_.names.value).toMap, key.platform)
 
   private def pathName(name: ModuleName): Path =
     (name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ `resolve` _)

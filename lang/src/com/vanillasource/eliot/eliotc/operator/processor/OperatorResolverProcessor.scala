@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import TokenClassifier.AnnotatedPart
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.{MatchDesugaredExpression, MatchDesugaredValue}
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
@@ -12,13 +13,14 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 class OperatorResolverProcessor
     extends TransformationProcessor[MatchDesugaredValue.Key, OperatorResolvedValue.Key](key =>
-      MatchDesugaredValue.Key(key.vfqn)
+      MatchDesugaredValue.Key(key.vfqn, key.platform)
     ) {
 
   override protected def generateFromKeyAndFact(
       key: OperatorResolvedValue.Key,
       desugaredValue: MatchDesugaredValue
-  ): CompilerIO[OperatorResolvedValue] =
+  ): CompilerIO[OperatorResolvedValue] = {
+    given Platform = desugaredValue.platform
     for {
       resolvedRuntime     <- desugaredValue.runtime.traverse(expr => resolveInExpression(expr.value).map(expr.as))
       resolvedTypeStack   <- resolveInTypeStack(desugaredValue.typeStack)
@@ -31,10 +33,12 @@ class OperatorResolverProcessor
       resolvedConstraints,
       desugaredValue.opaque,
       desugaredValue.inferableArity,
-      desugaredValue.roleHint
+      desugaredValue.roleHint,
+      platform = desugaredValue.platform
     )
+  }
 
-  private def resolveInExpression(expr: MatchDesugaredExpression): CompilerIO[OperatorResolvedExpression] =
+  private def resolveInExpression(expr: MatchDesugaredExpression)(using Platform): CompilerIO[OperatorResolvedExpression] =
     expr match {
       case MatchDesugaredExpression.FlatExpression(parts)                       =>
         for {
@@ -63,12 +67,12 @@ class OperatorResolverProcessor
 
   private def resolveInTypeStack(
       stack: Sourced[TypeStack[MatchDesugaredExpression]]
-  ): CompilerIO[Sourced[TypeStack[OperatorResolvedExpression]]] =
+  )(using Platform): CompilerIO[Sourced[TypeStack[OperatorResolvedExpression]]] =
     stack.value.levels.traverse(resolveInExpression).map(levels => stack.as(TypeStack(levels)))
 
   private def resolveFlatExpression(
       parts: Seq[Sourced[OperatorResolvedExpression]]
-  ): CompilerIO[OperatorResolvedExpression] =
+  )(using Platform): CompilerIO[OperatorResolvedExpression] =
     for {
       annotated <- parts.traverse(annotatePart)
       tokens     = TokenClassifier.classifyTokens(annotated)
@@ -77,18 +81,18 @@ class OperatorResolverProcessor
       result    <- InfixPrecedenceResolver.resolve(afterPre)
     } yield result
 
-  private def annotatePart(part: Sourced[OperatorResolvedExpression]): CompilerIO[AnnotatedPart] =
+  private def annotatePart(part: Sourced[OperatorResolvedExpression])(using platform: Platform): CompilerIO[AnnotatedPart] =
     part.value match {
       case OperatorResolvedExpression.ValueReference(vfqnSrc, _) =>
         for {
-          resolved <- getFactOrAbort(MatchDesugaredValue.Key(vfqnSrc.value))
+          resolved <- getFactOrAbort(MatchDesugaredValue.Key(vfqnSrc.value, platform))
         } yield AnnotatedPart(part, resolved.fixity, Some(vfqnSrc.value))
       case _                                                     => AnnotatedPart(part, Fixity.Application, None).pure[CompilerIO]
     }
 
   private def resolveParamConstraints(
       constraints: Map[String, Seq[MatchDesugaredValue.ResolvedAbilityConstraint]]
-  ): CompilerIO[Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]] =
+  )(using Platform): CompilerIO[Map[String, Seq[OperatorResolvedValue.ResolvedAbilityConstraint]]] =
     constraints.toSeq
       .traverse { (key, cs) =>
         cs.traverse(c =>

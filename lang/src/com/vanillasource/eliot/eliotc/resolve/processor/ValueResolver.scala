@@ -42,7 +42,8 @@ class ValueResolver
         unifiedValue.dictionary,
         unifiedValue.privateNames,
         genericParams.toSet,
-        namedValue.qualifiedName.value.qualifier
+        namedValue.qualifiedName.value.qualifier,
+        key.platform
       )
 
     val resolveProgram = for {
@@ -66,7 +67,8 @@ class ValueResolver
       resolvedPrecedence,
       namedValue.opaque,
       namedValue.inferableArity,
-      namedValue.roleHint
+      namedValue.roleHint,
+      key.platform
     )
 
     resolveProgram.runA(scope)
@@ -194,7 +196,7 @@ class ValueResolver
         val vfqn       = ValueFQN(moduleName, nameSrc.value)
         val outline    = Sourced.outline(Seq(qualSrc, nameSrc))
 
-        getFact(UnifiedModuleValue.Key(vfqn)).liftToScoped.flatMap {
+        getPlatform.flatMap(platform => getFact(UnifiedModuleValue.Key(vfqn, platform)).liftToScoped).flatMap {
           case Some(umv) =>
             getCurrentModule.flatMap { currentMod =>
               if (umv.namedValue.visibility == Visibility.Private && moduleName != currentMod) {
@@ -280,7 +282,7 @@ class ValueResolver
         val vfqn       = ValueFQN(moduleName, nameSrc.value)
         val outline    = Sourced.outline(Seq(qualSrc, nameSrc))
 
-        getFact(UnifiedModuleValue.Key(vfqn)).liftToScoped.flatMap {
+        getPlatform.flatMap(platform => getFact(UnifiedModuleValue.Key(vfqn, platform)).liftToScoped).flatMap {
           case Some(_) =>
             subPatterns
               .traverse(resolvePattern)

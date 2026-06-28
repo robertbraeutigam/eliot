@@ -1,9 +1,14 @@
 # The Compiler as a Platform: Platform-Scoped Source Unification
 
-Status: **Planned.** Design (this document); implementation not started. Motivating first consumer: the compile-time
-`Either` carrier of `docs/effectful-signatures.md` (W1), which needs a *reducing* compile-time implementation
-(`foldEither`, `implement Monad/Throw`) available in **every** workspace — including the abstract-only LSP workspace —
-without depending on a runtime platform layer (jvm) being linked.
+Status: **CP1 implemented; CP2–CP4 planned.** The `platform` marker (`compiler | runtime`) is threaded through the
+front-end fact chain from `PathScan` to `SaturatedValue`, `PathScanner` selects a per-marker root list, and the
+`--compiler-path` / `--runtime-path` CLI options exist (`platform.Platform`, `LangPlugin`). In CP1 the marker defaults
+to `runtime` for every existing reader, so behaviour is unchanged; the compiler pool is only exercised by the leaf test
+(`module/processor/PlatformScopedUnificationTest`). The blanket classpath scan is *retained* for both markers as the CP1
+intermediate (see "What blocks it today" / `PathScanner`) and is retired by CP2 when the compiler-platform module lands.
+Motivating first consumer: the compile-time `Either` carrier of `docs/effectful-signatures.md` (W1), which needs a
+*reducing* compile-time implementation (`foldEither`, `implement Monad/Throw`) available in **every** workspace —
+including the abstract-only LSP workspace — without depending on a runtime platform layer (jvm) being linked.
 
 ## The idea in one line
 
@@ -147,7 +152,7 @@ platform (jvm) in the ordinary way. The two markers keep them cleanly apart.
 
 ## Work items
 
-### CP1 — Two explicit source paths + the phase marker
+### CP1 — Two explicit source paths + the phase marker — **implemented**
 Thread a two-valued `platform` marker (`compiler | runtime`) through the front-end fact chain from `PathScan` to
 `SaturatedValue`. Replace `PathScanner`'s single `rootPaths` + blanket `getResources("eliot/…")` scan with **two
 explicit root lists** — a compiler path and a runtime path — selected by the marker; add `--compiler-path` /

@@ -21,6 +21,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
   spine
 }
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
@@ -51,14 +52,15 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 class SaturatedValueProcessor
     extends TransformationProcessor[EffectDesugaredValue.Key, SaturatedValue.Key](key =>
-      EffectDesugaredValue.Key(key.vfqn)
+      EffectDesugaredValue.Key(key.vfqn, key.platform)
     ) {
 
   override protected def generateFromKeyAndFact(
       key: SaturatedValue.Key,
       effectDesugared: EffectDesugaredValue
   ): CompilerIO[SaturatedValue] = {
-    val value = effectDesugared.value
+    given Platform = effectDesugared.value.platform
+    val value      = effectDesugared.value
     dataSaturate(value).flatMap {
       case Some(rewritten) => rewritten.pure[CompilerIO]
       case None            => saturate(value)
@@ -70,7 +72,7 @@ class SaturatedValueProcessor
     */
   private case class FreshBinder(name: String, kind: OperatorResolvedExpression)
 
-  private def saturate(value: OperatorResolvedValue): CompilerIO[OperatorResolvedValue] = {
+  private def saturate(value: OperatorResolvedValue)(using Platform): CompilerIO[OperatorResolvedValue] = {
     val pos       = value.name
     val signature = value.typeStack.as(value.typeStack.value.signature)
     val view      = SignatureView.of(signature)
@@ -103,7 +105,7 @@ class SaturatedValueProcessor
   private def saturateParams(
       parameters: Seq[Sourced[OperatorResolvedExpression]],
       pos: Sourced[?]
-  ): CompilerIO[(Seq[Sourced[OperatorResolvedExpression]], Seq[FreshBinder])] =
+  )(using Platform): CompilerIO[(Seq[Sourced[OperatorResolvedExpression]], Seq[FreshBinder])] =
     parameters
       .foldLeftM((Seq.empty[Sourced[OperatorResolvedExpression]], 0, Seq.empty[FreshBinder])) {
         case ((accParams, idx, accBinders), param) =>
@@ -120,7 +122,7 @@ class SaturatedValueProcessor
     * `IO[Unit]`, a non-omittable head (`String`), or a type-parameter return (`R`, a
     * [[OperatorResolvedExpression.ParameterReference]]) is not.
     */
-  private def detectCalculatedReturn(signature: Sourced[OperatorResolvedExpression]): CompilerIO[Boolean] = {
+  private def detectCalculatedReturn(signature: Sourced[OperatorResolvedExpression])(using Platform): CompilerIO[Boolean] = {
     val (head, args) = spine(SignatureView.of(signature).returnType.value)
     head match {
       case _: OperatorResolvedExpression.ValueReference if !isFunctionReference(head) =>
@@ -155,7 +157,7 @@ class SaturatedValueProcessor
       expr: OperatorResolvedExpression,
       idx: Int,
       pos: Sourced[?]
-  ): CompilerIO[(OperatorResolvedExpression, Int, Seq[FreshBinder])] = {
+  )(using Platform): CompilerIO[(OperatorResolvedExpression, Int, Seq[FreshBinder])] = {
     val (head, args) = spine(expr)
     head match {
       case ref: OperatorResolvedExpression.ValueReference if !isFunctionReference(head) =>
@@ -206,8 +208,8 @@ class SaturatedValueProcessor
     * deliberately use the *raw* arity instead, so bounds do not yet propagate transitively through nested records
     * (the "viral bounds" of W5); that also keeps this growth lookup non-recursive (it reads only raw field arities).
     */
-  private def inferableInfo(fqn: ValueFQN): CompilerIO[Option[(Int, Seq[OperatorResolvedExpression])]] =
-    getFact(OperatorResolvedValue.Key(fqn)).flatMap {
+  private def inferableInfo(fqn: ValueFQN)(using platform: Platform): CompilerIO[Option[(Int, Seq[OperatorResolvedExpression])]] =
+    getFact(OperatorResolvedValue.Key(fqn, platform)).flatMap {
       case Some(orv) =>
         recordGrowth(fqn).map { case (extraArity, extraKinds) =>
           val arity = orv.inferableArity + extraArity
@@ -222,7 +224,7 @@ class SaturatedValueProcessor
     * non-record (abstract `type`, no value constructor). Reads only the value constructor's *raw* field arities (via
     * [[recordPlanFor]] ⟶ [[fieldContribution]]), never another value's growth, so it cannot recurse.
     */
-  private def recordGrowth(fqn: ValueFQN): CompilerIO[(Int, Seq[OperatorResolvedExpression])] =
+  private def recordGrowth(fqn: ValueFQN)(using Platform): CompilerIO[(Int, Seq[OperatorResolvedExpression])] =
     if (fqn.name.qualifier == Qualifier.Type)
       recordPlanFor(fqn.moduleName, fqn.name.name).map {
         case Some(plan) => (plan.total, plan.allKinds)
@@ -233,8 +235,8 @@ class SaturatedValueProcessor
   /** The *raw* leading-`auto` arity and kinds of a reference — its own operator-resolved markers only, with no W2
     * record growth. Used by [[fieldContribution]] so a record field's bounds do not propagate transitively (W5).
     */
-  private def rawInferableInfo(fqn: ValueFQN): CompilerIO[Option[(Int, Seq[OperatorResolvedExpression])]] =
-    getFact(OperatorResolvedValue.Key(fqn)).map {
+  private def rawInferableInfo(fqn: ValueFQN)(using platform: Platform): CompilerIO[Option[(Int, Seq[OperatorResolvedExpression])]] =
+    getFact(OperatorResolvedValue.Key(fqn, platform)).map {
       case Some(orv) if orv.inferableArity > 0 => Some((orv.inferableArity, leadingBinderKinds(signatureOf(orv))))
       case _                                   => None
     }
@@ -314,7 +316,7 @@ class SaturatedValueProcessor
     case class ImplMember(plan: TypePlan)           extends DataRole
   }
 
-  private def dataSaturate(value: OperatorResolvedValue): CompilerIO[Option[OperatorResolvedValue]] =
+  private def dataSaturate(value: OperatorResolvedValue)(using Platform): CompilerIO[Option[OperatorResolvedValue]] =
     classifyDataRole(value).map(_.map {
       case DataRole.TypeCtor(plan)        => growTypeConstructor(value, plan)
       case DataRole.ValueCtor(plan)       => saturateValueConstructor(value, plan)
@@ -328,7 +330,7 @@ class SaturatedValueProcessor
     * `RoleHint.TypeConstructor` (its count is cornerstone write-only); identifying a type constructor by its qualifier
     * and looking its plan up from the value constructor stays out of the kind/arity-metadata channel.
     */
-  private def classifyDataRole(value: OperatorResolvedValue): CompilerIO[Option[DataRole]] =
+  private def classifyDataRole(value: OperatorResolvedValue)(using Platform): CompilerIO[Option[DataRole]] =
     value.roleHint match {
       case RoleHint.ValueConstructor(dataType, _) if dataType.name == value.vfqn.name.name =>
         recordPlanFor(value.vfqn.moduleName, dataType.name).map(_.map(DataRole.ValueCtor.apply))
@@ -351,11 +353,11 @@ class SaturatedValueProcessor
   /** The data type a `PatternMatch`/`TypeMatch` implementation member is for, recovered from its impl marker (the
     * marker's first argument references the data type constructor by name).
     */
-  private def matchImplDataType(vfqn: ValueFQN): CompilerIO[Option[String]] = {
+  private def matchImplDataType(vfqn: ValueFQN)(using platform: Platform): CompilerIO[Option[String]] = {
     val abilityName =
       if (WellKnownTypes.isPatternMatchImplementation(vfqn)) WellKnownTypes.patternMatchAbilityName
       else WellKnownTypes.typeMatchAbilityName
-    ImplementationMarkerUtils.firstPatternTypeConstructorName(vfqn, abilityName)
+    ImplementationMarkerUtils.firstPatternTypeConstructorName(vfqn, abilityName, platform)
   }
 
   /** The binder plan for the record data type `typeName` in `module`, read off its value constructor's fields. `None`
@@ -366,11 +368,11 @@ class SaturatedValueProcessor
     * value's [[OperatorResolvedValue]] aborts the chain with a "Could not find" error (see `UnifiedModuleValueProcessor`),
     * which would otherwise be spuriously triggered for every abstract `Type` (`Int`, `Bool`, …) that has no constructor.
     */
-  private def recordPlanFor(module: ModuleName, typeName: String): CompilerIO[Option[TypePlan]] = {
+  private def recordPlanFor(module: ModuleName, typeName: String)(using platform: Platform): CompilerIO[Option[TypePlan]] = {
     val ctorName = QualifiedName(typeName, Qualifier.Default)
-    getFact(UnifiedModuleNames.Key(module)).flatMap {
+    getFact(UnifiedModuleNames.Key(module, platform)).flatMap {
       case Some(names) if names.names.contains(ctorName) =>
-        getFact(OperatorResolvedValue.Key(ValueFQN(module, ctorName))).flatMap {
+        getFact(OperatorResolvedValue.Key(ValueFQN(module, ctorName), platform)).flatMap {
           case Some(ctor) if isRecordConstructor(ctor, typeName) =>
             SignatureView.of(signatureOf(ctor)).parameters.map(_.value).traverse(fieldContribution).map { fields =>
               val plan = TypePlan(typeName, fields)
@@ -391,7 +393,7 @@ class SaturatedValueProcessor
   /** The omittable-bound contribution of one field type: its head's omitted leading `auto` count and their kinds. A
     * directly-bare omittable head (`Int`) contributes; an explicit or non-omittable head contributes nothing.
     */
-  private def fieldContribution(fieldType: OperatorResolvedExpression): CompilerIO[FieldContribution] = {
+  private def fieldContribution(fieldType: OperatorResolvedExpression)(using Platform): CompilerIO[FieldContribution] = {
     val (head, args) = spine(fieldType)
     head match {
       case _: OperatorResolvedExpression.ValueReference if !isFunctionReference(head) =>

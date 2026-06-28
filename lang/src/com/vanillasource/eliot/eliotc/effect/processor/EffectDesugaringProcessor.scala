@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.effect.fact.EffectDesugaredValue
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{FunctionLiteral, SignatureView, arrow, spine}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -39,7 +40,7 @@ import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
   */
 class EffectDesugaringProcessor
     extends TransformationProcessor[RecursionCheckedValue.Key, EffectDesugaredValue.Key](key =>
-      RecursionCheckedValue.Key(key.vfqn)
+      RecursionCheckedValue.Key(key.vfqn, key.platform)
     )
     with Logging {
 
@@ -51,7 +52,8 @@ class EffectDesugaringProcessor
       key: EffectDesugaredValue.Key,
       checked: RecursionCheckedValue
   ): CompilerIO[EffectDesugaredValue] = {
-    val value = checked.value
+    given Platform = checked.value.platform
+    val value      = checked.value
     value.runtime match {
       case None       => EffectDesugaredValue(value).pure[CompilerIO]
       case Some(body) =>
@@ -65,7 +67,7 @@ class EffectDesugaringProcessor
   private def desugarBody(
       value: OperatorResolvedValue,
       body: Sourced[OperatorResolvedExpression]
-  ): CompilerIO[Option[Sourced[OperatorResolvedExpression]]] = {
+  )(using Platform): CompilerIO[Option[Sourced[OperatorResolvedExpression]]] = {
     val view                  = SignatureView.of(value.typeStack.as(value.typeStack.value.signature))
     // The value's own ambient effect carrier(s): a higher-kinded binder that carries an ability constraint — the M1
     // `{E...}` carrier (`[F[_] ~ E...]`) or a hand-written `[F[_] ~ Monad]`. A bare higher-kinded generic (`C[_, _]`

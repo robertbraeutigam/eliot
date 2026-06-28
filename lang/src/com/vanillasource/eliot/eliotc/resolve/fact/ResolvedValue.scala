@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.resolve.fact
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
@@ -16,13 +17,14 @@ case class ResolvedValue(
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     opaque: Boolean = false,
     inferableArity: Int = 0,
-    roleHint: RoleHint = RoleHint.NoHint
+    roleHint: RoleHint = RoleHint.NoHint,
+    platform: Platform = Platform.Runtime
 ) extends CompilerFact {
-  override def key(): CompilerFactKey[ResolvedValue] = ResolvedValue.Key(vfqn)
+  override def key(): CompilerFactKey[ResolvedValue] = ResolvedValue.Key(vfqn, platform)
 }
 
 object ResolvedValue {
   case class ResolvedAbilityConstraint(abilityFQN: AbilityFQN, typeArgs: Seq[Expression])
 
-  case class Key(vfqn: ValueFQN) extends CompilerFactKey[ResolvedValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[ResolvedValue]
 }

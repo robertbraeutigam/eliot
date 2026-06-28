@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.module.fact.QualifiedName
 import com.vanillasource.eliot.eliotc.core.fact.CoreAST
 import com.vanillasource.eliot.eliotc.module.fact.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemModules
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -25,7 +26,7 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
       moduleNames    <- getFactOrAbort(ModuleNames.Key(key.uri))
       importedModules =
         extractImportedModules(key.vfqn.moduleName, coreAST.ast.as(coreAST.ast.value.importStatements), systemModules)
-      importResult   <- extractImportedNames(importedModules, moduleNames.names.value.keySet)
+      importResult   <- extractImportedNames(importedModules, moduleNames.names.value.keySet, key.platform)
       localDictionary = moduleNames.names.value.collect { case (name, _) =>
                           (name, ValueFQN(key.vfqn.moduleName, name))
                         }
@@ -40,7 +41,8 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
                                 ValueFQN(key.vfqn.moduleName, name),
                                 dictionary,
                                 namedValue,
-                                importResult.privateNames
+                                importResult.privateNames,
+                                key.platform
                               )
                             )
                           }
@@ -58,17 +60,21 @@ class ModuleValueProcessor(systemModules: Seq[ModuleName] = defaultSystemModules
 
   private def extractImportedNames(
       importedModules: Seq[Sourced[ModuleName]],
-      localNames: Set[QualifiedName]
+      localNames: Set[QualifiedName],
+      platform: Platform
   ): CompilerIO[ImportResult] =
-    importedModules.foldLeftM(ImportResult(Map.empty, Map.empty))((acc, m) => importModuleNames(localNames, acc, m))
+    importedModules.foldLeftM(ImportResult(Map.empty, Map.empty))((acc, m) =>
+      importModuleNames(localNames, acc, m, platform)
+    )
 
   private def importModuleNames(
       localNames: Set[QualifiedName],
       accumulated: ImportResult,
-      module: Sourced[ModuleName]
+      module: Sourced[ModuleName],
+      platform: Platform
   ): CompilerIO[ImportResult] =
     for {
-      maybeModuleNames <- getFact(UnifiedModuleNames.Key(module.value))
+      maybeModuleNames <- getFact(UnifiedModuleNames.Key(module.value, platform))
       result           <- maybeModuleNames match {
                             case Some(moduleNames) =>
                               val publicNames       = moduleNames.names.collect { case (name, Visibility.Public) =>

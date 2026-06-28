@@ -15,6 +15,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
   applyChain,
   spine
 }
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -42,7 +43,7 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
       expr: Sourced[OperatorResolvedExpression],
       env: Map[String, OperatorResolvedExpression],
       carrier: Set[String]
-  ): CompilerIO[Desugared] = desugarExpr(expr, env, carrier, 0)
+  )(using Platform): CompilerIO[Desugared] = desugarExpr(expr, env, carrier, 0)
 
   /** The recursive worker. Each result also carries the [[Desugared.usedEffects]] performed in its subtree (the union
     * of every effectful callee's abilities), so the declared-effect subset check reuses this single walk instead of a
@@ -53,7 +54,7 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
       env: Map[String, OperatorResolvedExpression],
       carrier: Set[String],
       idx: Int
-  ): CompilerIO[Desugared] =
+  )(using Platform): CompilerIO[Desugared] =
     expr.value match {
       case _: IntegerLiteral | _: StringLiteral         =>
         Desugared(expr, effectful = false, idx).pure[CompilerIO]
@@ -80,12 +81,12 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
       env: Map[String, OperatorResolvedExpression],
       carrier: Set[String],
       idx: Int
-  ): CompilerIO[Desugared] = {
+  )(using platform: Platform): CompilerIO[Desugared] = {
     val (head, args) = sourcedSpine(expr)
     head.value match {
       case ValueReference(fqn, _) =>
         for {
-          info               <- calleeSignatures.infoFor(fqn)
+          info               <- calleeSignatures.infoFor(fqn, platform)
           (argResults, idxA) <- desugarArgs(args, env, carrier, idx)
           (coreArgs, binds, idxB) = buildArguments(info, argResults, idxA)
           core                    = expr.as(applyChain(head, coreArgs))
@@ -128,7 +129,7 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
       env: Map[String, OperatorResolvedExpression],
       carrier: Set[String],
       idx: Int
-  ): CompilerIO[Desugared] =
+  )(using Platform): CompilerIO[Desugared] =
     for {
       argRes  <- desugarExpr(arg, env, carrier, idx)
       bodyRes <- desugarExpr(body, env - param.value, carrier, argRes.nextIdx)
@@ -157,7 +158,7 @@ class DirectStyleDesugarer(calleeSignatures: CalleeSignatures) {
       env: Map[String, OperatorResolvedExpression],
       carrier: Set[String],
       idx: Int
-  ): CompilerIO[(Seq[Desugared], Int)] =
+  )(using Platform): CompilerIO[(Seq[Desugared], Int)] =
     args.foldLeftM((Seq.empty[Desugared], idx)) { case ((acc, i), arg) =>
       desugarExpr(arg, env, carrier, i).map(r => (acc :+ r, r.nextIdx))
     }

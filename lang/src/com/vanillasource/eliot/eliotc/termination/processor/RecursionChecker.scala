@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.foldValueReferences
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
 
@@ -35,8 +36,8 @@ class RecursionChecker {
     * error suppresses the value's downstream [[com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue]]
     * fact, gating it out of the rest of the pipeline.
     */
-  def check(value: OperatorResolvedValue): CompilerIO[Unit] =
-    reachesSelf(value.vfqn, directCallees(value).toList, Set(value.vfqn)).flatMap { recursive =>
+  def check(value: OperatorResolvedValue, platform: Platform): CompilerIO[Unit] =
+    reachesSelf(value.vfqn, directCallees(value).toList, Set(value.vfqn), platform).flatMap { recursive =>
       compilerError(
         value.name.as(s"Value '${value.name.value.name}' is defined recursively."),
         Seq(
@@ -53,21 +54,22 @@ class RecursionChecker {
   private def reachesSelf(
       target: ValueFQN,
       frontier: List[ValueFQN],
-      visited: Set[ValueFQN]
+      visited: Set[ValueFQN],
+      platform: Platform
   ): CompilerIO[Boolean] =
     Monad[CompilerIO].tailRecM((frontier, visited)) {
       case (Nil, _)            => false.asRight[(List[ValueFQN], Set[ValueFQN])].pure[CompilerIO]
       case (fqn :: rest, seen) =>
         if (fqn == target) true.asRight[(List[ValueFQN], Set[ValueFQN])].pure[CompilerIO]
         else if (seen.contains(fqn)) (rest, seen).asLeft[Boolean].pure[CompilerIO]
-        else calleesOf(fqn).map(cs => (rest ++ cs.toList, seen + fqn).asLeft[Boolean])
+        else calleesOf(fqn, platform).map(cs => (rest ++ cs.toList, seen + fqn).asLeft[Boolean])
     }
 
   /** The body callees of an already-resolved value, or the empty set when it is body-less (a native) or cannot be
     * resolved (conservative: a leaf, so the search just stops there).
     */
-  private def calleesOf(fqn: ValueFQN): CompilerIO[Set[ValueFQN]] =
-    getFact(OperatorResolvedValue.Key(fqn)).map(_.fold(Set.empty[ValueFQN])(directCallees))
+  private def calleesOf(fqn: ValueFQN, platform: Platform): CompilerIO[Set[ValueFQN]] =
+    getFact(OperatorResolvedValue.Key(fqn, platform)).map(_.fold(Set.empty[ValueFQN])(directCallees))
 
   /** Every distinct [[ValueFQN]] referenced in a value's runtime body — head positions, arguments and type arguments
     * alike (the resolved value-reference graph). The type signature is deliberately excluded.

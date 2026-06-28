@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.effect.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 /** An [[OperatorResolvedValue]] whose *body* has been rewritten from direct style into ordinary monadic form (effects,
@@ -25,9 +26,9 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   *   The operator-resolved value carrying the auto-lifted runtime body.
   */
 case class EffectDesugaredValue(value: OperatorResolvedValue) extends CompilerFact {
-  override def key(): CompilerFactKey[EffectDesugaredValue] = EffectDesugaredValue.Key(value.vfqn)
+  override def key(): CompilerFactKey[EffectDesugaredValue] = EffectDesugaredValue.Key(value.vfqn, value.platform)
 }
 
 object EffectDesugaredValue {
-  case class Key(vfqn: ValueFQN) extends CompilerFactKey[EffectDesugaredValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[EffectDesugaredValue]
 }

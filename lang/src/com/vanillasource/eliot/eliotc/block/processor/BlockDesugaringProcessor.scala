@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.block.fact.BlockDesugaredValue
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
@@ -24,13 +25,16 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, com
   *      immediately-applied lambdas.
   */
 class BlockDesugaringProcessor
-    extends TransformationProcessor[ResolvedValue.Key, BlockDesugaredValue.Key](key => ResolvedValue.Key(key.vfqn))
+    extends TransformationProcessor[ResolvedValue.Key, BlockDesugaredValue.Key](key =>
+      ResolvedValue.Key(key.vfqn, key.platform)
+    )
     with Logging {
 
   override protected def generateFromKeyAndFact(
       key: BlockDesugaredValue.Key,
       resolvedValue: ResolvedValue
-  ): CompilerIO[BlockDesugaredValue] =
+  ): CompilerIO[BlockDesugaredValue] = {
+    given Platform = resolvedValue.platform
     for {
       desugaredRuntime <- resolvedValue.runtime.traverse(desugar)
     } yield BlockDesugaredValue(
@@ -43,8 +47,10 @@ class BlockDesugaringProcessor
       resolvedValue.precedence,
       resolvedValue.opaque,
       resolvedValue.inferableArity,
-      resolvedValue.roleHint
+      resolvedValue.roleHint,
+      resolvedValue.platform
     )
+  }
 
   /** A line during merging: its binder (if any) and its accumulated flat parts. */
   private case class Merged(
@@ -54,7 +60,7 @@ class BlockDesugaringProcessor
   )
 
   /** Walk the resolved expression tree, lowering any block and preserving every node's source position. */
-  private def desugar(expr: Sourced[Expression]): CompilerIO[Sourced[Expression]] =
+  private def desugar(expr: Sourced[Expression])(using Platform): CompilerIO[Sourced[Expression]] =
     expr.value match {
       case Expression.BlockExpression(lines)            => desugarBlock(expr, lines)
       case Expression.FunctionApplication(target, arg)  =>
@@ -78,20 +84,20 @@ class BlockDesugaringProcessor
 
   private def desugarStack(
       stack: Sourced[TypeStack[Expression]]
-  ): CompilerIO[Sourced[TypeStack[Expression]]] =
+  )(using Platform): CompilerIO[Sourced[TypeStack[Expression]]] =
     stack.value.levels.traverse(level => desugar(stack.as(level)).map(_.value)).map(ls => stack.as(TypeStack(ls)))
 
   private def desugarBlock(
       blockSourced: Sourced[Expression],
       lines: Seq[Expression.BlockLine]
-  ): CompilerIO[Sourced[Expression]] =
+  )(using Platform): CompilerIO[Sourced[Expression]] =
     for {
       desugaredLines <- lines.traverse(desugarLine)
       merged         <- mergeLines(desugaredLines)
       lowered        <- lowerLines(blockSourced, merged)
     } yield lowered
 
-  private def desugarLine(line: Expression.BlockLine): CompilerIO[Expression.BlockLine] =
+  private def desugarLine(line: Expression.BlockLine)(using Platform): CompilerIO[Expression.BlockLine] =
     for {
       expr <- desugar(line.expression)
       bt   <- line.binderType.traverse(desugarStack)
@@ -102,7 +108,7 @@ class BlockDesugaringProcessor
   /** Re-join over-separated lines left to right. Accumulating the boundary as we go means a chain of continuations
     * (`foo` ↵ `.bar` ↵ `.baz`) collapses in a single pass, because each merge updates the running last/first parts.
     */
-  private def mergeLines(lines: Seq[Expression.BlockLine]): CompilerIO[Seq[Merged]] =
+  private def mergeLines(lines: Seq[Expression.BlockLine])(using Platform): CompilerIO[Seq[Merged]] =
     lines.foldLeftM(Seq.empty[Merged]) { (acc, line) =>
       val current = Merged(line.binderName, line.binderType, partsOf(line.expression))
       acc.lastOption match {
@@ -115,7 +121,7 @@ class BlockDesugaringProcessor
       }
     }
 
-  private def canMerge(upper: Merged, lower: Merged): CompilerIO[Boolean] =
+  private def canMerge(upper: Merged, lower: Merged)(using Platform): CompilerIO[Boolean] =
     if (lower.binderName.isDefined) false.pure[CompilerIO]                                  // never merge into a `val`
     else if (lower.parts.head.range.from.line - upper.parts.last.range.to.line != 1)
       false.pure[CompilerIO]                                                                // blank line never merges
@@ -126,9 +132,9 @@ class BlockDesugaringProcessor
       } yield demandsRightOperand(upperLast) || demandsLeftOperand(lowerFirst)
 
   /** The declared fixity of a boundary part: read by FQN for a bare value reference (an operator), else `Application`. */
-  private def boundaryFixity(part: Sourced[TypeStack[Expression]]): CompilerIO[Fixity] =
+  private def boundaryFixity(part: Sourced[TypeStack[Expression]])(using platform: Platform): CompilerIO[Fixity] =
     part.value.signature match {
-      case Expression.ValueReference(fqn, _) => getFactOrAbort(ResolvedValue.Key(fqn.value)).map(_.fixity)
+      case Expression.ValueReference(fqn, _) => getFactOrAbort(ResolvedValue.Key(fqn.value, platform)).map(_.fixity)
       case _                                 => (Fixity.Application: Fixity).pure[CompilerIO]
     }
 

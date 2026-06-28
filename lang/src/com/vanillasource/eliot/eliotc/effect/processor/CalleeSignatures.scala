@@ -10,6 +10,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
   spine
 }
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.AbilityFQN
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -22,8 +23,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 class CalleeSignatures {
   import CalleeSignatures.*
 
-  def infoFor(fqn: Sourced[ValueFQN]): CompilerIO[CalleeInfo] =
-    getFact(OperatorResolvedValue.Key(fqn.value)).map {
+  def infoFor(fqn: Sourced[ValueFQN], platform: Platform): CompilerIO[CalleeInfo] =
+    getFact(OperatorResolvedValue.Key(fqn.value, platform)).map {
       case Some(orv) =>
         val view           = SignatureView.of(orv.typeStack.as(orv.typeStack.value.signature))
         val carrierBinders = EffectCarriers.carrierBinders(view)

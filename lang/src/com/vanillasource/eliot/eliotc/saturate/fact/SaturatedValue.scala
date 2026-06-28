@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.saturate.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 /** An [[OperatorResolvedValue]] whose source type stack has been *saturated*: every parameter-position bare reference
@@ -23,7 +24,7 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   *   The (possibly rewritten) operator-resolved value, carrying the saturated type stack.
   */
 case class SaturatedValue(value: OperatorResolvedValue) extends CompilerFact {
-  override def key(): CompilerFactKey[SaturatedValue] = SaturatedValue.Key(value.vfqn)
+  override def key(): CompilerFactKey[SaturatedValue] = SaturatedValue.Key(value.vfqn, value.platform)
 
   /** The codegen-relevance classification of each leading type-stack binder, computed once on this saturated value —
     * the monomorphization-keying plan's B1 analysis (grown from the D6 reified-binder flag). Each binder carries its
@@ -36,5 +37,5 @@ case class SaturatedValue(value: OperatorResolvedValue) extends CompilerFact {
 }
 
 object SaturatedValue {
-  case class Key(vfqn: ValueFQN) extends CompilerFactKey[SaturatedValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[SaturatedValue]
 }

@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.block.fact.BlockDesugaredValue
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.matchdesugar.fact.{MatchDesugaredExpression, MatchDesugaredValue}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, ResolvedValue}
@@ -12,7 +13,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 class MatchDesugaringProcessor
     extends TransformationProcessor[BlockDesugaredValue.Key, MatchDesugaredValue.Key](key =>
-      BlockDesugaredValue.Key(key.vfqn)
+      BlockDesugaredValue.Key(key.vfqn, key.platform)
     )
     with Logging {
 
@@ -25,7 +26,8 @@ class MatchDesugaringProcessor
       blockDesugaredValue: BlockDesugaredValue
   ): CompilerIO[MatchDesugaredValue] =
     for {
-      desugaredRuntime <- blockDesugaredValue.runtime.traverse(expr => desugarExpression(expr.value).map(expr.as))
+      desugaredRuntime <-
+        blockDesugaredValue.runtime.traverse(expr => desugarExpression(expr.value, blockDesugaredValue.platform).map(expr.as))
     } yield MatchDesugaredValue(
       blockDesugaredValue.vfqn,
       blockDesugaredValue.name,
@@ -36,7 +38,8 @@ class MatchDesugaringProcessor
       blockDesugaredValue.precedence,
       blockDesugaredValue.opaque,
       blockDesugaredValue.inferableArity,
-      blockDesugaredValue.roleHint
+      blockDesugaredValue.roleHint,
+      blockDesugaredValue.platform
     )
 
   private def convertParamConstraints(
@@ -51,21 +54,23 @@ class MatchDesugaringProcessor
       )
     }
 
-  private def desugarExpression(expr: Expression): CompilerIO[Expression] =
+  private def desugarExpression(expr: Expression, platform: Platform): CompilerIO[Expression] =
     expr match {
-      case Expression.MatchExpression(scrutinee, cases) => desugarMatch(scrutinee, cases)
-      case other                                        => Expression.mapChildrenM(desugarExpression)(other)
+      case Expression.MatchExpression(scrutinee, cases) => desugarMatch(scrutinee, cases, platform)
+      case other                                        => Expression.mapChildrenM(desugarExpression(_, platform))(other)
     }
 
   private def desugarInTypeStack(
-      stack: Sourced[TypeStack[Expression]]
+      stack: Sourced[TypeStack[Expression]],
+      platform: Platform
   ): CompilerIO[Sourced[TypeStack[Expression]]] =
-    stack.value.levels.traverse(desugarExpression).map(levels => stack.as(TypeStack(levels)))
+    stack.value.levels.traverse(desugarExpression(_, platform)).map(levels => stack.as(TypeStack(levels)))
 
   private def desugarMatch(
       scrutinee: Sourced[TypeStack[Expression]],
-      cases: Seq[Expression.MatchCase]
+      cases: Seq[Expression.MatchCase],
+      platform: Platform
   ): CompilerIO[Expression] =
-    if (TypeMatchDesugarer.isTypeMatch(cases)) typeMatchDesugarer.desugar(scrutinee, cases)
-    else dataMatchDesugarer.desugar(scrutinee, cases)
+    if (TypeMatchDesugarer.isTypeMatch(cases)) typeMatchDesugarer.desugar(scrutinee, cases)(using platform)
+    else dataMatchDesugarer.desugar(scrutinee, cases)(using platform)
 }

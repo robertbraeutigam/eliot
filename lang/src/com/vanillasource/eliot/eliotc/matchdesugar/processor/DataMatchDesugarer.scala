@@ -11,6 +11,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{
   UnifiedModuleValue,
   ValueFQN
 }
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -22,26 +23,26 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
   def desugar(
       scrutinee: Sourced[TypeStack[Expression]],
       cases: Seq[Expression.MatchCase]
-  ): CompilerIO[Expression] =
+  )(using platform: Platform): CompilerIO[Expression] =
     for {
       moduleAndType                <- findConstructorModuleAndType(cases)
       (constructorModule, dataType) = moduleAndType
       allConstructors              <- findAllConstructors(constructorModule, dataType)
       _                            <- checkExhaustiveness(cases, allConstructors)
       handleCasesFqn               <-
-        findAbilityMethodImpl(scrutinee, constructorModule, "PatternMatch", "handleCases", Some(dataType.name))
+        findAbilityMethodImpl(scrutinee, constructorModule, "PatternMatch", "handleCases", platform, Some(dataType.name))
       orderedHandlers              <- buildOrderedHandlers(scrutinee, cases, allConstructors)
     } yield buildHandleCasesCall(scrutinee, handleCasesFqn, orderedHandlers)
 
   private def findConstructorModuleAndType(
       cases: Seq[Expression.MatchCase]
-  ): CompilerIO[(ModuleName, QualifiedName)] =
+  )(using platform: Platform): CompilerIO[(ModuleName, QualifiedName)] =
     cases
       .flatMap(c => firstConstructorPattern(c.pattern.value))
       .headOption match {
       case Some(vfqn) =>
         for {
-          umv      <- getFactOrAbort(UnifiedModuleValue.Key(vfqn))
+          umv      <- getFactOrAbort(UnifiedModuleValue.Key(vfqn, platform))
           dataType <- umv.namedValue.roleHint match {
                         case RoleHint.ValueConstructor(dt, _) => dt.pure[CompilerIO]
                         case _                                =>
@@ -60,15 +61,15 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
   private def findAllConstructors(
       moduleName: ModuleName,
       dataType: QualifiedName
-  ): CompilerIO[Seq[ValueFQN]] =
+  )(using platform: Platform): CompilerIO[Seq[ValueFQN]] =
     for {
-      moduleNames     <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
+      moduleNames     <- getFactOrAbort(UnifiedModuleNames.Key(moduleName, platform))
       constructorNames = moduleNames.names.keys
                            .filter(qn => qn.qualifier == Qualifier.Default && qn.name.head.isUpper)
                            .toSeq
       constructorVfqns = constructorNames.map(qn => ValueFQN(moduleName, qn))
       ordered         <- constructorVfqns.traverseFilter { vfqn =>
-                           getFactOrAbort(UnifiedModuleValue.Key(vfqn)).map { umv =>
+                           getFactOrAbort(UnifiedModuleValue.Key(vfqn, platform)).map { umv =>
                              val matches = umv.namedValue.roleHint match {
                                case RoleHint.ValueConstructor(dt, _) => dt == dataType
                                case _                                => false
@@ -105,7 +106,7 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       scrutinee: Sourced[TypeStack[Expression]],
       cases: Seq[Expression.MatchCase],
       allConstructors: Seq[ValueFQN]
-  ): CompilerIO[Seq[Sourced[TypeStack[Expression]]]] = {
+  )(using Platform): CompilerIO[Seq[Sourced[TypeStack[Expression]]]] = {
     val casesByConstructor: Map[ValueFQN, Seq[Expression.MatchCase]] =
       cases
         .flatMap { c =>
@@ -135,11 +136,11 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       scrutinee: Sourced[TypeStack[Expression]],
       ctorVfqn: ValueFQN,
       cases: Seq[Expression.MatchCase]
-  ): CompilerIO[Sourced[TypeStack[Expression]]] = {
+  )(using platform: Platform): CompilerIO[Sourced[TypeStack[Expression]]] = {
     val Pattern.ConstructorPattern(_, ctorFields) = cases.head.pattern.value: @unchecked
 
     if (cases.size == 1 || ctorFields.isEmpty)
-      context.buildPatternHandler(scrutinee, ctorFields, cases.head.body)
+      context.buildPatternHandler(scrutinee, ctorFields, cases.head.body, platform)
     else
       buildMultiCaseHandler(scrutinee, ctorVfqn, cases, ctorFields.size)
   }
@@ -149,7 +150,7 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       ctorVfqn: ValueFQN,
       cases: Seq[Expression.MatchCase],
       fieldCount: Int
-  ): CompilerIO[Sourced[TypeStack[Expression]]] = {
+  )(using Platform): CompilerIO[Sourced[TypeStack[Expression]]] = {
     val freshNames = (0 until fieldCount).map(i => scrutinee.as(s"$$match_${ctorVfqn.name.name}_$i"))
 
     val fieldPatternRows: Seq[Seq[Sourced[Pattern]]] = cases.map { c =>
@@ -170,7 +171,7 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       freshNames: Seq[Sourced[String]],
       patternRows: Seq[Seq[Sourced[Pattern]]],
       bodies: Seq[Sourced[TypeStack[Expression]]]
-  ): CompilerIO[Sourced[TypeStack[Expression]]] = {
+  )(using platform: Platform): CompilerIO[Sourced[TypeStack[Expression]]] = {
     val constructorColumnIdx = patternRows.head.indices.find { col =>
       patternRows.exists(_(col).value.isInstanceOf[Pattern.ConstructorPattern])
     }
@@ -182,10 +183,10 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
           val bindingPairs = freshNames.zip(row).zipWithIndex.collect { case (pair, i) if i != colIdx => pair }
           Expression.MatchCase(row(colIdx), wrapWithBindings(scrutinee, bindingPairs, body))
         }
-        context.desugarMatch(fieldRef, nestedCases).map(wrapExpr(scrutinee, _))
+        context.desugarMatch(fieldRef, nestedCases, platform).map(wrapExpr(scrutinee, _))
 
       case None =>
-        context.desugarInTypeStack(wrapWithBindings(scrutinee, freshNames.zip(patternRows.head), bodies.head))
+        context.desugarInTypeStack(wrapWithBindings(scrutinee, freshNames.zip(patternRows.head), bodies.head), platform)
     }
   }
 
@@ -211,9 +212,9 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       scrutinee: Sourced[TypeStack[Expression]],
       ctorVfqn: ValueFQN,
       wildcardCase: Expression.MatchCase
-  ): CompilerIO[Sourced[TypeStack[Expression]]] =
+  )(using platform: Platform): CompilerIO[Sourced[TypeStack[Expression]]] =
     for {
-      umv     <- getFactOrAbort(UnifiedModuleValue.Key(ctorVfqn))
+      umv     <- getFactOrAbort(UnifiedModuleValue.Key(ctorVfqn, platform))
       arity   <- umv.namedValue.roleHint match {
                    case RoleHint.ValueConstructor(_, fieldCount) => fieldCount.pure[CompilerIO]
                    case _                                        =>
@@ -224,7 +225,8 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       handler <- context.buildPatternHandler(
                    scrutinee,
                    Seq.fill(arity)(scrutinee.as(Pattern.WildcardPattern(scrutinee.as("_")))),
-                   wildcardCase.body
+                   wildcardCase.body,
+                   platform
                  )
     } yield handler
 

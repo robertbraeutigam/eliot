@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.PrecedenceDeclaration.Relation
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import TokenClassifier.{InfixOp, Operand, Token, outlinedExpr}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -15,7 +16,7 @@ import scala.annotation.tailrec
 
 object InfixPrecedenceResolver {
 
-  def resolve(tokens: Seq[Token]): CompilerIO[OperatorResolvedExpression] = {
+  def resolve(tokens: Seq[Token])(using Platform): CompilerIO[OperatorResolvedExpression] = {
     val operands  = tokens.collect { case Operand(p) => p }
     val operators = tokens.collect { case i: InfixOp => i }
 
@@ -63,10 +64,10 @@ object InfixPrecedenceResolver {
     }
   }
 
-  private def buildPrecedenceOrder(operators: Seq[InfixOp]): CompilerIO[PrecedenceOrder] = {
+  private def buildPrecedenceOrder(operators: Seq[InfixOp])(using platform: Platform): CompilerIO[PrecedenceOrder] = {
     val vfqns = operators.map(_.vfqn).distinct
     for {
-      rvs <- vfqns.traverse(v => getFactOrAbort(ResolvedValue.Key(v)).map(v -> _))
+      rvs <- vfqns.traverse(v => getFactOrAbort(ResolvedValue.Key(v, platform)).map(v -> _))
     } yield {
       val higherPairs = rvs.flatMap { (vfqn, rv) =>
         rv.precedence.flatMap { decl =>

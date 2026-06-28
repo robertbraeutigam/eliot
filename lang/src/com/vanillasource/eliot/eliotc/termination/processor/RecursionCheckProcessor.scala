@@ -18,7 +18,7 @@ import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
   */
 class RecursionCheckProcessor
     extends TransformationProcessor[OperatorResolvedValue.Key, RecursionCheckedValue.Key](key =>
-      OperatorResolvedValue.Key(key.vfqn)
+      OperatorResolvedValue.Key(key.vfqn, key.platform)
     ) {
 
   private lazy val recursionChecker = new RecursionChecker
@@ -27,5 +27,5 @@ class RecursionCheckProcessor
       key: RecursionCheckedValue.Key,
       value: OperatorResolvedValue
   ): CompilerIO[RecursionCheckedValue] =
-    recursionChecker.check(value).as(RecursionCheckedValue(value))
+    recursionChecker.check(value, key.platform).as(RecursionCheckedValue(value))
 }

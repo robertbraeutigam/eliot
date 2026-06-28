@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.core.fact.TypeStack
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -49,10 +50,11 @@ object MatchDesugarUtils {
       moduleName: ModuleName,
       abilityName: String,
       methodName: String,
+      platform: Platform,
       dataTypeName: Option[String] = None
   ): CompilerIO[ValueFQN] =
     for {
-      moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
+      moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(moduleName, platform))
       candidates   = moduleNames.names.keys.toSeq.collect {
                        case qn @ QualifiedName(n, Qualifier.AbilityImplementation(an, _))
                            if n == methodName && an.value == abilityName =>
@@ -63,7 +65,7 @@ object MatchDesugarUtils {
                        case Some(dtn) =>
                          candidates.findM(qn =>
                            ImplementationMarkerUtils
-                             .firstPatternTypeConstructorName(moduleName, abilityName, qn.qualifier)
+                             .firstPatternTypeConstructorName(moduleName, abilityName, qn.qualifier, platform)
                              .map(_.contains(dtn))
                          )
                      }

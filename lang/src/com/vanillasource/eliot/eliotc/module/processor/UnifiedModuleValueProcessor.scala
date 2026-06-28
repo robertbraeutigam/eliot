@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.module.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.NamedValue
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleNames, ModuleValue, UnifiedModuleValue, ValueFQN}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerError, compilerAbort}
@@ -14,16 +15,20 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
 
   override protected def generateSingleFact(key: UnifiedModuleValue.Key): CompilerIO[UnifiedModuleValue] =
     for {
-      pathScan     <- getFactOrAbort(PathScan.Key(pathName(key.vfqn.moduleName)))
+      pathScan     <- getFactOrAbort(PathScan.Key(pathName(key.vfqn.moduleName), key.platform))
       allNames     <- pathScan.files.traverse(file => getFactOrAbort(ModuleNames.Key(file)).map(file -> _))
       filesWithName = allNames.collect { case (file, names) if names.names.value.contains(key.vfqn.name) => file }
-      allValues    <- filesWithName.traverse(file => getFactOrAbort(ModuleValue.Key(file, key.vfqn)))
+      allValues    <- filesWithName.traverse(file => getFactOrAbort(ModuleValue.Key(file, key.vfqn, key.platform)))
       _            <- compilerAbort(allNames.head._2.names.as(s"Could not find '${key.vfqn.name.show}'."))
                         .whenA(allValues.isEmpty)
-      unifiedValue <- unifyValues(key.vfqn, allValues)
+      unifiedValue <- unifyValues(key.vfqn, allValues, key.platform)
     } yield unifiedValue
 
-  private def unifyValues(vfqn: ValueFQN, values: Seq[ModuleValue]): CompilerIO[UnifiedModuleValue] =
+  private def unifyValues(
+      vfqn: ValueFQN,
+      values: Seq[ModuleValue],
+      platform: Platform
+  ): CompilerIO[UnifiedModuleValue] =
     if (values.isEmpty) {
       abort
     } else if (hasMoreImplementations(values)) {
@@ -37,7 +42,8 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
         implementedValue.vfqn,
         implementedValue.dictionary,
         implementedValue.namedValue,
-        implementedValue.privateNames
+        implementedValue.privateNames,
+        platform
       ).pure[CompilerIO]
     }
 

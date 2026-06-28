@@ -5,7 +5,7 @@ import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDateProcessor
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
-import com.vanillasource.eliot.eliotc.plugin.LangPlugin.pathKey
+import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{compilerPathKey, pathKey, runtimePathKey}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
@@ -29,7 +29,17 @@ class LangPlugin extends CompilerPlugin {
       .unbounded()
       .required()
       .action((path, config) => config.updatedWith(pathKey, _.getOrElse(Seq.empty).appended(path).some))
-      .text("paths of either directories or files to compile")
+      .text("paths of either directories or files to compile (the user program; folded into the runtime path)"),
+    opt[Path]("compiler-path")
+      .unbounded()
+      .action((path, config) => config.updatedWith(compilerPathKey, _.getOrElse(Seq.empty).appended(path).some))
+      .text(
+        "a source root scanned for compile-time evaluation (the abstract base and the compiler-platform layer); repeatable"
+      ),
+    opt[Path]("runtime-path")
+      .unbounded()
+      .action((path, config) => config.updatedWith(runtimePathKey, _.getOrElse(Seq.empty).appended(path).some))
+      .text("a source root scanned for codegen (the base, the target layer, and the user program); repeatable")
   )
 
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] = {
@@ -43,7 +53,13 @@ class LangPlugin extends CompilerPlugin {
             FileContentReader(),
             ResourceContentReader(),
             SourceContentReader(),
-            PathScanner(configuration.getOrElse(pathKey, Seq.empty))
+            // The marker selects which filesystem root list `PathScanner` scans (CP1). The positional `<path>` args are
+            // the user's program, folded into the runtime path; the abstract base / target `.els` still arrive via the
+            // retained classpath scan in CP1. See `PathScanner`.
+            PathScanner(
+              configuration.getOrElse(compilerPathKey, Seq.empty),
+              configuration.getOrElse(runtimePathKey, Seq.empty) ++ configuration.getOrElse(pathKey, Seq.empty)
+            )
           ) ++ LangProcessors(extraNativeBindingLabels =
             // The native-binding merger built inside LangProcessors must consult every native contributor that other
             // layers registered in their configure() (e.g. stdlib's arithmetic natives). All configure() complete before
@@ -56,5 +72,7 @@ class LangPlugin extends CompilerPlugin {
 }
 
 object LangPlugin {
-  val pathKey: Configuration.Key[Seq[Path]] = namedKey[Seq[Path]]("paths")
+  val pathKey: Configuration.Key[Seq[Path]]         = namedKey[Seq[Path]]("paths")
+  val compilerPathKey: Configuration.Key[Seq[Path]] = namedKey[Seq[Path]]("compilerPaths")
+  val runtimePathKey: Configuration.Key[Seq[Path]]  = namedKey[Seq[Path]]("runtimePaths")
 }

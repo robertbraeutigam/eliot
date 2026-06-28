@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.matchdesugar.fact
 import com.vanillasource.eliot.eliotc.ast.fact.Fixity
 import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, PrecedenceDeclaration, QualifiedName, ResolvedValue}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -17,13 +18,14 @@ case class MatchDesugaredValue(
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
     opaque: Boolean = false,
     inferableArity: Int = 0,
-    roleHint: RoleHint = RoleHint.NoHint
+    roleHint: RoleHint = RoleHint.NoHint,
+    platform: Platform = Platform.Runtime
 ) extends CompilerFact {
-  override def key(): CompilerFactKey[MatchDesugaredValue] = MatchDesugaredValue.Key(vfqn)
+  override def key(): CompilerFactKey[MatchDesugaredValue] = MatchDesugaredValue.Key(vfqn, platform)
 }
 
 object MatchDesugaredValue {
   case class ResolvedAbilityConstraint(abilityFQN: AbilityFQN, typeArgs: Seq[MatchDesugaredExpression])
 
-  case class Key(vfqn: ValueFQN) extends CompilerFactKey[MatchDesugaredValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[MatchDesugaredValue]
 }

@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.termination.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 
 /** An [[OperatorResolvedValue]] that has passed the no-recursion rule (termination M1): its body-level
@@ -20,9 +21,9 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   *   The operator-resolved value, certified free of body-level recursion and otherwise untouched.
   */
 case class RecursionCheckedValue(value: OperatorResolvedValue) extends CompilerFact {
-  override def key(): CompilerFactKey[RecursionCheckedValue] = RecursionCheckedValue.Key(value.vfqn)
+  override def key(): CompilerFactKey[RecursionCheckedValue] = RecursionCheckedValue.Key(value.vfqn, value.platform)
 }
 
 object RecursionCheckedValue {
-  case class Key(vfqn: ValueFQN) extends CompilerFactKey[RecursionCheckedValue]
+  case class Key(vfqn: ValueFQN, platform: Platform = Platform.Runtime) extends CompilerFactKey[RecursionCheckedValue]
 }
