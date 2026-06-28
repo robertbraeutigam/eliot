@@ -1,0 +1,20 @@
+import eliot.lang.Either
+import eliot.lang.Option
+import eliot.lang.Bool
+
+/**
+ * The compile-time bodies of the guard combinators the base layer declares abstractly (`eliot.lang.Guard`). They bottom
+ * out in only the carrier primitives — the `Bool` `fold` leaf, the compile-time `Either` (`Left`/`Right`) and `Option`
+ * (`Some`/`None`/`foldOption`) carriers — so they reduce while the NbE checker evaluates a signature, with no auto-lift
+ * and no carrier pinning: a guard `orError(when(t, cond), msg)` is an ordinary application the evaluator reduces to
+ * `Right(t)` / `Left(msg)`, which the effectful-signatures discharge reads. See `docs/effectful-signatures.md` (G1).
+ *
+ * The carrier is fixed (`Either[String, _]`), so its `pure`/`raise` are the known `Right`/`Left` — written directly, not
+ * through a `{Throw[String]}` row that would need a carrier inferred.
+ */
+
+def error[A](msg: String): Either[String, A] = Left(msg)
+
+def when[A](a: A, cond: Bool): Option[A] = fold(cond, Some(a), None)
+
+def orError[A](o: Option[A], msg: String): Either[String, A] = foldOption(o, Left(msg), v -> Right(v))

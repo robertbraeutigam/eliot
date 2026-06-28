@@ -1,0 +1,26 @@
+import eliot.lang.Either
+import eliot.lang.Option
+import eliot.lang.Bool
+
+/**
+ * Guard combinators for effectful (compile-time-rejecting) signatures. A value's return type may be computed from its
+ * type parameters with these combinators to **reject** an invalid instantiation with a readable message at the concrete
+ * use site — e.g. `def head[A, MIN, MAX](xs: Seq[A, MIN, MAX]): orError(when(A, MIN > 0), "head requires a non-empty
+ * Seq")`. The combinators evaluate to the compile-time `Throw[String]` carrier `Either[String, _]`, which the
+ * effectful-signatures discharge reads back as `Right(t)` (the type `t`) or `Left(msg)` (a rejection). See
+ * `docs/effectful-signatures.md` (G1).
+ *
+ * Abstract here (signature only — the base layer is representation-free): the concrete bodies live in the **compiler**
+ * layer (`compiler/.../Guard.els`), where they reduce at check time. They are **dual-use** — the same functions work on
+ * real `Option`/`Either` values, because types are values — so a runtime layer may supply concrete bodies too.
+ */
+
+/** The always-rejecting guard: `error(msg)` is the carrier's `raise` — it rejects with `msg`. */
+def error[A](msg: String): Either[String, A]
+
+/** `when(a, cond)` keeps `a` when `cond` holds (`Some(a)`) and drops it otherwise (`None`) — a guarded `Option`. */
+def when[A](a: A, cond: Bool): Option[A]
+
+/** `orError(o, msg)` accepts the value of a `Some` and rejects a `None` with `msg`. Composes with `when` to read as
+  * `orError(when(a, cond), msg)` — "a, but only when cond, else reject with msg". */
+def orError[A](o: Option[A], msg: String): Either[String, A]

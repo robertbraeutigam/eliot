@@ -1,0 +1,23 @@
+/**
+ * The compile-time `Option` carrier — the compiler platform's redefinition of the abstract `type Option[A]` in the base
+ * layer, mirroring the `jvm` runtime `Option` (`jvm/.../Option.els`). The compiler is a platform exactly like `jvm`:
+ * where `jvm` realizes `Option` for codegen, this realizes it for the compile-time (NbE) phase, so `Option`-valued
+ * type-level computations reduce while checking. Its first consumer is the guard combinator vocabulary
+ * (`eliot.lang.Guard`): `when` produces an `Option`, `orError` eliminates one. See `docs/effectful-signatures.md` (G1).
+ *
+ * Structurally identical to the `jvm` `Option` (same `data`/`foldOption`), so the compiler overlay is transparent for
+ * ordinary runtime uses of `Option` (the `add` pattern — one name, two platform implementations, kept apart by the
+ * `compiler`/`runtime` marker). The base layer's body-less `some`/`none` are left untouched (they stay abstract, the
+ * stuck constructors the `Coerce` checker matches by name); `Some`/`None`/`foldOption` here are the concrete
+ * constructors and eliminator the compile-time evaluator reduces.
+ */
+data Option[A] = None | Some(value: A)
+
+/**
+ * Eliminate an `Option`: `foldOption(o, ifNone, ifSome)` returns `ifNone` when `o` is `None`, or `ifSome(value)` when it
+ * is `Some(value)`. The total, branch-explicit eliminator the guard combinators reduce through at compile time.
+ */
+def foldOption[A, B](o: Option[A], ifNone: B, ifSome: Function[A, B]): B = o match {
+   case None -> ifNone
+   case Some(v) -> ifSome(v)
+}

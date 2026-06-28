@@ -1,6 +1,6 @@
 # Effectful Signatures: Compile-Time `Throw` for Guarded & Calculated Return Types
 
-Status: **Foundation + ability bridge + discharge landed; surface vocabulary/syntax (G1–G3) remain.** W1 — the compile-time error carrier — is
+Status: **Foundation + discharge + guard combinators (G1) landed; surface syntax (G2) + raw-`if/else` lift (G3) remain.** W1 — the compile-time error carrier — is
 **done**: it shipped as the compiler-platform `Either` layer when the compiler became a first-class platform (CP1–CP4;
 see the "compiler is itself a platform" section of `.claude/CLAUDE.md` and `compiler/README.md`). **W2a is also done**:
 the carrier's `Monad`/`Throw` instances are **compiler-pool-only**, and ability-instance resolution is platform-aware —
@@ -12,8 +12,9 @@ expression whose value is on the `Either[String, _]` carrier is recognised at th
 abstract bounds is deferred to the body. This works with guards written explicitly against the carrier (e.g.
 `fold(cond, Right(t), Left("msg"))`); what remains is the **surface vocabulary and syntax**, refolded (see "The
 remaining work, folded") into **G1** — guard combinators (`error`/`when`/`orError`) on the carrier, usable in
-application form with no auto-lift; **G2** — the parser/desugar unrestriction so guards read as
-`A when (MIN > 0) orError "…"`; and **G3** — the deferred opt-in return auto-lift for raw `if/else` direct style. The
+application form with no auto-lift (**done**: `stdlib`/`compiler` `Guard.els` + a compiler-layer `Option` carrier); **G2**
+— the parser/desugar unrestriction so guards read as `A when (MIN > 0) orError "…"`; and **G3** — the deferred opt-in
+return auto-lift for raw `if/else` direct style. The
 motivating consumer is length-indexed `Seq`/`Stack` (`Seq[A, MIN, MAX]`), where operations
 like `head`/`pop`/`get` are only valid on sufficiently-large collections and must reject the empty case *with a readable
 message* at the concrete use site.
@@ -286,24 +287,29 @@ around one realization: **a guard written as a combinator call needs no auto-lif
 caller's signature is just a call. So the **combinators are the surface**, and the signature-position **auto-lift is
 only needed for *raw* `if/else` direct style** — and is deferred (it has a real blocker, see G3). The folded steps:
 
-### G1 — Guard combinator vocabulary on the carrier (the surface)
+### G1 — Guard combinator vocabulary on the carrier (the surface) — **done**
 
 Ordinary total Eliot that bottoms out in the carrier primitives (`fold` leaf + the compiler-platform `Either` /
 `Option`). These *evaluate* to `Right`/`Left`; **no auto-lift, no carrier pinning** — the return is a plain call whose
-value the discharge reads.
+value the discharge reads. Landed as `stdlib/.../Guard.els` (abstract `def` signatures) + `compiler/.../Guard.els`
+(concrete bodies):
 
 - `error[A](msg: String): Either[String, A]` — `Left(msg)` (the carrier's `raise`).
 - `when[A](a: A, cond: Bool): Option[A]` — `fold(cond, Some(a), None)`.
 - `orError[A](o: Option[A], msg: String): Either[String, A]` — `foldOption(o, Left(msg), v -> Right(v))`.
-- `orElse`, etc., as needed.
+- `orElse`, etc., remain to add as needed.
 
-**Layering.** Guards are checked on the platform the checker reads its signatures from (currently the *runtime* pool —
-`MonomorphicTypeCheckProcessor` keys `SaturatedValue` at the default `Runtime` marker), so the vocabulary must resolve
-there *and* reduce at compile time. That is exactly the carrier's own layering: abstract `def` signature in `stdlib`
-(signature-only is allowed in the base), concrete bodies in **both** `jvm` (runtime) and the **compiler** layer
-(compile-time) — like `Either`/`foldEither`. `Option` is concrete only in `jvm` today, so the compiler layer needs its
-own `Option` carrier (a CP4-style promotion, mirroring `Either.els`) for `when`/`orError` to reduce at compile time.
-These are **dual-use**: the same functions work on real `Option`/`Either` at runtime, because types are values.
+**Layering (done).** Guards are checked on the platform the checker reads its signatures from (the *runtime* pool —
+`MonomorphicTypeCheckProcessor` keys `SaturatedValue` at the default `Runtime` marker), so the vocabulary resolves there
+via the abstract `stdlib` signatures *and* reduces at compile time via the concrete `compiler` bodies (the `add` /
+CP3 overlay — the runtime pool has no body, so the merged `NativeBinding` uses the compiler body for checking; the
+combinators never reach codegen, since the signature is discharged first). The compile-time `when`/`orError` reduce
+through a new **compiler-layer `Option` carrier** (`compiler/.../Option.els`, a CP4-style mirror of `jvm/.../Option.els`
+— its auto-generated `match` ability reduces `foldOption` at check time). These are **dual-use** (the same functions
+work on real `Option`/`Either` at runtime); a concrete `jvm` body for runtime use is a trivial follow-on, not needed for
+guards. Verified end-to-end by `jvm/.../GuardSignatureIntegrationTest` (satisfied guard runs as the bare type;
+unsatisfied guard and a bare `error(msg)` fail the build with the author message) and the leaf
+`MonomorphicTypeCheckTest` "G1 combinators".
 
 `error`'s return is written on the **fixed** carrier `Either[String, A]` directly, not `{Throw[String]} A`: the
 compile-time carrier is fixed, so its `pure`/`raise` are the known `Right`/`Left` — no generic `F` to pin. A generic
@@ -339,12 +345,12 @@ fixed by the return-slot expectation). Two blockers make this last, not first:
 
 ## Sequencing (combinators first, the lift last)
 
-W1 (the compile-time carrier), W2a (the ability-resolution platform bridge), and W2b (the discharge) are **done**.
+W1 (the compile-time carrier), W2a (the ability-resolution platform bridge), W2b (the discharge), and **G1** (the
+combinator vocabulary) are **done**.
 
 1. **G1 — combinator vocabulary** (`error`, `when`, `orError`) on the compiler/runtime `Either`/`Option` carriers, with
-   a compiler-layer `Option`. Testable now in **application form** (`def head[C: Bool]: orError(when(t, C), "…") = …`)
-   — no parser change — exercising the discharge through real vocabulary, not the raw `Right`/`Left` the W2b leaf tests
-   use. This is the first coded step.
+   a compiler-layer `Option`. **Done** — usable in **application form** (`def head[C: Bool]: orError(when(t, C), "…") =
+   …`) with no parser change, verified end-to-end (`GuardSignatureIntegrationTest`).
 2. **G2 — parser + desugar** in the return position (infix, `if`/`else`, `match`, blocks) + the compile-time
    `<`/`>` comparison leaf, so the guard surface reads as designed (`A when (MIN > 0) orError "…"`).
 3. **G3 — the opt-in return auto-lift + branch-lift**, last, fixing the runtime body lift and the type-level return
@@ -378,9 +384,11 @@ W1 (the compile-time carrier), W2a (the ability-resolution platform bridge), and
   acceptance + applied/by-name reads), `monomorphize/check/TypeStackLoop.scala` (callee signature discharge),
   `monomorphize/check/CheckState.scala` (the `sawGuardReturn` guard-signature flag). Leaf tests:
   `MonomorphicTypeCheckTest` ("effectful-signatures discharge (W2b)").
-- `stdlib/.../` (abstract `def` signatures) + `jvm/.../` + `compiler/.../` (concrete bodies) — **G1**: the combinator
-  vocabulary (`error`, `when`, `orError`, `orElse`) on the carrier, layered like `Either`/`foldEither`. Needs a
-  compiler-layer `Option.els` (CP4-style promotion of `jvm/.../Option.els`) so `when`/`orError` reduce at compile time.
+- `stdlib/.../Guard.els` (abstract `def` signatures) + `compiler/.../Guard.els` (concrete bodies) — **G1 (done)**: the
+  combinator vocabulary (`error`, `when`, `orError`; `orElse` TBD) on the carrier, layered like `Either`/`foldEither`.
+  `compiler/.../Option.els` (**done**, CP4-style mirror of `jvm/.../Option.els`) gives the compile-time `Option` so
+  `when`/`orError` reduce while checking. Tests: `jvm/.../GuardSignatureIntegrationTest` (end-to-end) +
+  `MonomorphicTypeCheckTest` "G1 combinators" (leaf). A concrete `jvm` body for runtime dual-use is a trivial follow-on.
 - `ast` parser (`Expression.typeParser`) + `matchdesugar`/block processors + a compile-time `<`/`>` comparison leaf in
   `SystemNativesProcessor` (alongside `add`) — **G2** (infix / `if`/`else` / `match` / blocks in the return position, and
   the desugar phases extended to the signature sub-expression).
