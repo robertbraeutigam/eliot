@@ -35,18 +35,23 @@ genuinely primitive — *identical in shape to how jvm is mostly-Eliot over a ha
 ### Cornerstone framing
 
 This is the **λ\* phase/erasure** distinction made structural: the compile-time (type-level) phase and the runtime
-(value-level) phase each resolve under their own platform. The abstract base (`lang`/`stdlib`) stays representation-free;
-**each platform fills it in for its phase**. The "no `data` in base" rule is untouched — `data Either` lives in the
-*compiler platform layer*, a platform layer like jvm, never in the abstract base. It is the **Platform-Independence via
-Layers** cornerstone applied to the compiler itself: the compiler "implements the abstract stdlib for the compile-time
-phase" the same way jvm implements it for the JVM.
+(value-level) phase each resolve against their own platform. The abstract base (`lang`/`stdlib`) stays
+representation-free; **each platform fills it in for its phase**. The "no `data` in base" rule is untouched — `data
+Either` lives in the *compiler platform layer*, a platform layer like jvm, never in the abstract base. It is the
+**Platform-Independence via Layers** cornerstone applied to the compiler itself: the compiler "implements the abstract
+stdlib for the compile-time phase" the same way jvm implements it for the JVM.
 
 ## What blocks it today: platform-blind source unification
 
-The front-end resolves every name against **one pool of all roots**:
+The front-end resolves every name against **one pool of all roots**, discovered two ways:
+
+- `PathScanner`'s `rootPaths` — the CLI `<path>` args (the user's program), resolved on the filesystem.
+- a **blanket classpath scan** — `getResources("eliot/" + path)`, which pools *every* classpath resource under `eliot/`.
+  Base (`lang`, `stdlib`) **and** jvm both ship their `.els` under `eliot/…`, and `examples` depends on `jvm`
+  (`build.mill`), so jvm.jar is on the classpath — meaning base and jvm land in the **same** pool.
 
 ```
-PathScan (CLI roots + every classpath `eliot/…` resource)
+PathScan (CLI rootPaths + blanket `eliot/…` classpath scan)
   → ModuleNames / ModuleValue        (per file)
   → UnifiedModuleValue               (per FQN: unify ALL files across ALL roots)
   → resolve → matchdesugar → operator → effect → SaturatedValue   (per FQN)
@@ -58,115 +63,66 @@ PathScan (CLI roots + every classpath `eliot/…` resource)
 (`"Has multiple implementations."`). So a compiler-platform `data Either` and a jvm `data Either` cannot both be concrete
 at `eliot.lang.Either` in one pool. And **both `NativeBinding` (checking) and `TransparentBinding` (codegen) read the
 same single, platform-blind `SaturatedValue`** — so there is no seam where the compile-time phase could see a different
-`Either` than codegen.
+`Either` than codegen. The blanket classpath scan is a development convenience — "find the stdlib without configuring
+paths" — and it is exactly what welds base and jvm into one inseparable pool.
 
 To have "two platforms simultaneously" we must make source resolution **platform-scoped**.
 
-## The design: layers, platforms, and the dependency closure
+## The design: a two-valued phase marker + two explicit source paths
 
-### Layers carry a descriptor; there is no per-platform prefix
+This is deliberately *not* a module/build system, and it deliberately **removes the classpath-scan convenience** rather
+than working around it. There is no layer descriptor, no `requires`, no dependency closure. We have two phases and two
+explicitly-provided source paths — an honest intermediate on the way to a real build system, with the paths filled
+**by hand** for now (in the Mill run / test harness) and computed automatically later.
 
-A **layer** is a root — a jar or a directory — that carries a **descriptor** at a fixed, well-known resource path
-(e.g. `META-INF/eliot-layer.properties`), declaring the layer's **name** and the layers it **requires**:
+### The marker
 
-```
-name = jvm
-requires = stdlib
-```
+Add a **`platform` marker** to the front-end fact keys — a plain two-valued tag, `compiler | runtime`:
 
-Every layer keeps its Eliot resources where they already are, under `eliot/…`. There is **no `eliot-compiler/…` /
-`eliot-runtime/…` prefix relocation** — the descriptor makes a layer's identity and edges *explicit data* instead of an
-implicit naming convention, and nothing physically moves. (An earlier draft of this plan used per-platform prefixes;
-descriptors supersede them — see "Why descriptors, not prefixes" below.)
+| marker | scans | drives |
+|---|---|---|
+| **compiler** | the **compiler path** (base — `lang`+`stdlib` — + the compiler platform) | compile-time evaluation (NbE / type checking) |
+| **runtime** | the **runtime path** (base + the selected target, jvm, + the user's program) | codegen (`used → uncurry → backend`) |
 
-There are **two kinds of layer**:
+`CompilerNativesProcessor` reads the **compiler** pool to source each platform concrete's checking-time reduction (the
+`add` pattern, below); the **main pipeline** — base, the target, and the user's program — resolves under `runtime`, and
+`UserValueNativesProcessor` / `TransparentBinding` / `used` / codegen read that. The marker threads through the chain
+(`PathScan.Key`, `ModuleNames.Key`, `ModuleValue.Key`, `UnifiedModuleValue.Key`, …, `SaturatedValue.Key`) as a
+namespace; processors are otherwise unchanged.
 
-- **Abstract layers** — signatures only (`type X` with no body, `def` with no body). `lang`, `stdlib`, third-party
-  libraries, **and the user's program**. These form the `requires` spine and are platform-neutral.
-- **Platform layers** — provide bodies / `data`. `jvm`, the new `compiler` layer, future `arduino-common ← arduino-uno`.
-  They *realize* the abstract spine and are what makes a phase concrete.
+### Two explicit path lists, filled manually
 
-The **user's program is a layer too**, with its own descriptor. We need it: without one we cannot tell what the program
-is written against, and therefore cannot validate it against a chosen platform.
+Replace the single `rootPaths` + blanket `getResources("eliot/…")` discovery with **two explicit, repeatable CLI path
+options** — `--compiler-path` and `--runtime-path` (think Java's system path vs. classpath). Each is the **complete**
+root list for its phase:
 
-### A platform is a dependency closure; the marker is that closure
+- `--compiler-path` = base (`lang`, `stdlib`) + the **compiler platform** (system-bundled).
+- `--runtime-path` = base + the **target** (`jvm`, selected per build) + the **user's program**.
 
-The two *phases* — compile-time checking and runtime codegen — each resolve under a **set of layers**: the **dependency
-closure** of a requested **platform leaf**, unioned with the always-present program and base.
+The marker selects which list `PathScanner` scans. **Only base is listed in both**; the compiler platform appears only
+in the compiler list, and jvm *and the user's program* only in the runtime list. The user's program does **not** need to
+be in the compiler list: the compiler platform supplies the compile-time *reductions* for platform concretes through the
+native-label mechanism (the `add` pattern below), so the checker type-checks the program off the runtime pool with those
+reductions overlaid — it is never resolved a second time under the compiler marker. For now both lists are **filled by
+hand in the Mill run** — each entry points at a module's `resources/eliot` dir — and the eventual build system computes
+them. (The compiler path is effectively system-determined, so the user really only configures the runtime path.)
 
-| phase | requested leaf | closure (the marker) | drives |
-|---|---|---|---|
-| **checking** | `compiler` | `{program, …libs, stdlib, lang, compiler}` | compile-time evaluation (NbE / type checking) |
-| **codegen** | the selected target (`jvm`, later `arduino-uno`, …) | `{program, …libs, stdlib, lang, jvm}` | codegen (`used → uncurry → backend`) |
+### No relocation, and the symmetric requirement is trivial
 
-The **leaf is only the request**; the **closure is the key**. The thing threaded through the front-end fact keys is the
-canonical (sorted) **set of layer ids** — the closure — not the leaf label and not a fixed `{compiler, runtime}` enum.
-This matters:
+Because the lists are explicit, nothing moves and nothing pollutes:
 
-- **The leaf underdetermines the pool.** A program may pull in abstract libraries (`collections`, …) that are *not* on
-  the platform's chain, so the leaf alone does not name the file set; the closure does.
-- **It is the honest key.** `UnifiedModuleValue(fqn, X)` resolves differently across `X` *because* `X` pulls a different
-  file set. Making `X` literally be that set gives equal-closures ⇒ shared-facts caching by construction, instead of
-  riding on an implicit "ambient program."
-- **Abstract diamonds dissolve for free.** A closure is a **set**, so `collections → stdlib` and `program → stdlib`
-  (a harmless diamond) dedup to one `stdlib` entry — no special handling.
+- **No resource-prefix change.** `stdlib` and `jvm` keep their `.els` exactly where they are under `eliot/…`. jvm is
+  simply *absent* from the compiler list, so the checker never sees its `Either`; the compiler platform is absent from
+  the runtime list, so codegen never sees *its* `Either`. The "symmetric requirement" (keep each platform out of the
+  other's pool) is satisfied by *not listing it*, not by a prefix or a relocation.
+- **The blanket classpath scan retires** from the driver — it is the workaround we are removing.
 
-Both phases of one compile differ only in their platform layer (`…, compiler` vs `…, jvm`), so abstract/user names
-resolve twice — once per closure. That double computation is accepted (the fact graph is demand-driven and cached per
-key); the closure marker just makes *why* they are distinct keys explicit.
+### Why this is enough (and validation is unnecessary)
 
-### The structure: program on top, platform spliced deep
-
-The program is **always on top**. Its abstract `requires` does not sit immediately above the platform — it only has to
-be **realized somewhere down the target's chain**, which can be many concrete layers deep:
-
-```
-myapp            ← program: requires stdlib (abstract); always the top
-  │
-arduino-uno      ← target (the requested leaf) — platform leaf
-  │
-arduino-common   ← platform intermediary   ┐ "even more steps beneath"
-  │              ←  …more…                  ┘
-stdlib           ← JOIN: where myapp's `requires` is realized
-  │
-lang             ← base
-```
-
-A **platform-specific program** — one that uses jvm-specific `data`/functions — simply `requires` a platform layer,
-which makes the join *shallow* (the program reaches into the platform itself) and constrains its legal targets:
-
-```
-myapp  →  jvm  →  stdlib  →  lang        (requires jvm ⇒ jvm is the only legal target)
-```
-
-So **"join depth" is just how far down the target's chain the program's `requires` lands** — at the abstract base for
-portable programs (deep, many platform intermediaries), inside the platform for locked programs (shallow). One mechanism,
-no branch in the logic. "Named in the program" (a `requires` edge to a platform) and "supplied at compile time" (a leaf
-requested by the driver) are the **same mechanism**; they differ only in how much they pin down the target.
-
-### The invariant
-
-A closure is **valid** iff:
-
-1. it contains **exactly one platform chain** (one realization), and
-2. all abstract layers in it **agree on the same base spine** (identical layers from the join down to `lang`).
-
-**Abstract-only diamonds are allowed** (a program drawing on two independent abstract libraries that share `stdlib`):
-still one platform, still one base — and the merge is **order-independent** (prefer-the-one-concrete, error on two — see
-`UnifiedModuleValue`), so the "stack" is purely a *closure/validation* device. We never compute a linear order to merge;
-we compute the **set** and check the invariant. What is banned is precisely **two conflicting platform/base spines** in
-one closure (e.g. a program that drags in a jvm-locked library while targeting arduino) — which the unifier would
-otherwise surface as `"Has multiple implementations."`.
-
-### Why descriptors, not prefixes
-
-Per-layer prefixes (`eliot-jvm/…`) would also separate layers, and would even survive a fat jar (distinct paths).
-Descriptors do **not** survive a fat jar — both the descriptors and any redefined `Either.els` collide at one path and
-one silently wins. The trade is worth it because **we already mandate separate per-module jars**
-(`[[gotcha_assembly_jar_breaks_layers]]`, the LSP `package.sh`), and descriptors buy two things prefixes do not: the
-layer DAG becomes explicit *data* (no path-convention encoding, nothing relocates), and a collapsed fat jar is
-**detectable** (a root whose descriptor says `name = jvm` but that also contains base files, or two descriptors
-collapsing to one) so we can fail loudly instead of silently dropping a layer.
+The entry point hands over two complete, explicit lists, so two platforms **cannot** collide in a pool by construction.
+There is nothing to validate — no diamonds are expressible, there is no second target, and base is just listed in both. Most names are abstract-only or user code and unify to the same result in both phases; only
+platform-provided concretes (`Either`, the `Int` representation, …) diverge, and only there does the marker matter. The
+fact graph is demand-driven, so facts are computed per `(key, marker)` on demand and cached.
 
 ### Mapping onto `ContributedBinding`
 
@@ -174,134 +130,122 @@ The compiler platform becomes a **native-category supplier reading Eliot**, para
 (which reads Scala):
 
 - A new **`compiler`** `ContributedBinding` label, contributed by a new `CompilerNativesProcessor`.
-- Unlike `UserValueNativesProcessor` (which reads the *codegen*-closure `SaturatedValue`), `CompilerNativesProcessor`
-  reads the **checking**-closure `SaturatedValue` for the name and emits the evaluable body. It is preferred over the
+- Unlike `UserValueNativesProcessor` (which reads the *runtime*-marker `SaturatedValue`), `CompilerNativesProcessor`
+  reads the **compiler**-marker `SaturatedValue` for the name and emits the evaluable body. It is preferred over the
   `user` label by `BindingMergerProcessor`'s existing native-before-user precedence — giving "compiler reduction wins
   for checking; platform body still used for codegen" with **no change to the merger**.
 - The compiler platform's native *leaves* (`add`, `fold`, …) stay where they are (`SystemNativesProcessor` /
   `StdlibNativesProcessor`); they are simply the compiler platform's leaf bottom, just as `nativeAdd*` is jvm's.
-
-## The seam — closure as a key dimension + descriptor-driven roots
-
-Two complementary pieces (both needed, not alternatives):
-
-1. **The closure as a fact-key dimension.** Add the closure (canonical sorted set of layer ids) to the front-end fact
-   keys (`PathScan.Key`, `ModuleNames.Key`, `ModuleValue.Key`, `UnifiedModuleValue.Key`, …, `SaturatedValue.Key`). It
-   threads through the chain as a namespace; processors are otherwise unchanged. The checker requests the `compiler`
-   leaf; `TransparentBinding` / `used` / codegen request the selected target leaf — each request expands to a closure,
-   and that closure is what is carried.
-
-2. **Descriptor-driven discovery, attribution, and closure.** `PathScanner` no longer assumes a single `eliot/…` pool:
-   - **Discover** layers: `getClassLoader.getResources("META-INF/eliot-layer.properties")` returns exactly one URI per
-     layer root. Parse each → `(name, requires, rootUri)`, where `rootUri` is the descriptor URI minus its own suffix.
-     Build the layer DAG once. (CLI source roots without a descriptor are the program-under-compilation, always unioned;
-     a CLI root *with* one is a layer under development — e.g. building the jvm layer from `out/jvm/` in tests.)
-   - **Closure**: for a requested leaf, walk `requires` transitively (over discovered layers) and union the
-     always-present program + base → the closure set, validated against the invariant.
-   - **Attribute & filter**: resolve `eliot/<path>` as today (`getResources`), then keep only URIs whose **container
-     root** is in the closure. A pooled resource URI carries its container — `jar:file:/jvm.jar!/eliot/…` → root
-     `jar:file:/jvm.jar!/`; `file:/out/jvm/eliot/…` → root `file:/out/jvm/` — recovered by stripping the known
-     `eliot/<path>` suffix, the same root the descriptor produced. (The plan's old "cannot be reliably attributed" was
-     only ever true for fat jars, which we forbid.)
-
-```scala
-// closure(leaf) walks `requires` transitively over the discovered layer DAG + program + base
-val rootsInScope = closure(key.platform).map(_.rootUri)
-val resourceUris = allMatching.filter(u => rootsInScope.exists(u.startsWith))
-```
-
-The `compiler` layer must be **always on the classpath** wherever compile-time evaluation runs — the full driver *and*
-the LSP server — independent of the chosen target, since type checking always needs it. (Target platforms like jvm are
-selected per build; the compiler platform is unconditional.)
 
 ### Natural codegen exclusion (no special "never emit" plumbing)
 
 `UsedNamesProcessor` walks the **monomorphic runtime graph from `main`**. A name that only ever appears in a
 *compile-time* position (a discharged guard signature; see effectful-signatures W2) never enters that graph, so it is
 **already** excluded from codegen — we do not need a "compile-time-only / never emit" flag. A compiler-platform name
-that *is* also a real runtime type (like `Either`, via `runThrow`) is provided for the codegen closure by the target
-platform (jvm) in the ordinary way. The two closures keep them cleanly apart.
+that *is* also a real runtime type (like `Either`, via `runThrow`) is provided for the runtime marker by the target
+platform (jvm) in the ordinary way. The two markers keep them cleanly apart.
 
 ## Work items
 
-### CP1 — Layer descriptors + dependency-closure resolution
-Give every layer a descriptor (`META-INF/eliot-layer.properties`: `name` + `requires`), **including the user program**.
-Thread the dependency **closure** (canonical sorted set of layer ids) through the front-end fact chain from `PathScan`
-to `SaturatedValue` as the platform marker. `PathScanner` discovers layers by their descriptors, computes the closure
-for a requested leaf (+ always-present program + base), validates the invariant (one platform chain; consistent base
-spine; abstract diamonds OK), and filters the pooled `eliot/…` resources to the closure's container roots. **No resource
-relocation** — `jvm` stays at `eliot/…`, it just gains a descriptor. Leaf test: a name defined concretely in **both** the
-compiler layer and the jvm layer resolves with **no** `"Has multiple implementations."` — the `compiler` closure sees
-one, the `jvm` closure the other; a base name resolves identically under both closures; and an abstract-only diamond
-(`program → lib → stdlib` and `program → stdlib`) resolves once.
+### CP1 — Two explicit source paths + the phase marker
+Thread a two-valued `platform` marker (`compiler | runtime`) through the front-end fact chain from `PathScan` to
+`SaturatedValue`. Replace `PathScanner`'s single `rootPaths` + blanket `getResources("eliot/…")` scan with **two
+explicit root lists** — a compiler path and a runtime path — selected by the marker; add `--compiler-path` /
+`--runtime-path` CLI options (`LangPlugin` parser) and fill both **by hand** in the Mill `examples.run` task and the
+test harness, each entry pointing at the relevant modules' `resources/eliot` dir. No resource relocation: base is listed
+in **both** lists; the compiler platform only in the compiler path; jvm and the user's program only in the runtime path
+(the program is checked off the runtime pool, with the compiler platform's compile-time reductions overlaid via the
+native label). Leaf test: a name defined concretely in **both** the compiler platform and jvm resolves with **no**
+`"Has multiple implementations."` — the `compiler` marker scans one list, `runtime` the other; and a base name resolves
+identically under both.
 
 ### CP2 — The compiler-platform Mill module, always linked
 Create a new Mill module (sibling of `jvm`, **depending on `stdlib`** so it has the full abstract stdlib available),
-shipping its resources under `eliot/…` with a `compiler` descriptor (`requires = stdlib`). It must be on the classpath
-of every entry point that type-checks — the driver and the LSP server — unconditionally (unlike target platforms, which
-are selected). Initially holds only CP4's carrier.
+shipping its `.els` under `resources/eliot/…`. Its resource dir is listed on the **compiler path** of every entry point
+that type-checks — the driver and the LSP server — unconditionally (unlike target platforms, which are selected per
+build). Initially holds only CP4's carrier.
 
 ### CP3 — `CompilerNativesProcessor` (the `compiler` native label)
-A `ContributedBinding` supplier under a new `compiler` label that reads the **checking**-closure `SaturatedValue` and
+A `ContributedBinding` supplier under a new `compiler` label that reads the **compiler**-marker `SaturatedValue` and
 emits the evaluable body, contributed into `BindingMergerProcessor` via the existing native roster
 (`langNativeLabels`, since it is compiler-owned and always present). Preferred over `user` by the existing precedence.
-Leaf test: a name concrete only in the compiler layer reduces during checking; the same name's *runtime* body (if a
+Leaf test: a name concrete only in the compiler platform reduces during checking; the same name's *runtime* body (if a
 platform provides one) is what `TransparentBinding`/codegen uses.
 
 ### CP4 — First consumer: the `Either` carrier (effectful-signatures W1)
-In the compiler-platform layer, in plain Eliot: concrete `data Either = Left | Right`, `foldEither`, and
+In the compiler-platform root, in plain Eliot: concrete `data Either = Left | Right`, `foldEither`, and
 `implement Monad[Either[String]]` / `implement Throw[String, Either[String]]` (bottoming out in `fold` + the
 constructors — the existing native leaves). The abstract `type Either` / `ability Monad` / `ability Throw` stay in
-base. jvm keeps its **runtime** `Either` unchanged (and stays at `eliot/…`, now with a `jvm` descriptor). This retires
-the "W1" open question in `docs/effectful-signatures.md`: the carrier is real, reducing, Eliot, and layer-independent.
+base. jvm keeps its **runtime** `Either` unchanged and in place. This retires the "W1" open question in
+`docs/effectful-signatures.md`: the carrier is real, reducing, Eliot, and layer-independent.
 
 ## Files (anticipated)
 
-- `source/scan/PathScanner.scala` + `source/scan/PathScan.scala` — CP1 (closure dimension; descriptor discovery,
-  attribution by container root, closure filter).
+- `source/scan/PathScanner.scala` + `source/scan/PathScan.scala` — CP1 (platform marker; two explicit root lists, select
+  by marker; retire the blanket classpath scan).
+- `plugin/LangPlugin.scala` — CP1 (`--compiler-path` / `--runtime-path` CLI options + their `Configuration.Key`s).
+- `build.mill` — CP1/CP2 (the `examples.run` task and the test harness fill both path lists from module `resources/eliot`
+  dirs; a new compiler-platform module depending on `stdlib`).
 - `module/.../UnifiedModuleValueProcessor.scala`, `UnifiedModuleValue.scala`, `ModuleValue`/`ModuleNames` keys,
-  `saturate/.../SaturatedValueProcessor.scala` + `SaturatedValue.scala` — CP1 (thread the closure marker).
-- New `source/.../LayerDescriptor.scala` (+ discovery/closure/invariant) — CP1.
-- Descriptors added to each layer root: `lang`, `stdlib`, `jvm`, the new `compiler` module, and the user program's
-  source root — CP1/CP2. (No resource relocation.)
-- `build.mill` + a new compiler-platform module (depends on `stdlib`) + driver/LSP classpath — CP2.
+  `saturate/.../SaturatedValueProcessor.scala` + `SaturatedValue.scala` — CP1 (thread the marker).
 - `monomorphize/processor/CompilerNativesProcessor.scala` (new) + `monomorphize/fact/ContributedBinding.scala`
   (the `compiler` label, added to `langNativeLabels`) — CP3.
 - compiler-platform resources `…/Either.els` (concrete) — CP4; abstract `type Either` + `ability`s added to base
-  (`lang`/`stdlib`); jvm `Either.els` (runtime) unchanged.
+  (`lang`/`stdlib`); jvm `Either.els` (runtime) unchanged and in place.
 - `module/fact/WellKnownTypes.scala` — `eitherFQN`/`leftFQN`/`rightFQN` for the W2 discharge to inspect by name.
 
 ## Decisions (settled)
 
-1. **The marker is the dependency closure** — the canonical sorted set of layer ids threaded through the front-end as a
-   namespace; the requested **leaf is the request, the closure is the key**. Not a fixed `{compiler, runtime}` enum.
-2. **Layers carry descriptors, not prefixes** — `name` + `requires` at a fixed resource path; all layers stay at
-   `eliot/…`; layer identity is recovered by attributing each resource to its container root. Requires separate roots
-   (no fat jar), which we already mandate.
-3. **Two layer kinds; the program is a layer** — abstract (signatures only: `lang`, `stdlib`, libraries, the program)
-   vs platform (`jvm`, `compiler`, `arduino-*`). The program has its own descriptor so it can be validated.
-4. **Validity invariant** — a closure must contain exactly one platform chain and a single consistent base spine;
-   abstract-only diamonds are allowed (the merge is order-independent). Two conflicting platform/base spines are banned.
-5. **Platform = supplied or named, same mechanism** — the target is usually a leaf requested at compile time (the
-   driver's `jvm` arg) and *not* named in the program; a platform-specific program may `require` a platform layer
-   directly, which just constrains its legal targets.
-6. **The compiler platform is a new Mill module depending on `stdlib`** (same level as `jvm`), always on the classpath
-   wherever type checking runs (driver + LSP), independent of the selected target.
-7. **Identity of `Either`:** the shared FQN `eliot.lang.Either`, with a concrete definer **per platform** (compiler +
-   jvm). Structurally identical, resolved independently per closure.
+1. **Platform is a two-valued fact-key marker** (`compiler | runtime`) — a namespace threaded through the front-end;
+   processors otherwise unchanged. No closure set, no descriptor.
+2. **Two explicit source paths, filled manually** — `--compiler-path` / `--runtime-path`, each the *complete* per-phase
+   root list; base listed in both, the compiler platform only in the compiler path, jvm *and the user's program* only in
+   the runtime path. The blanket `eliot/…` classpath scan (a development convenience) is **retired** from the driver.
+3. **No resource relocation** — `stdlib` and `jvm` keep their `.els` under `eliot/…`; separation is by *which list lists
+   them*, never by a prefix. The compiler path is system-determined; in practice the user only configures the runtime
+   path.
+4. **No validation** — two complete explicit lists are supplied, so two platforms can't collide; base is simply in both,
+   and the user's program lives only in the runtime list (checked off the runtime pool, with the compiler platform's
+   compile-time reductions overlaid via the native label).
+5. **The compiler platform is a new Mill module depending on `stdlib`** (same level as `jvm`), on the compiler path of
+   every entry point that type-checks (driver + LSP), independent of the selected target.
+6. **Identity of `Either`:** the shared FQN `eliot.lang.Either`, with a concrete definer **per platform** (compiler +
+   jvm). Structurally identical, resolved independently per marker.
+
+## Deferred — a real build system
+
+The manual two-path step is an explicit waypoint, not the destination. Two things it leaves open, both to be addressed
+when a real build system lands:
+
+- **Packaged distributions.** Filesystem `Path`s can't `resolve` *into* a jar, so a packaged distribution (the LSP dist,
+  the generated exe-jar tooling) cannot use plain filesystem paths the way the Mill dev run can. The explicit-path mode
+  is the **dev/Mill intermediate**; packaged tooling keeps classpath discovery until the build system replaces it (or we
+  add jar-aware root handling). Likewise the test harness, which gets resources from the test classpath today.
+- **Computing the paths.** The build system computes the two lists from module dependencies instead of hand-filling them
+  in `build.mill`.
+
+If a *second* runtime target or a layer shared by several platforms ever appears (e.g. `arduino-common` feeding both
+`arduino-uno` and `arduino-mega`), the flat "one path per platform" map stops expressing it and we generalize — *not
+before*. The shape that generalization would take, captured so it isn't re-derived:
+
+- **Layer descriptors** — each layer (a jar/dir) carries a small descriptor (`name`, `requires`); attribution is by
+  container root; all layers can stay at `eliot/…`. (Needs separate roots — no fat jar — which we already mandate.)
+- **The marker becomes a dependency closure** — the canonical set of layer ids in scope (leaf = request, closure =
+  key), so a shared intermediary appears in several closures and abstract diamonds dedup as a set.
+- **A validity invariant** — exactly one platform chain per closure and a single consistent base spine; abstract-only
+  diamonds allowed; two conflicting platform/base spines banned. A program may be platform-specific (a `requires` edge
+  to a platform), which just constrains its legal targets; usually the target is supplied at build time and unnamed.
+
+Crucially, **the marker stays the seam** in every one of these steps — only the source of the per-marker roots changes
+(hand-filled CLI paths → build-system-computed paths → descriptor closures) — so none of this is a front-end rewrite,
+and the manual two-path start is not a one-way door.
 
 ## Open decisions
 
-- **Exact descriptor format and path** (`META-INF/eliot-layer.properties` vs `eliot/layer.conf`; properties vs a small
-  structured format). Minor.
-- **How the program's descriptor is provided for CLI source roots** — a well-known file at the source root, and what to
-  default to when absent (likely "abstract program requiring the base").
-- **How the requested leaf reaches `PathScanner`** — confirm it is the existing CLI target arg for codegen and a fixed
-  conventional `compiler` for checking; no per-name marker needed (the program is always in every closure).
-- **Whether to detect a collapsed fat jar loudly now or later** — descriptors make it detectable; deciding when to wire
-  the check.
-- **Multi-target later** — `runtime` becomes per-target (one leaf per target: `jvm`, `arduino-uno`, …) selected per
-  build; one target at a time for now.
+- **CLI option shape** — repeatable `--compiler-path` / `--runtime-path` vs. a single delimited value; and the exact
+  relationship to the existing positional `<path>` arg (likely the user's program, folded into the runtime path).
+- **Test harness** — fill the two paths from the on-disk module `resources/eliot` dirs, or keep classpath discovery for
+  tests that don't yet exercise the marker split.
 
 ## Relationship to effectful-signatures
 
