@@ -26,14 +26,24 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * @param abilityResolutions
   *   Map from each ability-qualified value reference (by its source-positioned FQN) to its resolved concrete impl.
   *   Filled by the drain-resolution loop; absence means the ref stays abstract (constraint-covered) at quoting time.
+  * @param sawGuardReturn
+  *   Whether the kind check accepted a `{Throw[String]}`-carrier return as a *guarded type* (effectful-signatures W2b).
+  *   Set when [[Checker.check]] accepts an `Either[..]`-valued term where a `Type` kind is expected; read by
+  *   [[TypeStackLoop]] so that a guard whose bounds are abstract (stuck, not reducible to `Right`/`Left`) is *deferred*
+  *   to the body — its return position becomes a metavariable the body solves — instead of the body hard-erroring
+  *   against the undischarged carrier. Use-Site Verification: the guard is still enforced at every concrete instance.
   */
 case class CheckState(
     env: Env,
     unifier: Unifier,
     bindingCache: Map[ValueFQN, Option[SemValue]],
     abilityResolutions: Map[Sourced[ValueFQN], (ValueFQN, Seq[GroundValue])],
-    typeStackValueParams: Set[String]
+    typeStackValueParams: Set[String],
+    sawGuardReturn: Boolean = false
 ) {
+
+  /** Record that the kind check accepted a guard-carrier return (effectful-signatures W2b). See [[sawGuardReturn]]. */
+  def recordGuardReturn: CheckState = copy(sawGuardReturn = true)
 
   /** Record a higher-kinded type-parameter instantiation meta with its expected kind, for post-drain verification. */
   def recordCarrierKind(id: MetaId, expectedKind: SemValue, context: Sourced[String]): CheckState =

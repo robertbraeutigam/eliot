@@ -258,8 +258,11 @@ Monad[Either[String]]`/`Throw[String, Either[String]]`), with abstract `type Eit
 and the runtime `jvm` `Either` unchanged — structurally identical, so the compiler overlay is transparent for runtime
 uses (the `add` pattern). The remaining compile-time intrinsics (`add`, `Bool` `fold`, `true`/`false`) are still Scala
 native **leaves** in `SystemNativesProcessor` / `StdlibNativesProcessor` — the compiler platform's leaf bottom, mirroring
-jvm's bytecode leaves. The `Monad`/`Throw` instances are compiler-pool-only and reached only by the effectful-signatures
-discharge (W2, not yet landed).
+jvm's bytecode leaves. The `Monad`/`Throw` instances are compiler-pool-only; the effectful-signatures discharge (W2b,
+landed — `monomorphize/check/CalculatedReturnResolver.scala`: a `{Throw[String]}` return on the `Either[String, _]`
+carrier reads back as `Right(t)` ⤳ the type `t` / `Left(msg)` ⤳ a diagnostic) recognises the carrier's `Left`/`Right` by
+FQN and reduces `fold`/`foldEither` via the merged `NativeBinding`, so those instances are reached only once the W5
+combinators are written monadically.
 
 **Where to put new compiler code.** When a task needs something the compiler must *evaluate at compile time* — a
 carrier (e.g. the effectful-signatures `Either`), a compile-time intrinsic, or an ability instance used only during

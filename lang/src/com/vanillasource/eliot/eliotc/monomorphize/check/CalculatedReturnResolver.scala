@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.monomorphize.check
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.check.CheckIO.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
@@ -26,6 +26,15 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   *     reaches a calculated-return producer's `Type` placeholder, read its monomorphized return instead.
   *   - [[resolveCompleteCalculatedReturn]] — the *by-name* read side (called from `Checker.infer`): the twin for a
   *     fully-applied calculated-return value referenced without further application.
+  *
+  * It also hosts the **effectful-signatures discharge** (W2b): a return-type expression may be a `{Throw[String]}`
+  * computation on the compile-time `Either[String, _]` carrier (`docs/effectful-signatures.md`), which the compiler is
+  * the handler for. This sits beside the calculated return because both are "run a compile-time computation to obtain
+  * the return type" — the calculated return reads it off the callee's monomorphized body, the guard `runThrow`s the
+  * signature's `Either` and reads `Right(t)` (the type) or `Left(msg)` (a rejection). Three discharge hook points
+  * mirror the calculated-return ones: [[isGuardCarrier]] (the *kind* position — accept an `Either[..]`-valued return
+  * where a bare `Type` is expected), [[dischargeGuardedSignature]] (the *callee* side — clean the published signature),
+  * and [[dischargeGuardedReturn]] (the *applied / by-name read* sides — discharge a guard a caller observes).
   *
   * Operates over [[CheckIO]], reading the shared [[CheckState]] through `get`. It depends on exactly two checker
   * primitives, passed at construction — that narrow surface is the module boundary.
@@ -193,5 +202,100 @@ class CalculatedReturnResolver(
         "Write an explicit return type."
       )
     )
+
+  // === Effectful-signatures discharge (W2b) ===
+
+  /** The guard-carrier recognition for the *kind* position (W2b). A return-type expression whose *value* is on the
+    * compile-time `Throw[String]` carrier `Either[String, _]` is a guarded type: it denotes a type but may instead
+    * reject, so its inferred *type* is `Either[..]` (a [[WellKnownTypes.eitherFQN]]-headed value), not the bare `Type`
+    * an ordinary return position has. The checker calls this when checking a term against the `Type` kind — `true`
+    * means "accept this as a guarded type", since the kind check would otherwise reject `Either[..]` as ≠ `Type`; the
+    * value itself is discharged to its payload type (or rejected) by [[dischargeGuardedSignature]] /
+    * [[dischargeGuardedReturn]] once the bounds are concrete. A fully-applied type constructor `Either[String, Int]` is
+    * a *type* (its inferred kind is `Type`, not `Either[..]`), so it is unaffected.
+    */
+  def isGuardCarrier(inferred: SemValue): CheckIO[Boolean] =
+    force(inferred).map {
+      case VTopDef(fqn, _, _) => fqn === WellKnownTypes.eitherFQN
+      case _                  => false
+    }
+
+  /** Discharge a *single* return value on the compile-time `Throw[String]` carrier — the W2b handler. The return
+    * computation has been forced to a ground `Either[String, Type]`:
+    *   - `Right(t)` ⟹ `Some(t)`: the resolved return type is the payload `t`.
+    *   - `Left(msg)` ⟹ `compilerError(at.as(msg))` then abort: the guard rejected, with the author's message primary.
+    *   - anything else (an ordinary type, or a still-stuck guard whose bounds are abstract) ⟹ `None`: nothing to
+    *     discharge / defer to the use site (a stuck guard is correct, not an error — Use-Site Verification).
+    *
+    * `Right`/`Left` are body-less value constructors, so a constructed carrier value is a `VTopDef` headed by
+    * [[WellKnownTypes.rightFQN]]/[[WellKnownTypes.leftFQN]] with the payload as the *last* spine entry (the
+    * constructor's value field; any leading entries are the implicit `E`/`A` type arguments).
+    */
+  def dischargeGuardedReturn(retType: SemValue, at: Sourced[?]): CheckIO[Option[SemValue]] =
+    force(retType).flatMap {
+      case VTopDef(fqn, _, spine) if fqn === WellKnownTypes.rightFQN =>
+        pure(spine.toList.lastOption)
+      case VTopDef(fqn, _, spine) if fqn === WellKnownTypes.leftFQN  =>
+        spine.toList.lastOption match {
+          case Some(msgSem) =>
+            extractGuardMessage(msgSem).flatMap(msg => liftF(compilerError(at.as(msg)) >> abort[Option[SemValue]]))
+          case None         => pure(None)
+        }
+      case _                                                        => pure(None)
+    }
+
+  /** The author message carried by a `Left(msg)` rejection. The carrier's error type is `String`, so a rejection's
+    * message is a literal `String` that reads back directly; a non-literal (computed, not-yet-reduced) message falls
+    * back to a generic rejection so the guard is still reported, never silently dropped (fail-safe).
+    */
+  private def extractGuardMessage(msgSem: SemValue): CheckIO[String] =
+    force(msgSem).map {
+      case VConst(GroundValue.Direct(s: String, _)) => s
+      case _                                        => "A type guard rejected this use."
+    }
+
+  /** Discharge any guard in a *signature's* return position — the callee side (W2b). The signature is a chain of
+    * value-parameter `VPi` arrows ending in the (already type-argument-applied) return computation. Descend to that
+    * return — a guard depends only on the (now concrete) type parameters, never the value parameters, so a placeholder
+    * suffices to peel the arrows — and [[dischargeGuardedReturn]] it. The three outcomes mirror the model:
+    *   - `Right(t)` ⟹ rebuild the arrows over the payload `t`, so the published signature and the body's expected type
+    *     become the plain type `t`; no return meta.
+    *   - `Left` ⟹ the discharge aborts.
+    *   - not reduced (a non-guard ordinary return, or a guard *stuck* on abstract bounds) ⟹ **defer**. A stuck guard
+    *     (`isGuard`, recognised at the kind check) with a body becomes a fresh return metavariable the body solves —
+    *     exactly the calculated-return treatment, so the body type-checks instead of erroring against the undischarged
+    *     carrier, and the guard is re-decided at each concrete use (Use-Site Verification). A non-guard, or a body-less
+    *     stuck guard, is returned untouched (the latter stays stuck and hard-errors at read-back — fail-safe).
+    *
+    * @return
+    *   the resolved signature and an optional return metavariable (`Some` only in the stuck-guard-deferred case, fed to
+    *   the same post-drain fail-safe as a calculated return).
+    */
+  def dischargeGuardedSignature(
+      sig: SemValue,
+      isGuard: Boolean,
+      hasBody: Boolean,
+      at: Sourced[?]
+  ): CheckIO[(SemValue, Option[VMeta])] = {
+    // A guard's return depends only on the (now concrete) type parameters, so any value stands in to peel the
+    // value-parameter arrows; a fresh neutral keeps the metastore clean (unlike a meta) for the non-guard common case.
+    val probe: SemValue = VNeutral(NeutralHead.VVar(Int.MinValue, "$guard-probe"), Spine.SNil)
+
+    def rebuild(domains: List[SemValue], leaf: SemValue): SemValue =
+      domains.foldLeft(leaf)((acc, dom) => VPi(dom, _ => acc))
+
+    def peel(current: SemValue, domains: List[SemValue]): CheckIO[(SemValue, Option[VMeta])] =
+      force(current).flatMap {
+        case VPi(domain, codomain) => peel(codomain(probe), domain :: domains)
+        case leaf                  =>
+          dischargeGuardedReturn(leaf, at).flatMap {
+            case Some(payload)              => pure((rebuild(domains, payload), None))
+            case None if isGuard && hasBody => freshMeta.map(m => (rebuild(domains, m), Some(m)))
+            case None                       => pure((sig, None))
+          }
+      }
+
+    peel(sig, Nil)
+  }
 
 }

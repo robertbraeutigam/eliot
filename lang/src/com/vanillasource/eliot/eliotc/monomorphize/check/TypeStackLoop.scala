@@ -50,14 +50,30 @@ class TypeStackLoop(
       appliedSig   <- applyTypeArgs(signature, key.typeArguments, resolvedValue.typeStack)
       instantiated <- instantiateRemaining(appliedSig)
 
-      // W3 (calculated returns): a calculated-return value's bare omittable return is filled from its *body*. Replace
-      // the return position with a fresh metavariable so that checking the body against this signature solves the meta
-      // (by ordinary unification) to the body's inferred type; the solved meta is then quoted into the published
-      // signature. An abstract (body-less) calculated return cannot calculate — it is left untouched (a limit, W4).
-      calcReturn             = resolvedValue.calculatedReturn && resolvedValue.checkingRuntime.isDefined
-      checkResult           <- if (calcReturn) checker.calcReturns.installReturnMeta(instantiated).map { case (sig, m) => (sig, Some(m)) }
-                               else pure((instantiated, Option.empty[SemValue.VMeta]))
-      (checkSig, returnMeta) = checkResult
+      // Whether the kind check accepted a `{Throw[String]}`-carrier return (a guarded signature, W2b) — captured here,
+      // after `walkTypeStack` checked the signature but before the body check could set it for a nested guard.
+      sawGuard               <- inspect(_.sawGuardReturn)
+
+      // The return position is settled by exactly one of three resolvers, mutually exclusive by construction:
+      //   - a *calculated* (bare, omittable) return is filled from the body (`installReturnMeta`, W3): its position
+      //     becomes a fresh metavariable that checking the body solves to the body's inferred type, then quoted into the
+      //     published signature. (An abstract, body-less calculated return cannot calculate; the `calcReturn` guard
+      //     below excludes it — that limit is reported earlier by `failOnAbstractCalculatedReturn`.)
+      //   - an *effectful-signatures* guard return is discharged off the compile-time `Either[String, _]` carrier
+      //     (`dischargeGuardedSignature`, W2b): `Right(t)` ⤳ the plain type `t` (so the body checks against `t` and the
+      //     published signature is `t` — the `Either` never reaches codegen), `Left(msg)` aborts with the author
+      //     message, and a guard stuck on abstract bounds is deferred to the body via a return meta;
+      //   - an ordinary explicit return is left as-is.
+      calcReturn              = resolvedValue.calculatedReturn && resolvedValue.checkingRuntime.isDefined
+      checkResult            <- if (calcReturn) checker.calcReturns.installReturnMeta(instantiated).map { case (sig, m) => (sig, Some(m)) }
+                                else
+                                  checker.calcReturns.dischargeGuardedSignature(
+                                    instantiated,
+                                    sawGuard,
+                                    resolvedValue.checkingRuntime.isDefined,
+                                    resolvedValue.name
+                                  )
+      (checkSig, returnMeta)  = checkResult
 
       // Capture the env of erased type-stack parameters now, before `check` binds the runtime value parameters as
       // `FunctionLiteral` binders. Each erased explicit type arg is converted from its `VConst(ground)` form to the

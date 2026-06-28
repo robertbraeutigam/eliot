@@ -1,15 +1,20 @@
 # Effectful Signatures: Compile-Time `Throw` for Guarded & Calculated Return Types
 
-Status: **Foundation + ability bridge landed; W2b–W5 remain.** W1 — the compile-time error carrier — is **done**: it
-shipped as the compiler-platform `Either` layer when the compiler became a first-class platform (CP1–CP4; see the
-"compiler is itself a platform" section of `.claude/CLAUDE.md` and `compiler/README.md`). **W2a is also done**: the
-carrier's `Monad`/`Throw` instances are **compiler-pool-only**, and ability-instance resolution is now platform-aware —
+Status: **Foundation + ability bridge + discharge landed; W3–W5 remain.** W1 — the compile-time error carrier — is
+**done**: it shipped as the compiler-platform `Either` layer when the compiler became a first-class platform (CP1–CP4;
+see the "compiler is itself a platform" section of `.claude/CLAUDE.md` and `compiler/README.md`). **W2a is also done**:
+the carrier's `Monad`/`Throw` instances are **compiler-pool-only**, and ability-instance resolution is platform-aware —
 `AbilityImplementation.Key` (and the `AbilityImplementationCheck`/`ModuleAbilityOverlapCheck` facts it gates) carry a
 `platform` marker (default `Runtime`, a no-op for every existing ability), so querying under `Platform.Compiler` reaches
-the compiler-pool instances (the ability-instance analogue of CP3). What remains is the discharge (W2b) and the surface
-syntax (W3–W5). The motivating consumer is length-indexed
-`Seq`/`Stack` (`Seq[A, MIN, MAX]`), where operations like `head`/`pop`/`get` are only valid on sufficiently-large
-collections and must reject the empty case *with a readable message* at the concrete use site.
+the compiler-pool instances (the ability-instance analogue of CP3). **W2b — the discharge — is now done**: a return-type
+expression whose value is on the `Either[String, _]` carrier is recognised at the kind check and discharged by
+`CalculatedReturnResolver` — `Right(t)` ⤳ the plain type `t`, `Left(msg)` ⤳ `compilerError(msg)`, a guard stuck on
+abstract bounds is deferred to the body. This works with guards written explicitly against the carrier (e.g.
+`fold(cond, Right(t), Left("msg"))`); what remains is the surface routing/syntax (W3 — route *every* signature onto the
+fixed carrier so a bare `Type` is `pure`-lifted; W4 — full expressions in the return position; W5 — the stdlib
+combinator vocabulary). The motivating consumer is length-indexed `Seq`/`Stack` (`Seq[A, MIN, MAX]`), where operations
+like `head`/`pop`/`get` are only valid on sufficiently-large collections and must reject the empty case *with a readable
+message* at the concrete use site.
 
 ## Goal
 
@@ -226,18 +231,41 @@ just the instances. Leaf test (`ability/PlatformScopedAbilityResolutionTest`): a
 under the compiler marker and is **absent** under the runtime marker (dual-pool, sharing the abstract ability + type,
 exactly as the carrier shares the abstract `Throw`/`Either` base).
 
-**W2b — the discharge/unwrap (handler) in `CalculatedReturnResolver`.** At the point the checker reads a value's return
-type, if the return-type computation is on the compile-time Error carrier, force it to a ground `Either[String, Type]`
-and:
+**W2b — the discharge/unwrap (handler) in `CalculatedReturnResolver`. — done.** At the point the checker reads a value's
+return type, if the return-type computation is on the compile-time Error carrier, force it to a ground
+`Either[String, Type]` and:
 
 - `Right(T)` → return `T` as the SemValue return type.
-- `Left(msg)` → `compilerAbort(at.as(msg))` (author message is primary).
+- `Left(msg)` → `compilerError(at.as(msg))` then abort (author message is primary).
 - not ground (stuck) → **defer**: leave the obligation for the use site (do **not** emit the calculated-return
   ungrounded error here).
 
-Fail-safe: every monomorphic signature is read back; a guard that is still stuck where a concrete type is
-*required* hard-errors via the existing `PostDrainQuoter` "Cannot resolve type." path. There is no silent `Type`
-fallback (`PostDrainQuoter` header invariant).
+Landed in `CalculatedReturnResolver` (it hosts this beside the calculated return because both are "run a compile-time
+computation to obtain the return type"), with four hook points threaded through the checker:
+
+1. **Kind acceptance** (`isGuardCarrier`, called from `Checker.check`). A guard's *value* types as `Either[..]`, not
+   `Type`, so the signature/return-position kind check would reject it (`Either[..]` ≠ `Type`). When a `Type` kind is
+   expected and the inferred type is `eitherFQN`-headed, the check *accepts* it as a guarded type instead of unifying;
+   the value is discharged separately. (A fully-applied type constructor `Either[String, Int]` has kind `Type`, so it is
+   unaffected — only a guard *value* is recognised.) A `sawGuardReturn` flag on `CheckState` records that this fired.
+2. **Callee signature discharge** (`dischargeGuardedSignature`, called from `TypeStackLoop.processIO`). The
+   type-argument-applied signature's return is descended to (peeling value-parameter `VPi` arrows — a guard depends only
+   on the now-concrete type parameters) and discharged: `Right(t)` rebuilds the arrows over the plain type `t` (so the
+   body checks against `t` *and* the published `MonomorphicValue.signature` is `t` — the `Either` never reaches
+   codegen), `Left` aborts, and a guard *stuck* on abstract bounds (recognised via `sawGuardReturn`) is **deferred to the
+   body** — its return becomes a fresh metavariable the body solves, exactly the calculated-return treatment, fed to the
+   same `failOnUndeterminedCalculatedReturn` post-drain fail-safe. This is what restores a plain `Type` return for the
+   rest of the checker.
+3. **Applied read** (`dischargeGuardedReturn`, called from `Checker.applyInferred`). When a *caller* applies a guarded
+   function, the renormalised codomain is discharged before it becomes the call's type.
+4. **By-name read** (`dischargeGuardedReturn`, called from `Checker.infer`'s `ValueReference`). A *complete* guarded
+   value read by name (`def y: Bar = foo`) is discharged; a guarded function read unapplied stays a `VPi`/`VLam`.
+
+Fail-safe: every monomorphic signature is read back; a guard that is still stuck where a concrete type is *required*
+hard-errors via the existing `PostDrainQuoter` "Cannot resolve type." path. There is no silent `Type` fallback
+(`PostDrainQuoter` header invariant). Leaf tests in `MonomorphicTypeCheckTest` ("effectful-signatures discharge (W2b)"):
+`Right(t)` types as `t` (and publishes `t` as the signature); `Left("msg")` aborts with exactly `msg` (at the callee and
+through a caller / generic intermediate); a guard stuck on an abstract bound defers with no error.
 
 ### W3 — Route the signature position onto the compile-time carrier
 
@@ -297,17 +325,20 @@ These are dual-use: the same functions work on real `Option`/`Either` values at 
 
 ## Sequencing (incremental — validate the hard part first)
 
-W1 (the compile-time carrier) and W2a (the ability-resolution platform bridge) are **done**. Sequencing picks up at W2b:
+W1 (the compile-time carrier), W2a (the ability-resolution platform bridge), and W2b (the discharge) are **done**.
+Sequencing picks up at W3:
 
-1. **W2b** — the discharge/unwrap (handler) in `CalculatedReturnResolver`, with `when`/`orError` written to return
-   `Either[String, Type]` *explicitly* (plain total functions, no effect row, no signature desugaring). The carrier's
-   `Monad`/`Throw[Either[String]]` instances are now reachable from the checker (W2a), so the discharge can `flatMap`/
-   `raise`/`pure` over the compile-time `Either` by querying ability resolution under `Platform.Compiler`. This already
-   gives erroring guards in near-normal code and exercises the whole discharge path end to end. **Leaf test:** a
-   return-type expression evaluating to `Left("msg")` aborts with exactly `msg`; one evaluating to `Right(T)` types as
-   `T`; one stuck on an abstract bound defers (no error).
+1. **W2b — done.** The discharge/unwrap (handler) in `CalculatedReturnResolver`. Guards are written explicitly against
+   the carrier — `fold(cond, Right(t), Left("msg"))` (and, once W5 lands, `when`/`orError` returning
+   `Either[String, Type]`) — as plain total functions, no effect row, no signature desugaring. This gives erroring
+   guards in near-normal code and exercises the whole discharge path end to end. **Leaf test (landed):** a return-type
+   expression evaluating to `Left("msg")` aborts with exactly `msg`; one evaluating to `Right(T)` types as `T`; one
+   stuck on an abstract bound defers (no error). *(Note: the discharge recognises the carrier's `Left`/`Right` by FQN
+   and `fold`/`foldEither` reduce via the merged `NativeBinding`, so the `Monad`/`Throw[Either[String]]` instances W2a
+   made reachable are not yet exercised — they come into play when the W5 combinators are written monadically.)*
 2. **W3** — route the signature position through effect desugaring onto the fixed carrier, enabling direct-style
-   `{Throw[String]}` signatures.
+   `{Throw[String]}` signatures (and making the carrier universal, so a bare `Type` return is `pure`-lifted rather than
+   opted in per signature).
 3. **W4** — parser unrestriction + extend `matchdesugar`/block to the signature position (any expression in return
    position).
 4. **W5** — flesh out the combinator vocabulary.
@@ -335,7 +366,11 @@ W1 (the compile-time carrier) and W2a (the ability-resolution platform bridge) a
   (`AbilityImplementationProcessor`/`AbilityImplementationCheckProcessor`/`ModuleAbilityOverlapCheckProcessor`) — W2a
   (**done**): `platform` marker threaded through ability-instance resolution; default `Runtime`, the carrier instances
   resolve under `Compiler`. Leaf test: `ability/PlatformScopedAbilityResolutionTest`.
-- `monomorphize/check/CalculatedReturnResolver.scala` — W2b (the discharge/unwrap step).
+- `monomorphize/check/CalculatedReturnResolver.scala` — W2b (**done**): the discharge/unwrap step (`isGuardCarrier`,
+  `dischargeGuardedReturn`, `dischargeGuardedSignature`). Hook points: `monomorphize/check/Checker.scala` (kind
+  acceptance + applied/by-name reads), `monomorphize/check/TypeStackLoop.scala` (callee signature discharge),
+  `monomorphize/check/CheckState.scala` (the `sawGuardReturn` guard-signature flag). Leaf tests:
+  `MonomorphicTypeCheckTest` ("effectful-signatures discharge (W2b)").
 - `effect/processor/EffectDesugaringProcessor.scala` + `core/processor/EffectSugarDesugarer.scala` — W3 (route the
   signature position onto the fixed carrier); ripples to `operator/.../OperatorResolvedExpression.scala`
   (`SignatureView`) and `saturate/fact/BinderRoles.scala`, which read the return position.

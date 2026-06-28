@@ -942,6 +942,9 @@ class MonomorphicTypeCheckTest
   private val intType: GroundValue =
     GroundValue.Structure(WellKnownTypes.bigIntFQN, Seq.empty, GroundValue.Type)
 
+  private val boolGround: GroundValue =
+    GroundValue.Structure(WellKnownTypes.boolFQN, Seq.empty, GroundValue.Type)
+
   private val stringType: GroundValue =
     GroundValue.Structure(WellKnownTypes.stringFQN, Seq.empty, GroundValue.Type)
 
@@ -1080,4 +1083,80 @@ class MonomorphicTypeCheckTest
   private def runCoerce(source: String, name: String = "test"): IO[Seq[TestError]]  = runInt(source, name)
   private def runCombine(source: String, name: String = "test"): IO[Seq[TestError]] = runInt(source, name)
   private def runAdd(source: String, name: String = "test"): IO[Seq[TestError]]     = runInt(source, name)
+
+  // --- Effectful signatures: compile-time `Throw[String]` guard discharge (W2b) ---
+
+  // The compile-time `Throw[String]` carrier the discharge reads back (`Right(t)` ⤳ the type `t`, `Left(msg)` ⤳ a
+  // rejection). In a real build this is the always-linked compiler-platform `Either` layer; the suite supplies it as a
+  // concrete `data Either` so the constructors carry the well-known `eliot.lang.Either.Left`/`Right` FQNs.
+  private val guardImports: Seq[SystemImport] =
+    intImports :+ SystemImport("Either", "data Either[E, A] = Left(error: E) | Right(value: A)")
+
+  // A guarded `head`: its return type is a `{Throw[String]} Type` computation that yields the payload `String` when the
+  // boolean type parameter `COND` is `true` and rejects with "empty" when it is `false`. The condition is a plain `Bool`
+  // type parameter (no literal-in-bounds arithmetic), keeping the test on the discharge rather than on `Int` widening.
+  private val guardedHead: String =
+    "def head[COND: Bool]: fold(COND, Right(String[]), Left(\"empty\")) = bar\ndef bar: String\n"
+
+  private val trueArg  = GroundValue.Direct(true, boolGround)
+  private val falseArg = GroundValue.Direct(false, boolGround)
+
+  private def runGuard(source: String, name: String = "foo", typeArgs: Seq[GroundValue] = Seq.empty): IO[Seq[TestError]] =
+    runGenerator(
+      "import eliot.lang.Either\nimport eliot.lang.Bool\n" + source,
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
+      guardImports
+    ).map(result => toTestErrors(result._1))
+
+  private def guardSignature(source: String, name: String, typeArgs: Seq[GroundValue]): IO[Option[GroundValue]] =
+    runGenerator(
+      "import eliot.lang.Either\nimport eliot.lang.Bool\n" + source,
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
+      guardImports
+    ).map(_._2.values.collectFirst { case v: MonomorphicValue if v.vfqn.name.name == name => v.signature })
+
+  "effectful-signatures discharge (W2b)" should "type a `Right(t)` guard return as its payload type `t`" in {
+    runGuard(guardedHead, name = "head", typeArgs = Seq(trueArg)).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "publish the discharged payload type as the monomorphic signature (the `Either` never reaches codegen)" in {
+    guardSignature(guardedHead, name = "head", typeArgs = Seq(trueArg)).asserting(_ shouldBe Some(stringType))
+  }
+
+  it should "reject a `Left(msg)` guard return with the author message as the primary diagnostic" in {
+    runGuard(guardedHead, name = "head", typeArgs = Seq(falseArg)).asserting(_ shouldBe Seq("empty" at "head"))
+  }
+
+  it should "discharge a bare `Right(t)` return (no `fold`) to its payload type" in {
+    runGuard("def bar: String\ndef foo: Right(String[]) = bar").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject a bare `Left(msg)` return, even on a body-less declaration" in {
+    runGuard("def foo: Left(\"boom\")").asserting(_ shouldBe Seq("boom" at "foo"))
+  }
+
+  it should "type a guarded value at a caller that observes a `Right`" in {
+    runGuard(guardedHead + "def use: String = head[true]", name = "use").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "abort at a caller that observes a `Left`" in {
+    runGuard(guardedHead + "def use: String = head[false]", name = "use").asserting(_ shouldBe Seq("empty" at "head"))
+  }
+
+  it should "resolve a guard through a generic intermediate at a concrete `Right` use" in {
+    runGuard(guardedHead + "def wrap[COND: Bool]: String = head[COND]", name = "wrap", typeArgs = Seq(trueArg))
+      .asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject through a generic intermediate at a concrete `Left` use" in {
+    runGuard(guardedHead + "def wrap[COND: Bool]: String = head[COND]", name = "wrap", typeArgs = Seq(falseArg))
+      .asserting(_ shouldBe Seq("empty" at "head"))
+  }
+
+  it should "defer a guard stuck on an abstract bound to the body (no error)" in {
+    // `head` monomorphized with no type argument leaves `COND` abstract, so the guard cannot reduce to `Right`/`Left`.
+    // Use-Site Verification: the stuck guard is deferred to the body (its return becomes a meta the body solves) rather
+    // than erroring at this abstract site; the guard is still decided at every concrete instance above.
+    runGuard(guardedHead, name = "head", typeArgs = Seq.empty).asserting(_ shouldBe Seq.empty)
+  }
 }

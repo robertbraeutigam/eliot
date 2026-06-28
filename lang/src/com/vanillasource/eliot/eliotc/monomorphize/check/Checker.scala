@@ -170,36 +170,59 @@ class Checker(
                               // `convert(x): B`, or any fresh result) has no join to wait for and must unify now so the
                               // value/ability resolution that depends on its solution can proceed.
                               forcedExp        <- force(expected)
-                              combinableMeta   <- (inferred, forcedExp) match {
-                                                    case (VMeta(id, Spine.SNil), exp) if !exp.isInstanceOf[VMeta] =>
-                                                      inspect(s =>
-                                                        Option.when(
-                                                          s.unifier.isCombinable(id.value) &&
-                                                            s.unifier.candidatesOf(id.value).nonEmpty
-                                                        )(id)
-                                                      )
-                                                    case _                                                        => pure(None)
+                              // Effectful-signatures kind acceptance (W2b): a return-type expression whose value is on
+                              // the compile-time `Throw[String]` carrier types as `Either[..]`, not `Type`. Where a
+                              // `Type` kind is expected (the signature/return position), accept it as a *guarded type*
+                              // rather than letting the unifier reject `Either[..]` ≠ `Type`; the carrier value is
+                              // discharged to its payload type — or rejected — by the signature/read-site discharge.
+                              guardKind        <- forcedExp match {
+                                                    case VType => calcReturns.isGuardCarrier(inferred)
+                                                    case _     => pure(false)
                                                   }
-                              checked          <- combinableMeta match {
-                                                    // The term's type is a bare combinable meta — the result of a
-                                                    // polymorphic call whose result type is a type parameter. Its final
-                                                    // solution (possibly a `Combine` join) is unknown until drain, so
-                                                    // defer the check against `expected` rather than committing it
-                                                    // against the meta's first candidate (which would unsoundly accept a
-                                                    // join that overflows a narrower `expected`). See resolveUpperBounds.
-                                                    case Some(id) =>
-                                                      modify(_.recordUpperBound(id, expected, tm.as("Type mismatch.")))
-                                                        .as(expr)
-                                                    case None     =>
-                                                      for {
-                                                        (updatedExpr, instantiated) <-
-                                                          instantiatePolymorphic(expr, inferred)
-                                                        c                           <- solver.unifyOrCoerce(tm, updatedExpr, instantiated, expected)
-                                                      } yield c
-                                                  }
-                            } yield checked
+                              checkedResult    <- if (guardKind) modify(_.recordGuardReturn).as(expr)
+                                                  else checkAgainst(tm, expr, inferred, forcedExp, expected)
+                            } yield checkedResult
                         }
     } yield result
+
+  /** The ordinary (non-guard) check-mode resolution against an expected type: the combinable-meta deferral plus the
+    * polytype instantiation and `unifyOrCoerce`. Factored out of [[check]] so the effectful-signatures kind acceptance
+    * (W2b) can short-circuit before it.
+    */
+  private def checkAgainst(
+      tm: Sourced[OperatorResolvedExpression],
+      expr: SemExpression,
+      inferred: SemValue,
+      forcedExp: SemValue,
+      expected: SemValue
+  ): CheckIO[SemExpression] =
+    for {
+      combinableMeta <- (inferred, forcedExp) match {
+                          case (VMeta(id, Spine.SNil), exp) if !exp.isInstanceOf[VMeta] =>
+                            inspect(s =>
+                              Option.when(
+                                s.unifier.isCombinable(id.value) &&
+                                  s.unifier.candidatesOf(id.value).nonEmpty
+                              )(id)
+                            )
+                          case _                                                        => pure(None)
+                        }
+      checked        <- combinableMeta match {
+                          // The term's type is a bare combinable meta — the result of a polymorphic call whose result
+                          // type is a type parameter. Its final solution (possibly a `Combine` join) is unknown until
+                          // drain, so defer the check against `expected` rather than committing it against the meta's
+                          // first candidate (which would unsoundly accept a join that overflows a narrower `expected`).
+                          // See resolveUpperBounds.
+                          case Some(id) =>
+                            modify(_.recordUpperBound(id, expected, tm.as("Type mismatch.")))
+                              .as(expr)
+                          case None     =>
+                            for {
+                              (updatedExpr, instantiated) <- instantiatePolymorphic(expr, inferred)
+                              c                           <- solver.unifyOrCoerce(tm, updatedExpr, instantiated, expected)
+                            } yield c
+                        }
+    } yield checked
 
   /** Peel leading VLam closures by substituting fresh metas; return the non-VLam head together with the fresh metas in
     * order.
@@ -292,7 +315,11 @@ class Checker(
                         calcReturn       <- if (sv.value.calculatedReturn)
                                               calcReturns.resolveCompleteCalculatedReturn(vfqn, explicitTypeArgs, appliedSig)
                                             else pure(Option.empty[SemValue])
-                        resultType        = calcReturn.getOrElse(appliedSig)
+                        afterCalc         = calcReturn.getOrElse(appliedSig)
+                        // Discharge a `{Throw[String]}` guard on a *complete* (fully applied) value read by name (W2b):
+                        // `def y: Bar = foo` where `foo`'s return is `Right(Bar)`. A guarded *function* read unapplied
+                        // stays a `VPi`/`VLam` (the guard is in its codomain), so it is left untouched here.
+                        resultType       <- calcReturns.dischargeGuardedReturn(afterCalc, vfqn).map(_.getOrElse(afterCalc))
                       } yield (
                         SemExpression(resultType, SemExpression.ValueReference(vfqn, explicitTypeArgs)),
                         resultType
@@ -369,7 +396,14 @@ class Checker(
                                    case other    =>
                                      calcReturns.resolveCalculatedReturn(updatedTarget, other).flatMap {
                                        case Some(resolved) => pure(resolved)
-                                       case None           => renormalize(other)
+                                       // Not a calculated return: renormalise the codomain (re-firing any stuck guard
+                                       // natives now that the argument checks solved their bounds), then discharge a
+                                       // `{Throw[String]}` guard the callee returns (W2b) — `Right(t)` ⤳ `t`, `Left`
+                                       // aborts, a still-stuck guard is left to defer at this generic caller's own site.
+                                       case None           =>
+                                         renormalize(other).flatMap(rn =>
+                                           calcReturns.dischargeGuardedReturn(rn, target).map(_.getOrElse(rn))
+                                         )
                                      }
                                  }
     } yield (
