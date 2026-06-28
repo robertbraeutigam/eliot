@@ -75,9 +75,10 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
 
   /**
    * `eliotc jvm exe-jar <sourceRoot> -m <module> -o <output> --compiler-path … --runtime-path …`, run as a child JVM
-   * off the bundled jars. Since CP1.5 the abstract base (lang+stdlib) and the jvm layer are handed to the compiler as
-   * filesystem source roots (the classpath scan is gone), from the bundled `eliot-src` staging. The layer options
-   * trail the `jvm exe-jar …` command — the only position scopt accepts these top-level options, exactly as `-o` does.
+   * off the bundled jars. Since CP1.5 the abstract base (lang+stdlib), the jvm layer, and the compiler platform layer
+   * (CP2) are handed to the compiler as filesystem source roots (the classpath scan is gone), from the bundled
+   * `eliot-src` staging — the compiler layer on the compiler path only. The layer options trail the `jvm exe-jar …`
+   * command — the only position scopt accepts these top-level options, exactly as `-o` does.
    */
   fun compilerCommandLine(): GeneralCommandLine {
     val classpath = EliotPlugin.compilerClasspath()
@@ -96,8 +97,9 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
     val lang = layersDir.resolve("lang").toString()
     val stdlib = layersDir.resolve("stdlib").toString()
     val jvm = layersDir.resolve("jvm").toString()
+    val compiler = layersDir.resolve("compiler").toString()
     command.addParameters(
-      "--compiler-path", lang, "--compiler-path", stdlib,
+      "--compiler-path", lang, "--compiler-path", stdlib, "--compiler-path", compiler,
       "--runtime-path", lang, "--runtime-path", stdlib, "--runtime-path", jvm,
     )
     project.basePath?.let { command.withWorkDirectory(it) }

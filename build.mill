@@ -32,6 +32,17 @@ object `package` extends Module {
      )
    }
 
+   // The compiler platform layer (CP2, docs/compiler-as-platform.md). A source-only Eliot layer — peer to `jvm` — that
+   // implements the abstract base for the *compile-time* phase (NbE / type checking), the way `jvm` implements it for the
+   // runtime phase. Depends on `stdlib` so the full abstract base is available to it. It ships only `.els` under
+   // `resources/eliot/…` (no Scala processors — CP3's `CompilerNativesProcessor` lives in `lang`); its resource dir is
+   // listed on the **compiler path** of every type-checking entry point (the `examples.run` driver below, the LSP server,
+   // the test harnesses) *unconditionally*, unlike runtime targets such as `jvm` which are selected per build. Initially
+   // empty — it holds only CP4's `Either` carrier once that lands.
+   object compiler extends DefaultScalaModule {
+     override def moduleDeps = Seq(stdlib)
+   }
+
    // IDE tooling lives under ide/. The LSP server is a Scala module (ide/lsp); the TextMate
    // grammar (ide/textmate) is static editor files, not a build module.
    object ide extends Module {
@@ -58,7 +69,9 @@ object `package` extends Module {
      // CP1.5: the abstract base (lang + stdlib) and the jvm target layer are no longer discovered on the classpath;
      // they are passed as ordinary filesystem source roots — their `resources/eliot` dirs in the dev tree.
      // `--compiler-path` feeds the compile-time (type-checking) pool, `--runtime-path` the codegen pool; the user's
-     // positional `<path>` (their program) folds into the runtime path. The forked run's working dir is the workspace
+     // positional `<path>` (their program) folds into the runtime path. CP2: the `compiler` platform layer is added to
+     // the compiler path only — it implements the base for the compile-time phase and is never on the runtime/codegen
+     // path. The forked run's working dir is the workspace
      // root, but we pass absolute paths so it is independent of that. The layer options are appended *after* the user's
      // args (the `jvm exe-jar …` command): scopt only accepts these top-level options trailing the command, exactly as
      // the existing `-o` is. See docs/compiler-as-platform.md (CP1.5).
@@ -72,6 +85,7 @@ object `package` extends Module {
              args().value ++ Seq(
                "--compiler-path", layer("lang"),
                "--compiler-path", layer("stdlib"),
+               "--compiler-path", layer("compiler"),
                "--runtime-path", layer("lang"),
                "--runtime-path", layer("stdlib"),
                "--runtime-path", layer("jvm")

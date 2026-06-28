@@ -1,16 +1,19 @@
 # The Compiler as a Platform: Platform-Scoped Source Unification
 
-Status: **CP1, CP1.5 implemented; CP2–CP4 planned.** The `platform` marker (`compiler | runtime`) is threaded through
-the front-end fact chain from `PathScan` to `SaturatedValue`, `PathScanner` selects a per-marker root list, and the
-`--compiler-path` / `--runtime-path` CLI options exist (`platform.Platform`, `LangPlugin`). The marker defaults to
+Status: **CP1, CP1.5, CP2 implemented; CP3–CP4 planned.** The `platform` marker (`compiler | runtime`) is threaded
+through the front-end fact chain from `PathScan` to `SaturatedValue`, `PathScanner` selects a per-marker root list, and
+the `--compiler-path` / `--runtime-path` CLI options exist (`platform.Platform`, `LangPlugin`). The marker defaults to
 `runtime` for every existing reader, so behaviour is unchanged; the compiler pool is only exercised by the leaf test
 (`module/processor/PlatformScopedUnificationTest`). The blanket classpath scan is **gone** (CP1.5): every layer — the
 abstract base and `jvm` — is an explicit filesystem path, exactly as the user's program is, supplied per entry point
 (the Mill `examples.run`, the LSP server's `eliot.layers` staging, the test harnesses, the IntelliJ "Run main" CLI). The
-compiler-platform module (CP2) is then just one more directory added to the compiler path, not a new mechanism.
-Motivating first consumer: the compile-time `Either` carrier of `docs/effectful-signatures.md` (W1), which needs a
-*reducing* compile-time implementation (`foldEither`, `implement Monad/Throw`) available in **every** workspace —
-including the abstract-only LSP workspace — without depending on a runtime platform layer (jvm) being linked.
+compiler-platform module (CP2) now exists — a source-only Mill module `compiler` depending on `stdlib`, listed on the
+**compiler path** of every type-checking entry point unconditionally (it is just one more directory on that path, not a
+new mechanism). It is still empty: the native label that reads it (CP3) and its first content (CP4) are pending, so
+compile-time intrinsics remain Scala natives for now. Motivating first consumer: the compile-time `Either` carrier of
+`docs/effectful-signatures.md` (W1), which needs a *reducing* compile-time implementation (`foldEither`, `implement
+Monad/Throw`) available in **every** workspace — including the abstract-only LSP workspace — without depending on a
+runtime platform layer (jvm) being linked.
 
 ## The idea in one line
 
@@ -191,11 +194,16 @@ and `ResourceContentReader` become dead and are removed, leaving `FileContentRea
 a build with the base/`jvm` resource dirs absent from the explicit lists fails to resolve the stdlib (no silent classpath
 fallback), confirming the lists are the only source.
 
-### CP2 — The compiler-platform Mill module, always linked
-Create a new Mill module (sibling of `jvm`, **depending on `stdlib`** so it has the full abstract stdlib available),
+### CP2 — The compiler-platform Mill module, always linked — **implemented**
+A new Mill module `compiler` (sibling of `jvm`, **depending on `stdlib`** so it has the full abstract stdlib available),
 shipping its `.els` under `resources/eliot/…`. Its resource dir is listed on the **compiler path** of every entry point
-that type-checks — the driver and the LSP server — unconditionally (unlike target platforms, which are selected per
-build). Initially holds only CP4's carrier.
+that type-checks — unconditionally (unlike target platforms, which are selected per build): the `examples.run` driver
+(`build.mill`), the LSP server (`BundledLayers.fromRoots`/`fromDirectory`, staged by `ide/lsp/package.sh` into
+`eliot-src/compiler`), the `jvm` `FullIntegrationTest` harness, the LSP compile tests (`LspCompileTestLayers`), and the
+IntelliJ "Run main" CLI (`EliotRunConfiguration`). It is never on the runtime/codegen path. The module is source-only —
+no Scala processors (CP3's `CompilerNativesProcessor` lives in `lang`) — and initially empty, holding only CP4's carrier
+once that lands. Until CP3 adds the native label that *reads* this module and CP4 adds content, compile-time intrinsics
+remain Scala natives, so adding the empty root changes no resolution.
 
 ### CP3 — `CompilerNativesProcessor` (the `compiler` native label)
 A `ContributedBinding` supplier under a new `compiler` label that reads the **compiler**-marker `SaturatedValue` and

@@ -16,9 +16,11 @@ object LspCompileTestLayers {
   private def moduleRoot(module: String): Path = repoRoot.resolve(module).resolve("resources").resolve("eliot")
 
   private val (compilerPaths, runtimePaths): (Seq[Path], Seq[Path]) =
-    BundledLayers.fromRoots(moduleRoot("lang"), moduleRoot("stdlib"), moduleRoot("jvm"))
+    BundledLayers.fromRoots(moduleRoot("lang"), moduleRoot("stdlib"), moduleRoot("jvm"), moduleRoot("compiler"))
 
-  /** Add the CP1.5 compiler/runtime layer paths (the base + `jvm` `resources/eliot` dirs) to a test configuration. */
+  /** Add the compiler/runtime layer paths (compiler = base + the `compiler` platform layer; runtime = base + `jvm`
+    * `resources/eliot` dirs) to a test configuration.
+    */
   def add(configuration: Configuration): Configuration =
     configuration
       .set(LangPlugin.compilerPathKey, compilerPaths)

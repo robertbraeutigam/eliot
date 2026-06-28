@@ -26,6 +26,7 @@ trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     List(
       "--compiler-path", root("lang"),
       "--compiler-path", root("stdlib"),
+      "--compiler-path", root("compiler"),
       "--runtime-path", root("lang"),
       "--runtime-path", root("stdlib"),
       "--runtime-path", root("jvm")

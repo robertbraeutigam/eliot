@@ -42,9 +42,10 @@ object EliotPlugin {
 
   /**
    * Directory of the bundled layer `.els` source roots (`<plugin>/server/eliot-src`, staged beside [serverLibDir]),
-   * holding a `lang`/`stdlib`/`jvm` subdirectory each. Since CP1.5 the compiler does NOT discover the abstract base or
-   * the platform layer on the classpath; the language server and the "Run main" CLI take them as filesystem source
-   * roots from here (`eliot.layers` for the server, `--compiler-path`/`--runtime-path` for the CLI).
+   * holding a `lang`/`stdlib`/`jvm`/`compiler` subdirectory each. Since CP1.5 the compiler does NOT discover the abstract
+   * base or the platform layers on the classpath; the language server and the "Run main" CLI take them as filesystem
+   * source roots from here (`eliot.layers` for the server, `--compiler-path`/`--runtime-path` for the CLI — the
+   * `compiler` platform layer (CP2) feeds the compiler path only).
    */
   fun bundledLayersDir(): Path? = serverLibDir()?.resolveSibling("eliot-src")
 

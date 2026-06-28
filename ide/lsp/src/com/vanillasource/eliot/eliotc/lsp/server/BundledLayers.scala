@@ -10,15 +10,15 @@ import java.nio.file.Path
   * [[layersDirectoryProperty]] system property at the staging directory; this object turns that directory into the two
   * per-phase root lists.
   *
-  * The layers directory holds one subdirectory per module — `lang`, `stdlib`, `jvm` — each itself a `PathScanner` root
-  * (i.e. each contains `eliot/…`). The **compiler path** is the abstract base (`lang` + `stdlib`); the **runtime path**
-  * adds the `jvm` target. The user's own workspace roots are *not* included here: `LangPlugin` appends them
-  * (`LangPlugin.pathKey`) to the runtime path.
+  * The layers directory holds one subdirectory per module — `lang`, `stdlib`, `jvm`, `compiler` — each itself a
+  * `PathScanner` root (i.e. each contains `eliot/…`). The **compiler path** is the abstract base (`lang` + `stdlib`) plus
+  * the `compiler` platform layer (CP2); the **runtime path** is the base plus the `jvm` target. The user's own workspace
+  * roots are *not* included here: `LangPlugin` appends them (`LangPlugin.pathKey`) to the runtime path.
   */
 object BundledLayers {
 
-  /** System property naming the directory that holds the bundled `lang`/`stdlib`/`jvm` layer source roots. The
-    * package.sh launcher and the IntelliJ connection provider both set it to the `eliot-src` directory they stage.
+  /** System property naming the directory that holds the bundled `lang`/`stdlib`/`jvm`/`compiler` layer source roots.
+    * The package.sh launcher and the IntelliJ connection provider both set it to the `eliot-src` directory they stage.
     */
   val layersDirectoryProperty = "eliot.layers"
 
@@ -31,13 +31,18 @@ object BundledLayers {
       .map(directory => fromDirectory(Path.of(directory)))
       .getOrElse((Seq.empty, Seq.empty))
 
-  /** `(compilerPath, runtimePath)` from a layers directory holding `lang`/`stdlib`/`jvm` subdirectories. */
+  /** `(compilerPath, runtimePath)` from a layers directory holding `lang`/`stdlib`/`jvm`/`compiler` subdirectories. */
   def fromDirectory(layersDirectory: Path): (Seq[Path], Seq[Path]) =
-    fromRoots(layersDirectory.resolve("lang"), layersDirectory.resolve("stdlib"), layersDirectory.resolve("jvm"))
+    fromRoots(
+      layersDirectory.resolve("lang"),
+      layersDirectory.resolve("stdlib"),
+      layersDirectory.resolve("jvm"),
+      layersDirectory.resolve("compiler")
+    )
 
-  /** `(compilerPath, runtimePath)` from the three explicit module roots: compiler = base (`lang` + `stdlib`), runtime
-    * adds the `jvm` target.
+  /** `(compilerPath, runtimePath)` from the four explicit module roots: compiler path = base (`lang` + `stdlib`) + the
+    * `compiler` platform layer (CP2); runtime path = base + the `jvm` target.
     */
-  def fromRoots(langRoot: Path, stdlibRoot: Path, jvmRoot: Path): (Seq[Path], Seq[Path]) =
-    (Seq(langRoot, stdlibRoot), Seq(langRoot, stdlibRoot, jvmRoot))
+  def fromRoots(langRoot: Path, stdlibRoot: Path, jvmRoot: Path, compilerRoot: Path): (Seq[Path], Seq[Path]) =
+    (Seq(langRoot, stdlibRoot, compilerRoot), Seq(langRoot, stdlibRoot, jvmRoot))
 }

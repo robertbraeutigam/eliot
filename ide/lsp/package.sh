@@ -22,9 +22,10 @@
 #                   ASM. The "Run main" feature launches the compiler CLI with `-cp "lib/*:compiler-lib/*"`.
 #                   eliot-jvm.jar lives in lib/ (not here): a second copy on that combined classpath would duplicate
 #                   the backend classes.
-#   eliot-src/    — the abstract base (lang+stdlib) and the jvm layer as plain .els source roots, one dir per module
-#                   (CP1.5). The launcher points the `eliot.layers` system property here so the server hands them to
-#                   PathScanner as --compiler-path/--runtime-path; the "Run main" CLI passes the same subdirs.
+#   eliot-src/    — the abstract base (lang+stdlib), the jvm runtime layer, and the compiler platform layer (CP2) as
+#                   plain .els source roots, one dir per module (CP1.5). The launcher points the `eliot.layers` system
+#                   property here so the server hands them to PathScanner as --compiler-path/--runtime-path (the compiler
+#                   layer feeds the compiler path only); the "Run main" CLI passes the same subdirs.
 #
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # repo root (script lives at ide/lsp/package.sh)
@@ -74,13 +75,14 @@ copy_module_jar jvm.jar "$LIB/eliot-jvm.jar"
   | while read -r jar; do cp "$jar" "$COMPILER_LIB/"; done
 
 # eliot-src/ holds the layer .els as plain filesystem source roots (CP1.5). Since the classpath scan was removed, the
-# server and the "Run main" CLI take the abstract base (lang+stdlib) and the jvm layer as --compiler-path/--runtime-path
-# directories instead of finding them on the classpath. Each module's resources/eliot tree is staged as its OWN root
+# server and the "Run main" CLI take the abstract base (lang+stdlib), the jvm layer, and the compiler platform layer (CP2)
+# as --compiler-path/--runtime-path directories instead of finding them on the classpath (the compiler layer is on the
+# compiler path only). Each module's resources/eliot tree is staged as its OWN root
 # under eliot-src/<module>; they are deliberately NOT merged into one dir — same-path files like eliot/lang/String.els
 # exist in both lang and stdlib, and keeping them in separate roots lets PathScanner return all copies for the unifier
 # to merge (the very reason a fat jar is forbidden — see the header). The launcher points the `eliot.layers` system
 # property at this dir; EliotRunConfiguration passes the same subdirs to the CLI build.
-for m in lang stdlib jvm; do
+for m in lang stdlib jvm compiler; do
   mkdir -p "$ELIOT_SRC/$m"
   cp -r "$m/resources/eliot/." "$ELIOT_SRC/$m/"
 done
