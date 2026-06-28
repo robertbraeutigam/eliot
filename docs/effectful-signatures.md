@@ -1,8 +1,13 @@
 # Effectful Signatures: Compile-Time `Throw` for Guarded & Calculated Return Types
 
-Status: **Planned.** Design complete (this document); implementation not started. The motivating consumer is
-length-indexed `Seq`/`Stack` (`Seq[A, MIN, MAX]`), where operations like `head`/`pop`/`get` are only valid on
-sufficiently-large collections and must reject the empty case *with a readable message* at the concrete use site.
+Status: **Foundation landed; W2–W5 remain.** W1 — the compile-time error carrier — is **done**: it shipped as the
+compiler-platform `Either` layer when the compiler became a first-class platform (CP1–CP4; see the "compiler is itself a
+platform" section of `.claude/CLAUDE.md` and `compiler/README.md`). What remains is the discharge and the surface syntax
+(W2–W5). The foundation also surfaced one concrete prerequisite the old "Scala intrinsic" framing hid: the carrier's
+`Monad`/`Throw` instances are **compiler-pool-only**, so ability-instance resolution must be made platform-aware before
+the discharge can reach them (W2a — the ability-instance analogue of CP3). The motivating consumer is length-indexed
+`Seq`/`Stack` (`Seq[A, MIN, MAX]`), where operations like `head`/`pop`/`get` are only valid on sufficiently-large
+collections and must reject the empty case *with a readable message* at the concrete use site.
 
 ## Goal
 
@@ -41,8 +46,9 @@ There is no separate "type pipeline." A signature is an ordinary `Expression`, s
 front-end as a runtime body** — and a signature and a body differ in exactly two things:
 
 1. **The carrier the `effect` phase binds.** A body binds an *inferable platform* carrier (`F[_] ~ Monad`, realized
-   as `IO`). A signature binds the *fixed* compile-time carrier (`Either[String, _]` with the compiler's intrinsic
-   `Monad`/`Throw`). Same phase, position-dependent carrier.
+   as `IO`). A signature binds the *fixed* compile-time carrier (`Either[String, _]` with the **compiler platform's**
+   `Monad`/`Throw` — ordinary Eliot in the compiler layer, not a Scala intrinsic) — *every* signature, uniformly; a
+   non-guarded return type `T` is `pure(T)`, not a carrier-free special case. Same phase, position-dependent carrier.
 2. **Its terminal fate.** A body survives to `used → uncurry → codegen` — the *platform* backend, run by the JVM. A
    signature is *forced by the NbE evaluator and discharged* (W2) — the *compiler* backend, run by the
    compiler-as-handler. Eval-and-discharge replaces codegen.
@@ -62,7 +68,7 @@ linked build.
 | `resolve` (value resolver) | yes | — |
 | `operator` | yes — this is why `Int[a + b]` already works | — |
 | `matchdesugar`, block | body only | **extend to the signature position** (W4) |
-| `ability` | resolved during monomorphize / discharge | provide the compile-time `Throw` instance (W1) |
+| `ability` | resolved during monomorphize / discharge | the compile-time `Monad`/`Throw` instances exist (W1 ✓); make ability resolution see the **compiler** pool (W2a) |
 | `termination` | runtime-body graph only | must also cover the (recursion-free) type program |
 | `effect` | body only (`EffectDesugaredValue` copies `runtime`) | **extend to the signature position**, fixed carrier (W3) |
 | `monomorphize` | shared — the checker + evaluator already run both | discharge the return computation (W2) |
@@ -74,19 +80,24 @@ always terminates.
 
 ## The model — a compile-time effect, not a bottom
 
-The signature is a **total** function whose result is an inspectable value: either an error or a type. We model
-this with the existing **`Throw[String]`** effect discharged into **`Either[String, Type]`**. The compiler is the
-*handler*: it runs the computation and reacts to the result.
+**Every return-type position has the same type, uniformly: `{Throw[String]} Type`.** There is no "pure type *or*
+effectful type" split — a signature is *always* a `{Throw[String]} Type` computation, and a non-failing one is simply
+`pure(T) = Right(T)`. The signature's type is invariant; a guarded and a non-guarded signature differ only in the
+*value* that computation reduces to (`Right(T)` vs. `Left(msg)`), never in its type. So the signature is a **total**
+function whose result is an inspectable value: a type or an error. We model this with the existing **`Throw[String]`**
+effect discharged into **`Either[String, Type]`**. The compiler is the *handler*: it runs the computation and reacts to
+the result.
 
 The key analogy — it is the runtime effect story, lifted one stage:
 
 | position | carrier | who provides `Monad`/`Throw` instances | who runs it | result inspected |
 |---|---|---|---|---|
 | runtime body `{Throw[String]} A` | `EitherT[String, IO]` | jvm layer | the JVM runtime | `Either[String, A]` |
-| **signature `{Throw[String]} Type`** | `Either[String, _]` (= `EitherT[String, Id]`, pure base) | **the compiler (intrinsics)** | **the compiler** | `Either[String, Type]` |
+| **signature `{Throw[String]} Type`** | `Either[String, _]` (pure base — used directly, no `EitherT`/`Id`) | **the compiler platform** (Eliot layer, like jvm) | **the compiler** | `Either[String, Type]` |
 
-The compile-time carrier is the *pure* one (identity base `Id`), so it collapses to `Either[String, _]`:
-`pure = Right`, `flatMap` short-circuits on `Left`, `raise = Left`. The compiler reads back the discharged result:
+The compile-time carrier is the *pure* error monad `Either[String, _]` **directly** (no transformer, no `Id` base):
+`pure = Right`, `flatMap` short-circuits on `Left`, `raise = Left` — exactly as the landed
+`compiler/.../Either.els` instances define them. The compiler reads back the discharged result:
 
 - `Right(T)` → the resolved return type is `T`.
 - `Left(msg)` → `compilerAbort` with `msg` as the **primary** diagnostic (author-written, not a unification dump).
@@ -112,9 +123,11 @@ returning a first-class value**, which buys three things the bottom cannot:
 Almost everything exists; the feature is mostly wiring.
 
 - **The effect itself:** `Throw[E, F[_]]` with `raise(err: E): F[A]`
-  (`stdlib/.../Throw.els`). `runThrow(p): G[Either[E, A]]` is the handler-into-`Either`
-  (`jvm/.../EitherT.els`). `Either[E, A]` + `foldEither` (`jvm/.../Either.els`). The pure base `Id`
-  (`examples/src/EffectsTestable.els` — to be promoted; see W1).
+  (`stdlib/.../Throw.els`, abstract base). `runThrow(p): G[Either[E, A]]` is the runtime handler-into-`Either`
+  (`jvm/.../EitherT.els`). `Either[E, A]` is abstract in the base (`stdlib/.../Either.els`) and concrete *per platform*:
+  `jvm/.../Either.els` (runtime) and `compiler/.../Either.els` (compile-time, **with** the `Monad`/`Throw[Either[String]]`
+  instances — W1, **done**). The compile-time carrier is `Either[String, _]` **directly** (the pure error monad), so no
+  `Id` base or `EitherT` transformer is needed at compile time.
 - **Branching at type level already works:** `SystemNativesProcessor.boolFoldNative`
   (`SystemNativesProcessor.scala:84-91`) selects a branch on a concrete `Bool` and **goes stuck on an abstract
   condition** — that stuck-on-abstract behaviour *is* our deferral, for free.
@@ -142,13 +155,15 @@ module rather than being a foreign mechanism. Note one difference in the not-gro
 guard at an abstract definition site **defers** (a stuck guard is correct, not an error) — that is use-site
 verification.
 
-## Platform-independence: the compiler provides the carrier
+## Platform-independence: the compiler platform provides the carrier
 
-Because the compile-time carrier and its `Monad`/`Throw[String]` instances are **compiler intrinsics** (supplied
-the way `SystemNativesProcessor` supplies `true`/`false`/`fold`), type-level guards evaluate **regardless of which
-platform layer is present** — including the abstract-only LSP workspace. They do *not* depend on the jvm layer's
-`Either`/`EitherT` being on the path. This is the resolution of the layering hazard: a guard that bottoms out in
-intrinsics (`boolFold` + the compile-time `Throw`) is layer-independent; one that routed through a platform-layer
+Because the compile-time carrier and its `Monad`/`Throw[String]` instances live in the **compiler platform layer** —
+on the `--compiler-path` of *every* type-checking entry point unconditionally (CP2), the same way the abstract base is —
+type-level guards evaluate **regardless of which runtime platform layer is present**, including the abstract-only LSP
+workspace. They do *not* depend on the jvm layer's `Either`/`EitherT` being on the path: the compiler layer is always
+linked for the compile-time phase and never for codegen. This is the resolution of the layering hazard, and it is the
+compiler-as-platform cornerstone doing exactly its job — a guard bottoms out in the compiler layer (`Either` + its
+instances) plus the `boolFold` Scala leaf, all compiler-supplied; a guard routed through a *runtime* platform-layer
 `data` would only reduce once that layer was linked.
 
 (Deferral stays safe either way: a guard only fully reduces when its bounds *and* the combinators it uses are
@@ -156,7 +171,7 @@ concrete; otherwise it stays stuck and is deferred.)
 
 ## Work items
 
-### W1 — Compile-time Error carrier as intrinsics — **done (the compiler-platform `Either` carrier)**
+### W1 — Compile-time Error carrier — **done (the compiler-platform `Either` layer)**
 
 > **Superseded mechanism — now landed.** The sketch below supplies the carrier + instances as **Scala** native
 > reductions in `SystemNativesProcessor`. That reimplements in Scala what the one NbE evaluator already does for ordinary
@@ -167,7 +182,14 @@ concrete; otherwise it stays stuck and is deferred.)
 > Eliot (`data Either` + `foldEither` + `implement Monad[Either[String]]`/`Throw[String, Either[String]]`) in the
 > compiler-platform layer (`compiler/resources/eliot/eliot/lang/Either.els`), reduced by the existing checker, with the
 > abstract `type Either[E, A]` in the `stdlib` base; `WellKnownTypes` exposes `eitherFQN`/`leftFQN`/`rightFQN` as the
-> only Scala surface, for W2 to inspect by name. The original sketch is retained below for rationale.
+> only Scala surface, for W2 to inspect by name.
+>
+> **One consequence the Scala-intrinsic sketch hid:** because the carrier is now a marker-scoped Eliot *layer* rather
+> than a globally-visible intrinsic, its `Monad`/`Throw[Either[String]]` instances live **only in the compiler source
+> pool**, and ability-instance resolution is platform-blind today (it defaults to the runtime pool). Making those
+> instances reachable from the checker is therefore the first concrete task of W2 (W2a below) — the ability-instance
+> analogue of CP3's `CompilerNativesProcessor`, which does the same overlay for value *bodies*. The original sketch is
+> retained below for rationale.
 
 Provide, as compiler intrinsics (alongside the Bool primitives in `SystemNativesProcessor`):
 
@@ -182,10 +204,24 @@ Provide, as compiler intrinsics (alongside the Bool primitives in `SystemNatives
 These are input-less compiler constants, wired exactly like `boolFoldFQN` et al.
 (`SystemNativesProcessor.produceNativeBinding`).
 
-### W2 — The discharge step (handler) in `CalculatedReturnResolver`
+### W2 — Reach the carrier instances, then discharge
 
-At the point the checker reads a value's return type, if the return-type computation is on the compile-time Error
-carrier, force it to a ground `Either[String, Type]` and:
+**W2a — make the compiler-pool carrier instances reachable (the ability analogue of CP3).** The carrier's
+`Monad[Either[String]]` / `Throw[String, Either[String]]` instances live in the compiler pool, but ability-instance
+resolution is platform-blind today: `AbilityImplementation.Key` carries no marker and `AbilityImplementationProcessor`
+queries `UnifiedModuleNames` at the default `Platform.Runtime`, so a checker running on a runtime-marker value cannot see
+them. Thread the `platform` marker through ability-instance resolution exactly as CP3 threaded it through `ValueResolver`
+for value bodies: add `platform` to `AbilityImplementation.Key` (defaulting to `Runtime` — a no-op for every existing
+ability), and resolve the carrier's instances under the **compiler** marker. This is the ability-instance overlay that
+CP3's `CompilerNativesProcessor` is for value bodies; without it the discharge below has no `flatMap`/`pure`/`raise` to
+run. *Alternative considered:* check the whole signature sub-expression under the compiler marker; rejected because the
+signature shares binders with the body (checked under runtime), so a hard marker split is more invasive than overlaying
+just the instances. Leaf test: `Throw[String, Either[String]]` resolves under the compiler marker and is **absent** under
+the runtime marker.
+
+**W2b — the discharge/unwrap (handler) in `CalculatedReturnResolver`.** At the point the checker reads a value's return
+type, if the return-type computation is on the compile-time Error carrier, force it to a ground `Either[String, Type]`
+and:
 
 - `Right(T)` → return `T` as the SemValue return type.
 - `Left(msg)` → `compilerAbort(at.as(msg))` (author message is primary).
@@ -206,8 +242,11 @@ the one genuinely new piece of wiring and the precise form of the "staging" sepa
 - body position → runtime carrier `F`, handled by the platform runtime.
 
 They are different expressions on different carriers by construction, so `{Throw[String]}` of the type computation
-never enters the value's runtime effect row. A bare `Type` in return position is `pure`-lifted (`Right(T)`), so
-ordinary non-guarded signatures are unchanged.
+never enters the value's runtime effect row. This routing is **uniform**: the return-type position is *always*
+`{Throw[String]} Type`, so a bare `Type` is `pure`-lifted (`Right(T)`) like any other computation — non-guarded
+signatures are *observationally* unchanged (they still resolve to `T`), not a separate carrier-free path. (Until W3
+lands, the W2-first step opts in per signature by writing an explicit `Either[String, Type]` return; W3 is what makes
+the carrier universal, so *all* signatures — bare or guarded — flow through it.)
 
 Touch points: the effect/`core` desugaring that handles signature effect rows (sibling of `EffectSugarDesugarer`),
 and the checker's expectation for the return slot. **This is a bigger change than it looks:** effect desugaring
@@ -238,8 +277,8 @@ uniform desugaring is all that is needed at the surface.
 
 ### W5 — Stdlib guard combinators
 
-Ordinary total Eliot, built so they bottom out in **intrinsics** (`boolFold` + the compile-time `Throw`), keeping
-stdlib guards layer-independent:
+Ordinary total Eliot, built so they bottom out in **compiler-supplied primitives** (the `boolFold` Scala leaf + the
+compiler-platform `Throw`/`Either` layer), keeping stdlib guards layer-independent:
 
 - `error[A](msg: String): {Throw[String]} A` — `raise(msg)`.
 - `when[A](a: A, cond: Bool): Option[A]` — `fold(cond, some(a), none)` (or an `Either`-direct variant; see the
@@ -251,10 +290,14 @@ These are dual-use: the same functions work on real `Option`/`Either` values at 
 
 ## Sequencing (incremental — validate the hard part first)
 
-1. **W1 + W2** with `when`/`orError` written to return `Either[String, Type]` *explicitly* (plain total functions,
-   no effect row, no signature desugaring). This already gives erroring guards in near-normal code and exercises
-   the whole discharge path end to end. **Leaf test:** a return-type expression evaluating to `Left("msg")` aborts
-   with exactly `msg`; one evaluating to `Right(T)` types as `T`; one stuck on an abstract bound defers (no error).
+W1 (the compile-time carrier) is **done** (the compiler-platform `Either` layer). Sequencing picks up at W2:
+
+1. **W2** — the ability-resolution bridge (W2a) so the checker can see the compiler-pool carrier instances, then the
+   discharge/unwrap (W2b), with `when`/`orError` written to return `Either[String, Type]` *explicitly* (plain total
+   functions, no effect row, no signature desugaring). This already gives erroring guards in near-normal code and
+   exercises the whole discharge path end to end. **Leaf test:** a return-type expression evaluating to `Left("msg")`
+   aborts with exactly `msg`; one evaluating to `Right(T)` types as `T`; one stuck on an abstract bound defers (no
+   error).
 2. **W3** — route the signature position through effect desugaring onto the fixed carrier, enabling direct-style
    `{Throw[String]}` signatures.
 3. **W4** — parser unrestriction + extend `matchdesugar`/block to the signature position (any expression in return
@@ -275,22 +318,26 @@ These are dual-use: the same functions work on real `Option`/`Either` values at 
 
 ## Files
 
-- `monomorphize/processor/SystemNativesProcessor.scala` — W1 (intrinsic carrier + instances), beside the Bool
-  primitives.
-- `module/fact/WellKnownTypes.scala` — FQNs for the compile-time carrier / `Throw` instance / `error`.
-- `monomorphize/check/CalculatedReturnResolver.scala` — W2 (the discharge/unwrap step).
+- `compiler/resources/eliot/eliot/lang/Either.els` — W1 (**done**): the compile-time carrier `data Either` +
+  `foldEither` + the `Monad`/`Throw[Either[String]]` instances. Abstract `type Either` lives in `stdlib/.../Either.els`;
+  the runtime carrier stays in `jvm/.../Either.els`.
+- `module/fact/WellKnownTypes.scala` — `eitherFQN`/`leftFQN`/`rightFQN` (**done**); add an `error` FQN for W5 if pinned.
+- `ability/fact/AbilityImplementation.scala` + `ability/processor/AbilityImplementationProcessor.scala` +
+  `ability/util/ImplementationMarkerUtils.scala` — W2a (thread the `platform` marker through ability-instance
+  resolution; default `Runtime`, resolve the carrier instances under `Compiler`).
+- `monomorphize/check/CalculatedReturnResolver.scala` — W2b (the discharge/unwrap step).
 - `effect/processor/EffectDesugaringProcessor.scala` + `core/processor/EffectSugarDesugarer.scala` — W3 (route the
   signature position onto the fixed carrier); ripples to `operator/.../OperatorResolvedExpression.scala`
   (`SignatureView`) and `saturate/fact/BinderRoles.scala`, which read the return position.
 - `ast` parser (`Expression.typeParser`) + `matchdesugar`/block processors — W4 (full expressions in return
   position, and the desugar phases extended to the signature sub-expression).
-- `stdlib/.../` — W5 (`error`, `when`, `orError`, `orElse`); promote `Either`/`foldEither`/`Id` as needed for
-  compile-time availability (W1).
+- `stdlib/.../` — W5 (`error`, `when`, `orError`, `orElse`). The `Either`/`foldEither` carrier promotion is already
+  done (W1); no `Id` base is needed since the compile-time carrier is `Either[String, _]` directly.
 
 ## Deferred follow-ons
 
 - **Recovery wrappers** (`tryHead : Seq[A, MIN, MAX] -> Option[A]`) — already *enabled* by the model (signature
-  `runThrow`s the computation and yields an `Option` type), to be exercised and tested once W1–W3 land.
+  `runThrow`s the computation and yields an `Option` type), to be exercised and tested once W2–W3 land.
 - **Richer error payloads** than `String` — `Throw[E]` is already generic in `E`; a structured diagnostic type
   (with source spans / suggestions) could replace the bare message.
 - **Definition-site surfacing** of latent partiality (the use-site-verification trade-off): the IDE surfaces a
