@@ -44,6 +44,26 @@ object WellKnownTypes {
     */
   val boolFoldFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("fold", Qualifier.Default))
 
+  private val eitherModule: ModuleName = ModuleName(defaultSystemPackage, "Either")
+
+  /** The `Either[E, A]` type constructor — the discharge carrier of the `Throw[E]` effect (`runThrow` reflects a
+    * `{Throw[E]}` computation into an `Either[E, A]`). Abstract in the base layer (`type Either[E, A]`), redefined
+    * concretely per platform (the `jvm` layer for the runtime phase, the compiler platform for the compile-time phase —
+    * see `docs/compiler-as-platform.md`). The effectful-signatures discharge (W2) reads back a `{Throw[String]} Type`
+    * signature as a ground `Either[String, Type]` and inspects its head by [[leftFQN]]/[[rightFQN]].
+    */
+  val eitherFQN: ValueFQN = ValueFQN(eitherModule, QualifiedName("Either", Qualifier.Type))
+
+  /** The `Left` constructor of [[eitherFQN]] (the error case, by convention). A value constructor, so [[Qualifier.Default]]
+    * (the value namespace). The discharge step recognises `Left(msg)` as a guard rejection — `compilerAbort` with `msg`.
+    */
+  val leftFQN: ValueFQN = ValueFQN(eitherModule, QualifiedName("Left", Qualifier.Default))
+
+  /** The `Right` constructor of [[eitherFQN]] (the success case). A value constructor, so [[Qualifier.Default]]. The
+    * discharge step reads `Right(t)` as the resolved return type `t`.
+    */
+  val rightFQN: ValueFQN = ValueFQN(eitherModule, QualifiedName("Right", Qualifier.Default))
+
   private val optionModule: ModuleName = ModuleName(defaultSystemPackage, "Option")
 
   /** The abstract `Option` type constructor — the result type of `Coerce.coerce`. The checker builds `Option[expected]`

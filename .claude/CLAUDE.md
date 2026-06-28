@@ -249,12 +249,17 @@ resolves names in the `compiler` platform; codegen (`used → uncurry → backen
 So one abstract base name can have a **distinct concrete implementation per platform** — exactly as `add`/`fold`/`Bool`
 already do via the native-binding routing (`ContributedBinding` + `BindingMergerProcessor`: the compile-time reduction
 wins for checking, the runtime body is used for codegen). There is no "shared" platform: each unifies the base + the
-user program + its own layer independently. Status (`docs/compiler-as-platform.md`): **CP1–CP3 implemented** — the
-`compiler` source pool, the always-linked `compiler` Mill module, and the native label that reads it
-(`CompilerNativesProcessor`, contributing the `compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`)
-all exist. **CP4 — the module's first content — is pending, so the module is empty and compile-time intrinsics are still
-Scala natives** in `SystemNativesProcessor` / `StdlibNativesProcessor`; with no compiler-platform definitions the
-`compiler` label contributes `None` everywhere, so resolution is unchanged until CP4 fills the module.
+user program + its own layer independently. Status (`docs/compiler-as-platform.md`): **CP1–CP4 implemented** — the
+`compiler` source pool, the always-linked `compiler` Mill module, the native label that reads it
+(`CompilerNativesProcessor`, contributing the `compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`),
+and the module's **first content** all exist. CP4 is the compile-time `Either` carrier
+(`compiler/resources/eliot/eliot/lang/Either.els`: concrete `data Either` + `foldEither` + `implement
+Monad[Either[String]]`/`Throw[String, Either[String]]`), with abstract `type Either[E, A]` promoted to the `stdlib` base
+and the runtime `jvm` `Either` unchanged — structurally identical, so the compiler overlay is transparent for runtime
+uses (the `add` pattern). The remaining compile-time intrinsics (`add`, `Bool` `fold`, `true`/`false`) are still Scala
+native **leaves** in `SystemNativesProcessor` / `StdlibNativesProcessor` — the compiler platform's leaf bottom, mirroring
+jvm's bytecode leaves. The `Monad`/`Throw` instances are compiler-pool-only and reached only by the effectful-signatures
+discharge (W2, not yet landed).
 
 **Where to put new compiler code.** When a task needs something the compiler must *evaluate at compile time* — a
 carrier (e.g. the effectful-signatures `Either`), a compile-time intrinsic, or an ability instance used only during

@@ -1,6 +1,6 @@
 # The Compiler as a Platform: Platform-Scoped Source Unification
 
-Status: **CP1, CP1.5, CP2, CP3 implemented; CP4 planned.** The `platform` marker (`compiler | runtime`) is threaded
+Status: **CP1, CP1.5, CP2, CP3, CP4 implemented.** The `platform` marker (`compiler | runtime`) is threaded
 through the front-end fact chain from `PathScan` to `SaturatedValue`, `PathScanner` selects a per-marker root list, and
 the `--compiler-path` / `--runtime-path` CLI options exist (`platform.Platform`, `LangPlugin`). The marker defaults to
 `runtime` for every existing reader, so behaviour is unchanged. The blanket classpath scan is **gone** (CP1.5): every
@@ -10,12 +10,16 @@ main" CLI). The compiler-platform module (CP2) now exists — a source-only Mill
 listed on the **compiler path** of every type-checking entry point unconditionally (it is just one more directory on that
 path, not a new mechanism). The native label that reads it (CP3) is now wired: `CompilerNativesProcessor` contributes the
 `compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`, preferred over the runtime `user` body for
-checking. The compiler-platform module is still empty (CP4's content is pending), so every name's compiler reduction is
-`None` and resolution is unchanged; compile-time intrinsics remain Scala natives until CP4 fills the module. Motivating
-first consumer: the compile-time `Either` carrier of
-`docs/effectful-signatures.md` (W1), which needs a *reducing* compile-time implementation (`foldEither`, `implement
-Monad/Throw`) available in **every** workspace — including the abstract-only LSP workspace — without depending on a
-runtime platform layer (jvm) being linked.
+checking. The module's first content (CP4) has landed: the compile-time `Either` carrier — concrete `data Either` +
+`foldEither` + `implement Monad[Either[String]]` / `Throw[String, Either[String]]`, in plain Eliot at
+`compiler/resources/eliot/eliot/lang/Either.els` — with the abstract `type Either[E, A]` promoted to the `stdlib` base
+and the runtime `jvm` `Either` unchanged. It is structurally identical to the runtime `Either`, so the compiler overlay
+is transparent for ordinary runtime uses (the `add` pattern); the compile-time `Monad`/`Throw` instances live only in
+the compiler pool. This realizes the compile-time `Either` carrier of
+`docs/effectful-signatures.md` (W1): a *reducing* compile-time implementation available in **every** workspace —
+including the abstract-only LSP workspace — without depending on a runtime platform layer (jvm) being linked. The
+remaining compile-time intrinsics (`add`, `fold`, `true`/`false`) are still Scala native leaves, exactly as `jvm`
+bottoms out in bytecode leaves.
 
 ## The idea in one line
 
@@ -234,12 +238,20 @@ the marker, so the compiler-marker chain silently fell back to the runtime pool 
 consumer to drive the full compiler-marker chain through `ValueResolver`, so it surfaced there; the fix threads
 `key.platform` (a no-op on the runtime path, where it was already the default).
 
-### CP4 — First consumer: the `Either` carrier (effectful-signatures W1)
+### CP4 — First consumer: the `Either` carrier (effectful-signatures W1) — **implemented**
 In the compiler-platform root, in plain Eliot: concrete `data Either = Left | Right`, `foldEither`, and
-`implement Monad[Either[String]]` / `implement Throw[String, Either[String]]` (bottoming out in `fold` + the
-constructors — the existing native leaves). The abstract `type Either` / `ability Monad` / `ability Throw` stay in
-base. jvm keeps its **runtime** `Either` unchanged and in place. This retires the "W1" open question in
-`docs/effectful-signatures.md`: the carrier is real, reducing, Eliot, and layer-independent.
+`implement Monad[Either[String]]` / `implement Throw[String, Either[String]]` (bottoming out in the `data`
+constructors and the auto-generated `match`/`PatternMatch` dispatch — the existing leaves the one NbE evaluator already
+runs). The abstract `type Either[E, A]` is promoted into the `stdlib` base (beside `type Option`/`type IO`), while
+`ability Monad` / `ability Throw` already lived there. jvm keeps its **runtime** `Either` unchanged and in place. The
+compiler-platform `data`/`foldEither` are byte-identical to jvm's so the native overlay is transparent for runtime
+`Either` uses (the `add` pattern); the `Monad`/`Throw` instances are compiler-pool-only and are reached by the
+effectful-signatures discharge (W2), not yet by any runtime path. `WellKnownTypes` gains `eitherFQN`/`leftFQN`/`rightFQN`
+for W2 to inspect the discharged `Either[String, Type]` by name. This retires the "W1" open question in
+`docs/effectful-signatures.md`: the carrier is real, reducing, Eliot, and layer-independent. Leaf test
+(`monomorphize/processor/CompilerEitherCarrierTest`): the carrier's `data`/`foldEither` **and** both `implement` blocks
+parse and lower into ability-implementation members under the `compiler` marker; the jvm `Throw`/`Either` integration
+tests confirm the overlay is transparent for the runtime carrier.
 
 ## Files (anticipated)
 

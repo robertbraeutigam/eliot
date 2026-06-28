@@ -1,0 +1,12 @@
+/**
+ * The result of a computation that may fail: by convention `Left(error)` is the error case and `Right(value)` the
+ * success case. The structure the `Throw[E]` effect discharges into via `runThrow` — `Either[E, A]` records whether a
+ * `{Throw[E]}` computation produced an `A` or failed with an `E`.
+ *
+ * Declared abstract here (platform-independent, per the platform-independence-via-layers cornerstone): each platform
+ * layer redefines the same name with a body — a concrete `data Either[E, A] = Left | Right` plus the eliminator
+ * `foldEither`. The `jvm` layer supplies it for the runtime phase; the **compiler platform** supplies it for the
+ * compile-time / type-checking phase (the discharge carrier of `docs/effectful-signatures.md`, where `Either[String, _]`
+ * carries `{Throw[String]}` type computations). The module merge prefers a concrete redefinition over this abstract one.
+ */
+type Either[E, A]

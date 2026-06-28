@@ -1,0 +1,47 @@
+import eliot.lang.Monad
+import eliot.lang.Throw
+
+/**
+ * The compile-time `Either` carrier (the compiler platform's redefinition of the abstract `type Either[E, A]` in the
+ * base layer — `docs/compiler-as-platform.md`, CP4). The compiler is a platform exactly like `jvm`: where the `jvm`
+ * layer realizes `Either` for the runtime phase (codegen), this realizes it for the compile-time phase (NbE / type
+ * checking). It is the discharge target of the signature-level `Throw[String]` effect — a `{Throw[String]} Type`
+ * computation runs on `Either[String, _]` and reads back as `Right(t)` (the type) or `Left(msg)` (a guard rejection);
+ * see `docs/effectful-signatures.md` (W1).
+ *
+ * Structurally identical to the `jvm` runtime `Either` (same `data`/`foldEither`), so the compiler native overlay that
+ * prefers this body for checking is transparent for ordinary runtime uses of `Either` (the `add` pattern — one name,
+ * two platform implementations, kept apart by the `compiler`/`runtime` marker). The compile-time `Monad`/`Throw`
+ * instances below live only in this (compiler) pool; `jvm` discharges `Throw` through its `EitherT` transformer instead.
+ */
+data Either[E, A] = Left(error: E) | Right(value: A)
+
+/**
+ * Eliminate an `Either`: `foldEither(e, ifLeft, ifRight)` applies `ifLeft` to the error of a `Left`, or `ifRight` to the
+ * value of a `Right`. The total, branch-explicit eliminator user code uses to consume a discharged `{Throw[E]}` result.
+ */
+def foldEither[E, A, B](e: Either[E, A], ifLeft: Function[E, B], ifRight: Function[A, B]): B = e match {
+   case Left(err) -> ifLeft(err)
+   case Right(v) -> ifRight(v)
+}
+
+/**
+ * `Either[String, _]` is the *pure* (identity-base) error monad the compiler runs type-level computations on: `pure`
+ * injects a result via `Right`; `flatMap` continues on `Right(a)` and short-circuits on `Left(err)` (propagating the
+ * error) — the `Throw` semantics. Specialised to the error type `String` (the compiler's guard-message type).
+ */
+implement Monad[Either[String]] {
+   def pure[A](a: A): Either[String, A] = Right(a)
+
+   def flatMap[A, B](fa: Either[String, A], f: Function[A, Either[String, B]]): Either[String, B] =
+      foldEither(fa, err -> Left(err), a -> f(a))
+}
+
+/**
+ * The `Throw` instance: `raise(err)` is the failure — purely the `Left(err)` value. A `{Throw[String]}` signature
+ * computation that rejects (e.g. a guard like `head` on an empty `Seq`) `raise`s its author message here, and the
+ * compiler reads the resulting `Left(msg)` back as a diagnostic.
+ */
+implement Throw[String, Either[String]] {
+   def raise[A](err: String): Either[String, A] = Left(err)
+}
