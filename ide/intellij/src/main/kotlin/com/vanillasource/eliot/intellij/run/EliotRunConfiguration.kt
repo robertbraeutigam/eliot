@@ -73,10 +73,17 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
   /** The executable jar the backend produces for this module: `<output>/<last module segment>.jar`. */
   fun jarPath(): Path = Path.of(resolvedOutputDir(), (mainModule ?: "").substringAfterLast('.') + ".jar")
 
-  /** `eliotc jvm exe-jar <sourceRoot> -m <module> -o <output>`, run as a child JVM off the bundled jars. */
+  /**
+   * `eliotc jvm exe-jar <sourceRoot> -m <module> -o <output> --compiler-path … --runtime-path …`, run as a child JVM
+   * off the bundled jars. Since CP1.5 the abstract base (lang+stdlib) and the jvm layer are handed to the compiler as
+   * filesystem source roots (the classpath scan is gone), from the bundled `eliot-src` staging. The layer options
+   * trail the `jvm exe-jar …` command — the only position scopt accepts these top-level options, exactly as `-o` does.
+   */
   fun compilerCommandLine(): GeneralCommandLine {
     val classpath = EliotPlugin.compilerClasspath()
       ?: throw ExecutionException("Cannot locate the bundled Eliot compiler jars.")
+    val layersDir = EliotPlugin.bundledLayersDir()
+      ?: throw ExecutionException("Cannot locate the bundled Eliot layer sources.")
     val command = GeneralCommandLine(
       EliotPlugin.javaExecutable(),
       "-cp", classpath,
@@ -85,6 +92,13 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
       sourceRoot.orEmpty(),
       "-m", mainModule.orEmpty(),
       "-o", resolvedOutputDir(),
+    )
+    val lang = layersDir.resolve("lang").toString()
+    val stdlib = layersDir.resolve("stdlib").toString()
+    val jvm = layersDir.resolve("jvm").toString()
+    command.addParameters(
+      "--compiler-path", lang, "--compiler-path", stdlib,
+      "--runtime-path", lang, "--runtime-path", stdlib, "--runtime-path", jvm,
     )
     project.basePath?.let { command.withWorkDirectory(it) }
     return command

@@ -90,9 +90,10 @@ object CompletionIndex {
       .headOption
       .map(value => value.typeStack.value.signature.show)
 
-  /** Normalise a URI to a stable key so the editor's `file:///…` URIs match the compiler's `file:/…` URIs. Non-file
-    * URIs (the classpath `jar:` resources of the bundled stdlib) cannot be turned into a `Path`; they fall back to their
-    * string form and simply never match a workspace document. Mirrors [[PositionIndex.uriKey]].
+  /** Normalise a URI to a stable key so the editor's `file:///…` URIs match the compiler's `file:/…` URIs. Since CP1.5
+    * every source URI is a `file:` URI (the base/platform layers are filesystem roots too, not `jar:` classpath
+    * resources); the catch is a defensive fallback for any unexpected non-`file:` URI, which then simply never matches a
+    * workspace document. Mirrors [[PositionIndex.uriKey]].
     */
   private def uriKey(uri: URI): String =
     try Paths.get(uri).toString

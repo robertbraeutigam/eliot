@@ -1,11 +1,13 @@
 # The Compiler as a Platform: Platform-Scoped Source Unification
 
-Status: **CP1 implemented; CP2–CP4 planned.** The `platform` marker (`compiler | runtime`) is threaded through the
-front-end fact chain from `PathScan` to `SaturatedValue`, `PathScanner` selects a per-marker root list, and the
-`--compiler-path` / `--runtime-path` CLI options exist (`platform.Platform`, `LangPlugin`). In CP1 the marker defaults
-to `runtime` for every existing reader, so behaviour is unchanged; the compiler pool is only exercised by the leaf test
-(`module/processor/PlatformScopedUnificationTest`). The blanket classpath scan is *retained* for both markers as the CP1
-intermediate (see "What blocks it today" / `PathScanner`) and is retired by CP2 when the compiler-platform module lands.
+Status: **CP1, CP1.5 implemented; CP2–CP4 planned.** The `platform` marker (`compiler | runtime`) is threaded through
+the front-end fact chain from `PathScan` to `SaturatedValue`, `PathScanner` selects a per-marker root list, and the
+`--compiler-path` / `--runtime-path` CLI options exist (`platform.Platform`, `LangPlugin`). The marker defaults to
+`runtime` for every existing reader, so behaviour is unchanged; the compiler pool is only exercised by the leaf test
+(`module/processor/PlatformScopedUnificationTest`). The blanket classpath scan is **gone** (CP1.5): every layer — the
+abstract base and `jvm` — is an explicit filesystem path, exactly as the user's program is, supplied per entry point
+(the Mill `examples.run`, the LSP server's `eliot.layers` staging, the test harnesses, the IntelliJ "Run main" CLI). The
+compiler-platform module (CP2) is then just one more directory added to the compiler path, not a new mechanism.
 Motivating first consumer: the compile-time `Either` carrier of `docs/effectful-signatures.md` (W1), which needs a
 *reducing* compile-time implementation (`foldEither`, `implement Monad/Throw`) available in **every** workspace —
 including the abstract-only LSP workspace — without depending on a runtime platform layer (jvm) being linked.
@@ -154,15 +156,40 @@ platform (jvm) in the ordinary way. The two markers keep them cleanly apart.
 
 ### CP1 — Two explicit source paths + the phase marker — **implemented**
 Thread a two-valued `platform` marker (`compiler | runtime`) through the front-end fact chain from `PathScan` to
-`SaturatedValue`. Replace `PathScanner`'s single `rootPaths` + blanket `getResources("eliot/…")` scan with **two
-explicit root lists** — a compiler path and a runtime path — selected by the marker; add `--compiler-path` /
-`--runtime-path` CLI options (`LangPlugin` parser) and fill both **by hand** in the Mill `examples.run` task and the
-test harness, each entry pointing at the relevant modules' `resources/eliot` dir. No resource relocation: base is listed
-in **both** lists; the compiler platform only in the compiler path; jvm and the user's program only in the runtime path
+`SaturatedValue`. Give `PathScanner` **two explicit root lists** — a compiler path and a runtime path — selected by the
+marker, alongside the existing blanket `getResources("eliot/…")` scan (which CP1 *retains* as the intermediate supplier
+of base + `jvm`; CP1.5 removes it and fills the lists by hand). Add `--compiler-path` / `--runtime-path` CLI options
+(`LangPlugin` parser), each entry pointing at the relevant modules' `resources/eliot` dir. No resource relocation: base is
+listed in **both** lists; the compiler platform only in the compiler path; jvm and the user's program only in the runtime path
 (the program is checked off the runtime pool, with the compiler platform's compile-time reductions overlaid via the
 native label). Leaf test: a name defined concretely in **both** the compiler platform and jvm resolves with **no**
 `"Has multiple implementations."` — the `compiler` marker scans one list, `runtime` the other; and a base name resolves
 identically under both.
+
+### CP1.5 — Retire classpath loading: every layer is a filesystem path — **implemented**
+Remove the blanket `getResources("eliot/…")` scan from `PathScanner` **entirely**, so the two explicit filesystem root
+lists become the *sole* source of `.els`. CP1 left the CLI path options unfilled and the classpath scan as the actual
+supplier of base + `jvm`; this step inverts that — base and `jvm` are passed as ordinary filesystem paths, just like the
+user's program, and nothing comes from the classpath. Each entry point fills the two lists from real directories:
+
+- **Driver / `examples.run`** (`build.mill`): inject `--compiler-path` = `lang/resources/eliot` + `stdlib/resources/eliot`
+  and `--runtime-path` = those + `jvm/resources/eliot`; the positional `<path>` (user program) still folds into the
+  runtime path. In the dev tree these are on-disk directories.
+- **LSP server** (`EliotCompilationService.startWorkspace` + `ide/lsp/package.sh`): the server stops relying on this
+  process's classpath and instead sets `compilerPathKey`/`runtimePathKey` to filesystem dirs. Because a filesystem `Path`
+  cannot `resolve` *into* a jar — the exact blocker the Deferred section flagged — the dist must ship the layer sources as
+  **plain directories**: `package.sh` already stages per-module *jars* (`lib/`, `compiler-lib/`); it additionally stages a
+  sibling tree of the raw `eliot/…` resource dirs (e.g. `dist/eliot-src/{lang,stdlib,jvm}`) for the server to point at.
+- **Packaged CLI** (the IntelliJ run config's exe-jar build, `java -cp … Main`): same staged resource dirs, passed as
+  `--compiler-path` / `--runtime-path`.
+- **Test harness** (`ProcessorTest` / full-pipeline tests): fill the two paths from the on-disk module `resources/eliot`
+  dirs (Mill runs tests from the repo root) instead of test-classpath discovery — closing the "Test harness" open decision.
+
+With the classpath scan gone, every `PathScan` URI is a `file:` URI, so the resource-URI branch of `SourceContentReader`
+and `ResourceContentReader` become dead and are removed, leaving `FileContentReader` as the sole reader. After this step
+`PathScanner` is purely the two filesystem lists — and CP2 only has to *add a directory* to the compiler path. Leaf test:
+a build with the base/`jvm` resource dirs absent from the explicit lists fails to resolve the stdlib (no silent classpath
+fallback), confirming the lists are the only source.
 
 ### CP2 — The compiler-platform Mill module, always linked
 Create a new Mill module (sibling of `jvm`, **depending on `stdlib`** so it has the full abstract stdlib available),
@@ -187,10 +214,14 @@ base. jvm keeps its **runtime** `Either` unchanged and in place. This retires th
 ## Files (anticipated)
 
 - `source/scan/PathScanner.scala` + `source/scan/PathScan.scala` — CP1 (platform marker; two explicit root lists, select
-  by marker; retire the blanket classpath scan).
+  by marker). CP1.5 removes the blanket `getResources("eliot/…")` scan, leaving only the two filesystem lists.
+- `source/content/SourceContentReader.scala` + `source/resource/ResourceContentReader.scala` — CP1.5 (every URI is now
+  `file:`; drop the resource-URI branch and retire `ResourceContentReader`).
 - `plugin/LangPlugin.scala` — CP1 (`--compiler-path` / `--runtime-path` CLI options + their `Configuration.Key`s).
-- `build.mill` — CP1/CP2 (the `examples.run` task and the test harness fill both path lists from module `resources/eliot`
-  dirs; a new compiler-platform module depending on `stdlib`).
+- `ide/lsp/.../EliotCompilationService.scala` + `ide/lsp/package.sh` — CP1.5 (set `compilerPathKey`/`runtimePathKey` to
+  staged filesystem resource dirs; `package.sh` stages the raw `eliot/…` source dirs as plain directories beside `lib/`).
+- `build.mill` — CP1.5/CP2 (the `examples.run` task and the test harness fill both path lists from module `resources/eliot`
+  dirs; CP2 adds a new compiler-platform module depending on `stdlib`).
 - `module/.../UnifiedModuleValueProcessor.scala`, `UnifiedModuleValue.scala`, `ModuleValue`/`ModuleNames` keys,
   `saturate/.../SaturatedValueProcessor.scala` + `SaturatedValue.scala` — CP1 (thread the marker).
 - `monomorphize/processor/CompilerNativesProcessor.scala` (new) + `monomorphize/fact/ContributedBinding.scala`
@@ -205,7 +236,9 @@ base. jvm keeps its **runtime** `Either` unchanged and in place. This retires th
    processors otherwise unchanged. No closure set, no descriptor.
 2. **Two explicit source paths, filled manually** — `--compiler-path` / `--runtime-path`, each the *complete* per-phase
    root list; base listed in both, the compiler platform only in the compiler path, jvm *and the user's program* only in
-   the runtime path. The blanket `eliot/…` classpath scan (a development convenience) is **retired** from the driver.
+   the runtime path. The blanket `eliot/…` classpath scan (a development convenience) is **retired everywhere** in CP1.5
+   — driver, LSP, packaged tooling, and tests all pass base + target as filesystem paths (the dist stages the layer
+   sources as plain directories so no `Path` ever resolves into a jar).
 3. **No resource relocation** — `stdlib` and `jvm` keep their `.els` under `eliot/…`; separation is by *which list lists
    them*, never by a prefix. The compiler path is system-determined; in practice the user only configures the runtime
    path.
@@ -219,15 +252,18 @@ base. jvm keeps its **runtime** `Either` unchanged and in place. This retires th
 
 ## Deferred — a real build system
 
-The manual two-path step is an explicit waypoint, not the destination. Two things it leaves open, both to be addressed
-when a real build system lands:
+The manual two-path step is an explicit waypoint, not the destination. What it leaves open, to be addressed when a real
+build system lands:
 
-- **Packaged distributions.** Filesystem `Path`s can't `resolve` *into* a jar, so a packaged distribution (the LSP dist,
-  the generated exe-jar tooling) cannot use plain filesystem paths the way the Mill dev run can. The explicit-path mode
-  is the **dev/Mill intermediate**; packaged tooling keeps classpath discovery until the build system replaces it (or we
-  add jar-aware root handling). Likewise the test harness, which gets resources from the test classpath today.
 - **Computing the paths.** The build system computes the two lists from module dependencies instead of hand-filling them
-  in `build.mill`.
+  in `build.mill` (and instead of CP1.5's `package.sh` hand-staging the layer source dirs into the dist).
+
+CP1.5 already closes what was previously deferred here — **packaged distributions** no longer keep classpath discovery.
+Because a filesystem `Path` can't `resolve` *into* a jar, the dist ships the layer sources as **plain directories**
+(`package.sh` stages them beside `lib/`) and the LSP server / exe-jar tooling point the two paths at them; the test
+harness likewise fills the paths from the on-disk `resources/eliot` dirs. So the explicit-path mode is no longer a
+dev/Mill-only intermediate — it is the single mechanism everywhere, and the build system's only remaining job is to
+*compute* the lists rather than hand-fill them.
 
 If a *second* runtime target or a layer shared by several platforms ever appears (e.g. `arduino-common` feeding both
 `arduino-uno` and `arduino-mega`), the flat "one path per platform" map stops expressing it and we generalize — *not
@@ -249,8 +285,9 @@ and the manual two-path start is not a one-way door.
 
 - **CLI option shape** — repeatable `--compiler-path` / `--runtime-path` vs. a single delimited value; and the exact
   relationship to the existing positional `<path>` arg (likely the user's program, folded into the runtime path).
-- **Test harness** — fill the two paths from the on-disk module `resources/eliot` dirs, or keep classpath discovery for
-  tests that don't yet exercise the marker split.
+
+(The "Test harness" question — fill from on-disk `resources/eliot` dirs vs. keep classpath discovery — is **settled by
+CP1.5**: classpath discovery is removed, so the harness fills the two paths from the on-disk dirs.)
 
 ## Relationship to effectful-signatures
 

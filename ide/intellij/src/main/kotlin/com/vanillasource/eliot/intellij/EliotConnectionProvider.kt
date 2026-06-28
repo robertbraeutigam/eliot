@@ -23,9 +23,14 @@ class EliotConnectionProvider(project: Project) : OSProcessStreamConnectionProvi
     val pluginPath = EliotPlugin.pluginPath()
       ?: error("Cannot locate the Eliot plugin installation directory; the language server jars are bundled there.")
     val serverLib = pluginPath.resolve("server").resolve("lib")
+    // CP1.5: the abstract base + platform layers are no longer found on the classpath; the server scans them as
+    // filesystem roots. Point `eliot.layers` at the staged source roots beside server/lib (server/eliot-src) so the
+    // server can hand them to the compiler (see EliotCompilationService / BundledLayers).
+    val layersDir = serverLib.resolveSibling("eliot-src")
 
     val command = GeneralCommandLine(
       EliotPlugin.javaExecutable(),
+      "-Deliot.layers=$layersDir",
       "-cp",
       serverLib.toString() + File.separator + "*",
       EliotPlugin.SERVER_MAIN_CLASS,

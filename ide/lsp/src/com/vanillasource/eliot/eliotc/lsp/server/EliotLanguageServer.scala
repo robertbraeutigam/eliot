@@ -25,8 +25,8 @@ import scala.jdk.CollectionConverters.*
 
 /** The lsp4j entry object: it advertises capabilities, captures the workspace roots from the `initialize` handshake
   * (`workspaceFolders`, falling back to `rootUri`), and on `initialized` starts the resident compile engine over those
-  * roots. There is no build file — the roots from the handshake *are* the project model (stdlib/platform layers come
-  * from this process's classpath).
+  * roots. There is no build file — the roots from the handshake *are* the project model (the stdlib/platform layers come
+  * from the bundled `eliot.layers` source roots, see [[BundledLayers]]).
   */
 final class EliotLanguageServer(service: EliotCompilationService) extends LanguageServer with LanguageClientAware {
   private val textDocumentService           = new EliotTextDocumentService(service)

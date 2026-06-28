@@ -36,11 +36,12 @@ object `package` extends Module {
    // grammar (ide/textmate) is static editor files, not a build module.
    object ide extends Module {
      object lsp extends DefaultScalaModule {
-       // Depends on `jvm` for the concrete platform layer's `.els` *resources* (e.g. `Pair`, `StateT`, `OptionT`, the
-       // concrete `IO`). The resident server type-checks platform-specific code the same way the program actually runs,
-       // so it must see the platform layer — `PathScanner` discovers those `.els` files from the `jvm` jar on the
-       // classpath. Only the resources are needed: the jvm module's processors are codegen-only and are never added to
-       // the resident server's plugin list, so no bytecode is generated here.
+       // Depends on `jvm` for the concrete platform layer (e.g. `Pair`, `StateT`, `OptionT`, the concrete `IO`): the
+       // resident server type-checks platform-specific code the same way the program actually runs, so it must see the
+       // platform layer. Since CP1.5 it reads those `.els` from filesystem source roots (the bundled `eliot-src`,
+       // `package.sh`), not the classpath; the dep keeps the jvm module built and its `.els`/backend jar available to
+       // bundle. Only the resources are needed: the jvm module's processors are codegen-only and are never added to the
+       // resident server's plugin list, so no bytecode is generated here.
        override def moduleDeps = Seq(lang, stdlib, jvm)
        override def mainClass = Some("com.vanillasource.eliot.eliotc.lsp.server.LspMain")
 
@@ -53,6 +54,32 @@ object `package` extends Module {
    object examples extends DefaultScalaModule {
      override def moduleDeps = Seq(eliotc, jvm)
      override def mainClass = Some("com.vanillasource.eliot.eliotc.compiler.Main")
+
+     // CP1.5: the abstract base (lang + stdlib) and the jvm target layer are no longer discovered on the classpath;
+     // they are passed as ordinary filesystem source roots — their `resources/eliot` dirs in the dev tree.
+     // `--compiler-path` feeds the compile-time (type-checking) pool, `--runtime-path` the codegen pool; the user's
+     // positional `<path>` (their program) folds into the runtime path. The forked run's working dir is the workspace
+     // root, but we pass absolute paths so it is independent of that. The layer options are appended *after* the user's
+     // args (the `jvm exe-jar …` command): scopt only accepts these top-level options trailing the command, exactly as
+     // the existing `-o` is. See docs/compiler-as-platform.md (CP1.5).
+     override def run(args: Task[mill.api.Args] = Task.Anon(mill.api.Args())) = Task.Command(exclusive = true) {
+       runForkedTask(
+         finalMainClass,
+         Task.Anon {
+           val root             = mill.api.BuildCtx.workspaceRoot
+           def layer(m: String) = (root / m / "resources" / "eliot").toString
+           mill.api.Args(
+             args().value ++ Seq(
+               "--compiler-path", layer("lang"),
+               "--compiler-path", layer("stdlib"),
+               "--runtime-path", layer("lang"),
+               "--runtime-path", layer("stdlib"),
+               "--runtime-path", layer("jvm")
+             )
+           )
+         }
+       )()
+     }
    }
 
    trait DefaultScalaModule extends ScalaModule {
@@ -81,6 +108,12 @@ object `package` extends Module {
 
      object test extends ScalaTests {
        override def moduleDeps = super.moduleDeps ++ testModuleDeps
+
+       // CP1.5: a forked test JVM's working dir is a per-worker sandbox, not the repo root, so tests that need the
+       // on-disk layer `resources/eliot` dirs as filesystem roots (the LSP *compile* tests — the classpath scan is gone)
+       // can't derive them from `user.dir`. Hand the workspace root in explicitly. Harmless for tests that ignore it.
+       override def forkEnv =
+         Task { super.forkEnv() + ("ELIOT_REPO_ROOT" -> mill.api.BuildCtx.workspaceRoot.toString) }
 
        override def mvnDeps = Seq(
          mvn"org.scalatest::scalatest:3.2.17",

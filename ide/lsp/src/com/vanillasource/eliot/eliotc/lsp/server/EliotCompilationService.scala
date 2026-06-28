@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.lsp.server
 
 import cats.effect.IO
 import cats.effect.unsafe.IORuntime
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.{CompilationResult, CompilationServer, CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, MainIndex, PositionIndex, TypeHintIndex}
@@ -100,15 +101,26 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     } catch { case _: IllegalArgumentException | _: java.nio.file.FileSystemNotFoundException => None }
 
   /** Build a session over the workspace source roots, start the cancel-restart server, and trigger the first compile.
-    * Stdlib + platform layers come from this process's classpath (as for the CLI), so only the user's roots are needed.
+    *
+    * Since CP1.5 the abstract base + platform layers are *not* discovered on this process's classpath; they are handed in
+    * as filesystem roots via the `--compiler-path`/`--runtime-path` configuration keys, resolved from the bundled
+    * `eliot.layers` staging directory ([[BundledLayers]]). Only the user's own roots come from the editor workspace; the
+    * runtime path additionally gets them through `LangPlugin.pathKey`.
     */
   def startWorkspace(roots: Seq[Path]): Unit = {
     rootsRef.set(roots)
-    val lspPlugin     = LspPlugin(vfs)
-    val configuration = Configuration()
+    val lspPlugin                     = LspPlugin(vfs)
+    val (compilerPaths, runtimePaths) = BundledLayers.fromSystemProperty
+    val configuration                 = Configuration()
       .set(Compiler.targetPathKey, roots.headOption.getOrElse(Path.of(".")).resolve(".eliot-lsp"))
       .set(LangPlugin.pathKey, roots)
-    val started       = (for {
+      .set(LangPlugin.compilerPathKey, compilerPaths)
+      .set(LangPlugin.runtimePathKey, runtimePaths)
+    val started                       = (for {
+      _       <- warn[IO](
+                   s"No bundled layer sources found: system property '${BundledLayers.layersDirectoryProperty}' is unset, " +
+                     "so the standard library and platform layers will not resolve."
+                 ).whenA(runtimePaths.isEmpty)
       session <- CompilationSession.create(
                    lspPlugin,
                    Seq(lspPlugin, LangPlugin(), StdlibPlugin()),

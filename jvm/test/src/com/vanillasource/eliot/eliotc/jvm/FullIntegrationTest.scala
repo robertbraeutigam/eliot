@@ -14,6 +14,24 @@ import scala.jdk.CollectionConverters.*
 
 trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
+  /** CP1.5: the abstract base (`lang` + `stdlib`) and the `jvm` target layer are passed to the compiler as filesystem
+    * source roots — their `resources/eliot` dirs — instead of being discovered on the classpath. A forked test JVM's
+    * working dir is a per-worker sandbox, so the build hands the repo root in via `ELIOT_REPO_ROOT` (see `build.mill`).
+    * These options are appended *after* the `jvm exe-jar …` command — the only position scopt accepts these top-level
+    * options (exactly as `-o` already trails it). See `docs/compiler-as-platform.md` (CP1.5).
+    */
+  private def layerPathArgs: List[String] = {
+    val repoRoot          = Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
+    def root(module: String) = repoRoot.resolve(module).resolve("resources").resolve("eliot").toString
+    List(
+      "--compiler-path", root("lang"),
+      "--compiler-path", root("stdlib"),
+      "--runtime-path", root("lang"),
+      "--runtime-path", root("stdlib"),
+      "--runtime-path", root("jvm")
+    )
+  }
+
   /** Compile `source` (as module `moduleName`) to an executable jar and run it, returning its captured standard output.
     * `stdin` is fed to the program's standard input — needed by `Console.readLine`-based programs.
     */
@@ -25,7 +43,7 @@ trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       for {
         _      <- IO.blocking(Files.writeString(sourceDir.resolve(s"$moduleName.els"), source))
         _      <- Compiler.runCompiler(
-                    List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", moduleName)
+                    List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", moduleName) ++ layerPathArgs
                   )
         output <- runJar(targetDir.resolve(s"$moduleName.jar"), stdin)
       } yield output
@@ -52,7 +70,7 @@ trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
                       System.setOut(printStream)
                       System.setErr(printStream)
                       Compiler
-                        .runCompiler(List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", moduleName))
+                        .runCompiler(List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", moduleName) ++ layerPathArgs)
                         .unsafeRunSync()(using cats.effect.unsafe.IORuntime.global)
                     } finally {
                       System.setOut(oldOut)
@@ -77,7 +95,7 @@ trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       for {
         _      <- IO.blocking(Files.writeString(sourceDir.resolve(s"$moduleName.els"), source))
         _      <- Compiler.runCompiler(
-                    List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", moduleName)
+                    List("jvm", "exe-jar", sourceDir.toString, "-o", targetDir.toString, "-m", moduleName) ++ layerPathArgs
                   )
         output <- runJarBounded(targetDir.resolve(s"$moduleName.jar"), timeoutMillis)
       } yield output

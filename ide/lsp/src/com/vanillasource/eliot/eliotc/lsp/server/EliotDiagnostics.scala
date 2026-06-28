@@ -9,8 +9,9 @@ import java.nio.file.Paths
   *
   * [[CompilerError.contentSource]] is a filesystem *path* (it is built from `URI.getPath`), not a full URI, so we
   * reconstruct a `file:` URI from it to match the document URIs an editor uses. This is reliable for the filesystem
-  * source roots the LSP driver walks — it never diagnoses classpath/stdlib resources. Position conversion (1-based
-  * compiler → 0-based LSP) is shared with the position-based features via [[LspPositions]].
+  * source roots the LSP driver walks; in practice the bundled layer sources type-check clean, so the diagnostics shown
+  * are for the user's own files. Position conversion (1-based compiler → 0-based LSP) is shared with the position-based
+  * features via [[LspPositions]].
   */
 object EliotDiagnostics {
 

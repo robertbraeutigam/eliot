@@ -90,6 +90,9 @@ val packageServer by tasks.registering(Exec::class) {
     inputs.dir(file("../../jvm/resources"))
     outputs.dir(file("../lsp/dist/lib"))
     outputs.dir(file("../lsp/dist/compiler-lib"))
+    // The layer .els source roots (CP1.5): base (lang+stdlib) + the jvm layer, staged as plain dirs the server and the
+    // "Run main" CLI scan with --compiler-path/--runtime-path (the classpath scan is gone).
+    outputs.dir(file("../lsp/dist/eliot-src"))
 }
 
 tasks.withType<org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask> {
@@ -99,6 +102,10 @@ tasks.withType<org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask> 
     // The JVM backend + ASM, used by the "Run main" run configuration to build an executable jar (the
     // resident LSP server does NOT load these — see EliotConnectionProvider vs. the run config's command).
     from(file("../lsp/dist/compiler-lib")) { into("eliot/compiler/lib") }
+    // The layer .els source roots, staged beside server/lib as server/eliot-src so EliotPlugin.bundledLayersDir() finds
+    // them (CP1.5). The server (EliotConnectionProvider) points `eliot.layers` here; the "Run main" run config passes
+    // the per-module subdirs as --compiler-path/--runtime-path.
+    from(file("../lsp/dist/eliot-src")) { into("eliot/server/eliot-src") }
     from(file("../textmate")) {
         into("eliot/textmate")
         exclude("README.md")

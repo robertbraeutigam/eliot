@@ -12,7 +12,6 @@ import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.file.FileContentReader
-import com.vanillasource.eliot.eliotc.source.resource.ResourceContentReader
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import com.vanillasource.eliot.eliotc.source.stat.FileStatProcessor
 import scopt.{OParser, OParserBuilder}
@@ -51,11 +50,11 @@ class LangPlugin extends CompilerPlugin {
             UpToDateProcessor(),
             FileStatProcessor(),
             FileContentReader(),
-            ResourceContentReader(),
             SourceContentReader(),
-            // The marker selects which filesystem root list `PathScanner` scans (CP1). The positional `<path>` args are
-            // the user's program, folded into the runtime path; the abstract base / target `.els` still arrive via the
-            // retained classpath scan in CP1. See `PathScanner`.
+            // The marker selects which filesystem root list `PathScanner` scans. Since CP1.5 these two lists are the
+            // *only* source of `.els`: `--compiler-path` carries the abstract base (+ compiler platform), `--runtime-path`
+            // the base + target layer, and the positional `<path>` args (the user's program) fold into the runtime path.
+            // See `PathScanner` and docs/compiler-as-platform.md (CP1.5).
             PathScanner(
               configuration.getOrElse(compilerPathKey, Seq.empty),
               configuration.getOrElse(runtimePathKey, Seq.empty) ++ configuration.getOrElse(pathKey, Seq.empty)

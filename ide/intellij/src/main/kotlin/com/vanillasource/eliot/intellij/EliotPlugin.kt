@@ -40,6 +40,14 @@ object EliotPlugin {
    */
   fun compilerLibDir(): Path? = pluginPath()?.resolve("compiler")?.resolve("lib")
 
+  /**
+   * Directory of the bundled layer `.els` source roots (`<plugin>/server/eliot-src`, staged beside [serverLibDir]),
+   * holding a `lang`/`stdlib`/`jvm` subdirectory each. Since CP1.5 the compiler does NOT discover the abstract base or
+   * the platform layer on the classpath; the language server and the "Run main" CLI take them as filesystem source
+   * roots from here (`eliot.layers` for the server, `--compiler-path`/`--runtime-path` for the CLI).
+   */
+  fun bundledLayersDir(): Path? = serverLibDir()?.resolveSibling("eliot-src")
+
   /** Path to the `java` of the IDE's own runtime (JBR), so no separately installed JDK is required. */
   fun javaExecutable(): String =
     Path.of(System.getProperty("java.home"), "bin", if (SystemInfo.isWindows) "java.exe" else "java").toString()

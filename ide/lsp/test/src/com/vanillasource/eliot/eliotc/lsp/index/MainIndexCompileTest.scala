@@ -5,6 +5,7 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.{CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
+import com.vanillasource.eliot.eliotc.lsp.LspCompileTestLayers
 import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
@@ -43,9 +44,11 @@ class MainIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
       val file          = sourceDir.resolve("Test.els")
       val vfs           = new VirtualFileSystem
       val lspPlugin     = LspPlugin(vfs)
-      val configuration = Configuration()
-        .set(Compiler.targetPathKey, sourceDir.resolve(".eliot-lsp"))
-        .set(LangPlugin.pathKey, Seq(sourceDir))
+      val configuration = LspCompileTestLayers.add(
+        Configuration()
+          .set(Compiler.targetPathKey, sourceDir.resolve(".eliot-lsp"))
+          .set(LangPlugin.pathKey, Seq(sourceDir))
+      )
       for {
         _       <- IO.blocking(Files.writeString(file, source))
         session <- CompilationSession.create(
