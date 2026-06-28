@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.ability.util.AbilityMatcher
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Qualifier as ResolveQualifier}
@@ -27,10 +28,10 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       // `getFact` (not `getFactOrAbort`) — if no overlap processor is registered in the current
       // pipeline (some unit tests exclude it), skip the check silently rather than abort.
       _              <- candidateModules.toSeq.traverse_(m =>
-                          getFact(ModuleAbilityOverlapCheck.Key(m, abilityFQN.abilityName)).void
+                          getFact(ModuleAbilityOverlapCheck.Key(m, abilityFQN.abilityName, key.platform)).void
                         )
-      abilityMethods <- collectAbilityMethods(abilityFQN)
-      implMethods    <- candidateModules.toSeq.flatTraverse(collectImplMethods(_, abilityFQN, typeArguments))
+      abilityMethods <- collectAbilityMethods(abilityFQN, key.platform)
+      implMethods    <- candidateModules.toSeq.flatTraverse(collectImplMethods(_, abilityFQN, typeArguments, key.platform))
       _              <- implMethods match {
                           case Nil =>
                             // Point the error at the ability marker (the synthetic method whose local name
@@ -48,9 +49,9 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
                           case _   =>
                             checkCompleteness(abilityMethods, implMethods) >>
                               checkNoExtras(abilityMethods, implMethods) >>
-                              checkSignatures(abilityFQN, abilityMethods, implMethods)
+                              checkSignatures(abilityFQN, abilityMethods, implMethods, key.platform)
                         }
-      _              <- registerFactIfClear(AbilityImplementationCheck(abilityFQN, typeArguments))
+      _              <- registerFactIfClear(AbilityImplementationCheck(abilityFQN, typeArguments, key.platform))
     } yield ()
   }
 
@@ -61,34 +62,35 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       hasRuntime: Boolean
   )
 
-  private def collectAbilityMethods(abilityFQN: AbilityFQN): CompilerIO[Seq[ResolvedMethod]] =
-    getFactOrAbort(UnifiedModuleNames.Key(abilityFQN.moduleName)).flatMap { names =>
+  private def collectAbilityMethods(abilityFQN: AbilityFQN, platform: Platform): CompilerIO[Seq[ResolvedMethod]] =
+    getFactOrAbort(UnifiedModuleNames.Key(abilityFQN.moduleName, platform)).flatMap { names =>
       names.names.keys.toSeq
         .collect {
           case qn @ QualifiedName(_, Qualifier.Ability(name)) if name == abilityFQN.abilityName =>
             ValueFQN(abilityFQN.moduleName, qn)
         }
-        .traverse(vfqn => toResolvedMethod(vfqn))
+        .traverse(vfqn => toResolvedMethod(vfqn, platform))
     }
 
   private def collectImplMethods(
       moduleName: ModuleName,
       abilityFQN: AbilityFQN,
-      typeArguments: Seq[GroundValue]
+      typeArguments: Seq[GroundValue],
+      platform: Platform
   ): CompilerIO[Seq[ResolvedMethod]] =
-    getFactOrAbort(UnifiedModuleNames.Key(moduleName)).flatMap { names =>
+    getFactOrAbort(UnifiedModuleNames.Key(moduleName, platform)).flatMap { names =>
       names.names.keys.toSeq
         .collect {
           case qn @ QualifiedName(_, Qualifier.AbilityImplementation(abilityNameSrc, _))
               if abilityNameSrc.value == abilityFQN.abilityName =>
             ValueFQN(moduleName, qn)
         }
-        .traverse(vfqn => toResolvedMethod(vfqn))
+        .traverse(vfqn => toResolvedMethod(vfqn, platform))
         .flatMap(_.traverseFilter { method =>
           method.name.value.qualifier match {
             case ResolveQualifier.AbilityImplementation(resolvedFQN, _) if resolvedFQN == abilityFQN =>
               for {
-                markerSig <- loadMarkerSignature(method.vfqn, abilityFQN.abilityName)
+                markerSig <- loadMarkerSignature(method.vfqn, abilityFQN.abilityName, platform)
                 matched   <- AbilityMatcher.matchImpl(markerSig, typeArguments)
               } yield matched.map(_ => method)
             case _                                                                                   =>
@@ -97,8 +99,8 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
         })
     }
 
-  private def toResolvedMethod(vfqn: ValueFQN): CompilerIO[ResolvedMethod] =
-    getFactOrAbort(OperatorResolvedValue.Key(vfqn)).map(resolved =>
+  private def toResolvedMethod(vfqn: ValueFQN, platform: Platform): CompilerIO[ResolvedMethod] =
+    getFactOrAbort(OperatorResolvedValue.Key(vfqn, platform)).map(resolved =>
       ResolvedMethod(
         vfqn,
         resolved.name,
@@ -143,14 +145,15 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
   private def checkSignatures(
       abilityFQN: AbilityFQN,
       abilityMethods: Seq[ResolvedMethod],
-      implMethods: Seq[ResolvedMethod]
+      implMethods: Seq[ResolvedMethod],
+      platform: Platform
   ): CompilerIO[Unit] = {
     val implByName = implMethods.map(m => m.vfqn.name.name -> m).toMap
     abilityMethods
       .flatMap(abstractMethod => implByName.get(abstractMethod.vfqn.name.name).map(abstractMethod -> _))
       .traverse_ { case (abstractMethod, implMethod) =>
         for {
-          implMarkerSig <- loadMarkerSignature(implMethod.vfqn, abilityFQN.abilityName)
+          implMarkerSig <- loadMarkerSignature(implMethod.vfqn, abilityFQN.abilityName, platform)
           compatible    <- AbilityMatcher.signaturesCompatible(
                              abstractMethod.methodSig,
                              implMethod.methodSig,
@@ -167,13 +170,14 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
 
   private def loadMarkerSignature(
       methodVfqn: ValueFQN,
-      abilityName: String
+      abilityName: String,
+      platform: Platform
   ): CompilerIO[Sourced[OperatorResolvedExpression]] = {
     val markerVfqn = ValueFQN(
       methodVfqn.moduleName,
       QualifiedName(abilityName, methodVfqn.name.qualifier)
     )
-    getFactOrAbort(OperatorResolvedValue.Key(markerVfqn)).map(r => r.typeStack.as(r.typeStack.value.signature))
+    getFactOrAbort(OperatorResolvedValue.Key(markerVfqn, platform)).map(r => r.typeStack.as(r.typeStack.value.signature))
   }
 
   private def collectModuleNames(v: GroundValue): Seq[ModuleName] =

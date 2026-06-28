@@ -1,11 +1,13 @@
 # Effectful Signatures: Compile-Time `Throw` for Guarded & Calculated Return Types
 
-Status: **Foundation landed; W2–W5 remain.** W1 — the compile-time error carrier — is **done**: it shipped as the
-compiler-platform `Either` layer when the compiler became a first-class platform (CP1–CP4; see the "compiler is itself a
-platform" section of `.claude/CLAUDE.md` and `compiler/README.md`). What remains is the discharge and the surface syntax
-(W2–W5). The foundation also surfaced one concrete prerequisite the old "Scala intrinsic" framing hid: the carrier's
-`Monad`/`Throw` instances are **compiler-pool-only**, so ability-instance resolution must be made platform-aware before
-the discharge can reach them (W2a — the ability-instance analogue of CP3). The motivating consumer is length-indexed
+Status: **Foundation + ability bridge landed; W2b–W5 remain.** W1 — the compile-time error carrier — is **done**: it
+shipped as the compiler-platform `Either` layer when the compiler became a first-class platform (CP1–CP4; see the
+"compiler is itself a platform" section of `.claude/CLAUDE.md` and `compiler/README.md`). **W2a is also done**: the
+carrier's `Monad`/`Throw` instances are **compiler-pool-only**, and ability-instance resolution is now platform-aware —
+`AbilityImplementation.Key` (and the `AbilityImplementationCheck`/`ModuleAbilityOverlapCheck` facts it gates) carry a
+`platform` marker (default `Runtime`, a no-op for every existing ability), so querying under `Platform.Compiler` reaches
+the compiler-pool instances (the ability-instance analogue of CP3). What remains is the discharge (W2b) and the surface
+syntax (W3–W5). The motivating consumer is length-indexed
 `Seq`/`Stack` (`Seq[A, MIN, MAX]`), where operations like `head`/`pop`/`get` are only valid on sufficiently-large
 collections and must reject the empty case *with a readable message* at the concrete use site.
 
@@ -68,7 +70,7 @@ linked build.
 | `resolve` (value resolver) | yes | — |
 | `operator` | yes — this is why `Int[a + b]` already works | — |
 | `matchdesugar`, block | body only | **extend to the signature position** (W4) |
-| `ability` | resolved during monomorphize / discharge | the compile-time `Monad`/`Throw` instances exist (W1 ✓); make ability resolution see the **compiler** pool (W2a) |
+| `ability` | resolved during monomorphize / discharge | the compile-time `Monad`/`Throw` instances exist (W1 ✓); ability resolution now sees the **compiler** pool via the `platform`-marked `AbilityImplementation.Key` (W2a ✓) |
 | `termination` | runtime-body graph only | must also cover the (recursion-free) type program |
 | `effect` | body only (`EffectDesugaredValue` copies `runtime`) | **extend to the signature position**, fixed carrier (W3) |
 | `monomorphize` | shared — the checker + evaluator already run both | discharge the return computation (W2) |
@@ -206,18 +208,23 @@ These are input-less compiler constants, wired exactly like `boolFoldFQN` et al.
 
 ### W2 — Reach the carrier instances, then discharge
 
-**W2a — make the compiler-pool carrier instances reachable (the ability analogue of CP3).** The carrier's
+**W2a — make the compiler-pool carrier instances reachable (the ability analogue of CP3). — done.** The carrier's
 `Monad[Either[String]]` / `Throw[String, Either[String]]` instances live in the compiler pool, but ability-instance
-resolution is platform-blind today: `AbilityImplementation.Key` carries no marker and `AbilityImplementationProcessor`
-queries `UnifiedModuleNames` at the default `Platform.Runtime`, so a checker running on a runtime-marker value cannot see
-them. Thread the `platform` marker through ability-instance resolution exactly as CP3 threaded it through `ValueResolver`
-for value bodies: add `platform` to `AbilityImplementation.Key` (defaulting to `Runtime` — a no-op for every existing
-ability), and resolve the carrier's instances under the **compiler** marker. This is the ability-instance overlay that
-CP3's `CompilerNativesProcessor` is for value bodies; without it the discharge below has no `flatMap`/`pure`/`raise` to
+resolution was platform-blind: `AbilityImplementation.Key` carried no marker and `AbilityImplementationProcessor`
+queried `UnifiedModuleNames` at the default `Platform.Runtime`, so a checker running on a runtime-marker value could not
+see them. The `platform` marker is now threaded through ability-instance resolution exactly as CP3 threaded it through
+`ValueResolver` for value bodies: `platform` was added to `AbilityImplementation.Key` — *and* to the two facts it gates,
+`AbilityImplementationCheck.Key` and `ModuleAbilityOverlapCheck.Key`, since the completeness/overlap checks must read the
+same pool — all defaulting to `Runtime` (a no-op for every existing ability), and the three processors
+(`AbilityImplementationProcessor`, `AbilityImplementationCheckProcessor`, `ModuleAbilityOverlapCheckProcessor`) now read
+every `UnifiedModuleNames`/`OperatorResolvedValue` under `key.platform`. Querying under the **compiler** marker resolves
+the carrier's instances; under `Runtime` they are absent. This is the ability-instance overlay that CP3's
+`CompilerNativesProcessor` is for value bodies; without it the discharge below would have no `flatMap`/`pure`/`raise` to
 run. *Alternative considered:* check the whole signature sub-expression under the compiler marker; rejected because the
 signature shares binders with the body (checked under runtime), so a hard marker split is more invasive than overlaying
-just the instances. Leaf test: `Throw[String, Either[String]]` resolves under the compiler marker and is **absent** under
-the runtime marker.
+just the instances. Leaf test (`ability/PlatformScopedAbilityResolutionTest`): a compiler-pool-only `implement` resolves
+under the compiler marker and is **absent** under the runtime marker (dual-pool, sharing the abstract ability + type,
+exactly as the carrier shares the abstract `Throw`/`Either` base).
 
 **W2b — the discharge/unwrap (handler) in `CalculatedReturnResolver`.** At the point the checker reads a value's return
 type, if the return-type computation is on the compile-time Error carrier, force it to a ground `Either[String, Type]`
@@ -290,14 +297,15 @@ These are dual-use: the same functions work on real `Option`/`Either` values at 
 
 ## Sequencing (incremental — validate the hard part first)
 
-W1 (the compile-time carrier) is **done** (the compiler-platform `Either` layer). Sequencing picks up at W2:
+W1 (the compile-time carrier) and W2a (the ability-resolution platform bridge) are **done**. Sequencing picks up at W2b:
 
-1. **W2** — the ability-resolution bridge (W2a) so the checker can see the compiler-pool carrier instances, then the
-   discharge/unwrap (W2b), with `when`/`orError` written to return `Either[String, Type]` *explicitly* (plain total
-   functions, no effect row, no signature desugaring). This already gives erroring guards in near-normal code and
-   exercises the whole discharge path end to end. **Leaf test:** a return-type expression evaluating to `Left("msg")`
-   aborts with exactly `msg`; one evaluating to `Right(T)` types as `T`; one stuck on an abstract bound defers (no
-   error).
+1. **W2b** — the discharge/unwrap (handler) in `CalculatedReturnResolver`, with `when`/`orError` written to return
+   `Either[String, Type]` *explicitly* (plain total functions, no effect row, no signature desugaring). The carrier's
+   `Monad`/`Throw[Either[String]]` instances are now reachable from the checker (W2a), so the discharge can `flatMap`/
+   `raise`/`pure` over the compile-time `Either` by querying ability resolution under `Platform.Compiler`. This already
+   gives erroring guards in near-normal code and exercises the whole discharge path end to end. **Leaf test:** a
+   return-type expression evaluating to `Left("msg")` aborts with exactly `msg`; one evaluating to `Right(T)` types as
+   `T`; one stuck on an abstract bound defers (no error).
 2. **W3** — route the signature position through effect desugaring onto the fixed carrier, enabling direct-style
    `{Throw[String]}` signatures.
 3. **W4** — parser unrestriction + extend `matchdesugar`/block to the signature position (any expression in return
@@ -322,9 +330,11 @@ W1 (the compile-time carrier) is **done** (the compiler-platform `Either` layer)
   `foldEither` + the `Monad`/`Throw[Either[String]]` instances. Abstract `type Either` lives in `stdlib/.../Either.els`;
   the runtime carrier stays in `jvm/.../Either.els`.
 - `module/fact/WellKnownTypes.scala` — `eitherFQN`/`leftFQN`/`rightFQN` (**done**); add an `error` FQN for W5 if pinned.
-- `ability/fact/AbilityImplementation.scala` + `ability/processor/AbilityImplementationProcessor.scala` +
-  `ability/util/ImplementationMarkerUtils.scala` — W2a (thread the `platform` marker through ability-instance
-  resolution; default `Runtime`, resolve the carrier instances under `Compiler`).
+- `ability/fact/AbilityImplementation.scala`, `ability/fact/AbilityImplementationCheck.scala`,
+  `ability/fact/ModuleAbilityOverlapCheck.scala` + their processors
+  (`AbilityImplementationProcessor`/`AbilityImplementationCheckProcessor`/`ModuleAbilityOverlapCheckProcessor`) — W2a
+  (**done**): `platform` marker threaded through ability-instance resolution; default `Runtime`, the carrier instances
+  resolve under `Compiler`. Leaf test: `ability/PlatformScopedAbilityResolutionTest`.
 - `monomorphize/check/CalculatedReturnResolver.scala` — W2b (the discharge/unwrap step).
 - `effect/processor/EffectDesugaringProcessor.scala` + `core/processor/EffectSugarDesugarer.scala` — W3 (route the
   signature position onto the fixed carrier); ripples to `operator/.../OperatorResolvedExpression.scala`

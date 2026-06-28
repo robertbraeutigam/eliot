@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Qualifier as ResolveQualifier}
@@ -24,20 +25,24 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                        case Qualifier.Ability(name) => AbilityFQN(abilityValueFQN.moduleName, name).pure[CompilerIO]
                        case other                   => error[CompilerIO](s"expected Ability qualifier, got: $other") >> abort
                      }
-      _           <- getFactOrAbort(AbilityImplementationCheck.Key(abilityFQN, key.typeArguments))
+      _           <- getFactOrAbort(AbilityImplementationCheck.Key(abilityFQN, key.typeArguments, key.platform))
       candidates  <- candidateModules.toSeq.flatTraverse(module =>
-                       findImplementationsInModule(module, abilityValueFQN.name.name, abilityFQN.abilityName)
+                       findImplementationsInModule(module, abilityValueFQN.name.name, abilityFQN.abilityName, key.platform)
                      )
-      matching    <- candidates.flatTraverse(vfqn => verifyImplementation(vfqn, abilityFQN, key.typeArguments))
+      matching    <- candidates.flatTraverse(vfqn =>
+                        verifyImplementation(vfqn, abilityFQN, key.typeArguments, key.platform)
+                      )
       deduplicated = matching.distinctBy(_._1.show)
       _           <- deduplicated match {
                        case Seq((implFQN, implTypeArgs)) =>
-                         registerFactIfClear(AbilityImplementation(abilityValueFQN, key.typeArguments, implFQN, implTypeArgs))
+                         registerFactIfClear(
+                           AbilityImplementation(abilityValueFQN, key.typeArguments, implFQN, implTypeArgs, key.platform)
+                         )
                        case Seq()                        =>
                          handleMissingImplementation(abilityValueFQN, abilityFQN, key)
                        case multiple                     =>
                          for {
-                           resolved <- getFactOrAbort(OperatorResolvedValue.Key(abilityValueFQN))
+                           resolved <- getFactOrAbort(OperatorResolvedValue.Key(abilityValueFQN, key.platform))
                            _        <-
                              compilerError(
                                resolved.name.as(
@@ -57,7 +62,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       key: AbilityImplementation.Key
   ): CompilerIO[Unit] =
     for {
-      resolved <- getFactOrAbort(OperatorResolvedValue.Key(abilityValueFQN))
+      resolved <- getFactOrAbort(OperatorResolvedValue.Key(abilityValueFQN, key.platform))
       _        <- resolved.runtime match {
                     case Some(_) =>
                       handleDefaultImplementation(resolved, abilityFQN, key)
@@ -80,8 +85,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
     val abilityValueFQN  = key.abilityValueFQN
     val candidateModules = Set(abilityValueFQN.moduleName) ++ key.typeArguments.flatMap(collectModuleNames)
     for {
-      allImpls <- candidateModules.toSeq.flatTraverse(findAnyImplementationInModule(_, abilityFQN.abilityName))
-      verified <- allImpls.flatTraverse(verifyImplementation(_, abilityFQN, key.typeArguments))
+      allImpls <- candidateModules.toSeq.flatTraverse(findAnyImplementationInModule(_, abilityFQN.abilityName, key.platform))
+      verified <- allImpls.flatTraverse(verifyImplementation(_, abilityFQN, key.typeArguments, key.platform))
       sibling  <- verified.headOption match {
                     case Some((fqn, _)) => fqn.pure[CompilerIO]
                     case None           =>
@@ -89,16 +94,23 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                         abort[ValueFQN]
                   }
       _        <- registerFactIfClear(
-                    AbilityImplementation(key.abilityValueFQN, key.typeArguments, abilityValueFQN, key.typeArguments)
+                    AbilityImplementation(
+                      key.abilityValueFQN,
+                      key.typeArguments,
+                      abilityValueFQN,
+                      key.typeArguments,
+                      key.platform
+                    )
                   )
     } yield ()
   }
 
   private def findAnyImplementationInModule(
       moduleName: ModuleName,
-      abilityLocalName: String
+      abilityLocalName: String,
+      platform: Platform
   ): CompilerIO[Seq[ValueFQN]] =
-    getFactOrAbort(UnifiedModuleNames.Key(moduleName)).map { names =>
+    getFactOrAbort(UnifiedModuleNames.Key(moduleName, platform)).map { names =>
       names.names.keys.toSeq.collect {
         case qn @ QualifiedName(_, Qualifier.AbilityImplementation(abilityNameSrc, _))
             if abilityNameSrc.value == abilityLocalName =>
@@ -109,9 +121,10 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
   private def findImplementationsInModule(
       moduleName: ModuleName,
       functionName: String,
-      abilityLocalName: String
+      abilityLocalName: String,
+      platform: Platform
   ): CompilerIO[Seq[ValueFQN]] =
-    getFact(UnifiedModuleNames.Key(moduleName)).map {
+    getFact(UnifiedModuleNames.Key(moduleName, platform)).map {
       case None        => Seq.empty
       case Some(names) =>
         names.names.keys.toSeq.collect {
@@ -124,9 +137,10 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
   private def verifyImplementation(
       vfqn: ValueFQN,
       expectedAbilityFQN: AbilityFQN,
-      expectedTypeArgs: Seq[GroundValue]
+      expectedTypeArgs: Seq[GroundValue],
+      platform: Platform
   ): CompilerIO[Seq[(ValueFQN, Seq[GroundValue])]] =
-    getFact(OperatorResolvedValue.Key(vfqn)).flatMap {
+    getFact(OperatorResolvedValue.Key(vfqn, platform)).flatMap {
       case None           => Seq.empty.pure[CompilerIO]
       case Some(resolved) =>
         resolved.name.value.qualifier match {
@@ -134,7 +148,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
               if resolvedAbilityFQN == expectedAbilityFQN =>
             for {
               markerVfqn <- markerVfqnFor(vfqn, expectedAbilityFQN.abilityName).pure[CompilerIO]
-              marker     <- getFactOrAbort(OperatorResolvedValue.Key(markerVfqn))
+              marker     <- getFactOrAbort(OperatorResolvedValue.Key(markerVfqn, platform))
               markerSig   = marker.typeStack.as(marker.typeStack.value.signature)
               result     <- AbilityMatcher.matchImpl(markerSig, expectedTypeArgs)
             } yield result match {
