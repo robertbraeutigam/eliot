@@ -43,4 +43,65 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
         |def main: IO[Unit] = println(unavailable)""".stripMargin
     ).asserting(_ should include("not available"))
   }
+
+  // --- G2: the infix guard surface + the compile-time `>` comparison ---
+  //
+  // G2 lets the same guard read with the designed infix syntax — `A when (cond) orError "…"` — instead of the
+  // application form above. The return-type parser admits a flat infix expression and the operator phase lowers it to
+  // `orError(when(A, cond), "…")`, so it discharges identically. The `>` operand exercises the compile-time integer
+  // comparison (`eliot.lang.BigInteger.>`, reduced through the existing `inc`/`lessThanOrEqual` natives). See
+  // `docs/effectful-signatures.md` (G2).
+
+  "a satisfied infix `when … orError` guard" should "type as its payload and run as the bare type" in {
+    compileAndRun(
+      """import eliot.lang.Guard
+        |import eliot.lang.Bool
+        |
+        |def greeting[COND: Bool]: String[] when (COND) orError "greeting unavailable" = "hello"
+        |
+        |def main: IO[Unit] = println(greeting[true])""".stripMargin
+    ).asserting(_ shouldBe "hello")
+  }
+
+  "an unsatisfied infix `when … orError` guard" should "fail the build with the author message" in {
+    compileForErrors(
+      """import eliot.lang.Guard
+        |import eliot.lang.Bool
+        |
+        |def greeting[COND: Bool]: String[] when (COND) orError "greeting unavailable" = "hello"
+        |
+        |def main: IO[Unit] = println(greeting[false])""".stripMargin
+    ).asserting(_ should include("greeting unavailable"))
+  }
+
+  // `BigInteger` (and hence its `>` operator) is ambiently imported into every module, so no explicit import is needed.
+  "a satisfied `MIN > 0` infix guard" should "type as its payload and run as the bare type" in {
+    compileAndRun(
+      """import eliot.lang.Guard
+        |
+        |def positive[MIN: BigInteger]: String[] when (MIN > 0) orError "must be positive" = "ok"
+        |
+        |def main: IO[Unit] = println(positive[5])""".stripMargin
+    ).asserting(_ shouldBe "ok")
+  }
+
+  "an unsatisfied `MIN > 0` infix guard" should "fail the build with the author message" in {
+    compileForErrors(
+      """import eliot.lang.Guard
+        |
+        |def positive[MIN: BigInteger]: String[] when (MIN > 0) orError "must be positive" = "ok"
+        |
+        |def main: IO[Unit] = println(positive[0])""".stripMargin
+    ).asserting(_ should include("must be positive"))
+  }
+
+  "a satisfied `N < 10` infix guard" should "type as its payload and run as the bare type" in {
+    compileAndRun(
+      """import eliot.lang.Guard
+        |
+        |def small[N: BigInteger]: String[] when (N < 10) orError "too big" = "ok"
+        |
+        |def main: IO[Unit] = println(small[3])""".stripMargin
+    ).asserting(_ shouldBe "ok")
+  }
 }

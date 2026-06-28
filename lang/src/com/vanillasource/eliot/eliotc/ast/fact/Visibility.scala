@@ -15,6 +15,6 @@ object Visibility {
 
   given ASTComponent[Visibility] = new ASTComponent[Visibility] {
     override val parser: Parser[Sourced[Token], Visibility] =
-      identifierWith("private").as(Visibility.Private: Visibility)
+      keyword("private").as(Visibility.Private: Visibility)
   }
 }

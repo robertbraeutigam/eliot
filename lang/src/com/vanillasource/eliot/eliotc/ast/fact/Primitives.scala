@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.ast.fact
 import cats.data.StateT
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ast.parser.{InputStream, Parser, ParserResult}
-import com.vanillasource.eliot.eliotc.pos.PositionRange
+import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import com.vanillasource.eliot.eliotc.token.Token.{Identifier, Keyword, Symbol}
@@ -16,6 +16,14 @@ object Primitives {
     */
   val peekTokenLine: Parser[Sourced[Token], Option[Int]] =
     StateT.inspect[ParserResult, InputStream[Sourced[Token]], Option[Int]](_.headOption.map(_.range.from.line))
+
+  /** Peek the start [[Position]] of the next token without consuming any input, or `None` at end of input. Used to
+    * detect token *adjacency* (no intervening whitespace): the next token is adjacent to a preceding token iff its start
+    * equals that token's end. This is what lets the return-type parser tell a value application `f(x)` apart from an
+    * infix operator followed by a parenthesized operand `f (x)` (effectful-signatures G2 — see [[Expression]]).
+    */
+  val peekTokenStart: Parser[Sourced[Token], Option[Position]] =
+    StateT.inspect[ParserResult, InputStream[Sourced[Token]], Option[Position]](_.headOption.map(_.range.from))
 
   /** Parse the maximal run of `atom`s that stay on one source line: the first atom is always parsed, then each
     * subsequent atom is parsed only while it starts on the same line the previous atom ended (so a multi-line atom like

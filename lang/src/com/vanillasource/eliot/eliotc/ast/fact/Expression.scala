@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.ast.parser.Parser.*
+import com.vanillasource.eliot.eliotc.pos.Position
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 
@@ -206,6 +207,58 @@ object Expression {
     * Complex type expressions (lambdas, operators, match) must be parenthesized.
     */
   lazy val typeParser: Parser[Sourced[Token], Expression] = effectfulTypeParser or typeAtom
+
+  /** Like [[namedRefOrCallParser]], but attaches a value-argument list `(…)` only when the `(` is *adjacent* to the
+    * preceding token (no intervening whitespace). This is what lets the return-type parser ([[returnTypeParser]]) tell a
+    * value application `f(x)` / `orError(…)` apart from an infix operator followed by a parenthesized operand: in
+    * `A when (MIN > 0) orError "…"` the space after `when` keeps `(MIN > 0)` a separate atom, so the operator phase reads
+    * it as the operand of the infix `when` rather than as the call `when(MIN > 0)`. Type arguments `[…]` are unaffected
+    * (always attached). Inside the `(…)`/`[…]` the ordinary [[fullParser]] runs, so nested calls keep their usual form.
+    */
+  private lazy val adjacentCallParser: Parser[Sourced[Token], Expression] = for {
+    prefix <- sourced(for {
+                module   <- (moduleParser <* symbol("::")).atomic().optional()
+                name     <- acceptIf(isIdentifierOrSymbol, "name")
+                typeArgs <- presenceTrackingBracketedCommaSeparatedItems("[", sourced(fullParser), "]")
+              } yield (module, name.map(_.content), typeArgs))
+    args   <- valueArgsIfAdjacentTo(prefix.range.to)
+  } yield {
+    val (module, name, typeArgs) = prefix.value
+    FunctionApplication(module, name, typeArgs, args.getOrElse(Seq.empty))
+  }
+
+  private def valueArgsIfAdjacentTo(prevEnd: Position): Parser[Sourced[Token], Option[Seq[Sourced[Expression]]]] =
+    peekTokenStart.flatMap {
+      case Some(from) if from === prevEnd => bracketedCommaSeparatedItems("(", sourced(fullParser), ")").optional()
+      case _                              => Option.empty[Seq[Sourced[Expression]]].pure
+    }
+
+  /** Type atoms for the return-type position: like [[typeAtom]] but using the adjacency-sensitive [[adjacentCallParser]]
+    * so an infix operator is not glued to a following parenthesized operand. */
+  private lazy val returnTypeAtom: Parser[Sourced[Token], Expression] =
+    parenthesizedExprParser.atomic() or
+      adjacentCallParser or
+      integerLiteralParser or
+      stringLiteralParser
+
+  /** Expression parser for the **function return-type position** (effectful-signatures G2). Unlike [[typeParser]] (a
+    * single type atom), this admits a greedy **flat run of type atoms**, so a guard written with the combinator
+    * vocabulary reads naturally — `A when (MIN > 0) orError "…"` parses as a [[FlatExpression]] that `resolve`/`operator`
+    * lower to `orError(when(A, MIN > 0), "…")`, exactly as a body would. A single atom is returned verbatim, so a plain
+    * `Int[0, 255]` / `IO[Unit]` return is unchanged.
+    *
+    * The greedy run stops cleanly at the body's `=`, a closing delimiter (`)`/`]`/`}`/`,`/`:`), or the next definition,
+    * because every definition-introducing token (`def`/`type`/`implement`/…/`private`/`opaque`) is a hard keyword and
+    * those delimiters are reserved symbols — none is a type-atom start (see [[Primitives.isUserOperator]] and
+    * [[FunctionDefinition]]'s keyword note). The leading effect-set sugar `{…} A` is still supported. Lambdas, `match`,
+    * and `{…}` blocks are deliberately excluded: they are not part of the guard surface and a `{` would be ambiguous
+    * with the effect set.
+    */
+  lazy val returnTypeParser: Parser[Sourced[Token], Expression] =
+    effectfulTypeParser or sourced(returnTypeAtom).atLeastOnce().map {
+      case Seq(single) => single.value
+      case parts       => FlatExpression(parts)
+    }
 
   given ASTComponent[Expression] = new ASTComponent[Expression] {
     override def parser: Parser[Sourced[Token], Expression] = fullParser

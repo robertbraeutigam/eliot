@@ -1,6 +1,6 @@
 # Effectful Signatures: Compile-Time `Throw` for Guarded & Calculated Return Types
 
-Status: **Foundation + discharge + guard combinators (G1) landed; surface syntax (G2) + raw-`if/else` lift (G3) remain.** W1 — the compile-time error carrier — is
+Status: **Foundation + discharge + guard combinators (G1) + the infix guard surface (G2) landed; only the raw-`if/else` lift (G3) remains.** W1 — the compile-time error carrier — is
 **done**: it shipped as the compiler-platform `Either` layer when the compiler became a first-class platform (CP1–CP4;
 see the "compiler is itself a platform" section of `.claude/CLAUDE.md` and `compiler/README.md`). **W2a is also done**:
 the carrier's `Monad`/`Throw` instances are **compiler-pool-only**, and ability-instance resolution is platform-aware —
@@ -13,7 +13,8 @@ abstract bounds is deferred to the body. This works with guards written explicit
 `fold(cond, Right(t), Left("msg"))`); what remains is the **surface vocabulary and syntax**, refolded (see "The
 remaining work, folded") into **G1** — guard combinators (`error`/`when`/`orError`) on the carrier, usable in
 application form with no auto-lift (**done**: `stdlib`/`compiler` `Guard.els` + a compiler-layer `Option` carrier); **G2**
-— the parser/desugar unrestriction so guards read as `A when (MIN > 0) orError "…"`; and **G3** — the deferred opt-in
+— the parser unrestriction so guards read infix as `A when (MIN > 0) orError "…"` (**done**: an adjacency-sensitive
+return-type parser + `infix` `when`/`orError` + the compile-time `>`/`<` comparisons); and **G3** — the deferred opt-in
 return auto-lift for raw `if/else` direct style. The
 motivating consumer is length-indexed `Seq`/`Stack` (`Seq[A, MIN, MAX]`), where operations
 like `head`/`pop`/`get` are only valid on sufficiently-large collections and must reject the empty case *with a readable
@@ -76,8 +77,8 @@ linked build.
 | phase | applies to the signature today? | this plan |
 |---|---|---|
 | `resolve` (value resolver) | yes | — |
-| `operator` | yes — this is why `Int[a + b]` already works | — |
-| `matchdesugar`, block | body only | **extend to the signature position** (G2 — only for raw `if`/`else`/`match`/blocks; combinator guards need no new desugaring) |
+| `operator` | yes — this is why `Int[a + b]` already works, and now (G2 ✓) why the infix guard `A when (MIN > 0) orError "…"` lowers | — |
+| `matchdesugar`, block | body only | combinator guards need no new desugaring (G2 ✓ — the parser emits a `FlatExpression`/application the existing `operator` phase resolves); only raw `match`/blocks in the signature would need this extension, and they are not on the guard path (deferred with G3) |
 | `ability` | resolved during monomorphize / discharge | the compile-time `Monad`/`Throw` instances exist (W1 ✓); ability resolution now sees the **compiler** pool via the `platform`-marked `AbilityImplementation.Key` (W2a ✓) |
 | `termination` | runtime-body graph only | must also cover the (recursion-free) type program |
 | `effect` | body only (`EffectDesugaredValue` copies `runtime`) | **opt-in** lift of the signature position onto the fixed carrier (G3, deferred — only raw `if`/`else`; a pure return and a combinator guard are left untouched) |
@@ -315,16 +316,42 @@ unsatisfied guard and a bare `error(msg)` fail the build with the author message
 compile-time carrier is fixed, so its `pure`/`raise` are the known `Right`/`Left` — no generic `F` to pin. A generic
 `{Throw[E]}` form (which *would* need carrier pinning at the return slot) is a later generalization, not on this path.
 
-### G2 — Parser + desugar in the return position (the syntax)
+### G2 — Parser in the return position (the infix surface) — **done**
 
 `fold(cond, Right(t), Left(m))` and `orError(when(t, c), m)` already *parse* (application + string literals — the W2b
-tests prove it). What does **not** parse in the return position is **infix operators** (`MIN > 0`, and `when`/`orError`
-used infix) and **`if`/`else`** — `Expression.typeParser` is the restricted `effectfulTypeParser or typeAtom`. G2 lifts
-that toward a full expression so `A when (MIN > 0) orError "…"` reads, and extends `matchdesugar`/block to the
-return-type sub-expression so `if`/`else`/`match`/blocks there lower to core exactly as in a body (`resolve`/`operator`
-already recurse into it). The motivating `MIN > 0` also needs a compile-time integer-comparison leaf (a `<`/`>` native,
-the analogue of the existing `add` leaf). Expect the `[]`-vs-`()` and operators-in-type-arguments ambiguity (the reason
-the parser is restricted) to be the work here.
+tests prove it). What did **not** parse in the return position was **infix operators** (`MIN > 0`, and `when`/`orError`
+used infix), because `Expression.typeParser` was the restricted `effectfulTypeParser or typeAtom` (a single atom). G2
+adds `Expression.returnTypeParser` — used at the `FunctionDefinition` return slot only — which admits a **greedy flat run
+of type atoms**, so a guard reads infix as `A when (MIN > 0) orError "…"` and `resolve`/`operator` lower it to
+`orError(when(A, MIN > 0), "…")` exactly as a body would (a single-atom return is returned verbatim, so plain returns are
+unchanged). The pieces that landed:
+
+- **The `()`-vs-infix ambiguity, resolved by adjacency.** `when (MIN > 0)` must read as the operator `when` applied (by
+  the operator phase) to the operand `(MIN > 0)`, *not* the call `when(MIN > 0)`. The return-type atom (`adjacentCallParser`)
+  attaches a value-argument list `(…)` **only when the `(` is adjacent to the name** (no intervening whitespace, detected
+  via `Primitives.peekTokenStart`). So `orError(…)` / `error("…")` (adjacent) stay calls, while `when (MIN > 0)` (space)
+  splits into operator + operand. This is *local to the return-type parser*; bodies and other type positions are
+  untouched. (The latent dual — a body's `a + (b)` mis-parsing `+(b)` as a call — is left as-is; only the new return-type
+  parser is adjacency-sensitive.)
+- **The greedy run stops cleanly** at the body's `=`, a closing delimiter (`)`/`]`/`}`/`,`/`:`), or the next definition.
+  This required making `private`/`opaque` **hard keywords** (they begin a modified definition, exactly like the already-hard
+  `infix`/`prefix`/`postfix`): otherwise the greedy run would swallow a following body-less def's `private`/`opaque`
+  modifier as another atom. This also fixes a *pre-existing latent bug* — a function **body** equally swallowed a following
+  `private`/`opaque` (now both stop correctly).
+- **`when`/`orError` are `infix`** (same precedence, left-associative — `orError at when`), in both `stdlib/Guard.els`
+  (the signature the runtime-pool checker reads) and `compiler/Guard.els` (the reducing bodies). The application form
+  remains valid (a parenthesized call is fixity-agnostic).
+- **The `MIN > 0` comparison** is `infix def >` / `def <` in `stdlib/BigInteger.els`, written as ordinary value-level
+  bodies (`a > b = lessThanOrEqual(inc(b), a)`, like the neighbouring `fitsIn`) that reduce through the **existing**
+  `inc`/`lessThanOrEqual` compile-time natives — so **no new Scala leaf** was needed (minimise Scala, decompose in Eliot).
+  They stay stuck on abstract bounds (so a guard defers) and reduce when concrete. `BigInteger` is ambient, so `>`/`<`
+  need no import.
+
+Deliberately **out of scope** (not needed for the guard surface, which the combinators fully cover): raw `match`/blocks
+in the return position (they would need `matchdesugar`/block to descend into the signature) and raw `if/else` direct
+style (G3 — and `if`/`else` is itself just ordinary combinators, not syntax). Verified end-to-end by
+`jvm/.../GuardSignatureIntegrationTest` (satisfied/unsatisfied infix `when … orError`, and a satisfied/unsatisfied
+`MIN > 0` guard) and at the parser by `ast/.../ASTParserTest` (flat-expression shape, adjacency, the `private`-boundary).
 
 ### G3 — The opt-in return auto-lift (raw `if/else` direct style) — deferred
 
@@ -345,14 +372,17 @@ fixed by the return-slot expectation). Two blockers make this last, not first:
 
 ## Sequencing (combinators first, the lift last)
 
-W1 (the compile-time carrier), W2a (the ability-resolution platform bridge), W2b (the discharge), and **G1** (the
-combinator vocabulary) are **done**.
+W1 (the compile-time carrier), W2a (the ability-resolution platform bridge), W2b (the discharge), **G1** (the
+combinator vocabulary), and **G2** (the infix surface) are **done**.
 
 1. **G1 — combinator vocabulary** (`error`, `when`, `orError`) on the compiler/runtime `Either`/`Option` carriers, with
    a compiler-layer `Option`. **Done** — usable in **application form** (`def head[C: Bool]: orError(when(t, C), "…") =
    …`) with no parser change, verified end-to-end (`GuardSignatureIntegrationTest`).
-2. **G2 — parser + desugar** in the return position (infix, `if`/`else`, `match`, blocks) + the compile-time
-   `<`/`>` comparison leaf, so the guard surface reads as designed (`A when (MIN > 0) orError "…"`).
+2. **G2 — parser in the return position** (infix combinators + the compile-time `<`/`>` comparison). **Done** — the
+   guard surface reads as designed (`A when (MIN > 0) orError "…"`) via an adjacency-sensitive `returnTypeParser`,
+   `infix` `when`/`orError`, hard-keyword `private`/`opaque` (bounding the greedy run, also fixing a latent body bug),
+   and pure-Eliot `>`/`<` on `BigInteger` (reusing `inc`/`lessThanOrEqual`, no new leaf). Raw `match`/blocks in the
+   return position are deferred (not on the guard path); `if`/`else` is just combinators, not syntax.
 3. **G3 — the opt-in return auto-lift + branch-lift**, last, fixing the runtime body lift and the type-level return
    together so raw `if (MIN > 0) A else error("…")` works without combinators.
 
@@ -389,9 +419,15 @@ combinator vocabulary) are **done**.
   `compiler/.../Option.els` (**done**, CP4-style mirror of `jvm/.../Option.els`) gives the compile-time `Option` so
   `when`/`orError` reduce while checking. Tests: `jvm/.../GuardSignatureIntegrationTest` (end-to-end) +
   `MonomorphicTypeCheckTest` "G1 combinators" (leaf). A concrete `jvm` body for runtime dual-use is a trivial follow-on.
-- `ast` parser (`Expression.typeParser`) + `matchdesugar`/block processors + a compile-time `<`/`>` comparison leaf in
-  `SystemNativesProcessor` (alongside `add`) — **G2** (infix / `if`/`else` / `match` / blocks in the return position, and
-  the desugar phases extended to the signature sub-expression).
+- `ast/fact/Expression.scala` (`returnTypeParser` + the adjacency-sensitive `adjacentCallParser`, used at
+  `FunctionDefinition`'s return slot), `ast/fact/Primitives.scala` (`peekTokenStart`), `token/TokenParser.scala` +
+  `ast/fact/{Visibility,FunctionDefinition,TypeAliasDefinition}.scala` (`private`/`opaque` made hard keywords),
+  `stdlib/.../Guard.els` + `compiler/.../Guard.els` (`infix` `when`/`orError`, `orError at when`), and
+  `stdlib/.../BigInteger.els` (`infix def >`/`<` as pure bodies over the existing `inc`/`lessThanOrEqual` natives — no new
+  Scala leaf) — **G2 (done)**: the infix guard surface `A when (MIN > 0) orError "…"`. Tests:
+  `jvm/.../GuardSignatureIntegrationTest` (end-to-end, infix `when … orError` + `MIN > 0`) and `ast/.../ASTParserTest`
+  (flat-expression shape, `()`-adjacency, the `private`-boundary). Raw `match`/blocks in the return position (would need
+  `matchdesugar`/block to descend into the signature) are deferred with G3 — not on the guard path.
 - `effect/processor/EffectDesugaringProcessor.scala` + `DirectStyleDesugarer.scala` (the branch-lift) — **G3**, deferred:
   the opt-in return auto-lift for raw `if/else`, plus fixing the `fold`-branch sequencing so an effectful branch lifts
   (selection) rather than binds (sequence) — for the runtime body and the type-level return together. Ripples to

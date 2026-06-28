@@ -16,6 +16,22 @@ def inc(bi: BigInteger): BigInteger
 def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool
 
 /**
+ * True iff `a` is strictly greater than `b`. An ordinary value-level predicate (not a native, like `fitsIn` below):
+ * for integers `a > b` iff `b + 1 <= a`, so it reduces through the existing `inc`/`lessThanOrEqual` compile-time
+ * natives — no new leaf. This is the comparison the guard surface reads in a return-type position, e.g.
+ * `def head[A, MIN, MAX](xs: Seq[A, MIN, MAX]): A when (MIN > 0) orError "non-empty Seq required"`; like its natives it
+ * reduces when both bounds are concrete and otherwise stays stuck (so a guard on abstract bounds defers). Infix so the
+ * guard reads naturally; `inc(b)` keeps it correct for the full `BigInteger` range (no off-by-one at the edges).
+ */
+infix def >(a: BigInteger, b: BigInteger): Bool = lessThanOrEqual(inc(b), a)
+
+/**
+ * True iff `a` is strictly less than `b` — the mirror of `>` (`a < b` iff `a + 1 <= b`), reusing the same
+ * `inc`/`lessThanOrEqual` natives. Infix, for guard conditions like `(MIN < MAX)`.
+ */
+infix def <(a: BigInteger, b: BigInteger): Bool = lessThanOrEqual(inc(a), b)
+
+/**
  * The smaller of `a` and `b`. Compile-time native (reduces when both arguments are concrete, otherwise stays stuck).
  * Used by the `Combine[Int, Int]` instance to compute a joined bound range during checking.
  */

@@ -68,10 +68,11 @@ object FunctionDefinition {
         .optional()
         .map(_.getOrElse(Fixity.Associativity.Left))
 
-    // `infix`/`prefix`/`postfix` are hard keywords (not identifiers): besides marking fixity they are the only tokens
-    // that begin a fixity-annotated definition, so making them keywords lets a preceding function *body* (parsed with
-    // the greedy full-expression parser) stop cleanly at the next definition rather than swallowing its annotation as
-    // an application chain.
+    // `infix`/`prefix`/`postfix` (and likewise `private`/`opaque`, see `functionPrefix`) are hard keywords (not
+    // identifiers): besides marking fixity/visibility they are the only tokens that begin a (modified) definition, so
+    // making them keywords lets a preceding greedily-parsed expression — a function *body*, or now a guarded *return
+    // type* (effectful-signatures G2) — stop cleanly at the next definition rather than swallowing its modifier as an
+    // application chain.
     private val fixityDecl: Parser[Sourced[Token], Fixity] =
       keyword("prefix").as(Fixity.Prefix: Fixity) or
         (keyword("infix") *> infixAssociativity).map(a => Fixity.Infix(a): Fixity) or
@@ -92,7 +93,7 @@ object FunctionDefinition {
 
     private val functionPrefix: Parser[Sourced[Token], (Boolean, Visibility, Fixity, Seq[PrecedenceDeclaration])] =
       (for {
-        isOpaque       <- identifierWith("opaque").as(true).optional().map(_.getOrElse(false))
+        isOpaque       <- keyword("opaque").as(true).optional().map(_.getOrElse(false))
         vis            <- component[Visibility].optional().map(_.getOrElse(Visibility.Public))
         (fixity, prec) <- fixityWithDef or plainDef
       } yield (isOpaque, vis, fixity, prec)).atomic()
@@ -103,7 +104,7 @@ object FunctionDefinition {
       genericParameters             <- component[Seq[GenericParameter]]
       args                          <- optionalArgumentListOf(component[ArgumentDefinition])
       _                             <- symbol(":")
-      typeExpression                <- sourced(Expression.typeParser)
+      typeExpression                <- sourced(Expression.returnTypeParser)
       functionBody                  <- functionBody
     } yield FunctionDefinition(
       name.map(m => QualifiedName(m.content, Qualifier.Default)),

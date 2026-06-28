@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.token.Token
 object TypeAliasDefinition {
   val typeAliasDefinition: ASTComponent[FunctionDefinition] = new ASTComponent[FunctionDefinition] {
     override val parser: Parser[Sourced[Token], FunctionDefinition] = for {
-      isOpaque          <- identifierWith("opaque").as(true).optional().map(_.getOrElse(false))
+      isOpaque          <- keyword("opaque").as(true).optional().map(_.getOrElse(false))
       vis               <- component[Visibility].optional().map(_.getOrElse(Visibility.Public))
       _                 <- keyword("type")
       name              <- acceptIfAll(isIdentifier, isUpperCase)("type name")

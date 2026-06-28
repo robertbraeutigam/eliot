@@ -2,7 +2,7 @@ package com.vanillasource.eliot.eliotc.ast.processor
 
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
-import com.vanillasource.eliot.eliotc.ast.fact.{AST, Expression, Fixity, SourceAST}
+import com.vanillasource.eliot.eliotc.ast.fact.{AST, Expression, Fixity, SourceAST, Visibility}
 import com.vanillasource.eliot.eliotc.module.fact.Qualifier
 import com.vanillasource.eliot.eliotc.ast.processor.ASTParser
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
@@ -636,6 +636,40 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForFunctionArgInferable("type IO[A]").asserting(_ shouldBe Seq(("IO", Seq(false))))
   }
 
+  // --- effectful-signatures G2: the infix guard surface in the return-type position ---
+
+  "the return-type position" should "parse an infix guard as a flat expression (operator phase lowers it)" in {
+    runEngineForFunctionReturnTypes("def head[COND: Bool]: A when (COND) orError \"empty\" = bar").asserting(
+      _.collect { case ("head", Expression.FlatExpression(parts)) => parts.size } shouldBe Seq(5)
+    )
+  }
+
+  it should "keep `(MIN > 0)` a separate operand rather than gluing it onto the infix `when`" in {
+    // The space before `(` makes the parser treat `(MIN > 0)` as `when`'s operand, not the call `when(MIN > 0)`.
+    runEngineForFunctionReturnTypes("def head[MIN: BigInteger]: A when (MIN > 0) orError \"empty\" = bar").asserting(
+      _.collect { case ("head", Expression.FlatExpression(parts)) => parts.size } shouldBe Seq(5)
+    )
+  }
+
+  it should "still attach an adjacent value-argument list (the application form stays a single call)" in {
+    runEngineForFunctionReturnTypes("def head[COND: Bool]: orError(when(A, COND), \"empty\") = bar").asserting(
+      _.collect { case ("head", app: Expression.FunctionApplication) => app.functionName.value } shouldBe Seq("orError")
+    )
+  }
+
+  it should "leave a plain single-atom return type unchanged" in {
+    runEngineForFunctionReturnTypes("data A[B, C]\ndef f[B, C]: A[B, C]").asserting(
+      _.collect { case ("f", app: Expression.FunctionApplication) => app.functionName.value } shouldBe Seq("A")
+    )
+  }
+
+  it should "stop the greedy run before a following `private def`, keeping that def's visibility" in {
+    // The greedy return-type run must not swallow the next definition's `private` modifier (now a hard keyword).
+    runEngineForFunctionVisibilities("def first: A when (COND) orError \"x\"\nprivate def second: B").asserting(
+      _ shouldBe Seq(("first", Visibility.Public), ("second", Visibility.Private))
+    )
+  }
+
   private def runEngine(source: String): IO[Map[CompilerFactKey[?], CompilerFact]] =
     runGenerator(source, SourceAST.Key(file)).map(_._2)
 
@@ -733,6 +767,30 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results.values
         .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
           functions.map(f => (f.name.value.name, f.args.map(_.inferable)))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctionReturnTypes(source: String): IO[Seq[(String, Expression)]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.typeDefinition.value))
+        }
+        .toSeq
+        .flatten
+    }
+
+  private def runEngineForFunctionVisibilities(source: String): IO[Seq[(String, Visibility)]] =
+    for {
+      results <- runEngine(source)
+    } yield {
+      results.values
+        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _))) =>
+          functions.map(f => (f.name.value.name, f.visibility))
         }
         .toSeq
         .flatten

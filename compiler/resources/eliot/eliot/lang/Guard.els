@@ -6,8 +6,10 @@ import eliot.lang.Bool
  * The compile-time bodies of the guard combinators the base layer declares abstractly (`eliot.lang.Guard`). They bottom
  * out in only the carrier primitives — the `Bool` `fold` leaf, the compile-time `Either` (`Left`/`Right`) and `Option`
  * (`Some`/`None`/`foldOption`) carriers — so they reduce while the NbE checker evaluates a signature, with no auto-lift
- * and no carrier pinning: a guard `orError(when(t, cond), msg)` is an ordinary application the evaluator reduces to
- * `Right(t)` / `Left(msg)`, which the effectful-signatures discharge reads. See `docs/effectful-signatures.md` (G1).
+ * and no carrier pinning: a guard `a when cond orError msg` (or the application form `orError(when(a, cond), msg)`) is
+ * an ordinary application the evaluator reduces to `Right(t)` / `Left(msg)`, which the effectful-signatures discharge
+ * reads. The `infix`/precedence here mirrors the abstract base (`eliot.lang.Guard`). See
+ * `docs/effectful-signatures.md` (G1/G2).
  *
  * The carrier is fixed (`Either[String, _]`), so its `pure`/`raise` are the known `Right`/`Left` — written directly, not
  * through a `{Throw[String]}` row that would need a carrier inferred.
@@ -15,6 +17,7 @@ import eliot.lang.Bool
 
 def error[A](msg: String): Either[String, A] = Left(msg)
 
-def when[A](a: A, cond: Bool): Option[A] = fold(cond, Some(a), None)
+infix def when[A](a: A, cond: Bool): Option[A] = fold(cond, Some(a), None)
 
+infix at when
 def orError[A](o: Option[A], msg: String): Either[String, A] = foldOption(o, Left(msg), v -> Right(v))
