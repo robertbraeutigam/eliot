@@ -249,9 +249,12 @@ resolves names in the `compiler` platform; codegen (`used → uncurry → backen
 So one abstract base name can have a **distinct concrete implementation per platform** — exactly as `add`/`fold`/`Bool`
 already do via the native-binding routing (`ContributedBinding` + `BindingMergerProcessor`: the compile-time reduction
 wins for checking, the runtime body is used for codegen). There is no "shared" platform: each unifies the base + the
-user program + its own layer independently. Status: designed in `docs/compiler-as-platform.md` (work items CP1–CP4),
-being implemented; **until that lands, compile-time intrinsics are still Scala natives** in `SystemNativesProcessor` /
-`StdlibNativesProcessor`, so verify the compiler-platform module exists before targeting it.
+user program + its own layer independently. Status (`docs/compiler-as-platform.md`): **CP1–CP3 implemented** — the
+`compiler` source pool, the always-linked `compiler` Mill module, and the native label that reads it
+(`CompilerNativesProcessor`, contributing the `compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`)
+all exist. **CP4 — the module's first content — is pending, so the module is empty and compile-time intrinsics are still
+Scala natives** in `SystemNativesProcessor` / `StdlibNativesProcessor`; with no compiler-platform definitions the
+`compiler` label contributes `None` everywhere, so resolution is unchanged until CP4 fills the module.
 
 **Where to put new compiler code.** When a task needs something the compiler must *evaluate at compile time* — a
 carrier (e.g. the effectful-signatures `Either`), a compile-time intrinsic, or an ability instance used only during

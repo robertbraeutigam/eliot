@@ -20,6 +20,7 @@ import com.vanillasource.eliot.eliotc.module.processor.{
 import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
 import com.vanillasource.eliot.eliotc.monomorphize.processor.{
   BindingMergerProcessor,
+  CompilerNativesProcessor,
   DataTypeNativesProcessor,
   MatchNativesProcessor,
   MonomorphicTypeCheckProcessor,
@@ -88,6 +89,7 @@ object LangProcessors {
     SystemNativesProcessor(),
     DataTypeNativesProcessor(),
     MatchNativesProcessor(),
+    CompilerNativesProcessor(),
     UserValueNativesProcessor(),
     BindingMergerProcessor(
       ContributedBinding.langNativeLabels ++ extraNativeBindingLabels,

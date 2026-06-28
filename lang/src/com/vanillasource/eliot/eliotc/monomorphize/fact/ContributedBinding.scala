@@ -47,6 +47,15 @@ object ContributedBinding {
   /** The `match`/`typeMatch` dispatch natives. */
   val matchLabel: String = "match"
 
+  /** The compiler platform's Eliot-bodied reductions: the compile-time implementation a name has in the **compiler**
+    * source pool (the `compiler` marker — base + the compiler-platform layer), read by
+    * [[com.vanillasource.eliot.eliotc.monomorphize.processor.CompilerNativesProcessor]]. It is the compiler platform's
+    * analogue of [[userLabel]] — the same value-body supplier — but reading the compiler pool and ranked as a *native*,
+    * so its reduction wins for checking while the runtime layer's body is still used for codegen (the `add` pattern,
+    * one name with two platform implementations). A name with no compiler-platform body contributes `None`.
+    */
+  val compilerLabel: String = "compiler"
+
   /** The single user supplier: a value's own (checking) body. The layer stack is merged to one implementation per name
     * upstream (`UnifiedModuleValueProcessor`), so one user contributor reading the unified body suffices.
     */
@@ -54,9 +63,11 @@ object ContributedBinding {
 
   /** The native-category labels intrinsic to the language layer — always present in `LangProcessors`. Platform layers
     * (e.g. stdlib's compile-time arithmetic natives) register *additional* native labels through
-    * [[extraNativeLabelsKey]].
+    * [[extraNativeLabelsKey]]. [[compilerLabel]] is here too: the compiler platform is compiler-owned and always linked
+    * (its layer is on the compiler path of every type-checking entry point), so its contributor is always in the
+    * pipeline — when no compiler-platform layer is configured it simply contributes `None` everywhere.
     */
-  val langNativeLabels: Seq[String] = Seq(systemLabel, dataTypeLabel, matchLabel)
+  val langNativeLabels: Seq[String] = Seq(systemLabel, dataTypeLabel, matchLabel, compilerLabel)
 
   /** The user-category labels. */
   val userLabels: Seq[String] = Seq(userLabel)

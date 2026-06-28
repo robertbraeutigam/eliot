@@ -1,16 +1,18 @@
 # The Compiler as a Platform: Platform-Scoped Source Unification
 
-Status: **CP1, CP1.5, CP2 implemented; CP3–CP4 planned.** The `platform` marker (`compiler | runtime`) is threaded
+Status: **CP1, CP1.5, CP2, CP3 implemented; CP4 planned.** The `platform` marker (`compiler | runtime`) is threaded
 through the front-end fact chain from `PathScan` to `SaturatedValue`, `PathScanner` selects a per-marker root list, and
 the `--compiler-path` / `--runtime-path` CLI options exist (`platform.Platform`, `LangPlugin`). The marker defaults to
-`runtime` for every existing reader, so behaviour is unchanged; the compiler pool is only exercised by the leaf test
-(`module/processor/PlatformScopedUnificationTest`). The blanket classpath scan is **gone** (CP1.5): every layer — the
-abstract base and `jvm` — is an explicit filesystem path, exactly as the user's program is, supplied per entry point
-(the Mill `examples.run`, the LSP server's `eliot.layers` staging, the test harnesses, the IntelliJ "Run main" CLI). The
-compiler-platform module (CP2) now exists — a source-only Mill module `compiler` depending on `stdlib`, listed on the
-**compiler path** of every type-checking entry point unconditionally (it is just one more directory on that path, not a
-new mechanism). It is still empty: the native label that reads it (CP3) and its first content (CP4) are pending, so
-compile-time intrinsics remain Scala natives for now. Motivating first consumer: the compile-time `Either` carrier of
+`runtime` for every existing reader, so behaviour is unchanged. The blanket classpath scan is **gone** (CP1.5): every
+layer — the abstract base and `jvm` — is an explicit filesystem path, exactly as the user's program is, supplied per
+entry point (the Mill `examples.run`, the LSP server's `eliot.layers` staging, the test harnesses, the IntelliJ "Run
+main" CLI). The compiler-platform module (CP2) now exists — a source-only Mill module `compiler` depending on `stdlib`,
+listed on the **compiler path** of every type-checking entry point unconditionally (it is just one more directory on that
+path, not a new mechanism). The native label that reads it (CP3) is now wired: `CompilerNativesProcessor` contributes the
+`compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`, preferred over the runtime `user` body for
+checking. The compiler-platform module is still empty (CP4's content is pending), so every name's compiler reduction is
+`None` and resolution is unchanged; compile-time intrinsics remain Scala natives until CP4 fills the module. Motivating
+first consumer: the compile-time `Either` carrier of
 `docs/effectful-signatures.md` (W1), which needs a *reducing* compile-time implementation (`foldEither`, `implement
 Monad/Throw`) available in **every** workspace — including the abstract-only LSP workspace — without depending on a
 runtime platform layer (jvm) being linked.
@@ -205,12 +207,32 @@ no Scala processors (CP3's `CompilerNativesProcessor` lives in `lang`) — and i
 once that lands. Until CP3 adds the native label that *reads* this module and CP4 adds content, compile-time intrinsics
 remain Scala natives, so adding the empty root changes no resolution.
 
-### CP3 — `CompilerNativesProcessor` (the `compiler` native label)
+### CP3 — `CompilerNativesProcessor` (the `compiler` native label) — **implemented**
 A `ContributedBinding` supplier under a new `compiler` label that reads the **compiler**-marker `SaturatedValue` and
 emits the evaluable body, contributed into `BindingMergerProcessor` via the existing native roster
-(`langNativeLabels`, since it is compiler-owned and always present). Preferred over `user` by the existing precedence.
-Leaf test: a name concrete only in the compiler platform reduces during checking; the same name's *runtime* body (if a
-platform provides one) is what `TransparentBinding`/codegen uses.
+(`langNativeLabels`, since it is compiler-owned and always present). Preferred over `user` by the existing precedence. It
+is the compiler platform's analogue of `UserValueNativesProcessor`: the same value-body supplier (`BindingProcessor`
+over `checkingRuntime`), reading the compiler pool and ranked as a native. Leaf test
+(`monomorphize/processor/CompilerNativesProcessorTest`): a name with a distinct concrete body in each pool reduces during
+checking off its compiler-platform body (`NativeBinding` → compiler body), while `TransparentBinding`/codegen reads the
+runtime body.
+
+Two supports were needed for totality without spurious errors — the merger consults this label for *every* name,
+including the vast majority with no compiler-platform definition:
+
+- **Membership gate, not a blind value request.** The contributor first asks the **compiler** `UnifiedModuleNames`
+  whether the name's module declares it; only a member triggers a `SaturatedValue` request. This sidesteps the
+  `UnifiedModuleValueProcessor` "Could not find" abort for a name present in the runtime pool but absent from a shared
+  compiler-pool module, and answers `None` for everything else.
+- **Compiler-path miss is silent.** `PathScanner` keeps its hard "Could not find path" error for the **runtime** marker
+  (the build — a missing module is a real misconfiguration), but a **compiler**-marker miss aborts *silently*: the
+  compiler path is an overlay, and a module absent from it (all user code, every runtime-only name) is normal, read back
+  as "no compile-time override" → `None`.
+
+Also fixed a latent CP1 threading gap this exposed: `ValueResolver` derived its input `UnifiedModuleValue.Key` without
+the marker, so the compiler-marker chain silently fell back to the runtime pool past resolution. CP3 is the first
+consumer to drive the full compiler-marker chain through `ValueResolver`, so it surfaced there; the fix threads
+`key.platform` (a no-op on the runtime path, where it was already the default).
 
 ### CP4 — First consumer: the `Either` carrier (effectful-signatures W1)
 In the compiler-platform root, in plain Eliot: concrete `data Either = Left | Right`, `foldEither`, and

@@ -27,7 +27,9 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
 class ValueResolver
-    extends TransformationProcessor[UnifiedModuleValue.Key, ResolvedValue.Key](key => UnifiedModuleValue.Key(key.vfqn))
+    extends TransformationProcessor[UnifiedModuleValue.Key, ResolvedValue.Key](key =>
+      UnifiedModuleValue.Key(key.vfqn, key.platform)
+    )
     with Logging {
 
   override protected def generateFromKeyAndFact(

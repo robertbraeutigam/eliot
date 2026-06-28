@@ -42,9 +42,28 @@ class PathScanner(compilerRootPaths: Seq[Path], runtimeRootPaths: Seq[Path])
                         .traverse(file => getFactOrAbort(FileStat.Key(file)))
       fileUris      = contentFacts.filter(_.lastModified.isDefined).map(_.file.toURI)
       _            <- debug[CompilerIO](s"Found files (${key.platform}): ${fileUris.mkString(", ")}")
-      _            <- (compilerGlobalError(
-                        s"Could not find path ${key.path} at given ${key.platform} roots: ${rootPaths.mkString(", ")}"
-                      ).to[CompilerIO] >> abort).whenA(fileUris.isEmpty)
+      _            <- abortOnMissing(key, rootPaths).whenA(fileUris.isEmpty)
     } yield PathScan(key.path, fileUris, key.platform)
   }
+
+  /** How an empty scan (no matching file in this platform's roots) is reported, which depends on the marker:
+    *
+    *   - [[Platform.Runtime]] is the build itself — the program plus the stdlib/target it needs. A module that should be
+    *     there but is absent from the explicit roots is a real misconfiguration, so it hard-errors (no silent fallback,
+    *     CP1.5).
+    *   - [[Platform.Compiler]] is an *overlay* of compile-time reductions over the base, queried for *every* name by the
+    *     compiler-native contributor ([[com.vanillasource.eliot.eliotc.monomorphize.processor.CompilerNativesProcessor]]).
+    *     Most names — all user code, every runtime-only/jvm-only name — name a module that is simply not on the compiler
+    *     path, which is normal, not an error. So a compiler-path miss aborts **silently**: the contributor reads it back
+    *     as "no compile-time override" and answers `None`. A genuinely missing compiler-platform layer surfaces instead
+    *     as a use-site reduction failure, and a missing base still hard-errors on the runtime path (base is on both).
+    */
+  private def abortOnMissing(key: PathScan.Key, rootPaths: Seq[Path]): CompilerIO[Unit] =
+    key.platform match {
+      case Platform.Runtime  =>
+        compilerGlobalError(
+          s"Could not find path ${key.path} at given ${key.platform} roots: ${rootPaths.mkString(", ")}"
+        ).to[CompilerIO] >> abort
+      case Platform.Compiler => abort
+    }
 }
