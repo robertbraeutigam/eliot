@@ -1,6 +1,6 @@
 # Effectful Signatures: Compile-Time `Throw` for Guarded & Calculated Return Types
 
-Status: **Foundation + ability bridge + discharge landed; W3–W5 remain.** W1 — the compile-time error carrier — is
+Status: **Foundation + ability bridge + discharge landed; surface vocabulary/syntax (G1–G3) remain.** W1 — the compile-time error carrier — is
 **done**: it shipped as the compiler-platform `Either` layer when the compiler became a first-class platform (CP1–CP4;
 see the "compiler is itself a platform" section of `.claude/CLAUDE.md` and `compiler/README.md`). **W2a is also done**:
 the carrier's `Monad`/`Throw` instances are **compiler-pool-only**, and ability-instance resolution is platform-aware —
@@ -10,9 +10,11 @@ the compiler-pool instances (the ability-instance analogue of CP3). **W2b — th
 expression whose value is on the `Either[String, _]` carrier is recognised at the kind check and discharged by
 `CalculatedReturnResolver` — `Right(t)` ⤳ the plain type `t`, `Left(msg)` ⤳ `compilerError(msg)`, a guard stuck on
 abstract bounds is deferred to the body. This works with guards written explicitly against the carrier (e.g.
-`fold(cond, Right(t), Left("msg"))`); what remains is the surface routing/syntax (W3 — route *every* signature onto the
-fixed carrier so a bare `Type` is `pure`-lifted; W4 — full expressions in the return position; W5 — the stdlib
-combinator vocabulary). The motivating consumer is length-indexed `Seq`/`Stack` (`Seq[A, MIN, MAX]`), where operations
+`fold(cond, Right(t), Left("msg"))`); what remains is the **surface vocabulary and syntax**, refolded (see "The
+remaining work, folded") into **G1** — guard combinators (`error`/`when`/`orError`) on the carrier, usable in
+application form with no auto-lift; **G2** — the parser/desugar unrestriction so guards read as
+`A when (MIN > 0) orError "…"`; and **G3** — the deferred opt-in return auto-lift for raw `if/else` direct style. The
+motivating consumer is length-indexed `Seq`/`Stack` (`Seq[A, MIN, MAX]`), where operations
 like `head`/`pop`/`get` are only valid on sufficiently-large collections and must reject the empty case *with a readable
 message* at the concrete use site.
 
@@ -74,10 +76,10 @@ linked build.
 |---|---|---|
 | `resolve` (value resolver) | yes | — |
 | `operator` | yes — this is why `Int[a + b]` already works | — |
-| `matchdesugar`, block | body only | **extend to the signature position** (W4) |
+| `matchdesugar`, block | body only | **extend to the signature position** (G2 — only for raw `if`/`else`/`match`/blocks; combinator guards need no new desugaring) |
 | `ability` | resolved during monomorphize / discharge | the compile-time `Monad`/`Throw` instances exist (W1 ✓); ability resolution now sees the **compiler** pool via the `platform`-marked `AbilityImplementation.Key` (W2a ✓) |
 | `termination` | runtime-body graph only | must also cover the (recursion-free) type program |
-| `effect` | body only (`EffectDesugaredValue` copies `runtime`) | **extend to the signature position**, fixed carrier (W3) |
+| `effect` | body only (`EffectDesugaredValue` copies `runtime`) | **opt-in** lift of the signature position onto the fixed carrier (G3, deferred — only raw `if`/`else`; a pure return and a combinator guard are left untouched) |
 | `monomorphize` | shared — the checker + evaluator already run both | discharge the return computation (W2) |
 | `used → uncurry → codegen` | runtime only | n/a — type code is evaluated, never emitted |
 
@@ -87,13 +89,21 @@ always terminates.
 
 ## The model — a compile-time effect, not a bottom
 
-**Every return-type position has the same type, uniformly: `{Throw[String]} Type`.** There is no "pure type *or*
-effectful type" split — a signature is *always* a `{Throw[String]} Type` computation, and a non-failing one is simply
-`pure(T) = Right(T)`. The signature's type is invariant; a guarded and a non-guarded signature differ only in the
-*value* that computation reduces to (`Right(T)` vs. `Left(msg)`), never in its type. So the signature is a **total**
-function whose result is an inspectable value: a type or an error. We model this with the existing **`Throw[String]`**
-effect discharged into **`Either[String, Type]`**. The compiler is the *handler*: it runs the computation and reacts to
-the result.
+A return-type position that *can* fail is a **`{Throw[String]} Type`** computation on the `Either[String, _]` carrier: a
+guarded signature reduces to `Right(t)` (the type) or `Left(msg)` (a rejection), and the compiler is the *handler* — it
+runs the computation and reacts to the result. We model this with the existing **`Throw[String]`** effect discharged
+into **`Either[String, Type]`**.
+
+> **Lift is opt-in, not universal (corrected).** An earlier sketch made *every* return uniformly `{Throw[String]} Type`,
+> `pure`-lifting even a bare `Int` to `Right(Int)`. That was rejected for two concrete reasons found while building it:
+> (1) it is *not* how the runtime body is handled — `EffectDesugaringProcessor` pure-wraps a body **only** when the
+> declared return already rides an effect carrier `F[...]` (`returnIsCarrierBinder`); a plain `def f: Int = 5` body is
+> left untouched. So "handle the type-level return exactly like a runtime body" means a **conditional** lift, not a
+> universal one. (2) A universal `Right(T)` makes *every* value hard-depend on the Either carrier being linked
+> (a spike broke 107 tests with "Name not defined." because minimal sources don't link Either). So a return is on the
+> guard carrier **iff it actually rides it** — i.e. it uses a `{Throw}`/guard combinator. A pure return stays the plain
+> type `T`, which the discharge already passes through unchanged (`dischargeGuardedReturn` no-ops on a non-`Either`
+> value). This is the same opt-in the body uses (`{E}` row ⟹ carrier; no row ⟹ plain), applied to the return.
 
 The key analogy — it is the runtime effect story, lifted one stage:
 
@@ -267,81 +277,78 @@ hard-errors via the existing `PostDrainQuoter` "Cannot resolve type." path. Ther
 `Right(t)` types as `t` (and publishes `t` as the signature); `Left("msg")` aborts with exactly `msg` (at the callee and
 through a caller / generic intermediate); a guard stuck on an abstract bound defers with no error.
 
-### W3 — Route the signature position onto the compile-time carrier
+## The remaining work, folded: combinators first, the lift last
 
-The body of a function desugars its `{E}` row onto an *inferable runtime* carrier `F` (effect desugaring). The
-**return-type position** must desugar onto the *fixed* compile-time `Either[String, _]` carrier instead. This is
-the one genuinely new piece of wiring and the precise form of the "staging" separation:
+The original W3 (route the signature through effect desugaring) / W4 (parser) / W5 (combinators) split is **refolded**
+around one realization: **a guard written as a combinator call needs no auto-lift at all.** A return like
+`orError(when(A, MIN > 0), "…")` is an ordinary function application that the NbE evaluator *reduces* to `Right(t)` /
+`Left(msg)`; the W2b discharge then handles it. The combinators encapsulate the carrier (`pure`/`raise`/`fold`); the
+caller's signature is just a call. So the **combinators are the surface**, and the signature-position **auto-lift is
+only needed for *raw* `if/else` direct style** — and is deferred (it has a real blocker, see G3). The folded steps:
 
-- signature/return-type position → **CompileError** carrier (`Either[String, _]`), handled by the compiler;
-- body position → runtime carrier `F`, handled by the platform runtime.
+### G1 — Guard combinator vocabulary on the carrier (the surface)
 
-They are different expressions on different carriers by construction, so `{Throw[String]}` of the type computation
-never enters the value's runtime effect row. This routing is **uniform**: the return-type position is *always*
-`{Throw[String]} Type`, so a bare `Type` is `pure`-lifted (`Right(T)`) like any other computation — non-guarded
-signatures are *observationally* unchanged (they still resolve to `T`), not a separate carrier-free path. (Until W3
-lands, the W2-first step opts in per signature by writing an explicit `Either[String, Type]` return; W3 is what makes
-the carrier universal, so *all* signatures — bare or guarded — flow through it.)
+Ordinary total Eliot that bottoms out in the carrier primitives (`fold` leaf + the compiler-platform `Either` /
+`Option`). These *evaluate* to `Right`/`Left`; **no auto-lift, no carrier pinning** — the return is a plain call whose
+value the discharge reads.
 
-Touch points: the effect/`core` desugaring that handles signature effect rows (sibling of `EffectSugarDesugarer`),
-and the checker's expectation for the return slot. **This is a bigger change than it looks:** effect desugaring
-today rewrites only the body (`EffectDesugaringProcessor` does `value.copy(runtime = …)`; the signature is read
-solely to pick the *body's* carrier). Extending it to the signature changes what `SignatureView.returnType` holds —
-no longer a plain type but a discharged `Either[String, Type]` *computation* — which ripples through everything that
-reads the return position (`SignatureView`, `BinderRoles`' representation/relevance analysis, `saturate`). W2's
-discharge is what restores a plain `Type` for the rest of the checker; downstream readers must either run after the
-discharge or tolerate the un-discharged return.
-
-### W4 — Any expression in return position
-
-Two parts, both realizing "the signature is just code" at the front-end:
-
-1. **Parser.** Lift the restriction on `Expression.typeParser` so the return position parses as a normal expression
-   (infix operators, string literals, `if`/`else`, blocks, `match`, application). This is the λ\* cornerstone at the
-   grammar level: type position = value expression. Expect grammar-ambiguity wrinkles around the `[]`-vs-`()` call
-   forms and operators inside type arguments — the reason the parser is restricted today — to be resolved here.
-2. **Desugar phases on the signature position.** Extend `matchdesugar` and block desugaring to run on the
-   signature/return-type sub-expression, not only the body, so a `match`/block that now parses in a signature lowers
-   to core exactly as in a body (the phases must recurse into the type-annotation position). `resolve` and
-   `operator` already do this; this item closes the gap for the remaining expression-desugaring phases. (`effect`
-   desugaring of the signature is W3.)
-
-There is **no dedicated guard syntax**. Guards/preconditions are expressed entirely with standard-library
-combinators (W5) — `A when (MIN > 0) orError "…"`, `if (MIN > 0) A else error("…")` — so the parser change plus
-uniform desugaring is all that is needed at the surface.
-
-### W5 — Stdlib guard combinators
-
-Ordinary total Eliot, built so they bottom out in **compiler-supplied primitives** (the `boolFold` Scala leaf + the
-compiler-platform `Throw`/`Either` layer), keeping stdlib guards layer-independent:
-
-- `error[A](msg: String): {Throw[String]} A` — `raise(msg)`.
-- `when[A](a: A, cond: Bool): Option[A]` — `fold(cond, some(a), none)` (or an `Either`-direct variant; see the
-  layer note — prefer the intrinsic-only path for stdlib).
-- `orError[A](o: Option[A], msg: String): {Throw[String]} A` — `foldOption(o, error(msg), x -> x)`.
+- `error[A](msg: String): Either[String, A]` — `Left(msg)` (the carrier's `raise`).
+- `when[A](a: A, cond: Bool): Option[A]` — `fold(cond, Some(a), None)`.
+- `orError[A](o: Option[A], msg: String): Either[String, A]` — `foldOption(o, Left(msg), v -> Right(v))`.
 - `orElse`, etc., as needed.
 
-These are dual-use: the same functions work on real `Option`/`Either` values at runtime, because types are values.
+**Layering.** Guards are checked on the platform the checker reads its signatures from (currently the *runtime* pool —
+`MonomorphicTypeCheckProcessor` keys `SaturatedValue` at the default `Runtime` marker), so the vocabulary must resolve
+there *and* reduce at compile time. That is exactly the carrier's own layering: abstract `def` signature in `stdlib`
+(signature-only is allowed in the base), concrete bodies in **both** `jvm` (runtime) and the **compiler** layer
+(compile-time) — like `Either`/`foldEither`. `Option` is concrete only in `jvm` today, so the compiler layer needs its
+own `Option` carrier (a CP4-style promotion, mirroring `Either.els`) for `when`/`orError` to reduce at compile time.
+These are **dual-use**: the same functions work on real `Option`/`Either` at runtime, because types are values.
 
-## Sequencing (incremental — validate the hard part first)
+`error`'s return is written on the **fixed** carrier `Either[String, A]` directly, not `{Throw[String]} A`: the
+compile-time carrier is fixed, so its `pure`/`raise` are the known `Right`/`Left` — no generic `F` to pin. A generic
+`{Throw[E]}` form (which *would* need carrier pinning at the return slot) is a later generalization, not on this path.
+
+### G2 — Parser + desugar in the return position (the syntax)
+
+`fold(cond, Right(t), Left(m))` and `orError(when(t, c), m)` already *parse* (application + string literals — the W2b
+tests prove it). What does **not** parse in the return position is **infix operators** (`MIN > 0`, and `when`/`orError`
+used infix) and **`if`/`else`** — `Expression.typeParser` is the restricted `effectfulTypeParser or typeAtom`. G2 lifts
+that toward a full expression so `A when (MIN > 0) orError "…"` reads, and extends `matchdesugar`/block to the
+return-type sub-expression so `if`/`else`/`match`/blocks there lower to core exactly as in a body (`resolve`/`operator`
+already recurse into it). The motivating `MIN > 0` also needs a compile-time integer-comparison leaf (a `<`/`>` native,
+the analogue of the existing `add` leaf). Expect the `[]`-vs-`()` and operators-in-type-arguments ambiguity (the reason
+the parser is restricted) to be the work here.
+
+### G3 — The opt-in return auto-lift (raw `if/else` direct style) — deferred
+
+Only `if (MIN > 0) A else error("…")` written *directly* (not via combinators) needs the signature-position auto-lift:
+run the return-type expression through the **same** `DirectStyleDesugarer` as a body, **opt-in** (a pure return stays
+`T`; only a return that rides the carrier is lifted) and **downstream-pinned** (the inserted machinery's carrier is
+fixed by the return-slot expectation). Two blockers make this last, not first:
+
+1. **A spurious-coupling trap (resolved by opt-in).** A *universal* `Right(T)` wrap broke 107 tests by making every
+   value depend on the linked Either carrier. Opt-in (lift only an actual guard) avoids it — and matches the body lift,
+   which is itself conditional (`EffectDesugaringProcessor` pure-wraps only a `returnIsCarrierBinder` return).
+2. **The branch-lift gap (genuinely new).** `if/else` lowers to `fold(cond, thenE, elseE)`, a *selection*. The current
+   `DirectStyleDesugarer` treats a `fold` branch as a `flatMap` **bind** position, so an effectful branch would be
+   *sequenced* (both branches executed) instead of *lifted* (each branch placed on the carrier, one selected). This is a
+   pre-existing limitation — effectful `if/else` in a **body** is equally unhandled (no test exercises it) — so closing
+   it fixes the runtime auto-lift *and* unlocks type-level guards together, keeping the two identical. Until then,
+   combinators (G1) cover every guard the language needs; the bare-`if/else` sugar is pure ergonomics on top.
+
+## Sequencing (combinators first, the lift last)
 
 W1 (the compile-time carrier), W2a (the ability-resolution platform bridge), and W2b (the discharge) are **done**.
-Sequencing picks up at W3:
 
-1. **W2b — done.** The discharge/unwrap (handler) in `CalculatedReturnResolver`. Guards are written explicitly against
-   the carrier — `fold(cond, Right(t), Left("msg"))` (and, once W5 lands, `when`/`orError` returning
-   `Either[String, Type]`) — as plain total functions, no effect row, no signature desugaring. This gives erroring
-   guards in near-normal code and exercises the whole discharge path end to end. **Leaf test (landed):** a return-type
-   expression evaluating to `Left("msg")` aborts with exactly `msg`; one evaluating to `Right(T)` types as `T`; one
-   stuck on an abstract bound defers (no error). *(Note: the discharge recognises the carrier's `Left`/`Right` by FQN
-   and `fold`/`foldEither` reduce via the merged `NativeBinding`, so the `Monad`/`Throw[Either[String]]` instances W2a
-   made reachable are not yet exercised — they come into play when the W5 combinators are written monadically.)*
-2. **W3** — route the signature position through effect desugaring onto the fixed carrier, enabling direct-style
-   `{Throw[String]}` signatures (and making the carrier universal, so a bare `Type` return is `pure`-lifted rather than
-   opted in per signature).
-3. **W4** — parser unrestriction + extend `matchdesugar`/block to the signature position (any expression in return
-   position).
-4. **W5** — flesh out the combinator vocabulary.
+1. **G1 — combinator vocabulary** (`error`, `when`, `orError`) on the compiler/runtime `Either`/`Option` carriers, with
+   a compiler-layer `Option`. Testable now in **application form** (`def head[C: Bool]: orError(when(t, C), "…") = …`)
+   — no parser change — exercising the discharge through real vocabulary, not the raw `Right`/`Left` the W2b leaf tests
+   use. This is the first coded step.
+2. **G2 — parser + desugar** in the return position (infix, `if`/`else`, `match`, blocks) + the compile-time
+   `<`/`>` comparison leaf, so the guard surface reads as designed (`A when (MIN > 0) orError "…"`).
+3. **G3 — the opt-in return auto-lift + branch-lift**, last, fixing the runtime body lift and the type-level return
+   together so raw `if (MIN > 0) A else error("…")` works without combinators.
 
 ## Guarantees
 
@@ -360,7 +367,7 @@ Sequencing picks up at W3:
 - `compiler/resources/eliot/eliot/lang/Either.els` — W1 (**done**): the compile-time carrier `data Either` +
   `foldEither` + the `Monad`/`Throw[Either[String]]` instances. Abstract `type Either` lives in `stdlib/.../Either.els`;
   the runtime carrier stays in `jvm/.../Either.els`.
-- `module/fact/WellKnownTypes.scala` — `eitherFQN`/`leftFQN`/`rightFQN` (**done**); add an `error` FQN for W5 if pinned.
+- `module/fact/WellKnownTypes.scala` — `eitherFQN`/`leftFQN`/`rightFQN` (**done**); add FQNs for G1 combinators if pinned.
 - `ability/fact/AbilityImplementation.scala`, `ability/fact/AbilityImplementationCheck.scala`,
   `ability/fact/ModuleAbilityOverlapCheck.scala` + their processors
   (`AbilityImplementationProcessor`/`AbilityImplementationCheckProcessor`/`ModuleAbilityOverlapCheckProcessor`) — W2a
@@ -371,13 +378,17 @@ Sequencing picks up at W3:
   acceptance + applied/by-name reads), `monomorphize/check/TypeStackLoop.scala` (callee signature discharge),
   `monomorphize/check/CheckState.scala` (the `sawGuardReturn` guard-signature flag). Leaf tests:
   `MonomorphicTypeCheckTest` ("effectful-signatures discharge (W2b)").
-- `effect/processor/EffectDesugaringProcessor.scala` + `core/processor/EffectSugarDesugarer.scala` — W3 (route the
-  signature position onto the fixed carrier); ripples to `operator/.../OperatorResolvedExpression.scala`
-  (`SignatureView`) and `saturate/fact/BinderRoles.scala`, which read the return position.
-- `ast` parser (`Expression.typeParser`) + `matchdesugar`/block processors — W4 (full expressions in return
-  position, and the desugar phases extended to the signature sub-expression).
-- `stdlib/.../` — W5 (`error`, `when`, `orError`, `orElse`). The `Either`/`foldEither` carrier promotion is already
-  done (W1); no `Id` base is needed since the compile-time carrier is `Either[String, _]` directly.
+- `stdlib/.../` (abstract `def` signatures) + `jvm/.../` + `compiler/.../` (concrete bodies) — **G1**: the combinator
+  vocabulary (`error`, `when`, `orError`, `orElse`) on the carrier, layered like `Either`/`foldEither`. Needs a
+  compiler-layer `Option.els` (CP4-style promotion of `jvm/.../Option.els`) so `when`/`orError` reduce at compile time.
+- `ast` parser (`Expression.typeParser`) + `matchdesugar`/block processors + a compile-time `<`/`>` comparison leaf in
+  `SystemNativesProcessor` (alongside `add`) — **G2** (infix / `if`/`else` / `match` / blocks in the return position, and
+  the desugar phases extended to the signature sub-expression).
+- `effect/processor/EffectDesugaringProcessor.scala` + `DirectStyleDesugarer.scala` (the branch-lift) — **G3**, deferred:
+  the opt-in return auto-lift for raw `if/else`, plus fixing the `fold`-branch sequencing so an effectful branch lifts
+  (selection) rather than binds (sequence) — for the runtime body and the type-level return together. Ripples to
+  `operator/.../OperatorResolvedExpression.scala` (`SignatureView`) and `saturate/fact/BinderRoles.scala` only if the
+  signature is rewritten; with opt-in, an un-lifted pure return leaves those readers untouched.
 
 ## Deferred follow-ons
 

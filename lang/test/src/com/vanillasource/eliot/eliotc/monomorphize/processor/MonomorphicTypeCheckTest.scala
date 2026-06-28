@@ -1159,4 +1159,44 @@ class MonomorphicTypeCheckTest
     // than erroring at this abstract site; the guard is still decided at every concrete instance above.
     runGuard(guardedHead, name = "head", typeArgs = Seq.empty).asserting(_ shouldBe Seq.empty)
   }
+
+  // --- Effectful signatures G1: guards via the combinator vocabulary (no auto-lift) ---
+
+  // The G1 claim (docs/effectful-signatures.md): a guard written with ordinary combinators on the carrier needs *no*
+  // auto-lift and *no* carrier pinning. The return is a plain function application the NbE evaluator *reduces* through
+  // the combinator's body to `Right(t)`/`Left(msg)`, which the W2b discharge then reads. So this exercises the discharge
+  // through real vocabulary (combinator *calls* in the signature, reduced via their bodies), not the raw inline
+  // `Right`/`Left` the leaf tests above use — with zero new compiler code.
+  //
+  // These combinators bottom out in only the `Bool` `fold` leaf + the `Either` carrier (no `Option`/`match`): the
+  // designed `Option`-mediated `when`/`orError` additionally need a compile-time `Option` carrier (a CP4-style
+  // promotion — its auto-generated `match` ability must reduce at check time), which is a separate G1 sub-task.
+  private val combinators: String =
+    "def error[A](msg: String): Either[String, A] = Left(msg)\n" +
+      "def requireOr[A](cond: Bool, a: A, msg: String): Either[String, A] = fold(cond, Right(a), Left(msg))\n"
+
+  // A guard in application form (no parser change): a satisfied (`COND`) `head` types as its element, an unsatisfied
+  // one rejects with the author message — the whole point of length-indexed `head` on a possibly-empty collection.
+  private val combinatorHead: String =
+    combinators + "def head[COND: Bool]: requireOr(COND, String[], \"empty\") = bar\ndef bar: String\n"
+
+  private def runCombinator(source: String, name: String, typeArgs: Seq[GroundValue]): IO[Seq[TestError]] =
+    runGenerator(
+      "import eliot.lang.Either\nimport eliot.lang.Bool\n" + source,
+      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
+      guardImports
+    ).map(result => toTestErrors(result._1))
+
+  "effectful-signatures G1 combinators" should "type a satisfied combinator guard as its payload type" in {
+    runCombinator(combinatorHead, name = "head", typeArgs = Seq(trueArg)).asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "reject an unsatisfied combinator guard with the author message" in {
+    runCombinator(combinatorHead, name = "head", typeArgs = Seq(falseArg)).asserting(_ shouldBe Seq("empty" at "head"))
+  }
+
+  it should "reject a bare `error(msg)` guard with the author message" in {
+    runCombinator(combinators + "def foo: error(\"boom\")", name = "foo", typeArgs = Seq.empty)
+      .asserting(_ shouldBe Seq("boom" at "foo"))
+  }
 }
