@@ -94,6 +94,35 @@ object `package` extends Module {
      }
    }
 
+   // The apidoc backend: a documentation-site generator, peer to `jvm`. It is its own `CompilerPlugin` (selected by the
+   // `apidoc` command), reachable on the classpath alongside `LangPlugin`/`StdlibPlugin` (its moduleDeps) but NOT
+   // `JvmPlugin` — it stops at the parsed AST (SourceAST) and never triggers codegen. `run` enumerates every `.els` under
+   // the layer roots, so the generated site documents the abstract base, the platform layers, and the user program
+   // together, with layers merged. Like `examples` it drives the compiler `Main` and appends the layer paths after the
+   // user's args (it references each layer module's `eliotSource()` as a task input rather than string-building paths).
+   object apidoc extends DefaultScalaModule {
+     override def moduleDeps = Seq(eliotc, lang, stdlib)
+     override def mainClass  = Some("com.vanillasource.eliot.eliotc.compiler.Main")
+
+     override def run(args: Task[mill.api.Args] = Task.Anon(mill.api.Args())) = Task.Command(exclusive = true) {
+       runForkedTask(
+         finalMainClass,
+         Task.Anon {
+           mill.api.Args(
+             args().value ++ Seq(
+               "--compiler-path", lang.eliotSource().path.toString,
+               "--compiler-path", stdlib.eliotSource().path.toString,
+               "--compiler-path", compiler.eliotSource().path.toString,
+               "--runtime-path", lang.eliotSource().path.toString,
+               "--runtime-path", stdlib.eliotSource().path.toString,
+               "--runtime-path", jvm.eliotSource().path.toString
+             )
+           )
+         }
+       )()
+     }
+   }
+
    /** A layer module that, besides its Scala code, ships Eliot `.els` sources contributing to the `eliot.lang`
      * namespace (the abstract base in `lang`/`stdlib`, the `jvm` runtime target, the `compiler` platform overlay).
      *
