@@ -26,7 +26,7 @@ class MonomorphicTypeCheckProcessorTest
 
   override val systemImports: Seq[SystemImport] = Seq(
     SystemImport("Function", "type Function[A, B]"),
-    SystemImport("Type", "type Type"),
+    SystemImport("Type", "type Type", ModuleName.compilerPackage),
     SystemImport("String", "type String"),
     SystemImport("BigInteger", "type BigInteger"),
     SystemImport("Int", ProcessorTest.intStubContent),

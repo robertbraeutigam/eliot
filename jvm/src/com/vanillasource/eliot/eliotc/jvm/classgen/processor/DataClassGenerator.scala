@@ -17,7 +17,7 @@ import com.vanillasource.eliot.eliotc.jvm.classgen.asm.NativeType.{
 }
 import com.vanillasource.eliot.eliotc.jvm.classgen.fact.ClassFile
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.compilerPackage
 import com.vanillasource.eliot.eliotc.uncurry.fact.MonomorphicParameterDefinition
 
 object DataClassGenerator {
@@ -485,10 +485,13 @@ object DataClassGenerator {
       }
   }
 
-  /** Generate the Type marker interface class that all type constructor data classes implement. */
+  /** Generate the Type marker interface class that all type constructor data classes implement. Its package must match
+    * [[NativeType.systemTypeValue]] (the FQN type-constructor classes name in their `implements` clause) — both live in
+    * `eliot.compiler` since `Type` moved out of the `eliot.lang` prelude.
+    */
   def generateTypeInterface[F[_]: Sync](): F[ClassFile] =
     for {
-      interfaceGen <- createInterfaceGenerator[F](ModuleName(defaultSystemPackage, "Type$Type"))
+      interfaceGen <- createInterfaceGenerator[F](ModuleName(compilerPackage, "Type$Type"))
       classFile    <- interfaceGen.generate[F]()
     } yield classFile
 }

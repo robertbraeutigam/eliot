@@ -33,13 +33,14 @@ class PlatformScopedAbilityResolutionTest
   // The base modules every resolution needs, keyed by `ModuleName` so each stub's path comes from the shared
   // `ModuleName.toPath` layout (no hard-coded `eliot/lang/…`). Present at both markers, just as the abstract base
   // (`lang` + `stdlib`) is on both the compiler and runtime paths. `PatternMatch`/`TypeMatch` live in the
-  // `compilerInternalPackage`; the rest in the `eliot.lang` prelude.
-  private def lang(name: String): ModuleName     = ModuleName(ModuleName.defaultSystemPackage, name)
-  private def internal(name: String): ModuleName = ModuleName(ModuleName.compilerInternalPackage, name)
+  // `compilerInternalPackage`, `Type` in the `compilerPackage`; the rest in the `eliot.lang` prelude.
+  private def lang(name: String): ModuleName        = ModuleName(ModuleName.defaultSystemPackage, name)
+  private def internal(name: String): ModuleName    = ModuleName(ModuleName.compilerInternalPackage, name)
+  private def compilerPkg(name: String): ModuleName = ModuleName(ModuleName.compilerPackage, name)
 
   private val systemStubs: Seq[(ModuleName, String)] = Seq(
     lang("Function")     -> "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B",
-    lang("Type")         -> "type Type",
+    compilerPkg("Type")  -> "type Type",
     lang("BigInteger")   -> "type BigInteger",
     lang("Unit")         -> "type Unit",
     lang("String")       -> "type String",

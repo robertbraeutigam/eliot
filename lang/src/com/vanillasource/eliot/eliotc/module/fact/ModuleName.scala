@@ -35,8 +35,10 @@ object ModuleName {
     * user-facing `eliot.lang` prelude (the `java.lang` analogue) and intentionally NOT auto-imported (see
     * [[defaultSystemModules]]). These are *open* extension points — user/library types may add instances — so they
     * remain ordinarily importable (`import eliot.compiler.Coerce`), unlike the closed desugaring machinery in
-    * [[compilerInternalPackage]]. Currently holds `Coerce` (check-mode widening) and `Combine` (covariant join); the
-    * checker reaches their FQNs via [[com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes]].
+    * [[compilerInternalPackage]]. Holds `Coerce` (check-mode widening), `Combine` (covariant join), and `Type` (the
+    * type of every type — the resolver maps the bare name `Type` straight to its FQN, so it needs no auto-import and
+    * the surface `[]`/kind sugar covers every ordinary use); the checker reaches their FQNs via
+    * [[com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes]].
     */
   val compilerPackage = Seq("eliot", "compiler")
 
@@ -57,7 +59,6 @@ object ModuleName {
   // `integerLiteral` (Runtime) and `Int` must resolve in every module. Code therefore must NOT import them explicitly
   // (that would double-import and shadow).
   val defaultSystemModules                 = Seq(
-    "Type",
     "Function",
     "Unit",
     "String",
@@ -76,5 +77,7 @@ object ModuleName {
   // `PatternMatch`/`TypeMatch` are intentionally NOT here: they are desugaring machinery in the
   // `eliot.compiler.internal` package that user code never names. Compiler-generated `implement` markers reference them
   // by fixed FQN (`ValueResolver.compilerInternalAbilities`), so they need no import.
+  // `Type` is also intentionally NOT here: it lives in [[compilerPackage]] and the resolver maps the bare name `Type`
+  // straight to `WellKnownTypes.typeFQN` (see `ValueResolver`), so it resolves with no import while staying importable.
 
 }

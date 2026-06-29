@@ -46,9 +46,16 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       generator <- IncrementalFactGenerator.create(processors, None)
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
-      _         <- Seq("Function" -> "type Function[A, B]", "Type" -> "type Type", "Unit" -> "type Unit", "PatternMatch" -> "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}", "TypeMatch" -> "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}").traverse { (module, content) =>
-                     val impFile = URI.create(s"eliot/lang/$module.els")
-                     generator.registerFact(PathScan(Path.of(s"eliot/lang/$module.els"), Seq(impFile))) >>
+      _         <- Seq(
+                     ModuleName(ModuleName.defaultSystemPackage, "Function") -> "type Function[A, B]",
+                     ModuleName(ModuleName.compilerPackage, "Type")          -> "type Type",
+                     ModuleName(ModuleName.defaultSystemPackage, "Unit")     -> "type Unit",
+                     ModuleName(ModuleName.defaultSystemPackage, "PatternMatch") -> "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}",
+                     ModuleName(ModuleName.defaultSystemPackage, "TypeMatch")    -> "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
+                   ).traverse { (moduleName, content) =>
+                     val path    = moduleName.toPath
+                     val impFile = URI.create(path.toString)
+                     generator.registerFact(PathScan(path, Seq(impFile))) >>
                        generator.registerFact(SourceContent(impFile, Sourced(impFile, PositionRange.zero, content)))
                    }
       _         <- generator.getFact(trigger)

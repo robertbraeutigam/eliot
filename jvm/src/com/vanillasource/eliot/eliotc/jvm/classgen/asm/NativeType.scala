@@ -25,7 +25,11 @@ object NativeType {
   val systemFunctionValue: ValueFQN = systemLangType("Function")
   val systemAnyValue: ValueFQN      = systemLangType("Any")
   val systemUnitValue: ValueFQN     = systemLangType("Unit")
-  val systemTypeValue: ValueFQN     = systemLangType("Type")
+  // `Type` lives in `eliot.compiler` (the importable compiler package), not the `eliot.lang` prelude — but the `lang`
+  // source root is on both the compiler and runtime paths, so the type-constructor interface is generated for codegen
+  // too. The module name therefore differs from `systemLangType`'s `eliot.lang` default.
+  val systemTypeValue: ValueFQN     =
+    ValueFQN(ModuleName(ModuleName.compilerPackage, "Type"), QualifiedName("Type", Qualifier.Default))
 
   val types: Map[ValueFQN, NativeType] = Map.from(
     Seq(

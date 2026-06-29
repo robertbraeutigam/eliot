@@ -1,11 +1,11 @@
 package com.vanillasource.eliot.eliotc.module.fact
 
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName.{compilerPackage, defaultSystemPackage}
 
 object WellKnownTypes {
   val typeFQN: ValueFQN =
-    ValueFQN(ModuleName(Seq("eliot", "lang"), "Type"), QualifiedName("Type", Qualifier.Type))
+    ValueFQN(ModuleName(compilerPackage, "Type"), QualifiedName("Type", Qualifier.Type))
 
   val functionDataTypeFQN: ValueFQN =
     ValueFQN(ModuleName.systemFunctionModuleName, QualifiedName("Function", Qualifier.Type))

@@ -1,0 +1,9 @@
+/**
+ * All declared types have this type.
+ * Note: Type has itself as Type.
+ * Reason for being in eliot.compiler: type checking must refer to this type, but the surface
+ * syntax (the `[]` type-namespace marker, generic-parameter kinds) covers every ordinary use,
+ * so it lives in the importable compiler package rather than the auto-imported prelude. The
+ * resolver maps the bare name `Type` to this definition directly.
+ */
+type Type

@@ -27,15 +27,16 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
   val testModuleName = ModuleName(Seq.empty, "Test")
   val sourceContent  = SourceContent(file, Sourced(file, PositionRange.zero, "test source"))
   /** The canonical ambient environment every test runs in: one stub per `ModuleName.defaultSystemModules` entry (so the
-    * auto-imports resolve), plus the desugaring-machinery `PatternMatch`/`TypeMatch` declarations (registered at
-    * `compilerInternalPackage` so they are *loadable* by the FQN the resolver/ability-checker uses, though not
-    * auto-imported). This is the SINGLE place the ambient set and each module's package live. A test that needs richer
-    * content for a few modules calls [[ambientStubsWith]] to override just those, instead of re-listing the whole set —
-    * so relocating a module, or adding/removing an ambient one, touches only this list.
+    * auto-imports resolve), plus the modules the resolver/ability-checker loads by *fixed FQN* rather than by import —
+    * the desugaring-machinery `PatternMatch`/`TypeMatch` (in `compilerInternalPackage`) and `Type` (in `compilerPackage`,
+    * reached via the resolver's bare-name special-case → `WellKnownTypes.typeFQN`). Those are registered here so they are
+    * *loadable* by their FQN, though not auto-imported. This is the SINGLE place the ambient set and each module's package
+    * live. A test that needs richer content for a few modules calls [[ambientStubsWith]] to override just those, instead
+    * of re-listing the whole set — so relocating a module, or adding/removing an ambient one, touches only this list.
     */
   val systemImports  = Seq(
     SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
-    SystemImport("Type", "type Type"),
+    SystemImport("Type", "type Type", ModuleName.compilerPackage),
     SystemImport("BigInteger", "type BigInteger"),
     SystemImport("Unit", "type Unit"),
     SystemImport("String", "type String"),

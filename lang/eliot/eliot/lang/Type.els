@@ -1,6 +1,0 @@
-/**
- * All declared types have this type.
- * Note: Type has itself as Type.
- * Reason for being in lang: Type checking must refer to this type.
- */
-type Type
