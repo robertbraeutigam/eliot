@@ -7,8 +7,8 @@
 #   For example eliot/eliot/lang/String.els exists in BOTH the `lang` layer (declaring `type String`, needed for
 #   string-literal typing) and the `stdlib` layer (adding `def println`); PathScanner must find both and let the
 #   module unifier merge them. Since CP1.5 the compiler does this by scanning explicit filesystem roots — one per
-#   module under eliot-src/ — rather than via ClassLoader.getResources. Keeping each module's resources in its OWN
-#   eliot-src/<module> dir (never merged into one) preserves the same-path copies, exactly as separate jars used to.
+#   module under eliot-src/ — rather than via ClassLoader.getResources. Keeping each module's `eliot/` source root in
+#   its OWN eliot-src/<module> dir (never merged into one) preserves the same-path copies, exactly as separate jars did.
 #   This is also why the server is still NOT a `mill ide.lsp.assembly` fat jar: a fat jar's class layout is fine, but
 #   the per-module split keeps the bundle honest and the staging trivial (one cp per module).
 #
@@ -23,9 +23,10 @@
 #                   eliot-jvm.jar lives in lib/ (not here): a second copy on that combined classpath would duplicate
 #                   the backend classes.
 #   eliot-src/    — the abstract base (lang+stdlib), the jvm runtime layer, and the compiler platform layer (CP2) as
-#                   plain .els source roots, one dir per module (CP1.5). The launcher points the `eliot.layers` system
-#                   property here so the server hands them to PathScanner as --compiler-path/--runtime-path (the compiler
-#                   layer feeds the compiler path only); the "Run main" CLI passes the same subdirs.
+#                   plain .els source roots, one dir per module (CP1.5), copied from each module's in-tree `eliot/`
+#                   root. The launcher points the `eliot.layers` system property here so the server hands them to
+#                   PathScanner as --compiler-path/--runtime-path (the compiler layer feeds the compiler path only); the
+#                   "Run main" CLI passes the same subdirs.
 #
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # repo root (script lives at ide/lsp/package.sh)
@@ -77,14 +78,14 @@ copy_module_jar jvm.jar "$LIB/eliot-jvm.jar"
 # eliot-src/ holds the layer .els as plain filesystem source roots (CP1.5). Since the classpath scan was removed, the
 # server and the "Run main" CLI take the abstract base (lang+stdlib), the jvm layer, and the compiler platform layer (CP2)
 # as --compiler-path/--runtime-path directories instead of finding them on the classpath (the compiler layer is on the
-# compiler path only). Each module's resources/eliot tree is staged as its OWN root
+# compiler path only). Each module's in-tree `eliot/` tree is staged as its OWN root
 # under eliot-src/<module>; they are deliberately NOT merged into one dir — same-path files like eliot/lang/String.els
 # exist in both lang and stdlib, and keeping them in separate roots lets PathScanner return all copies for the unifier
 # to merge (the very reason a fat jar is forbidden — see the header). The launcher points the `eliot.layers` system
 # property at this dir; EliotRunConfiguration passes the same subdirs to the CLI build.
 for m in lang stdlib jvm compiler; do
   mkdir -p "$ELIOT_SRC/$m"
-  cp -r "$m/resources/eliot/." "$ELIOT_SRC/$m/"
+  cp -r "$m/eliot/." "$ELIOT_SRC/$m/"
 done
 
 # Stable launcher: a wildcard classpath keeps the jars separate (layered resources preserved); `eliot.layers` points the

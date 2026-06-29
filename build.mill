@@ -6,11 +6,11 @@ object `package` extends Module {
    object `eliotc` extends DefaultScalaModule {
    }
 
-   object `stdlib` extends DefaultScalaModule {
+   object `stdlib` extends EliotLayerModule {
      override def moduleDeps = Seq(lang)
    }
 
-   object `lang` extends DefaultScalaModule {
+   object `lang` extends EliotLayerModule {
      override def moduleDeps = Seq(eliotc)
 
      // lang's *test* suite (not lang itself) additionally depends on stdlib so the monomorphization tests can include
@@ -24,7 +24,7 @@ object `package` extends Module {
      )
    }
 
-   object jvm extends DefaultScalaModule {
+   object jvm extends EliotLayerModule {
      override def moduleDeps = Seq(lang, stdlib)
 
      override def extraDeps = Seq(
@@ -34,12 +34,12 @@ object `package` extends Module {
 
    // The compiler platform layer (CP2). A source-only Eliot layer — peer to `jvm` — that
    // implements the abstract base for the *compile-time* phase (NbE / type checking), the way `jvm` implements it for the
-   // runtime phase. Depends on `stdlib` so the full abstract base is available to it. It ships only `.els` under
-   // `resources/eliot/…` (no Scala processors — CP3's `CompilerNativesProcessor` lives in `lang`); its resource dir is
+   // runtime phase. Depends on `stdlib` so the full abstract base is available to it. It ships only `.els` under its
+   // `eliot/` source root (no Scala processors — CP3's `CompilerNativesProcessor` lives in `lang`); that root is
    // listed on the **compiler path** of every type-checking entry point (the `examples.run` driver below, the LSP server,
    // the test harnesses) *unconditionally*, unlike runtime targets such as `jvm` which are selected per build. Initially
    // empty — it holds only CP4's `Either` carrier once that lands.
-   object compiler extends DefaultScalaModule {
+   object compiler extends EliotLayerModule {
      override def moduleDeps = Seq(stdlib)
    }
 
@@ -67,33 +67,44 @@ object `package` extends Module {
      override def mainClass = Some("com.vanillasource.eliot.eliotc.compiler.Main")
 
      // CP1.5: the abstract base (lang + stdlib) and the jvm target layer are no longer discovered on the classpath;
-     // they are passed as ordinary filesystem source roots — their `resources/eliot` dirs in the dev tree.
-     // `--compiler-path` feeds the compile-time (type-checking) pool, `--runtime-path` the codegen pool; the user's
-     // positional `<path>` (their program) folds into the runtime path. CP2: the `compiler` platform layer is added to
-     // the compiler path only — it implements the base for the compile-time phase and is never on the runtime/codegen
-     // path. The forked run's working dir is the workspace
-     // root, but we pass absolute paths so it is independent of that. The layer options are appended *after* the user's
-     // args (the `jvm exe-jar …` command): scopt only accepts these top-level options trailing the command, exactly as
-     // the existing `-o` is (CP1.5).
+     // they are passed as ordinary filesystem source roots — each layer module's `eliot/` source root (its
+     // `eliotSource` task). `--compiler-path` feeds the compile-time (type-checking) pool, `--runtime-path` the codegen
+     // pool; the user's positional `<path>` (their program) folds into the runtime path. CP2: the `compiler` platform
+     // layer is added to the compiler path only — it implements the base for the compile-time phase and is never on the
+     // runtime/codegen path. Referencing the modules' `eliotSource()` tasks (rather than string-building from the
+     // workspace root) hands the build absolute paths *and* registers the `.els` trees as proper task inputs. The layer
+     // options are appended *after* the user's args (the `jvm exe-jar …` command): scopt only accepts these top-level
+     // options trailing the command, exactly as the existing `-o` is (CP1.5).
      override def run(args: Task[mill.api.Args] = Task.Anon(mill.api.Args())) = Task.Command(exclusive = true) {
        runForkedTask(
          finalMainClass,
          Task.Anon {
-           val root             = mill.api.BuildCtx.workspaceRoot
-           def layer(m: String) = (root / m / "resources" / "eliot").toString
            mill.api.Args(
              args().value ++ Seq(
-               "--compiler-path", layer("lang"),
-               "--compiler-path", layer("stdlib"),
-               "--compiler-path", layer("compiler"),
-               "--runtime-path", layer("lang"),
-               "--runtime-path", layer("stdlib"),
-               "--runtime-path", layer("jvm")
+               "--compiler-path", lang.eliotSource().path.toString,
+               "--compiler-path", stdlib.eliotSource().path.toString,
+               "--compiler-path", compiler.eliotSource().path.toString,
+               "--runtime-path", lang.eliotSource().path.toString,
+               "--runtime-path", stdlib.eliotSource().path.toString,
+               "--runtime-path", jvm.eliotSource().path.toString
              )
            )
          }
        )()
      }
+   }
+
+   /** A layer module that, besides its Scala code, ships Eliot `.els` sources contributing to the `eliot.lang`
+     * namespace (the abstract base in `lang`/`stdlib`, the `jvm` runtime target, the `compiler` platform overlay).
+     *
+     * Since CP1.5 these `.els` are resolved by `PathScanner` from the filesystem, never the classpath, so they get
+     * their own tracked source root `eliot/` (beside `src/` and `resources/`) rather than living under `resources/`
+     * where they would be bundled into the jar as dead weight. A module name like `eliot.lang.String` resolves under
+     * this root to `eliot/eliot/lang/String.els` — the inner `eliot/lang` is the language namespace, not the build.
+     * Mirrors the default `def resources = Task.Sources("resources")`.
+     */
+   trait EliotLayerModule extends DefaultScalaModule {
+     def eliotSource: T[PathRef] = Task.Source("eliot")
    }
 
    trait DefaultScalaModule extends ScalaModule {
@@ -124,7 +135,7 @@ object `package` extends Module {
        override def moduleDeps = super.moduleDeps ++ testModuleDeps
 
        // CP1.5: a forked test JVM's working dir is a per-worker sandbox, not the repo root, so tests that need the
-       // on-disk layer `resources/eliot` dirs as filesystem roots (the LSP *compile* tests — the classpath scan is gone)
+       // on-disk layer `eliot` dirs as filesystem roots (the LSP *compile* tests — the classpath scan is gone)
        // can't derive them from `user.dir`. Hand the workspace root in explicitly. Harmless for tests that ignore it.
        override def forkEnv =
          Task { super.forkEnv() + ("ELIOT_REPO_ROOT" -> mill.api.BuildCtx.workspaceRoot.toString) }

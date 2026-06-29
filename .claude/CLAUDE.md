@@ -253,7 +253,7 @@ user program + its own layer independently. This is built and in place — the
 `compiler` source pool, the always-linked `compiler` Mill module, the native label that reads it
 (`CompilerNativesProcessor`, contributing the `compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`),
 and the module's **first content** all exist. CP4 is the compile-time `Either` carrier
-(`compiler/resources/eliot/eliot/lang/Either.els`: concrete `data Either` + `foldEither` + `implement
+(`compiler/eliot/eliot/lang/Either.els`: concrete `data Either` + `foldEither` + `implement
 Monad[Either[String]]`/`Throw[String, Either[String]]`), with abstract `type Either[E, A]` promoted to the `stdlib` base
 and the runtime `jvm` `Either` unchanged — structurally identical, so the compiler overlay is transparent for runtime
 uses (the `add` pattern). The remaining compile-time intrinsics (`add`, `Bool` `fold`, `true`/`false`) are still Scala

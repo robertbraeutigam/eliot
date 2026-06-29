@@ -83,11 +83,14 @@ val packageServer by tasks.registering(Exec::class) {
     inputs.dir(file("../../stdlib/src"))
     inputs.dir(file("../../eliotc/src"))
     inputs.dir(file("../../jvm/src")) // the JVM backend jar is bundled in lib/ (resident type-checking) + used by "Run main"
-    // The platform layer's `.els` files live in resources, not src. The resident server type-checks against them
-    // (jvm = the concrete platform layer; stdlib/lang = abstract base), so an edit must re-trigger packaging.
-    inputs.dir(file("../../lang/resources"))
-    inputs.dir(file("../../stdlib/resources"))
-    inputs.dir(file("../../jvm/resources"))
+    // The layer `.els` files live in each module's `eliot/` source root (not src, not resources — they are read from
+    // the filesystem by PathScanner since CP1.5). The resident server type-checks against them (jvm = the concrete
+    // platform layer; stdlib/lang = abstract base; compiler = the compile-time overlay), so an edit must re-trigger
+    // packaging.
+    inputs.dir(file("../../lang/eliot"))
+    inputs.dir(file("../../stdlib/eliot"))
+    inputs.dir(file("../../jvm/eliot"))
+    inputs.dir(file("../../compiler/eliot"))
     outputs.dir(file("../lsp/dist/lib"))
     outputs.dir(file("../lsp/dist/compiler-lib"))
     // The layer .els source roots (CP1.5): base (lang+stdlib) + the jvm layer, staged as plain dirs the server and the

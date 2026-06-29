@@ -119,7 +119,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
 object ProcessorTest {
 
   /** Declarations for the built-in opaque `Bool` type and its compile-time predicates, mirroring
-    * `lang/resources/eliot/eliot/lang/Bool.els`. The reductions are supplied by `SystemNativesProcessor`.
+    * `lang/eliot/eliot/lang/Bool.els`. The reductions are supplied by `SystemNativesProcessor`.
     */
   val boolImportContent: String =
     "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool"
@@ -133,19 +133,19 @@ object ProcessorTest {
   val intStubContent: String     = "type Int[auto MIN: BigInteger, auto MAX: BigInteger]"
   val runtimeStubContent: String = "def integerLiteral[V: BigInteger]: Int[V, V]"
 
-  /** Ambient `Console` effect stub, mirroring `stdlib/resources/eliot/eliot/lang/Console.els`. `Console` is in
+  /** Ambient `Console` effect stub, mirroring `stdlib/eliot/eliot/lang/Console.els`. `Console` is in
     * `defaultSystemModules` (the one user-facing effect ability that resolves with no import), so the harness must
     * register a matching stub. The concrete JVM instance lives in the real jvm layer, not here.
     */
   val consoleStubContent: String =
     "ability Console[F[_]] {\ndef println(s: String): F[Unit]\ndef readLine: F[String]\n}"
 
-  /** Ambient `Log` effect stub, mirroring `stdlib/resources/eliot/eliot/lang/Log.els`. `Log` is in
+  /** Ambient `Log` effect stub, mirroring `stdlib/eliot/eliot/lang/Log.els`. `Log` is in
     * `defaultSystemModules`; the concrete JVM instance lives in the real jvm layer.
     */
   val logStubContent: String = "ability Log[F[_]] {\ndef log(s: String): F[Unit]\n}"
 
-  /** Ambient `Dep` effect stub, mirroring `stdlib/resources/eliot/eliot/lang/Dep.els`. `Dep` is in
+  /** Ambient `Dep` effect stub, mirroring `stdlib/eliot/eliot/lang/Dep.els`. `Dep` is in
     * `defaultSystemModules`; application/layer code supplies the concrete instances per dependency type.
     */
   val depStubContent: String = "ability Dep[X, F[_]] {\ndef get: F[X]\n}"

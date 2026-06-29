@@ -199,7 +199,7 @@ concrete; otherwise it stays stuck and is deferred.)
 > architecture — see the "compiler is itself a platform" section of `.claude/CLAUDE.md` and `compiler/README.md`; this
 > carrier is its first content, and is implemented). The carrier is now ordinary concrete
 > Eliot (`data Either` + `foldEither` + `implement Monad[Either[String]]`/`Throw[String, Either[String]]`) in the
-> compiler-platform layer (`compiler/resources/eliot/eliot/lang/Either.els`), reduced by the existing checker, with the
+> compiler-platform layer (`compiler/eliot/eliot/lang/Either.els`), reduced by the existing checker, with the
 > abstract `type Either[E, A]` in the `stdlib` base; `WellKnownTypes` exposes `eitherFQN`/`leftFQN`/`rightFQN` as the
 > only Scala surface, for W2 to inspect by name.
 >
@@ -400,7 +400,7 @@ combinator vocabulary), and **G2** (the infix surface) are **done**.
 
 ## Files
 
-- `compiler/resources/eliot/eliot/lang/Either.els` — W1 (**done**): the compile-time carrier `data Either` +
+- `compiler/eliot/eliot/lang/Either.els` — W1 (**done**): the compile-time carrier `data Either` +
   `foldEither` + the `Monad`/`Throw[Either[String]]` instances. Abstract `type Either` lives in `stdlib/.../Either.els`;
   the runtime carrier stays in `jvm/.../Either.els`.
 - `module/fact/WellKnownTypes.scala` — `eitherFQN`/`leftFQN`/`rightFQN` (**done**); add FQNs for G1 combinators if pinned.

@@ -142,7 +142,7 @@ portability.
 `"PatternMatch$" + … + "$impl"` (`ExpressionCodeGenerator.scala:204`). These appear in at least five places
 across two files.
 
-**Why generic.** These are language-level protocols defined in `lang/resources/eliot/eliot/lang/PatternMatch.els`
+**Why generic.** These are language-level protocols defined in `lang/eliot/eliot/lang/PatternMatch.els`
 and `TypeMatch.els`. The newer `Coerce`/`Combine` protocols are already named in `WellKnownTypes`; these two
 predate that convention and never got the same treatment. Any backend needs to recognise the same names.
 
@@ -368,7 +368,7 @@ erased-signature-keyed fact? Depends on how soon the microcontroller backend lan
 **Now.** `JvmClassGenerator.createModuleMethod` aborts with `"Function not implemented."` for any used body-less
 `def` that is not an intrinsic/native (`JvmClassGenerator.scala:315-317`), and the intrinsic FQN set — including
 the width-suffix names `ByteToByte`…`BigIntegerToBigInteger` — is hardcoded in `Intrinsics.scala:35-59`,
-duplicating the leaf names declared in `stdlib/resources/eliot/eliot/lang/Int.els`. Nothing prevents the two
+duplicating the leaf names declared in `stdlib/eliot/eliot/lang/Int.els`. Nothing prevents the two
 lists from drifting.
 
 **Why generic.** "Every used abstract (body-less) definition must be realised by *some* backend native, else it
