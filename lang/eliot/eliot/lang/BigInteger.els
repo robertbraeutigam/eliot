@@ -1,6 +1,7 @@
 /**
- * Any integer number without restrictions.
- * Reason for being in lang: Integer literals have this type, and the checker/evaluator name it
- * directly (`WellKnownTypes.bigIntFQN`) as the type of type-level integer parameters.
+ * An arbitrary-precision integer with no bounds.
+ *
+ * The type of integer literals and of the `[MIN, MAX]` bounds that parameterise `Int`, so it appears
+ * mainly at the type level when describing integer ranges.
  */
 type BigInteger

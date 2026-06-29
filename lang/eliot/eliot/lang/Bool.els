@@ -1,31 +1,31 @@
 /**
- * Boolean truth values.
- * Declared opaque on purpose: the concrete representation is platform-dependent
- * (the JVM backend maps it to a platform boolean). The compiler provides a
- * compile-time representation via native reductions so that type-level predicates
- * (for example a Coerce instance's bounds check) reduce during type checking.
- * Reason for being in lang: type-checking abilities (such as Coerce) depend on it.
+ * The Boolean truth values, `true` and `false`.
+ *
+ * Branch on a `Bool` with `fold`: there is no `if`/`then`/`else` syntax, and `Bool` exposes no
+ * pattern-match constructors.
  */
 type Bool
 
 /**
- * The true value. Native nullary value.
+ * The true truth value.
  */
 def true: Bool
 
 /**
- * The false value. Native nullary value.
+ * The false truth value.
  */
 def false: Bool
 
 /**
- * Boolean eliminator (catamorphism): yields `whenTrue` when `condition` is `true` and
- * `whenFalse` when it is `false`. This is the only way to branch on a `Bool` (there is no
- * `if`/`then`/`else` syntax and `Bool` is opaque, so it has no pattern-match constructors).
+ * Choose between two values on a `Bool`: yields `whenTrue` when `condition` is `true`, otherwise
+ * `whenFalse`.
  *
- * Native: reduces when `condition` is a concrete `true`/`false`, otherwise stays stuck so the
- * unifier falls back to ordinary unification. Both branches are evaluated by NbE (the language
- * is total at the type level); the native merely selects one. Reason for being in lang: the
- * Coerce instance's bounds check selects between `Some`/`None` with it during type checking.
+ * The only way to branch on a `Bool`. Eliot is strict, so `whenTrue` and `whenFalse` are ordinary
+ * value arguments rather than lazily-guarded branches — `fold` selects one, it is not short-circuit
+ * control flow.
+ *
+ * ```eliot
+ * def describe(b: Bool): String = fold(b, "yes", "no")
+ * ```
  */
 def fold[A](condition: Bool, whenTrue: A, whenFalse: A): A

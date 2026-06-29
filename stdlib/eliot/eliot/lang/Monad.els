@@ -1,21 +1,19 @@
 /**
- * The monad ability for an effect carrier `F[_]`: sequencing of effectful computations.
+ * Sequencing of effectful computations over a carrier `F[_]`.
  *
- * This is the one ability the effect-desugar phase lowers direct-style code onto — every `{E...} A` signature shares a
- * single carrier `F`, and the binds between effectful sub-terms become `flatMap`/`pure` calls on that `F`. Declared
- * abstract here (platform-independent): a platform layer supplies a concrete instance per runnable carrier (e.g. the
- * jvm layer's `implement Monad[IO]`). Users never name `Monad` — they list effects; `Monad` is the machinery the
- * compiler inserts and monomorphization erases.
+ * You rarely name `Monad` directly: you write effects in a `{...}` set and the compiler lowers the
+ * sequencing onto a single shared carrier `F` using `flatMap` and `pure`. Implement it once per
+ * runnable carrier to make that carrier usable as an effect type.
  */
 ability Monad[F[_]] {
    /**
-    * Sequence `fa` with a continuation `f` that itself produces an effectful result, e.g.
+    * Run `fa`, then feed its result to `f` to produce the next effectful computation, e.g.
     * `flatMap(readLine, line -> println(line))`.
     */
    def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
 
    /**
-    * Lift a pure value into the carrier with no effect, e.g. `pure(42) : F[Int]`.
+    * Lift a pure value into the carrier, performing no effect.
     */
    def pure[A](a: A): F[A]
 }

@@ -2,23 +2,19 @@ import eliot.lang.Monad
 import eliot.lang.Throw
 
 /**
- * The compile-time `Either` carrier (the compiler platform's redefinition of the abstract `type Either[E, A]` in the
- * base layer). The compiler is a platform exactly like `jvm`: where the `jvm`
- * layer realizes `Either` for the runtime phase (codegen), this realizes it for the compile-time phase (NbE / type
- * checking). It is the discharge target of the signature-level `Throw[String]` effect — a `{Throw[String]} Type`
- * computation runs on `Either[String, _]` and reads back as `Right(t)` (the type) or `Left(msg)` (a guard rejection);
- * see `docs/effectful-signatures.md` (W1).
+ * The result of a computation that may fail: `Left(error)` for failure, `Right(value)` for success.
  *
- * Structurally identical to the `jvm` runtime `Either` (same `data`/`foldEither`), so the compiler native overlay that
- * prefers this body for checking is transparent for ordinary runtime uses of `Either` (the `add` pattern — one name,
- * two platform implementations, kept apart by the `compiler`/`runtime` marker). The compile-time `Monad`/`Throw`
- * instances below live only in this (compiler) pool; `jvm` discharges `Throw` through its `EitherT` transformer instead.
+ * The compile-time `Either`, used to discharge the `Throw[String]` effect of a guarded signature while the
+ * type checker evaluates it. Consume one with `foldEither`.
  */
 data Either[E, A] = Left(error: E) | Right(value: A)
 
 /**
- * Eliminate an `Either`: `foldEither(e, ifLeft, ifRight)` applies `ifLeft` to the error of a `Left`, or `ifRight` to the
- * value of a `Right`. The total, branch-explicit eliminator user code uses to consume a discharged `{Throw[E]}` result.
+ * Eliminate an `Either`: apply `ifLeft` to a `Left`'s error, or `ifRight` to a `Right`'s value.
+ *
+ * ```eliot
+ * def message(e: Either[String, Int]): String = foldEither(e, err -> err, n -> intToString(n))
+ * ```
  */
 def foldEither[E, A, B](e: Either[E, A], ifLeft: Function[E, B], ifRight: Function[A, B]): B = e match {
    case Left(err) -> ifLeft(err)

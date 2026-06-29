@@ -1,19 +1,19 @@
 /**
  * The abort effect: a computation that may short-circuit, abandoning the rest of the work.
  *
- * `Abort` is a non-commuting (short-circuiting) effect. A function that might give up writes `{Abort}` in its effect
- * set and calls `abort` to stop (`def lookup : {Abort} Row = check(get())`). Performing `abort` yields a plain value of
- * any type — the effect floats up into the caller's set; nothing wraps the result. The `Option` data structure that
- * records "did it abort?" is born only at the *discharge* edge, by `runAbort` (in the platform layer), not in the
- * signature: `config = runAbort(getConfig()) : Option[String]`.
+ * A function that might give up declares `{Abort}` and calls `abort` to stop. `abort` returns a value
+ * of any type — control never comes back — and the effect floats up to the caller. Whether the
+ * computation aborted is materialised only when the effect is discharged by `runAbort`, as an `Option`
+ * that is `none` if it aborted. The untyped sibling of `Throw[E]`, which also carries a reason.
  *
- * Declared abstract here (an ability, no instances): the discharge transformer `OptionT` and the instance
- * `Abort[OptionT[G]]` live with that transformer in the platform layer. Import this module to name the effect.
+ * ```eliot
+ * def lookup: {Abort} Row = fold(found, row, abort)
+ * ```
  */
 ability Abort[F[_]] {
    /**
-    * Short-circuit the computation, producing a value of any type `A` (none is ever returned — control does not come
-    * back). The effect floats into the caller's declared `{Abort}` set; `runAbort` reflects it into an `Option`.
+    * Short-circuit the computation. Control does not return, so the result stands in for a value of any
+    * type `A`; `runAbort` reflects the abort into a `none`.
     */
    def abort[A]: F[A]
 }

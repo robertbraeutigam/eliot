@@ -1,19 +1,19 @@
 /**
- * The throw effect: a computation that may fail with an error value of type `E`.
+ * The typed-error effect: a computation that may fail with an error value of type `E`.
  *
- * `Throw[E]` is the typed-error sibling of `Abort` (which discards the reason). A function that may fail writes
- * `{Throw[String]}` (or any error type) and calls `raise` to fail. Performing `raise` yields a plain value of any type
- * — the effect floats into the caller's set; nothing wraps the result. The `Either[E, _]` that records success-or-error
- * is born only at the *discharge* edge, by `runThrow` (in the platform layer): `result = runThrow(parse(s)) :
- * Either[String, Tree]`.
+ * The typed sibling of `Abort`, which discards the reason. A function that may fail declares
+ * `{Throw[E]}` and calls `raise` to stop with an `E`. `raise` returns a value of any type, so it
+ * drops straight into ordinary code, and the effect floats up to the caller. The success-or-error
+ * outcome is materialised only when the effect is discharged by `runThrow`, as an `Either[E, A]`.
  *
- * Declared abstract here; the discharge transformer `EitherT` and the instance `Throw[E, EitherT[E, G]]` live with that
- * transformer in the platform layer. The ability is parameterised by the error type `E` and the carrier `F[_]`.
+ * ```eliot
+ * def parse(s: String): {Throw[String]} Tree = raise("not a tree")
+ * ```
  */
 ability Throw[E, F[_]] {
    /**
-    * Fail with error value `err`, producing a value of any type `A` (control does not return). The effect floats into
-    * the caller's declared `{Throw[E]}` set; `runThrow` reflects it into an `Either[E, A]`.
+    * Fail with error `err`. Control does not return, so the result stands in for a value of any type
+    * `A`; `runThrow` reflects the failure into a `Left`.
     */
    def raise[A](err: E): F[A]
 }

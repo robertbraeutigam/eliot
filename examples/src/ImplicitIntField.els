@@ -1,8 +1,7 @@
 /**
- * Implicit / inferred generic data fields (W2). The bare `Int` field of `Counter` is generalized: its omitted
- * `MIN`/`MAX` bounds become generic parameters of the data type, shared by the constructor, the accessor and the
- * match implementation. Constructing `Counter(42)` yields `Counter[42, 42]`; the accessor `n` recovers the field as
- * `Int[42, 42]`. Prints `42`.
+ * Inferred generic data fields. The bare `Int` field of `Counter` is generalized: its omitted bounds become
+ * generic parameters of the data type. `Counter(42)` yields `Counter[42, 42]`, and the accessor `n` recovers
+ * the field as `Int[42, 42]`. Prints `42`.
  */
 data Counter(n: Int)
 

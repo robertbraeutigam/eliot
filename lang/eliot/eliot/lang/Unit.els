@@ -1,5 +1,4 @@
 /**
- * Data that has exactly one value.
- * Reason for being in lang: handleWith refers to it in empty handlers.
+ * The type with exactly one value, used as the result where a computation carries no information.
  */
 type Unit

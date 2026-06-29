@@ -1,19 +1,18 @@
 /**
- * Contains the pattern match machinery that is used by
- * the pattern match syntax.
- * Reason for being in lang: Used by pattern matching.
+ * The machinery behind the `match` expression: how a type's constructors are eliminated.
+ *
+ * Provided automatically for every `data` type. User code uses `match` rather than naming this
+ * ability directly.
  */
 ability PatternMatch[T] {
    /**
-    * Defines the cases needed by this type to handle all constructors.
-    * These cases need to be in order of constructor declaration and be
-    * functions accepting all fields in order, returning R.
+    * The shape of the case handlers for `T`: one function per constructor, in declaration order, each
+    * taking that constructor's fields and returning `R`.
     */
    type Cases[R]
 
    /**
-    * Handle the cases.
+    * Eliminate `value` by applying the matching case from `cases`.
     */
    def handleCases[R](value: T, cases: Cases[R]): R
 }
-

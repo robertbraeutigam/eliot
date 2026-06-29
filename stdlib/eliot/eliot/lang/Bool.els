@@ -1,15 +1,9 @@
 /**
- * Re-declared (copied) from the lang-layer `Bool` module so this file can stand on its own: name resolution is
- * per-file (own declarations + imports only, never a sibling file of the same module), so `&&` — which lives here —
- * must have `Bool` in its own dictionary. Both declarations are abstract and the merge verifies they agree; the lang
- * layer owns the `Bool` type and its eliminator (`true`/`false`/`fold`, which the compiler reasons about).
+ * The Boolean truth values, `true` and `false`. Branch on a `Bool` with `fold`.
  */
 type Bool
 
 /**
- * Logical conjunction. The compiler supplies the reduction as a compile-time native (`SystemNativesProcessor`,
- * FQN-keyed on `eliot.lang.Bool.&&`): it reduces when both arguments are concrete, otherwise stays stuck. The compiler
- * does not otherwise reason about `&&` — it is an ordinary boolean operation used by library code (the `Coerce[Int, Int]`
- * bounds check and `fitsIn`), so it lives in the stdlib layer rather than alongside the compiler-intrinsic `fold`.
+ * Logical conjunction: `true` when both `a` and `b` are `true`.
  */
 infix def &&(a: Bool, b: Bool): Bool

@@ -1,9 +1,8 @@
 /**
- * All declared types have this type.
- * Note: Type has itself as Type.
- * Reason for being in eliot.compiler: type checking must refer to this type, but the surface
- * syntax (the `[]` type-namespace marker, generic-parameter kinds) covers every ordinary use,
- * so it lives in the importable compiler package rather than the auto-imported prelude. The
- * resolver maps the bare name `Type` to this definition directly.
+ * The type of all types — and `Type` is itself a `Type`.
+ *
+ * Eliot draws no line between the type level and the value level: a type is an ordinary value, and
+ * `Type` is the value that classifies them. You rarely write it by hand, since the `[]`
+ * type-namespace syntax and generic-parameter kinds cover ordinary use.
  */
 type Type

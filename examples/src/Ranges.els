@@ -1,9 +1,8 @@
 /**
- * Dependent integer *ranges*. `Int[MIN, MAX]` carries its value bounds in the type, and a
- * value of a narrower range is implicitly widened into a wider one by the user-space `Coerce[Int, Int]` instance
- * (resolved by the checker in check mode). Here a bare literal `7` (typed `Int[7, 7]`) widens into the width alias
- * `UnsignedByte = Int[0, 255]`; the dependent-bounds `+` then types `count + count + count` as `Int[0, 765]`, which in
- * turn widens into the broader declared `Int[0, 1000]`. Each widening is the identity on the runtime `Long`. Prints `21`.
+ * Dependent integer ranges. `Int[MIN, MAX]` carries its bounds in the type, and a value of a narrower range is
+ * widened into a wider one automatically by the `Coerce[Int, Int]` instance. Here the literal `7` (`Int[7, 7]`)
+ * widens into `UnsignedByte` (`Int[0, 255]`); `count + count + count` is typed `Int[0, 765]`, which in turn
+ * widens into the declared `Int[0, 1000]`. Prints `21`.
  */
 def count: UnsignedByte = 7
 

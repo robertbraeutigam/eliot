@@ -1,26 +1,24 @@
 /**
- * The state effect: a computation that threads a mutable-looking state of type `S`, reading and replacing it.
+ * The state effect: a computation that threads a state of type `S`, reading and replacing it.
  *
- * `State[S]` is a commuting, non-short-circuiting effect. A function that uses state writes `{State[S]}` in its effect
- * set and calls `getState` to read the current state or `putState(newState)` to replace it
- * (`def step : {State[Int]} Unit = putState(succ(getState))`). Neither operation wraps the result; the effect floats up
- * into the caller's set. The `Pair[A, S]` (result-plus-final-state) that records the threaded state is born only at the
- * *discharge* edge, by `runState` (in the platform layer), not in the signature:
- * `result = runState(program, initial) : Pair[A, S]`.
+ * A function that uses state declares `{State[S]}` and calls `getState` to read the current state or
+ * `putState` to replace it. Neither wraps the result — the effect floats up to the caller. The result
+ * paired with the final state is materialised only when the effect is discharged by `runState`, as a
+ * `Pair[A, S]`. The operations are `getState`/`putState` (not `get`/`put`) so they never collide with
+ * `Dep`'s `get`.
  *
- * Declared abstract here (an ability, no instances): the discharge transformer `StateT` and the instance
- * `State[S, StateT[S, G]]` live with that transformer in the platform layer. The ability is parameterised by the state
- * type `S` and the carrier `F[_]`. Import this module to name the effect; the operations are `getState`/`putState`
- * (not `get`/`put`) so they never collide with the ambient `Dep.get`.
+ * ```eliot
+ * def tick: {State[Int]} Unit = putState(getState + 1)
+ * ```
  */
 ability State[S, F[_]] {
    /**
-    * Read the current state, producing it as the result. The effect floats into the caller's declared `{State[S]}` set.
+    * Read the current state. The effect floats up to the caller's `{State[S]}` set.
     */
    def getState: F[S]
 
    /**
-    * Replace the current state with `s`, producing `Unit`. The effect floats into the caller's declared `{State[S]}` set.
+    * Replace the current state with `s`. The effect floats up to the caller's `{State[S]}` set.
     */
    def putState(s: S): F[Unit]
 }

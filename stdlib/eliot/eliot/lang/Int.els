@@ -1,16 +1,15 @@
 import eliot.compiler.Combine
 
 /**
- * All integers are represented by this type.
+ * The type of all integers, carrying its inclusive value bounds `[MIN, MAX]`.
  *
- * The base layer declares `Int` purely abstractly (no body, no chosen width): it carries only its bounds
- * `[MIN, MAX]`, which are its identity and meaning. How a range is laid out in memory, and how the arithmetic
- * operators are actually computed, is platform-specific and therefore lives in a platform layer (e.g. the `jvm`
- * layer's `Int.els`), never here — a backend with a single numeric type (such as JavaScript) needs none of that
- * machinery.
+ * The bounds are an `Int`'s identity: `Int[0, 255]` and `Int[0, 1000]` are distinct types, and an integer
+ * literal `n` has the singleton type `Int[n, n]`. A value of a narrower range widens into a wider one
+ * automatically (via the `Coerce[Int, Int]` instance). How a range is laid out in memory is chosen per
+ * platform from these bounds.
  *
- * Both bounds are marked `auto` (omittable): a bare `Int` leaves them to the compiler — generalized in parameter
- * positions, calculated in return positions (the `auto`/implicit-generics feature).
+ * Both bounds are `auto` (omittable): a bare `Int` leaves them to the compiler — generalized in a parameter
+ * position, calculated in a return position.
  */
 type Int[auto MIN: BigInteger, auto MAX: BigInteger]
 
@@ -25,39 +24,31 @@ type Long            = Int[-9223372036854775808, 9223372036854775807]
 type UnsignedLong    = Int[0, 18446744073709551615]
 
 /**
- * Integer addition with dependent bounds: adding an `Int[LMin, LMax]` to an `Int[RMin, RMax]` yields an
- * `Int[add(LMin, RMin), add(LMax, RMax)]`. The bound sums are computed at the type level by the `add` compile-time
- * native on `BigInteger` (`eliot.lang.BigInteger`).
+ * Integer addition. The result range is the sum of the operand ranges:
+ * `Int[LMin, LMax] + Int[RMin, RMax]` has type `Int[add(LMin, RMin), add(LMax, RMax)]`.
  *
- * Abstract here (signature only): the result-bound type is the platform-neutral typing contract, but how the sum is
- * actually computed — which machine representation each range uses and which concretely-sized leaf operation runs —
- * is platform-specific and supplied by a platform layer's body.
+ * The bounds are tracked in the type, so a sum cannot silently overflow its declared range — the result type
+ * simply grows to fit.
  */
 infix left
 def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)]
 
 /**
- * Integer subtraction with dependent bounds: `Int[LMin, LMax] - Int[RMin, RMax]` yields
- * `Int[subtract(LMin, RMax), subtract(LMax, RMin)]` (the smallest difference subtracts the largest right bound from
- * the smallest left bound; the largest does the opposite). Same precedence as `+` (`at +`), left-associative.
- * Abstract here; the platform layer supplies the body.
+ * Integer subtraction. The result range is `Int[subtract(LMin, RMax), subtract(LMax, RMin)]`: the smallest
+ * difference subtracts the largest right bound from the smallest left bound, and the largest does the opposite.
  */
 infix left at +
 def -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)]
 
 /**
- * Integer multiplication with dependent bounds: `Int[LMin, LMax] * Int[RMin, RMax]` yields
- * `Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]`, where the result bounds are the
- * minimum and maximum of the four corner products (correct even when a range straddles zero). Binds tighter than `+`
- * (`above +`), left-associative. Abstract here; the platform layer supplies the body.
+ * Integer multiplication. The result range spans the minimum and maximum of the four corner products of the
+ * operand ranges, so it stays correct even when a range straddles zero.
  */
 infix left above +
 def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]
 
 /**
- * Render an integer as its decimal `String`. Abstract here (body-less, like `println`); a platform layer realises it
- * (the JVM layer recognises this FQN and emits `Long.toString`). Lets programs observe computed integers. The bounds
- * are irrelevant to the rendering, so they are ordinary phantom type parameters.
+ * Render an integer as its decimal `String`. The bounds do not affect the output.
  */
 def intToString[Min: BigInteger, Max: BigInteger](value: Int[Min, Max]): String
 

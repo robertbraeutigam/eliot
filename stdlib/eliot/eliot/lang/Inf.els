@@ -1,23 +1,21 @@
 /**
- * The non-termination effect: a computation that may run forever (termination plan, M1).
+ * The non-termination effect: a computation that may run forever.
  *
- * Eliot's pure core cannot express recursion or loops at all, so it is total by default; `Inf` is the sole opt-out.
- * `Inf` is an ordinary member of the `{...}` effect set (`{Inf} A`) — termination is simply its absence, exactly as
- * "does no console I/O" is the absence of `Console`. A computation that loops endlessly writes `{Inf}` in its effect
- * set and calls `forever`; the effect floats up into every caller's set by the usual subset propagation, so a function
- * that uses `forever` without declaring `{Inf}` is rejected. Unlike a capability effect, `Inf` is never *discharged* —
- * there is no `runInf`; it is *run*, realised on the concrete carrier (the jvm layer's `IO`) and executed by the
- * runtime. An `{Inf}` reaching `main` is therefore not an error: it denotes a deliberately non-terminating program (a
- * server / firmware super-loop), which is exactly what `forever` builds.
+ * Eliot's core cannot express recursion or loops, so every program terminates by default; `Inf` is the
+ * one opt-out. A computation that loops endlessly declares `{Inf}` and calls `forever`; the effect
+ * propagates to callers like any other, so using `forever` without declaring `{Inf}` is a compile
+ * error. Unlike a capability effect, `Inf` is never discharged — it is *run*. An `{Inf}` reaching
+ * `main` is therefore allowed: it denotes a deliberately non-terminating program, such as a server or
+ * firmware super-loop.
  *
- * Declared abstract here (an ability, no instances): a platform layer supplies the concrete `implement Inf[IO]` whose
- * `forever` is the actual unbounded loop. Import this module to name the effect.
+ * ```eliot
+ * def main: {Inf} IO[Unit] = forever(println("tick"))
+ * ```
  */
 ability Inf[F[_]] {
    /**
-    * Run `step` endlessly, never returning normally. Each iteration re-runs `step` (so its effects repeat); the loop
-    * itself is the single trusted source of divergence in a program. The result type is `F[Unit]` (the loop never
-    * produces a value, but the carrier is the program's effect carrier), so a server's `main` is `{Inf} Unit`.
+    * Run `step` endlessly, never returning normally. Each iteration re-runs `step`, so its effects
+    * repeat; this is the only sanctioned source of divergence in a program.
     */
    def forever(step: F[Unit]): F[Unit]
 }

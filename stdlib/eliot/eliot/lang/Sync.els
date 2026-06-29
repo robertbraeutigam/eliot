@@ -1,18 +1,15 @@
 /**
- * The internal reification tier: embed a deferred, possibly side-effecting thunk into an effect carrier `F[_]`.
+ * The low-level bridge that embeds a deferred, possibly side-effecting thunk into a carrier `F[_]`.
  *
- * `Sync` is NOT a user-facing effect — application code never writes `{Sync}` and never calls `sync` directly. It is
- * the single bridge a platform layer uses to wrap a `private` impure leaf native (the one irreducible impure spot,
- * e.g. `printlnInternal`) into the carrier. Fine-grained public effects (`Console`, `Clock`, `File`, ...) are
- * implemented generically over any carrier *constrained by* `Sync` (`implement[F[_] ~ Sync] Console[F]`), so a single
- * base `implement Sync[IO]` makes every fine effect available on the concrete runtime carrier.
- *
- * `sync` cannot be `pure`: `pure` would force the thunk at compile time (the NbE evaluator fully evaluates a pure
- * value), whereas a reified thunk must stay a stuck neutral until runtime.
+ * Not a user-facing effect: application code never declares `{Sync}` or calls `sync`. It is the
+ * single primitive a platform uses to wrap an impure operation into its carrier. The public effects
+ * (`Console`, `Log`, ...) are defined generically over any carrier constrained by `Sync`, so one
+ * `Sync` instance per runnable carrier makes all of them available on it.
  */
 ability Sync[F[_]] {
    /**
-    * Reify a thunk (a `Function[Unit, A]` whose evaluation is deferred) into the carrier as an `F[A]`.
+    * Embed a deferred thunk into the carrier. The thunk is not run until the carrier is, so its effect
+    * is not performed when the `F[A]` is built.
     */
    def sync[A](thunk: Function[Unit, A]): F[A]
 }

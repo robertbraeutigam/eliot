@@ -1,6 +1,4 @@
 /**
- * The runtime always returns Int for integer literals.
- * (`Int` is ambient — auto-imported via `defaultSystemModules` — so it must not be imported explicitly.)
+ * The type of an integer literal `V`: the singleton range `Int[V, V]`.
  */
 type IntegerLiteralType[V: BigInteger] = Int[V, V]
-

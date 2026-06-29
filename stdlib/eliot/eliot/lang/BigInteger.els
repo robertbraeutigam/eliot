@@ -1,91 +1,78 @@
 import eliot.lang.Bool
 
+/**
+ * An arbitrary-precision integer with no bounds.
+ *
+ * The type of integer literals and of the `[MIN, MAX]` bounds that parameterise `Int`.
+ */
 type BigInteger
 
 /**
- * Increase by one.
+ * The successor of `bi` (`bi + 1`).
  */
 def inc(bi: BigInteger): BigInteger
 
 /**
- * True iff `a` is less than or equal to `b`. The compiler supplies the reduction as a compile-time native
- * (`SystemNativesProcessor`): it reduces when both arguments are concrete, otherwise stays stuck. Used by the
- * `Coerce[Int, Int]` instance to compare dependent-type bounds during checking, and by `fitsIn` below. Body-less
- * (the reduction is FQN-keyed), so it stays platform-independent.
+ * True iff `a` is at most `b`.
+ *
+ * Compares integer bounds at compile time: it reduces once both arguments are concrete and otherwise stays
+ * unresolved, so a comparison on still-abstract bounds is deferred to the concrete use site.
  */
 def lessThanOrEqual(a: BigInteger, b: BigInteger): Bool
 
 /**
- * True iff `a` is strictly greater than `b`. An ordinary value-level predicate (not a native, like `fitsIn` below):
- * for integers `a > b` iff `b + 1 <= a`, so it reduces through the existing `inc`/`lessThanOrEqual` compile-time
- * natives — no new leaf. This is the comparison the guard surface reads in a return-type position, e.g.
- * `def head[A, MIN, MAX](xs: Seq[A, MIN, MAX]): A when (MIN > 0) orError "non-empty Seq required"`; like its natives it
- * reduces when both bounds are concrete and otherwise stays stuck (so a guard on abstract bounds defers). Infix so the
- * guard reads naturally; `inc(b)` keeps it correct for the full `BigInteger` range (no off-by-one at the edges).
+ * True iff `a` is strictly greater than `b`.
+ *
+ * The comparison guard conditions read in a calculated return type:
+ * ```eliot
+ * def head[A, MIN, MAX](xs: Seq[A, MIN, MAX]): A when (MIN > 0) orError "non-empty Seq required"
+ * ```
+ * Like the other bound comparisons it reduces when both bounds are concrete and otherwise defers, so a guard on
+ * abstract bounds is decided at the concrete use site.
  */
 infix def >(a: BigInteger, b: BigInteger): Bool = lessThanOrEqual(inc(b), a)
 
 /**
- * True iff `a` is strictly less than `b` — the mirror of `>` (`a < b` iff `a + 1 <= b`), reusing the same
- * `inc`/`lessThanOrEqual` natives. Infix, for guard conditions like `(MIN < MAX)`.
+ * True iff `a` is strictly less than `b` — the mirror of `>`, for guard conditions like `(MIN < MAX)`.
  */
 infix def <(a: BigInteger, b: BigInteger): Bool = lessThanOrEqual(inc(a), b)
 
 /**
- * The smaller of `a` and `b`. Compile-time native (reduces when both arguments are concrete, otherwise stays stuck).
- * Used by the `Combine[Int, Int]` instance to compute a joined bound range during checking.
+ * The smaller of `a` and `b`. Used to compute the joined range when two integer ranges are combined.
  */
 def min(a: BigInteger, b: BigInteger): BigInteger
 
 /**
- * The larger of `a` and `b`. Compile-time native (reduces when both arguments are concrete, otherwise stays stuck).
- * Used by the `Combine[Int, Int]` instance to compute a joined bound range during checking.
+ * The larger of `a` and `b`. Used to compute the joined range when two integer ranges are combined.
  */
 def max(a: BigInteger, b: BigInteger): BigInteger
 
 /**
- * The sum of `a` and `b`. Compile-time native (reduces when both arguments are concrete, otherwise stays stuck).
- * Used by `Int`'s `+` operator to compute the dependent result bounds `Int[add(LMin, RMin), add(LMax, RMax)]` during
- * checking (the runtime addition itself is supplied by the backend).
+ * The sum `a + b`. Used to compute the result bounds of integer `+` at the type level.
  */
 def add(a: BigInteger, b: BigInteger): BigInteger
 
 /**
- * The difference `a - b`. Compile-time native (reduces when both arguments are concrete, otherwise stays stuck).
- * Used by `Int`'s `-` operator to compute the dependent result bounds `Int[subtract(LMin, RMax), subtract(LMax, RMin)]`
- * during checking.
+ * The difference `a - b`. Used to compute the result bounds of integer `-` at the type level.
  */
 def subtract(a: BigInteger, b: BigInteger): BigInteger
 
 /**
- * The minimum of the four corner products of `Int[a, b] * Int[c, d]` — i.e. `min(a*c, a*d, b*c, b*d)`. Compile-time
- * native (reduces when all four arguments are concrete, otherwise stays stuck). Used by `Int`'s `*` operator to compute
- * the lower result bound (a single corner is not sufficient because either factor's range may straddle zero).
+ * The minimum of the four corner products of the ranges `[a, b]` and `[c, d]` — the lower result bound of
+ * integer `*`. A single corner is not enough, since either range may straddle zero.
  */
 def multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger
 
 /**
- * The maximum of the four corner products of `Int[a, b] * Int[c, d]` — i.e. `max(a*c, a*d, b*c, b*d)`. Compile-time
- * native (reduces when all four arguments are concrete, otherwise stays stuck). Used by `Int`'s `*` operator to compute
- * the upper result bound.
+ * The maximum of the four corner products of the ranges `[a, b]` and `[c, d]` — the upper result bound of integer `*`.
  */
 def multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger
 
 /**
- * True iff the range `[Min, Max]` is contained in `[Lo, Hi]`. An ordinary value-level predicate (not a native),
- * defined in the ambient `BigInteger` module so that a platform layer's `Int` width dispatch (e.g. the jvm-layer
- * opaque `Int` body and its `+`/`-`/`*` bodies) can resolve it without an import.
+ * True iff the range `[min, max]` is fully contained in `[lo, hi]`.
  *
- * Its four `BigInteger` operands are ordinary **value parameters**, yet every caller applies it with `[...]`
- * (`fitsIn[-128, 127, MIN, MAX]`). `[...]` and `()` are the same Π-application, so the bracket arguments simply land in
- * type context: the integer thresholds stay `BigInteger` (rather than desugaring to `Int[n, n]`) and the range bounds
- * `MIN`/`MAX` flow through as the dispatch's own type-stack params. The checker types such a call by stepping the value
- * function's `VPi` signature (`Checker.infer` applies type args through `applyValue`), so the dispatch bodies
- * (`+`/`-`/`*`) type-check.
- *
- * `fitsIn` is purely compile-time: it only ever appears as the condition of a `Bool` `fold` in a width dispatch, and
- * once the dispatch is monomorphized at concrete bounds that `fold` is collapsed to its selected branch by
- * `PostDrainQuoter`'s compile-time fold-selection — so neither `fitsIn` nor `fold` survives into the backend.
+ * The range-containment test platform layers use to select an integer's representation and to gate range
+ * coercions. It reduces to a `Bool` once all four bounds are concrete.
  */
 def fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bool =
   lessThanOrEqual(lo, min) && lessThanOrEqual(max, hi)

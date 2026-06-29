@@ -1,18 +1,18 @@
 /**
- * Contains the type match machinery that is used by
- * the type pattern match syntax.
- * Reason for being in lang: Used by type pattern matching.
+ * The machinery behind matching a type value against a type constructor.
+ *
+ * The type-level counterpart of `PatternMatch`: it eliminates a `Type` by testing it against the
+ * constructor `T`. Used by the type match syntax; user code does not name it directly.
  */
 ability TypeMatch[T] {
    /**
-    * Defines the handler type for the matched type's generic parameters.
-    * Zero generic params: Function[Unit, R].
-    * Otherwise: curried over the generic parameter type restrictions.
+    * The handler for `T`'s generic parameters: `Function[Unit, R]` when `T` has none, otherwise curried
+    * over the parameters' type restrictions.
     */
    type Fields[R]
 
    /**
-    * Match a Type value against this type constructor.
+    * Match a `Type` value against `T`'s constructor, taking `matched` on a match and `notMatched` otherwise.
     */
    def typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R
 }

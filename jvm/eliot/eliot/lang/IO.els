@@ -3,10 +3,7 @@ import eliot.lang.Applicative
 import eliot.lang.Sync
 
 /**
- * The concrete JVM runtime carrier: a side-effectful computation reified as a deferred `block`. The base layer declares
- * `type IO[A]` abstractly; this layer redefines the same name with a body (a `data` with one field), so the module
- * merge prefers this concrete form. `main` pins the program's effect carrier `F := IO`, and the backend runs a value
- * of this type by applying its `block` to `unit`.
+ * The JVM runtime carrier: a side-effecting computation reified as a deferred `block`, run by applying the block.
  */
 data IO[A](block: Function[Unit, A])
 

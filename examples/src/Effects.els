@@ -1,18 +1,14 @@
 /**
- * Effects — direct-style I/O via the `{Console}` effect (effects plan, M3 body auto-lift).
+ * Direct-style I/O with the `{Console}` effect.
  *
- * `readLine` performs the `Console` effect and yields a plain `String`; `println` consumes a plain `String` and
- * performs `Console`. Writing `println(readLine)` in *direct style* would not type-check on its own — `readLine` is an
- * effectful `F[String]`, not a `String`. The effect-desugar phase bridges the gap automatically, rewriting the body to
- * `flatMap(readLine, line -> println(line))` over the one shared carrier `F`. No `import eliot.lang.Monad`, no
- * hand-written `flatMap`, no `lift`.
+ * `readLine` yields a plain `String` and `println` consumes one, yet both perform `Console`. Writing
+ * `println(readLine)` directly works because effectful calls are sequenced for you — no explicit `flatMap`,
+ * `import`, or lift. `echo` stays carrier-polymorphic (`{Console}`); `main` commits it to the runnable `IO`.
  *
- * `echo` stays carrier-polymorphic (`{Console}`); `main` commits to the concrete runnable carrier `IO`, pinning
- * `F := IO` so monomorphization resolves `Console`/`Monad` through the JVM layer and erases the whole tower to flat
- * code. Run it and type a line:
- *
- *   ./mill examples.run jvm exe-jar examples/src/ -m Effects
- *   echo "hello effects" | java -jar target/Effects.jar
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m Effects
+ * echo "hello effects" | java -jar target/Effects.jar
+ * ```
  */
 def echo: {Console} Unit = println(readLine)
 

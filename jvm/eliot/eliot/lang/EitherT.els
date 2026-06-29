@@ -5,13 +5,12 @@ import eliot.lang.Throw
 import eliot.lang.Either
 
 /**
- * The either monad transformer — the concrete carrier that discharges the `Throw[E]` effect (effects plan, M5). A value
- * of `EitherT[E, G, A]` is a `G`-computation producing an `Either[E, A]`: running it yields `Right(a)` or fails with
- * `Left(err)`. The typed-error analogue of `OptionT`; it never appears in a business signature (those say
- * `{Throw[E]}`), only inside this library and the discharge `runThrow`.
+ * The monad transformer that discharges the `Throw[E]` effect: an `EitherT[E, G, A]` is a `G`-computation
+ * producing an `Either[E, A]`.
  *
- * Generic over the base carrier `G` (constrained only by the machinery it needs), so `EitherT[E, IO]`,
- * `EitherT[E, OptionT[IO]]`, … all work and `Sync`-keyed fine effects ride through via the `Sync[EitherT[E, G]]` lift.
+ * A library type, not for business signatures — those declare `{Throw[E]}`; it appears only inside this
+ * library and in `runThrow`. The typed-error analogue of `OptionT`. Generic over the base carrier `G`, so it
+ * composes over `IO`, `OptionT[IO]`, and so on.
  */
 data EitherT[E, G[_], A](runEitherT: G[Either[E, A]])
 
@@ -49,8 +48,7 @@ implement[E, G[_] ~ Monad] Throw[E, EitherT[E, G]] {
 }
 
 /**
- * Discharge the `Throw[E]` effect, reflecting it into an `Either[E, _]`: `runThrow(p)` turns a `{Throw[E]}` computation
- * into a plain `G[Either[E, A]]` — `Right(a)` if it completed, `Left(err)` if it failed. The only place `Either`
- * appears as a result; residual effects stay polymorphic in `G`. The parameter is a storage position.
+ * Discharge the `Throw[E]` effect, materialising it as an `Either[E, A]`: `Right(a)` if the computation
+ * completed, `Left(err)` if it failed. Any other effects remain in the carrier `G`.
  */
 def runThrow[E, G[_], A](p: EitherT[E, G, A]): G[Either[E, A]] = runEitherT(p)

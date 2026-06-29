@@ -1,6 +1,5 @@
 /**
- * Dependent-bounds integer arithmetic. Each bare literal is desugared to an `Int[V, V]`
- * singleton via `integerLiteral` (Phase 6); `+`/`-`/`*` carry their result range in the type (`*` binds tighter than
- * `+`/`-`), and the runtime computes on `Long`. Prints `14`.
+ * Dependent-bounds integer arithmetic. Each literal has a singleton type (`2 : Int[2, 2]`), and `+`/`-`/`*`
+ * carry their result range in the type, with `*` binding tighter than `+`/`-`. Prints `14`.
  */
 def main: IO[Unit] = println(intToString(2 + 3 * 4))

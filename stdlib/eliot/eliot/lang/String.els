@@ -1,4 +1,4 @@
 /**
- * Unicode compatible character Strings. The stored format is implementation dependent.
+ * A string of Unicode text. The stored representation is platform-dependent.
  */
 type String

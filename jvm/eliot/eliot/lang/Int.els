@@ -3,15 +3,12 @@ import eliot.compiler.Coerce
 import eliot.lang.Option
 
 /**
- * JVM representation types: the fixed, finite set of machine layouts an `Int[MIN, MAX]` can lower to.
+ * The fixed set of machine layouts an `Int[MIN, MAX]` can lower to on the JVM, smallest first: `JvmByte`,
+ * `JvmShort`, `JvmInt`, `JvmLong`, `JvmBigInteger`.
  *
- * These are body-less platform types (like `String`/`Unit`): each one maps to exactly one JVM wrapper class via
- * `NativeType.types` (`JvmByte` -> `java.lang.Byte`, ..., `JvmBigInteger` -> `java.math.BigInteger`). They carry no
- * bounds and no value constructor; they are *not* meant to be written by user code. The `opaque type Int` body below
- * selects one of these from a range's bounds, and the post-checking unfold pass (`RepresentationLowering`) rewrites
- * every `Int[MIN, MAX]` to its chosen representation here. They live in this jvm-layer `Int` module on purpose: they
- * are backend-specific knowledge, so a microcontroller (or JavaScript) backend reuses none of this — it provides its
- * own `Int` layer with its own representation vocabulary.
+ * Each carries no bounds and no value constructor, and is not meant to be written in user code: the `Int`
+ * body picks one from a range's bounds, and a later pass rewrites each `Int[MIN, MAX]` to its chosen layout.
+ * A different backend supplies its own representation vocabulary.
  */
 type JvmByte
 
@@ -24,20 +21,11 @@ type JvmLong
 type JvmBigInteger
 
 /**
- * JVM-layer representation policy for `Int`.
+ * The JVM's representation policy for `Int`: the smallest machine layout whose range contains `[MIN, MAX]`,
+ * falling back to a bignum.
  *
- * The base layer (`stdlib`) declares `type Int[MIN: BigInteger, MAX: BigInteger]` abstractly. This layer redefines the
- * same name with the SAME signature but adds a body, so the module merge (`UnifiedModuleValueProcessor`) prefers this
- * implementation (and carries its `opaque` flag through).
- *
- * The body computes the *smallest* JVM representation whose range contains `[MIN, MAX]`, falling back to the bignum
- * representation. It is marked `opaque` on purpose: the type checker must NOT unfold it (so `Int[0,255]` and
- * `Int[0,1000]` stay distinct, bounds-carrying types — the soundness property), while a later, post-checking pass
- * unfolds it to reach the representation.
- *
- * The representation candidates are written `JvmByte[]` etc.: the empty `[]` forces the bare type constructor into the
- * Type namespace even though it sits in the value-argument position of `fold` (where a plain `JvmByte` would default
- * to a — here non-existent — value constructor).
+ * Marked `opaque` so the type checker keeps distinct ranges distinct (`Int[0, 255]` is not the same type as
+ * `Int[0, 1000]`); a later, post-checking pass unfolds it to reach the chosen representation.
  */
 opaque type Int[auto MIN: BigInteger, auto MAX: BigInteger] =
   fold(fitsIn[-128, 127, MIN, MAX], JvmByte[],
@@ -47,12 +35,8 @@ opaque type Int[auto MIN: BigInteger, auto MAX: BigInteger] =
        JvmBigInteger[]))))
 
 /**
- * Integer addition (implementation of the base layer's abstract `+`). The body is the platform-neutral-looking but
- * JVM-specific width dispatch: both operands are first widened to their common representation
- * `Int[min(LMin, RMin), max(LMax, RMax)]` via `nativeWiden`, then `dispatchAdd` selects the concretely-sized leaf
- * native (`nativeAdd{Wc}To{Wr}`) by the operand and result widths, and a final `nativeWiden` narrows the leaf's
- * (over-wide) result range back to the declared `Int[add(LMin, RMin), add(LMax, RMax)]`. The JVM realises each leaf
- * as a fixed instruction group; an MCU layer swaps in 8-/16-bit leaves.
+ * JVM integer addition: widens both operands to their common representation, runs the right-sized leaf
+ * operation, then narrows the result back to the declared range.
  */
 infix left
 def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[add(LMin, RMin), add(LMax, RMax)] =
@@ -61,8 +45,7 @@ def +[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](le
     nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
 
 /**
- * Integer subtraction (implementation of the base layer's abstract `-`). Same dispatch shape as `+`; the JVM emits
- * `LSUB` on `Long`.
+ * JVM integer subtraction; the same width-dispatch shape as `+`.
  */
 infix left at +
 def -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[subtract(LMin, RMax), subtract(LMax, RMin)] =
@@ -71,8 +54,7 @@ def -[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](le
     nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
 
 /**
- * Integer multiplication (implementation of the base layer's abstract `*`). Same dispatch shape as `+`; the JVM emits
- * `LMUL` on `Long`.
+ * JVM integer multiplication; the same width-dispatch shape as `+`.
  */
 infix left above +
 def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)] =
@@ -81,12 +63,11 @@ def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](le
     nativeWiden[RMin, RMax, min(LMin, RMin), max(LMax, RMax)](right)))
 
 /**
- * Value-preserving representation conversion: reinterprets an `Int[Smin, Smax]` at a different bound `Int[Tmin, Tmax]`,
- * keeping the same logical integer. The bound relationship is NOT enforced here — callers (the `Coerce` instance below,
- * gated by a bounds check; and the `+`/`-`/`*` dispatch, which only ever converts a value that provably fits) guarantee
- * the value lies within `[Tmin, Tmax]`. At runtime the JVM unboxes the source wrapper to `long` and reboxes at the
- * target wrapper (an identity round-trip when the two share a representation), sign/zero-extending or narrowing as the
- * widths demand. Backend native (body-less, recognised by FQN).
+ * Reinterpret an integer at a different declared range, keeping the same logical value.
+ *
+ * The bound relationship is not checked here — callers guarantee the value fits the target range (the `Coerce`
+ * instance gates it on a bounds check; the arithmetic dispatch only ever widens a value that provably fits).
+ * A backend native.
  */
 def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger](value: Int[Smin, Smax]): Int[Tmin, Tmax]
 
@@ -104,16 +85,11 @@ def nativeWiden[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigI
 implement[Smin: BigInteger, Smax: BigInteger, Tmin: BigInteger, Tmax: BigInteger] Coerce[Int[Smin, Smax], Int[Tmin, Tmax]] { def coerce(value: Int[Smin, Smax]): Option[Int[Tmin, Tmax]] = fold(lessThanOrEqual(Tmin, Smin) && lessThanOrEqual(Smax, Tmax), some(nativeWiden(value)), none) }
 
 /**
- * Concretely-sized leaf natives for the three arithmetic operators. Each is body-less and typed at `Int` ranges (so the
- * dispatch bodies type-check under the global opaque `Int`); its name encodes the operand representation `Wc` and the
- * result representation `Wr`. Both operands arrive at the SAME representation `Wc` (the dispatch widens them first), so
- * after monomorphization + representation lowering each leaf FQN reduces to exactly one concrete machine signature,
- * which the backend realises as a single fixed instruction group:
- *   - `…{Wc}To{Wc}` — operands and result share a width;
- *   - `…{Wc}To{next(Wc)}` — the result carries one width up (`+`/`-` overflow, `*` growth);
- *   - narrowing (additive cancellation) is handled by the surrounding final `nativeWiden`, not a leaf.
- * The result bounds are the operator's dependent bounds (`add`/`subtract`/`multiplyMin`+`multiplyMax`), identical
- * across the `{Wc}` variants of one operator; only the FQN (and thus the backend's chosen layout) differs.
+ * The concretely-sized leaf operations for `+`, `-`, and `*`, one per (operand width, result width) pair.
+ *
+ * Each is a backend native: after monomorphization its name resolves to a single fixed machine instruction
+ * group. Not called directly — the width dispatch below selects the right leaf, having already brought both
+ * operands to a common representation.
  */
 def nativeAddByteToByte[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
 def nativeAddByteToShort[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[add(M1, M2), add(X1, X2)]
@@ -146,10 +122,8 @@ def nativeMultiplyLongToBigInteger[M1: BigInteger, X1: BigInteger, M2: BigIntege
 def nativeMultiplyBigIntegerToBigInteger[M1: BigInteger, X1: BigInteger, M2: BigInteger, X2: BigInteger](a: Int[M1, X1], b: Int[M2, X2]): Int[multiplyMin(M1, X1, M2, X2), multiplyMax(M1, X1, M2, X2)]
 
 /**
- * Width dispatch for addition. Both operands already share the representation of `Int[Cmin, Cmax]` (the caller widened
- * them). The outer fold picks the operand width `Wc` (the smallest threshold range containing `[Cmin, Cmax]`); the
- * inner fold picks the result width — `{Wc}To{Wc}` when the sum range `[add(Cmin, Cmin), add(Cmax, Cmax)]` still fits
- * `Wc`, else `{Wc}To{next(Wc)}` (carry). `BigInteger` is the top, so it has no carry variant.
+ * Select the right-sized `+` leaf for two operands already at a common representation: the outer choice picks
+ * the operand width, the inner picks the result width (one width up when the sum carries).
  */
 def dispatchAdd[Cmin: BigInteger, Cmax: BigInteger](left: Int[Cmin, Cmax], right: Int[Cmin, Cmax]): Int[add(Cmin, Cmin), add(Cmax, Cmax)] =
   fold(fitsIn[-128, 127, Cmin, Cmax],
@@ -163,8 +137,7 @@ def dispatchAdd[Cmin: BigInteger, Cmax: BigInteger](left: Int[Cmin, Cmax], right
     nativeAddBigIntegerToBigInteger(left, right)))))
 
 /**
- * Width dispatch for subtraction. As `dispatchAdd`, but the result range of two `[Cmin, Cmax]` operands is
- * `[subtract(Cmin, Cmax), subtract(Cmax, Cmin)]`.
+ * Select the right-sized `-` leaf, like `dispatchAdd` but for the subtraction result range.
  */
 def dispatchSubtract[Cmin: BigInteger, Cmax: BigInteger](left: Int[Cmin, Cmax], right: Int[Cmin, Cmax]): Int[subtract(Cmin, Cmax), subtract(Cmax, Cmin)] =
   fold(fitsIn[-128, 127, Cmin, Cmax],
@@ -178,8 +151,7 @@ def dispatchSubtract[Cmin: BigInteger, Cmax: BigInteger](left: Int[Cmin, Cmax], 
     nativeSubtractBigIntegerToBigInteger(left, right)))))
 
 /**
- * Width dispatch for multiplication. As `dispatchAdd`, but the result range of two `[Cmin, Cmax]` operands is the
- * min/max of the four corner products, `[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)]`.
+ * Select the right-sized `*` leaf, like `dispatchAdd` but for the multiplication result range.
  */
 def dispatchMultiply[Cmin: BigInteger, Cmax: BigInteger](left: Int[Cmin, Cmax], right: Int[Cmin, Cmax]): Int[multiplyMin(Cmin, Cmax, Cmin, Cmax), multiplyMax(Cmin, Cmax, Cmin, Cmax)] =
   fold(fitsIn[-128, 127, Cmin, Cmax],

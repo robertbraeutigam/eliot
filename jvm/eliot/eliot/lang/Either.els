@@ -1,19 +1,16 @@
 /**
- * A value of one of two types: `Left(error)` (by convention the error case) or `Right(value)` (the success case). The
- * structure the `Throw[E]` effect discharges into via `runThrow` — `Either[E, A]` records whether a `{Throw[E]}`
- * computation produced an `A` or failed with an `E`.
+ * The result of a computation that may fail: `Left(error)` for failure, `Right(value)` for success.
  *
- * The concrete JVM representation of the carrier the base layer declares abstractly (`type Either[E, A]` in the stdlib
- * layer). Per the platform-independence-via-layers cornerstone the concrete `data` form lives in a platform layer; the
- * module merge prefers this concrete redefinition over the abstract one. The compiler platform supplies its own
- * structurally-identical `Either` for the compile-time phase (CP4); this one is the
- * runtime phase's, read by codegen.
+ * What discharging the `Throw[E]` effect produces via `runThrow`. Consume one with `foldEither`.
  */
 data Either[E, A] = Left(error: E) | Right(value: A)
 
 /**
- * Eliminate an `Either`: `foldEither(e, ifLeft, ifRight)` applies `ifLeft` to the error of a `Left`, or `ifRight` to the
- * value of a `Right`. The total, branch-explicit eliminator user code uses to consume a discharged `{Throw[E]}` result.
+ * Eliminate an `Either`: apply `ifLeft` to a `Left`'s error, or `ifRight` to a `Right`'s value.
+ *
+ * ```eliot
+ * def message(e: Either[String, Int]): String = foldEither(e, err -> err, n -> intToString(n))
+ * ```
  */
 def foldEither[E, A, B](e: Either[E, A], ifLeft: Function[E, B], ifRight: Function[A, B]): B = e match {
    case Left(err) -> ifLeft(err)

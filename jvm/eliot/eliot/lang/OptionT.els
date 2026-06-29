@@ -6,15 +6,11 @@ import eliot.lang.State
 import eliot.lang.Option
 
 /**
- * The option monad transformer — the concrete carrier that discharges the `Abort` effect (effects plan, M5). A value of
- * `OptionT[G, A]` is a `G`-computation that produces an `Option[A]`: running it either yields `Some(a)` or short-circuits
- * to `None`. It is the only place the `Option` structure meets the effect carrier; it never appears in a business
- * signature (those say `{Abort}`), only inside this library and the discharge function `runAbort`.
+ * The monad transformer that discharges the `Abort` effect: an `OptionT[G, A]` is a `G`-computation producing
+ * an `Option[A]` — `Some(a)`, or `None` if it short-circuited.
  *
- * All instances are generic over the base carrier `G`, constrained only by the machinery it needs (`Monad`/`Applicative`/
- * `Sync`) — never pinned to `IO`. So `OptionT[IO]`, `OptionT[OptionT[IO]]`, … all work, and a fine I/O effect like
- * `Console` rides through via the `Sync[OptionT[G]]` lift below: that is what lets a `{Console, Abort}` program run on
- * the `OptionT[IO]` stack (the n-not-n×m lifting of Decision 10 — only the base `Sync`/`Monad` is lifted per transformer).
+ * A library type, not for business signatures — those declare `{Abort}`; it appears only inside this library
+ * and in `runAbort`. Generic over the base carrier `G`, so it composes over `IO`, `OptionT[IO]`, and so on.
  */
 data OptionT[G[_], A](runOptionT: G[Option[A]])
 
@@ -69,10 +65,7 @@ implement[S, G[_] ~ State[S] & Applicative] State[S, OptionT[G]] {
 }
 
 /**
- * Discharge the `Abort` effect, reflecting it into an `Option`: `runAbort(p)` turns a `{Abort}`-using computation (typed
- * `OptionT[G, A]` after the carrier is refined to `OptionT[G]`) into a plain `G[Option[A]]` — `Some(a)` if it completed,
- * `None` if it aborted. This is the only place `Option` appears as a result; the residual effects stay polymorphic in
- * `G`. The parameter is a storage position (its type mentions the carrier `G`), so the effect-desugar phase passes the
- * effectful action in directly rather than binding it.
+ * Discharge the `Abort` effect, materialising it as an `Option[A]`: `Some(a)` if the computation completed,
+ * `None` if it aborted. Any other effects remain in the carrier `G`.
  */
 def runAbort[G[_], A](p: OptionT[G, A]): G[Option[A]] = runOptionT(p)

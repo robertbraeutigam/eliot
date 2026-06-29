@@ -1,17 +1,13 @@
 /**
- * An ordered pair of two independently-typed values: `Pair(first, second)`. The structure the `State[S]` effect
- * discharges into via `runState` — `Pair[A, S]` records the result `A` of a `{State[S]}` computation together with its
- * final state `S`.
+ * An ordered pair of two independently-typed values.
  *
- * Concrete `data` (a platform-layer type, per the platform-independence-via-layers cornerstone). There is no abstract
- * base declaration for `Pair`; it is introduced here. A two-field generic record: each field's accessor (`first`,
- * `second`) is generated automatically.
+ * What discharging the `State[S]` effect produces via `runState`: a `Pair[A, S]` of the result and the final
+ * state. The field accessors `first` and `second` are generated.
  */
 data Pair[A, B](first: A, second: B)
 
 /**
- * Eliminate a `Pair`: `foldPair(p, f)` applies the two-argument `f` to the pair's components. The branch-free
- * eliminator user code can use to consume a discharged `{State[S]}` result without naming the accessors.
+ * Consume a `Pair` by applying the two-argument `f` to its components, without naming the accessors.
  */
 def foldPair[A, B, C](p: Pair[A, B], f: Function[A, Function[B, C]]): C = p match {
    case Pair(a, b) -> f(a)(b)

@@ -3,27 +3,25 @@ import eliot.lang.Option
 import eliot.lang.Bool
 
 /**
- * Guard combinators for effectful (compile-time-rejecting) signatures. A value's return type may be computed from its
- * type parameters with these combinators to **reject** an invalid instantiation with a readable message at the concrete
- * use site. `when`/`orError` are `infix` (same precedence, left-associative), so the guard reads as designed —
- * `def head[A, MIN, MAX](xs: Seq[A, MIN, MAX]): A when (MIN > 0) orError "head requires a non-empty Seq"` — lowering to
- * `orError(when(A, MIN > 0), "…")` after operator resolution (the application form remains valid too). The combinators
- * evaluate to the compile-time `Throw[String]` carrier `Either[String, _]`, which the effectful-signatures discharge
- * reads back as `Right(t)` (the type `t`) or `Left(msg)` (a rejection). See `docs/effectful-signatures.md` (G1/G2).
+ * Guard combinators for return types that reject an invalid instantiation with a readable message.
  *
- * Abstract here (signature only — the base layer is representation-free): the concrete bodies live in the **compiler**
- * layer (`compiler/.../Guard.els`), where they reduce at check time. They are **dual-use** — the same functions work on
- * real `Option`/`Either` values, because types are values — so a runtime layer may supply concrete bodies too.
+ * A value's return type can be computed from its type parameters with `when`/`orError` to reject a disallowed
+ * use at the concrete call site. They are `infix` and left-associative, so a guard reads left to right:
+ * ```eliot
+ * def head[A, MIN, MAX](xs: Seq[A, MIN, MAX]): A when (MIN > 0) orError "head requires a non-empty Seq"
+ * ```
+ * The combinators also work on ordinary `Option`/`Either` values, since in Eliot types are values.
  */
 
-/** The always-rejecting guard: `error(msg)` is the carrier's `raise` — it rejects with `msg`. */
+/** A guard that always rejects with message `msg`. */
 def error[A](msg: String): Either[String, A]
 
-/** `a when cond` keeps `a` when `cond` holds (`Some(a)`) and drops it otherwise (`None`) — a guarded `Option`. */
+/** Keep `a` when `cond` holds and drop it otherwise: `a when cond` is `some(a)` if `cond` is `true`, else `none`. */
 infix def when[A](a: A, cond: Bool): Option[A]
 
-/** `o orError msg` accepts the value of a `Some` and rejects a `None` with `msg`. Same precedence as `when` (so
-  * `a when cond orError msg` reads left-to-right as `orError(when(a, cond), msg)` — "a, but only when cond, else reject
-  * with msg"). */
+/**
+ * Accept the value of a `some` and reject a `none` with `msg`. Pairs with `when` so a guard reads left to
+ * right — `a when cond orError msg` keeps `a` only when `cond` holds, otherwise rejects with `msg`.
+ */
 infix at when
 def orError[A](o: Option[A], msg: String): Either[String, A]
