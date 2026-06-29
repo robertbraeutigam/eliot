@@ -24,7 +24,11 @@ case class FunctionDefinition(
     // body during checking (later phases, e.g. backend representation lowering, may still unfold it). Lets a type with
     // a body — like a platform `opaque type Int[MIN, MAX] = <repr>` — stay distinct per type argument so range
     // assignability stays sound, instead of collapsing to its body.
-    opaque: Boolean = false
+    opaque: Boolean = false,
+    // The `/** ... */` documentation comment preceding this definition, if any. Attached by source-position adjacency
+    // in `ASTParser` and consumed only by the apidoc tooling; never read by the compiler proper, never part of
+    // `signatureEquality` (layers may document the same name differently), and dropped at the core boundary.
+    doc: Option[Sourced[String]] = None
 )
 
 object FunctionDefinition {

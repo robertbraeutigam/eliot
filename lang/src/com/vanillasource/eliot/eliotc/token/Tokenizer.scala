@@ -29,8 +29,9 @@ class Tokenizer
       .fold(
         err => compilerError(err) >> abort[SourceTokens],
         tokens =>
+          val docComments = DocCommentScanner.scan(uri, sourcedContent.value)
           debug[CompilerIO](s"Tokenized $uri into: ${tokens.map(_.show).mkString(", ")}.").as(
-            SourceTokens(uri, sourcedContent.as(tokens))
+            SourceTokens(uri, sourcedContent.as(tokens), docComments)
           )
       )
   }

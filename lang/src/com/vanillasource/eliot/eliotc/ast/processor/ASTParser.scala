@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
 import com.vanillasource.eliot.eliotc.ast.parser.ParserError
 import com.vanillasource.eliot.eliotc.feedback.Logging
+import com.vanillasource.eliot.eliotc.pos.Position
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -53,11 +54,39 @@ class ASTParser
                case Some(value) => debug[CompilerIO](s"Generated AST for $uri: ${value.show}.").as(value)
                case None        => abort
              }
-    } yield SourceAST(uri, sourceTokens.tokens.as(ast))
+    } yield SourceAST(uri, sourceTokens.tokens.as(attachDocComments(ast, sourceTokens.docComments)))
   }
 
   private def expectedMessage(expected: Set[String]): String = expected.toSeq match
     case Nil         => "nothing"
     case head :: Nil => head
     case _           => s"${expected.init.mkString(", ")} or ${expected.last}"
+
+  /** Attach each documentation comment to the declaration it immediately precedes. A comment is bound to the
+    * declaration with the smallest start position strictly after the comment (its nearest following declaration); when
+    * several comments fall before the same declaration, the closest one wins. A trailing comment with no following
+    * declaration is dropped. Comparison is position-based — primarily by line — so it is robust to indentation style.
+    */
+  private def attachDocComments(ast: AST, docComments: Seq[Sourced[String]]): AST = {
+    if (docComments.isEmpty) return ast
+
+    val declarationStarts: Seq[Position] =
+      (ast.functionDefinitions.map(_.name.range.from) ++ ast.typeDefinitions.map(_.name.range.from))
+        .sortBy(p => (p.line, p.col))
+
+    def isAfter(a: Position, b: Position): Boolean = a.line > b.line || (a.line == b.line && a.col > b.col)
+
+    val docByDeclaration: Map[Position, Sourced[String]] =
+      docComments
+        .flatMap(doc => declarationStarts.find(isAfter(_, doc.range.to)).map(_ -> doc))
+        .groupBy(_._1)
+        .view
+        .mapValues(_.map(_._2).maxBy(d => (d.range.to.line, d.range.to.col)))
+        .toMap
+
+    ast.copy(
+      functionDefinitions = ast.functionDefinitions.map(fd => fd.copy(doc = docByDeclaration.get(fd.name.range.from))),
+      typeDefinitions = ast.typeDefinitions.map(dd => dd.copy(doc = docByDeclaration.get(dd.name.range.from)))
+    )
+  }
 }

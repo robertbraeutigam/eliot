@@ -13,7 +13,11 @@ case class DataDefinition(
     name: Sourced[String],
     genericParameters: Seq[GenericParameter],
     constructors: Option[Seq[DataConstructor]],
-    visibility: Visibility = Visibility.Public
+    visibility: Visibility = Visibility.Public,
+    // The `/** ... */` documentation comment preceding this definition, if any. Attached by source-position adjacency
+    // in `ASTParser` and consumed only by the apidoc tooling; never read by the compiler proper, never part of
+    // `signatureEquality`, and dropped at the core boundary.
+    doc: Option[Sourced[String]] = None
 )
 
 object DataDefinition {
