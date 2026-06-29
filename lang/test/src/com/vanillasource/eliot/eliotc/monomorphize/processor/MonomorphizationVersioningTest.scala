@@ -166,12 +166,10 @@ class MonomorphizationVersioningTest
     "Bool"       ->
       "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A",
     "Option"     -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
-    "Coerce"     -> "import eliot.lang.Option\nability Coerce[From, To] { def coerce(value: From): Option[To] }",
-    "Combine"    -> "ability Combine[A, B] { type Combined }",
     "Int"        ->
       """import eliot.lang.Bool
-        |import eliot.lang.Coerce
-        |import eliot.lang.Combine
+        |import eliot.compiler.Coerce
+        |import eliot.compiler.Combine
         |import eliot.lang.Option
         |type Int[auto MIN: BigInteger, auto MAX: BigInteger]
         |type Byte = Int[-128, 127]
@@ -185,6 +183,11 @@ class MonomorphizationVersioningTest
         |infix left above +
         |def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]
         |""".stripMargin
+  ) ++ Seq(
+    // `Coerce`/`Combine` are the compiler-coordinated abilities the checker resolves by FQN; they live in
+    // `eliot.compiler` (not the `eliot.lang` prelude), so register them there — mirroring the real layout.
+    SystemImport("Coerce", "import eliot.lang.Option\nability Coerce[From, To] { def coerce(value: From): Option[To] }", ProcessorTest.compilerPackage),
+    SystemImport("Combine", "ability Combine[A, B] { type Combined }", ProcessorTest.compilerPackage)
   )
 
   /** Like [[intImports]] but with a *representation-bearing* `Int`: the `opaque type Int[MIN, MAX]` body that folds a

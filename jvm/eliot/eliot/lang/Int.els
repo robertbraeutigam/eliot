@@ -1,5 +1,5 @@
 import eliot.lang.Bool
-import eliot.lang.Coerce
+import eliot.compiler.Coerce
 import eliot.lang.Option
 
 /**

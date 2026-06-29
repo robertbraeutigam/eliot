@@ -162,6 +162,13 @@ object ProcessorTest {
     */
   val compilerInternalPackage: Seq[String] = ModuleName.compilerInternalPackage
 
+  /** The package holding the compiler-coordinated abilities the checker resolves by FQN — `Coerce` (check-mode
+    * widening) and `Combine` (covariant join). Re-exported so the `Int` tests can register those stubs at the FQN
+    * `WellKnownTypes` loads. Deliberately *not* in the bare ambient prelude: a type-mismatch test resolves `coerceFQN`,
+    * which must find no module (clean mismatch) unless the test opts into the full `Int` environment.
+    */
+  val compilerPackage: Seq[String] = ModuleName.compilerPackage
+
   val intStubContent: String     = "type Int[auto MIN: BigInteger, auto MAX: BigInteger]"
   val runtimeStubContent: String = "def integerLiteral[V: BigInteger]: Int[V, V]"
 

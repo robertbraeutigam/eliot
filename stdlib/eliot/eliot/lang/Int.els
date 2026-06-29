@@ -1,4 +1,4 @@
-import eliot.lang.Combine
+import eliot.compiler.Combine
 
 /**
  * All integers are represented by this type.

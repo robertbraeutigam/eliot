@@ -86,11 +86,12 @@ object WellKnownTypes {
     * multi-candidate covariant metavariable (a `match` result, or a `f[A](a: A, b: A): A` result type parameter) to the
     * join of its candidate types by resolving this ability by name (`resolveAbility(combinedFQN, Seq(t1, t2))`) and
     * evaluating the resolved instance's `Combined` body. The member name is `Combined` and it carries the
-    * `Qualifier.Ability("Combine")` qualifier (an associated type is a body-less ability member).
+    * `Qualifier.Ability("Combine")` qualifier (an associated type is a body-less ability member). Lives in the
+    * compiler-coordinated [[ModuleName.compilerPackage]] (`eliot.compiler`), not the `eliot.lang` prelude.
     */
   val combinedFQN: ValueFQN =
     ValueFQN(
-      ModuleName(defaultSystemPackage, "Combine"),
+      ModuleName(ModuleName.compilerPackage, "Combine"),
       QualifiedName("Combined", Qualifier.Ability("Combine"))
     )
 
@@ -98,11 +99,12 @@ object WellKnownTypes {
     * an implicit, possibly representation-changing widening when an inferred type is used where a different expected
     * type built from the same constructor is wanted (e.g. `Int[0,5]` where `Int[0,10]` is expected). The widening
     * insertion itself is deferred (it lands with the `Int[MIN,MAX]` frontier); this FQN is the durable design
-    * commitment.
+    * commitment. Lives in the compiler-coordinated [[ModuleName.compilerPackage]] (`eliot.compiler`), not the
+    * `eliot.lang` prelude.
     */
   val coerceFQN: ValueFQN =
     ValueFQN(
-      ModuleName(defaultSystemPackage, "Coerce"),
+      ModuleName(ModuleName.compilerPackage, "Coerce"),
       QualifiedName("coerce", Qualifier.Ability("Coerce"))
     )
 

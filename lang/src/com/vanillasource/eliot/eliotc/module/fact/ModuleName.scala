@@ -31,13 +31,22 @@ object ModuleName {
 
   val defaultSystemPackage = Seq("eliot", "lang")
 
+  /** The package for compiler-coordinated abilities that the checker resolves by name but that are kept out of the
+    * user-facing `eliot.lang` prelude (the `java.lang` analogue) and intentionally NOT auto-imported (see
+    * [[defaultSystemModules]]). These are *open* extension points — user/library types may add instances — so they
+    * remain ordinarily importable (`import eliot.compiler.Coerce`), unlike the closed desugaring machinery in
+    * [[compilerInternalPackage]]. Currently holds `Coerce` (check-mode widening) and `Combine` (covariant join); the
+    * checker reaches their FQNs via [[com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes]].
+    */
+  val compilerPackage = Seq("eliot", "compiler")
+
   /** The package for compiler-internal desugaring machinery that user code never names directly — the
     * `PatternMatch`/`TypeMatch` abilities that the `match` / type-match syntax desugar onto. Deliberately kept out of the
     * user-facing `eliot.lang` prelude (the `java.lang` analogue) and intentionally NOT auto-imported (see
     * [[defaultSystemModules]]): compiler-generated `implement` markers reference these abilities by fixed FQN
     * (`ValueResolver.compilerInternalAbilities`), so user code never has them in scope.
     */
-  val compilerInternalPackage = Seq("eliot", "compiler", "internal")
+  val compilerInternalPackage = compilerPackage :+ "internal"
 
   val systemFunctionModuleName: ModuleName = ModuleName(defaultSystemPackage, "Function")
   // TODO: Unit is no longer here, so we shouldn't refer to it...
