@@ -3,7 +3,18 @@ package com.vanillasource.eliot.eliotc.module.fact
 import cats.{Eq, Show}
 import com.vanillasource.eliot.eliotc.ast.fact.ImportStatement
 
-case class ModuleName(packages: Seq[String], name: String)
+import java.nio.file.{Path, Paths}
+
+case class ModuleName(packages: Seq[String], name: String) {
+
+  /** The relative `.els` source path this module resolves to under any layer's `eliot/` source root, e.g.
+    * `eliot.lang.String` -> `eliot/lang/String.els`. This is the single definition of the package-to-path layout,
+    * shared by the source resolver ([[com.vanillasource.eliot.eliotc.module.processor.UnifiedModuleNamesProcessor]],
+    * `UnifiedModuleValueProcessor`) and the test harness, so relocating a module to a new package needs no path string
+    * updated anywhere.
+    */
+  def toPath: Path = (packages :+ s"$name.els").foldLeft(Paths.get(""))(_ `resolve` _)
+}
 
 object ModuleName {
   def fromImportStatement(importStatement: ImportStatement): ModuleName =
@@ -20,6 +31,14 @@ object ModuleName {
 
   val defaultSystemPackage = Seq("eliot", "lang")
 
+  /** The package for compiler-internal desugaring machinery that user code never names directly — the
+    * `PatternMatch`/`TypeMatch` abilities that the `match` / type-match syntax desugar onto. Deliberately kept out of the
+    * user-facing `eliot.lang` prelude (the `java.lang` analogue) and intentionally NOT auto-imported (see
+    * [[defaultSystemModules]]): compiler-generated `implement` markers reference these abilities by fixed FQN
+    * (`ValueResolver.compilerInternalAbilities`), so user code never has them in scope.
+    */
+  val compilerInternalPackage = Seq("eliot", "compiler", "internal")
+
   val systemFunctionModuleName: ModuleName = ModuleName(defaultSystemPackage, "Function")
   // TODO: Unit is no longer here, so we shouldn't refer to it...
   // This is used to determine what to automatically import, but this should work differently.
@@ -35,8 +54,6 @@ object ModuleName {
     "String",
     "BigInteger",
     "IO",
-    "PatternMatch",
-    "TypeMatch",
     "Int",
     "Runtime",
     // `Console`/`Log`/`Dep` are the public effect abilities users name ambiently: their operations and the `{...}`
@@ -47,5 +64,8 @@ object ModuleName {
     "Log",
     "Dep"
   ).map(ModuleName(defaultSystemPackage, _))
+  // `PatternMatch`/`TypeMatch` are intentionally NOT here: they are desugaring machinery in the
+  // `eliot.compiler.internal` package that user code never names. Compiler-generated `implement` markers reference them
+  // by fixed FQN (`ValueResolver.compilerInternalAbilities`), so they need no import.
 
 }

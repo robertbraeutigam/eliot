@@ -106,22 +106,7 @@ class BinderRolesTest extends ProcessorTest(LangProcessors()*) {
     * `Int`/`Runtime`/`Console`/`Log`/`Dep` are in `defaultSystemModules`, so their stubs must be present even though
     * these scenarios only declare on `BigInteger`/`Int`.
     */
-  private val binderRolesImports: Seq[SystemImport] = Seq(
-    SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
-    SystemImport("Type", "type Type"),
-    SystemImport(
-      "BigInteger",
-      "type BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger"
-    ),
-    SystemImport("Unit", "type Unit"),
-    SystemImport("String", "type String"),
-    SystemImport("IO", "type IO"),
-    SystemImport("PatternMatch", ""),
-    SystemImport("TypeMatch", ""),
-    SystemImport("Int", ProcessorTest.intStubContent),
-    SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    SystemImport("Console", ProcessorTest.consoleStubContent),
-    SystemImport("Log", ProcessorTest.logStubContent),
-    SystemImport("Dep", ProcessorTest.depStubContent)
+  private val binderRolesImports: Seq[SystemImport] = ambientStubsWith(
+    "BigInteger" -> "type BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger"
   )
 }

@@ -975,16 +975,8 @@ class MonomorphicTypeCheckTest
     * empty), so a surface `match` / field accessor — which resolves to the auto-generated `handleCases` implementation —
     * type-checks. Used by the W2 access/match tests.
     */
-  private val matchImports: Seq[SystemImport] = systemImports.map {
-    case SystemImport("PatternMatch", _) =>
-      SystemImport("PatternMatch", "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}")
-    case SystemImport("TypeMatch", _)    =>
-      SystemImport(
-        "TypeMatch",
-        "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
-      )
-    case other                           => other
-  }
+  private val matchImports: Seq[SystemImport] =
+    ambientStubsWith("PatternMatch" -> ProcessorTest.patternMatchAbilityStub, "TypeMatch" -> ProcessorTest.typeMatchAbilityStub)
 
   private def runMatch(source: String, name: String = "test"): IO[Seq[TestError]] =
     runGenerator(
@@ -997,10 +989,7 @@ class MonomorphicTypeCheckTest
     * so the W1 tests can exercise both a fully-applied `IO[Unit]` and the bare-`IO` guardrail. `Bool` is declared
     * locally in each snippet (it is not an ambient module).
     */
-  private val w1Imports: Seq[SystemImport] = systemImports.map {
-    case SystemImport("IO", _) => SystemImport("IO", "type IO[A]")
-    case other                 => other
-  }
+  private val w1Imports: Seq[SystemImport] = ambientStubsWith("IO" -> "type IO[A]")
 
   private def runW1(
       source: String,
@@ -1021,27 +1010,15 @@ class MonomorphicTypeCheckTest
     * layout so the compile-time natives (`&&`/`fold`/`lessThanOrEqual`/`min`/`max`/`add`/`subtract`/`multiply*`) bind to
     * their well-known FQNs.
     */
-  private val intImports: Seq[SystemImport] = Seq(
-    SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
-    SystemImport("Type", "type Type"),
-    SystemImport(
-      "BigInteger",
-      "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef min(a: BigInteger, b: BigInteger): BigInteger\ndef max(a: BigInteger, b: BigInteger): BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger"
-    ),
-    SystemImport("Unit", "type Unit"),
-    SystemImport("String", "type String"),
-    SystemImport("IO", "type IO"),
-    SystemImport("PatternMatch", ""),
-    SystemImport("TypeMatch", ""),
-    SystemImport(
-      "Bool",
-      "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A"
-    ),
-    SystemImport("Option", "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]"),
-    SystemImport("Coerce", "import eliot.lang.Option\nability Coerce[From, To] { def coerce(value: From): Option[To] }"),
-    SystemImport("Combine", "ability Combine[A, B] { type Combined }"),
-    SystemImport(
-      "Int",
+  private val intImports: Seq[SystemImport] = ambientStubsWith(
+    "BigInteger" ->
+      "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef min(a: BigInteger, b: BigInteger): BigInteger\ndef max(a: BigInteger, b: BigInteger): BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger",
+    "Bool"       ->
+      "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A",
+    "Option"     -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
+    "Coerce"     -> "import eliot.lang.Option\nability Coerce[From, To] { def coerce(value: From): Option[To] }",
+    "Combine"    -> "ability Combine[A, B] { type Combined }",
+    "Int"        ->
       """import eliot.lang.Bool
         |import eliot.lang.Coerce
         |import eliot.lang.Combine
@@ -1058,11 +1035,6 @@ class MonomorphicTypeCheckTest
         |infix left above +
         |def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]
         |""".stripMargin
-    ),
-    SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    SystemImport("Console", ProcessorTest.consoleStubContent),
-    SystemImport("Log", ProcessorTest.logStubContent),
-    SystemImport("Dep", ProcessorTest.depStubContent)
   )
 
   /** Imports for the snippet that reference `coerce`/`Option` by name (`Int` itself is ambient). */

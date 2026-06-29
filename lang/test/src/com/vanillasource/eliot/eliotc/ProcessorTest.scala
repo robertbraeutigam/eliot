@@ -26,6 +26,13 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
   val file           = URI.create("Test.els")
   val testModuleName = ModuleName(Seq.empty, "Test")
   val sourceContent  = SourceContent(file, Sourced(file, PositionRange.zero, "test source"))
+  /** The canonical ambient environment every test runs in: one stub per `ModuleName.defaultSystemModules` entry (so the
+    * auto-imports resolve), plus the desugaring-machinery `PatternMatch`/`TypeMatch` declarations (registered at
+    * `compilerInternalPackage` so they are *loadable* by the FQN the resolver/ability-checker uses, though not
+    * auto-imported). This is the SINGLE place the ambient set and each module's package live. A test that needs richer
+    * content for a few modules calls [[ambientStubsWith]] to override just those, instead of re-listing the whole set —
+    * so relocating a module, or adding/removing an ambient one, touches only this list.
+    */
   val systemImports  = Seq(
     SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
     SystemImport("Type", "type Type"),
@@ -33,14 +40,25 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("Unit", "type Unit"),
     SystemImport("String", "type String"),
     SystemImport("IO", "type IO"),
-    SystemImport("PatternMatch", ""),
-    SystemImport("TypeMatch", ""),
+    SystemImport("PatternMatch", "", ModuleName.compilerInternalPackage),
+    SystemImport("TypeMatch", "", ModuleName.compilerInternalPackage),
     SystemImport("Int", ProcessorTest.intStubContent),
     SystemImport("Runtime", ProcessorTest.runtimeStubContent),
     SystemImport("Console", ProcessorTest.consoleStubContent),
     SystemImport("Log", ProcessorTest.logStubContent),
     SystemImport("Dep", ProcessorTest.depStubContent)
   )
+
+  /** The canonical [[systemImports]] with the named modules' content replaced — existing entries keep their package
+    * (so e.g. `"PatternMatch" -> realDecl` stays in `compilerInternalPackage`), and any name not already present is
+    * added as a new `eliot.lang` stub. Lets a test enrich only the modules it exercises (a richer `Int`, a real
+    * `PatternMatch` ability, an extra `Bool`/`Option`) without restating the rest of the prelude.
+    */
+  def ambientStubsWith(overrides: (String, String)*): Seq[SystemImport] = {
+    val overrideMap = overrides.toMap
+    systemImports.map(s => overrideMap.get(s.module).fold(s)(c => s.copy(content = c))) ++
+      overrides.collect { case (name, content) if !systemImports.exists(_.module == name) => SystemImport(name, content) }
+  }
 
   def sourced[T](value: T): Sourced[T] = Sourced(file, PositionRange.zero, value)
 
@@ -84,8 +102,9 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
       _         <- generator.registerFact(SourceContent(file, Sourced(file, PositionRange.zero, source)))
       _         <- generator.registerFact(PathScan(Path.of("Test.els"), Seq(file)))
       _         <- imports.traverse { imp =>
-                     val impFile = URI.create(s"eliot/lang/${imp.module}.els")
-                     generator.registerFact(PathScan(Path.of(s"eliot/lang/${imp.module}.els"), Seq(impFile))) >>
+                     val modulePath = imp.moduleName.toPath
+                     val impFile    = URI.create(modulePath.toString)
+                     generator.registerFact(PathScan(modulePath, Seq(impFile))) >>
                        generator.registerFact(SourceContent(impFile, Sourced(impFile, PositionRange.zero, imp.content)))
                    }
       _         <- generator.getFact(trigger)
@@ -93,7 +112,14 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
       errors    <- generator.currentErrors()
     } yield (errors, facts)
 
-  case class SystemImport(module: String, content: String)
+  /** A source stub for a system module the harness pre-registers (its `.els` path is derived from
+    * [[moduleName]] via the shared [[ModuleName.toPath]] layout). `packages` defaults to the `eliot.lang` prelude;
+    * relocated modules (e.g. `PatternMatch`/`TypeMatch` in [[ModuleName.compilerInternalPackage]]) are declared once in
+    * the canonical [[systemImports]], so tests reach them through [[ambientStubsWith]] and never repeat the package.
+    */
+  case class SystemImport(module: String, content: String, packages: Seq[String] = ModuleName.defaultSystemPackage) {
+    def moduleName: ModuleName = ModuleName(packages, module)
+  }
 
   case class TestError(message: String, highlight: String)
 
@@ -130,8 +156,23 @@ object ProcessorTest {
     * `Int` type and the `integerLiteral` constructor; the richer `Coerce`/`Combine`/arithmetic environment lives in the
     * `Int` tests' own import lists.
     */
+  /** The package holding desugaring machinery relocated out of the `eliot.lang` prelude (`PatternMatch`/`TypeMatch`).
+    * Re-exported here so the few tests that build a custom (non-`ambientStubsWith`) import set can register those stubs
+    * at the FQN the resolver/ability-checker loads. Most tests never need it — `ambientStubsWith` preserves the package.
+    */
+  val compilerInternalPackage: Seq[String] = ModuleName.compilerInternalPackage
+
   val intStubContent: String     = "type Int[auto MIN: BigInteger, auto MAX: BigInteger]"
   val runtimeStubContent: String = "def integerLiteral[V: BigInteger]: Int[V, V]"
+
+  /** The real `PatternMatch`/`TypeMatch` ability declarations (the canonical `systemImports` register them empty, since
+    * they are loaded by FQN only when a snippet has a `data`/`match`). Tests exercising `match` or field access enrich
+    * them via `ambientStubsWith("PatternMatch" -> patternMatchAbilityStub, "TypeMatch" -> typeMatchAbilityStub)`.
+    */
+  val patternMatchAbilityStub: String =
+    "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}"
+  val typeMatchAbilityStub: String     =
+    "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
 
   /** Ambient `Console` effect stub, mirroring `stdlib/eliot/eliot/lang/Console.els`. `Console` is in
     * `defaultSystemModules` (the one user-facing effect ability that resolves with no import), so the harness must

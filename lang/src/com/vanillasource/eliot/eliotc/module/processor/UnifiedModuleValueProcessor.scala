@@ -9,13 +9,11 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerError, compilerAbort}
 import com.vanillasource.eliot.eliotc.source.scan.PathScan
 
-import java.nio.file.{Path, Paths}
-
 class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue.Key] {
 
   override protected def generateSingleFact(key: UnifiedModuleValue.Key): CompilerIO[UnifiedModuleValue] =
     for {
-      pathScan     <- getFactOrAbort(PathScan.Key(pathName(key.vfqn.moduleName), key.platform))
+      pathScan     <- getFactOrAbort(PathScan.Key(key.vfqn.moduleName.toPath, key.platform))
       allNames     <- pathScan.files.traverse(file => getFactOrAbort(ModuleNames.Key(file)).map(file -> _))
       filesWithName = allNames.collect { case (file, names) if names.names.value.contains(key.vfqn.name) => file }
       allValues    <- filesWithName.traverse(file => getFactOrAbort(ModuleValue.Key(file, key.vfqn, key.platform)))
@@ -55,7 +53,4 @@ class UnifiedModuleValueProcessor extends SingleFactProcessor[UnifiedModuleValue
 
     values.tail.forall(v => NamedValue.signatureEquality.eqv(first.namedValue, v.namedValue))
   }
-
-  private def pathName(name: com.vanillasource.eliot.eliotc.module.fact.ModuleName): Path =
-    (name.packages ++ Seq(name.name + ".els")).foldLeft(Paths.get(""))(_ `resolve` _)
 }

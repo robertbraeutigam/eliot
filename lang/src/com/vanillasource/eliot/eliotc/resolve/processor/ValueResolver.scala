@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.core.fact.{
   Pattern as CorePattern,
   PrecedenceDeclaration as CorePrecedenceDeclaration
 }
-import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.typeFQN
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{typeFQN, patternMatchAbilityName, typeMatchAbilityName}
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.module.fact.{
   ModuleName,
@@ -93,7 +93,14 @@ class ValueResolver
   private def resolveAbilityName(name: Sourced[String]): ScopedIO[AbilityFQN] =
     getAbility(name.value).flatMap {
       case Some(abilityName) => abilityName.pure[ScopedIO]
-      case None              => compilerAbort(name.as(s"Ability not found.")).liftToScoped
+      case None              =>
+        // The desugaring-machinery abilities (`PatternMatch`/`TypeMatch`) are referenced by compiler-generated
+        // `implement` markers, which should not depend on the user's import scope. They live at fixed FQNs in the
+        // `eliot.compiler.internal` package, so resolve them directly instead of requiring an (auto-)import.
+        ValueResolver.compilerInternalAbilities.get(name.value) match {
+          case Some(abilityFQN) => abilityFQN.pure[ScopedIO]
+          case None             => compilerAbort(name.as(s"Ability not found.")).liftToScoped
+        }
     }
 
   private def resolveParamConstraints(
@@ -327,4 +334,15 @@ class ValueResolver
       case _                                                                        =>
         PrecedenceDeclaration(relation, resolvedTargets).pure[ScopedIO]
     }
+}
+
+object ValueResolver {
+
+  /** The desugaring-machinery abilities resolved by fixed FQN rather than via import scope: `PatternMatch`/`TypeMatch`,
+    * which only compiler-generated `implement` markers (and `match` desugaring) ever name. They live in the
+    * `eliot.compiler.internal` package, kept out of the user-facing prelude and *not* auto-imported. */
+  private val compilerInternalAbilities: Map[String, AbilityFQN] =
+    Seq(patternMatchAbilityName, typeMatchAbilityName)
+      .map(name => name -> AbilityFQN(ModuleName(ModuleName.compilerInternalPackage, name), name))
+      .toMap
 }

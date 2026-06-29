@@ -12,16 +12,12 @@ class MatchDesugaringProcessorTest
     extends ProcessorTest(LangProcessors(systemModules = Seq(ModuleName2.systemFunctionModuleName))*) {
   private val testMN = ModuleName2(Seq.empty, "Test")
 
+  // A deliberately minimal ambient set (only `Function` is auto-imported, via the `systemModules` override above); the
+  // `PatternMatch`/`TypeMatch` declarations are loaded by FQN, hence `compilerInternalPackage`.
   override val systemImports = Seq(
     SystemImport("Function", "data Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
-    SystemImport(
-      "PatternMatch",
-      "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}"
-    ),
-    SystemImport(
-      "TypeMatch",
-      "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
-    )
+    SystemImport("PatternMatch", ProcessorTest.patternMatchAbilityStub, ProcessorTest.compilerInternalPackage),
+    SystemImport("TypeMatch", ProcessorTest.typeMatchAbilityStub, ProcessorTest.compilerInternalPackage)
   )
 
   "match desugaring" should "pass through values without match expressions" in {

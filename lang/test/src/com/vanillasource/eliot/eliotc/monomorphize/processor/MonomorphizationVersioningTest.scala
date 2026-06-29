@@ -160,27 +160,15 @@ class MonomorphizationVersioningTest
     * compile-time native), mirroring `MonomorphicTypeCheckTest.intImports`. The size-indexed / reified recursion
     * scenarios need `fold` (compile-time branch selection on the index), `lessThanOrEqual`, `subtract` and `add`.
     */
-  private val intImports: Seq[SystemImport] = Seq(
-    SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
-    SystemImport("Type", "type Type"),
-    SystemImport(
-      "BigInteger",
-      "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef min(a: BigInteger, b: BigInteger): BigInteger\ndef max(a: BigInteger, b: BigInteger): BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger"
-    ),
-    SystemImport("Unit", "type Unit"),
-    SystemImport("String", "type String"),
-    SystemImport("IO", "type IO"),
-    SystemImport("PatternMatch", ""),
-    SystemImport("TypeMatch", ""),
-    SystemImport(
-      "Bool",
-      "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A"
-    ),
-    SystemImport("Option", "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]"),
-    SystemImport("Coerce", "import eliot.lang.Option\nability Coerce[From, To] { def coerce(value: From): Option[To] }"),
-    SystemImport("Combine", "ability Combine[A, B] { type Combined }"),
-    SystemImport(
-      "Int",
+  private val intImports: Seq[SystemImport] = ambientStubsWith(
+    "BigInteger" ->
+      "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef min(a: BigInteger, b: BigInteger): BigInteger\ndef max(a: BigInteger, b: BigInteger): BigInteger\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger\ndef multiplyMin(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger\ndef multiplyMax(a: BigInteger, b: BigInteger, c: BigInteger, d: BigInteger): BigInteger",
+    "Bool"       ->
+      "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A",
+    "Option"     -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
+    "Coerce"     -> "import eliot.lang.Option\nability Coerce[From, To] { def coerce(value: From): Option[To] }",
+    "Combine"    -> "ability Combine[A, B] { type Combined }",
+    "Int"        ->
       """import eliot.lang.Bool
         |import eliot.lang.Coerce
         |import eliot.lang.Combine
@@ -197,11 +185,6 @@ class MonomorphizationVersioningTest
         |infix left above +
         |def *[LMin: BigInteger, LMax: BigInteger, RMin: BigInteger, RMax: BigInteger](left: Int[LMin, LMax], right: Int[RMin, RMax]): Int[multiplyMin(LMin, LMax, RMin, RMax), multiplyMax(LMin, LMax, RMin, RMax)]
         |""".stripMargin
-    ),
-    SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    SystemImport("Console", ProcessorTest.consoleStubContent),
-    SystemImport("Log", ProcessorTest.logStubContent),
-    SystemImport("Dep", ProcessorTest.depStubContent)
   )
 
   /** Like [[intImports]] but with a *representation-bearing* `Int`: the `opaque type Int[MIN, MAX]` body that folds a
@@ -212,15 +195,13 @@ class MonomorphizationVersioningTest
     * pair (`Int[0, 100]`/`Int[0, 100000]`, S3 -> 2).
     */
   private val reprIntImports: Seq[SystemImport] = intImports.map {
-    case SystemImport("BigInteger", content) =>
-      SystemImport(
-        "BigInteger",
+    case imp @ SystemImport("BigInteger", content, _) =>
+      imp.copy(content =
         content +
           "\ndef fitsIn(lo: BigInteger, hi: BigInteger, min: BigInteger, max: BigInteger): Bool = lessThanOrEqual(lo, min) && lessThanOrEqual(max, hi)"
       )
-    case SystemImport("Int", content)        =>
-      SystemImport(
-        "Int",
+    case imp @ SystemImport("Int", content, _)        =>
+      imp.copy(content =
         content.replace(
           "type Int[auto MIN: BigInteger, auto MAX: BigInteger]\n",
           """type JvmByte

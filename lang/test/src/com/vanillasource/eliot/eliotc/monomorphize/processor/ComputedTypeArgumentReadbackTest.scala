@@ -103,26 +103,9 @@ class ComputedTypeArgumentReadbackTest
     * reified / size-indexed scenarios reference. `Int`/`Runtime`/`Console`/`Log`/`Dep` are in `defaultSystemModules`, so
     * their stubs must be present even though these tests compute on `BigInteger` directly.
     */
-  private val readbackImports: Seq[SystemImport] = Seq(
-    SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
-    SystemImport("Type", "type Type"),
-    SystemImport(
-      "BigInteger",
-      "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger"
-    ),
-    SystemImport("Unit", "type Unit"),
-    SystemImport("String", "type String"),
-    SystemImport("IO", "type IO"),
-    SystemImport("PatternMatch", ""),
-    SystemImport("TypeMatch", ""),
-    SystemImport(
-      "Bool",
-      "type Bool\ndef true: Bool\ndef false: Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A"
-    ),
-    SystemImport("Int", ProcessorTest.intStubContent),
-    SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    SystemImport("Console", ProcessorTest.consoleStubContent),
-    SystemImport("Log", ProcessorTest.logStubContent),
-    SystemImport("Dep", ProcessorTest.depStubContent)
+  private val readbackImports: Seq[SystemImport] = ambientStubsWith(
+    "BigInteger" ->
+      "import eliot.lang.Bool\ntype BigInteger\ndef lessThanOrEqual(a: BigInteger, b: BigInteger): Bool\ndef add(a: BigInteger, b: BigInteger): BigInteger\ndef subtract(a: BigInteger, b: BigInteger): BigInteger",
+    "Bool"       -> "type Bool\ndef true: Bool\ndef false: Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A"
   )
 }

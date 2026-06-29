@@ -30,17 +30,22 @@ class PlatformScopedAbilityResolutionTest
 
   private val moduleName = ModuleName(Seq.empty, "M")
 
-  // The auto-imported base modules every resolution needs, mirroring ProcessorTest's default `systemImports`. Present
-  // at both markers, just as the abstract base (`lang` + `stdlib`) is on both the compiler and runtime paths.
-  private val systemStubs = Seq(
-    "Function"     -> "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B",
-    "Type"         -> "type Type",
-    "BigInteger"   -> "type BigInteger",
-    "Unit"         -> "type Unit",
-    "String"       -> "type String",
-    "IO"           -> "type IO",
-    "PatternMatch" -> "",
-    "TypeMatch"    -> ""
+  // The base modules every resolution needs, keyed by `ModuleName` so each stub's path comes from the shared
+  // `ModuleName.toPath` layout (no hard-coded `eliot/lang/…`). Present at both markers, just as the abstract base
+  // (`lang` + `stdlib`) is on both the compiler and runtime paths. `PatternMatch`/`TypeMatch` live in the
+  // `compilerInternalPackage`; the rest in the `eliot.lang` prelude.
+  private def lang(name: String): ModuleName     = ModuleName(ModuleName.defaultSystemPackage, name)
+  private def internal(name: String): ModuleName = ModuleName(ModuleName.compilerInternalPackage, name)
+
+  private val systemStubs: Seq[(ModuleName, String)] = Seq(
+    lang("Function")     -> "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B",
+    lang("Type")         -> "type Type",
+    lang("BigInteger")   -> "type BigInteger",
+    lang("Unit")         -> "type Unit",
+    lang("String")       -> "type String",
+    lang("IO")           -> "type IO",
+    internal("PatternMatch") -> "",
+    internal("TypeMatch")    -> ""
   )
 
   // Shared by both pools: the ability and the type it is implemented for (cf. the abstract `Throw`/`Either` base).
@@ -54,9 +59,9 @@ class PlatformScopedAbilityResolutionTest
   private def marker(platform: Platform): String = platform.toString.toLowerCase
 
   private def stubFacts(platform: Platform): Seq[CompilerFact] =
-    systemStubs.flatMap { case (name, content) =>
-      val path = Path.of("eliot", "lang", s"$name.els")
-      val uri  = URI.create(s"${marker(platform)}/eliot/lang/$name.els")
+    systemStubs.flatMap { case (moduleName, content) =>
+      val path = moduleName.toPath
+      val uri  = URI.create(s"${marker(platform)}/$path")
       Seq(PathScan(path, Seq(uri), platform), source(uri, content))
     }
 

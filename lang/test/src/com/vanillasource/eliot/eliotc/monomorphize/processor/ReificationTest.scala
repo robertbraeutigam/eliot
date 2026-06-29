@@ -18,27 +18,10 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   */
 class ReificationTest extends ProcessorTest(LangProcessors()*) {
 
-  override val systemImports = Seq(
-    SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
-    SystemImport("Type", "type Type"),
-    SystemImport("BigInteger", "type BigInteger"),
-    SystemImport("Unit", "type Unit"),
-    SystemImport("String", "type String"),
-    SystemImport("IO", "type IO"),
-    SystemImport(
-      "PatternMatch",
-      "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}"
-    ),
-    SystemImport(
-      "TypeMatch",
-      "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
-    ),
-    SystemImport("Int", ProcessorTest.intStubContent),
-    SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    SystemImport("Console", ProcessorTest.consoleStubContent),
-    SystemImport("Log", ProcessorTest.logStubContent),
-    SystemImport("Dep", ProcessorTest.depStubContent)
-  )
+  // The canonical ambient set with the real `PatternMatch`/`TypeMatch` ability declarations so field accessors
+  // (desugared to `match`) reduce during checking.
+  private val matchImports =
+    ambientStubsWith("PatternMatch" -> ProcessorTest.patternMatchAbilityStub, "TypeMatch" -> ProcessorTest.typeMatchAbilityStub)
 
   private val personSource = "data Person(name: String, age: BigInteger)\n"
 
@@ -100,7 +83,7 @@ class ReificationTest extends ProcessorTest(LangProcessors()*) {
     )
 
   private def bodyOf(source: String, name: String, typeArgs: Seq[GroundValue]): IO[MonomorphicExpression.Expression] =
-    runGenerator(source, MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs), systemImports)
+    runGenerator(source, MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs), matchImports)
       .flatMap { case (errors, facts) =>
         if (errors.nonEmpty) IO.raiseError(new Exception(s"Compilation errors: ${errors.map(_.message).mkString(", ")}"))
         else
@@ -114,7 +97,7 @@ class ReificationTest extends ProcessorTest(LangProcessors()*) {
       }
 
   private def errorsFor(source: String, name: String, typeArgs: Seq[GroundValue]): IO[Seq[TestError]] =
-    runGenerator(source, MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs), systemImports)
+    runGenerator(source, MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs), matchImports)
       .map(result => toTestErrors(result._1))
 
   /** Render a monomorphic expression to a compact, position-free string for single-line structural asserts. */

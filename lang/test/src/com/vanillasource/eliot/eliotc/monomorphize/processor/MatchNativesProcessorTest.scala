@@ -13,27 +13,10 @@ import com.vanillasource.eliot.eliotc.plugin.LangProcessors
   */
 class MatchNativesProcessorTest extends ProcessorTest(LangProcessors()*) {
 
-  override val systemImports = Seq(
-    SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
-    SystemImport("Type", "type Type"),
-    SystemImport("BigInteger", "type BigInteger"),
-    SystemImport("Unit", "type Unit"),
-    SystemImport("String", "type String"),
-    SystemImport("IO", "type IO"),
-    SystemImport(
-      "PatternMatch",
-      "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}"
-    ),
-    SystemImport(
-      "TypeMatch",
-      "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
-    ),
-    SystemImport("Int", ProcessorTest.intStubContent),
-    SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    SystemImport("Console", ProcessorTest.consoleStubContent),
-    SystemImport("Log", ProcessorTest.logStubContent),
-    SystemImport("Dep", ProcessorTest.depStubContent)
-  )
+  // The canonical ambient set with the real `PatternMatch`/`TypeMatch` ability declarations so a surface `match`
+  // type-checks and the NbE evaluator can reduce it.
+  private val matchImports =
+    ambientStubsWith("PatternMatch" -> ProcessorTest.patternMatchAbilityStub, "TypeMatch" -> ProcessorTest.typeMatchAbilityStub)
 
   "match natives" should "reduce a data-match on nullary constructors (handleCases)" in {
     groundOf(
@@ -105,7 +88,7 @@ class MatchNativesProcessorTest extends ProcessorTest(LangProcessors()*) {
     */
   private def groundViaQuote(source: String, name: String): IO[Option[Either[String, GroundValue]]] = {
     val key = NativeBinding.Key(ValueFQN(testModuleName, default(name)))
-    runGenerator(source, key, systemImports)
+    runGenerator(source, key, matchImports)
       .map(_._2.get(key).map(fact => Quoter.quote(0, fact.asInstanceOf[NativeBinding].semValue, MetaStore.empty)))
   }
 }
