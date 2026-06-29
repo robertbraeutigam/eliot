@@ -6,6 +6,10 @@ notes.
 
 ## Type system & language
 
+- `Coerce` should return `{Throw} To` instead of `Option[To]`, so that it matches the way type
+  returns work and can return a *customized* error message to print at the failing use site (rather
+  than a bare `none` that the checker has to turn into a generic "no coercion" diagnostic). See
+  `lang/eliot/eliot/compiler/Coerce.els`.
 - Add generics to function literals.
 - Introduce arrays (records / multi-field `data` are already done).
 - WCET (worst-case execution time) and other real-time properties as type parameters, or as
