@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.visualization
 
 import cats.effect.{IO, Ref}
 import FactVisualizationTracker.GraphData
+import com.vanillasource.eliot.eliotc.design.DesignTokens
 import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.processor.CompilerFactKey
 
@@ -138,91 +139,40 @@ final class FactVisualizationTracker(
       .mkString(",\n            ")
 
     s"""<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>ELIOT Compiler - Fact Generation Visualization</title>
+    <title>Fact generation flow · Eliot</title>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="${DesignTokens.favicon}">
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-            background: #EEE;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }
-        #header {
-            background: #EEE;
-            padding: 20px 30px;
-            z-index: 1000;
-        }
-        #header h1 {
-            margin: 0 0 10px 0;
-            color: #333;
-            font-size: 28px;
-        }
-        #header p {
-            margin: 0;
-            color: #666;
-            font-size: 14px;
-        }
-        #cy {
-            flex: 1;
-            background: white;
-            margin: 20px;
-            border: 2px solid #DDD;
-            border-radius: 20px;
-        }
-        #info-panel {
-            position: absolute;
-            top: 100px;
-            top: 100px;
-            right: 40px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            max-width: 300px;
-            display: none;
-        }
-        #info-panel h3 {
-            margin: 0 0 10px 0;
-            color: #333;
-            font-size: 18px;
-        }
-        #info-panel p {
-            margin: 5px 0;
-            color: #666;
-            font-size: 13px;
-        }
-        .legend {
-            position: absolute;
-            bottom: 40px;
-            left: 40px;
-            background: rgba(255, 255, 255, 0.95);
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        }
-        .legend h4 {
-            margin: 0 0 10px 0;
-            color: #333;
-            font-size: 14px;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            margin: 5px 0;
-            font-size: 12px;
-            color: #666;
-        }
-        .legend-color {
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            margin-right: 10px;
-        }
+${DesignTokens.tokensCss}
+
+/* ======================================================================
+ * fact-flow visualizer components — the brand's default DARK theme (an app
+ * surface, not docs). Reference only the semantic / base-palette tokens
+ * above, so a brand change flows in by re-syncing the shared tokens. The
+ * Cytoscape canvas can't read CSS variables, so the graph script reads the
+ * resolved token values from :root at runtime (see below).
+ * ====================================================================== */
+html, body { height: 100%; }
+body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-family: var(--font-body); }
+#header { padding: 18px 28px; background: var(--surface); border-bottom: 1px solid var(--border); }
+#header .brand { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-display); font-weight: var(--weight-medium); font-size: 1.05rem; color: var(--text); letter-spacing: var(--tracking-tight); margin-bottom: 10px; }
+#header .brand .tag { color: var(--text-muted); font-weight: var(--weight-regular); font-size: .6rem; letter-spacing: var(--tracking-label); text-transform: uppercase; margin-left: 2px; }
+#header h1 { font-family: var(--font-display); font-weight: var(--weight-medium); font-size: 1.5rem; color: var(--text); letter-spacing: var(--tracking-tight); margin: 0 0 6px; }
+#header p { margin: 0; color: var(--text-muted); font-size: var(--text-sm); }
+#cy { flex: 1; min-height: 0; background: var(--ink); margin: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.panel { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-md); color: var(--text); }
+#info-panel { top: 124px; right: 36px; padding: 18px; max-width: 300px; display: none; }
+#info-panel h3 { font-family: var(--font-display); font-weight: var(--weight-medium); font-size: var(--text-h4); margin: 0 0 10px; color: var(--text); }
+#info-panel p { margin: 5px 0; color: var(--text-muted); font-size: var(--text-sm); }
+#info-panel strong { color: var(--text); font-weight: var(--weight-medium); }
+.legend { bottom: 36px; left: 36px; padding: 14px 16px; }
+.legend h4 { font-family: var(--font-display); font-weight: var(--weight-medium); font-size: var(--text-xs); margin: 0 0 10px; color: var(--text); text-transform: uppercase; letter-spacing: var(--tracking-label); }
+.legend-item { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: var(--text-xs); color: var(--text-muted); }
+.legend-swatch { width: 18px; height: 14px; border-radius: var(--radius-xs); flex: 0 0 auto; }
+.legend-line { width: 26px; height: 0; flex: 0 0 auto; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"></script>
     <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
@@ -230,27 +180,35 @@ final class FactVisualizationTracker(
 </head>
 <body>
     <div id="header">
-        <h1>🔍 ELIOT Compiler - Fact Generation Flow</h1>
-        <p>Visualizing how facts flow between compiler processors. Click on nodes or edges to see details.</p>
+        <div class="brand">eliot<span class="eliot-cursor"></span><span class="tag">compiler</span></div>
+        <h1>Fact generation flow</h1>
+        <p>How facts flow between compiler processors. Click a node or edge for details.</p>
     </div>
     <div id="cy"></div>
-    <div id="info-panel"></div>
-    <div class="legend">
+    <div id="info-panel" class="panel"></div>
+    <div class="legend panel">
         <h4>Legend</h4>
         <div class="legend-item">
-            <div class="legend-color" style="background: #4285F4;"></div>
-            <span>Processor Node</span>
+            <span class="legend-swatch" style="background: var(--ink-raised); border: 1px solid var(--line-strong);"></span>
+            <span>Processor</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background: #34A853; border-radius: 0; width: 30px; height: 3px;"></div>
-            <span>Forward Edge (normal flow)</span>
+            <span class="legend-line" style="border-top: 3px solid var(--green-dim);"></span>
+            <span>Fact flow</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background: #FF6D00; border-radius: 0; width: 30px; height: 3px;"></div>
-            <span>Back Edge (cycle/dynamic)</span>
+            <span class="legend-line" style="border-top: 3px dashed var(--fail);"></span>
+            <span>Back edge (cycle)</span>
         </div>
     </div>
     <script>
+        var rootStyle = getComputedStyle(document.documentElement);
+        function tok(name){ return rootStyle.getPropertyValue(name).trim(); }
+        var INK = tok('--ink'), INK_RAISED = tok('--ink-raised'), PAPER = tok('--paper'),
+            MUTED = tok('--muted'), LINE = tok('--line'), LINE_STRONG = tok('--line-strong'),
+            GREEN = tok('--green'), GREEN_DIM = tok('--green-dim'), GREEN_BRIGHT = tok('--green-bright'),
+            FAIL = tok('--fail');
+        var MONO = "JetBrains Mono, ui-monospace, monospace";
         var cy = cytoscape({
             container: document.getElementById('cy'),
 
@@ -263,55 +221,56 @@ final class FactVisualizationTracker(
                 {
                     selector: 'node',
                     style: {
-                        'background-color': '#4285F4',
+                        'shape': 'round-rectangle',
+                        'background-color': INK_RAISED,
                         'label': 'data(label)',
-                        'color': '#fff',
+                        'color': PAPER,
                         'text-valign': 'center',
                         'text-halign': 'center',
+                        'font-family': MONO,
                         'font-size': '11px',
                         'font-weight': 'bold',
                         'width': '120px',
-                        'height': '80px',
-                        'border-width': 3,
-                        'border-color': '#1967D2',
-                        'text-outline-color': '#4285F4',
-                        'text-outline-width': 2,
+                        'height': '60px',
+                        'border-width': 1.5,
+                        'border-color': LINE_STRONG,
                         'text-wrap': 'wrap',
-                        'text-max-width': '110px'
+                        'text-max-width': '104px'
                     }
                 },
                 {
                     selector: 'node:selected',
                     style: {
-                        'background-color': '#34A853',
-                        'border-color': '#188038',
-                        'border-width': 4
+                        'color': GREEN_BRIGHT,
+                        'border-color': GREEN,
+                        'border-width': 2.5
                     }
                 },
                 {
                     selector: 'edge',
                     style: {
                         'width': 'data(width)',
-                        'line-color': '#34A853',
-                        'target-arrow-color': '#34A853',
+                        'line-color': GREEN_DIM,
+                        'target-arrow-color': GREEN_DIM,
                         'target-arrow-shape': 'triangle',
                         'curve-style': 'bezier',
                         'label': 'data(label)',
+                        'font-family': MONO,
                         'font-size': '9px',
                         'text-rotation': 'autorotate',
                         'text-margin-y': -10,
-                        'color': '#5F6368',
-                        'text-background-color': '#fff',
-                        'text-background-opacity': 0.9,
+                        'color': MUTED,
+                        'text-background-color': INK,
+                        'text-background-opacity': 0.85,
                         'text-background-padding': '3px',
-                        'arrow-scale': 1.2
+                        'arrow-scale': 1.1
                     }
                 },
                 {
                     selector: 'edge[?backEdge]',
                     style: {
-                        'line-color': '#FF6D00',
-                        'target-arrow-color': '#FF6D00',
+                        'line-color': FAIL,
+                        'target-arrow-color': FAIL,
                         'line-style': 'dashed',
                         'line-dash-pattern': [6, 3]
                     }
@@ -319,8 +278,8 @@ final class FactVisualizationTracker(
                 {
                     selector: 'edge:selected',
                     style: {
-                        'line-color': '#FBBC04',
-                        'target-arrow-color': '#FBBC04',
+                        'line-color': GREEN_BRIGHT,
+                        'target-arrow-color': GREEN_BRIGHT,
                         'width': 'data(width)'
                     }
                 }
@@ -370,8 +329,8 @@ final class FactVisualizationTracker(
         cy.on('tap', 'edge', function(evt){
             var edge = evt.target;
             var backEdgeInfo = edge.data('backEdge') ?
-                '<p><strong>Type:</strong> <span style="color: #FF6D00;">⚠️ Back Edge (creates cycle)</span></p>' :
-                '<p><strong>Type:</strong> Forward Edge</p>';
+                '<p><strong>Type:</strong> <span style="color:' + FAIL + ';">Back edge (creates cycle)</span></p>' :
+                '<p><strong>Type:</strong> Forward edge</p>';
             infoPanel.innerHTML = '<h3>' + edge.data('label') + '</h3>' +
                 '<p><strong>From:</strong> ' + edge.source().data('label') + '</p>' +
                 '<p><strong>To:</strong> ' + edge.target().data('label') + '</p>' +

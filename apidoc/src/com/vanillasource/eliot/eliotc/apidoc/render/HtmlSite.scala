@@ -1,8 +1,7 @@
 package com.vanillasource.eliot.eliotc.apidoc.render
 
 import com.vanillasource.eliot.eliotc.apidoc.model.{DocItem, DocModule}
-
-import java.nio.charset.StandardCharsets
+import com.vanillasource.eliot.eliotc.design.DesignTokens
 
 /** Renders the documentation model to a static HTML site styled with the Eliot brand design system: an `index.html`
   * landing page, one page per module, and a shared `style.css`. The look follows the brand's documentation kit — a
@@ -29,10 +28,6 @@ object HtmlSite {
 
   private def escape(text: String): String = EliotHighlighter.escape(text)
 
-  /** The brand `e` + green-cursor mark, inlined as a data URI so the site stays self-contained. */
-  private val favicon: String =
-    "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImVsaW90Ij48cmVjdCB4PSIwIiB5PSIwIiB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxNC4xIiBmaWxsPSIjMEYxNDE5Ij48L3JlY3Q+PGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMTUuMzgsNDQuODApIHNjYWxlKDAuMDM1MDY4NDkzMTUwNjg0OTM2LC0wLjAzNTA2ODQ5MzE1MDY4NDkzNikiPjxwYXRoIGQ9Ik0zMDAgLTEwUTIwMSAtMTAgMTQwLjUgNDkuMFE4MCAxMDggODAgMjEwVjM0MFE4MCA0NDIgMTQwLjUgNTAxLjBRMjAxIDU2MCAzMDAgNTYwUTM2NiA1NjAgNDE1LjUgNTMzLjVRNDY1IDUwNyA0OTIuNSA0NTkuNVE1MjAgNDEyIDUyMCAzNDlWMjUwSDE3N1YyMDJRMTc3IDE0MiAyMTAuMCAxMDguMFEyNDMgNzQgMzAwIDc0UTM0OCA3NCAzNzkuMCA5Mi4wUTQxMCAxMTAgNDE2IDE0Mkg1MTVRNTA1IDcyIDQ0Ni4wIDMxLjBRMzg3IC0xMCAzMDAgLTEwWk0xNzcgMzQ5VjMyM0g0MjNWMzQ5UTQyMyA0MTIgMzkxLjAgNDQ2LjBRMzU5IDQ4MCAzMDAgNDgwUTI0MSA0ODAgMjA5LjAgNDQ2LjBRMTc3IDQxMiAxNzcgMzQ5WiIgZmlsbD0iI0VERUFFMyI+PC9wYXRoPjwvZz48cmVjdCB4PSI0MC42OSIgeT0iMTkuMjAiIHdpZHRoPSI1LjEyIiBoZWlnaHQ9IjI1LjYwIiBmaWxsPSIjMkVDMjdFIj48L3JlY3Q+PC9zdmc+"
-
   private def page(title: String, sidebar: String, content: String): String =
     s"""<!doctype html>
        |<html lang="en">
@@ -40,7 +35,7 @@ object HtmlSite {
        |<meta charset="utf-8">
        |<meta name="viewport" content="width=device-width, initial-scale=1">
        |<title>${escape(title)} · Eliot</title>
-       |<link rel="icon" href="$favicon">
+       |<link rel="icon" href="${DesignTokens.favicon}">
        |<link rel="stylesheet" href="style.css">
        |</head>
        |<body class="on-paper">
@@ -231,38 +226,19 @@ object HtmlSite {
     s"""<span class="badges">$implemented</span>"""
   }
 
-  /** The full stylesheet: the vendored Eliot Design System token files, followed by apidoc's component rules. A `def`
-    * (not a `val`) so it never observes the `designTokens`/`components` vals before their in-order initialization.
+  /** The full stylesheet: the shared Eliot Design System token layer, followed by apidoc's component rules. A `def`
+    * (not a `val`) so it never observes the `components` val before its in-order initialization.
     */
   private def css: String =
-    s"""${designTokens}
+    s"""${DesignTokens.tokensCss}
        |
        |/* ======================================================================
        | * apidoc components — reference only the semantic tokens defined above,
-       | * so a brand change flows in by re-syncing design/ (no edits here).
-       | * Code wells deliberately use the fixed dark base palette (--ink/--paper/
-       | * --line/--syn-*) so code stays dark and is the hero, even on .on-paper.
+       | * so a brand change flows in by re-syncing the shared tokens (no edits
+       | * here). Code wells deliberately use the fixed dark base palette
+       | * (--ink/--paper/--line/--syn-*) so code stays dark and is the hero.
        | * ====================================================================== */
        |$components""".stripMargin
-
-  /** The design system's token layer, concatenated in the same order as its own `styles.css`. Vendored verbatim under
-    * `design/` — see that folder's README for provenance and how to re-sync from claude.ai/design.
-    */
-  private val designTokens: String =
-    Seq("fonts.css", "colors.css", "typography.css", "spacing.css", "effects.css", "base.css")
-      .map(name => s"/* ---- design/$name ---- */\n" + resource(name))
-      .mkString("\n")
-
-  /** Reads a vendored design resource (co-located under `design/`) from the classpath. Missing resources fail loudly
-    * rather than degrading silently — the site must never render without its brand tokens.
-    */
-  private def resource(name: String): String = {
-    val path   = s"design/$name"
-    val stream = Option(getClass.getResourceAsStream(path))
-      .getOrElse(throw new IllegalStateException(s"Missing vendored design resource: $path"))
-    try new String(stream.readAllBytes(), StandardCharsets.UTF_8)
-    finally stream.close()
-  }
 
   private val components: String =
     """.layout{display:flex;align-items:flex-start}
