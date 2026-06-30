@@ -1,5 +1,4 @@
-import eliot.lang.Monad
-import eliot.lang.Applicative
+import eliot.lang.Effect
 import eliot.lang.Sync
 import eliot.lang.Throw
 import eliot.lang.Either
@@ -15,19 +14,14 @@ import eliot.lang.Either
 data EitherT[E, G[_], A](runEitherT: G[Either[E, A]])
 
 /**
- * `EitherT[E, G]` is a monad whenever its base `G` is: `pure` injects via a `Right`; `flatMap` continues on `Right(a)`
- * and short-circuits on `Left(err)` (propagating the error), the `Throw` semantics.
+ * `EitherT[E, G]` is an effect carrier whenever its base `G` is: `pure` injects via a `Right`; `flatMap` continues on
+ * `Right(a)` and short-circuits on `Left(err)` (propagating the error), the `Throw` semantics; `map` transforms a
+ * `Right` value and propagates a `Left` error.
  */
-implement[E, G[_] ~ Monad] Monad[EitherT[E, G]] {
+implement[E, G[_] ~ Effect] Effect[EitherT[E, G]] {
    def pure[A](a: A): EitherT[E, G, A] = EitherT(pure(Right(a)))
    def flatMap[A, B](fa: EitherT[E, G, A], f: Function[A, EitherT[E, G, B]]): EitherT[E, G, B] =
       EitherT(flatMap(runEitherT(fa), e -> foldEither(e, err -> pure(Left(err)), a -> runEitherT(f(a)))))
-}
-
-/**
- * Mapping over `EitherT`: transform a `Right` value, propagate a `Left` error.
- */
-implement[E, G[_] ~ Applicative] Applicative[EitherT[E, G]] {
    def map[A, B](fa: EitherT[E, G, A], f: Function[A, B]): EitherT[E, G, B] =
       EitherT(map(runEitherT(fa), e -> foldEither(e, err -> Left(err), a -> Right(f(a)))))
 }
@@ -36,14 +30,14 @@ implement[E, G[_] ~ Applicative] Applicative[EitherT[E, G]] {
  * The base-effect lift: `EitherT[E, G]` is `Sync` whenever `G` is, running the inner sync action and wrapping its result
  * in `Right`. Carries every `Sync`-keyed fine effect through the `EitherT` layer.
  */
-implement[E, G[_] ~ Sync & Applicative] Sync[EitherT[E, G]] {
+implement[E, G[_] ~ Sync & Effect] Sync[EitherT[E, G]] {
    def sync[A](thunk: Function[Unit, A]): EitherT[E, G, A] = EitherT(map(sync(thunk), a -> Right(a)))
 }
 
 /**
  * The `Throw` instance: `raise(err)` is the failure — an `EitherT` whose inner computation purely yields `Left(err)`.
  */
-implement[E, G[_] ~ Monad] Throw[E, EitherT[E, G]] {
+implement[E, G[_] ~ Effect] Throw[E, EitherT[E, G]] {
    def raise[A](err: E): EitherT[E, G, A] = EitherT(pure(Left(err)))
 }
 

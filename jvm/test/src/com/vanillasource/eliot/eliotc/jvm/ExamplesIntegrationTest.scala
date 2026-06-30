@@ -7,15 +7,15 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
       .asserting(_ shouldBe "Hello World!")
   }
 
-  // --- Effects M2: library spine (Monad/Sync/Console) + the Console -> Sync -> IO layering, run end-to-end ---
+  // --- Effects M2: library spine (Effect/Sync/Console) + the Console -> Sync -> IO layering, run end-to-end ---
 
-  // The headline M2 acceptance: a hand-monadic `{Console}` computation reading a line and echoing it. `flatMap` is a
-  // `Monad[IO]` op resolved at the concrete use site (the carrier is not in `echo`'s declared effect set); `readLine`
+  // The headline M2 acceptance: a hand-monadic `{Console}` computation reading a line and echoing it. `flatMap` is an
+  // `Effect[IO]` op resolved at the concrete use site (the carrier is not in `echo`'s declared effect set); `readLine`
   // and `println` resolve through the constrained HKT instance `implement[F[_] ~ Sync] Console[F]` at `F := IO`, which
   // in turn discharges `Sync[IO]`. `main` commits to the concrete runnable carrier `IO[Unit]` (Decision 8).
   "console effect" should "read a line and echo it through the Console -> Sync -> IO layering" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |
         |def echo: {Console} Unit = flatMap(readLine, s -> println(s))
         |
@@ -36,7 +36,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // infers `F := IO` and resolves both effect operations through the layering.
   it should "run a carrier-polymorphic {Console} function pinned to IO at the call site" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |
         |def greet: {Console} Unit = flatMap(println("a"), ignore -> println("b"))
         |
@@ -55,7 +55,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   // THE headline: a direct-style program. `readLine` is effectful (`F[String]`) but flows into `println`, which expects
   // a plain `String`; the effect-desugar phase binds it, producing `flatMap(readLine, x -> println(x))`, with the
-  // carrier pinned to `IO` by `main`'s return. No `import eliot.lang.Monad`, no hand-written `flatMap`.
+  // carrier pinned to `IO` by `main`'s return. No `import eliot.lang.Effect`, no hand-written `flatMap`.
   "effect auto-lift" should "sequence a direct-style println(readLine) at a concrete IO main" in {
     compileAndRun("""def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
       .asserting(_ shouldBe "echoed line")
@@ -75,7 +75,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // runs exactly as before, proving auto-lift does not double-bind a stored effect action.
   it should "leave already-monadic flatMap code unchanged" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |
         |def echo: {Console} Unit = flatMap(readLine, s -> println(s))
         |
@@ -133,7 +133,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // end to end. `get` is dispatched by the dependency type and collapses to the injected singleton.
   "a multi-effect Dep/Log/Console program" should "compile and run end to end" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |
         |data Database(url: String)
         |
@@ -154,7 +154,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // (the first dependency's url, then the second's name) — proving by-type dispatch does not collapse the two.
   "two distinct-typed Deps" should "each resolve get to its own instance in one body" in {
     val program =
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |
         |data Database(url: String)
         |data Logger(name: String)
@@ -171,7 +171,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "resolve the second distinct Dep to its own value" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |
         |data Database(url: String)
         |data Logger(name: String)
@@ -191,7 +191,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // per type), via the ordinary ability overlap check.
   "two same-type Dep implementations" should "be rejected as overlapping" in {
     compileForErrors(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |
         |data Database(url: String)
         |
@@ -210,7 +210,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // discharge edge, not in the `{Abort} String` signature. `main` pins the residual carrier `G := IO`.
   "the Abort effect" should "discharge a completed computation to Some via runAbort" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |import eliot.lang.Abort
         |import eliot.lang.Option
         |import eliot.lang.OptionT
@@ -225,7 +225,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // carrier is refined to `OptionT[G]` by partial-application injectivity at the `runAbort` call.
   it should "discharge an aborted computation to None via runAbort" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |import eliot.lang.Abort
         |import eliot.lang.Option
         |import eliot.lang.OptionT
@@ -241,7 +241,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // `None`. Proves the constrained-HKT instance + base-Sync-lift path end to end.
   "a {Console, Abort} program" should "run Console through the OptionT[IO] stack via the Sync lift, then short-circuit" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |import eliot.lang.Abort
         |import eliot.lang.Option
         |import eliot.lang.OptionT
@@ -258,7 +258,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // structural-discharge pattern generalises to a two-type-parameter effect and a two-constructor result.
   "the Throw effect" should "discharge a completed computation to Right via runThrow" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |import eliot.lang.Throw
         |import eliot.lang.Either
         |import eliot.lang.EitherT
@@ -271,7 +271,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "discharge a failed computation to Left, carrying the typed error" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |import eliot.lang.Throw
         |import eliot.lang.Either
         |import eliot.lang.EitherT
@@ -287,20 +287,16 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // print the already-computed pure results.
   "a carrier-polymorphic {Abort} program" should "run under a pure Id test carrier with no IO and discharge to Option" in {
     compileAndRun(
-      """import eliot.lang.Monad
-        |import eliot.lang.Applicative
+      """import eliot.lang.Effect
         |import eliot.lang.Abort
         |import eliot.lang.Option
         |import eliot.lang.OptionT
         |
         |data Id[A](runId: A)
         |
-        |implement Monad[Id] {
+        |implement Effect[Id] {
         |   def pure[A](a: A): Id[A] = Id(a)
         |   def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
-        |}
-        |
-        |implement Applicative[Id] {
         |   def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
         |}
         |
@@ -322,7 +318,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // reads the state, installs a new one, and returns the previous value; discharged on IO from initial "before".
   "the State effect" should "thread state through a {State} computation and discharge to a Pair via runState" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |import eliot.lang.State
         |import eliot.lang.Pair
         |import eliot.lang.StateT
@@ -341,20 +337,16 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // bug previously blocked (a two-field generic `Pair` at the `Unit`/`String` mix of `getState`/`putState`).
   "a carrier-polymorphic {State} program" should "run under a pure Id carrier with no IO and discharge to a Pair" in {
     compileAndRun(
-      """import eliot.lang.Monad
-        |import eliot.lang.Applicative
+      """import eliot.lang.Effect
         |import eliot.lang.State
         |import eliot.lang.Pair
         |import eliot.lang.StateT
         |
         |data Id[A](runId: A)
         |
-        |implement Monad[Id] {
+        |implement Effect[Id] {
         |   def pure[A](a: A): Id[A] = Id(a)
         |   def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
-        |}
-        |
-        |implement Applicative[Id] {
         |   def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
         |}
         |
@@ -371,7 +363,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // (the n-not-n×m lifting), so the print runs while the state threads through and discharges to a Pair.
   "a {State, Console} program" should "run Console through the StateT[String, IO] stack via the Sync lift" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |import eliot.lang.State
         |import eliot.lang.Pair
         |import eliot.lang.StateT
@@ -391,8 +383,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // effect set and decided only by the order the `run*` calls are nested, via the n² cross-lifting instances
   // `State[OptionT[G]]` (in `OptionT`) and `Abort[StateT[S, G]]` (in `StateT`). Run on a pure `Id` carrier.
   private val orderingPrelude =
-    """import eliot.lang.Monad
-      |import eliot.lang.Applicative
+    """import eliot.lang.Effect
       |import eliot.lang.State
       |import eliot.lang.Abort
       |import eliot.lang.Option
@@ -402,12 +393,9 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
       |
       |data Id[A](runId: A)
       |
-      |implement Monad[Id] {
+      |implement Effect[Id] {
       |   def pure[A](a: A): Id[A] = Id(a)
       |   def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
-      |}
-      |
-      |implement Applicative[Id] {
       |   def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
       |}
       |
@@ -505,7 +493,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // effectful statement; `old` is the result expression.
   "a {State} computation in block form" should "thread state exactly like the hand-written flatMap nest" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |import eliot.lang.State
         |import eliot.lang.Pair
         |import eliot.lang.StateT
@@ -545,7 +533,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // block; pinned here so the shipped example cannot silently regress.
   "a {Console, State} interaction in block form (the Blocks example)" should "run end to end" in {
     compileAndRun(
-      """import eliot.lang.Monad
+      """import eliot.lang.Effect
         |import eliot.lang.State
         |import eliot.lang.Pair
         |import eliot.lang.StateT

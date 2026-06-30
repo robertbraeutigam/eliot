@@ -5,7 +5,7 @@
 // effectful step (or a plain value), and bare statements are sequenced through the carrier automatically — no
 // hand-written `flatMap` nest.
 
-import eliot.lang.Monad
+import eliot.lang.Effect
 import eliot.lang.State
 import eliot.lang.Pair
 import eliot.lang.StateT

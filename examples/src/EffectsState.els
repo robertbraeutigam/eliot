@@ -1,5 +1,4 @@
-import eliot.lang.Monad
-import eliot.lang.Applicative
+import eliot.lang.Effect
 import eliot.lang.State
 import eliot.lang.Pair
 import eliot.lang.StateT
@@ -7,12 +6,9 @@ import eliot.lang.StateT
 // A pure carrier: the identity monad. Running a `{State}` program on it threads the state with no I/O at all.
 data Id[A](runId: A)
 
-implement Monad[Id] {
+implement Effect[Id] {
    def pure[A](a: A): Id[A] = Id(a)
    def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
-}
-
-implement Applicative[Id] {
    def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
 }
 

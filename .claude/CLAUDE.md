@@ -254,11 +254,11 @@ user program + its own layer independently. This is built and in place — the
 (`CompilerNativesProcessor`, contributing the `compiler` `ContributedBinding` from the compiler-marker `SaturatedValue`),
 and the module's **first content** all exist. CP4 is the compile-time `Either` carrier
 (`compiler/eliot/eliot/lang/Either.els`: concrete `data Either` + `foldEither` + `implement
-Monad[Either[String]]`/`Throw[String, Either[String]]`), with abstract `type Either[E, A]` promoted to the `stdlib` base
+Effect[Either[String]]`/`Throw[String, Either[String]]`), with abstract `type Either[E, A]` promoted to the `stdlib` base
 and the runtime `jvm` `Either` unchanged — structurally identical, so the compiler overlay is transparent for runtime
 uses (the `add` pattern). The remaining compile-time intrinsics (`add`, `Bool` `fold`, `true`/`false`) are still Scala
 native **leaves** in `SystemNativesProcessor` / `StdlibNativesProcessor` — the compiler platform's leaf bottom, mirroring
-jvm's bytecode leaves. The `Monad`/`Throw` instances are compiler-pool-only; the effectful-signatures discharge (W2b,
+jvm's bytecode leaves. The `Effect`/`Throw` instances are compiler-pool-only; the effectful-signatures discharge (W2b,
 landed — `monomorphize/check/CalculatedReturnResolver.scala`: a `{Throw[String]}` return on the `Either[String, _]`
 carrier reads back as `Right(t)` ⤳ the type `t` / `Left(msg)` ⤳ a diagnostic) recognises the carrier's `Left`/`Right` by
 FQN and reduces `fold`/`foldEither` via the merged `NativeBinding`, so those instances are reached only once the W5

@@ -1,4 +1,4 @@
-import eliot.lang.Monad
+import eliot.lang.Effect
 import eliot.lang.Throw
 
 /**
@@ -22,15 +22,19 @@ def foldEither[E, A, B](e: Either[E, A], ifLeft: Function[E, B], ifRight: Functi
 }
 
 /**
- * `Either[String, _]` is the *pure* (identity-base) error monad the compiler runs type-level computations on: `pure`
+ * `Either[String, _]` is the *pure* (identity-base) error carrier the compiler runs type-level computations on: `pure`
  * injects a result via `Right`; `flatMap` continues on `Right(a)` and short-circuits on `Left(err)` (propagating the
- * error) — the `Throw` semantics. Specialised to the error type `String` (the compiler's guard-message type).
+ * error) — the `Throw` semantics; `map` transforms a `Right` value and propagates a `Left` error. Specialised to the
+ * error type `String` (the compiler's guard-message type).
  */
-implement Monad[Either[String]] {
+implement Effect[Either[String]] {
    def pure[A](a: A): Either[String, A] = Right(a)
 
    def flatMap[A, B](fa: Either[String, A], f: Function[A, Either[String, B]]): Either[String, B] =
       foldEither(fa, err -> Left(err), a -> f(a))
+
+   def map[A, B](fa: Either[String, A], f: Function[A, B]): Either[String, B] =
+      foldEither(fa, err -> Left(err), a -> Right(f(a)))
 }
 
 /**

@@ -1,4 +1,4 @@
-import eliot.lang.Monad
+import eliot.lang.Effect
 import eliot.lang.Throw
 import eliot.lang.Either
 import eliot.lang.EitherT

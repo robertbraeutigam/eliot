@@ -1,5 +1,4 @@
-import eliot.lang.Monad
-import eliot.lang.Applicative
+import eliot.lang.Effect
 import eliot.lang.Sync
 import eliot.lang.Abort
 import eliot.lang.State
@@ -15,21 +14,15 @@ import eliot.lang.Option
 data OptionT[G[_], A](runOptionT: G[Option[A]])
 
 /**
- * `OptionT` is a monad whenever its base `G` is: `pure` injects via `G`'s `pure` and a `Some`; `flatMap` runs the inner
- * `G[Option[A]]`, and on `Some(a)` continues with `f`, on `None` short-circuits (the `Abort` semantics). The author-written
+ * `OptionT` is an effect carrier whenever its base `G` is: `pure` injects via `G`'s `pure` and a `Some`; `flatMap` runs
+ * the inner `G[Option[A]]`, and on `Some(a)` continues with `f`, on `None` short-circuits (the `Abort` semantics); `map`
+ * transforms a present value and propagates `None`, given directly so it needs no `pure` round-trip. The author-written
  * `pure(None)` stays put — the effect-desugar phase does not bind an explicit machinery call.
  */
-implement[G[_] ~ Monad] Monad[OptionT[G]] {
+implement[G[_] ~ Effect] Effect[OptionT[G]] {
    def pure[A](a: A): OptionT[G, A] = OptionT(pure(Some(a)))
    def flatMap[A, B](fa: OptionT[G, A], f: Function[A, OptionT[G, B]]): OptionT[G, B] =
       OptionT(flatMap(runOptionT(fa), o -> foldOption(o, pure(None), a -> runOptionT(f(a)))))
-}
-
-/**
- * Mapping over `OptionT`: transform a present value, propagate `None`. Derivable from the monad but given directly so it
- * needs no `pure` round-trip.
- */
-implement[G[_] ~ Applicative] Applicative[OptionT[G]] {
    def map[A, B](fa: OptionT[G, A], f: Function[A, B]): OptionT[G, B] =
       OptionT(map(runOptionT(fa), o -> foldOption(o, None, a -> Some(f(a)))))
 }
@@ -39,14 +32,14 @@ implement[G[_] ~ Applicative] Applicative[OptionT[G]] {
  * in `Some`. This single per-transformer lift is what carries every `Sync`-keyed fine effect (`Console`, `Log`, …)
  * through the `OptionT` layer for free.
  */
-implement[G[_] ~ Sync & Applicative] Sync[OptionT[G]] {
+implement[G[_] ~ Sync & Effect] Sync[OptionT[G]] {
    def sync[A](thunk: Function[Unit, A]): OptionT[G, A] = OptionT(map(sync(thunk), a -> Some(a)))
 }
 
 /**
  * The `Abort` instance: `abort` is the short-circuit — an `OptionT` whose inner computation purely yields `None`.
  */
-implement[G[_] ~ Monad] Abort[OptionT[G]] {
+implement[G[_] ~ Effect] Abort[OptionT[G]] {
    def abort[A]: OptionT[G, A] = OptionT(pure(None))
 }
 
@@ -59,7 +52,7 @@ implement[G[_] ~ Monad] Abort[OptionT[G]] {
  * state survives an abort: discharging in this order yields `Pair[Option[A], S]`. Its order-sensitive counterpart is
  * `Abort[StateT[S, G]]` (in `StateT`), where the abort instead discards the state.
  */
-implement[S, G[_] ~ State[S] & Applicative] State[S, OptionT[G]] {
+implement[S, G[_] ~ State[S] & Effect] State[S, OptionT[G]] {
    def getState: OptionT[G, S] = OptionT(map(getState, s -> Some(s)))
    def putState(newS: S): OptionT[G, Unit] = OptionT(map(putState(newS), u -> Some(u)))
 }

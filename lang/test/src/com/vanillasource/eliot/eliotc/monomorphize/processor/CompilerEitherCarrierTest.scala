@@ -14,7 +14,7 @@ import java.nio.file.Path
 
 /** CP4 leaf test: the compiler-platform `Either` carrier is well-formed Eliot and is
   * extracted into the **compiler** source pool — the concrete `data`/`foldEither` *and* the compile-time
-  * `Monad[Either[String]]` / `Throw[String, Either[String]]` instances.
+  * `Effect[Either[String]]` / `Throw[String, Either[String]]` instances.
   *
   * The full-pipeline `Throw` integration tests already exercise `Either`/`Left`/`Right`/`foldEither` (through the jvm
   * runtime layer, with the compiler overlay applied transparently), but they never touch the bare `Either[String]`
@@ -35,7 +35,7 @@ class CompilerEitherCarrierTest extends ProcessorTest(LangProcessors(systemModul
   // compile-time ability instances. (The shipped file itself is exercised end-to-end by the LSP/jvm integration suites,
   // which point the compiler path at the real resource dir.)
   private val carrier =
-    """import eliot.lang.Monad
+    """import eliot.lang.Effect
       |import eliot.lang.Throw
       |
       |data Either[E, A] = Left(error: E) | Right(value: A)
@@ -45,10 +45,12 @@ class CompilerEitherCarrierTest extends ProcessorTest(LangProcessors(systemModul
       |   case Right(v) -> ifRight(v)
       |}
       |
-      |implement Monad[Either[String]] {
+      |implement Effect[Either[String]] {
       |   def pure[A](a: A): Either[String, A] = Right(a)
       |   def flatMap[A, B](fa: Either[String, A], f: Function[A, Either[String, B]]): Either[String, B] =
       |      foldEither(fa, err -> Left(err), a -> f(a))
+      |   def map[A, B](fa: Either[String, A], f: Function[A, B]): Either[String, B] =
+      |      foldEither(fa, err -> Left(err), a -> Right(f(a)))
       |}
       |
       |implement Throw[String, Either[String]] {
@@ -80,7 +82,7 @@ class CompilerEitherCarrierTest extends ProcessorTest(LangProcessors(systemModul
     )
   }
 
-  it should "carry the compile-time Monad and Throw instances" in {
-    compilerNames.map(implementedAbilities).asserting(_ should contain allOf ("Monad", "Throw"))
+  it should "carry the compile-time Effect and Throw instances" in {
+    compilerNames.map(implementedAbilities).asserting(_ should contain allOf ("Effect", "Throw"))
   }
 }

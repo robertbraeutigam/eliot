@@ -17,14 +17,14 @@ import com.vanillasource.eliot.eliotc.termination.fact.RecursionCheckedValue
   * Rewrites a value's runtime body from direct style into ordinary monadic form, so a developer writes
   * `def echo : {Console} Unit = println(readLine)` and the compiler produces `flatMap(readLine, x -> println(x))`. The
   * single rule: an effectful sub-term (one whose static result is headed by an effect carrier) flowing into a *pure
-  * value-argument position* is sequenced with the carrier's `Monad.flatMap` (or `Applicative.map`, when the
+  * value-argument position* is sequenced with the carrier's `Effect.flatMap` (or `Effect.map`, when the
   * continuation is pure), binding it to a fresh variable; a pure body under an effectful carrier return is wrapped with
-  * `Monad.pure`. There is no `lift`: every effectful sub-term shares the one carrier, so there are never layers to
+  * `Effect.pure`. There is no `lift`: every effectful sub-term shares the one carrier, so there are never layers to
   * cross inside a body.
   *
   * This processor is the per-value orchestrator; the work is split across collaborators:
   *   - [[EffectCarriers]] / [[EffectMachinery]] — pure helpers identifying carriers and constructing/recognising the
-  *     internal `Monad`/`Applicative` machinery;
+  *     internal `Effect` machinery;
   *   - [[CalleeSignatures]] — reads a callee's signature into what the lift needs (bind positions, effectfulness);
   *   - [[DirectStyleDesugarer]] — the recursive bottom-up rewrite itself;
   *   - [[DeclaredEffectChecker]] — the declared-effects subset (propagation) check.
@@ -70,7 +70,7 @@ class EffectDesugaringProcessor
   )(using Platform): CompilerIO[Option[Sourced[OperatorResolvedExpression]]] = {
     val view                  = SignatureView.of(value.typeStack.as(value.typeStack.value.signature))
     // The value's own ambient effect carrier(s): a higher-kinded binder that carries an ability constraint — the M1
-    // `{E...}` carrier (`[F[_] ~ E...]`) or a hand-written `[F[_] ~ Monad]`. A bare higher-kinded generic (`C[_, _]`
+    // `{E...}` carrier (`[F[_] ~ E...]`) or a hand-written `[F[_] ~ Effect]`. A bare higher-kinded generic (`C[_, _]`
     // in `f[A, B, C[_, _]]`) is NOT a carrier, so a body like `id(c)` is never spuriously `pure`-wrapped.
     val carrier               = EffectCarriers.carrierBinders(view).filter(value.paramConstraints.contains)
 

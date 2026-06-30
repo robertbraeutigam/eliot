@@ -24,7 +24,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * direct-style body (`println(readLine)`) into ordinary monadic form (`flatMap(readLine, x -> println(x))`).
   *
   * The single rule: an effectful sub-term (one whose static result is headed by an effect carrier) flowing into a
-  * *pure value-argument position* is sequenced with the carrier's `Monad.flatMap` (or `Applicative.map`, when the
+  * *pure value-argument position* is sequenced with the carrier's `Effect.flatMap` (or `Effect.map`, when the
   * continuation is pure), binding it to a fresh variable. Already-monadic code passes through unchanged (the rewrite
   * is idempotent), and a stored effect action (`flatMap`'s first argument, an `F[A]` storage position) is not bound.
   *

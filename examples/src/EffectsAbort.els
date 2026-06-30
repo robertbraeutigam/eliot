@@ -1,4 +1,4 @@
-import eliot.lang.Monad
+import eliot.lang.Effect
 import eliot.lang.Abort
 import eliot.lang.Option
 import eliot.lang.OptionT

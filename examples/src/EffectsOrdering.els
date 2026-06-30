@@ -1,5 +1,4 @@
-import eliot.lang.Monad
-import eliot.lang.Applicative
+import eliot.lang.Effect
 import eliot.lang.State
 import eliot.lang.Abort
 import eliot.lang.Option
@@ -10,12 +9,9 @@ import eliot.lang.StateT
 // A pure carrier (the identity monad), so the two discharge orders below are plain values with no I/O.
 data Id[A](runId: A)
 
-implement Monad[Id] {
+implement Effect[Id] {
    def pure[A](a: A): Id[A] = Id(a)
    def flatMap[A, B](fa: Id[A], f: Function[A, Id[B]]): Id[B] = f(runId(fa))
-}
-
-implement Applicative[Id] {
    def map[A, B](fa: Id[A], f: Function[A, B]): Id[B] = Id(f(runId(fa)))
 }
 

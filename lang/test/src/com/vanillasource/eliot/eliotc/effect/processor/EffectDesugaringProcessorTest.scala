@@ -11,10 +11,10 @@ import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
 
   private val consoleModule = ModuleName(ModuleName.defaultSystemPackage, "Console")
-  private val monadModule   = ModuleName(ModuleName.defaultSystemPackage, "Monad")
+  private val effectModule  = ModuleName(ModuleName.defaultSystemPackage, "Effect")
   private val readLineFqn   = ValueFQN(consoleModule, QualifiedName("readLine", Qualifier.Ability("Console")))
   private val printlnFqn    = ValueFQN(consoleModule, QualifiedName("println", Qualifier.Ability("Console")))
-  private val flatMapFqn    = ValueFQN(monadModule, QualifiedName("flatMap", Qualifier.Ability("Monad")))
+  private val flatMapFqn    = ValueFQN(effectModule, QualifiedName("flatMap", Qualifier.Ability("Effect")))
 
   "effect body auto-lift" should "bind a direct-style println(readLine) into flatMap(readLine, x -> println(x))" in {
     runEffectDesugar("def echo: {Console} Unit = println(readLine)").asserting {
@@ -26,7 +26,7 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
 
   it should "leave already-monadic flatMap(readLine, s -> println(s)) unchanged (idempotent)" in {
     runEffectDesugar(
-      "import eliot.lang.Monad\ndef echo: {Console} Unit = flatMap(readLine, s -> println(s))"
+      "import eliot.lang.Effect\ndef echo: {Console} Unit = flatMap(readLine, s -> println(s))"
     ).asserting {
       case Some(FunApp(FunApp(ValRef(fm), ValRef(`readLineFqn`)), FunLit(s, FunApp(ValRef(`printlnFqn`), ParamRef(arg))))) =>
         (fm.name.name, arg) shouldBe ("flatMap", s)
@@ -65,14 +65,17 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
       .asserting(_ shouldBe Seq.empty)
   }
 
-  // The Monad ability stub (matching `stdlib/.../Monad.els`), so the idempotency case's hand-written `flatMap` resolves.
-  private val monadStub  =
-    SystemImport("Monad", "ability Monad[F[_]] {\ndef flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]\ndef pure[A](a: A): F[A]\n}")
+  // The Effect ability stub (matching `stdlib/.../Effect.els`), so the idempotency case's hand-written `flatMap` resolves.
+  private val effectStub =
+    SystemImport(
+      "Effect",
+      "ability Effect[F[_]] {\ndef flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](fa: F[A], f: Function[A, B]): F[B]\n}"
+    )
   // The Inf effect ability stub (matching `stdlib/.../Inf.els`), import-required (not ambient), so the propagation
   // cases above can name `forever` and `{Inf}`.
   private val infStub    =
     SystemImport("Inf", "ability Inf[F[_]] {\ndef forever(step: F[Unit]): F[Unit]\n}")
-  private val allImports = systemImports :+ monadStub :+ infStub
+  private val allImports = systemImports :+ effectStub :+ infStub
 
   private def runEffectDesugar(source: String): IO[Option[OperatorResolvedExpression]] =
     runGenerator(source, EffectDesugaredValue.Key(echoVfqn(source)), allImports).map { case (_, facts) =>

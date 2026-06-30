@@ -3,7 +3,7 @@
 Status: **Foundation + discharge + guard combinators (G1) + the infix guard surface (G2) landed; only the raw-`if/else` lift (G3) remains.** W1 — the compile-time error carrier — is
 **done**: it shipped as the compiler-platform `Either` layer when the compiler became a first-class platform (CP1–CP4;
 see the "compiler is itself a platform" section of `.claude/CLAUDE.md` and `compiler/README.md`). **W2a is also done**:
-the carrier's `Monad`/`Throw` instances are **compiler-pool-only**, and ability-instance resolution is platform-aware —
+the carrier's `Effect`/`Throw` instances are **compiler-pool-only**, and ability-instance resolution is platform-aware —
 `AbilityImplementation.Key` (and the `AbilityImplementationCheck`/`ModuleAbilityOverlapCheck` facts it gates) carry a
 `platform` marker (default `Runtime`, a no-op for every existing ability), so querying under `Platform.Compiler` reaches
 the compiler-pool instances (the ability-instance analogue of CP3). **W2b — the discharge — is now done**: a return-type
@@ -56,9 +56,9 @@ reject). No modular per-definition proof is attempted or required.
 There is no separate "type pipeline." A signature is an ordinary `Expression`, so it flows through the **same
 front-end as a runtime body** — and a signature and a body differ in exactly two things:
 
-1. **The carrier the `effect` phase binds.** A body binds an *inferable platform* carrier (`F[_] ~ Monad`, realized
+1. **The carrier the `effect` phase binds.** A body binds an *inferable platform* carrier (`F[_] ~ Effect`, realized
    as `IO`). A signature binds the *fixed* compile-time carrier (`Either[String, _]` with the **compiler platform's**
-   `Monad`/`Throw` — ordinary Eliot in the compiler layer, not a Scala intrinsic) — *every* signature, uniformly; a
+   `Effect`/`Throw` — ordinary Eliot in the compiler layer, not a Scala intrinsic) — *every* signature, uniformly; a
    non-guarded return type `T` is `pure(T)`, not a carrier-free special case. Same phase, position-dependent carrier.
 2. **Its terminal fate.** A body survives to `used → uncurry → codegen` — the *platform* backend, run by the JVM. A
    signature is *forced by the NbE evaluator and discharged* (W2) — the *compiler* backend, run by the
@@ -79,7 +79,7 @@ linked build.
 | `resolve` (value resolver) | yes | — |
 | `operator` | yes — this is why `Int[a + b]` already works, and now (G2 ✓) why the infix guard `A when (MIN > 0) orError "…"` lowers | — |
 | `matchdesugar`, block | body only | combinator guards need no new desugaring (G2 ✓ — the parser emits a `FlatExpression`/application the existing `operator` phase resolves); only raw `match`/blocks in the signature would need this extension, and they are not on the guard path (deferred with G3) |
-| `ability` | resolved during monomorphize / discharge | the compile-time `Monad`/`Throw` instances exist (W1 ✓); ability resolution now sees the **compiler** pool via the `platform`-marked `AbilityImplementation.Key` (W2a ✓) |
+| `ability` | resolved during monomorphize / discharge | the compile-time `Effect`/`Throw` instances exist (W1 ✓); ability resolution now sees the **compiler** pool via the `platform`-marked `AbilityImplementation.Key` (W2a ✓) |
 | `termination` | runtime-body graph only | must also cover the (recursion-free) type program |
 | `effect` | body only (`EffectDesugaredValue` copies `runtime`) | **opt-in** lift of the signature position onto the fixed carrier (G3, deferred — only raw `if`/`else`; a pure return and a combinator guard are left untouched) |
 | `monomorphize` | shared — the checker + evaluator already run both | discharge the return computation (W2) |
@@ -109,7 +109,7 @@ into **`Either[String, Type]`**.
 
 The key analogy — it is the runtime effect story, lifted one stage:
 
-| position | carrier | who provides `Monad`/`Throw` instances | who runs it | result inspected |
+| position | carrier | who provides `Effect`/`Throw` instances | who runs it | result inspected |
 |---|---|---|---|---|
 | runtime body `{Throw[String]} A` | `EitherT[String, IO]` | jvm layer | the JVM runtime | `Either[String, A]` |
 | **signature `{Throw[String]} Type`** | `Either[String, _]` (pure base — used directly, no `EitherT`/`Id`) | **the compiler platform** (Eliot layer, like jvm) | **the compiler** | `Either[String, Type]` |
@@ -144,7 +144,7 @@ Almost everything exists; the feature is mostly wiring.
 - **The effect itself:** `Throw[E, F[_]]` with `raise(err: E): F[A]`
   (`stdlib/.../Throw.els`, abstract base). `runThrow(p): G[Either[E, A]]` is the runtime handler-into-`Either`
   (`jvm/.../EitherT.els`). `Either[E, A]` is abstract in the base (`stdlib/.../Either.els`) and concrete *per platform*:
-  `jvm/.../Either.els` (runtime) and `compiler/.../Either.els` (compile-time, **with** the `Monad`/`Throw[Either[String]]`
+  `jvm/.../Either.els` (runtime) and `compiler/.../Either.els` (compile-time, **with** the `Effect`/`Throw[Either[String]]`
   instances — W1, **done**). The compile-time carrier is `Either[String, _]` **directly** (the pure error monad), so no
   `Id` base or `EitherT` transformer is needed at compile time.
 - **Branching at type level already works:** `SystemNativesProcessor.boolFoldNative`
@@ -176,7 +176,7 @@ verification.
 
 ## Platform-independence: the compiler platform provides the carrier
 
-Because the compile-time carrier and its `Monad`/`Throw[String]` instances live in the **compiler platform layer** —
+Because the compile-time carrier and its `Effect`/`Throw[String]` instances live in the **compiler platform layer** —
 on the `--compiler-path` of *every* type-checking entry point unconditionally (CP2), the same way the abstract base is —
 type-level guards evaluate **regardless of which runtime platform layer is present**, including the abstract-only LSP
 workspace. They do *not* depend on the jvm layer's `Either`/`EitherT` being on the path: the compiler layer is always
@@ -198,13 +198,13 @@ concrete; otherwise it stays stuck and is deferred.)
 > by making the compiler a first-class platform with its own **Eliot** source root (the *compiler-as-platform*
 > architecture — see the "compiler is itself a platform" section of `.claude/CLAUDE.md` and `compiler/README.md`; this
 > carrier is its first content, and is implemented). The carrier is now ordinary concrete
-> Eliot (`data Either` + `foldEither` + `implement Monad[Either[String]]`/`Throw[String, Either[String]]`) in the
+> Eliot (`data Either` + `foldEither` + `implement Effect[Either[String]]`/`Throw[String, Either[String]]`) in the
 > compiler-platform layer (`compiler/eliot/eliot/lang/Either.els`), reduced by the existing checker, with the
 > abstract `type Either[E, A]` in the `stdlib` base; `WellKnownTypes` exposes `eitherFQN`/`leftFQN`/`rightFQN` as the
 > only Scala surface, for W2 to inspect by name.
 >
 > **One consequence the Scala-intrinsic sketch hid:** because the carrier is now a marker-scoped Eliot *layer* rather
-> than a globally-visible intrinsic, its `Monad`/`Throw[Either[String]]` instances live **only in the compiler source
+> than a globally-visible intrinsic, its `Effect`/`Throw[Either[String]]` instances live **only in the compiler source
 > pool**, and ability-instance resolution is platform-blind today (it defaults to the runtime pool). Making those
 > instances reachable from the checker is therefore the first concrete task of W2 (W2a below) — the ability-instance
 > analogue of CP3's `CompilerNativesProcessor`, which does the same overlay for value *bodies*. The original sketch is
@@ -214,9 +214,9 @@ Provide, as compiler intrinsics (alongside the Bool primitives in `SystemNatives
 
 - `Either[String, _]` value representation + `foldEither`, available at compile time (promote/mirror
   `jvm/.../Either.els` so it does not depend on the jvm layer being linked).
-- `implement Monad[Either[String, _]]` — `pure = Right`, `flatMap` short-circuits on `Left`.
+- `implement Effect[Either[String, _]]` — `pure = Right`, `flatMap` short-circuits on `Left`.
 - `implement Throw[String, Either[String, _]]` — `raise = Left`.
-- The pure base `Id` + `Monad[Id]` promoted out of `examples/src/EffectsTestable.els` into a place the compiler can
+- The pure base `Id` + `Effect[Id]` promoted out of `examples/src/EffectsTestable.els` into a place the compiler can
   always see (only needed if the carrier is expressed as `EitherT[String, Id]` rather than `Either[String, _]`
   directly; prefer `Either[String, _]` directly to avoid the transformer).
 
@@ -226,7 +226,7 @@ These are input-less compiler constants, wired exactly like `boolFoldFQN` et al.
 ### W2 — Reach the carrier instances, then discharge
 
 **W2a — make the compiler-pool carrier instances reachable (the ability analogue of CP3). — done.** The carrier's
-`Monad[Either[String]]` / `Throw[String, Either[String]]` instances live in the compiler pool, but ability-instance
+`Effect[Either[String]]` / `Throw[String, Either[String]]` instances live in the compiler pool, but ability-instance
 resolution was platform-blind: `AbilityImplementation.Key` carried no marker and `AbilityImplementationProcessor`
 queried `UnifiedModuleNames` at the default `Platform.Runtime`, so a checker running on a runtime-marker value could not
 see them. The `platform` marker is now threaded through ability-instance resolution exactly as CP3 threaded it through
@@ -401,7 +401,7 @@ combinator vocabulary), and **G2** (the infix surface) are **done**.
 ## Files
 
 - `compiler/eliot/eliot/lang/Either.els` — W1 (**done**): the compile-time carrier `data Either` +
-  `foldEither` + the `Monad`/`Throw[Either[String]]` instances. Abstract `type Either` lives in `stdlib/.../Either.els`;
+  `foldEither` + the `Effect`/`Throw[Either[String]]` instances. Abstract `type Either` lives in `stdlib/.../Either.els`;
   the runtime carrier stays in `jvm/.../Either.els`.
 - `module/fact/WellKnownTypes.scala` — `eitherFQN`/`leftFQN`/`rightFQN` (**done**); add FQNs for G1 combinators if pinned.
 - `ability/fact/AbilityImplementation.scala`, `ability/fact/AbilityImplementationCheck.scala`,

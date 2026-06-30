@@ -12,7 +12,7 @@ implements it for the runtime phase. See the "compiler is itself a platform" sec
 - It depends on `stdlib` so the full abstract base is available to it.
 
 Contents: the compile-time `Either` carrier (`eliot/eliot/lang/Either.els`) — concrete `data Either`,
-`foldEither`, and the `implement Monad[Either[String]]` / `Throw[String, Either[String]]` instances. This is the
+`foldEither`, and the `implement Effect[Either[String]]` / `Throw[String, Either[String]]` instances. This is the
 compile-time implementation reduced by the one NbE evaluator during checking; the abstract `type Either[E, A]` lives in
 the `stdlib` base and the runtime `jvm` `Either` is unchanged and structurally identical, so the compiler overlay is
 transparent for ordinary runtime uses (the `add` pattern).

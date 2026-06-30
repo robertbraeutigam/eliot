@@ -10,34 +10,33 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
 }
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** The internal monadic machinery the effect auto-lift inserts and recognises. The user never imports or names it: a
-  * `flatMap`/`pure`/`map` is referenced here by fully-qualified name (`eliot.lang.Monad`/`eliot.lang.Applicative`) and
-  * monomorphization pins the carrier and erases the whole tower.
+/** The internal effect machinery the effect auto-lift inserts and recognises. The user never imports or names it: a
+  * `flatMap`/`pure`/`map` is referenced here by fully-qualified name (`eliot.lang.Effect`) and monomorphization pins
+  * the carrier and erases the whole tower.
   *
   * It plays two roles for the rewrite:
   *   - *construction* — [[pureWrap]] lifts a pure body into the carrier and [[sequence]] binds an effectful action into
-  *     a continuation (`Monad.flatMap` when the continuation is itself effectful, `Applicative.map` when it is pure);
-  *   - *recognition* — [[isMachineryAbility]] tells the rest of the pass that a `Monad`/`Applicative`/`Sync` call is
-  *     compiler machinery, so it neither counts as a user-facing effect (`effectAbilitiesOf`) nor is auto-bound a
-  *     second time (`isAuthorMachineryCall`).
+  *     a continuation (`Effect.flatMap` when the continuation is itself effectful, `Effect.map` when it is pure);
+  *   - *recognition* — [[isMachineryAbility]] tells the rest of the pass that an `Effect`/`Sync` call is compiler
+  *     machinery, so it neither counts as a user-facing effect (`effectAbilitiesOf`) nor is auto-bound a second time
+  *     (`isAuthorMachineryCall`).
   */
 object EffectMachinery {
-  private val monadModule       = ModuleName(ModuleName.defaultSystemPackage, "Monad")
-  private val applicativeModule = ModuleName(ModuleName.defaultSystemPackage, "Applicative")
+  private val effectModule = ModuleName(ModuleName.defaultSystemPackage, "Effect")
 
-  private val flatMapFQN: ValueFQN = ValueFQN(monadModule, QualifiedName("flatMap", Qualifier.Ability("Monad")))
-  private val pureFQN: ValueFQN    = ValueFQN(monadModule, QualifiedName("pure", Qualifier.Ability("Monad")))
-  private val mapFQN: ValueFQN     = ValueFQN(applicativeModule, QualifiedName("map", Qualifier.Ability("Applicative")))
+  private val flatMapFQN: ValueFQN = ValueFQN(effectModule, QualifiedName("flatMap", Qualifier.Ability("Effect")))
+  private val pureFQN: ValueFQN    = ValueFQN(effectModule, QualifiedName("pure", Qualifier.Ability("Effect")))
+  private val mapFQN: ValueFQN     = ValueFQN(effectModule, QualifiedName("map", Qualifier.Ability("Effect")))
 
   /** The abilities the compiler inserts and recognises but the user never names. */
-  private val machineryAbilities: Set[String] = Set("Monad", "Applicative", "Sync")
+  private val machineryAbilities: Set[String] = Set("Effect", "Sync")
 
   /** The internal effect machinery, never a user-facing effect: a `flatMap`/`pure`/`map`/`sync` call (hand-written or
     * inserted by this phase) must not be counted as "using an effect" by the declared-effect check.
     */
   def isMachineryAbility(abilityName: String): Boolean = machineryAbilities.contains(abilityName)
 
-  /** The ability a value reference belongs to, if it is an ability method (`println` → `Console`, `flatMap` → `Monad`);
+  /** The ability a value reference belongs to, if it is an ability method (`println` → `Console`, `flatMap` → `Effect`);
     * `None` for an ordinary (non-ability) value. Lets callers ask "which ability does this call name?" without
     * re-matching on [[Qualifier]].
     */
@@ -47,12 +46,12 @@ object EffectMachinery {
       case _                       => None
     }
 
-  /** Lift a pure expression into the carrier with `Monad.pure`. */
+  /** Lift a pure expression into the carrier with `Effect.pure`. */
   def pureWrap(expr: Sourced[OperatorResolvedExpression]): Sourced[OperatorResolvedExpression] =
     expr.as(applyChain(expr.as(ValueReference(expr.as(pureFQN))), Seq(expr)))
 
-  /** Sequence `action` into `continuation`, binding the action's result to `name`. Uses `Monad.flatMap` when the
-    * continuation is itself effectful and `Applicative.map` when it is pure (lifting the pure continuation into the
+  /** Sequence `action` into `continuation`, binding the action's result to `name`. Uses `Effect.flatMap` when the
+    * continuation is itself effectful and `Effect.map` when it is pure (lifting the pure continuation into the
     * carrier).
     */
   def sequence(

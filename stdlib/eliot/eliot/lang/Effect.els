@@ -1,0 +1,26 @@
+/**
+ * Sequencing of effectful computations over a carrier `F[_]` — the ability that makes `F` an effect type.
+ *
+ * You rarely name `Effect` directly: you write effects in a `{...}` set and the compiler lowers the
+ * sequencing onto a single shared carrier `F` using `flatMap` and `pure`. Implement it once per
+ * runnable carrier to make that carrier usable as an effect type.
+ */
+ability Effect[F[_]] {
+   /**
+    * Run `fa`, then feed its result to `f` to produce the next effectful computation, e.g.
+    * `flatMap(readLine, line -> println(line))`.
+    */
+   def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
+
+   /**
+    * Lift a pure value into the carrier, performing no effect.
+    */
+   def pure[A](a: A): F[A]
+
+   /**
+    * Transform the result of an effectful computation with a pure function, e.g.
+    * `map(readLine, line -> length(line))`. Equivalent to `flatMap(fa, a -> pure(f(a)))`, but
+    * given directly per carrier so a pure continuation needs no `pure` round-trip.
+    */
+   def map[A, B](fa: F[A], f: Function[A, B]): F[B]
+}

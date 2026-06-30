@@ -8,7 +8,7 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
 /** The resolved ability implementation for `abilityValueFQN` at `typeArguments`, scoped to a source [[Platform]]: the
   * implementation (and its supporting markers/values) is searched in that platform's source pool. [[Platform.Runtime]]
   * is the default — every existing ability resolves under it — while the **compiler** pool carries the compile-time
-  * carrier's `Monad`/`Throw[Either[String]]` instances, reachable only by querying under [[Platform.Compiler]] (the
+  * carrier's `Effect`/`Throw[Either[String]]` instances, reachable only by querying under [[Platform.Compiler]] (the
   * ability-instance analogue of CP3's `CompilerNativesProcessor` for value bodies; effectful-signatures W2a).
   */
 case class AbilityImplementation(
