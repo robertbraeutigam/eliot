@@ -193,9 +193,14 @@ constructor-shape reconstruction for `match`.
 ## Language Cornerstone: Platform-Independence via Layers
 
 Eliot targets everything from an ATtiny to the JVM, so the language and its base stdlib commit to **no
-platform assumptions** — not even the size of an `Int`. The base layer is therefore written *purely
-abstractly*: it may only declare **`type` definitions without a body** and **`def`s without a body**
-(signature only). It never says *how* anything is represented or computed.
+platform assumptions** — not even the size of an `Int`. The rule is **no platform *representation***: the base
+layer never says how a type is laid out or how a primitive is computed. So everything representation- or
+platform-dependent is declared **abstractly** — `type`s without a value constructor, body-less `def`
+signatures (`Int`, `println`, the `+`/`-`/`*` operators whose bodies do width dispatch). It *may*, however,
+carry `def` bodies and ability instances when the computation is **genuinely platform-independent** — byte-for-byte
+the same on every target (e.g. `fitsIn`, the effect discharge helpers `catch`/`orElse`/`runState`, the pure
+type-level `Combine[Int,Int]` join). What it must never contain is `data` (a chosen representation), a native
+leaf, or any representation-dependent body.
 
 - `type Int[MIN: BigInteger, MAX: BigInteger]` — an abstract type; no value constructor, no chosen width.
 - `def println(s: String): IO[Unit]` — an abstract function; signature only, no implementation.
@@ -203,8 +208,11 @@ abstractly*: it may only declare **`type` definitions without a body** and **`de
 
 A `type X = ...` (alias) and a body-less `type X` differ only by the presence of a body; a `data X(...)`
 declaration is the *concrete* form that additionally introduces a value constructor. **The base stdlib
-must avoid `data` and avoid `def` bodies** — those belong to platform layers (see
-[[feedback_stdlib_platform_independent]]).
+must avoid `data` and any native or representation-dependent body** — those belong to platform layers;
+platform-independent bodies (identical on every target) are allowed (see
+[[feedback_stdlib_platform_independent]]). For the operational mechanics of placing/moving `.els` files
+across layers — the two-pool (compiler vs runtime) resolution, the abstract↔concrete merge, and its
+signature-match gotchas — use the **`eliot-layers`** skill.
 
 **Layers = redefinition, not inheritance.** A platform "implements" an abstract definition by simply
 *defining the same name again*, in its own root path, with a body. There is no `extends`, `override`
