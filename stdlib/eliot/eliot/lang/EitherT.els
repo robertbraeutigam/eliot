@@ -1,0 +1,18 @@
+import eliot.lang.Either
+
+/**
+ * The internal carrier that realises the `Throw[E]` effect: an `EitherT[E, G, A]` is a `G`-computation producing an
+ * `Either[E, A]`.
+ *
+ * Plumbing only — application code never imports or names it. A function that may fail declares `{Throw[E]}` and
+ * discharges it with `runThrow`/`catch` (in `eliot.lang.Throw`); this carrier is what those operate on under the hood.
+ * Generic over the base carrier `G`, so it composes over `IO`, `OptionT[IO]`, and so on. Its representation (the
+ * `Effect`/`Sync`/`Throw` instances) is provided by the platform layer.
+ */
+type EitherT[E, G[_], A]
+
+/**
+ * Unwrap an `EitherT` to its underlying `G[Either[E, A]]` computation. The single accessor of the carrier; the platform
+ * layer supplies the body.
+ */
+def runEitherT[E, G[_], A](obj: EitherT[E, G, A]): G[Either[E, A]]

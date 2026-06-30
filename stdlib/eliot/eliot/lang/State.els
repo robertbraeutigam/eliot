@@ -1,3 +1,6 @@
+import eliot.lang.StateT
+import eliot.lang.Pair
+
 /**
  * The state effect: a computation that threads a state of type `S`, reading and replacing it.
  *
@@ -22,3 +25,9 @@ ability State[S, F[_]] {
     */
    def putState(s: S): F[Unit]
 }
+
+/**
+ * Discharge the `State[S]` effect, materialising it as a `Pair[A, S]`: the result paired with the final state, threaded
+ * from `initial`. Any other effects remain in the carrier `G`.
+ */
+def runState[S, G[_], A](p: StateT[S, G, A], initial: S): G[Pair[A, S]] = apply(runStateT(p), initial)

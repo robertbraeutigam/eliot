@@ -1,0 +1,18 @@
+import eliot.lang.Pair
+
+/**
+ * The internal carrier that realises the `State[S]` effect: a `StateT[S, G, A]` maps an incoming state to a
+ * `G`-computation yielding the result paired with the new state.
+ *
+ * Plumbing only — application code never imports or names it. A function that threads state declares `{State[S]}` and
+ * discharges it with `runState` (in `eliot.lang.State`); this carrier is what that operates on under the hood. Generic
+ * over the base carrier `G`, so it composes over `IO`, `OptionT[IO]`, and so on. Its representation (the
+ * `Effect`/`Sync`/`State` instances) is provided by the platform layer.
+ */
+type StateT[S, G[_], A]
+
+/**
+ * Unwrap a `StateT` to its underlying state-transition function `Function[S, G[Pair[A, S]]]`. The single accessor of
+ * the carrier; the platform layer supplies the body.
+ */
+def runStateT[S, G[_], A](obj: StateT[S, G, A]): Function[S, G[Pair[A, S]]]
