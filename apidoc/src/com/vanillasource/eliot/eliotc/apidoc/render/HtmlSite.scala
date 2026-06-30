@@ -182,7 +182,7 @@ object HtmlSite {
 
   private val css: String =
     """:root{
-      |  --bg:#fbfbfd; --fg:#1d1d22; --muted:#6b6b78; --line:#e6e6ee; --card:#ffffff;
+      |  --bg:#fbfbfd; --fg:#1d1d22; --muted:#6b6b78; --line:#e6e6ee; --card:#ffffff; --hover:#f0f0fa;
       |  --accent:#5b56e0; --kw:#9326c9; --ty:#1a8a7a; --fn:#2d6cdf; --num:#b5640a; --str:#1f8a3b; --cm:#8a8a96; --op:#54545f;
       |  --chip-type:#1a8a7a; --chip-ability:#9326c9; --chip-value:#2d6cdf; --chip-module:#6b6b78;
       |}
@@ -193,23 +193,28 @@ object HtmlSite {
       |a{color:var(--accent);text-decoration:none}
       |a:hover{text-decoration:underline}
       |.layout{display:flex;align-items:flex-start}
-      |.sidebar{position:sticky;top:0;height:100vh;width:280px;flex:0 0 280px;overflow-y:auto;border-right:1px solid var(--line);padding:18px 16px;background:#fff}
+      |.sidebar{position:sticky;top:0;height:100vh;width:280px;flex:0 0 280px;overflow-y:auto;border-right:1px solid var(--line);padding:18px 14px;background:#fcfcfe}
+      |.sidebar::-webkit-scrollbar{width:9px}
+      |.sidebar::-webkit-scrollbar-thumb{background:#dadae6;border-radius:5px;border:2px solid #fcfcfe}
+      |.sidebar:hover::-webkit-scrollbar-thumb{background:#c8c8d8}
+      |.sidebar::-webkit-scrollbar-track{background:transparent}
       |.brand{display:block;font-weight:700;font-size:1.3rem;color:var(--fg);margin-bottom:14px}
       |.brand span{color:var(--accent);font-weight:600;font-size:.8rem;margin-left:6px;vertical-align:middle}
-      |.search{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:.9rem;margin-bottom:12px}
+      |.search{width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;font-size:.875rem;margin-bottom:14px;background:#fff;transition:border-color .12s ease,box-shadow .12s ease}
+      |.search:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(91,86,224,.15)}
       |.tree{list-style:none;margin:0;padding:0}
-      |.tree .tree{margin:0;padding-left:13px;border-left:1px solid var(--line)}
-      |.tree-leaf a,.tree-leaf span,.tree-pkg>summary{display:block;padding:3px 8px;border-radius:6px;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      |.tree-leaf a{color:var(--fg)}
-      |.tree-leaf a:hover{background:#f2f2fb;text-decoration:none}
-      |.tree-leaf a.active{background:var(--accent);color:#fff;font-weight:600}
-      |.tree-leaf span{color:var(--muted)}
-      |.tree-pkg>summary{cursor:pointer;list-style:none;color:var(--fg);font-weight:600;display:flex;align-items:center;gap:4px}
+      |.tree .tree{margin:0 0 0 12px;padding:0;border-left:1px solid var(--line)}
+      |.tree-leaf a,.tree-leaf span,.tree-pkg>summary{display:flex;align-items:center;gap:8px;padding:5px 9px;border-radius:7px;font-size:.875rem;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .1s ease,color .1s ease}
+      |.tree-leaf a,.tree-leaf span{color:#55555f;font-weight:400}
+      |.tree-leaf a::before,.tree-leaf span::before{content:"";flex:0 0 auto;width:6px;height:6px}
+      |.tree-leaf a:hover{background:var(--hover);color:var(--fg);text-decoration:none}
+      |.tree-leaf a.active{background:var(--accent);color:#fff;font-weight:600;box-shadow:0 1px 3px rgba(91,86,224,.35)}
+      |.tree-pkg>summary{cursor:pointer;list-style:none;color:var(--fg);font-weight:700}
       |.tree-pkg>summary::-webkit-details-marker{display:none}
-      |.tree-pkg>summary::before{content:"▸";color:var(--muted);font-size:.7rem;flex:0 0 auto;transition:transform .12s ease}
+      |.tree-pkg>summary::before{content:"";flex:0 0 auto;width:0;height:0;border-style:solid;border-width:4px 0 4px 6px;border-color:transparent transparent transparent var(--fg);transition:transform .15s ease;transform-origin:3px center}
       |.tree-pkg[open]>summary::before{transform:rotate(90deg)}
-      |.tree-pkg>summary:hover{background:#f2f2fb}
-      |.tree-pkg>summary a{color:var(--fg);padding:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
+      |.tree-pkg>summary:hover{background:var(--hover)}
+      |.tree-pkg>summary a{color:inherit;padding:0;background:none;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;font-weight:inherit}
       |main{flex:1 1 auto;max-width:920px;padding:34px 44px;min-width:0}
       |h1{font-size:1.9rem;margin:0 0 18px;font-weight:700}
       |.module-title{display:flex;align-items:center;gap:12px;font-family:ui-monospace,monospace}
