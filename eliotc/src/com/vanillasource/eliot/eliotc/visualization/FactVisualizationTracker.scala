@@ -151,14 +151,15 @@ ${DesignTokens.tokensCss}
 /* ======================================================================
  * fact-flow visualizer components — the brand's light DOCS surface, matching
  * apidoc. `.on-paper` on <body> flips the semantic tokens (--bg/--surface/
- * --text/--border/...) to the light scope, while the graph canvas (#cy)
- * deliberately stays a dark `ink` well so the fact flow is the hero — exactly
- * as apidoc keeps code wells dark on its light page. Reference only the
+ * --text/--border/...) to the light scope for the page chrome, and the graph
+ * canvas (#cy) is light too: a warm paper well with white processor nodes,
+ * signal-green fact edges, and red dashed back-edges. Reference only the
  * semantic / base-palette tokens above, so a brand change flows in by
  * re-syncing the shared tokens. The Cytoscape canvas can't read CSS variables,
- * so the graph script reads the resolved token values from :root at runtime
- * (see below); those are base-palette tokens, so the graph is theme-independent
- * and stays dark regardless of the .on-paper scope.
+ * so the graph script reads the resolved light :root tokens at runtime (see
+ * below) and styles nodes/edges to match — the semantic --bg/--surface live
+ * under the body's .on-paper scope, out of the script's :root reach, so it
+ * reads the light base palette (--paper-bg/--paper-raised/--ink-text/...).
  * ====================================================================== */
 html, body { height: 100%; }
 body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-family: var(--font-body); }
@@ -167,7 +168,7 @@ body { margin: 0; display: flex; flex-direction: column; background: var(--bg); 
 #header .brand .tag { color: var(--text-muted); font-weight: var(--weight-regular); font-size: .6rem; letter-spacing: var(--tracking-label); text-transform: uppercase; margin-left: 2px; }
 #header h1 { font-family: var(--font-display); font-weight: var(--weight-medium); font-size: 1.5rem; color: var(--text); letter-spacing: var(--tracking-tight); margin: 0 0 6px; }
 #header p { margin: 0; color: var(--text-muted); font-size: var(--text-sm); }
-#cy { flex: 1; min-height: 0; background: var(--ink); margin: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); }
+#cy { flex: 1; min-height: 0; background: var(--paper-bg); margin: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); }
 .panel { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-md); color: var(--text); }
 #info-panel { top: 124px; right: 36px; padding: 18px; max-width: 300px; display: none; }
 #info-panel h3 { font-family: var(--font-display); font-weight: var(--weight-medium); font-size: var(--text-h4); margin: 0 0 10px; color: var(--text); }
@@ -194,7 +195,7 @@ body { margin: 0; display: flex; flex-direction: column; background: var(--bg); 
     <div class="legend panel">
         <h4>Legend</h4>
         <div class="legend-item">
-            <span class="legend-swatch" style="background: var(--ink-raised); border: 1px solid var(--line-strong);"></span>
+            <span class="legend-swatch" style="background: var(--surface); border: 1px solid var(--border-strong);"></span>
             <span>Processor</span>
         </div>
         <div class="legend-item">
@@ -209,9 +210,12 @@ body { margin: 0; display: flex; flex-direction: column; background: var(--bg); 
     <script>
         var rootStyle = getComputedStyle(document.documentElement);
         function tok(name){ return rootStyle.getPropertyValue(name).trim(); }
-        var INK = tok('--ink'), INK_RAISED = tok('--ink-raised'), PAPER = tok('--paper'),
-            MUTED = tok('--muted'), LINE = tok('--line'), LINE_STRONG = tok('--line-strong'),
-            GREEN = tok('--green'), GREEN_DIM = tok('--green-dim'), GREEN_BRIGHT = tok('--green-bright'),
+        // Light docs palette, read straight from the :root base tokens (the semantic
+        // --bg/--surface/... live under the body's .on-paper scope, out of reach here).
+        var PAPER_BG = tok('--paper-bg'), PAPER_RAISED = tok('--paper-raised'),
+            PAPER_LINE_STRONG = tok('--paper-line-strong'),
+            INK_TEXT = tok('--ink-text'), INK_MUTED = tok('--ink-muted'),
+            GREEN = tok('--green'), GREEN_DIM = tok('--green-dim'),
             FAIL = tok('--fail');
         var MONO = "JetBrains Mono, ui-monospace, monospace";
         var cy = cytoscape({
@@ -227,9 +231,9 @@ body { margin: 0; display: flex; flex-direction: column; background: var(--bg); 
                     selector: 'node',
                     style: {
                         'shape': 'round-rectangle',
-                        'background-color': INK_RAISED,
+                        'background-color': PAPER_RAISED,
                         'label': 'data(label)',
-                        'color': PAPER,
+                        'color': INK_TEXT,
                         'text-valign': 'center',
                         'text-halign': 'center',
                         'font-family': MONO,
@@ -238,7 +242,7 @@ body { margin: 0; display: flex; flex-direction: column; background: var(--bg); 
                         'width': '120px',
                         'height': '60px',
                         'border-width': 1.5,
-                        'border-color': LINE_STRONG,
+                        'border-color': PAPER_LINE_STRONG,
                         'text-wrap': 'wrap',
                         'text-max-width': '104px'
                     }
@@ -246,7 +250,7 @@ body { margin: 0; display: flex; flex-direction: column; background: var(--bg); 
                 {
                     selector: 'node:selected',
                     style: {
-                        'color': GREEN_BRIGHT,
+                        'color': GREEN_DIM,
                         'border-color': GREEN,
                         'border-width': 2.5
                     }
@@ -264,8 +268,8 @@ body { margin: 0; display: flex; flex-direction: column; background: var(--bg); 
                         'font-size': '9px',
                         'text-rotation': 'autorotate',
                         'text-margin-y': -10,
-                        'color': MUTED,
-                        'text-background-color': INK,
+                        'color': INK_MUTED,
+                        'text-background-color': PAPER_BG,
                         'text-background-opacity': 0.85,
                         'text-background-padding': '3px',
                         'arrow-scale': 1.1
@@ -283,8 +287,8 @@ body { margin: 0; display: flex; flex-direction: column; background: var(--bg); 
                 {
                     selector: 'edge:selected',
                     style: {
-                        'line-color': GREEN_BRIGHT,
-                        'target-arrow-color': GREEN_BRIGHT,
+                        'line-color': GREEN,
+                        'target-arrow-color': GREEN,
                         'width': 'data(width)'
                     }
                 }
