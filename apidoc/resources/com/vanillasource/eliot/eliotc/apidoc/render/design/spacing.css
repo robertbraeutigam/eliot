@@ -1,0 +1,27 @@
+/* Eliot — spacing & layout tokens.
+   4px base unit. Tight, technical rhythm — this reads like a compiler tool, not airy SaaS. */
+
+:root {
+  --space-0: 0;
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-5: 1.5rem;    /* 24px */
+  --space-6: 2rem;      /* 32px */
+  --space-7: 3rem;      /* 48px */
+  --space-8: 4rem;      /* 64px */
+  --space-9: 6rem;      /* 96px */
+  --space-10: 8rem;     /* 128px */
+
+  /* Component padding presets */
+  --pad-control-y: 0.5rem;   /* 8px — inputs/buttons vertical */
+  --pad-control-x: 0.875rem; /* 14px — inputs/buttons horizontal */
+  --pad-card: 1.5rem;        /* 24px */
+  --pad-section: 6rem;       /* 96px — vertical section rhythm */
+
+  /* Layout */
+  --container: 1120px;       /* max content width */
+  --container-prose: 720px;  /* long-form reading measure */
+  --gutter: 1.5rem;          /* page side gutter */
+}

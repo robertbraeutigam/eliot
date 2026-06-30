@@ -1,0 +1,93 @@
+/* Eliot — color tokens. Single accent, dark-first.
+   Base palette from the brand brief; semantic aliases layered on top.
+   Rule: never use green and copper together. Green is primary. */
+
+:root {
+  /* ---- Base palette (dark / primary surface) ---- */
+  --ink: #0F1419;          /* background, base */
+  --ink-raised: #161B22;   /* elevated surface */
+  --ink-sunken: #0B0E12;   /* recessed wells, code gutters */
+  --line: #2A2F36;         /* subtle border on dark */
+  --line-strong: #3A424B;  /* stronger divider / focus ring base */
+  --paper: #EDEAE3;        /* text on dark */
+  --muted: #9AA0A6;        /* muted text on dark */
+  --faint: #6B7178;        /* faint text / disabled on dark */
+
+  /* ---- Accent (signal green) ---- */
+  --green: #2EC27E;        /* accent, primary action, valid/passing */
+  --green-dim: #28A368;    /* accent hover / pressed */
+  --green-bright: #4FE39B; /* highlight on very dark code blocks */
+  --green-wash: rgba(46, 194, 126, 0.12);  /* tinted fill behind accent */
+  --green-line: rgba(46, 194, 126, 0.32);  /* accent border */
+
+  /* ---- Copper (alternative accent — never alongside green) ---- */
+  --copper: #C97B43;
+  --copper-dim: #B0683492;
+
+  /* ---- Light surface (long-form docs body) ---- */
+  --paper-bg: #FBFAF6;     /* light background */
+  --paper-raised: #FFFFFF; /* light card */
+  --paper-line: #E3E0D7;   /* border on light */
+  --paper-line-strong: #CFCBBF;
+  --ink-text: #0F1419;     /* text on light */
+  --ink-muted: #6B6B66;    /* muted text on light */
+
+  /* ---- Syntax highlight roles (used in code samples) ---- */
+  --syn-keyword: #2EC27E;  /* keywords / types carry the accent */
+  --syn-type: #4FE39B;     /* type constructors: Int[..], Rec[N] */
+  --syn-string: #C7B98F;   /* string literals (warm, low-key) */
+  --syn-number: #9AA0A6;   /* numerics in muted neutral */
+  --syn-comment: #6B7178;  /* comments, faint */
+  --syn-punct: #9AA0A6;    /* punctuation */
+  --syn-fn: #EDEAE3;       /* function / identifier names in paper */
+
+  /* ---- Status (kept neutral + minimal; green = pass is the brand's own) ---- */
+  --pass: #2EC27E;
+  --warn: #C97B43;
+  --fail: #D6584F;
+
+  /* ======================================================
+     SEMANTIC ALIASES — reference these in components.
+     Default theme = dark. Light overrides under .on-paper.
+     ====================================================== */
+  --bg: var(--ink);
+  --surface: var(--ink-raised);
+  --surface-sunken: var(--ink-sunken);
+  --border: var(--line);
+  --border-strong: var(--line-strong);
+  --text: var(--paper);
+  --text-muted: var(--muted);
+  --text-faint: var(--faint);
+
+  --accent: var(--green);
+  --accent-hover: var(--green-dim);
+  --accent-wash: var(--green-wash);
+  --accent-line: var(--green-line);
+  --accent-contrast: var(--ink);   /* text on a green fill */
+
+  --focus-ring: var(--green);
+}
+
+/* Light scope — apply to a docs body or any light region. */
+.on-paper {
+  --bg: var(--paper-bg);
+  --surface: var(--paper-raised);
+  --surface-sunken: #F2EFE7;
+  --border: var(--paper-line);
+  --border-strong: var(--paper-line-strong);
+  --text: var(--ink-text);
+  --text-muted: var(--ink-muted);
+  --text-faint: #9C988C;
+  --accent-contrast: var(--paper-bg);
+}
+
+/* Copper theme — opt-in alternative accent. Use INSTEAD of green, never with it. */
+.theme-copper {
+  --accent: var(--copper);
+  --accent-hover: var(--copper-dim);
+  --accent-wash: rgba(201, 123, 67, 0.12);
+  --accent-line: rgba(201, 123, 67, 0.32);
+  --focus-ring: var(--copper);
+  --syn-keyword: var(--copper);
+  --syn-type: #DDA070;
+}

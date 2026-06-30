@@ -1,0 +1,43 @@
+/* Eliot — typography tokens.
+   Two families only: JetBrains Mono (wordmark, headings, ALL code) + Inter (body prose).
+   Two weights per family. Sentence case everywhere. No display/script/rounded fonts. */
+
+:root {
+  /* ---- Families ---- */
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+
+  /* Semantic family roles: headings + code are mono; prose is sans. */
+  --font-display: var(--font-mono);  /* wordmark, headings */
+  --font-body: var(--font-sans);     /* long-form prose */
+  --font-code: var(--font-mono);     /* code, type fragments, kbd */
+
+  /* ---- Weights (two per family) ---- */
+  --weight-regular: 400;
+  --weight-medium: 500;   /* wordmark + headings */
+  --weight-bold: 700;     /* mono only, for emphasis in code */
+
+  /* ---- Type scale (rem, 16px base). Tight tracking on mono headings. ---- */
+  --text-display: 3.5rem;   /* 56px — hero wordmark/headline */
+  --text-h1: 2.5rem;        /* 40px */
+  --text-h2: 1.875rem;      /* 30px */
+  --text-h3: 1.375rem;      /* 22px */
+  --text-h4: 1.125rem;      /* 18px */
+  --text-body-lg: 1.125rem; /* 18px lead prose */
+  --text-body: 1rem;        /* 16px */
+  --text-sm: 0.875rem;      /* 14px UI / captions */
+  --text-xs: 0.75rem;       /* 12px labels, kbd */
+  --text-code: 0.9375rem;   /* 15px inline + block code */
+
+  /* ---- Line heights ---- */
+  --leading-tight: 1.1;     /* mono headings */
+  --leading-snug: 1.3;      /* subheads */
+  --leading-normal: 1.6;    /* prose — generous */
+  --leading-code: 1.55;     /* code blocks */
+
+  /* ---- Letter spacing ---- */
+  --tracking-tight: -0.02em;  /* large mono headings */
+  --tracking-normal: 0;
+  --tracking-wide: 0.02em;
+  --tracking-label: 0.04em;   /* small mono labels/eyebrows */
+}

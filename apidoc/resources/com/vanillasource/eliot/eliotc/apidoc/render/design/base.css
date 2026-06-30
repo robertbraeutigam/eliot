@@ -1,0 +1,81 @@
+/* Eliot — base element defaults & shared keyframes.
+   Lives in the styles.css closure so consumers get sensible global behavior. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
+  font-weight: var(--weight-regular);
+}
+
+/* Headings & the wordmark use mono, medium, sentence case, tight tracking. */
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  margin: 0;
+}
+
+code, pre, kbd, samp {
+  font-family: var(--font-code);
+  font-size: var(--text-code);
+}
+
+::selection {
+  background: var(--green-wash);
+  color: var(--text);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+  border-radius: var(--radius-xs);
+}
+
+/* The signal-green cursor block — used after the wordmark and in terminals. */
+@keyframes eliot-blink {
+  0%, 48% { opacity: 1; }
+  49%, 100% { opacity: 0; }
+}
+
+.eliot-cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1.05em;
+  background: var(--accent);
+  vertical-align: -0.16em;
+  animation: eliot-blink var(--cursor-blink) steps(1, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eliot-cursor { animation: none; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
