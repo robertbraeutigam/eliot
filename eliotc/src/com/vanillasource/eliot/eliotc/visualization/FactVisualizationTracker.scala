@@ -149,11 +149,16 @@ final class FactVisualizationTracker(
 ${DesignTokens.tokensCss}
 
 /* ======================================================================
- * fact-flow visualizer components — the brand's default DARK theme (an app
- * surface, not docs). Reference only the semantic / base-palette tokens
- * above, so a brand change flows in by re-syncing the shared tokens. The
- * Cytoscape canvas can't read CSS variables, so the graph script reads the
- * resolved token values from :root at runtime (see below).
+ * fact-flow visualizer components — the brand's light DOCS surface, matching
+ * apidoc. `.on-paper` on <body> flips the semantic tokens (--bg/--surface/
+ * --text/--border/...) to the light scope, while the graph canvas (#cy)
+ * deliberately stays a dark `ink` well so the fact flow is the hero — exactly
+ * as apidoc keeps code wells dark on its light page. Reference only the
+ * semantic / base-palette tokens above, so a brand change flows in by
+ * re-syncing the shared tokens. The Cytoscape canvas can't read CSS variables,
+ * so the graph script reads the resolved token values from :root at runtime
+ * (see below); those are base-palette tokens, so the graph is theme-independent
+ * and stays dark regardless of the .on-paper scope.
  * ====================================================================== */
 html, body { height: 100%; }
 body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--text); font-family: var(--font-body); }
@@ -178,7 +183,7 @@ body { margin: 0; display: flex; flex-direction: column; background: var(--bg); 
     <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
 </head>
-<body>
+<body class="on-paper">
     <div id="header">
         <div class="brand">eliot<span class="eliot-cursor"></span><span class="tag">compiler</span></div>
         <h1>Fact generation flow</h1>
