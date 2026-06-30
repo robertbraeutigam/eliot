@@ -17,12 +17,13 @@ object TypeAliasDefinition {
       _                 <- keyword("type")
       name              <- acceptIfAll(isIdentifier, isUpperCase)("type name")
       genericParameters <- component[Seq[GenericParameter]]
-      // A type-alias body is a type position, so parse it with the restricted `typeParser` (a single type atom), NOT
-      // the greedy full expression parser: the full parser would consume the following top-level definition's leading
-      // `infix`/`prefix`/`postfix`/`left`/… identifiers (they are not keywords) as an application chain, silently
-      // dropping that definition's fixity. (Latent until an `infix` def followed a `type` alias with no plain `def`
-      // between them.)
-      body              <- (symbol("=") *> sourced(Expression.typeParser)).optional()
+      // A type-alias body is a type position, so parse it with `typeRunParser` (an operator run of type atoms), NOT the
+      // greedy full expression parser. The full parser would consume the following top-level definition's leading
+      // `left`/`right`/… fixity identifiers as an application chain, silently dropping its fixity; `typeRunParser` stops
+      // cleanly at the next definition because every definition-introducing token (`infix`/`prefix`/`postfix`/`def`/
+      // `type`/…) is a hard keyword and so is not a type-atom start. This lets an alias body carry a bare type operator,
+      // e.g. `type Pred = A => Bool`.
+      body              <- (symbol("=") *> sourced(Expression.typeRunParser)).optional()
     } yield {
       val args     = genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction, gp.inferable))
       val typeExpr = name.as(Expression.FunctionApplication(None, name.map(_ => "Type"), None, Seq.empty))

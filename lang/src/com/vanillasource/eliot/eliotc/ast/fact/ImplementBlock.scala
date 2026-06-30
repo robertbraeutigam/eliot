@@ -25,7 +25,7 @@ object ImplementBlock {
           _                   <- keyword("implement")
           genericParameters   <- component[Seq[GenericParameter]]
           name                <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
-          pattern             <- bracketedCommaSeparatedItems("[", sourced(Expression.typeParser), "]")
+          pattern             <- bracketedCommaSeparatedItems("[", sourced(Expression.typeRunParser), "]")
           (errors, functions) <-
             (component[FunctionDefinition] or TypeAliasDefinition.typeAliasDefinition.parser)
               .recoveringAtLeastOnce(t => isKeyword(t) && (hasContent("def")(t) || hasContent("type")(t)))

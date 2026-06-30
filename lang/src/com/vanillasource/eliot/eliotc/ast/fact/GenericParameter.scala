@@ -98,9 +98,11 @@ object GenericParameter {
         name.as(typeExpr(name.as("Function"), Seq(param, acc)))
       }
 
-  /** Parses explicit type restriction syntax: `: Expression`. */
+  /** Parses explicit type restriction syntax: `: Expression`. The bound uses `typeRunParser`, so it admits a bare type
+    * operator (the run stops at the `~` ability-constraint marker, the `,` separator, and the closing `]`).
+    */
   private val explicitTypeRestriction: Parser[Sourced[Token], Sourced[Expression]] =
-    symbol(":") >> sourced(Expression.typeParser)
+    symbol(":") >> sourced(Expression.typeRunParser)
 
   /** Helper to create a type expression from a name and optional generic arguments. */
   private def typeExpr(name: Sourced[String], genericArgs: Seq[Sourced[Expression]] = Seq.empty): Expression =
@@ -110,7 +112,7 @@ object GenericParameter {
     override def parser: Parser[Sourced[Token], AbilityConstraint] =
       for {
         name           <- acceptIfAll(isUpperCase, isIdentifier)("ability name")
-        typeParameters <- optionalBracketedCommaSeparatedItems("[", sourced(Expression.typeParser), "]")
+        typeParameters <- optionalBracketedCommaSeparatedItems("[", sourced(Expression.typeRunParser), "]")
       } yield AbilityConstraint(name.map(_.content), typeParameters)
   }
 }

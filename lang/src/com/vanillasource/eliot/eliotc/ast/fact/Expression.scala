@@ -175,8 +175,8 @@ object Expression {
     blockLineParser.anyTimes().between(symbol("{"), symbol("}")).map(BlockExpression.apply)
 
   /** Full atoms including lambdas and `{ … }` blocks. The block alternative is first and atomic: a leading `{` in value
-    * position is always a block (the effect-set sugar `{…} A` lives only in [[typeParser]], never here), and a
-    * non-`{` start backtracks to the lambda/type atoms.
+    * position is always a block (the effect-set sugar `{…} A` lives only in type positions — see [[typeRunParser]] —
+    * never here), and a non-`{` start backtracks to the lambda/type atoms.
     */
   private lazy val fullAtom: Parser[Sourced[Token], Expression] =
     blockParser.atomic() or functionLiteralParser.atomic() or typeAtom
@@ -201,12 +201,6 @@ object Expression {
     effects    <- bracketedCommaSeparatedItems("{", component[GenericParameter.AbilityConstraint], "}")
     resultType <- sourced(typeAtom)
   } yield EffectfulType(effects, resultType)
-
-  /** Restricted expression parser for type positions. Parses an optional leading effect set `{…}` followed by a single
-    * type atom: a named reference (with optional generic and value arguments), a parenthesized expression, or a literal.
-    * Complex type expressions (lambdas, operators, match) must be parenthesized.
-    */
-  lazy val typeParser: Parser[Sourced[Token], Expression] = effectfulTypeParser or typeAtom
 
   /** A named reference with an optional generic argument list `[…]` (always attached) and a value-argument list `(…)`
     * attached *only* when its `(` is adjacent to the preceding token (no intervening whitespace). The one call parser
@@ -234,29 +228,28 @@ object Expression {
       case _                              => Option.empty[Seq[Sourced[Expression]]].pure
     }
 
-  /** Type atoms for the operator-run type positions (argument and return-type). Identical to [[typeAtom]] (both
-    * adjacency-sensitive); kept as a distinct name because [[typeRunParser]] consumes a greedy *run* of these, whereas
-    * [[typeParser]] takes a single atom. */
+  /** Type atoms for the type positions (the single per-atom parser [[typeRunParser]] consumes a greedy *run* of these).
+    * Identical to [[typeAtom]] (both adjacency-sensitive); kept as a distinct name for readability at the run site. */
   private lazy val typeRunAtom: Parser[Sourced[Token], Expression] =
     parenthesizedExprParser.atomic() or
       adjacentCallParser or
       integerLiteralParser or
       stringLiteralParser
 
-  /** Expression parser for the **operator-run type positions** — a function's argument types and its return type.
-    * Unlike [[typeParser]] (a single type atom), this admits a greedy **flat run of type atoms**, so an infix *type*
-    * operator reads naturally without parentheses: an argument `f: A => B` or a return `: A => B` parses as a
-    * [[FlatExpression]] that `resolve`/`operator` lower to `=>(A, B)` (`Function[A, B]`), and a guard return type
-    * `A when (MIN > 0) orError "…"` lowers to `orError(when(A, MIN > 0), "…")`, exactly as a body would. A single atom
-    * is returned verbatim, so a plain `Int[0, 255]` / `IO[Unit]` is unchanged.
+  /** The parser for **every type position** — function argument and return types, lambda-parameter annotations,
+    * generic-parameter bounds and ability type-parameters, `type`-alias bodies, and `implement` patterns. It admits a
+    * greedy **flat run of type atoms**, so an infix *type* operator reads naturally without parentheses: `f: A => B`
+    * parses as a [[FlatExpression]] that `resolve`/`operator` lower to `=>(A, B)` (`Function[A, B]`), and a guard return
+    * type `A when (MIN > 0) orError "…"` lowers to `orError(when(A, MIN > 0), "…")`, exactly as a body would. A single
+    * atom is returned verbatim, so a plain `Int[0, 255]` / `IO[Unit]` is unchanged.
     *
-    * The greedy run stops cleanly at the body's `=`, a closing delimiter (`)`/`]`/`}`/`,`/`:`), or the next definition,
-    * because every definition-introducing token (`def`/`type`/`implement`/…/`private`/`opaque`) is a hard keyword and
-    * those delimiters are reserved symbols — none is a type-atom start (see [[Primitives.isUserOperator]] and
-    * [[FunctionDefinition]]'s keyword note). In argument position the run likewise stops at the `,` separator and the
-    * closing `)` of the list. The leading effect-set sugar `{…} A` is still supported. Lambdas, `match`, and `{…}`
-    * blocks are deliberately excluded: they are not part of the type-atom surface and a `{` would be ambiguous with the
-    * effect set.
+    * The greedy run stops cleanly at a body's `=`, a closing/separating delimiter (`)`/`]`/`}`/`,`/`:`/`~`/`->`), or the
+    * next definition, because every definition-introducing token (`def`/`type`/`implement`/…/`private`/`opaque`) is a
+    * hard keyword and those delimiters are reserved symbols — none is a type-atom start (see [[Primitives.isUserOperator]]
+    * and [[FunctionDefinition]]'s keyword note). So inside a `[…]`/`(…)` list it stops at the `,` separator and the
+    * closing bracket, and a lambda-parameter annotation stops at the `->`. The leading effect-set sugar `{…} A` is still
+    * supported. Lambdas, `match`, and `{…}` blocks are deliberately excluded: they are not part of the type-atom surface
+    * and a `{` would be ambiguous with the effect set.
     */
   lazy val typeRunParser: Parser[Sourced[Token], Expression] =
     effectfulTypeParser or sourced(typeRunAtom).atLeastOnce().map {

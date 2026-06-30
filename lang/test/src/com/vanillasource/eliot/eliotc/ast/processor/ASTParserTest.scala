@@ -161,6 +161,10 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("def f: A = a -> b a").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "accept a bare infix type operator in a lambda-parameter annotation" in {
+    runEngineForErrors("def f: A = (g: Byte => Byte) -> g").asserting(_ shouldBe Seq.empty)
+  }
+
   it should "accept a space-based function application inside paren arguments" in {
     runEngineForErrors("def f: A = b(c d)").asserting(_ shouldBe Seq.empty)
   }
@@ -207,6 +211,14 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "accept explicit type restriction with ability constraint" in {
     runEngineForErrors("ability Show[A]\ndef f[A: Type ~ Show]: A").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a bare infix type operator in a generic-parameter bound" in {
+    runEngineForErrors("def f[A: Byte => Byte]: A").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a bare infix type operator in an ability type-parameter" in {
+    runEngineForErrors("ability Show[A]\ndef f[A: Type ~ Show[Byte => Byte]]: A").asserting(_ shouldBe Seq.empty)
   }
 
   it should "not accept data definition with lower case" in {
@@ -583,6 +595,15 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
 
   it should "accept a type alias with typed generic parameters" in {
     runEngineForErrors("type Alias[A, B: Int] = Function[A, B]").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a bare infix type operator in a type-alias body" in {
+    runEngineForErrors("type Pred[A] = A => Bool").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "stop a type-alias body's type-operator run at a following definition's fixity" in {
+    runEngineForFunctionFixities("type Pred[A] = A => Bool\ninfix left def +(a: Int, b: Int): Int = a")
+      .asserting(_.sortBy(_._1) shouldBe Seq("+" -> Fixity.Infix(Fixity.Associativity.Left), "Pred" -> Fixity.Application))
   }
 
   it should "desugar type alias to function with Type qualifier" in {
