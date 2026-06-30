@@ -36,43 +36,54 @@ object HtmlSite {
        |</div>
        |<script>
        |(function(){
-       |  var KEY='eliot-apidoc-tree';
        |  var tree=document.getElementById('tree');
+       |  if(!tree)return;
        |  var filterMode=false;
-       |  function load(){try{return JSON.parse(localStorage.getItem(KEY))||{};}catch(e){return {};}}
-       |  function save(s){try{localStorage.setItem(KEY,JSON.stringify(s));}catch(e){}}
+       |  // Collapsed-package state lives in the URL (a "#c=a,b" fragment), not localStorage, so it
+       |  // survives navigation and refresh even when the site is opened as local file:// pages.
+       |  function readSet(){var m=/[#&]c=([^&]*)/.exec(location.hash||''),s=new Set();if(m&&m[1])m[1].split(',').forEach(function(p){if(p)s.add(p);});return s;}
+       |  function hashFor(s){return s.size?'#c='+Array.from(s).join(','):'';}
        |  function keyOf(d){return d.parentElement?d.parentElement.getAttribute('data-name'):null;}
-       |  function applyState(){
-       |    var st=load();
-       |    tree.querySelectorAll('details.tree-pkg').forEach(function(d){
-       |      var k=keyOf(d);d.open=(k&&Object.prototype.hasOwnProperty.call(st,k))?!!st[k]:true;
-       |    });
-       |    var active=tree.querySelector('a.active');
-       |    if(active){var el=active.parentElement;while(el&&el!==tree){if(el.tagName==='DETAILS')el.open=true;el=el.parentElement;}}
+       |  function applyOpen(s){
+       |    tree.querySelectorAll('details.tree-pkg').forEach(function(d){var k=keyOf(d);d.open=!(k&&s.has(k));});
+       |    var a=tree.querySelector('a.active');
+       |    if(a){var el=a.parentElement;while(el&&el!==tree){if(el.tagName==='DETAILS')el.open=true;el=el.parentElement;}}
        |  }
+       |  function sync(s){
+       |    var h=hashFor(s);
+       |    document.querySelectorAll('a[href]').forEach(function(a){
+       |      var href=a.getAttribute('href');
+       |      if(!href||href.charAt(0)==='#'||/^[a-z][a-z0-9+.-]*:/i.test(href))return;
+       |      var base=href.split('#')[0];
+       |      if(base.slice(-5)==='.html')a.setAttribute('href',base+h);
+       |    });
+       |    try{history.replaceState(null,'',location.pathname+location.search+h);}catch(e){try{location.hash=h;}catch(e2){}}
+       |  }
+       |  var current=readSet();
+       |  applyOpen(current);
+       |  sync(current);
+       |  tree.querySelectorAll('details.tree-pkg').forEach(function(d){
+       |    var sm=d.querySelector(':scope > summary');
+       |    if(!sm)return;
+       |    sm.addEventListener('click',function(e){
+       |      if(filterMode||e.target.closest('a'))return;
+       |      var k=keyOf(d);if(!k)return;
+       |      if(d.open)current.add(k);else current.delete(k);
+       |      sync(current);
+       |    });
+       |  });
        |  window.filterModules=function(q){
        |    q=q.trim().toLowerCase();
        |    filterMode=q!=='';
-       |    if(!filterMode){tree.querySelectorAll('li').forEach(function(li){li.style.display='';});applyState();return;}
-       |    tree.querySelectorAll('.tree-leaf').forEach(function(li){
-       |      li.style.display=li.getAttribute('data-name').toLowerCase().indexOf(q)>=0?'':'none';
-       |    });
-       |    Array.prototype.slice.call(tree.querySelectorAll('li.tree-dir')).reverse().forEach(function(li){
+       |    if(!filterMode){tree.querySelectorAll('li').forEach(function(li){li.style.display='';});applyOpen(current);return;}
+       |    tree.querySelectorAll('.tree-leaf').forEach(function(li){li.style.display=li.getAttribute('data-name').toLowerCase().indexOf(q)>=0?'':'none';});
+       |    [].slice.call(tree.querySelectorAll('li.tree-dir')).reverse().forEach(function(li){
        |      var any=false;
        |      li.querySelectorAll('.tree-leaf').forEach(function(c){if(c.style.display!=='none')any=true;});
        |      li.style.display=any?'':'none';
        |      var d=li.querySelector('details');if(d)d.open=any;
        |    });
        |  };
-       |  if(tree){
-       |    applyState();
-       |    tree.querySelectorAll('details.tree-pkg').forEach(function(d){
-       |      d.addEventListener('toggle',function(){
-       |        if(filterMode)return;
-       |        var st=load(),k=keyOf(d);if(k){st[k]=d.open;save(st);}
-       |      });
-       |    });
-       |  }
        |})();
        |</script>
        |</body>
