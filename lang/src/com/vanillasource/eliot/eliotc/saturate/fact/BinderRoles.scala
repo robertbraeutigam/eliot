@@ -17,7 +17,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   - '''reified''' (R1) — referenced in *value* position in the runtime body, the positions
   *     [[com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator]] visits. A reified binder is a binder of the
   *     value's *signature* but not of its runtime body (`def bigOf[V] = V` has body just `V`), so the binding cache must
-  *     materialise it (see `BindingProcessor.reifyingWrap`).
+  *     materialise it (see `BindingClosure.reifyingWrap`).
   *   - '''dispatched''' (R2) — drives an ability-instance selection: the binder is constrained (`[A ~ Show]`, so it is a
   *     key of `paramConstraints`) or appears in a constraint's type arguments. Dispatch must never be merged
   *     (soundness), so it forces [[BinderRoles.Disposition.Specialize]].

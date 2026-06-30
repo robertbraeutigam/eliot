@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{bigIntFQN, boo
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{ContributedBinding, GroundValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, ContributedBinding, GroundValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
@@ -64,7 +64,7 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
 
   override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
     if (key.label =!= StdlibNativesProcessor.stdlibLabel) abort
-    else ContributedBinding(key.vfqn, key.label, bindings.get(key.vfqn)).pure[CompilerIO]
+    else ContributedBinding(key.vfqn, key.label, bindings.get(key.vfqn).map(BindingContribution.Leaf(_))).pure[CompilerIO]
 
   /** The canonical stuck form of a native: a [[SemValue.VStuckNative]] carrying the native's own FQN and the
     * (not-yet-concrete) arguments as its spine — so it stays definitionally distinct, is re-fired by

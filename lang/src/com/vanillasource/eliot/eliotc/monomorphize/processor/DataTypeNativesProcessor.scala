@@ -6,7 +6,7 @@ import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{functionDataTy
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
-import com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, ContributedBinding}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
@@ -30,7 +30,7 @@ class DataTypeNativesProcessor extends SingleFactProcessor[ContributedBinding.Ke
 
   override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
     if (key.label =!= ContributedBinding.dataTypeLabel) abort
-    else dataTypeReduction(key.vfqn).map(ContributedBinding(key.vfqn, key.label, _))
+    else dataTypeReduction(key.vfqn).map(red => ContributedBinding(key.vfqn, key.label, red.map(BindingContribution.Leaf(_))))
 
   /** A body-less `Type`-qualified constructor's inert `VTopDef` reduction, or `None` (totality) for anything else: a
     * non-`Type` name, the system-owned `Function`/`Type`, a type alias (has a body), or a name with no resolved value.

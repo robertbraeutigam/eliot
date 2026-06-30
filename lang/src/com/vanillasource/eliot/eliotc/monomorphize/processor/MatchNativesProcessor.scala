@@ -16,7 +16,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{ContributedBinding, GroundValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, ContributedBinding, GroundValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
@@ -41,7 +41,7 @@ class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] 
 
   override def generateSingleFact(key: ContributedBinding.Key): CompilerIO[ContributedBinding] =
     if (key.label =!= ContributedBinding.matchLabel) abort
-    else matchReduction(key.vfqn).map(ContributedBinding(key.vfqn, key.label, _))
+    else matchReduction(key.vfqn).map(red => ContributedBinding(key.vfqn, key.label, red.map(BindingContribution.Leaf(_))))
 
   /** The match-dispatch native reduction for `vfqn`, or `None` (totality) if `vfqn` is not a `handleCases`/`typeMatch`
     * implementation method.

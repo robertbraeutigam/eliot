@@ -15,7 +15,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{ContributedBinding, GroundValue}
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, ContributedBinding, GroundValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
@@ -56,7 +56,9 @@ class SystemNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
     // is immaterial — only the edge matters) lets the incremental cache prove them unchanged on a no-change run instead
     // of treating them as source leaves and regenerating them every time. Deliberately not `getFactOrAbort`: a bundle
     // without `UpToDateProcessor` (e.g. a minimal test) just loses incrementality here, never fails.
-    else getFact(UpToDate.Key()) >> ContributedBinding(key.vfqn, key.label, systemReduction(key.vfqn)).pure[CompilerIO]
+    else
+      getFact(UpToDate.Key()) >>
+        ContributedBinding(key.vfqn, key.label, systemReduction(key.vfqn).map(BindingContribution.Leaf(_))).pure[CompilerIO]
 
   /** The host-runnable reduction for a system name, or `None` if `vfqn` is not a system name (totality). */
   private def systemReduction(vfqn: ValueFQN): Option[SemValue] =

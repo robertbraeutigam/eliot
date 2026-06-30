@@ -7,74 +7,42 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.NativeBinding
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
-import com.vanillasource.eliot.eliotc.processor.CompilerFactKey
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
-import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
-import com.vanillasource.eliot.eliotc.saturate.fact.{BinderRoles, SaturatedValue}
+import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-import scala.reflect.ClassTag
-
-/** Shared base for the two processors that turn a [[SaturatedValue]] into a binding (a `VTopDef` carrying a lazy body
-  * thunk) for the NbE evaluator. The checker's [[NativeBinding]] and Phase 3's
-  * [[com.vanillasource.eliot.eliotc.monomorphize.fact.TransparentBinding]] differ in exactly one decision — whether an
-  * `opaque` definition's body is kept — which subclasses make via [[selfBody]]
-  * ([[OperatorResolvedValue.checkingRuntime]] drops it; [[OperatorResolvedValue.runtime]] keeps it).
+/** Turns a [[SaturatedValue]] into a binding (a `VTopDef` carrying a lazy body thunk) for the NbE evaluator, closing the
+  * body over the [[NativeBinding]]s of its dependencies. The two callers differ in exactly one decision — which body the
+  * value contributes — passed as `selfBody`:
+  *   - the [[BindingMergerProcessor]], for a [[com.vanillasource.eliot.eliotc.monomorphize.fact.BindingContribution.Body]]
+  *     contribution, uses [[OperatorResolvedValue.checkingRuntime]] (`opaque` bodies stay stuck);
+  *   - the [[TransparentBindingProcessor]] uses [[OperatorResolvedValue.runtime]] (`opaque` bodies unfold for
+  *     representation lowering).
   *
   * Reads the [[SaturatedValue]] (the same fact the monomorphize checker reads), not the raw [[OperatorResolvedValue]],
   * for two reasons: the saturated signature carries the binder roles ([[SaturatedValue.binderRoles]]) the wrap
-  * consumes, and its leading binders line up with the type arguments the checker applies (saturation may prepend
-  * binders for omittable `auto` parameters) — keeping the wrap's binder indices aligned (D6).
+  * consumes, and its leading binders line up with the type arguments the checker applies (saturation may prepend binders
+  * for omittable `auto` parameters) — keeping the wrap's binder indices aligned (D6).
   *
   * The subtle, error-prone parts live here once: the mutual-recursion guard (via the runtime's active fact-request
-  * chain, [[com.vanillasource.eliot.eliotc.processor.CompilerIO.activeFactKeys]] — never per-processor mutable state,
-  * so the processor stays a pure function of the facts it reads), and the transitive dependency collection.
-  * Dependencies are always resolved via [[NativeBinding]] (the checker's semantics, the bindings the bodies were
-  * type-checked against); only the top-level value's own body selection differs between phases.
+  * chain, [[com.vanillasource.eliot.eliotc.processor.CompilerIO.activeFactKeys]] — never per-processor mutable state, so
+  * it stays a pure function of the facts it reads), and the transitive dependency collection. Dependencies are always
+  * resolved via [[NativeBinding]] (the checker's semantics, the bindings the bodies were type-checked against); only the
+  * top-level value's own body selection differs between callers.
   */
-abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
-    getInputKey: OutputKey => SaturatedValue.Key
-)(using ClassTag[OutputKey])
-    extends TransformationProcessor[SaturatedValue.Key, OutputKey](getInputKey) {
+object BindingClosure {
 
-  /** The value's own body as this phase sees it: [[OperatorResolvedValue.checkingRuntime]] for the checker (opaque
-    * bodies stay stuck), [[OperatorResolvedValue.runtime]] for representation lowering (opaque bodies unfold).
+  /** Build the NbE binding for `saturated`, taking the value's own body via `selfBody`. A value whose `selfBody` is
+    * empty — a body-less native, or an `opaque` definition under [[OperatorResolvedValue.checkingRuntime]] — yields a
+    * stuck `VTopDef(vfqn, None, SNil)`; a body-ful value yields a `VTopDef` carrying a lazy thunk that evaluates the
+    * body on demand against its dependencies' [[NativeBinding]]s.
     */
-  protected def selfBody(fact: OperatorResolvedValue): Option[Sourced[OperatorResolvedExpression]]
-
-  /** Wrap the computed binding in the phase-specific output fact. `binding` is `None` only when the value is body-less
-    * and this phase declines body-less values ([[bindsBodylessValues]] = false) — the user contributor's total `None`
-    * answer; a phase that binds body-less values never receives `None` and may treat it as unreachable.
-    */
-  protected def buildFact(vfqn: ValueFQN, binding: Option[SemValue]): CompilerIO[OutputFact]
-
-  /** Whether this processor binds body-less definitions.
-    *
-    * The checking-phase user contributor ([[UserValueNativesProcessor]]) does **not**: a body-less value's checking
-    * implementation is a native (one of the native processors) — or, for a runtime-only function the checker never
-    * reduces, the evaluator's stuck `VNeutral` fallback — never an empty `VTopDef(_, None)` user binding, which would
-    * only shadow a reducing native (the `add` bug). So it answers `None` for a body-less value (its total
-    * [[com.vanillasource.eliot.eliotc.monomorphize.fact.ContributedBinding]] saying "I do not define this"). The
-    * lowering-phase TransparentBinding producer **does**: a runtime native like `nativeWiden` needs an FQN-preserving
-    * stuck `VTopDef` so representation lowering can read it back into codegen.
-    *
-    * Note the gate is on `runtime` (not `selfBody`/`checkingRuntime`): an `opaque` definition like `Int` HAS a body —
-    * it is merely kept stuck during checking — so it is a user value either way.
-    */
-  protected def bindsBodylessValues: Boolean
-
-  override protected def generateFromKeyAndFact(key: OutputKey, fact: InputFact): CompilerIO[OutputFact] =
-    bindingFor(key, fact).flatMap(buildFact(getInputKey(key).vfqn, _))
-
-  /** `Some(VTopDef …)` for a body-ful value (and for a body-less value when this phase binds them); `None` for a
-    * body-less value this phase declines. The body-less `VTopDef` is a stuck `VTopDef(vfqn, None, SNil)`.
-    */
-  private def bindingFor(key: OutputKey, fact: InputFact): CompilerIO[Option[SemValue]] =
-    if (!bindsBodylessValues && fact.value.runtime.isEmpty) none[SemValue].pure[CompilerIO]
-    else buildSemValue(getInputKey(key).vfqn, fact).map(_.some)
-
-  private def buildSemValue(vfqn: ValueFQN, fact: InputFact): CompilerIO[SemValue] = {
-    val body = selfBody(fact.value)
+  def buildBinding(
+      saturated: SaturatedValue,
+      selfBody: OperatorResolvedValue => Option[Sourced[OperatorResolvedExpression]]
+  ): CompilerIO[SemValue] = {
+    val vfqn = saturated.value.vfqn
+    val body = selfBody(saturated.value)
     for {
       bodyBindings <- body match {
                         case Some(b) => collectBindings(b.value, vfqn)
@@ -85,7 +53,7 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
       body.map { b =>
         Lazy {
           val evaluator = new Evaluator(ref => bodyBindings.get(ref))
-          evaluator.eval(Env.empty, reifyingWrap(b.value, fact))
+          evaluator.eval(Env.empty, reifyingWrap(b.value, saturated))
         }
       },
       Spine.SNil
@@ -129,7 +97,7 @@ abstract class BindingProcessor[OutputKey <: CompilerFactKey[?]](
     * is currently being generated up this chain would block on its not-yet-completed `Deferred`. Using the runtime's
     * per-fiber chain — rather than a shared mutable "currently generating" set — keeps the scope correct (only *this*
     * request's ancestors are skipped, not values merely generating concurrently in an unrelated chain) and keeps the
-    * processor pure.
+    * collection pure.
     */
   private def collectBindings(
       ore: OperatorResolvedExpression,

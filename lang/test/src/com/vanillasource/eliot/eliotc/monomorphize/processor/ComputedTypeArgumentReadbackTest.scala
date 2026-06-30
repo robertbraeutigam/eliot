@@ -19,7 +19,7 @@ import com.vanillasource.eliot.eliotc.used.UsedNames
   * reified constant — therefore stayed a stuck term and failed read-back with "Cannot resolve type.", which blocked
   * every size-indexed / reified recursion the keying plan targets (its scenarios S1 and S5).
   *
-  * `BindingProcessor.reifyingWrap` now wraps the cached body in lambda binders for the leading type-stack parameters the
+  * `BindingClosure.reifyingWrap` now wraps the cached body in lambda binders for the leading type-stack parameters the
   * body reifies, so applying the explicit type arguments substitutes them (exactly as the checker does for the value's
   * own monomorphization). These tests pin that down directly: the computed indices now normalise, no "Cannot resolve
   * type." error is produced, and the downstream specializations carry the '''reduced''' type arguments.

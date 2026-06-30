@@ -1,13 +1,15 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.monomorphize.fact.{ContributedBinding, NativeBinding}
+import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
+import com.vanillasource.eliot.eliotc.monomorphize.fact.{BindingContribution, ContributedBinding, NativeBinding}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
 
 /** Owns the evaluator-facing [[NativeBinding]]: for each name it selects the one host-runnable reduction by category
-  * precedence over the suppliers' total [[ContributedBinding]] facts. This is the single owner that replaces the former
-  * silent first-registration race between the several `NativeBinding` producers.
+  * precedence over the suppliers' total [[ContributedBinding]] facts, then closes the selected body over its
+  * dependencies. This is the single owner that replaces the former silent first-registration race between the several
+  * `NativeBinding` producers — and the single owner of the [[NativeBinding]] recursion (see below).
   *
   * Type-level evaluation is *running code on the host*, so for each name the checker needs that name's host-runnable
   * reduction. Two categories of supplier can offer one:
@@ -25,9 +27,18 @@ import com.vanillasource.eliot.eliotc.processor.common.SingleFactProcessor
   * body), not an override — precedence alone keeps the native for checking; the body is read by codegen via
   * `TransparentBinding`.
   *
+  * **Dependency closure lives here, not in the suppliers.** A supplier contributes only what it knows about the name
+  * *itself*: a [[BindingContribution.Leaf]] (a finished native reduction) or a [[BindingContribution.Body]] (its own
+  * checking body, carried as a `SaturatedValue`). For the selected `Body`, this processor runs [[BindingClosure]],
+  * which walks the body and resolves each dependency via [[NativeBinding]] — i.e. recursively through *this* processor.
+  * Keeping that walk here means the body suppliers never read back the merged fact they feed: the only cycle in the
+  * graph is [[NativeBinding]]'s own self-recursion (a value's binding referencing its dependencies' bindings), owned by
+  * this single processor and guarded by the active fact-request chain inside [[BindingClosure]] — not a merger ⇄
+  * supplier cycle.
+  *
   * Contributor facts are total, so [[getFactOrAbort]] always lands and a mis-wired native supplier aborts loudly (no
   * binding ⇒ use-site stuck) rather than silently demoting to the user answer. The user contributors are only forced
-  * when no native wins, so native-owned names never pay for the user body walk.
+  * when no native wins, so native-owned names never pay for the user contribution.
   */
 class BindingMergerProcessor(nativeLabels: Seq[String], userLabels: Seq[String])
     extends SingleFactProcessor[NativeBinding.Key] {
@@ -42,9 +53,10 @@ class BindingMergerProcessor(nativeLabels: Seq[String], userLabels: Seq[String])
                         .traverse(label => getFactOrAbort(ContributedBinding.Key(key.vfqn, label)))
                         .map(_.flatMap(_.contributed).headOption)
                   }
-      result   <- selected match {
-                    case Some(semValue) => NativeBinding(key.vfqn, semValue).pure[CompilerIO]
-                    case None           => abort[NativeBinding]
+      semValue <- selected match {
+                    case Some(BindingContribution.Leaf(value))     => value.pure[CompilerIO]
+                    case Some(BindingContribution.Body(saturated)) => BindingClosure.buildBinding(saturated, _.checkingRuntime)
+                    case None                                      => abort[SemValue]
                   }
-    } yield result
+    } yield NativeBinding(key.vfqn, semValue)
 }

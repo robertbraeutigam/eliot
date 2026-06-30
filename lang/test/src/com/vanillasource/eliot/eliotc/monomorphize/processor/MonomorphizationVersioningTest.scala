@@ -26,7 +26,7 @@ import scala.concurrent.duration.*
   * stage lives in the jvm backend and the breadth being deduped is already visible at the `MonomorphicValue` layer.)
   *
   * Historical note: before reject-recursion was wired, S1/S5 unrolled their reified index per step (4 and 3 versions)
-  * once a read-back gap was fixed (`BindingProcessor.reifyingWrap`; see `ComputedTypeArgumentReadbackTest`), and S7's
+  * once a read-back gap was fixed (`BindingClosure.reifyingWrap`; see `ComputedTypeArgumentReadbackTest`), and S7's
   * unbounded `Box[...]` tower was caught by the `used` non-convergence backstop. With termination M1 wired, every value
   * cycle is rejected before monomorphization, so those scenarios now assert the recursion error rather than a version
   * count; the backstop survives as a defensive fail-safe for residual type-level (Type:Type/Girard) divergence.
