@@ -505,13 +505,13 @@ class AbilityImplementationCheckProcessorTest
   }
 
   it should "defer an uncovered carrier ability call to the concrete use site (M2 main shape)" in {
-    // `program` is constrained only by `Console[F]`, yet its body calls `flatMap` (a `Monad[F]` op) on the same
-    // carrier. `Monad[F]` is NOT covered by a constraint, so it must be DEFERRED to the concrete use site (the M2
-    // `main : {Console} Unit = flatMap(...)` shape, where the only declared effect is Console). At `F := Mio`,
-    // `Monad[Mio]` exists, so the deferred call resolves. This is the use-site-verification cornerstone applied to
-    // a carrier capability the signature does not name.
+    // `program` is constrained only by `Console[F]`, yet its body calls `flatMap` (an `Effect[F]` op) on the same
+    // carrier. `Effect[F]` is the internal machinery, never named as a user-facing effect, so the only declared effect
+    // stays Console (the M2 `main : {Console} Unit = flatMap(...)` shape). At `F := Mio`, `Effect[Mio]` exists, so the
+    // deferred `flatMap` resolution succeeds. This is the use-site-verification cornerstone applied to a carrier
+    // capability the signature does not name.
     runEngineForErrors("""
-        ability Monad[F[_]] {
+        ability Effect[F[_]] {
           def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
         }
 
@@ -525,7 +525,7 @@ class AbilityImplementationCheckProcessorTest
 
         data Mio[A](block: Function[Unit, A])
 
-        implement Monad[Mio] {
+        implement Effect[Mio] {
           def flatMap[A, B](fa: Mio[A], f: Function[A, Mio[B]]): Mio[B] = f(apply(block(fa), miounit))
         }
 
