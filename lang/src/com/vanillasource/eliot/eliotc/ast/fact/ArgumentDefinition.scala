@@ -25,10 +25,14 @@ object ArgumentDefinition {
   given Show[ArgumentDefinition] = _.name.show
 
   given ASTComponent[ArgumentDefinition] = new ASTComponent[ArgumentDefinition] {
+    // The argument type uses the greedy-run `typeRunParser` (not the single-atom `typeParser`), so an infix type
+    // operator reads bare here — `f: A => B` — just as it does in the return-type position. The run stops at the `,`
+    // separator and the closing `)` of the argument list (both reserved, non-type-atom tokens), so a single-atom type
+    // is still returned verbatim and the list structure is unaffected.
     override def parser: Parser[Sourced[Token], ArgumentDefinition] = for {
       name           <- acceptIf(isIdentifier, "argument name")
       _              <- symbol(":")
-      typeExpression <- sourced(Expression.typeParser)
+      typeExpression <- sourced(Expression.typeRunParser)
     } yield ArgumentDefinition(name.map(_.content), typeExpression)
   }
 }

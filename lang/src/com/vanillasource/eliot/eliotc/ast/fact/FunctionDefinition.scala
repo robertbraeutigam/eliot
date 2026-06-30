@@ -108,7 +108,7 @@ object FunctionDefinition {
       genericParameters             <- component[Seq[GenericParameter]]
       args                          <- optionalArgumentListOf(component[ArgumentDefinition])
       _                             <- symbol(":")
-      typeExpression                <- sourced(Expression.returnTypeParser)
+      typeExpression                <- sourced(Expression.typeRunParser)
       functionBody                  <- functionBody
     } yield FunctionDefinition(
       name.map(m => QualifiedName(m.content, Qualifier.Default)),

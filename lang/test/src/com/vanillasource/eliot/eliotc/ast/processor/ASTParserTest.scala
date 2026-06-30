@@ -83,6 +83,18 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     runEngineForErrors("def a(b: Byte, c: Byte, d: Byte): Byte = b").asserting(_ shouldBe Seq.empty)
   }
 
+  it should "accept a bare infix type operator in argument position" in {
+    runEngineForErrors("def a(b: Byte => Byte): Byte = b").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a bare infix type operator in argument position alongside a plain argument" in {
+    runEngineForErrors("def a(b: Byte => Byte, c: Byte): Byte = c").asserting(_ shouldBe Seq.empty)
+  }
+
+  it should "accept a bare curried infix type operator in argument position" in {
+    runEngineForErrors("def a(b: Byte => Byte => Byte): Byte = b").asserting(_ shouldBe Seq.empty)
+  }
+
   it should "reject even if one parameter does not have a type definition" in {
     runEngineForErrors("def a(b: Byte, c, d: Byte): Byte = b").asserting(_.size should be > 0)
   }
