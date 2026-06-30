@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.ability.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.{AbilityImplementationCheck, ModuleAbilityOverlapCheck}
 import com.vanillasource.eliot.eliotc.ability.util.AbilityMatcher
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -63,13 +63,8 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
   )
 
   private def collectAbilityMethods(abilityFQN: AbilityFQN, platform: Platform): CompilerIO[Seq[ResolvedMethod]] =
-    getFactOrAbort(UnifiedModuleNames.Key(abilityFQN.moduleName, platform)).flatMap { names =>
-      names.names.keys.toSeq
-        .collect {
-          case qn @ QualifiedName(_, Qualifier.Ability(name)) if name == abilityFQN.abilityName =>
-            ValueFQN(abilityFQN.moduleName, qn)
-        }
-        .traverse(vfqn => toResolvedMethod(vfqn, platform))
+    getFactOrAbort(ModuleAbilities.Key(abilityFQN.moduleName, platform)).flatMap { abilities =>
+      abilities.declaredMethodsOf(abilityFQN.abilityName).traverse(vfqn => toResolvedMethod(vfqn, platform))
     }
 
   private def collectImplMethods(
@@ -78,13 +73,9 @@ class AbilityImplementationCheckProcessor extends SingleKeyTypeProcessor[Ability
       typeArguments: Seq[GroundValue],
       platform: Platform
   ): CompilerIO[Seq[ResolvedMethod]] =
-    getFactOrAbort(UnifiedModuleNames.Key(moduleName, platform)).flatMap { names =>
-      names.names.keys.toSeq
-        .collect {
-          case qn @ QualifiedName(_, Qualifier.AbilityImplementation(abilityNameSrc, _))
-              if abilityNameSrc.value == abilityFQN.abilityName =>
-            ValueFQN(moduleName, qn)
-        }
+    getFactOrAbort(ModuleAbilities.Key(moduleName, platform)).flatMap { impls =>
+      impls
+        .implementationMethodsOf(abilityFQN.abilityName)
         .traverse(vfqn => toResolvedMethod(vfqn, platform))
         .flatMap(_.traverseFilter { method =>
           method.name.value.qualifier match {

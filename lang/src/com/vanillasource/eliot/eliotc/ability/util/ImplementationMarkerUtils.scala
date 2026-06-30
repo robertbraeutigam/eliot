@@ -2,8 +2,8 @@ package com.vanillasource.eliot.eliotc.ability.util
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.Expression
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, UnifiedModuleValue, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.Qualifier
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ModuleName, UnifiedModuleValue, ValueFQN}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -72,15 +72,7 @@ object ImplementationMarkerUtils {
       index: Int,
       platform: Platform
   ): CompilerIO[Option[ValueFQN]] =
-    getFact(UnifiedModuleNames.Key(moduleName, platform)).map {
-      case None        => None
-      case Some(names) =>
-        names.names.keys.collectFirst {
-          case qn @ QualifiedName(n, Qualifier.AbilityImplementation(an, idx))
-              if n == abilityName && an.value == abilityName && idx == index =>
-            ValueFQN(moduleName, qn)
-        }
-    }
+    getFact(ModuleAbilities.Key(moduleName, platform)).map(_.flatMap(_.markerOf(abilityName, index)))
 
   private def firstArgTypeConstructorName(signature: Expression): Option[String] = {
     import Expression.*

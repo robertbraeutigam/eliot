@@ -2,9 +2,8 @@ package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.TypeStack
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ModuleName, ValueFQN}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.resolve.fact.{Expression, Pattern}
@@ -54,24 +53,20 @@ object MatchDesugarUtils {
       dataTypeName: Option[String] = None
   ): CompilerIO[ValueFQN] =
     for {
-      moduleNames <- getFactOrAbort(UnifiedModuleNames.Key(moduleName, platform))
-      candidates   = moduleNames.names.keys.toSeq.collect {
-                       case qn @ QualifiedName(n, Qualifier.AbilityImplementation(an, _))
-                           if n == methodName && an.value == abilityName =>
-                         qn
-                     }
+      impls       <- getFactOrAbort(ModuleAbilities.Key(moduleName, platform))
+      candidates   = impls.namedImplementationMethodsOf(abilityName, methodName)
       selected    <- dataTypeName match {
                        case None      => candidates.headOption.pure[CompilerIO]
                        case Some(dtn) =>
-                         candidates.findM(qn =>
+                         candidates.findM(vfqn =>
                            ImplementationMarkerUtils
-                             .firstPatternTypeConstructorName(moduleName, abilityName, qn.qualifier, platform)
+                             .firstPatternTypeConstructorName(moduleName, abilityName, vfqn.name.qualifier, platform)
                              .map(_.contains(dtn))
                          )
                      }
       result      <- selected match
-                       case Some(qn) => ValueFQN(moduleName, qn).pure[CompilerIO]
-                       case None     =>
+                       case Some(vfqn) => vfqn.pure[CompilerIO]
+                       case None       =>
                          compilerAbort(
                            errorSource.as(s"No $abilityName.$methodName implementation found in module $moduleName.")
                          )

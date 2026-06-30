@@ -1,15 +1,12 @@
 package com.vanillasource.eliot.eliotc.monomorphize.processor
 
-import cats.kernel.Order.catsKernelOrderingForOrder
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
-import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.{
+  ModuleConstructors,
   ModuleName,
   QualifiedName,
   Qualifier,
-  UnifiedModuleNames,
-  UnifiedModuleValue,
   ValueFQN,
   WellKnownTypes
 }
@@ -66,30 +63,12 @@ class MatchNativesProcessor extends SingleFactProcessor[ContributedBinding.Key] 
       case None       => abort
     }
 
-  /** The value constructors of a data type, in source-declaration order (= handler order).
-    *
-    * Reads [[RoleHint.ValueConstructor]] purely to recover constructor identity and declaration order while baking the
-    * pattern-dispatch native — the native-emitting half of match desugaring. This is a sanctioned hint consumer (see the
-    * cornerstone invariant on [[RoleHint]]): it reconstructs the programmer's written shape, makes no typing decision,
-    * and never consults `typeParamCount`.
+  /** The value constructors of a data type, in source-declaration order (= handler order). The constructor
+    * identity / ordering derivation lives in [[ModuleConstructors]] (the sanctioned [[RoleHint.ValueConstructor]]
+    * consumer); this native-emitting half of match desugaring just reads the shared index.
     */
   private def orderedConstructors(moduleName: ModuleName, dataType: QualifiedName): CompilerIO[Seq[ValueFQN]] =
-    for {
-      moduleNames     <- getFactOrAbort(UnifiedModuleNames.Key(moduleName))
-      constructorVfqns = moduleNames.names.keys
-                           .filter(qn => qn.qualifier == Qualifier.Default && qn.name.head.isUpper)
-                           .map(qn => ValueFQN(moduleName, qn))
-                           .toSeq
-      ordered         <- constructorVfqns.traverseFilter { vfqn =>
-                           getFactOrAbort(UnifiedModuleValue.Key(vfqn)).map { umv =>
-                             umv.namedValue.roleHint match {
-                               case RoleHint.ValueConstructor(dt, _) if dt == dataType =>
-                                 Some((vfqn, umv.namedValue.qualifiedName.range.from))
-                               case _                                                  => None
-                             }
-                           }
-                         }
-    } yield ordered.sortBy(_._2).map(_._1)
+    getFactOrAbort(ModuleConstructors.Key(moduleName)).map(_.of(dataType))
 
   /** `handleCases(value, cases)`: dispatch a concrete constructor `value` to its handler in `cases`. */
   private def handleCasesNative(ordered: Seq[ValueFQN]): SemValue =

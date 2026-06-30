@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.ability.processor
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.ModuleAbilityOverlapCheck
 import com.vanillasource.eliot.eliotc.ability.util.AbilityMatcher
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -22,21 +22,17 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * the ability's module or a type's module.
   */
 class ModuleAbilityOverlapCheckProcessor
-    extends TransformationProcessor[UnifiedModuleNames.Key, ModuleAbilityOverlapCheck.Key](key =>
-      UnifiedModuleNames.Key(key.moduleName, key.platform)
+    extends TransformationProcessor[ModuleAbilities.Key, ModuleAbilityOverlapCheck.Key](key =>
+      ModuleAbilities.Key(key.moduleName, key.platform)
     ) {
 
   override protected def generateFromKeyAndFact(
       key: ModuleAbilityOverlapCheck.Key,
-      names: UnifiedModuleNames
+      impls: ModuleAbilities
   ): CompilerIO[ModuleAbilityOverlapCheck] = {
-    // Find every marker function for this ability in this module. The marker's local name equals the ability
-    // name and its qualifier carries the impl's index, which uniquely identifies the implementation.
-    val markers: Seq[ValueFQN] = names.names.keys.toSeq.collect {
-      case qn @ QualifiedName(n, Qualifier.AbilityImplementation(an, _))
-          if n == key.abilityName && an.value == key.abilityName =>
-        ValueFQN(key.moduleName, qn)
-    }
+    // Every marker function for this ability in this module. The marker's local name equals the ability name and its
+    // qualifier carries the impl's index, which uniquely identifies the implementation.
+    val markers: Seq[ValueFQN] = impls.markersOf(key.abilityName)
     for {
       signatures <- markers.traverse(loadMarkerSignature(_, key.platform))
       resolved    = markers.zip(signatures).collect { case (vfqn, Some(sig)) => (vfqn, sig) }

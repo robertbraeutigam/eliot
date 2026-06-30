@@ -1,13 +1,11 @@
 package com.vanillasource.eliot.eliotc.matchdesugar.processor
 
-import cats.kernel.Order.catsKernelOrderingForOrder
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.core.fact.{RoleHint, TypeStack}
 import com.vanillasource.eliot.eliotc.module.fact.{
+  ModuleConstructors,
   ModuleName,
   QualifiedName,
-  Qualifier,
-  UnifiedModuleNames,
   UnifiedModuleValue,
   ValueFQN
 }
@@ -62,24 +60,7 @@ class DataMatchDesugarer(context: MatchDesugarContext) {
       moduleName: ModuleName,
       dataType: QualifiedName
   )(using platform: Platform): CompilerIO[Seq[ValueFQN]] =
-    for {
-      moduleNames     <- getFactOrAbort(UnifiedModuleNames.Key(moduleName, platform))
-      constructorNames = moduleNames.names.keys
-                           .filter(qn => qn.qualifier == Qualifier.Default && qn.name.head.isUpper)
-                           .toSeq
-      constructorVfqns = constructorNames.map(qn => ValueFQN(moduleName, qn))
-      ordered         <- constructorVfqns.traverseFilter { vfqn =>
-                           getFactOrAbort(UnifiedModuleValue.Key(vfqn, platform)).map { umv =>
-                             val matches = umv.namedValue.roleHint match {
-                               case RoleHint.ValueConstructor(dt, _) => dt == dataType
-                               case _                                => false
-                             }
-                             Option.when(matches)(
-                               (vfqn, umv.namedValue.qualifiedName.range.from)
-                             )
-                           }
-                         }
-    } yield ordered.sortBy(_._2).map(_._1)
+    getFactOrAbort(ModuleConstructors.Key(moduleName, platform)).map(_.of(dataType))
 
   private def checkExhaustiveness(
       cases: Seq[Expression.MatchCase],

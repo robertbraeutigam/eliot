@@ -12,6 +12,8 @@ import com.vanillasource.eliot.eliotc.effect.processor.EffectDesugaringProcessor
 import com.vanillasource.eliot.eliotc.matchdesugar.processor.MatchDesugaringProcessor
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.module.processor.{
+  ModuleAbilitiesProcessor,
+  ModuleConstructorsProcessor,
   ModuleNamesProcessor,
   ModuleValueProcessor,
   UnifiedModuleNamesProcessor,
@@ -76,6 +78,8 @@ object LangProcessors {
     ModuleValueProcessor(systemModules),
     UnifiedModuleNamesProcessor(),
     UnifiedModuleValueProcessor(),
+    ModuleConstructorsProcessor(),
+    ModuleAbilitiesProcessor(),
     ValueResolver(),
     BlockDesugaringProcessor(),
     MatchDesugaringProcessor(),

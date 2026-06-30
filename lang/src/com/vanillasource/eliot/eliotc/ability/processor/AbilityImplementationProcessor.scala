@@ -4,7 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.fact.{AbilityImplementation, AbilityImplementationCheck}
 import com.vanillasource.eliot.eliotc.ability.util.AbilityMatcher
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, UnifiedModuleNames, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleAbilities, ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
@@ -110,13 +110,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       abilityLocalName: String,
       platform: Platform
   ): CompilerIO[Seq[ValueFQN]] =
-    getFactOrAbort(UnifiedModuleNames.Key(moduleName, platform)).map { names =>
-      names.names.keys.toSeq.collect {
-        case qn @ QualifiedName(_, Qualifier.AbilityImplementation(abilityNameSrc, _))
-            if abilityNameSrc.value == abilityLocalName =>
-          ValueFQN(moduleName, qn)
-      }
-    }
+    getFactOrAbort(ModuleAbilities.Key(moduleName, platform)).map(_.implementationMethodsOf(abilityLocalName))
 
   private def findImplementationsInModule(
       moduleName: ModuleName,
@@ -124,14 +118,9 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       abilityLocalName: String,
       platform: Platform
   ): CompilerIO[Seq[ValueFQN]] =
-    getFact(UnifiedModuleNames.Key(moduleName, platform)).map {
+    getFact(ModuleAbilities.Key(moduleName, platform)).map {
       case None        => Seq.empty
-      case Some(names) =>
-        names.names.keys.toSeq.collect {
-          case qn @ QualifiedName(`functionName`, Qualifier.AbilityImplementation(abilityNameSrc, _))
-              if abilityNameSrc.value == abilityLocalName =>
-            ValueFQN(moduleName, qn)
-        }
+      case Some(impls) => impls.namedImplementationMethodsOf(abilityLocalName, functionName)
     }
 
   private def verifyImplementation(
