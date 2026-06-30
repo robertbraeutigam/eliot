@@ -1,3 +1,4 @@
+import eliot.effect.Console
 /**
  * Dependent-bounds integer arithmetic. Each literal has a singleton type (`2 : Int[2, 2]`), and `+`/`-`/`*`
  * carry their result range in the type, with `*` binding tighter than `+`/`-`. Prints `14`.

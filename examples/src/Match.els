@@ -1,3 +1,4 @@
+import eliot.effect.Console
 data Maybe[A] = Nothing | Just(value: A)
 
 def describe(m: Maybe[String]): String = m match {

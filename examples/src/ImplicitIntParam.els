@@ -1,3 +1,4 @@
+import eliot.effect.Console
 /**
  * Inferred generic inputs. The bare `Int` parameter of `describe` is generalized: its omitted bounds become
  * inferred generic parameters, so `describe` accepts any integer width and recovers the bounds from each call's

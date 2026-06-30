@@ -14,7 +14,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "a satisfied `orError(when(...))` guard" should "type as its payload and run as the bare type" in {
     compileAndRun(
-      """import eliot.lang.Guard
+      """import eliot.effect.Console
+        |import eliot.lang.Guard
         |import eliot.lang.Bool
         |
         |def greeting[COND: Bool]: orError(when(String[], COND), "greeting unavailable") = "hello"
@@ -25,7 +26,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "an unsatisfied `orError(when(...))` guard" should "fail the build with the author message" in {
     compileForErrors(
-      """import eliot.lang.Guard
+      """import eliot.effect.Console
+        |import eliot.lang.Guard
         |import eliot.lang.Bool
         |
         |def greeting[COND: Bool]: orError(when(String[], COND), "greeting unavailable") = "hello"
@@ -36,7 +38,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "a bare `error(msg)` guard" should "fail the build with the author message" in {
     compileForErrors(
-      """import eliot.lang.Guard
+      """import eliot.effect.Console
+        |import eliot.lang.Guard
         |
         |def unavailable: error("not available") = "x"
         |
@@ -54,7 +57,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "a satisfied infix `when … orError` guard" should "type as its payload and run as the bare type" in {
     compileAndRun(
-      """import eliot.lang.Guard
+      """import eliot.effect.Console
+        |import eliot.lang.Guard
         |import eliot.lang.Bool
         |
         |def greeting[COND: Bool]: String[] when (COND) orError "greeting unavailable" = "hello"
@@ -65,7 +69,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "an unsatisfied infix `when … orError` guard" should "fail the build with the author message" in {
     compileForErrors(
-      """import eliot.lang.Guard
+      """import eliot.effect.Console
+        |import eliot.lang.Guard
         |import eliot.lang.Bool
         |
         |def greeting[COND: Bool]: String[] when (COND) orError "greeting unavailable" = "hello"
@@ -77,7 +82,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
   // `BigInteger` (and hence its `>` operator) is ambiently imported into every module, so no explicit import is needed.
   "a satisfied `MIN > 0` infix guard" should "type as its payload and run as the bare type" in {
     compileAndRun(
-      """import eliot.lang.Guard
+      """import eliot.effect.Console
+        |import eliot.lang.Guard
         |
         |def positive[MIN: BigInteger]: String[] when (MIN > 0) orError "must be positive" = "ok"
         |
@@ -87,7 +93,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "an unsatisfied `MIN > 0` infix guard" should "fail the build with the author message" in {
     compileForErrors(
-      """import eliot.lang.Guard
+      """import eliot.effect.Console
+        |import eliot.lang.Guard
         |
         |def positive[MIN: BigInteger]: String[] when (MIN > 0) orError "must be positive" = "ok"
         |
@@ -97,7 +104,8 @@ class GuardSignatureIntegrationTest extends FullIntegrationTest {
 
   "a satisfied `N < 10` infix guard" should "type as its payload and run as the bare type" in {
     compileAndRun(
-      """import eliot.lang.Guard
+      """import eliot.effect.Console
+        |import eliot.lang.Guard
         |
         |def small[N: BigInteger]: String[] when (N < 10) orError "too big" = "ok"
         |

@@ -1,3 +1,4 @@
+import eliot.effect.Console
 /**
  * Dependent integer ranges. `Int[MIN, MAX]` carries its bounds in the type, and a value of a narrower range is
  * widened into a wider one automatically by the `Coerce[Int, Int]` instance. Here the literal `7` (`Int[7, 7]`)

@@ -1,3 +1,4 @@
+import eliot.effect.Console
 // Block syntax: `val` bindings and statement sequencing (see docs/block-syntax.md).
 //
 // A block `{ … }` is a sequence of statements/bindings ending in a result expression. It lowers to a tower of

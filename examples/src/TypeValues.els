@@ -1,3 +1,4 @@
+import eliot.effect.Console
 data Person[NAME: String](content: String)
 
 data Box[A](a: A)

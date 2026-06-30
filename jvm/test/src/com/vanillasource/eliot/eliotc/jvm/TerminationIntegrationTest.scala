@@ -21,7 +21,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a data type referencing itself left of an arrow" should "be rejected as not strictly positive" in {
     compileForErrors(
-      """data Loop(f: Function[Loop, String])
+      """import eliot.effect.Console
+        |data Loop(f: Function[Loop, String])
         |
         |def main: IO[Unit] = println("unreachable")""".stripMargin
     ).asserting(_ should include("contravariant position"))
@@ -29,7 +30,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a data type referencing itself covariantly (structural recursion)" should "compile and run" in {
     compileAndRun(
-      """data Tree(left: Tree, right: Tree)
+      """import eliot.effect.Console
+        |data Tree(left: Tree, right: Tree)
         |
         |def main: IO[Unit] = println("ok")""".stripMargin
     ).asserting(_ shouldBe "ok")
@@ -37,7 +39,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a directly self-recursive value" should "be rejected as recursion" in {
     compileForErrors(
-      """def loop(x: String): String = loop(x)
+      """import eliot.effect.Console
+        |def loop(x: String): String = loop(x)
         |
         |def main: IO[Unit] = println(loop("unreachable"))""".stripMargin
     ).asserting(_ should include("recursively"))
@@ -45,7 +48,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a mutually-recursive pair of values" should "be rejected as recursion" in {
     compileForErrors(
-      """def ping(x: String): String = pong(x)
+      """import eliot.effect.Console
+        |def ping(x: String): String = pong(x)
         |def pong(x: String): String = ping(x)
         |
         |def main: IO[Unit] = println(ping("unreachable"))""".stripMargin
@@ -54,7 +58,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
 
   "a deep non-recursive helper chain" should "compile and run" in {
     compileAndRun(
-      """def a(x: String): String = b(x)
+      """import eliot.effect.Console
+        |def a(x: String): String = b(x)
         |def b(x: String): String = c(x)
         |def c(x: String): String = x
         |
@@ -69,7 +74,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // rides the ordinary effect pipeline, it is not a special termination lattice.
   "a {Console} value that calls forever without declaring Inf" should "be rejected (Inf propagation)" in {
     compileForErrors(
-      """import eliot.effect.Inf
+      """import eliot.effect.Console
+        |import eliot.effect.Inf
         |
         |def bad: {Console} Unit = forever(println("x"))
         |
@@ -82,7 +88,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // it and confirms the step ran many times (not just once).
   "an IO main built from forever over a terminating step" should "run the step endlessly" in {
     compileAndRunBounded(
-      """import eliot.effect.Inf
+      """import eliot.effect.Console
+        |import eliot.effect.Inf
         |
         |def main: IO[Unit] = forever(println("tick"))""".stripMargin,
       timeoutMillis = 400
@@ -93,7 +100,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // effect set resolves to the concrete `IO` carrier (the `Inf[IO]` and `Console[IO]` instances) and runs end-to-end.
   "a carrier-polymorphic {Inf, Console} super-loop pinned to IO at main" should "run endlessly" in {
     compileAndRunBounded(
-      """import eliot.effect.Inf
+      """import eliot.effect.Console
+        |import eliot.effect.Inf
         |
         |def serve: {Inf, Console} Unit = forever(println("serving"))
         |
@@ -109,7 +117,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // definition is byte-for-byte the one used in the `Inf` case below — only the supplied step differs.
   "a higher-order combinator over a terminating step" should "itself terminate" in {
     compileAndRun(
-      """def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
+      """import eliot.effect.Console
+        |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
         |
         |def main: IO[Unit] = runStep(_ -> println("done"))""".stripMargin
     ).asserting(_ shouldBe "done")
@@ -120,7 +129,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // (Nystrom's function-coloring win), because `Inf` is a carrier effect, not a separate lattice slot.
   "the same higher-order combinator over an Inf step" should "loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.effect.Inf
+      """import eliot.effect.Console
+        |import eliot.effect.Inf
         |
         |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
         |
@@ -134,7 +144,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // courier for the carrier-typed value, it does not launder the effect.
   "an Inf action stored in data then run through its accessor" should "loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.effect.Inf
+      """import eliot.effect.Console
+        |import eliot.effect.Inf
         |
         |data Box[F[_]](action: F[Unit])
         |
@@ -150,7 +161,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // and runs end-to-end.
   "an {Inf, Console} driver over a {Console} step" should "union both effects and loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.effect.Inf
+      """import eliot.effect.Console
+        |import eliot.effect.Inf
         |
         |def driver(step: {Console} Unit): {Inf, Console} Unit = forever(step)
         |
@@ -163,7 +175,8 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // `{Console}` (omitting `Inf`) is rejected — calling `forever` performs `Inf`, which must be declared.
   "a driver that calls forever while declaring only {Console}" should "be rejected (Inf not declared)" in {
     compileForErrors(
-      """import eliot.effect.Inf
+      """import eliot.effect.Console
+        |import eliot.effect.Inf
         |
         |def driver(step: {Console} Unit): {Console} Unit = forever(step)
         |

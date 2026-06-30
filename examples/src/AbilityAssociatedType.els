@@ -1,3 +1,4 @@
+import eliot.effect.Console
 ability AssociatedType[T] {
    type MagicType
 

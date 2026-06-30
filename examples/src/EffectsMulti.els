@@ -1,3 +1,6 @@
+import eliot.effect.Log
+import eliot.effect.Dep
+import eliot.effect.Console
 import eliot.effect.Effect
 
 /**

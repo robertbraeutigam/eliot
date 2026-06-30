@@ -1,3 +1,4 @@
+import eliot.effect.Console
 import eliot.effect.Abort
 
 // A computation that may abort. Returning a value: pure path; calling `abort`: short-circuit.

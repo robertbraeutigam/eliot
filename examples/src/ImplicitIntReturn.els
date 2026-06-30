@@ -1,3 +1,4 @@
+import eliot.effect.Console
 /**
  * Inferred calculated return bounds. The bare `Int` return of `double` is calculated from its body: `x + x` at
  * `Int[21, 21]` has type `Int[42, 42]`, so the return bounds are recovered from the body rather than spelled

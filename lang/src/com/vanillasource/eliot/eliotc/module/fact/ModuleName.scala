@@ -67,26 +67,20 @@ object ModuleName {
   // value-position integer literal `n` is rewritten to `integerLiteral[n] : Int[n, n]` (`CoreExpressionConverter`), so
   // `integerLiteral` (Runtime) and `Int` must resolve in every module. Code therefore must NOT import them explicitly
   // (that would double-import and shadow).
-  val defaultSystemModules                 =
-    Seq(
-      "Function",
-      "Unit",
-      "String",
-      "BigInteger",
-      "IO",
-      "Int",
-      "Runtime"
-    ).map(ModuleName(defaultSystemPackage, _)) ++
-      // `Console`/`Log`/`Dep` are the public effect abilities users name ambiently: their operations and the `{...}`
-      // sugar must resolve in every module with no import (the old top-level `println` lived in the ambient `String`
-      // module). They live in the `eliot.effect` package ([[effectPackage]]). The internal effect machinery
-      // (`Effect`/`Sync`) is NOT ambient — it is imported by the platform layer and referenced by FQN from the
-      // effect-desugar phase.
-      Seq(
-        "Console",
-        "Log",
-        "Dep"
-      ).map(ModuleName(effectPackage, _))
+  // Only the `eliot.lang` prelude (the `java.lang` analogue) is auto-imported. Everything in a domain package —
+  // including every effect in `eliot.effect` (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/…) and the machinery
+  // (`Effect`/`Sync`) — is import-required: a file that prints declares `import eliot.effect.Console`. The two
+  // Phase-6 ambients `Int`/`Runtime` are here because every value-position integer literal desugars to
+  // `integerLiteral[n] : Int[n, n]`, so they must resolve with no import.
+  val defaultSystemModules                 = Seq(
+    "Function",
+    "Unit",
+    "String",
+    "BigInteger",
+    "IO",
+    "Int",
+    "Runtime"
+  ).map(ModuleName(defaultSystemPackage, _))
   // `PatternMatch`/`TypeMatch` are intentionally NOT here: they are desugaring machinery in the
   // `eliot.compiler.internal` package that user code never names. Compiler-generated `implement` markers reference them
   // by fixed FQN (`ValueResolver.compilerInternalAbilities`), so they need no import.

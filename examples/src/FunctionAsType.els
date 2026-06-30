@@ -1,3 +1,4 @@
+import eliot.effect.Console
 data Box[A](content: A)
 
 def stringBox: Type = Box[String]

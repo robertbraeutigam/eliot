@@ -26,13 +26,15 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
   val file           = URI.create("Test.els")
   val testModuleName = ModuleName(Seq.empty, "Test")
   val sourceContent  = SourceContent(file, Sourced(file, PositionRange.zero, "test source"))
-  /** The canonical ambient environment every test runs in: one stub per `ModuleName.defaultSystemModules` entry (so the
-    * auto-imports resolve), plus the modules the resolver/ability-checker loads by *fixed FQN* rather than by import —
-    * the desugaring-machinery `PatternMatch`/`TypeMatch` (in `compilerInternalPackage`) and `Type` (in `compilerPackage`,
-    * reached via the resolver's bare-name special-case → `WellKnownTypes.typeFQN`). Those are registered here so they are
-    * *loadable* by their FQN, though not auto-imported. This is the SINGLE place the ambient set and each module's package
-    * live. A test that needs richer content for a few modules calls [[ambientStubsWith]] to override just those, instead
-    * of re-listing the whole set — so relocating a module, or adding/removing an ambient one, touches only this list.
+  /** The canonical module environment every test runs in: one stub per `ModuleName.defaultSystemModules` entry (so the
+    * auto-imports resolve), plus modules that are *registered (loadable) but not auto-imported* — the import-required
+    * effects `Console`/`Log`/`Dep` (in `effectPackage`; a snippet that prints must `import eliot.effect.Console`), and
+    * the modules the resolver/ability-checker loads by *fixed FQN* rather than by import: the desugaring-machinery
+    * `PatternMatch`/`TypeMatch` (in `compilerInternalPackage`) and `Type` (in `compilerPackage`, reached via the
+    * resolver's bare-name special-case → `WellKnownTypes.typeFQN`). This is the SINGLE place the module set and each
+    * module's package live. A test that needs richer content for a few modules calls [[ambientStubsWith]] to override
+    * just those, instead of re-listing the whole set — so relocating a module, or adding/removing one, touches only this
+    * list.
     */
   val systemImports  = Seq(
     SystemImport("Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"),
@@ -188,28 +190,28 @@ object ProcessorTest {
   val typeMatchAbilityStub: String     =
     "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
 
-  /** Ambient `Console` effect stub, mirroring `stdlib/eliot/eliot/lang/Console.els`. `Console` is in
-    * `defaultSystemModules` (the one user-facing effect ability that resolves with no import), so the harness must
-    * register a matching stub. The concrete JVM instance lives in the real jvm layer, not here.
+  /** `Console` effect stub, mirroring `stdlib/eliot/eliot/effect/Console.els`. Import-required (in `effectPackage`, not
+    * ambient), registered so a snippet that does `import eliot.effect.Console` resolves. The concrete JVM instance lives
+    * in the real jvm layer, not here.
     */
   val consoleStubContent: String =
     "ability Console[F[_]] {\ndef println(s: String): F[Unit]\ndef readLine: F[String]\n}"
 
-  /** Ambient `Log` effect stub, mirroring `stdlib/eliot/eliot/lang/Log.els`. `Log` is in
-    * `defaultSystemModules`; the concrete JVM instance lives in the real jvm layer.
+  /** `Log` effect stub, mirroring `stdlib/eliot/eliot/effect/Log.els`. Import-required (in `effectPackage`); the
+    * concrete JVM instance lives in the real jvm layer.
     */
   val logStubContent: String = "ability Log[F[_]] {\ndef log(s: String): F[Unit]\n}"
 
-  /** Ambient `Dep` effect stub, mirroring `stdlib/eliot/eliot/lang/Dep.els`. `Dep` is in
-    * `defaultSystemModules`; application/layer code supplies the concrete instances per dependency type.
+  /** `Dep` effect stub, mirroring `stdlib/eliot/eliot/effect/Dep.els`. Import-required (in `effectPackage`);
+    * application/layer code supplies the concrete instances per dependency type.
     */
   val depStubContent: String = "ability Dep[X, F[_]] {\ndef get: F[X]\n}"
 
-  /** The auto-imported system modules minus the Phase-6 ambient `Int`/`Runtime` and the ambient effect abilities
-    * (`Console`/`Log`/`Dep`). Tests that use `Int`/`integerLiteral` as a *local* declaration name (and never write a
-    * value-position integer literal), or that declare their own local effect ability, pass this to
-    * `ModuleValueProcessor` so the ambient versions do not shadow their local ones.
+  /** The auto-imported system modules minus the Phase-6 ambient `Int`/`Runtime`. Tests that use `Int`/`integerLiteral`
+    * as a *local* declaration name (and never write a value-position integer literal) pass this to
+    * `ModuleValueProcessor` so the ambient versions do not shadow their local ones. (Effects like `Console`/`Log`/`Dep`
+    * are no longer ambient — they are import-required from `eliot.effect` — so they need no filtering here.)
     */
   val systemModulesWithoutInt: Seq[ModuleName] =
-    ModuleName.defaultSystemModules.filterNot(m => Set("Int", "Runtime", "Console", "Log", "Dep").contains(m.name))
+    ModuleName.defaultSystemModules.filterNot(m => Set("Int", "Runtime").contains(m.name))
 }

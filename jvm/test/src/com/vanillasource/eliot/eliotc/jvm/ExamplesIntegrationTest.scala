@@ -3,7 +3,8 @@ package com.vanillasource.eliot.eliotc.jvm
 class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "hello world" should "print a string" in {
-    compileAndRun("""def main: IO[Unit] = println("Hello World!")""")
+    compileAndRun("""import eliot.effect.Console
+def main: IO[Unit] = println("Hello World!")""")
       .asserting(_ shouldBe "Hello World!")
   }
 
@@ -15,7 +16,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // in turn discharges `Sync[IO]`. `main` commits to the concrete runnable carrier `IO[Unit]` (Decision 8).
   "console effect" should "read a line and echo it through the Console -> Sync -> IO layering" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |
         |def echo: {Console} Unit = flatMap(readLine, s -> println(s))
         |
@@ -28,7 +30,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // still resolves it at `F := IO` (the `Console[IO]` instance rides the base `Sync[IO]`), so the original HelloWorld
   // keeps working unchanged.
   it should "still print a literal via the Console effect at a concrete IO main" in {
-    compileAndRun("""def main: IO[Unit] = println("Hello World!")""")
+    compileAndRun("""import eliot.effect.Console
+def main: IO[Unit] = println("Hello World!")""")
       .asserting(_ shouldBe "Hello World!")
   }
 
@@ -36,7 +39,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // infers `F := IO` and resolves both effect operations through the layering.
   it should "run a carrier-polymorphic {Console} function pinned to IO at the call site" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |
         |def greet: {Console} Unit = flatMap(println("a"), ignore -> println("b"))
         |
@@ -57,14 +61,16 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // a plain `String`; the effect-desugar phase binds it, producing `flatMap(readLine, x -> println(x))`, with the
   // carrier pinned to `IO` by `main`'s return. No `import eliot.effect.Effect`, no hand-written `flatMap`.
   "effect auto-lift" should "sequence a direct-style println(readLine) at a concrete IO main" in {
-    compileAndRun("""def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
+    compileAndRun("""import eliot.effect.Console
+def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
       .asserting(_ shouldBe "echoed line")
   }
 
   // The same direct-style body in a carrier-polymorphic `{Console}` business function, pinned to `IO` at the call site.
   it should "sequence a direct-style {Console} business function pinned to IO" in {
     compileAndRun(
-      """def echo: {Console} Unit = println(readLine)
+      """import eliot.effect.Console
+        |def echo: {Console} Unit = println(readLine)
         |
         |def main: IO[Unit] = echo""".stripMargin,
       stdin = "carrier line\n"
@@ -75,7 +81,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // runs exactly as before, proving auto-lift does not double-bind a stored effect action.
   it should "leave already-monadic flatMap code unchanged" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |
         |def echo: {Console} Unit = flatMap(readLine, s -> println(s))
         |
@@ -88,7 +95,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // effect-desugar phase, not silently miscompiled.
   "an effectful body under a pure return" should "be rejected" in {
     compileForErrors(
-      """def helper: String = println(readLine)
+      """import eliot.effect.Console
+        |def helper: String = println(readLine)
         |
         |def main: IO[Unit] = println(helper)""".stripMargin
     ).asserting(_ should include("performs an effect but is declared pure"))
@@ -100,7 +108,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // business function pinned to `IO` at the call site runs through the JVM `Log` instance.
   "log effect" should "emit a tagged diagnostic line through the Log -> Sync -> IO layering" in {
     compileAndRun(
-      """def announce: {Log} Unit = log("starting up")
+      """import eliot.effect.Log
+        |def announce: {Log} Unit = log("starting up")
         |
         |def main: IO[Unit] = announce""".stripMargin
     ).asserting(_ shouldBe "[LOG] starting up")
@@ -110,7 +119,9 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // one carrier `F`, auto-lifted into a single `flatMap` chain.
   "multiple effects in one signature" should "carrier-unify Log and Console in a direct-style body" in {
     compileAndRun(
-      """def echoLog: {Log, Console} Unit = log(readLine)
+      """import eliot.effect.Console
+        |import eliot.effect.Log
+        |def echoLog: {Log, Console} Unit = log(readLine)
         |
         |def main: IO[Unit] = echoLog""".stripMargin,
       stdin = "from stdin\n"
@@ -121,7 +132,9 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // function from a `{Console}`-only function leaks `Log`, rejected at the definition with a precise message.
   "an undeclared effect" should "be rejected with a precise propagation error" in {
     compileForErrors(
-      """def doLog: {Log} Unit = log("hi")
+      """import eliot.effect.Console
+        |import eliot.effect.Log
+        |def doLog: {Log} Unit = log("hi")
         |
         |def caller: {Console} Unit = doLog
         |
@@ -133,7 +146,10 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // end to end. `get` is dispatched by the dependency type and collapses to the injected singleton.
   "a multi-effect Dep/Log/Console program" should "compile and run end to end" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Log
+        |import eliot.effect.Dep
+        |import eliot.effect.Effect
         |
         |data Database(url: String)
         |
@@ -154,7 +170,9 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // (the first dependency's url, then the second's name) — proving by-type dispatch does not collapse the two.
   "two distinct-typed Deps" should "each resolve get to its own instance in one body" in {
     val program =
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Dep
+        |import eliot.effect.Effect
         |
         |data Database(url: String)
         |data Logger(name: String)
@@ -171,7 +189,9 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "resolve the second distinct Dep to its own value" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Dep
+        |import eliot.effect.Effect
         |
         |data Database(url: String)
         |data Logger(name: String)
@@ -191,7 +211,9 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // per type), via the ordinary ability overlap check.
   "two same-type Dep implementations" should "be rejected as overlapping" in {
     compileForErrors(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Dep
+        |import eliot.effect.Effect
         |
         |data Database(url: String)
         |
@@ -210,7 +232,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // discharge edge, not in the `{Abort} String` signature. `main` pins the residual carrier `G := IO`.
   "the Abort effect" should "discharge a completed computation to Some via runAbort" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |import eliot.effect.Abort
         |import eliot.lang.Option
         |
@@ -224,7 +247,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // carrier is refined to `AbortCarrier[G]` by partial-application injectivity at the `runAbort` call.
   it should "discharge an aborted computation to None via runAbort" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |import eliot.effect.Abort
         |import eliot.lang.Option
         |
@@ -239,7 +263,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // `None`. Proves the constrained-HKT instance + base-Sync-lift path end to end.
   "a {Console, Abort} program" should "run Console through the AbortCarrier[IO] stack via the Sync lift, then short-circuit" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |import eliot.effect.Abort
         |import eliot.lang.Option
         |
@@ -255,7 +280,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // structural-discharge pattern generalises to a two-type-parameter effect and a two-constructor result.
   "the Throw effect" should "discharge a completed computation to Right via runThrow" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |import eliot.effect.Throw
         |import eliot.lang.Either
         |
@@ -267,7 +293,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "discharge a failed computation to Left, carrying the typed error" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |import eliot.effect.Throw
         |import eliot.lang.Either
         |
@@ -283,7 +310,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // adjacency-sensitive call parser keeps separate from a call.
   it should "discharge-and-recover in one step via a single import and infix catch" in {
     compileAndRun(
-      """import eliot.effect.Throw
+      """import eliot.effect.Console
+        |import eliot.effect.Throw
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
         |def parseBad: {Throw[String]} String = raise("malformed input")
@@ -299,7 +327,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // discharges `{Abort}` and supplies a fallback on short-circuit — no `Option`/`AbortCarrier` named.
   "the Abort effect's orElse" should "discharge-and-default in one step via a single import and infix orElse" in {
     compileAndRun(
-      """import eliot.effect.Abort
+      """import eliot.effect.Console
+        |import eliot.effect.Abort
         |
         |def safe: {Abort} String = "config-value"
         |def giveUp: {Abort} String = abort
@@ -316,7 +345,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // print the already-computed pure results.
   "a carrier-polymorphic {Abort} program" should "run under a pure Id test carrier with no IO and discharge to Option" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |import eliot.effect.Abort
         |import eliot.lang.Option
         |
@@ -346,7 +376,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // reads the state, installs a new one, and returns the previous value; discharged on IO from initial "before".
   "the State effect" should "thread state through a {State} computation and discharge to a Pair via runState" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |import eliot.effect.State
         |import eliot.lang.Pair
         |
@@ -364,7 +395,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // bug previously blocked (a two-field generic `Pair` at the `Unit`/`String` mix of `getState`/`putState`).
   "a carrier-polymorphic {State} program" should "run under a pure Id carrier with no IO and discharge to a Pair" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |import eliot.effect.State
         |import eliot.lang.Pair
         |
@@ -389,7 +421,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // (the n-not-n×m lifting), so the print runs while the state threads through and discharges to a Pair.
   "a {State, Console} program" should "run Console through the StateCarrier[String, IO] stack via the Sync lift" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |import eliot.effect.State
         |import eliot.lang.Pair
         |
@@ -433,7 +466,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   "ordering at the discharge edge" should "let state survive an abort when State is discharged outermost" in {
     compileAndRun(
       orderingPrelude +
-        """def stateSurvives: Pair[Option[String], String] =
+        """import eliot.effect.Console
+          |def stateSurvives: Pair[Option[String], String] =
           |   runId(runState(runAbort(modifyThenAbort), "initial"))
           |
           |def main: IO[Unit] = flatMap(
@@ -448,7 +482,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   it should "discard state on an abort when Abort is discharged outermost" in {
     compileAndRun(
       orderingPrelude +
-        """def stateDiscarded: Option[Pair[String, String]] =
+        """import eliot.effect.Console
+          |def stateDiscarded: Option[Pair[String, String]] =
           |   runId(runAbort(runState(modifyThenAbort, "initial")))
           |
           |def main: IO[Unit] = println(foldOption(stateDiscarded, "<no state>", p -> second(p)))""".stripMargin
@@ -461,7 +496,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // with a discarded binder, so the steps are sequenced through the carrier automatically, in order.
   "a block of statements" should "sequence effectful steps in order" in {
     compileAndRun(
-      """def main: IO[Unit] = {
+      """import eliot.effect.Console
+        |def main: IO[Unit] = {
         |  println("first")
         |  println("second")
         |  println("third")
@@ -473,7 +509,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // block lowers to `flatMap(readLine, line -> println(line))`.
   "a val binding an effectful result" should "bind the carried value and use it" in {
     compileAndRun(
-      """def echo: {Console} Unit = {
+      """import eliot.effect.Console
+        |def echo: {Console} Unit = {
         |  val line = readLine
         |  println(line)
         |}
@@ -487,7 +524,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // lambda `let` form: the block lowers to `(msg -> …)(greeting)`, with `greeting` a pure value, not a carried action.
   "a non-effectful val binding" should "bind a plain value usable multiple times" in {
     compileAndRun(
-      """def greeting: String = "Hi"
+      """import eliot.effect.Console
+        |def greeting: String = "Hi"
         |
         |def main: IO[Unit] = {
         |  val msg = greeting
@@ -501,7 +539,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // effectful one threads through `flatMap` — both in the same lowered tower.
   it should "interleave a pure binding with an effectful one" in {
     compileAndRun(
-      """def main: IO[Unit] = {
+      """import eliot.effect.Console
+        |def main: IO[Unit] = {
         |  val label = "echo:"
         |  val line = readLine
         |  println(label)
@@ -516,7 +555,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // effectful statement; `old` is the result expression.
   "a {State} computation in block form" should "thread state exactly like the hand-written flatMap nest" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |import eliot.effect.State
         |import eliot.lang.Pair
         |
@@ -535,7 +575,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // method-style chain can be written across lines inside a block.
   "a leading-dot chain split across block lines" should "merge into one expression" in {
     compileAndRun(
-      """data Box[A](content: A)
+      """import eliot.effect.Console
+        |data Box[A](content: A)
         |
         |def map[A, B](f: Function[A, B], box: Box[A]): Box[B] = Box(f(content(box)))
         |
@@ -555,7 +596,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // block; pinned here so the shipped example cannot silently regress.
   "a {Console, State} interaction in block form (the Blocks example)" should "run end to end" in {
     compileAndRun(
-      """import eliot.effect.Effect
+      """import eliot.effect.Console
+        |import eliot.effect.Effect
         |import eliot.effect.State
         |import eliot.lang.Pair
         |
@@ -581,7 +623,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // A nested block as a `val`'s right-hand side: both blocks lower, the inner producing the bound value.
   "a nested block" should "compute the inner block's value and bind it" in {
     compileAndRun(
-      """def main: IO[Unit] = {
+      """import eliot.effect.Console
+        |def main: IO[Unit] = {
         |  val x = {
         |    val inner = "deep"
         |    inner
@@ -595,7 +638,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // silent miscompile.
   "a block ending in a binding" should "be rejected" in {
     compileForErrors(
-      """def main: IO[Unit] = {
+      """import eliot.effect.Console
+        |def main: IO[Unit] = {
         |  println("x")
         |  val leftover = "oops"
         |}""".stripMargin
@@ -604,7 +648,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "ability" should "dispatch to correct implementation" in {
     compileAndRun(
-      """ability Show[A] {
+      """import eliot.effect.Console
+        |ability Show[A] {
         |   def show(a: A): String
         |}
         |
@@ -620,7 +665,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "ability constraint" should "pass ability through generic function" in {
     compileAndRun(
-      """ability Show[A] {
+      """import eliot.effect.Console
+        |ability Show[A] {
         |   def show(a: A): String
         |}
         |
@@ -638,7 +684,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "ability derive" should "derive implementation for generic type" in {
     compileAndRun(
-      """ability Show[A] {
+      """import eliot.effect.Console
+        |ability Show[A] {
         |  def show(a: A): String
         |}
         |
@@ -658,7 +705,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "ability associated type" should "handle associated types in abilities" in {
     compileAndRun(
-      """ability AssociatedType[T] {
+      """import eliot.effect.Console
+        |ability AssociatedType[T] {
         |   type MagicType
         |
         |   def handle(value: T, param: MagicType): String
@@ -678,7 +726,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "generic types" should "support type-level integer parameters" in {
     compileAndRun(
-      """def hello[I: BigInteger]: String = "Hello World!"
+      """import eliot.effect.Console
+        |def hello[I: BigInteger]: String = "Hello World!"
         |
         |def main: IO[Unit] = println(hello[1])""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
@@ -686,7 +735,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "pattern matching" should "match data constructors and extract values" in {
     compileAndRun(
-      """data Maybe[A] = Nothing | Just(value: A)
+      """import eliot.effect.Console
+        |data Maybe[A] = Nothing | Just(value: A)
         |
         |def describe(m: Maybe[String]): String = m match {
         |  case Nothing -> "empty"
@@ -699,7 +749,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "operators" should "evaluate infix operators with correct associativity" in {
     compileAndRun(
-      """def main: IO[Unit] = println(content(Bool("Hello") | Bool("World") | Bool("!")))
+      """import eliot.effect.Console
+        |def main: IO[Unit] = println(content(Bool("Hello") | Bool("World") | Bool("!")))
         |
         |data Bool(content: String)
         |
@@ -710,7 +761,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "handle with" should "support multiple data types with pattern matching" in {
     compileAndRun(
-      """data Something = Else | Other
+      """import eliot.effect.Console
+        |data Something = Else | Other
         |
         |data Greeting = Hello | Goodbye
         |
@@ -732,7 +784,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "monomorph check" should "handle dependent type integer arithmetic" in {
     compileAndRun(
-      """data Box[I: BigInteger](content: String)
+      """import eliot.effect.Console
+        |data Box[I: BigInteger](content: String)
         |
         |def someFunction[I: BigInteger](arg: String): Box[I.inc] = Box[3](arg)
         |
@@ -742,7 +795,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "function as type" should "use type-level computation for types" in {
     compileAndRun(
-      """data Box[A](content: A)
+      """import eliot.effect.Console
+        |data Box[A](content: A)
         |
         |def stringBox: Type = Box[String]
         |
@@ -754,7 +808,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "type values" should "match on type-level values" in {
     compileAndRun(
-      """data Person[NAME: String](content: String)
+      """import eliot.effect.Console
+        |data Person[NAME: String](content: String)
         |
         |data Box[A](a: A)
         |
@@ -769,7 +824,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "dot operator" should "support method-style chaining" in {
     compileAndRun(
-      """data Box[A](content: A)
+      """import eliot.effect.Console
+        |data Box[A](content: A)
         |
         |def filter[A](expr: String, box: Box[A]): Box[A] = box
         |
@@ -787,7 +843,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "unicode" should "support unicode operator names" in {
     compileAndRun(
-      """def main: IO[Unit] = println(<===>)
+      """import eliot.effect.Console
+def main: IO[Unit] = println(<===>)
         |
         |def <===>: String = "Hello World!"""".stripMargin
     ).asserting(_ shouldBe "Hello World!")
@@ -795,25 +852,29 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   "integer addition" should "compute and print a sum at runtime" in {
     compileAndRun(
-      """def main: IO[Unit] = println(intToString(3 + 4))""".stripMargin
+      """import eliot.effect.Console
+def main: IO[Unit] = println(intToString(3 + 4))""".stripMargin
     ).asserting(_ shouldBe "7")
   }
 
   "integer subtraction" should "compute and print a difference at runtime" in {
     compileAndRun(
-      """def main: IO[Unit] = println(intToString(10 - 4))""".stripMargin
+      """import eliot.effect.Console
+def main: IO[Unit] = println(intToString(10 - 4))""".stripMargin
     ).asserting(_ shouldBe "6")
   }
 
   "integer arithmetic" should "respect operator precedence at runtime" in {
     compileAndRun(
-      """def main: IO[Unit] = println(intToString(2 + 3 * 4))""".stripMargin
+      """import eliot.effect.Console
+def main: IO[Unit] = println(intToString(2 + 3 * 4))""".stripMargin
     ).asserting(_ shouldBe "14")
   }
 
   it should "compute a negative result at runtime" in {
     compileAndRun(
-      """def main: IO[Unit] = println(intToString(3 - 10))""".stripMargin
+      """import eliot.effect.Console
+def main: IO[Unit] = println(intToString(3 - 10))""".stripMargin
     ).asserting(_ shouldBe "-7")
   }
 
@@ -821,7 +882,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // `Byte` ([-128,127]) but 200 does not, so the result is laid out at the wider representation.
   it should "carry a byte-operand sum into a wider result representation at runtime" in {
     compileAndRun(
-      """def main: IO[Unit] = println(intToString(100 + 100))""".stripMargin
+      """import eliot.effect.Console
+def main: IO[Unit] = println(intToString(100 + 100))""".stripMargin
     ).asserting(_ shouldBe "200")
   }
 
@@ -829,13 +891,15 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // the surrounding `nativeWiden` narrows the leaf's result back down (additive cancellation).
   it should "narrow a short-operand difference into a byte result at runtime" in {
     compileAndRun(
-      """def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
+      """import eliot.effect.Console
+def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
     ).asserting(_ shouldBe "1")
   }
 
   "integer range widening" should "widen a bare literal into a broader declared range at runtime" in {
     compileAndRun(
-      """def widened: Int[0, 1000] = 7
+      """import eliot.effect.Console
+        |def widened: Int[0, 1000] = 7
         |
         |def main: IO[Unit] = println(intToString(widened))""".stripMargin
     ).asserting(_ shouldBe "7")
@@ -843,7 +907,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "accept a literal assigned through a width alias and print it" in {
     compileAndRun(
-      """def small: Byte = 42
+      """import eliot.effect.Console
+        |def small: Byte = 42
         |
         |def main: IO[Unit] = println(intToString(small))""".stripMargin
     ).asserting(_ shouldBe "42")
@@ -853,7 +918,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     // `Counter`'s bare `Int` field generalizes the type to `Counter[lo, hi]`; the accessor `n` (a match under the hood)
     // recovers the field. Exercises construct + accessor + handleCases end-to-end at runtime.
     compileAndRun(
-      """data Counter(n: Int)
+      """import eliot.effect.Console
+        |data Counter(n: Int)
         |
         |def main: IO[Unit] = println(intToString(n(Counter(42))))""".stripMargin
     ).asserting(_ shouldBe "42")
@@ -861,7 +927,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "round-trip a record field through an explicit match (W2)" in {
     compileAndRun(
-      """data Counter(n: Int)
+      """import eliot.effect.Console
+        |data Counter(n: Int)
         |
         |def field(c: Counter[7, 7]): Int[7, 7] = c match { case Counter(x) -> x }
         |
@@ -873,7 +940,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // `Counter[lo, hi]`, so the `typeMatch` matcher's handler must bind both synthesized bounds (`case Counter[lo, hi]`).
   it should "type-level match over an auto-bounded record (W2 follow-up)" in {
     compileAndRun(
-      """data Counter(n: Int)
+      """import eliot.effect.Console
+        |data Counter(n: Int)
         |
         |def describe(t: Type): String = t match {
         |   case Counter[lo, hi] -> "counter"
@@ -886,7 +954,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "widen an arithmetic result into a broader declared range at runtime" in {
     compileAndRun(
-      """def total: Int[0, 1000] = 3 + 4
+      """import eliot.effect.Console
+        |def total: Int[0, 1000] = 3 + 4
         |
         |def main: IO[Unit] = println(intToString(total))""".stripMargin
     ).asserting(_ shouldBe "7")
@@ -896,7 +965,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // (omitted) source annotation; the caller observes them off `double`'s monomorphized signature and runs it.
   it should "calculate a bare Int return from the body and run it (W3)" in {
     compileAndRun(
-      """def double(x: Int): Int = x + x
+      """import eliot.effect.Console
+        |def double(x: Int): Int = x + x
         |
         |def main: IO[Unit] = println(intToString(double(21)))""".stripMargin
     ).asserting(_ shouldBe "42")
@@ -904,7 +974,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "calculate a bare data return from the body and run it (W3)" in {
     compileAndRun(
-      """data Counter(n: Int)
+      """import eliot.effect.Console
+        |data Counter(n: Int)
         |
         |def mk(v: Int): Counter = Counter(v)
         |
@@ -916,7 +987,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // width would overflow and print the wrong number, so these assert the chosen representation is wide enough.
   "integer representation selection" should "carry an Int[0, 70000] value at the 32-bit representation" in {
     compileAndRun(
-      """def big: Int[0, 70000] = 70000
+      """import eliot.effect.Console
+        |def big: Int[0, 70000] = 70000
         |
         |def main: IO[Unit] = println(intToString(big))""".stripMargin
     ).asserting(_ shouldBe "70000")
@@ -924,7 +996,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "compute a product that overflows 16 bits at the 32-bit representation" in {
     compileAndRun(
-      """def product: Int[0, 1000000] = 1000 * 1000
+      """import eliot.effect.Console
+        |def product: Int[0, 1000000] = 1000 * 1000
         |
         |def main: IO[Unit] = println(intToString(product))""".stripMargin
     ).asserting(_ shouldBe "1000000")
@@ -932,7 +1005,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "carry a value beyond 32 bits at the 64-bit representation" in {
     compileAndRun(
-      """def huge: Int[0, 5000000000] = 5000000000
+      """import eliot.effect.Console
+        |def huge: Int[0, 5000000000] = 5000000000
         |
         |def main: IO[Unit] = println(intToString(huge))""".stripMargin
     ).asserting(_ shouldBe "5000000000")
@@ -942,7 +1016,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // single concrete signature, so the per-range mangled methods collapse correctly and both calls dispatch.
   "generic instantiation" should "reuse one method for two same-representation ranges at runtime" in {
     compileAndRun(
-      """def id[Mn: BigInteger, Mx: BigInteger](x: Int[Mn, Mx]): Int[Mn, Mx] = x
+      """import eliot.effect.Console
+        |def id[Mn: BigInteger, Mx: BigInteger](x: Int[Mn, Mx]): Int[Mn, Mx] = x
         |def a: Int[0, 3] = 3
         |def b: Int[0, 5] = 5
         |
@@ -954,7 +1029,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // signatures — collision-free overloads — and each call dispatches to the one matching its width.
   it should "dispatch distinct methods for two different-representation ranges at runtime" in {
     compileAndRun(
-      """def id[Mn: BigInteger, Mx: BigInteger](x: Int[Mn, Mx]): Int[Mn, Mx] = x
+      """import eliot.effect.Console
+        |def id[Mn: BigInteger, Mx: BigInteger](x: Int[Mn, Mx]): Int[Mn, Mx] = x
         |def a: Int[0, 3] = 3
         |def big: Int[0, 5000000000] = 5000000000
         |
@@ -966,7 +1042,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // backend lowers into nested single-argument closures. Extracting the *first* field exercises the outer closure.
   "multi-field data" should "extract the first field of a two-field constructor" in {
     compileAndRun(
-      """data Pair(a: String, b: String)
+      """import eliot.effect.Console
+        |data Pair(a: String, b: String)
         |
         |def first(p: Pair): String = p match {
         |  case Pair(x, y) -> x
@@ -980,7 +1057,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // across the peeled frames.
   it should "extract the second field of a two-field constructor" in {
     compileAndRun(
-      """data Pair(a: String, b: String)
+      """import eliot.effect.Console
+        |data Pair(a: String, b: String)
         |
         |def second(p: Pair): String = p match {
         |  case Pair(x, y) -> y
@@ -994,7 +1072,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // levels of nesting resolve their parameters correctly.
   it should "extract the middle field of a three-field constructor" in {
     compileAndRun(
-      """data Triple(a: String, b: String, c: String)
+      """import eliot.effect.Console
+        |data Triple(a: String, b: String, c: String)
         |
         |def middle(t: Triple): String = t match {
         |  case Triple(x, y, z) -> y
@@ -1008,7 +1087,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // matching them out and summing also exercises cross-representation arithmetic over the peeled closures.
   it should "match out two integer fields at different representations and sum them" in {
     compileAndRun(
-      """data IntPair(small: Int[0, 255], large: Int[0, 5000000000])
+      """import eliot.effect.Console
+        |data IntPair(small: Int[0, 255], large: Int[0, 5000000000])
         |
         |def sum(p: IntPair): Int[0, 5000000255] = p match {
         |  case IntPair(s, l) -> s + l
@@ -1025,7 +1105,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // `NoSuchMethodError`). This is the generic-multi-field codegen bug that previously blocked two-field generic data.
   it should "construct and match a generic two-field constructor at two distinct instantiations" in {
     compileAndRun(
-      """data Box[A](item: A)
+      """import eliot.effect.Console
+        |data Box[A](item: A)
         |
         |data Pair[A, B](first: A, second: B)
         |
@@ -1043,7 +1124,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // through the auto-generated single-constructor field accessor (`value`), i.e. the pattern-match codegen path.
   it should "construct and access a generic constructor mixing a concrete and a polymorphic field" in {
     compileAndRun(
-      """data Tagged[A](tag: String, value: A)
+      """import eliot.effect.Console
+        |data Tagged[A](tag: String, value: A)
         |
         |def main: IO[Unit] = println(value(value(Tagged("outer", Tagged("inner", "deep")))))""".stripMargin
     ).asserting(_ shouldBe "deep")
@@ -1056,7 +1138,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // (constructor name = type name) always coincided and were never affected.
   it should "construct and match a single-constructor union whose constructor name differs from the type" in {
     compileAndRun(
-      """data Color = Red
+      """import eliot.effect.Console
+        |data Color = Red
         |
         |def name(c: Color): String = c match {
         |  case Red -> "red"
@@ -1071,7 +1154,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // auto-generated `item` accessor.
   it should "construct and access a generic single-constructor union whose constructor name differs from the type" in {
     compileAndRun(
-      """data Box[A] = Wrap(item: A)
+      """import eliot.effect.Console
+        |data Box[A] = Wrap(item: A)
         |
         |def main: IO[Unit] = println(item(Wrap("wrapped")))""".stripMargin
     ).asserting(_ shouldBe "wrapped")

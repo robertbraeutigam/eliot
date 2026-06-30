@@ -17,7 +17,7 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
   private val flatMapFqn    = ValueFQN(effectModule, QualifiedName("flatMap", Qualifier.Ability("Effect")))
 
   "effect body auto-lift" should "bind a direct-style println(readLine) into flatMap(readLine, x -> println(x))" in {
-    runEffectDesugar("def echo: {Console} Unit = println(readLine)").asserting {
+    runEffectDesugar("import eliot.effect.Console\ndef echo: {Console} Unit = println(readLine)").asserting {
       case Some(FunApp(FunApp(ValRef(`flatMapFqn`), ValRef(`readLineFqn`)), FunLit(x, FunApp(ValRef(`printlnFqn`), ParamRef(arg))))) =>
         arg shouldBe x
       case other => fail(s"unexpected: $other")
@@ -26,7 +26,7 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
 
   it should "leave already-monadic flatMap(readLine, s -> println(s)) unchanged (idempotent)" in {
     runEffectDesugar(
-      "import eliot.effect.Effect\ndef echo: {Console} Unit = flatMap(readLine, s -> println(s))"
+      "import eliot.effect.Console\nimport eliot.effect.Effect\ndef echo: {Console} Unit = flatMap(readLine, s -> println(s))"
     ).asserting {
       case Some(FunApp(FunApp(ValRef(fm), ValRef(`readLineFqn`)), FunLit(s, FunApp(ValRef(`printlnFqn`), ParamRef(arg))))) =>
         (fm.name.name, arg) shouldBe ("flatMap", s)
@@ -42,26 +42,26 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
   }
 
   it should "reject an effectful body declared under a pure (non-carrier) return type" in {
-    runEffectDesugarErrors("def helper: String = println(readLine)")
+    runEffectDesugarErrors("import eliot.effect.Console\ndef helper: String = println(readLine)")
       .asserting(_.map(_.message) should contain("This value performs an effect but is declared pure; declare an effect set with { ... } or return an effect carrier."))
   }
 
   it should "reject an effect performed but not declared in the effect set (propagation/subset check)" in {
-    runEffectDesugarErrors("def bad: {Console} Unit = log(readLine)")
+    runEffectDesugarErrors("import eliot.effect.Console\nimport eliot.effect.Log\ndef bad: {Console} Unit = log(readLine)")
       .asserting(_.map(_.message) should contain("This value performs the effect 'Log' but does not declare it; add it to its { ... } effect set."))
   }
 
   it should "accept a body whose performed effects are all declared" in {
-    runEffectDesugarErrors("def ok: {Console, Log} Unit = log(readLine)").asserting(_ shouldBe Seq.empty)
+    runEffectDesugarErrors("import eliot.effect.Console\nimport eliot.effect.Log\ndef ok: {Console, Log} Unit = log(readLine)").asserting(_ shouldBe Seq.empty)
   }
 
   it should "propagate the Inf effect: reject a {Console} body that calls forever (undeclared Inf)" in {
-    runEffectDesugarErrors("import eliot.effect.Inf\ndef bad: {Console} Unit = forever(println(readLine))")
+    runEffectDesugarErrors("import eliot.effect.Console\nimport eliot.effect.Inf\ndef bad: {Console} Unit = forever(println(readLine))")
       .asserting(_.map(_.message) should contain("This value performs the effect 'Inf' but does not declare it; add it to its { ... } effect set."))
   }
 
   it should "accept a {Console, Inf} body that calls forever (Inf declared)" in {
-    runEffectDesugarErrors("import eliot.effect.Inf\ndef ok: {Console, Inf} Unit = forever(println(readLine))")
+    runEffectDesugarErrors("import eliot.effect.Console\nimport eliot.effect.Inf\ndef ok: {Console, Inf} Unit = forever(println(readLine))")
       .asserting(_ shouldBe Seq.empty)
   }
 
