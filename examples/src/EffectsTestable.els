@@ -1,7 +1,6 @@
 import eliot.lang.Effect
 import eliot.lang.Abort
 import eliot.lang.Option
-import eliot.lang.OptionT
 
 // A pure "test" carrier: the identity monad. It performs no I/O — running an Id computation just unwraps the value.
 data Id[A](runId: A)

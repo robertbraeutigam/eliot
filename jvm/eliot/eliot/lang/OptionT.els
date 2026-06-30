@@ -5,11 +5,12 @@ import eliot.lang.State
 import eliot.lang.Option
 
 /**
- * The monad transformer that discharges the `Abort` effect: an `OptionT[G, A]` is a `G`-computation producing
- * an `Option[A]` — `Some(a)`, or `None` if it short-circuited.
+ * The internal carrier that realises the `Abort` effect: an `OptionT[G, A]` is a `G`-computation producing an
+ * `Option[A]` — `Some(a)`, or `None` if it short-circuited.
  *
- * A library type, not for business signatures — those declare `{Abort}`; it appears only inside this library
- * and in `runAbort`. Generic over the base carrier `G`, so it composes over `IO`, `OptionT[IO]`, and so on.
+ * Plumbing only — application code never imports or names it. A function that may short-circuit declares `{Abort}` and
+ * discharges it with `runAbort`/`orElse` (in `eliot.lang.Abort`); this carrier is what those operate on under the hood.
+ * Generic over the base carrier `G`, so it composes over `IO`, `OptionT[IO]`, and so on.
  */
 data OptionT[G[_], A](runOptionT: G[Option[A]])
 
@@ -50,15 +51,9 @@ implement[G[_] ~ Effect] Abort[OptionT[G]] {
  * delegate to the inner `G`'s state and wrap the result in `Some` — state is never *absent* here; only the eventual
  * `abort` makes the discharged *value* `None`. Because `OptionT` sits *outside* the (inner) `StateT`, the threaded
  * state survives an abort: discharging in this order yields `Pair[Option[A], S]`. Its order-sensitive counterpart is
- * `Abort[StateT[S, G]]` (in `StateT`), where the abort instead discards the state.
+ * `Abort[StateT[S, G]]` (in `StateT`).
  */
 implement[S, G[_] ~ State[S] & Effect] State[S, OptionT[G]] {
    def getState: OptionT[G, S] = OptionT(map(getState, s -> Some(s)))
    def putState(newS: S): OptionT[G, Unit] = OptionT(map(putState(newS), u -> Some(u)))
 }
-
-/**
- * Discharge the `Abort` effect, materialising it as an `Option[A]`: `Some(a)` if the computation completed,
- * `None` if it aborted. Any other effects remain in the carrier `G`.
- */
-def runAbort[G[_], A](p: OptionT[G, A]): G[Option[A]] = runOptionT(p)

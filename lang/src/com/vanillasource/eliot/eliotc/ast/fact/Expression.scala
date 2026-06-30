@@ -105,13 +105,6 @@ object Expression {
     lit <- acceptIf(isStringLiteral, "string literal")
   } yield StringLiteral(lit.map(_.content))
 
-  private lazy val namedRefOrCallParser: Parser[Sourced[Token], Expression] = for {
-    module   <- (moduleParser <* symbol("::")).atomic().optional()
-    name     <- acceptIf(isIdentifierOrSymbol, "name")
-    typeArgs <- presenceTrackingBracketedCommaSeparatedItems("[", sourced(fullParser), "]")
-    args     <- bracketedCommaSeparatedItems("(", sourced(fullParser), ")").optional()
-  } yield FunctionApplication(module, name.map(_.content), typeArgs, args.getOrElse(Seq.empty))
-
   private lazy val parenthesizedExprParser: Parser[Sourced[Token], Expression] =
     for {
       _ <- symbol("(")
@@ -137,12 +130,19 @@ object Expression {
   private lazy val matchExpressionParser: Parser[Sourced[Token], Seq[MatchCase]] =
     matchCaseParser.atLeastOnce().between(keyword("match") *> symbol("{"), symbol("}"))
 
-  /** Atoms for type positions: named references, parenthesized expressions, literals.
-    * Excludes unparenthesized lambdas and match expressions to avoid ambiguity in type annotations.
+  /** Atoms for type and value positions: named references (with optional generic and *adjacent* value arguments),
+    * parenthesized expressions, literals. Excludes unparenthesized lambdas and match expressions to avoid ambiguity in
+    * type annotations.
+    *
+    * Uses the adjacency-sensitive [[adjacentCallParser]], so a value-argument list `(…)` attaches only when its `(` is
+    * adjacent (no intervening whitespace) to the name: `f(x)` is the call, while `f (x)` leaves `(x)` a separate atom.
+    * A non-infix `f (x)` still reduces to the application `f(x)` through the operator phase's operand currying; the
+    * distinction only matters for an *infix* operator, where `a op (x)` must read as `op(a, x)` rather than `a(op(x))`
+    * — this is what lets an infix operator take a parenthesized operand, e.g. `result catch (err -> fallback(err))`.
     */
   private lazy val typeAtom: Parser[Sourced[Token], Expression] =
     parenthesizedExprParser.atomic() or
-      namedRefOrCallParser or
+      adjacentCallParser or
       integerLiteralParser or
       stringLiteralParser
 
@@ -208,12 +208,13 @@ object Expression {
     */
   lazy val typeParser: Parser[Sourced[Token], Expression] = effectfulTypeParser or typeAtom
 
-  /** Like [[namedRefOrCallParser]], but attaches a value-argument list `(…)` only when the `(` is *adjacent* to the
-    * preceding token (no intervening whitespace). This is what lets the return-type parser ([[returnTypeParser]]) tell a
-    * value application `f(x)` / `orError(…)` apart from an infix operator followed by a parenthesized operand: in
-    * `A when (MIN > 0) orError "…"` the space after `when` keeps `(MIN > 0)` a separate atom, so the operator phase reads
-    * it as the operand of the infix `when` rather than as the call `when(MIN > 0)`. Type arguments `[…]` are unaffected
-    * (always attached). Inside the `(…)`/`[…]` the ordinary [[fullParser]] runs, so nested calls keep their usual form.
+  /** A named reference with an optional generic argument list `[…]` (always attached) and a value-argument list `(…)`
+    * attached *only* when its `(` is adjacent to the preceding token (no intervening whitespace). The one call parser
+    * for both value and type positions. Adjacency is what tells a value application `f(x)` / `orError(…)` apart from an
+    * infix operator followed by a parenthesized operand: in `A when (MIN > 0) orError "…"` the space after `when` keeps
+    * `(MIN > 0)` a separate atom, so the operator phase reads it as the operand of the infix `when` rather than as the
+    * call `when(MIN > 0)`. Inside the `(…)`/`[…]` the ordinary [[fullParser]] runs, so nested calls keep their usual
+    * form. A non-infix `f (x)` is harmless — the operator phase re-applies the two operands into `f(x)`.
     */
   private lazy val adjacentCallParser: Parser[Sourced[Token], Expression] = for {
     prefix <- sourced(for {
@@ -233,8 +234,8 @@ object Expression {
       case _                              => Option.empty[Seq[Sourced[Expression]]].pure
     }
 
-  /** Type atoms for the return-type position: like [[typeAtom]] but using the adjacency-sensitive [[adjacentCallParser]]
-    * so an infix operator is not glued to a following parenthesized operand. */
+  /** Type atoms for the return-type position. Identical to [[typeAtom]] (both adjacency-sensitive); kept as a distinct
+    * name because [[returnTypeParser]] consumes a greedy *run* of these, whereas [[typeParser]] takes a single atom. */
   private lazy val returnTypeAtom: Parser[Sourced[Token], Expression] =
     parenthesizedExprParser.atomic() or
       adjacentCallParser or

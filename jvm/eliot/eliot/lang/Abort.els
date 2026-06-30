@@ -1,0 +1,24 @@
+import eliot.lang.Effect
+import eliot.lang.OptionT
+import eliot.lang.Option
+
+/**
+ * Discharge the `Abort` effect, materialising it as an `Option[A]`: `Some(a)` if the computation completed, `None` if
+ * it aborted. Any other effects remain in the carrier `G`. Consume the result with `foldOption`, or reach for `orElse`
+ * to supply a fallback in one step without ever naming `Option`.
+ */
+def runAbort[G[_], A](p: OptionT[G, A]): G[Option[A]] = runOptionT(p)
+
+/**
+ * Run an `{Abort}` computation, supplying `fallback` as the result if it short-circuits. The everyday way to discharge
+ * `Abort` — never exposing `Option`:
+ *
+ * ```eliot
+ * def lookupOrDefault: {Console} String = orElse(lookup("timeout"), "30s")
+ * ```
+ *
+ * On completion it yields the computed value; on `abort` it yields `fallback`.
+ */
+infix left
+def orElse[G[_] ~ Effect, A](computation: OptionT[G, A], fallback: A): G[A] =
+   map(runOptionT(computation), o -> foldOption(o, fallback, a -> a))

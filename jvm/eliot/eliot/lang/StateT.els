@@ -5,11 +5,12 @@ import eliot.lang.Abort
 import eliot.lang.Pair
 
 /**
- * The monad transformer that discharges the `State[S]` effect: a `StateT[S, G, A]` maps an incoming state to a
+ * The internal carrier that realises the `State[S]` effect: a `StateT[S, G, A]` maps an incoming state to a
  * `G`-computation yielding the result paired with the new state.
  *
- * A library type, not for business signatures — those declare `{State[S]}`; it appears only inside this
- * library and in `runState`. Generic over the base carrier `G`, so it composes over `IO`, `OptionT[IO]`, and so on.
+ * Plumbing only — application code never imports or names it. A function that threads state declares `{State[S]}` and
+ * discharges it with `runState` (in `eliot.lang.State`); this carrier is what that operates on under the hood. Generic
+ * over the base carrier `G`, so it composes over `IO`, `OptionT[IO]`, and so on.
  */
 data StateT[S, G[_], A](runStateT: Function[S, G[Pair[A, S]]])
 
@@ -55,9 +56,3 @@ implement[S, G[_] ~ Effect] State[S, StateT[S, G]] {
 implement[S, G[_] ~ Abort] Abort[StateT[S, G]] {
    def abort[A]: StateT[S, G, A] = StateT(s -> abort)
 }
-
-/**
- * Discharge the `State[S]` effect, materialising it as a `Pair[A, S]`: the result paired with the final state,
- * threaded from `initial`. Any other effects remain in the carrier `G`.
- */
-def runState[S, G[_], A](p: StateT[S, G, A], initial: S): G[Pair[A, S]] = apply(runStateT(p), initial)

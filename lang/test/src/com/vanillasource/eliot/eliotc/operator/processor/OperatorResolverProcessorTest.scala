@@ -49,6 +49,32 @@ class OperatorResolverProcessorTest
     }
   }
 
+  // The adjacency rule: a *parenthesized* right operand stays a separate atom (the `(` is not adjacent to `or`), so the
+  // infix operator binds it rather than the `(` being read as `or`'s call parens. This is what lets an infix utility
+  // take a parenthesized lambda operand, e.g. `result catch (err -> fallback)`.
+  it should "resolve infix with a parenthesized operand a or (b) as or(a)(b)" in {
+    runEngineForValue(
+      "data T\ninfix left def or(x: T, y: T): T\ndef a: T\ndef b: T\ndef main: T = a or (b)"
+    ).asserting {
+      case Some(FunApp(FunApp(ValRef(opVfqn), ValRef(aVfqn)), ValRef(bVfqn))) =>
+        opVfqn shouldBe vfqn("or")
+        aVfqn shouldBe vfqn("a")
+        bVfqn shouldBe vfqn("b")
+      case x => fail(s"unexpected: $x")
+    }
+  }
+
+  // The flip side: a *non-infix* name followed by a space-separated parenthesized atom still reduces to ordinary
+  // application `f(a)` via operand currying, so making call parens adjacency-sensitive does not change plain calls.
+  it should "resolve space application f (a) as f(a)" in {
+    runEngineForValue("data T\ndef f(x: T): T\ndef a: T\ndef main: T = f (a)").asserting {
+      case Some(FunApp(ValRef(fVfqn), ValRef(aVfqn))) =>
+        fVfqn shouldBe vfqn("f")
+        aVfqn shouldBe vfqn("a")
+      case x => fail(s"unexpected: $x")
+    }
+  }
+
   it should "resolve precedence a + b * c with * above + as +(a, *(b, c))" in {
     runEngineForValue(
       "data T\ninfix left def +(x: T, y: T): T\ninfix left above(+) def *(x: T, y: T): T\ndef a: T\ndef b: T\ndef c: T\ndef main: T = a + b * c"

@@ -1,0 +1,8 @@
+import eliot.lang.StateT
+import eliot.lang.Pair
+
+/**
+ * Discharge the `State[S]` effect, materialising it as a `Pair[A, S]`: the result paired with the final state, threaded
+ * from `initial`. Any other effects remain in the carrier `G`.
+ */
+def runState[S, G[_], A](p: StateT[S, G, A], initial: S): G[Pair[A, S]] = apply(runStateT(p), initial)

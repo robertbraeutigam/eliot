@@ -282,6 +282,40 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "malformed input")
   }
 
+  // The everyday discharge: a SINGLE `import eliot.lang.Throw` brings in `raise` AND the `catch` utility, which
+  // discharges `{Throw[E]}` and recovers a raised error to a value of the same type — no `Either`/`EitherT`/`Effect`
+  // import, no transformer named. Written infix with a parenthesized lambda operand (`p catch (e -> …)`), which the
+  // adjacency-sensitive call parser keeps separate from a call.
+  it should "discharge-and-recover in one step via a single import and infix catch" in {
+    compileAndRun(
+      """import eliot.lang.Throw
+        |
+        |def parseOk: {Throw[String]} String = "parsed-value"
+        |def parseBad: {Throw[String]} String = raise("malformed input")
+        |
+        |def main: IO[Unit] = {
+        |   println(parseOk catch (err -> err))
+        |   println(parseBad catch (err -> err))
+        |}""".stripMargin
+    ).asserting(_ shouldBe "parsed-value\nmalformed input")
+  }
+
+  // The Abort analogue: a single `import eliot.lang.Abort` brings in `abort` AND the infix `orElse` utility, which
+  // discharges `{Abort}` and supplies a fallback on short-circuit — no `Option`/`OptionT` named.
+  "the Abort effect's orElse" should "discharge-and-default in one step via a single import and infix orElse" in {
+    compileAndRun(
+      """import eliot.lang.Abort
+        |
+        |def safe: {Abort} String = "config-value"
+        |def giveUp: {Abort} String = abort
+        |
+        |def main: IO[Unit] = {
+        |   println(safe orElse "<fallback>")
+        |   println(giveUp orElse "<fallback>")
+        |}""".stripMargin
+    ).asserting(_ shouldBe "config-value\n<fallback>")
+  }
+
   // Static testability (M5): the SAME carrier-polymorphic {Abort} business logic runs under a pure `Id` test carrier
   // (G := Id), with no production IO — the effect discharges to a plain Option the test inspects. main only does IO to
   // print the already-computed pure results.

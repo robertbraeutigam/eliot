@@ -3,8 +3,6 @@ import eliot.lang.State
 import eliot.lang.Abort
 import eliot.lang.Option
 import eliot.lang.Pair
-import eliot.lang.OptionT
-import eliot.lang.StateT
 
 // A pure carrier (the identity monad), so the two discharge orders below are plain values with no I/O.
 data Id[A](runId: A)
