@@ -209,10 +209,9 @@ leaf, or any representation-dependent body.
 A `type X = ...` (alias) and a body-less `type X` differ only by the presence of a body; a `data X(...)`
 declaration is the *concrete* form that additionally introduces a value constructor. **The base stdlib
 must avoid `data` and any native or representation-dependent body** — those belong to platform layers;
-platform-independent bodies (identical on every target) are allowed (see
-[[feedback_stdlib_platform_independent]]). For the operational mechanics of placing/moving `.els` files
-across layers — the two-pool (compiler vs runtime) resolution, the abstract↔concrete merge, and its
-signature-match gotchas — use the **`eliot-layers`** skill.
+platform-independent bodies (identical on every target) are allowed. For the operational mechanics of
+placing/moving `.els` files across layers — the two-pool (compiler vs runtime) resolution, the
+abstract↔concrete merge, and its signature-match gotchas — use the **`eliot-layers`** skill.
 
 **Layers = redefinition, not inheritance.** A platform "implements" an abstract definition by simply
 *defining the same name again*, in its own root path, with a body. There is no `extends`, `override`

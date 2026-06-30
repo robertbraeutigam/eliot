@@ -42,6 +42,9 @@ accessors), stdlib must declare it abstractly or the compiler-path resolution fa
 
 ## Where does X go?
 
+**Quick heuristic:** *would a backend with a totally different representation (JavaScript — one numeric type;
+an 8-bit MCU) need this?* If no, it's platform-specific → `jvm` (or the relevant runtime layer), never stdlib.
+
 | You're adding… | Put it in | Notes |
 |---|---|---|
 | abstract `type X` (or `type X = alias`) | **stdlib** | so any signature can mention `X` on both pools |
@@ -63,7 +66,9 @@ For each name, `UnifiedModuleValueProcessor.unifyValues` collects every layer's 
 - **signatures differ** → `"Has multiple different definitions."`
 - else keep the concrete one (or the abstract one if none).
 
-So a layer may **add a body but must not change the signature**.
+So a layer may **add a body but must not change the signature** — and the concrete def must **repeat the
+whole signature**, including fixity/precedence (`infix left …`), because the merge takes the entire
+`NamedValue`, not just the body.
 
 ## Mechanical gotchas
 
@@ -110,6 +115,6 @@ So a layer may **add a body but must not change the signature**.
 
 - CLAUDE.md "Platform-Independence via Layers" (the *why*) and "The compiler is itself a platform."
 - Memories: [[project_effect_stdlib_unification]], [[project_library_restructure]],
-  [[feedback_stdlib_platform_independent]], [[feedback_backend_dispatch_in_platform_layer]],
-  [[feedback_minimize_scala_decompose_in_eliot]], [[gotcha_brackets_type_namespace_marker]],
-  [[gotcha_eliot_grammar_case_rules]].
+  [[feedback_minimize_scala_decompose_in_eliot]] (keep Scala thin; representation ≠ type identity),
+  [[gotcha_brackets_type_namespace_marker]], [[gotcha_eliot_grammar_case_rules]],
+  [[gotcha_lambda_class_collision_same_module]], [[gotcha_assembly_jar_breaks_layers]].
