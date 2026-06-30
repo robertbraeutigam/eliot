@@ -1,0 +1,46 @@
+import eliot.effect.Effect
+import eliot.effect.Sync
+import eliot.lang.Either
+
+/**
+ * Re-declared here so the colocated `ThrowCarrier` instances below can resolve the `Throw` ability — name resolution is
+ * per-file, so a sibling layer file's declaration is not in scope. The merge verifies this copy agrees with the abstract
+ * declaration in the base layer.
+ */
+ability Throw[E, F[_]] {
+   def raise[A](err: E): F[A]
+}
+
+/**
+ * The concrete representation of `ThrowCarrier`: an `Either[E, A]` computation over the base carrier `G`, unwrapped by
+ * `runThrow`.
+ */
+data ThrowCarrier[E, G[_], A](runThrow: G[Either[E, A]])
+
+/**
+ * `ThrowCarrier[E, G]` is an effect carrier whenever its base `G` is: `pure` injects via a `Right`; `flatMap` continues
+ * on `Right(a)` and short-circuits on `Left(err)` (propagating the error), the `Throw` semantics; `map` transforms a
+ * `Right` value and propagates a `Left` error.
+ */
+implement[E, G[_] ~ Effect] Effect[ThrowCarrier[E, G]] {
+   def pure[A](a: A): ThrowCarrier[E, G, A] = ThrowCarrier(pure(Right(a)))
+   def flatMap[A, B](fa: ThrowCarrier[E, G, A], f: Function[A, ThrowCarrier[E, G, B]]): ThrowCarrier[E, G, B] =
+      ThrowCarrier(flatMap(runThrow(fa), e -> foldEither(e, err -> pure(Left(err)), a -> runThrow(f(a)))))
+   def map[A, B](fa: ThrowCarrier[E, G, A], f: Function[A, B]): ThrowCarrier[E, G, B] =
+      ThrowCarrier(map(runThrow(fa), e -> foldEither(e, err -> Left(err), a -> Right(f(a)))))
+}
+
+/**
+ * The base-effect lift: `ThrowCarrier[E, G]` is `Sync` whenever `G` is, running the inner sync action and wrapping its
+ * result in `Right`. Carries every `Sync`-keyed fine effect through the `ThrowCarrier` layer.
+ */
+implement[E, G[_] ~ Sync & Effect] Sync[ThrowCarrier[E, G]] {
+   def sync[A](thunk: Function[Unit, A]): ThrowCarrier[E, G, A] = ThrowCarrier(map(sync(thunk), a -> Right(a)))
+}
+
+/**
+ * The `Throw` instance: `raise(err)` is the failure — a `ThrowCarrier` whose inner computation purely yields `Left(err)`.
+ */
+implement[E, G[_] ~ Effect] Throw[E, ThrowCarrier[E, G]] {
+   def raise[A](err: E): ThrowCarrier[E, G, A] = ThrowCarrier(pure(Left(err)))
+}

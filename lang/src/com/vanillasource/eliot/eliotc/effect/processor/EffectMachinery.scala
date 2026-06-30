@@ -11,7 +11,7 @@ import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** The internal effect machinery the effect auto-lift inserts and recognises. The user never imports or names it: a
-  * `flatMap`/`pure`/`map` is referenced here by fully-qualified name (`eliot.lang.Effect`) and monomorphization pins
+  * `flatMap`/`pure`/`map` is referenced here by fully-qualified name (`eliot.effect.Effect`) and monomorphization pins
   * the carrier and erases the whole tower.
   *
   * It plays two roles for the rewrite:
@@ -22,7 +22,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     (`isAuthorMachineryCall`).
   */
 object EffectMachinery {
-  private val effectModule = ModuleName(ModuleName.defaultSystemPackage, "Effect")
+  private val effectModule = ModuleName(ModuleName.effectPackage, "Effect")
 
   private val flatMapFQN: ValueFQN = ValueFQN(effectModule, QualifiedName("flatMap", Qualifier.Ability("Effect")))
   private val pureFQN: ValueFQN    = ValueFQN(effectModule, QualifiedName("pure", Qualifier.Ability("Effect")))

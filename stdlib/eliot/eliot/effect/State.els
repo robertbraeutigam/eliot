@@ -1,4 +1,3 @@
-import eliot.lang.StateT
 import eliot.lang.Pair
 
 /**
@@ -27,7 +26,25 @@ ability State[S, F[_]] {
 }
 
 /**
+ * The internal carrier that realises the `State[S]` effect: a `StateCarrier[S, G, A]` maps an incoming state to a
+ * `G`-computation yielding the result paired with the new state.
+ *
+ * Plumbing only — application code never names it. A function that threads state declares `{State[S]}` and discharges it
+ * with `runState`; this carrier is what that operates on under the hood. Generic over the base carrier `G`, so it
+ * composes over `IO`, `AbortCarrier[IO]`, and so on. Its representation (the `Effect`/`Sync`/`State` instances) is
+ * supplied by the platform layer.
+ */
+type StateCarrier[S, G[_], A]
+
+/**
+ * Unwrap a `StateCarrier` to its underlying state-transition function `Function[S, G[Pair[A, S]]]`. The single accessor
+ * of the carrier; the platform layer supplies the body. Discharge the effect with `runState`, which threads an initial
+ * state through this function.
+ */
+def runStateCarrier[S, G[_], A](obj: StateCarrier[S, G, A]): Function[S, G[Pair[A, S]]]
+
+/**
  * Discharge the `State[S]` effect, materialising it as a `Pair[A, S]`: the result paired with the final state, threaded
  * from `initial`. Any other effects remain in the carrier `G`.
  */
-def runState[S, G[_], A](p: StateT[S, G, A], initial: S): G[Pair[A, S]] = apply(runStateT(p), initial)
+def runState[S, G[_], A](p: StateCarrier[S, G, A], initial: S): G[Pair[A, S]] = apply(runStateCarrier(p), initial)

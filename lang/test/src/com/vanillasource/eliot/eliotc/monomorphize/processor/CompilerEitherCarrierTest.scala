@@ -35,8 +35,8 @@ class CompilerEitherCarrierTest extends ProcessorTest(LangProcessors(systemModul
   // compile-time ability instances. (The shipped file itself is exercised end-to-end by the LSP/jvm integration suites,
   // which point the compiler path at the real resource dir.)
   private val carrier =
-    """import eliot.lang.Effect
-      |import eliot.lang.Throw
+    """import eliot.effect.Effect
+      |import eliot.effect.Throw
       |
       |data Either[E, A] = Left(error: E) | Right(value: A)
       |

@@ -1,4 +1,4 @@
-import eliot.lang.Effect
+import eliot.effect.Effect
 
 /**
  * A single effectful program that uses three effects at once — `Dep[Database]`, `Log`, and `Console` — in

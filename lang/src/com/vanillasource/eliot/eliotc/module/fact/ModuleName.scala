@@ -31,6 +31,15 @@ object ModuleName {
 
   val defaultSystemPackage = Seq("eliot", "lang")
 
+  /** The package for the effect surface and its machinery: the abilities a user writes in a `{...}` set
+    * (`Console`/`Log`/`Dep`/`Throw`/`Abort`/`State`/`Inf`), the sequencing machinery (`Effect`/`Sync`), and each
+    * effect's carrier representation (`ThrowCarrier`/`AbortCarrier`/`StateCarrier`). `Console`/`Log`/`Dep` are
+    * auto-imported from here (see [[defaultSystemModules]]); the rest are imported explicitly or resolved by FQN. The
+    * `Effect` ability's FQN is read by [[com.vanillasource.eliot.eliotc.effect.processor.EffectMachinery]]; the
+    * `Console`/`Log`/`Inf` native leaves by the jvm `NativeImplementation`.
+    */
+  val effectPackage = Seq("eliot", "effect")
+
   /** The package for compiler-coordinated abilities that the checker resolves by name but that are kept out of the
     * user-facing `eliot.lang` prelude (the `java.lang` analogue) and intentionally NOT auto-imported (see
     * [[defaultSystemModules]]). These are *open* extension points — user/library types may add instances — so they
@@ -58,22 +67,26 @@ object ModuleName {
   // value-position integer literal `n` is rewritten to `integerLiteral[n] : Int[n, n]` (`CoreExpressionConverter`), so
   // `integerLiteral` (Runtime) and `Int` must resolve in every module. Code therefore must NOT import them explicitly
   // (that would double-import and shadow).
-  val defaultSystemModules                 = Seq(
-    "Function",
-    "Unit",
-    "String",
-    "BigInteger",
-    "IO",
-    "Int",
-    "Runtime",
-    // `Console`/`Log`/`Dep` are the public effect abilities users name ambiently: their operations and the `{...}`
-    // sugar must resolve in every module with no import (the old top-level `println` lived in the ambient `String`
-    // module). The internal effect machinery (`Effect`/`Sync`) is NOT ambient — it is imported by the
-    // platform layer and referenced by FQN from the effect-desugar phase.
-    "Console",
-    "Log",
-    "Dep"
-  ).map(ModuleName(defaultSystemPackage, _))
+  val defaultSystemModules                 =
+    Seq(
+      "Function",
+      "Unit",
+      "String",
+      "BigInteger",
+      "IO",
+      "Int",
+      "Runtime"
+    ).map(ModuleName(defaultSystemPackage, _)) ++
+      // `Console`/`Log`/`Dep` are the public effect abilities users name ambiently: their operations and the `{...}`
+      // sugar must resolve in every module with no import (the old top-level `println` lived in the ambient `String`
+      // module). They live in the `eliot.effect` package ([[effectPackage]]). The internal effect machinery
+      // (`Effect`/`Sync`) is NOT ambient — it is imported by the platform layer and referenced by FQN from the
+      // effect-desugar phase.
+      Seq(
+        "Console",
+        "Log",
+        "Dep"
+      ).map(ModuleName(effectPackage, _))
   // `PatternMatch`/`TypeMatch` are intentionally NOT here: they are desugaring machinery in the
   // `eliot.compiler.internal` package that user code never names. Compiler-generated `implement` markers reference them
   // by fixed FQN (`ValueResolver.compilerInternalAbilities`), so they need no import.

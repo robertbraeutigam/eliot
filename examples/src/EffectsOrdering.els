@@ -1,6 +1,6 @@
-import eliot.lang.Effect
-import eliot.lang.State
-import eliot.lang.Abort
+import eliot.effect.Effect
+import eliot.effect.State
+import eliot.effect.Abort
 import eliot.lang.Option
 import eliot.lang.Pair
 

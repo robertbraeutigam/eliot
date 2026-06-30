@@ -10,8 +10,8 @@ import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 
 class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
 
-  private val consoleModule = ModuleName(ModuleName.defaultSystemPackage, "Console")
-  private val effectModule  = ModuleName(ModuleName.defaultSystemPackage, "Effect")
+  private val consoleModule = ModuleName(ModuleName.effectPackage, "Console")
+  private val effectModule  = ModuleName(ModuleName.effectPackage, "Effect")
   private val readLineFqn   = ValueFQN(consoleModule, QualifiedName("readLine", Qualifier.Ability("Console")))
   private val printlnFqn    = ValueFQN(consoleModule, QualifiedName("println", Qualifier.Ability("Console")))
   private val flatMapFqn    = ValueFQN(effectModule, QualifiedName("flatMap", Qualifier.Ability("Effect")))
@@ -26,7 +26,7 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
 
   it should "leave already-monadic flatMap(readLine, s -> println(s)) unchanged (idempotent)" in {
     runEffectDesugar(
-      "import eliot.lang.Effect\ndef echo: {Console} Unit = flatMap(readLine, s -> println(s))"
+      "import eliot.effect.Effect\ndef echo: {Console} Unit = flatMap(readLine, s -> println(s))"
     ).asserting {
       case Some(FunApp(FunApp(ValRef(fm), ValRef(`readLineFqn`)), FunLit(s, FunApp(ValRef(`printlnFqn`), ParamRef(arg))))) =>
         (fm.name.name, arg) shouldBe ("flatMap", s)
@@ -56,12 +56,12 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
   }
 
   it should "propagate the Inf effect: reject a {Console} body that calls forever (undeclared Inf)" in {
-    runEffectDesugarErrors("import eliot.lang.Inf\ndef bad: {Console} Unit = forever(println(readLine))")
+    runEffectDesugarErrors("import eliot.effect.Inf\ndef bad: {Console} Unit = forever(println(readLine))")
       .asserting(_.map(_.message) should contain("This value performs the effect 'Inf' but does not declare it; add it to its { ... } effect set."))
   }
 
   it should "accept a {Console, Inf} body that calls forever (Inf declared)" in {
-    runEffectDesugarErrors("import eliot.lang.Inf\ndef ok: {Console, Inf} Unit = forever(println(readLine))")
+    runEffectDesugarErrors("import eliot.effect.Inf\ndef ok: {Console, Inf} Unit = forever(println(readLine))")
       .asserting(_ shouldBe Seq.empty)
   }
 
@@ -69,12 +69,13 @@ class EffectDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
   private val effectStub =
     SystemImport(
       "Effect",
-      "ability Effect[F[_]] {\ndef flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](fa: F[A], f: Function[A, B]): F[B]\n}"
+      "ability Effect[F[_]] {\ndef flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](fa: F[A], f: Function[A, B]): F[B]\n}",
+      ModuleName.effectPackage
     )
   // The Inf effect ability stub (matching `stdlib/.../Inf.els`), import-required (not ambient), so the propagation
   // cases above can name `forever` and `{Inf}`.
   private val infStub    =
-    SystemImport("Inf", "ability Inf[F[_]] {\ndef forever(step: F[Unit]): F[Unit]\n}")
+    SystemImport("Inf", "ability Inf[F[_]] {\ndef forever(step: F[Unit]): F[Unit]\n}", ModuleName.effectPackage)
   private val allImports = systemImports :+ effectStub :+ infStub
 
   private def runEffectDesugar(source: String): IO[Option[OperatorResolvedExpression]] =

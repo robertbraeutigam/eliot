@@ -69,7 +69,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // rides the ordinary effect pipeline, it is not a special termination lattice.
   "a {Console} value that calls forever without declaring Inf" should "be rejected (Inf propagation)" in {
     compileForErrors(
-      """import eliot.lang.Inf
+      """import eliot.effect.Inf
         |
         |def bad: {Console} Unit = forever(println("x"))
         |
@@ -82,7 +82,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // it and confirms the step ran many times (not just once).
   "an IO main built from forever over a terminating step" should "run the step endlessly" in {
     compileAndRunBounded(
-      """import eliot.lang.Inf
+      """import eliot.effect.Inf
         |
         |def main: IO[Unit] = forever(println("tick"))""".stripMargin,
       timeoutMillis = 400
@@ -93,7 +93,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // effect set resolves to the concrete `IO` carrier (the `Inf[IO]` and `Console[IO]` instances) and runs end-to-end.
   "a carrier-polymorphic {Inf, Console} super-loop pinned to IO at main" should "run endlessly" in {
     compileAndRunBounded(
-      """import eliot.lang.Inf
+      """import eliot.effect.Inf
         |
         |def serve: {Inf, Console} Unit = forever(println("serving"))
         |
@@ -120,7 +120,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // (Nystrom's function-coloring win), because `Inf` is a carrier effect, not a separate lattice slot.
   "the same higher-order combinator over an Inf step" should "loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.lang.Inf
+      """import eliot.effect.Inf
         |
         |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
         |
@@ -134,7 +134,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // courier for the carrier-typed value, it does not launder the effect.
   "an Inf action stored in data then run through its accessor" should "loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.lang.Inf
+      """import eliot.effect.Inf
         |
         |data Box[F[_]](action: F[Unit])
         |
@@ -150,7 +150,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // and runs end-to-end.
   "an {Inf, Console} driver over a {Console} step" should "union both effects and loop endlessly" in {
     compileAndRunBounded(
-      """import eliot.lang.Inf
+      """import eliot.effect.Inf
         |
         |def driver(step: {Console} Unit): {Inf, Console} Unit = forever(step)
         |
@@ -163,7 +163,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   // `{Console}` (omitting `Inf`) is rejected — calling `forever` performs `Inf`, which must be declared.
   "a driver that calls forever while declaring only {Console}" should "be rejected (Inf not declared)" in {
     compileForErrors(
-      """import eliot.lang.Inf
+      """import eliot.effect.Inf
         |
         |def driver(step: {Console} Unit): {Console} Unit = forever(step)
         |

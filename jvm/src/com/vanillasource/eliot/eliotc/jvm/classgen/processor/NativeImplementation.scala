@@ -29,16 +29,22 @@ trait NativeImplementation {
 object NativeImplementation {
   val implementations: Map[ValueFQN, NativeImplementation] = Map.from(
     Seq(
-      (systemLangValueFQN("Console", "printlnInternal"), eliot_lang_Console_printlnInternal),
-      (systemLangValueFQN("Console", "readLineInternal"), eliot_lang_Console_readLineInternal),
-      (systemLangValueFQN("Log", "logInternal"), eliot_lang_Log_logInternal),
-      (systemLangValueFQN("Inf", "foreverInternal"), eliot_lang_Inf_foreverInternal),
+      (systemEffectValueFQN("Console", "printlnInternal"), eliot_lang_Console_printlnInternal),
+      (systemEffectValueFQN("Console", "readLineInternal"), eliot_lang_Console_readLineInternal),
+      (systemEffectValueFQN("Log", "logInternal"), eliot_lang_Log_logInternal),
+      (systemEffectValueFQN("Inf", "foreverInternal"), eliot_lang_Inf_foreverInternal),
       (systemLangValueFQN("Unit", "unit"), eliot_lang_Unit_unit)
     )
   )
 
   private def systemLangValueFQN(moduleName: String, valueName: String): ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, moduleName), QualifiedName(valueName, Qualifier.Default))
+
+  /** The effect-package counterpart of [[systemLangValueFQN]]: the `Console`/`Log`/`Inf` native leaves live in
+    * `eliot.effect` (see [[ModuleName.effectPackage]]), while `Unit.unit` stays in `eliot.lang`.
+    */
+  private def systemEffectValueFQN(moduleName: String, valueName: String): ValueFQN =
+    ValueFQN(ModuleName(ModuleName.effectPackage, moduleName), QualifiedName(valueName, Qualifier.Default))
 
   /** The fail-safe boundary predicate: an `impure` native must be declared `private`. Returns the build-error message
     * when that invariant is violated (an impure native registered against a non-`private` def), `None` otherwise. Pure

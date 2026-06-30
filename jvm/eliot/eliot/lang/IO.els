@@ -1,5 +1,5 @@
-import eliot.lang.Effect
-import eliot.lang.Sync
+import eliot.effect.Effect
+import eliot.effect.Sync
 
 /**
  * The JVM runtime carrier: a side-effecting computation reified as a deferred `block`, run by applying the block.

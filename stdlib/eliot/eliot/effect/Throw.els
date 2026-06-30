@@ -1,5 +1,4 @@
-import eliot.lang.Effect
-import eliot.lang.EitherT
+import eliot.effect.Effect
 import eliot.lang.Either
 
 /**
@@ -23,11 +22,23 @@ ability Throw[E, F[_]] {
 }
 
 /**
- * Discharge the `Throw[E]` effect, materialising it as an `Either[E, A]`: `Right(a)` if the computation completed,
- * `Left(err)` if it failed. Any other effects remain in the carrier `G`. Consume the result with `foldEither`, or
- * reach for `catch` to recover in one step without ever naming `Either`.
+ * The internal carrier that realises the `Throw[E]` effect: a `ThrowCarrier[E, G, A]` is a `G`-computation producing an
+ * `Either[E, A]`.
+ *
+ * Plumbing only — application code never names it. A function that may fail declares `{Throw[E]}` and discharges it with
+ * `runThrow`/`catch`; this carrier is what those operate on under the hood. Generic over the base carrier `G`, so it
+ * composes over `IO`, `AbortCarrier[IO]`, and so on. Its representation (the `Effect`/`Sync`/`Throw` instances) is
+ * supplied by the platform layer.
  */
-def runThrow[E, G[_], A](p: EitherT[E, G, A]): G[Either[E, A]] = runEitherT(p)
+type ThrowCarrier[E, G[_], A]
+
+/**
+ * Discharge the `Throw[E]` effect, materialising it as an `Either[E, A]`: `Right(a)` if the computation completed,
+ * `Left(err)` if it failed. Any other effects remain in the carrier `G`. This is the single accessor of `ThrowCarrier`
+ * — the platform layer supplies its body. Consume the result with `foldEither`, or reach for `catch` to recover in one
+ * step without ever naming `Either`.
+ */
+def runThrow[E, G[_], A](obj: ThrowCarrier[E, G, A]): G[Either[E, A]]
 
 /**
  * Run a `{Throw[E]}` computation, recovering any raised error to a value of the *same* type as the success with
@@ -40,5 +51,5 @@ def runThrow[E, G[_], A](p: EitherT[E, G, A]): G[Either[E, A]] = runEitherT(p)
  * On success it yields the computed value; on `raise(err)` it yields `onError(err)`.
  */
 infix left
-def catch[E, G[_] ~ Effect, A](computation: EitherT[E, G, A], onError: Function[E, A]): G[A] =
-   map(runEitherT(computation), e -> foldEither(e, onError, a -> a))
+def catch[E, G[_] ~ Effect, A](computation: ThrowCarrier[E, G, A], onError: Function[E, A]): G[A] =
+   map(runThrow(computation), e -> foldEither(e, onError, a -> a))

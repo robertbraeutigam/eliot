@@ -19,7 +19,7 @@ import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerFactKey}
   * the operator-resolved value rather than rewriting it in place (the `operator` phase produces it upstream, so feeding
   * the rewrite back would be a fact cycle); `SaturatedValueProcessor` consumes this fact in its place.
   *
-  * The `flatMap`/`pure`/`map` references are inserted by fully-qualified name (`eliot.lang.Effect`),
+  * The `flatMap`/`pure`/`map` references are inserted by fully-qualified name (`eliot.effect.Effect`),
   * so the user never imports the effect machinery — monomorphization pins the carrier and erases the whole tower.
   *
   * @param value

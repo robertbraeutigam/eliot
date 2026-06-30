@@ -4,7 +4,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.block.fact.BlockDesugaredValue
 import com.vanillasource.eliot.eliotc.effect.fact.EffectDesugaredValue
-import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.operator.processor.OperatorResolvedExpressionMatchers.*
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
@@ -55,7 +55,7 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
 
   it should "thread effects through a block: swap in block form lifts to flatMap/map" in {
     val swap =
-      "import eliot.lang.State\ndef swap(next: String): {State[String]} String = {\n  val old = getState\n  putState(next)\n  old\n}"
+      "import eliot.effect.State\ndef swap(next: String): {State[String]} String = {\n  val old = getState\n  putState(next)\n  old\n}"
     effectBody(swap, "swap").asserting {
       // `swap(next)` wraps its body in the `next ->` parameter lambda; the block lowers and lifts inside it.
       case Some(
@@ -175,7 +175,7 @@ class BlockDesugaringProcessorTest extends ProcessorTest(LangProcessors()*) {
       |""".stripMargin + s"def f: String = {\n  $blockBody\n}"
 
   private val stateStub =
-    SystemImport("State", "ability State[S, F[_]] {\ndef getState: F[S]\ndef putState(s: S): F[Unit]\n}")
+    SystemImport("State", "ability State[S, F[_]] {\ndef getState: F[S]\ndef putState(s: S): F[Unit]\n}", ModuleName.effectPackage)
   private val imports   = systemImports :+ stateStub
 
   private def vfqn(name: String): ValueFQN = ValueFQN(testModuleName, QualifiedName(name, Qualifier.Default))

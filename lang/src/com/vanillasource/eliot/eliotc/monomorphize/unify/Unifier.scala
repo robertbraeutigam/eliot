@@ -285,7 +285,7 @@ case class Unifier(
     *   - **Equal arity** (`m == n`): `?id := H` (unapplied) plus pointwise spine unification `s_i ~ r_i`.
     *   - **Partial application** (`n > m`): `?id := H r1..r(n-m)` (the head applied to the leading prefix) plus
     *     pointwise unification of the trailing `m` args `s_i ~ r(n-m+i)`. This is what lets a *carrier* meta solve to a
-    *     type constructor partially applied to a prefix — `?F[A] ~ OptionT[G, A] ⟹ ?F := OptionT[G]` (the effects
+    *     type constructor partially applied to a prefix — `?F[A] ~ AbortCarrier[G, A] ⟹ ?F := AbortCarrier[G]` (the effects
     *     discharge path) — exactly as `?F[A] ~ Box[A] ⟹ ?F := Box` works for the equal-arity case. The solution is
     *     unique: with `H` injective, only `?F = H r1..r(n-m)` makes `?F s1..sm = H r1..rn` hold for all the trailing
     *     args.
@@ -332,7 +332,7 @@ case class Unifier(
     else {
       val (prefix, suffix) = rhsList.splitAt(rhsList.length - metaSpine.length)
       val headWithPrefix   = rebuildHead(prefix.foldLeft(Spine.SNil: Spine)(_ :+ _))
-      // Occurs-check the injective solution too: `?F[A] ~ OptionT[?F, A]` would solve `?F := OptionT[?F]` (infinite).
+      // Occurs-check the injective solution too: `?F[A] ~ AbortCarrier[?F, A]` would solve `?F := AbortCarrier[?F]` (infinite).
       // Returning None here postpones rather than committing the cycle, so it surfaces as an unresolved type, never a
       // silently-accepted recursive one.
       if (occursIn(id, headWithPrefix)) None

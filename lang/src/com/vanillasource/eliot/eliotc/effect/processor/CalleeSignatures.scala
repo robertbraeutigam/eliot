@@ -84,7 +84,7 @@ object CalleeSignatures {
       *
       * Everything else is a *storage* position that takes the effectful action directly, unbound: a function-typed
       * parameter (a continuation), and any *applied* type constructor — whether it mentions a carrier (`fa : F[A]`,
-      * `p : OptionT[G, A]`, a discharge/transformer slot) or not (`x : Id[A]`). So `andThen(println(..), abort)` binds
+      * `p : AbortCarrier[G, A]`, a discharge/carrier slot) or not (`x : Id[A]`). So `andThen(println(..), abort)` binds
       * `abort` into the bare `A`, but `runId(runAbort(p))` passes the carrier value into `Id[A]` unbound.
       */
     def isBindPosition(pos: Int): Boolean =

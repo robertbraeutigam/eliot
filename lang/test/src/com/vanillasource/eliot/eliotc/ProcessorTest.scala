@@ -45,9 +45,9 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("TypeMatch", "", ModuleName.compilerInternalPackage),
     SystemImport("Int", ProcessorTest.intStubContent),
     SystemImport("Runtime", ProcessorTest.runtimeStubContent),
-    SystemImport("Console", ProcessorTest.consoleStubContent),
-    SystemImport("Log", ProcessorTest.logStubContent),
-    SystemImport("Dep", ProcessorTest.depStubContent)
+    SystemImport("Console", ProcessorTest.consoleStubContent, ModuleName.effectPackage),
+    SystemImport("Log", ProcessorTest.logStubContent, ModuleName.effectPackage),
+    SystemImport("Dep", ProcessorTest.depStubContent, ModuleName.effectPackage)
   )
 
   /** The canonical [[systemImports]] with the named modules' content replaced — existing entries keep their package
@@ -169,6 +169,12 @@ object ProcessorTest {
     * which must find no module (clean mismatch) unless the test opts into the full `Int` environment.
     */
   val compilerPackage: Seq[String] = ModuleName.compilerPackage
+
+  /** The `eliot.effect` package holding the effect surface + machinery. Re-exported so the few tests that build a
+    * custom (non-`ambientStubsWith`) import set can register the ambient `Console`/`Log`/`Dep` stubs at their real FQN.
+    * Most tests never need it — `ambientStubsWith` preserves each module's package automatically.
+    */
+  val effectPackage: Seq[String] = ModuleName.effectPackage
 
   val intStubContent: String     = "type Int[auto MIN: BigInteger, auto MAX: BigInteger]"
   val runtimeStubContent: String = "def integerLiteral[V: BigInteger]: Int[V, V]"

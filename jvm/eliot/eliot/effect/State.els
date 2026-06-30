@@ -1,0 +1,63 @@
+import eliot.effect.Effect
+import eliot.effect.Sync
+import eliot.effect.Abort
+import eliot.lang.Pair
+
+/**
+ * Re-declared here so the colocated `StateCarrier` instances below can resolve the `State` ability — name resolution is
+ * per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
+ */
+ability State[S, F[_]] {
+   def getState: F[S]
+   def putState(s: S): F[Unit]
+}
+
+/**
+ * The concrete representation of `StateCarrier`: a state-transition function mapping an incoming state to a
+ * `G`-computation of the result paired with the new state, unwrapped by `runStateCarrier`.
+ */
+data StateCarrier[S, G[_], A](runStateCarrier: Function[S, G[Pair[A, S]]])
+
+/**
+ * `StateCarrier[S, G]` is an effect carrier whenever its base `G` is: `pure` produces the value without touching the
+ * state; `flatMap` runs the first computation from the incoming state, then runs the continuation from the resulting
+ * state — threading the state through, the `State` semantics; `map` transforms the result and leaves the threaded state
+ * untouched.
+ */
+implement[S, G[_] ~ Effect] Effect[StateCarrier[S, G]] {
+   def pure[A](a: A): StateCarrier[S, G, A] = StateCarrier(s -> pure(Pair(a, s)))
+   def flatMap[A, B](fa: StateCarrier[S, G, A], f: Function[A, StateCarrier[S, G, B]]): StateCarrier[S, G, B] =
+      StateCarrier(s -> flatMap(apply(runStateCarrier(fa), s), p -> apply(runStateCarrier(f(first(p))), second(p))))
+   def map[A, B](fa: StateCarrier[S, G, A], f: Function[A, B]): StateCarrier[S, G, B] =
+      StateCarrier(s -> map(apply(runStateCarrier(fa), s), p -> Pair(f(first(p)), second(p))))
+}
+
+/**
+ * The base-effect lift: `StateCarrier[S, G]` is `Sync` whenever `G` is, running the inner sync action and pairing its
+ * result with the unchanged state. Carries every `Sync`-keyed fine effect through the `StateCarrier` layer.
+ */
+implement[S, G[_] ~ Sync & Effect] Sync[StateCarrier[S, G]] {
+   def sync[A](thunk: Function[Unit, A]): StateCarrier[S, G, A] = StateCarrier(s -> map(sync(thunk), a -> Pair(a, s)))
+}
+
+/**
+ * The `State` instance: `getState` returns the current state as the result while keeping it; `putState(newS)` discards
+ * the incoming state, installs `newS`, and yields `unit`.
+ */
+implement[S, G[_] ~ Effect] State[S, StateCarrier[S, G]] {
+   def getState: StateCarrier[S, G, S] = StateCarrier(s -> pure(Pair(s, s)))
+   def putState(newS: S): StateCarrier[S, G, Unit] = StateCarrier(s -> pure(Pair(unit, newS)))
+}
+
+/**
+ * Cross-lift: `Abort` rides through the `StateCarrier` layer (the order-sensitive counterpart to `State[S,
+ * AbortCarrier[G]]` in `Abort`). When a `{State[S], Abort}` program discharges `State` *first*
+ * (`runAbort(runState(p, s0))`), the carrier is refined to `StateCarrier[S, G]` with `G` still carrying `Abort`, so the
+ * residual `abort` must run at `StateCarrier[S, G]`. It delegates to the inner `G`'s `abort` for any paired result,
+ * ignoring the incoming state `s` — so the abort discards the threaded state. Because `StateCarrier` sits *outside* the
+ * (inner) `AbortCarrier`, the abort tears down the whole pair: discharging in this order yields `Option[Pair[A, S]]`
+ * (vs. `Pair[Option[A], S]` for the other order).
+ */
+implement[S, G[_] ~ Abort] Abort[StateCarrier[S, G]] {
+   def abort[A]: StateCarrier[S, G, A] = StateCarrier(s -> abort)
+}

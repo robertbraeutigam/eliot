@@ -1,0 +1,62 @@
+import eliot.effect.Effect
+import eliot.effect.Sync
+import eliot.effect.State
+import eliot.lang.Option
+
+/**
+ * Re-declared here so the colocated `AbortCarrier` instances below can resolve the `Abort` ability — name resolution is
+ * per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
+ */
+ability Abort[F[_]] {
+   def abort[A]: F[A]
+}
+
+/**
+ * The concrete representation of `AbortCarrier`: an `Option[A]` computation over the base carrier `G`, unwrapped by
+ * `runAbort`.
+ */
+data AbortCarrier[G[_], A](runAbort: G[Option[A]])
+
+/**
+ * `AbortCarrier` is an effect carrier whenever its base `G` is: `pure` injects via `G`'s `pure` and a `Some`; `flatMap`
+ * runs the inner `G[Option[A]]`, and on `Some(a)` continues with `f`, on `None` short-circuits (the `Abort` semantics);
+ * `map` transforms a present value and propagates `None`, given directly so it needs no `pure` round-trip. The
+ * author-written `pure(None)` stays put — the effect-desugar phase does not bind an explicit machinery call.
+ */
+implement[G[_] ~ Effect] Effect[AbortCarrier[G]] {
+   def pure[A](a: A): AbortCarrier[G, A] = AbortCarrier(pure(Some(a)))
+   def flatMap[A, B](fa: AbortCarrier[G, A], f: Function[A, AbortCarrier[G, B]]): AbortCarrier[G, B] =
+      AbortCarrier(flatMap(runAbort(fa), o -> foldOption(o, pure(None), a -> runAbort(f(a)))))
+   def map[A, B](fa: AbortCarrier[G, A], f: Function[A, B]): AbortCarrier[G, B] =
+      AbortCarrier(map(runAbort(fa), o -> foldOption(o, None, a -> Some(f(a)))))
+}
+
+/**
+ * The base-effect lift: `AbortCarrier[G]` is `Sync` whenever `G` is, by running the inner sync action and wrapping its
+ * result in `Some`. This single per-carrier lift is what carries every `Sync`-keyed fine effect (`Console`, `Log`, …)
+ * through the `AbortCarrier` layer for free.
+ */
+implement[G[_] ~ Sync & Effect] Sync[AbortCarrier[G]] {
+   def sync[A](thunk: Function[Unit, A]): AbortCarrier[G, A] = AbortCarrier(map(sync(thunk), a -> Some(a)))
+}
+
+/**
+ * The `Abort` instance: `abort` is the short-circuit — an `AbortCarrier` whose inner computation purely yields `None`.
+ */
+implement[G[_] ~ Effect] Abort[AbortCarrier[G]] {
+   def abort[A]: AbortCarrier[G, A] = AbortCarrier(pure(None))
+}
+
+/**
+ * Cross-lift: `State[S]` rides through the `AbortCarrier` layer (one cell of the n² mtl lifting matrix). When a
+ * `{State[S], Abort}` program discharges `Abort` *first* (`runState(runAbort(p), s0)`), the carrier is refined to
+ * `AbortCarrier[G]` with `G` still carrying `State`, so the residual `getState`/`putState` must run at `AbortCarrier[G]`.
+ * They delegate to the inner `G`'s state and wrap the result in `Some` — state is never *absent* here; only the eventual
+ * `abort` makes the discharged *value* `None`. Because `AbortCarrier` sits *outside* the (inner) `StateCarrier`, the
+ * threaded state survives an abort: discharging in this order yields `Pair[Option[A], S]`. Its order-sensitive
+ * counterpart is `Abort[StateCarrier[S, G]]` (in `State`).
+ */
+implement[S, G[_] ~ State[S] & Effect] State[S, AbortCarrier[G]] {
+   def getState: AbortCarrier[G, S] = AbortCarrier(map(getState, s -> Some(s)))
+   def putState(newS: S): AbortCarrier[G, Unit] = AbortCarrier(map(putState(newS), u -> Some(u)))
+}

@@ -41,8 +41,8 @@ object DataClassGenerator {
     * per instantiation but is *always a reference type*, so the single shared descriptor must erase it to `Object` —
     * exactly as the JVM erases Java generics. Two shapes qualify:
     *   - a **bare** binder (`first: A`): `Pair[String, Box]` stores `String`/`Box`, `Pair[Box, String]` the reverse;
-    *   - a binder **applied** to arguments (`runOptionT: G[Option[A]]`): `OptionT[Id]` stores an `Id`, `OptionT[StateT[S, Id]]`
-    *     a `StateT`. A higher-kinded binder applied to a `Type` argument is always a data-type instance (never a primitive,
+    *   - a binder **applied** to arguments (`runAbort: G[Option[A]]`): `AbortCarrier[Id]` stores an `Id`, `AbortCarrier[StateCarrier[S, Id]]`
+    *     a `StateCarrier`. A higher-kinded binder applied to a `Type` argument is always a data-type instance (never a primitive,
     *     which would need `BigInteger` arguments), so erasing it to `Object` is sound.
     *
     * Concrete-headed fields (`String`, `Int[..]`, `List[A]`, whose head is a named type whose carrier does not depend on

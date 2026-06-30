@@ -37,8 +37,8 @@ placement decision:
 That is why, when moving a runtime helper into stdlib, you sometimes must add an **abstract declaration** for
 what it references: if the referenced name has a `compiler`-layer twin (e.g. `foldEither`/`foldOption` —
 `compiler/.../{Either,Option}.els` define them), it already resolves on both pools via the merged module and
-needs nothing. If it has **no** compiler-layer impl (the `EitherT`/`OptionT`/`StateT` carriers and their
-accessors), stdlib must declare it abstractly or the compiler-path resolution fails.
+needs nothing. If it has **no** compiler-layer impl (the `ThrowCarrier`/`AbortCarrier`/`StateCarrier` carriers
+and their accessors), stdlib must declare it abstractly or the compiler-path resolution fails.
 
 ## Where does X go?
 
@@ -77,8 +77,8 @@ whole signature**, including fixity/precedence (`infix left …`), because the m
   `p.value`; `GenericParameter`/`ArgumentDefinition` compare `.name.value`). To unify an abstract declaration
   with a `data`-generated member you must mirror it **exactly**.
 - **Abstract twin of a `data` accessor**: the generated accessor (`DataDefinitionDesugarer`) names its single
-  parameter **`obj`** and reuses the data's generic names. So an abstract `def runEitherT[E, G[_], A](obj:
-  EitherT[E, G, A]): G[Either[E, A]]` unifies; `(p: …)` or renamed generics will **not**.
+  parameter **`obj`** and reuses the data's generic names. So an abstract `def runThrow[E, G[_], A](obj:
+  ThrowCarrier[E, G, A]): G[Either[E, A]]` unifies; `(p: …)` or renamed generics will **not**.
 - **Sanctioned duplication**: an `implement X` must be colocated with ability `X` (its module) or with the
   target type. Name resolution is per-file, so that file must **re-declare (copy)** `ability X` itself; the
   merge verifies the copies agree. This is correct — do **not** "fix" it by widening the resolver across

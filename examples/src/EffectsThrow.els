@@ -1,4 +1,4 @@
-import eliot.lang.Throw
+import eliot.effect.Throw
 
 // A parser that fails with a typed error on bad input. `parseOk` succeeds; `parseBad` raises.
 def parseOk: {Throw[String]} String = "parsed-value"
@@ -6,7 +6,7 @@ def parseOk: {Throw[String]} String = "parsed-value"
 def parseBad: {Throw[String]} String = raise("malformed input")
 
 // `catch` discharges {Throw[String]} in one step, recovering a raised error to a value of the same type — no
-// EitherT, no Either, no transformer in sight. A single `import eliot.lang.Throw` brings in `raise` and `catch`.
+// ThrowCarrier, no Either, no transformer in sight. A single `import eliot.effect.Throw` brings in `raise` and `catch`.
 // main pins the residual carrier G := IO.
 def main: IO[Unit] = {
    println(parseOk catch (err -> err))

@@ -1,4 +1,4 @@
-import eliot.lang.Sync
+import eliot.effect.Sync
 
 ability Log[F[_]] {
    def log(s: String): F[Unit]
@@ -7,7 +7,7 @@ ability Log[F[_]] {
 /**
  * The JVM `Log` instance, generic over any carrier with a `Sync` base (never pinned to `IO`): it reifies a `private`
  * impure leaf native through `sync`, exactly like `Console`. Because it rides `Sync`, the same instance serves `IO`,
- * `OptionT[IO]`, etc.; the whole `IO(_ -> ...)` tree stays Eliot-visible to monomorphization, only the leaf is opaque.
+ * `AbortCarrier[IO]`, etc.; the whole `IO(_ -> ...)` tree stays Eliot-visible to monomorphization, only the leaf is opaque.
  */
 implement[F[_] ~ Sync] Log[F] {
    def log(s: String): F[Unit] = sync(_ -> logInternal(s))

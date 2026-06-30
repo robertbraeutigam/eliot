@@ -111,8 +111,8 @@ The key analogy — it is the runtime effect story, lifted one stage:
 
 | position | carrier | who provides `Effect`/`Throw` instances | who runs it | result inspected |
 |---|---|---|---|---|
-| runtime body `{Throw[String]} A` | `EitherT[String, IO]` | jvm layer | the JVM runtime | `Either[String, A]` |
-| **signature `{Throw[String]} Type`** | `Either[String, _]` (pure base — used directly, no `EitherT`/`Id`) | **the compiler platform** (Eliot layer, like jvm) | **the compiler** | `Either[String, Type]` |
+| runtime body `{Throw[String]} A` | `ThrowCarrier[String, IO]` | jvm layer | the JVM runtime | `Either[String, A]` |
+| **signature `{Throw[String]} Type`** | `Either[String, _]` (pure base — used directly, no `ThrowCarrier`/`Id`) | **the compiler platform** (Eliot layer, like jvm) | **the compiler** | `Either[String, Type]` |
 
 The compile-time carrier is the *pure* error monad `Either[String, _]` **directly** (no transformer, no `Id` base):
 `pure = Right`, `flatMap` short-circuits on `Left`, `raise = Left` — exactly as the landed
@@ -142,11 +142,12 @@ returning a first-class value**, which buys three things the bottom cannot:
 Almost everything exists; the feature is mostly wiring.
 
 - **The effect itself:** `Throw[E, F[_]]` with `raise(err: E): F[A]`
-  (`stdlib/.../Throw.els`, abstract base). `runThrow(p): G[Either[E, A]]` is the runtime handler-into-`Either`
-  (`jvm/.../EitherT.els`). `Either[E, A]` is abstract in the base (`stdlib/.../Either.els`) and concrete *per platform*:
+  (`stdlib/.../effect/Throw.els`, abstract base). `runThrow(p): G[Either[E, A]]` is the runtime handler-into-`Either`
+  (the `ThrowCarrier` accessor in `jvm/.../effect/Throw.els`). `Either[E, A]` is abstract in the base
+  (`stdlib/.../Either.els`) and concrete *per platform*:
   `jvm/.../Either.els` (runtime) and `compiler/.../Either.els` (compile-time, **with** the `Effect`/`Throw[Either[String]]`
   instances — W1, **done**). The compile-time carrier is `Either[String, _]` **directly** (the pure error monad), so no
-  `Id` base or `EitherT` transformer is needed at compile time.
+  `Id` base or `ThrowCarrier` carrier is needed at compile time.
 - **Branching at type level already works:** `SystemNativesProcessor.boolFoldNative`
   (`SystemNativesProcessor.scala:84-91`) selects a branch on a concrete `Bool` and **goes stuck on an abstract
   condition** — that stuck-on-abstract behaviour *is* our deferral, for free.
@@ -179,7 +180,7 @@ verification.
 Because the compile-time carrier and its `Effect`/`Throw[String]` instances live in the **compiler platform layer** —
 on the `--compiler-path` of *every* type-checking entry point unconditionally (CP2), the same way the abstract base is —
 type-level guards evaluate **regardless of which runtime platform layer is present**, including the abstract-only LSP
-workspace. They do *not* depend on the jvm layer's `Either`/`EitherT` being on the path: the compiler layer is always
+workspace. They do *not* depend on the jvm layer's `Either`/`ThrowCarrier` being on the path: the compiler layer is always
 linked for the compile-time phase and never for codegen. This is the resolution of the layering hazard, and it is the
 compiler-as-platform cornerstone doing exactly its job — a guard bottoms out in the compiler layer (`Either` + its
 instances) plus the `boolFold` Scala leaf, all compiler-supplied; a guard routed through a *runtime* platform-layer
@@ -217,7 +218,7 @@ Provide, as compiler intrinsics (alongside the Bool primitives in `SystemNatives
 - `implement Effect[Either[String, _]]` — `pure = Right`, `flatMap` short-circuits on `Left`.
 - `implement Throw[String, Either[String, _]]` — `raise = Left`.
 - The pure base `Id` + `Effect[Id]` promoted out of `examples/src/EffectsTestable.els` into a place the compiler can
-  always see (only needed if the carrier is expressed as `EitherT[String, Id]` rather than `Either[String, _]`
+  always see (only needed if the carrier is expressed as `ThrowCarrier[String, Id]` rather than `Either[String, _]`
   directly; prefer `Either[String, _]` directly to avoid the transformer).
 
 These are input-less compiler constants, wired exactly like `boolFoldFQN` et al.

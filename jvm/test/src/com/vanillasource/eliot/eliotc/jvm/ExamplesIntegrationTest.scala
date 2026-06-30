@@ -15,7 +15,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // in turn discharges `Sync[IO]`. `main` commits to the concrete runnable carrier `IO[Unit]` (Decision 8).
   "console effect" should "read a line and echo it through the Console -> Sync -> IO layering" in {
     compileAndRun(
-      """import eliot.lang.Effect
+      """import eliot.effect.Effect
         |
         |def echo: {Console} Unit = flatMap(readLine, s -> println(s))
         |
@@ -36,7 +36,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // infers `F := IO` and resolves both effect operations through the layering.
   it should "run a carrier-polymorphic {Console} function pinned to IO at the call site" in {
     compileAndRun(
-      """import eliot.lang.Effect
+      """import eliot.effect.Effect
         |
         |def greet: {Console} Unit = flatMap(println("a"), ignore -> println("b"))
         |
@@ -47,7 +47,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // The `private` leaf native behind `println` is unreachable from application code: naming it across the module
   // boundary is refused by the resolver (the fail-safe that keeps untracked I/O impossible).
   "the private I/O leaf" should "be unreachable from application code" in {
-    compileForErrors("""def main: IO[Unit] = IO(_ -> eliot.lang.Console::printlnInternal("x"))""")
+    compileForErrors("""def main: IO[Unit] = IO(_ -> eliot.effect.Console::printlnInternal("x"))""")
       .asserting(_ should include("Name is private."))
   }
 
@@ -55,7 +55,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   // THE headline: a direct-style program. `readLine` is effectful (`F[String]`) but flows into `println`, which expects
   // a plain `String`; the effect-desugar phase binds it, producing `flatMap(readLine, x -> println(x))`, with the
-  // carrier pinned to `IO` by `main`'s return. No `import eliot.lang.Effect`, no hand-written `flatMap`.
+  // carrier pinned to `IO` by `main`'s return. No `import eliot.effect.Effect`, no hand-written `flatMap`.
   "effect auto-lift" should "sequence a direct-style println(readLine) at a concrete IO main" in {
     compileAndRun("""def main: IO[Unit] = println(readLine)""", stdin = "echoed line\n")
       .asserting(_ shouldBe "echoed line")
@@ -75,7 +75,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // runs exactly as before, proving auto-lift does not double-bind a stored effect action.
   it should "leave already-monadic flatMap code unchanged" in {
     compileAndRun(
-      """import eliot.lang.Effect
+      """import eliot.effect.Effect
         |
         |def echo: {Console} Unit = flatMap(readLine, s -> println(s))
         |
@@ -133,7 +133,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // end to end. `get` is dispatched by the dependency type and collapses to the injected singleton.
   "a multi-effect Dep/Log/Console program" should "compile and run end to end" in {
     compileAndRun(
-      """import eliot.lang.Effect
+      """import eliot.effect.Effect
         |
         |data Database(url: String)
         |
@@ -154,7 +154,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // (the first dependency's url, then the second's name) — proving by-type dispatch does not collapse the two.
   "two distinct-typed Deps" should "each resolve get to its own instance in one body" in {
     val program =
-      """import eliot.lang.Effect
+      """import eliot.effect.Effect
         |
         |data Database(url: String)
         |data Logger(name: String)
@@ -171,7 +171,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "resolve the second distinct Dep to its own value" in {
     compileAndRun(
-      """import eliot.lang.Effect
+      """import eliot.effect.Effect
         |
         |data Database(url: String)
         |data Logger(name: String)
@@ -191,7 +191,7 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // per type), via the ordinary ability overlap check.
   "two same-type Dep implementations" should "be rejected as overlapping" in {
     compileForErrors(
-      """import eliot.lang.Effect
+      """import eliot.effect.Effect
         |
         |data Database(url: String)
         |
@@ -204,16 +204,15 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("Overlapping ability implementation"))
   }
 
-  // --- Effects M5: structural-effect discharge — Abort -> Option via the OptionT transformer ---
+  // --- Effects M5: structural-effect discharge — Abort -> Option via the AbortCarrier transformer ---
 
   // A completed `{Abort}` computation discharges, via `runAbort`, to `Some` — the `Option` is born only here, at the
   // discharge edge, not in the `{Abort} String` signature. `main` pins the residual carrier `G := IO`.
   "the Abort effect" should "discharge a completed computation to Some via runAbort" in {
     compileAndRun(
-      """import eliot.lang.Effect
-        |import eliot.lang.Abort
+      """import eliot.effect.Effect
+        |import eliot.effect.Abort
         |import eliot.lang.Option
-        |import eliot.lang.OptionT
         |
         |def safe: {Abort} String = "config-value"
         |
@@ -221,14 +220,13 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "config-value")
   }
 
-  // A short-circuiting `{Abort}` computation discharges to `None`. `abort` resolves to `Abort[OptionT[IO]]` after the
-  // carrier is refined to `OptionT[G]` by partial-application injectivity at the `runAbort` call.
+  // A short-circuiting `{Abort}` computation discharges to `None`. `abort` resolves to `Abort[AbortCarrier[IO]]` after the
+  // carrier is refined to `AbortCarrier[G]` by partial-application injectivity at the `runAbort` call.
   it should "discharge an aborted computation to None via runAbort" in {
     compileAndRun(
-      """import eliot.lang.Effect
-        |import eliot.lang.Abort
+      """import eliot.effect.Effect
+        |import eliot.effect.Abort
         |import eliot.lang.Option
-        |import eliot.lang.OptionT
         |
         |def giveUp: {Abort} String = abort
         |
@@ -236,15 +234,14 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "gave up!")
   }
 
-  // The Decision-10 acceptance: a `{Console, Abort}` program. `Console` rides the `OptionT[IO]` stack via the single
-  // `Sync[OptionT[G]]` base lift (no per-effect lifting), so the print runs; then `abort` short-circuits the result to
+  // The Decision-10 acceptance: a `{Console, Abort}` program. `Console` rides the `AbortCarrier[IO]` stack via the single
+  // `Sync[AbortCarrier[G]]` base lift (no per-effect lifting), so the print runs; then `abort` short-circuits the result to
   // `None`. Proves the constrained-HKT instance + base-Sync-lift path end to end.
-  "a {Console, Abort} program" should "run Console through the OptionT[IO] stack via the Sync lift, then short-circuit" in {
+  "a {Console, Abort} program" should "run Console through the AbortCarrier[IO] stack via the Sync lift, then short-circuit" in {
     compileAndRun(
-      """import eliot.lang.Effect
-        |import eliot.lang.Abort
+      """import eliot.effect.Effect
+        |import eliot.effect.Abort
         |import eliot.lang.Option
-        |import eliot.lang.OptionT
         |
         |def andThen[A](first: Unit, second: A): A = second
         |
@@ -254,14 +251,13 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "trying\nstopped")
   }
 
-  // Throw[E] is the typed-error sibling of Abort, discharging to Either[E, _] via the EitherT transformer — proving the
+  // Throw[E] is the typed-error sibling of Abort, discharging to Either[E, _] via the ThrowCarrier transformer — proving the
   // structural-discharge pattern generalises to a two-type-parameter effect and a two-constructor result.
   "the Throw effect" should "discharge a completed computation to Right via runThrow" in {
     compileAndRun(
-      """import eliot.lang.Effect
-        |import eliot.lang.Throw
+      """import eliot.effect.Effect
+        |import eliot.effect.Throw
         |import eliot.lang.Either
-        |import eliot.lang.EitherT
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
         |
@@ -271,10 +267,9 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
 
   it should "discharge a failed computation to Left, carrying the typed error" in {
     compileAndRun(
-      """import eliot.lang.Effect
-        |import eliot.lang.Throw
+      """import eliot.effect.Effect
+        |import eliot.effect.Throw
         |import eliot.lang.Either
-        |import eliot.lang.EitherT
         |
         |def parseBad: {Throw[String]} String = raise("malformed input")
         |
@@ -282,13 +277,13 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "malformed input")
   }
 
-  // The everyday discharge: a SINGLE `import eliot.lang.Throw` brings in `raise` AND the `catch` utility, which
-  // discharges `{Throw[E]}` and recovers a raised error to a value of the same type — no `Either`/`EitherT`/`Effect`
+  // The everyday discharge: a SINGLE `import eliot.effect.Throw` brings in `raise` AND the `catch` utility, which
+  // discharges `{Throw[E]}` and recovers a raised error to a value of the same type — no `Either`/`ThrowCarrier`/`Effect`
   // import, no transformer named. Written infix with a parenthesized lambda operand (`p catch (e -> …)`), which the
   // adjacency-sensitive call parser keeps separate from a call.
   it should "discharge-and-recover in one step via a single import and infix catch" in {
     compileAndRun(
-      """import eliot.lang.Throw
+      """import eliot.effect.Throw
         |
         |def parseOk: {Throw[String]} String = "parsed-value"
         |def parseBad: {Throw[String]} String = raise("malformed input")
@@ -300,11 +295,11 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "parsed-value\nmalformed input")
   }
 
-  // The Abort analogue: a single `import eliot.lang.Abort` brings in `abort` AND the infix `orElse` utility, which
-  // discharges `{Abort}` and supplies a fallback on short-circuit — no `Option`/`OptionT` named.
+  // The Abort analogue: a single `import eliot.effect.Abort` brings in `abort` AND the infix `orElse` utility, which
+  // discharges `{Abort}` and supplies a fallback on short-circuit — no `Option`/`AbortCarrier` named.
   "the Abort effect's orElse" should "discharge-and-default in one step via a single import and infix orElse" in {
     compileAndRun(
-      """import eliot.lang.Abort
+      """import eliot.effect.Abort
         |
         |def safe: {Abort} String = "config-value"
         |def giveUp: {Abort} String = abort
@@ -321,10 +316,9 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // print the already-computed pure results.
   "a carrier-polymorphic {Abort} program" should "run under a pure Id test carrier with no IO and discharge to Option" in {
     compileAndRun(
-      """import eliot.lang.Effect
-        |import eliot.lang.Abort
+      """import eliot.effect.Effect
+        |import eliot.effect.Abort
         |import eliot.lang.Option
-        |import eliot.lang.OptionT
         |
         |data Id[A](runId: A)
         |
@@ -347,15 +341,14 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   }
 
   // The State effect (M5): a `{State[S]}` computation discharges to a `Pair[A, S]` (result + final state) via the
-  // `StateT` transformer, born only at the `runState` edge. `getState`/`putState` resolve to `State[StateT[S, IO]]`
-  // after the carrier is refined to `StateT[S, G]` by partial-application injectivity at the `runState` call. `swap`
+  // `StateCarrier` transformer, born only at the `runState` edge. `getState`/`putState` resolve to `State[StateCarrier[S, IO]]`
+  // after the carrier is refined to `StateCarrier[S, G]` by partial-application injectivity at the `runState` call. `swap`
   // reads the state, installs a new one, and returns the previous value; discharged on IO from initial "before".
   "the State effect" should "thread state through a {State} computation and discharge to a Pair via runState" in {
     compileAndRun(
-      """import eliot.lang.Effect
-        |import eliot.lang.State
+      """import eliot.effect.Effect
+        |import eliot.effect.State
         |import eliot.lang.Pair
-        |import eliot.lang.StateT
         |
         |def swap(next: String): {State[String]} String =
         |   flatMap(getState, old -> flatMap(putState(next), ignored -> pure(old)))
@@ -371,10 +364,9 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // bug previously blocked (a two-field generic `Pair` at the `Unit`/`String` mix of `getState`/`putState`).
   "a carrier-polymorphic {State} program" should "run under a pure Id carrier with no IO and discharge to a Pair" in {
     compileAndRun(
-      """import eliot.lang.Effect
-        |import eliot.lang.State
+      """import eliot.effect.Effect
+        |import eliot.effect.State
         |import eliot.lang.Pair
-        |import eliot.lang.StateT
         |
         |data Id[A](runId: A)
         |
@@ -393,14 +385,13 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "first\nsecond")
   }
 
-  // A {State, Console} program: Console rides the `StateT[S, IO]` stack via the single `Sync[StateT[S, G]]` base lift
+  // A {State, Console} program: Console rides the `StateCarrier[S, IO]` stack via the single `Sync[StateCarrier[S, G]]` base lift
   // (the n-not-n×m lifting), so the print runs while the state threads through and discharges to a Pair.
-  "a {State, Console} program" should "run Console through the StateT[String, IO] stack via the Sync lift" in {
+  "a {State, Console} program" should "run Console through the StateCarrier[String, IO] stack via the Sync lift" in {
     compileAndRun(
-      """import eliot.lang.Effect
-        |import eliot.lang.State
+      """import eliot.effect.Effect
+        |import eliot.effect.State
         |import eliot.lang.Pair
-        |import eliot.lang.StateT
         |
         |def step: {State[String], Console} String =
         |   flatMap(println("running step"),
@@ -415,15 +406,13 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // install a new state, then `abort` — discharged in the TWO possible orders, giving two genuinely different
   // results (and result *types*). The interaction "does the abort roll back the state?" is left open in the flat
   // effect set and decided only by the order the `run*` calls are nested, via the n² cross-lifting instances
-  // `State[OptionT[G]]` (in `OptionT`) and `Abort[StateT[S, G]]` (in `StateT`). Run on a pure `Id` carrier.
+  // `State[AbortCarrier[G]]` (in `AbortCarrier`) and `Abort[StateCarrier[S, G]]` (in `StateCarrier`). Run on a pure `Id` carrier.
   private val orderingPrelude =
-    """import eliot.lang.Effect
-      |import eliot.lang.State
-      |import eliot.lang.Abort
+    """import eliot.effect.Effect
+      |import eliot.effect.State
+      |import eliot.effect.Abort
       |import eliot.lang.Option
       |import eliot.lang.Pair
-      |import eliot.lang.OptionT
-      |import eliot.lang.StateT
       |
       |data Id[A](runId: A)
       |
@@ -439,8 +428,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
       |""".stripMargin
 
   // Discharge Abort first (inner), State second (outer) ⟹ `Pair[Option[A], S]`: the state SURVIVES the abort, so the
-  // final state is the installed "modified" even though the value aborted to None. State rides through `OptionT` via
-  // the `State[OptionT[G]]` cross-lift.
+  // final state is the installed "modified" even though the value aborted to None. State rides through `AbortCarrier` via
+  // the `State[AbortCarrier[G]]` cross-lift.
   "ordering at the discharge edge" should "let state survive an abort when State is discharged outermost" in {
     compileAndRun(
       orderingPrelude +
@@ -454,8 +443,8 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   }
 
   // Discharge State first (inner), Abort second (outer) ⟹ `Option[Pair[A, S]]`: the abort DISCARDS the state — the
-  // whole pair is torn down to None, so there is no surviving state at all. Abort rides through `StateT` via the
-  // `Abort[StateT[S, G]]` cross-lift. The opposite result from the same program: ordering decides interaction.
+  // whole pair is torn down to None, so there is no surviving state at all. Abort rides through `StateCarrier` via the
+  // `Abort[StateCarrier[S, G]]` cross-lift. The opposite result from the same program: ordering decides interaction.
   it should "discard state on an abort when Abort is discharged outermost" in {
     compileAndRun(
       orderingPrelude +
@@ -527,10 +516,9 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // effectful statement; `old` is the result expression.
   "a {State} computation in block form" should "thread state exactly like the hand-written flatMap nest" in {
     compileAndRun(
-      """import eliot.lang.Effect
-        |import eliot.lang.State
+      """import eliot.effect.Effect
+        |import eliot.effect.State
         |import eliot.lang.Pair
-        |import eliot.lang.StateT
         |
         |def swap(next: String): {State[String]} String = {
         |  val old = getState
@@ -567,10 +555,9 @@ class ExamplesIntegrationTest extends FullIntegrationTest {
   // block; pinned here so the shipped example cannot silently regress.
   "a {Console, State} interaction in block form (the Blocks example)" should "run end to end" in {
     compileAndRun(
-      """import eliot.lang.Effect
-        |import eliot.lang.State
+      """import eliot.effect.Effect
+        |import eliot.effect.State
         |import eliot.lang.Pair
-        |import eliot.lang.StateT
         |
         |def swap(next: String): {State[String]} String = {
         |  val old = getState

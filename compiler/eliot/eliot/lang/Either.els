@@ -1,5 +1,5 @@
-import eliot.lang.Effect
-import eliot.lang.Throw
+import eliot.effect.Effect
+import eliot.effect.Throw
 
 /**
  * The result of a computation that may fail: `Left(error)` for failure, `Right(value)` for success.

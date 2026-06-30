@@ -25,7 +25,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   * signature), so the patterns that merely look self-referential are not flagged:
   *   - a covariantly self-referential `data` (`data Tree(left: Tree, right: Tree)`) references itself only in field
   *     *types*; its constructors are body-less natives, hence leaves here (M0 strict positivity vets the declaration);
-  *   - the monad-transformer lifting pattern (`EitherT.pure` whose body calls `pure` on the inner carrier) references
+  *   - the monad-carrier lifting pattern (`ThrowCarrier.pure` whose body calls `pure` on the inner carrier) references
   *     the *abstract* ability method (`Qualifier.Ability`, a body-less leaf), a different FQN from the *implementation*
   *     method (`Qualifier.AbilityImplementation`) that contains it. Ability-mediated potential recursion, if any, is
   *     resolved — and its convergence policed — by monomorphization, not here.
