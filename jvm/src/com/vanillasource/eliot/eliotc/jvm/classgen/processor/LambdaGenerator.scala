@@ -63,8 +63,13 @@ object LambdaGenerator {
       body: Sourced[UncurriedMonomorphicExpression],
       createExpressionCode: ExpressionCodeFn
   ): CompilationTypesIO[Seq[ClassFile]] = {
+    // `freeVariables` preserves every *occurrence* (it does not de-duplicate — see W4), so a body that references the
+    // same captured variable more than once (e.g. `s -> first(t, t)`) would otherwise emit that capture as two
+    // identically-named closure fields — a `ClassFormatError: Duplicate field name`. A closure captures each free
+    // variable exactly once, so de-duplicate here (first-occurrence order preserved).
     val closedOverNames = body.value.expression.freeVariables
       .filter(_ =!= definition.name.value)
+      .distinct
     val returnType      = valueType(body.value.expressionType)
 
     for {

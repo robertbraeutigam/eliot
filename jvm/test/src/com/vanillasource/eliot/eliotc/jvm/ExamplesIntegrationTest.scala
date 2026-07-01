@@ -1083,6 +1083,20 @@ def main: IO[Unit] = println(intToString(1000 - 999))""".stripMargin
     ).asserting(_ shouldBe "two")
   }
 
+  // A closure that references a captured variable more than once must capture it exactly once. `freeVariables` reports
+  // every occurrence (it does not de-duplicate), so without `LambdaGenerator` de-duping the capture set, the generated
+  // closure class would declare the field `s` twice — a `ClassFormatError: Duplicate field name` at load time.
+  it should "generate a closure that captures the same variable twice" in {
+    compileAndRun(
+      """import eliot.effect.Console
+        |def firstOf(a: String, b: String): String = a
+        |
+        |def make(s: String): Function[Unit, String] = ignore -> firstOf(s, s)
+        |
+        |def main: IO[Unit] = println(apply(make("captured-twice"), unit))""".stripMargin
+    ).asserting(_ shouldBe "captured-twice")
+  }
+
   // A two-field `Int` round-trip: the fields lower to different representations (`Byte`-range and `Long`-range), so
   // matching them out and summing also exercises cross-representation arithmetic over the peeled closures.
   it should "match out two integer fields at different representations and sum them" in {
