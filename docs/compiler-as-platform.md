@@ -172,32 +172,65 @@ today: `runtime-mono`, when it instantiates a generic that performs compile-time
 `compiler-mono` **at the concrete type arguments**. Still strictly one-way; the compiler backend is
 just a per-instantiation reduced form, not a single form per definition.
 
-## The per-position platform rule (the real crux)
+## The value/type-position rule (the two platforms never meet)
 
-The split cleanly separates the two tracks but does **not** by itself answer: *within one value's
-check, which references resolve in which track?*
+The split separates the two tracks; this rule answers *which references within one value's check
+resolve in which track*. The key realisation: **the two platforms never meet.** No single reduction
+ever mixes the two source pools — every evaluation resolves names *either* against {base + user
+program + compiler layer} *or* against {base + user program + jvm layer}, never a blend. A name that
+exists in both pools (`coerce`, `add`, `pure`) is simply **compiled twice, independently**, once per
+platform, for two different purposes. There is no meeting point to reconcile — only the same source
+reached by two separate compilations.
 
-Because types-are-values, a runtime value's **type-stack levels** are compile-time while its
-**runtime body** is runtime — and, more subtly, the body's *expected types* are compile-time even
-though its *values* are runtime. Today, ability resolution runs as a single post-drain pass
-(`TypeStackLoop.resolveAbilities`) over the **whole** SemExpression tree (levels **and** body
-together), with no per-reference platform tag.
+**The rule is definitional, by the position's λ\* level, applied recursively:**
 
-**Working rule:** the platform is a property of the *position*.
+- A position that computes a **value** (inhabits a runtime type) resolves in the **runtime** pool.
+- A position that computes a **type** (inhabits `Type`) resolves in the **compiler** pool.
 
-- A reference in a **type-computing position** (a type-stack level, or a type being evaluated to
-  check against — anything whose result inhabits the "type" role) resolves in the **compiler** track.
-- A reference in a **value-producing position** (the runtime body's actual values) resolves in the
-  **runtime** track.
+At the top level this reads as "the runtime body and value parameters below → runtime; the type-stack
+levels, the signature, and the return-type expression above → compiler." But the rule **recurses**:
+type positions are also entered *while checking the body*, and those are compiler-platform too. The
+canonical example is the checker's own implicit `Coerce`/`Combine` — a coercion synthesised on a unify
+failure reconciles two *types*, so it resolves in the compiler pool even though it fires inside
+`check(body, …)`. So "everything above the runtime level" means **every type position, wherever it is
+reached** — not the literal top stack slots.
 
-The checker already structurally distinguishes these: `walkTypeStack` processes the type levels;
-`check(body, checkSig)` processes the runtime body. The design work is to **thread a platform onto
-each ability reference** as it is collected (`collectAbilityRefs`) — tagging refs discovered in
-type-computing positions as compiler-platform — and route `resolveAbilities` to the correct track per
-ref. The hard case to specify precisely: a runtime body whose **expected type is itself computed by
-compile-time abilities** (the guard case — the body checks against a type produced by reducing
-`someFn(A)`); the type flows compiler-track, the value flows runtime-track, and they meet at the
-`check`. Pinning this rule down is the core of the design, and everything else is plumbing.
+Because the rule is positional, **no ability is pinned to a platform.** The user-supplied `Coerce`
+needs no special handling: the checker's *implicit* coercion is a type position → compiler pool, while
+a user's *explicit* `coerce(x)` written in a value position is an ordinary call → runtime pool (it
+runs the runtime instance — identity on today's backend, but legal, e.g. for tests). These are already
+**distinct code paths** — the synthesised `RefinementSolver` coercion vs. a source-level
+`ValueReference(coerceFQN)` on the checker walk — so "route by position" keeps them apart for free. The
+platform is read off the position, never the callee's identity.
+
+### What the checker actually does
+
+The checker already structurally distinguishes the levels: `walkTypeStack` processes the type levels;
+`check(body, checkSig)` processes the runtime body. Routing follows the position it is at:
+
+- `println(x)` in a body → resolve `Console[IO]` in the **runtime** pool (value position; the jvm
+  instance is the one that exists).
+- `someFn(A)` in the return type → resolve/reduce in the **compiler** pool.
+- an implicit `Coerce`/`Combine` reconciling two types → **compiler** pool.
+
+Crucially, the runtime body's *values* are never reduced during checking — they are type-checked and
+emitted as a `MonomorphicExpression`; their real reduction happens later at codegen against the
+runtime pool. So "the runtime level is evaluated in the runtime platform" lands exactly: the checker
+resolves *runtime* abilities in the runtime pool *for type-checking*, and the value computation itself
+is a runtime-pool reduction at the backend. Two runtime touches, zero compiler-pool contamination —
+and symmetrically for the type side. The platforms never meet.
+
+### The implementation delta
+
+Today ability resolution runs as one post-drain pass (`TypeStackLoop.resolveAbilities`) over the
+**combined** tree — `(runtime.toSeq ++ levelExprs).flatMap(collectAbilityRefs)`
+(`TypeStackLoop.scala:101`) — every ref resolved through the default-`Runtime`
+`AbilityImplementation.Key`. Because type positions occur *inside* the body (the recursive case
+above), a flat "levels = compiler, body = runtime" tag is **insufficient**: the platform must be
+routed by the checker's *current position* as it walks — the mode it is already in (checking against
+`VType` ⇒ type position ⇒ compiler; against a runtime type ⇒ value position ⇒ runtime) — not attached
+post-hoc to a flattened tree. The implicit `Coerce`/`Combine` paths in `RefinementSolver` route the
+same way (always type positions ⇒ compiler), which is why they need no per-ability pin.
 
 ## The ability cycle for compiler code comes for free
 
@@ -254,15 +287,22 @@ incrementally.
 
 ## Open questions / risks
 
-- **The per-position rule precisely.** Specify exactly which positions are compiler-track, especially
-  a runtime body whose expected type is compile-time-computed. This is the one genuinely hard piece.
-  The native-leaf boundary narrows it: since both tracks see the same source, the rule is purely
-  *position → track*, and every type-position reduction must bottom out in compiler leaves (else the
-  fail-safe error fires); the meeting point at `check` still needs pinning down.
-- **Carrier pinning placement.** Whether the `{Throw[String]} Type → Either[String]` carrier binding
-  happens in the effect desugarer (must then be platform-scoped, compiler-only, so runtime `parseBad`
-  keeps its polymorphic carrier) or in `compiler-mono` at instantiation. The discriminator is stable:
-  the carrier wraps `Type` (a compile-time-only payload).
+- **The value/type-position rule — settled** (see the section above), now a mechanical task rather
+  than an open design question. The rule is definitional: value positions → runtime pool, type
+  positions → compiler pool, applied recursively; the two platforms never meet. The former "hard case"
+  (a runtime body whose expected type is compile-time-computed) dissolves — there is no meeting, only
+  the same source compiled twice. The remaining work is *implementation*: route `resolveAbility` (and
+  the `RefinementSolver` inline paths) by the checker's current position instead of the post-hoc flat
+  `collectAbilityRefs` walk (`TypeStackLoop.scala:101`). The one thing still worth a written argument:
+  confirm the checker never needs to *reduce a runtime value* (as opposed to type-check it) during
+  checking — if it ever did, that reduction would be the sole place the rule would need a value-side
+  route; the claim is that runtime values are only reduced at codegen.
+- **Carrier pinning placement.** *Which* carrier is settled by the position rule (a `{Throw[String]}
+  Type` return is a type position → the compiler-platform `Either[String]`; a `{Throw[String]} Int`
+  runtime return is a value position → its runtime carrier). What remains is *where* the binding is
+  written: the effect desugarer (then platform-scoped, compiler-only, so runtime `parseBad` keeps its
+  polymorphic carrier) or `compiler-mono` at instantiation. The discriminator is the same one — the
+  carrier wraps `Type`, a compile-time-only payload.
 - **Cost.** The compiler track is demand-driven and cached, so only *reached* compiler values are
   processed — but the fixpoint (`compiler-mono → compiler-mono`) should be watched for pathological
   fan-out; the `activeFactKeys` guard and no-recursion bound it.
