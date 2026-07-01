@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.monomorphize.unify.UnifyResult
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -53,7 +54,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   Unify two semantic values, updating the unifier in the state — the checker's `doUnify`.
   */
 class RefinementSolver(
-    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
+    resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]],
     evalExpr: (OperatorResolvedExpression, Option[Env]) => CheckIO[SemValue],
     force: SemValue => CheckIO[SemValue],
     freshMeta: CheckIO[VMeta],
@@ -198,7 +199,7 @@ class RefinementSolver(
       result <- grounds match {
                   case Left(_)         => pure(None) // abstract / unsolved bounds — cannot prove a coercion
                   case Right((aG, eG)) =>
-                    liftF(resolveAbility(WellKnownTypes.coerceFQN, Seq(aG, eG))).flatMap {
+                    liftF(resolveAbility(WellKnownTypes.coerceFQN, Seq(aG, eG), Platform.Runtime)).flatMap {
                       case None               => pure(None)
                       case Some((implFqn, _)) => coercionPayload(implFqn, actual, expected, context)
                     }
@@ -369,7 +370,7 @@ class RefinementSolver(
     if (!sameHead(g1, g2))
       pure(None) // Different constructors cannot combine; skip the probe (see [[resolveAbility]] note).
     else
-      liftF(resolveAbility(WellKnownTypes.combinedFQN, Seq(g1, g2))).flatMap {
+      liftF(resolveAbility(WellKnownTypes.combinedFQN, Seq(g1, g2), Platform.Runtime)).flatMap {
         case None                                  => pure(None)
         case Some((implCombinedFqn, implTypeArgs)) =>
           for {

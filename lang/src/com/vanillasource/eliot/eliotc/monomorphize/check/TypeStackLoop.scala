@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.{Evaluator, Quoter}
 import com.vanillasource.eliot.eliotc.monomorphize.fact.*
 import com.vanillasource.eliot.eliotc.monomorphize.unify.{SemValuePrinter, UnifyError}
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -21,7 +22,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.{compilerAbort, com
   */
 class TypeStackLoop(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
+    resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
 ) {
   import TypeStackLoop.{AbilityRef, PassContext, PostDrainPass}
 
@@ -371,7 +372,7 @@ class TypeStackLoop(
           progressed <- groundArgsE match {
                           case Right(groundArgs) =>
                             for {
-                              resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs))
+                              resolved <- liftF(resolveAbility(abilityVfqn.value, groundArgs, Platform.Runtime))
                               stepped  <- resolved match {
                                             case Some(impl) =>
                                               for {
@@ -527,7 +528,7 @@ object TypeStackLoop {
       key: MonomorphicValue.Key,
       resolvedValue: OperatorResolvedValue,
       fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-      resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
+      resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
   ): CompilerIO[MonomorphicValue] =
     new TypeStackLoop(fetchBinding, resolveAbility).process(key, resolvedValue)
 

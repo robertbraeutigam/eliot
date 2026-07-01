@@ -8,6 +8,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.eval.Evaluator
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.monomorphize.refine.RefinementSolver
+import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
@@ -25,7 +26,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerError
   */
 class Checker(
     fetchBinding: ValueFQN => CompilerIO[Option[SemValue]],
-    resolveAbility: (ValueFQN, Seq[GroundValue]) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
+    resolveAbility: (ValueFQN, Seq[GroundValue], Platform) => CompilerIO[Option[(ValueFQN, Seq[GroundValue])]]
 ) {
 
   /** The refinement-bounds solver (D4): the directional `Coerce` widening, the `Combine` join, and the deferred
