@@ -1,8 +1,16 @@
 # Extracting Generic Mechanisms From the JVM Backend Into `lang`
 
-Status: **In progress.** W1, W4, and W6 are implemented (see their entries); W2, W3, W5, W7, W8 remain. This is
+Status: **In progress.** W1, W2, W4, and W6 are implemented (see their entries); W3, W5, W8 remain, and W7's
+recommended shared-key portion is already satisfied by W6 (only the optional pre-dedup fact is outstanding). This is
 a survey of what currently lives in the `jvm` module but is platform-independent, and a sequenced plan for moving
 it into `lang` so that writing a second backend (the microcontroller target) is easier and safer.
+
+> **Update (post-`2590fc06`).** Since this plan was written, the `ModuleConstructors` index landed (commit
+> `2590fc06`, "Introduce ModuleConstructors/ModuleAbilities indices; collapse UnifiedModuleNames fan-in"). It is
+> exactly W2's constructor-grouping fact — realized as a **module-keyed** index rather than a data-type-FQN-keyed
+> `DataTypeLayout`, but with the same effect: one ordering authority (`ModuleConstructorsProcessor`) now feeds the
+> backend, `MatchNativesProcessor`, and `DataMatchDesugarer`, and the backend's signature-stripping reconstruction
+> is deleted. W2 is **DONE**; findings 4–5 and the inventory below are updated accordingly.
 
 ## Goal
 
@@ -56,9 +64,11 @@ today's backend and that target.
    `GroundValue` exposes exactly the generic queries a backend needs (`asFunctionType`, `typeFQN`,
    `deepReturnType`, `functionArity`, `extractParamAndReturnTypes` — `GroundValue.scala:32-69`).
 
-4. **Several backend mechanisms re-derive or re-encode information that is generic.** The four large ones:
-   - `JvmClassGenerator` reconstructs constructor → data-type grouping by re-parsing `OperatorResolvedValue`
-     signatures (`JvmClassGenerator.scala:383-428`).
+4. **Several backend mechanisms re-derive or re-encode information that is generic.** The large ones (the first is
+   now **resolved** — see W2):
+   - ~~`JvmClassGenerator` reconstructs constructor → data-type grouping by re-parsing `OperatorResolvedValue`
+     signatures.~~ **Resolved (W2).** The backend now reads `ModuleConstructors.byDataType` for grouping/ordering;
+     the `evaluateConstructorDataType` / `strip*` / `extractReturnTypeRef` helpers are deleted from the backend.
    - `JvmClassGenerator` / `ExpressionCodeGenerator` recognise `PatternMatch`/`TypeMatch` by hardcoded strings
      (`JvmClassGenerator.scala:59,79,86`; `ExpressionCodeGenerator.scala:123,135,204`).
    - `DataClassGenerator` hand-builds a Church/Scott encoding of the data eliminator in bytecode
@@ -66,19 +76,18 @@ today's backend and that target.
    - `LambdaGenerator` computes a lambda's captured free variables (`LambdaGenerator.scala:163-175`) and peels
      N-ary lambdas into nested single-arg closures (`LambdaGenerator.scala:43-56`).
 
-5. **The match-dispatch logic the plan wants to extract is already written once in `lang` — the backend just
-   does not share it.** `MatchNativesProcessor` (`monomorphize/processor/MatchNativesProcessor.scala`) builds
-   `handleCases`/`typeMatch` as pure `VNative` `SemValue`s for compile-time NbE. Its `orderedConstructors`
-   (lines 70–86) already computes *exactly what W2 wants* — a data type's value constructors in
-   source-declaration order — by reading `RoleHint.ValueConstructor` off `NamedValue` plus `UnifiedModuleNames`,
-   not by parsing signatures. It also already encodes the Church selector (`churchSelector`, line 126) and the
-   field application (`applyHandlerToFields`, line 121). The backend's `DataClassGenerator` re-derives the same
-   grouping by *signature re-parsing* and re-encodes the same selector chain in bytecode. So W2/W3 are
-   **deduplication across lang and backend**, not merely a backend cleanup, and they confirm the layout is
-   cheaply derivable from `RoleHint`. **Caveat for placement:** `RoleHint` does *not* reach the backend — it
-   lives on the `core` `NamedValue` fact, while the backend consumes `OperatorResolvedValue` /
-   `UncurriedMonomorphicValue`, which is precisely *why* it re-parses signatures. So the layout must surface in a
-   fact the backend already reads; "denormalize onto the existing `RoleHint`" is not sufficient on its own.
+5. **The match-dispatch logic the plan wants to extract is already written once in `lang` — and now the ordering
+   authority is genuinely shared (W2 done).** The constructor grouping/ordering — a data type's value constructors
+   in source-declaration order, read from `RoleHint.ValueConstructor` — now lives in **one** place,
+   `ModuleConstructorsProcessor`, producing the `ModuleConstructors` fact. Its three former re-derivers all consume
+   it: `MatchNativesProcessor.orderedConstructors` (`monomorphize/processor/MatchNativesProcessor.scala:70-71`, the
+   native-emitting half that builds `handleCases`/`typeMatch` as pure `VNative` `SemValue`s), `DataMatchDesugarer`
+   (the syntactic half), and the JVM backend (`JvmClassGenerator`). The **caveat this finding raised — `RoleHint`
+   does not reach the backend, so the layout must surface in a fact the backend already reads — was the design
+   driver**: `ModuleConstructors` is that fact. What W3 still targets is the *other* half of the duplication:
+   `MatchNativesProcessor` encodes the Church selector (`churchSelector`) and field application
+   (`applyHandlerToFields`) as `SemValue`s, while the backend's `DataClassGenerator` re-encodes the same selector
+   chain in **bytecode**. Sharing that *shape* (not just the ordering) is what remains.
 
 ## Solution-strategy preference
 
@@ -101,7 +110,7 @@ sketch) and its **Open questions**.
 
 | Mechanism | Location | Verdict |
 |---|---|---|
-| Constructor → data-type grouping, return-type extraction | `JvmClassGenerator.scala:48-52,383-428` | **generic** → fact |
+| Constructor → data-type grouping, return-type extraction | `JvmClassGenerator.scala:48-56` | **DONE** → `ModuleConstructors` fact (W2) |
 | PatternMatch/TypeMatch recognition by name | `JvmClassGenerator.scala:56-99`; `ExpressionCodeGenerator.scala:119-160` | **generic** → `WellKnownTypes` + plan fact |
 | Church/Scott `handleCases` encoding | `DataClassGenerator.scala:118-321` | **generic algorithm** → core desugaring |
 | `typeMatch` instanceof dispatch structure | `DataClassGenerator.scala:366-423` | **generic structure**, emission JVM |
@@ -155,70 +164,43 @@ W2 cleaner.
 
 ---
 
-### W2 — `DataTypeLayout` fact: constructor grouping as generated data, not backend reconstruction
+### W2 — Constructor grouping as generated data, not backend reconstruction — **DONE** (as `ModuleConstructors`)
 
-**Now.** `JvmClassGenerator` computes, for each module: every constructor name (`isConstructor`), each
-constructor's data type (`evaluateConstructorDataType`, which calls `OperatorResolvedValue` and then strips the
-signature with `stripFunctionLiterals` / `stripApplicationTargets` / `stripCurriedReturnType` /
-`isFunctionTypeApplication` / `extractReturnTypeRef`, `JvmClassGenerator.scala:383-428`), groups constructors by
-data type, sorts them by source position to recover declaration order, and assigns each a constructor index
-(`DataClassGenerator.scala:68-69`).
-
-**Why generic.** This is "what is the closed-union layout of this data type": the ordered list of constructors,
-each with its field types and its index, and which type constructor they belong to. It is entirely
-backend-independent and is exactly what `matchdesugar` already relies on conceptually. Re-deriving it by
-re-parsing an `OperatorResolvedValue` signature in the backend is fragile (it pattern-matches on `Function`
-type-application shapes) and would have to be reimplemented, identically, in every backend.
-
-**Where.** A new fact in `lang`, e.g. `monomorphize` or a small `layout` package:
+Implemented as a **new fact + processor** (preference #3), but keyed by **module** rather than by data-type FQN as
+the original sketch proposed. The fact is `ModuleConstructors`
+(`lang/.../module/fact/ModuleConstructors.scala`), built by `ModuleConstructorsProcessor`
+(`lang/.../module/processor/ModuleConstructorsProcessor.scala`, commit `2590fc06`):
 
 ```scala
-case class DataTypeLayout(
-    dataType: ValueFQN,
-    constructors: Seq[ConstructorLayout]   // in declaration order; index == position
-)
-case class ConstructorLayout(
-    ctor: ValueFQN,
-    index: Int,
-    fields: Seq[MonomorphicParameterDefinition]  // ordered, with concrete types
+case class ModuleConstructors(
+    moduleName: ModuleName,
+    byDataType: Map[QualifiedName, Seq[ValueFQN]],  // ctors in source-declaration order; index == position
+    typeConstructors: Seq[ValueFQN],
+    platform: Platform = Platform.Runtime
 )
 ```
 
-`DataDefinitionDesugarer` already has the declaration-order and field information when it generates the
-constructor / type-constructor functions, so the layout can be produced there (or by a dedicated processor that
-reads its output) rather than reconstructed from signatures downstream. The backend then asks for
-`DataTypeLayout.Key(dataType)` instead of running the `strip*` helpers.
+**What it captures vs. the original `DataTypeLayout` sketch.** Same core content — value constructors grouped by
+data type in source-declaration order (index is the position in the `Seq`) — plus the module's type constructors,
+which the backend also needs. Two deliberate simplifications, both anticipated by the original disposition:
+- **Structure only, no field types** — `byDataType` carries `ValueFQN`s, not `ConstructorLayout` records; the
+  backend still reads concrete field types/counts from `UncurriedMonomorphicValue.parameters`, exactly as W2's
+  "layout carries structure only" note predicted. (The disposition also floated carrying `fieldCount`; that was
+  dropped as unnecessary — the count is recoverable downstream.)
+- **Module-keyed, not data-type-FQN-keyed** — this sidesteps the original open question about a constructor's
+  module always equalling its data type's module: the processor *enumerates the module's own names* and groups
+  them, so the invariant is structural, not an assumption. The one-processor scan reads `RoleHint.ValueConstructor`
+  off `UnifiedModuleValue`, sorts each data type's constructors by `qualifiedName.range.from`.
 
-**Effort/risk.** Medium / medium. The win is large (deletes ~45 lines of fragile signature-stripping from the
-backend and makes the data available to every backend), but care is needed to reproduce the exact ordering the
-backend currently derives from source positions.
+**One ordering authority replaces three (the "reuse, not just removal" goal).** All three former re-derivers now
+consume `ModuleConstructors`:
+- `MatchNativesProcessor.orderedConstructors` reads it (`.of(dataType)`) instead of scanning `RoleHint` itself.
+- `DataMatchDesugarer` (the syntactic half of `match`) reads it.
+- `JvmClassGenerator` reads `byDataType` for grouping; its `evaluateConstructorDataType` / `stripFunctionLiterals`
+  / `stripApplicationTargets` / `stripCurriedReturnType` / `isFunctionTypeApplication` / `extractReturnTypeRef`
+  helpers are **deleted**.
 
-**Disposition — new fact + small processor (preference #3), keyed by the data-type FQN.** A method on an
-existing fact does not fit: this is a *cross-value aggregation* (enumerate a module's constructors, read each
-one's `RoleHint`, sort by source position). No single existing fact holds it, so it is exactly the
-"new, closed functionality" case for a processor.
-- **Body:** lift `MatchNativesProcessor.orderedConstructors` (which already does this, RoleHint-driven) into the
-  new processor; add `fieldCount` (already on `RoleHint.ValueConstructor`).
-- **Reuse, not just removal:** refactor `MatchNativesProcessor` to *consume* this fact, and delete the
-  backend's `evaluateConstructorDataType` / `stripFunctionLiterals` / `stripApplicationTargets` /
-  `stripCurriedReturnType` / `isFunctionTypeApplication` / `extractReturnTypeRef`. One ordering authority
-  replaces the current three.
-- **Layout carries structure only — not field types.** Field *types* are monomorphic/per-instance and already
-  on `UncurriedMonomorphicValue.parameters`; `DataClassGenerator` reads them from the uncurried value and needs
-  only *count + index + grouping* from the layout. So the fact is:
-
-  ```scala
-  case class DataTypeLayout(dataType: ValueFQN, constructors: Seq[ConstructorLayout])
-  case class ConstructorLayout(ctor: ValueFQN, index: Int, fieldCount: Int)
-  ```
-
-  Keeping it type-erasure-free makes it monomorphization-independent (one fact per data type, not per instance).
-
-**Open questions.**
-- Confirm the structure-only split holds for *every* backend consumer (no backend needs concrete field types
-  *from the layout* rather than from the uncurried value).
-- Keying by data-type FQN means "gather the module's constructors"; this relies on a constructor's module always
-  equalling its data type's module. The `RoleHint` doc asserts that invariant — confirm it is enforced.
+Whole suite green. This unblocks W3 (the layout/ordering it needs is now a fact the backend already reads).
 
 ---
 
@@ -240,16 +222,16 @@ lambdas and applications. This is the single largest reduction in "surface area 
 because selector-chain bytecode is exactly the intricate, easy-to-get-subtly-wrong code a second backend author
 would otherwise reimplement.
 
-**Where.** A desugaring in `lang` that, given `DataTypeLayout` (W2), emits the `handleCases` /`typeMatch`
-implementation `NamedValue`s as ordinary core terms (nested single-parameter lambdas selecting and applying a
-handler to fields). These flow through `monomorphize` → `uncurry` like any other value and reach the backend as
-plain `FunctionLiteral` bodies.
+**Where.** A desugaring in `lang` that, given the `ModuleConstructors` layout (W2, done), emits the `handleCases`
+/`typeMatch` implementation `NamedValue`s as ordinary core terms (nested single-parameter lambdas selecting and
+applying a handler to fields). These flow through `monomorphize` → `uncurry` like any other value and reach the
+backend as plain `FunctionLiteral` bodies.
 
-**Effort/risk.** High / medium-high. This is the strategic item. It can be staged: do W1/W2 first so the layout
-and names are available, then introduce the synthesis behind the existing backend path and switch over once it
-produces equivalent output (the `ExamplesIntegrationTest` match cases are the oracle). Worth committing to even
-if delivered incrementally, because it is what most reduces a backend to "literals + allocations + lambdas +
-application + a type map."
+**Effort/risk.** High / medium-high. This is the strategic item, and **its prerequisites (W1, W2) are now done** —
+the ordering/names are available as facts. Stage it: introduce the synthesis behind the existing backend path and
+switch over once it produces equivalent output (the `ExamplesIntegrationTest` match cases are the oracle). Worth
+committing to even if delivered incrementally, because it is what most reduces a backend to "literals +
+allocations + lambdas + application + a type map."
 
 **Disposition — new desugaring (preference #3), but honestly scoped.** This fits "new, closed functionality."
 The claim of "**zero** pattern-match-specific code in the backend" is too strong, though: the synthesis bottoms
@@ -265,10 +247,13 @@ existing leaf-emitter contract and folds neatly into W8. The genuine, large win 
 selector-chain *shape* (handler-forwarding closures) moves from bytecode to `lang`.
 
 **Open questions.**
-- **One dispatch authority or two?** The biggest prize is making the synthesized core body *also replace*
-  `MatchNativesProcessor`'s compile-time `VNative`, so NbE and runtime share one definition (best cornerstone
-  story, highest risk). The lower-risk alternative keeps `MatchNativesProcessor` for compile time and only
-  synthesizes the runtime body. **Decide before starting W3.**
+- **One dispatch authority or two?** Note the *ordering* authority is already shared post-W2: both
+  `MatchNativesProcessor` and the backend read constructor order from `ModuleConstructors`. What is *not* yet
+  shared is the **selector-chain body**: `MatchNativesProcessor` encodes it as a `VNative`/`churchSelector`
+  `SemValue` for NbE, the backend re-encodes it in bytecode. The biggest prize is making the synthesized core body
+  *also replace* `MatchNativesProcessor`'s compile-time `VNative`, so NbE and runtime share one definition (best
+  cornerstone story, highest risk). The lower-risk alternative keeps `MatchNativesProcessor` for compile time and
+  only synthesizes the runtime body. **Decide before starting W3.**
 - Field-projection / tag-test as named intrinsic leaves (recommended) vs. new IR nodes — confirm.
 
 ---
@@ -333,7 +318,14 @@ The "store erased types in the IR" alternative was rejected: erasure is lossy (f
 
 ---
 
-### W7 — Representation-keyed monomorphic instances (eliminate backend dedup)
+### W7 — Representation-keyed monomorphic instances (eliminate backend dedup) — recommended scope **satisfied by W6**
+
+> **Status.** The disposition's recommended deliverable ("ship the shared-key version") is effectively **in place**:
+> `JvmClassGenerator.methodSignatureKey` builds the key from `valueType(...).show`, and `valueType` is now the
+> zero-logic delegate to `GroundValue.carrierFQN` (W6, done). So a second backend computes the same dedup key for
+> free; the remaining `seen`-set loop is the ~10 trivial lines the disposition said would stay. Only the **optional**
+> full pre-dedup (a `lang`-side erased-signature-keyed fact) is outstanding — deferred until the microcontroller
+> backend actually lands.
 
 **Now.** `JvmClassGenerator.methodSignatureKey` plus the `seen` / `distinctTypeArgs` loop
 (`JvmClassGenerator.scala:233-276`) exist because distinct type-arguments that *lower to the same
@@ -402,23 +394,24 @@ predicate registry is acceptable over an enumerable set.
 
 ## Sequencing
 
-**W4 and W6 are done** (methods on `lang` facts — see their entries). Remaining work, methods-first where
-possible (W2's fact unblocks both W3 and the `MatchNativesProcessor` dedup; W6 has already de-risked W7's key):
+**W1, W2, W4, and W6 are done**, and **W7's recommended shared-key scope is satisfied by W6**. W2's
+`ModuleConstructors` fact already unblocks W3 and has deduped `MatchNativesProcessor`/`DataMatchDesugarer`/backend
+ordering into one authority. Remaining work:
 
 1. **Small / independent:** **W8** (coverage check) — but its shape is still open (see below); it is *not* a
    `lang` service that interrogates the backend.
-2. **Cross-value aggregation fact:** **W2** (`DataTypeLayout`) — unblocks W3 *and* dedupes
-   `MatchNativesProcessor`'s ordering logic.
-3. **IR normalization + cheap dedup:** **W5** (extend `uncurry`, uses W4's `freeVariables`), then **W7** (trivial
-   now that W6 has landed; ship the shared-key version).
-4. **Strategic, staged:** **W3** (synthesize `handleCases`/`typeMatch`), on top of W2's layout, with the
-   one-vs-two-dispatch-authorities question settled first.
+2. **IR normalization:** **W5** (extend `uncurry`, uses W4's `freeVariables`). *(W7 dedup: shipped via W6's shared
+   key; only the optional pre-dedup fact remains.)*
+3. **Strategic, staged:** **W3** (synthesize `handleCases`/`typeMatch`), on top of W2's `ModuleConstructors`
+   layout, with the one-vs-two-dispatch-authorities question settled first. This is now the largest remaining win.
 
 **Open questions to settle before/while implementing** (collected):
 1. W3 — unify the synthesized body with `MatchNativesProcessor`'s NbE native (one source of truth), or keep two?
 2. W3 — field-projection + tag-test as named intrinsic leaves (recommended) or new IR nodes?
 3. W5 — is single-parameter-closure the right *canonical* IR form for all backends, or a backend choice?
-4. W7 — ship the shared-key version, or invest in an erased-signature-keyed fact for the structural guarantee?
+4. W7 — shared-key version is **shipped** (via W6's `carrierFQN`); the only remaining question is whether the
+   optional erased-signature-keyed fact (structural "cannot forget to dedup" guarantee) is worth building — decide
+   when the microcontroller backend lands.
 5. W8 — the coverage check must stay a *forward* consumer (it cannot interrogate the backend). Open: keep it as
    the backend's terminal abort, or express realizers as forward-flowing facts a generic check consumes? (The
    earlier predicate-registry sketch in W8's disposition is superseded — it was a back-edge against the fact-DAG.)
