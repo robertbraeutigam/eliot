@@ -32,14 +32,22 @@
   --ink-text: #0F1419;     /* text on light */
   --ink-muted: #6B6B66;    /* muted text on light */
 
-  /* ---- Syntax highlight roles (used in code samples) ---- */
-  --syn-keyword: #2EC27E;  /* keywords / types carry the accent */
-  --syn-type: #4FE39B;     /* type constructors: Int[..], Rec[N] */
-  --syn-string: #C7B98F;   /* string literals (warm, low-key) */
-  --syn-number: #9AA0A6;   /* numerics in muted neutral */
-  --syn-comment: #6B7178;  /* comments, faint */
-  --syn-punct: #9AA0A6;    /* punctuation */
-  --syn-fn: #EDEAE3;       /* function / identifier names in paper */
+  /* ---- Syntax highlight roles (used in code samples) ----
+     A readability-first set: one hue per role, harmonized on the dark well
+     (L ~0.73–0.81, low chroma) so nothing clashes. Green stays the brand
+     anchor for keywords; the rest fan around the wheel for legibility. */
+  --syn-keyword: #2EC27E;    /* control / declaration keywords — brand green */
+  --syn-type: #59CFC4;       /* types & constructors: Int[..], Rec[N] — teal */
+  --syn-fn: #7FB4EC;         /* function names & calls — blue */
+  --syn-prop: #A7C7E7;       /* object properties / fields — soft blue */
+  --syn-var: #EDEAE3;        /* plain identifiers / variables — paper */
+  --syn-annotation: #C79BE8; /* @effect / attribute annotations — lavender */
+  --syn-number: #E0A96B;     /* numeric literals — amber */
+  --syn-const: #E58F79;      /* booleans, null, constants — coral */
+  --syn-string: #C7B98F;     /* string literals — warm sand */
+  --syn-comment: #6B7178;    /* comments — faint gray, italic */
+  --syn-operator: #AEB4BA;   /* operators  = + -> |  — light gray */
+  --syn-punct: #7E858D;      /* punctuation  ( ) { } , ;  — dim gray */
 
   /* ---- Status (kept neutral + minimal; green = pass is the brand's own) ---- */
   --pass: #2EC27E;
@@ -88,6 +96,8 @@
   --accent-wash: rgba(201, 123, 67, 0.12);
   --accent-line: rgba(201, 123, 67, 0.32);
   --focus-ring: var(--copper);
+  /* No green in a copper context: swap keyword→copper and type→warm tan.
+     The blue/amber/coral/lavender roles carry no green, so they stay. */
   --syn-keyword: var(--copper);
-  --syn-type: #DDA070;
+  --syn-type: #D9A06B;
 }

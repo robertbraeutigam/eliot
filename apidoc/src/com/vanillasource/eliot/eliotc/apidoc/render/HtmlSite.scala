@@ -308,7 +308,7 @@ object HtmlSite {
       |.num{color:var(--syn-number)}
       |.str{color:var(--syn-string)}
       |.cm{color:var(--syn-comment);font-style:italic}
-      |.op{color:var(--syn-punct)}
+      |.op{color:var(--syn-operator)}
       |@media(max-width:820px){.sidebar{display:none}main{padding:24px 20px}}
       |""".stripMargin
 }
